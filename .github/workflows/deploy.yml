@@ -63,4 +63,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
-          command: pages deploy frontend/dist --project-name=chinese-learning
+          command: pages deploy frontend/dist --project-name=chinese-learning --commit-dirty=true
