@@ -1,0 +1,31 @@
+name = "chinese-learning-api"
+main = "src/index.ts"
+compatibility_date = "2024-05-29"
+
+# D1 Database
+# After running `wrangler d1 create chinese-learning-db`, replace the database_id below
+[[d1_databases]]
+binding = "DB"
+database_name = "chinese-learning-db"
+database_id = "b1ccbb96-0328-4c36-95d8-d7fe18171d82"
+migrations_dir = "src/db/migrations"
+
+# R2 Bucket for audio files
+# Create with: `wrangler r2 bucket create chinese-learning-audio`
+[[r2_buckets]]
+binding = "AUDIO_BUCKET"
+bucket_name = "chinese-learning-audio"
+
+# Environment variables (secrets set via wrangler secret or dashboard)
+# Set ANTHROPIC_API_KEY with: `wrangler secret put ANTHROPIC_API_KEY`
+[vars]
+ENVIRONMENT = "production"
+
+# Local development settings
+[dev]
+port = 8787
+
+# Assets - serve frontend from worker (built files in ../frontend/dist)
+# The frontend must be built before deploying: `npm run build:frontend`
+[site]
+bucket = "../frontend/dist"

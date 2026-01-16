@@ -1,0 +1,177 @@
+import { useState, useRef, useCallback } from 'react';
+
+/**
+ * Hook for recording audio using MediaRecorder
+ */
+export function useAudioRecorder() {
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const startRecording = useCallback(async () => {
+    try {
+      setError(null);
+      setAudioBlob(null);
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      setError('Could not access microphone');
+      console.error('Recording error:', err);
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }, [isRecording]);
+
+  const clearRecording = useCallback(() => {
+    setAudioBlob(null);
+  }, []);
+
+  return {
+    isRecording,
+    audioBlob,
+    error,
+    startRecording,
+    stopRecording,
+    clearRecording,
+  };
+}
+
+/**
+ * Hook for playing audio
+ */
+export function useAudioPlayer(url?: string) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const play = useCallback(
+    (overrideUrl?: string) => {
+      const audioUrl = overrideUrl || url;
+      if (!audioUrl) return;
+
+      setError(null);
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.onplay = () => setIsPlaying(true);
+      audio.onended = () => setIsPlaying(false);
+      audio.onerror = () => {
+        setIsPlaying(false);
+        setError('Failed to play audio');
+      };
+
+      audio.play().catch((err) => {
+        setIsPlaying(false);
+        setError('Failed to play audio');
+        console.error('Playback error:', err);
+      });
+    },
+    [url]
+  );
+
+  const pause = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, []);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsPlaying(false);
+    }
+  }, []);
+
+  return {
+    isPlaying,
+    error,
+    play,
+    pause,
+    stop,
+  };
+}
+
+/**
+ * Hook for text-to-speech using Web Speech API
+ */
+export function useTTS() {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const speak = useCallback((text: string, lang: string = 'zh-CN') => {
+    if (!('speechSynthesis' in window)) {
+      setError('Text-to-speech not supported in this browser');
+      return;
+    }
+
+    setError(null);
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 0.8; // Slightly slower for learning
+
+    // Try to find a Chinese voice
+    const voices = window.speechSynthesis.getVoices();
+    const chineseVoice = voices.find(
+      (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
+    );
+    if (chineseVoice) {
+      utterance.voice = chineseVoice;
+    }
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setError('Speech synthesis failed');
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  const stop = useCallback(() => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  }, []);
+
+  return {
+    isSpeaking,
+    error,
+    speak,
+    stop,
+  };
+}

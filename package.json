@@ -1,0 +1,21 @@
+{
+  "name": "chinese-learning-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "worker",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:worker\" \"npm run dev:frontend\"",
+    "dev:worker": "npm run dev -w worker",
+    "dev:frontend": "npm run dev -w frontend",
+    "build": "npm run build -w frontend",
+    "build:frontend": "npm run build -w frontend",
+    "deploy": "npm run deploy -w worker",
+    "typecheck": "npm run typecheck -w worker && npm run typecheck -w frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

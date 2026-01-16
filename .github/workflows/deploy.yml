@@ -1,0 +1,57 @@
+name: Deploy to Cloudflare
+
+on:
+  push:
+    branches:
+      - main
+
+# First-time setup required (run once manually):
+# 1. Create D1 database:
+#    wrangler d1 create chinese-learning-db
+#    (Update database_id in worker/wrangler.toml with the returned ID)
+#
+# 2. Create R2 bucket:
+#    wrangler r2 bucket create chinese-learning-audio
+#
+# 3. Set ANTHROPIC_API_KEY secret:
+#    wrangler secret put ANTHROPIC_API_KEY
+#    (Enter your Anthropic API key when prompted)
+#
+# 4. Run initial migration:
+#    cd worker && wrangler d1 migrations apply chinese-learning-db
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build:frontend
+
+      - name: Apply D1 Migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
+          workingDirectory: worker
+          command: d1 migrations apply chinese-learning-db --remote
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
+          workingDirectory: worker
+          command: deploy

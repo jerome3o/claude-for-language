@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/types.ts","./src/api/client.ts","./src/components/Header.tsx","./src/components/Loading.tsx","./src/hooks/useAudio.ts","./src/pages/DeckDetailPage.tsx","./src/pages/DecksPage.tsx","./src/pages/GeneratePage.tsx","./src/pages/HomePage.tsx","./src/pages/SessionReviewPage.tsx","./src/pages/StudyPage.tsx"],"version":"5.9.3"}
