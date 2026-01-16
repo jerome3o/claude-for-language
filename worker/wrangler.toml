@@ -25,7 +25,5 @@ ENVIRONMENT = "production"
 [dev]
 port = 8787
 
-# Assets - serve frontend from worker (built files in ../frontend/dist)
-# The frontend must be built before deploying: `npm run build:frontend`
-[site]
-bucket = "../frontend/dist"
+# Frontend is deployed separately to Cloudflare Pages
+# See .github/workflows/deploy.yml

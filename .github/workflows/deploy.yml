@@ -39,6 +39,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build:frontend
+        env:
+          VITE_API_URL: https://chinese-learning-api.jeromeswannack.workers.dev
 
       - name: Apply D1 Migrations
         uses: cloudflare/wrangler-action@v3
@@ -55,3 +57,10 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
           workingDirectory: worker
           command: deploy
+
+      - name: Deploy Frontend to Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
+          command: pages deploy frontend/dist --project-name=chinese-learning
