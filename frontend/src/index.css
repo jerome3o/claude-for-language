@@ -376,20 +376,44 @@ a:hover {
 }
 
 .rating-btn {
-  padding: 0.875rem 0.5rem;
+  padding: 0.75rem 0.5rem;
   font-weight: 600;
   font-size: 0.875rem;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
-  min-height: 44px;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+}
+
+.rating-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.rating-interval {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.8;
 }
 
 @media (min-width: 640px) {
   .rating-btn {
-    padding: 1rem;
+    padding: 0.875rem 1rem;
+    min-height: 60px;
+  }
+
+  .rating-label {
     font-size: 1rem;
+  }
+
+  .rating-interval {
+    font-size: 0.8125rem;
   }
 }
 

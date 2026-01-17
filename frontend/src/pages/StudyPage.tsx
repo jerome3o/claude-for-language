@@ -15,6 +15,43 @@ import {
 import { Loading, EmptyState } from '../components/Loading';
 import { CardWithNote, Rating, CARD_TYPE_INFO, RATING_INFO } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { getAllIntervalPreviews } from '../utils/sm2';
+import { useMemo } from 'react';
+
+// Rating buttons with Anki-style interval previews
+function RatingButtons({
+  card,
+  onRate,
+  disabled,
+}: {
+  card: CardWithNote;
+  onRate: (rating: Rating) => void;
+  disabled: boolean;
+}) {
+  const intervalPreviews = useMemo(
+    () => getAllIntervalPreviews(card.ease_factor, card.interval, card.repetitions),
+    [card.ease_factor, card.interval, card.repetitions]
+  );
+
+  return (
+    <div className="mt-4">
+      <p className="text-center text-light mb-2">How well did you know this?</p>
+      <div className="rating-buttons">
+        {([0, 1, 2, 3] as Rating[]).map((rating) => (
+          <button
+            key={rating}
+            className={`rating-btn ${RATING_INFO[rating].label.toLowerCase()}`}
+            onClick={() => onRate(rating)}
+            disabled={disabled}
+          >
+            <span className="rating-label">{RATING_INFO[rating].label}</span>
+            <span className="rating-interval">{intervalPreviews[rating].intervalText}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function StudyCard({
   card,
@@ -346,21 +383,11 @@ function StudyCard({
         ) : (
           <>
             {renderBack()}
-            <div className="mt-4">
-              <p className="text-center text-light mb-2">How well did you know this?</p>
-              <div className="rating-buttons">
-                {([0, 1, 2, 3] as Rating[]).map((rating) => (
-                  <button
-                    key={rating}
-                    className={`rating-btn ${RATING_INFO[rating].label.toLowerCase()}`}
-                    onClick={() => handleRate(rating)}
-                    disabled={reviewMutation.isPending}
-                  >
-                    {RATING_INFO[rating].label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <RatingButtons
+              card={card}
+              onRate={handleRate}
+              disabled={reviewMutation.isPending}
+            />
           </>
         )}
       </div>
