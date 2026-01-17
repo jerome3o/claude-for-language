@@ -85,13 +85,18 @@ app.post('/api/decks/:deckId/notes', async (c) => {
   }
 
   const note = await db.createNote(c.env.DB, deckId, hanzi, pinyin, english, undefined, fun_facts);
+  console.log('[API] Created note:', note.id, 'hanzi:', hanzi);
 
   // Generate TTS audio in background (don't await to keep response fast)
   c.executionCtx.waitUntil(
     generateTTS(c.env, hanzi, note.id).then(async (audioKey) => {
+      console.log('[API] TTS generation result for note', note.id, ':', audioKey);
       if (audioKey) {
         await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+        console.log('[API] Updated note with audioUrl:', audioKey);
       }
+    }).catch((err) => {
+      console.error('[API] TTS generation failed for note', note.id, ':', err);
     })
   );
 
@@ -310,15 +315,21 @@ app.post('/api/ai/generate-deck', async (c) => {
     );
 
     // Generate TTS audio for all notes in background
+    console.log('[API] Starting TTS generation for', notes.length, 'notes');
     c.executionCtx.waitUntil(
       Promise.all(
         notes.map(async (note) => {
+          console.log('[API] Generating TTS for AI note:', note.id, note.hanzi);
           const audioKey = await generateTTS(c.env, note.hanzi, note.id);
+          console.log('[API] TTS result for AI note', note.id, ':', audioKey);
           if (audioKey) {
             await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+            console.log('[API] Updated AI note with audioUrl:', audioKey);
           }
         })
-      )
+      ).catch((err) => {
+        console.error('[API] TTS generation failed for AI deck:', err);
+      })
     );
 
     return c.json({ deck, notes }, 201);
@@ -346,6 +357,18 @@ app.post('/api/ai/suggest-cards', async (c) => {
     console.error('AI suggestion error:', error);
     return c.json({ error: 'Failed to generate suggestions' }, 500);
   }
+});
+
+// ============ Debug ============
+
+app.get('/api/debug/notes-audio', async (c) => {
+  const results = await c.env.DB.prepare(
+    'SELECT id, hanzi, audio_url FROM notes ORDER BY created_at DESC LIMIT 20'
+  ).all();
+  return c.json({
+    notes: results.results,
+    hasGoogleTtsKey: !!c.env.GOOGLE_TTS_API_KEY,
+  });
 });
 
 // ============ Statistics ============

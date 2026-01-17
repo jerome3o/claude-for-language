@@ -184,6 +184,8 @@ export function useNoteAudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
+    console.log('[useNoteAudio] play called:', { audioUrl, text, apiBase });
+
     // Stop any current playback
     if (audioRef.current) {
       audioRef.current.pause();
@@ -194,23 +196,33 @@ export function useNoteAudio() {
     // If we have a stored audio URL, use it
     if (audioUrl) {
       const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
+      console.log('[useNoteAudio] Playing from stored audio:', fullUrl);
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 
-      audio.onplay = () => setIsPlaying(true);
-      audio.onended = () => setIsPlaying(false);
-      audio.onerror = () => {
+      audio.onplay = () => {
+        console.log('[useNoteAudio] Audio started playing');
+        setIsPlaying(true);
+      };
+      audio.onended = () => {
+        console.log('[useNoteAudio] Audio ended');
+        setIsPlaying(false);
+      };
+      audio.onerror = (e) => {
         // Fallback to browser TTS on error
+        console.error('[useNoteAudio] Audio error, falling back to browser TTS:', e);
         setIsPlaying(false);
         speakWithBrowserTTS(text, setIsPlaying);
       };
 
-      audio.play().catch(() => {
+      audio.play().catch((err) => {
         // Fallback to browser TTS
+        console.error('[useNoteAudio] Play failed, falling back to browser TTS:', err);
         speakWithBrowserTTS(text, setIsPlaying);
       });
     } else {
       // No stored audio, use browser TTS
+      console.log('[useNoteAudio] No stored audio, using browser TTS');
       speakWithBrowserTTS(text, setIsPlaying);
     }
   }, []);
