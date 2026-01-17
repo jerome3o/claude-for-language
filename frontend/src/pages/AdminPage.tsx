@@ -74,6 +74,39 @@ export function AdminPage() {
 
         <h2>All Users</h2>
         <div className="users-table-container">
+          {/* Mobile: Card layout */}
+          {users.map(user => (
+            <div key={user.id} className="user-card">
+              <div className="user-card-header">
+                {user.picture_url && (
+                  <img
+                    src={user.picture_url}
+                    alt=""
+                    className="user-avatar"
+                  />
+                )}
+                <div className="user-info">
+                  <div className="user-name">
+                    {user.name || 'No name'}
+                    {user.is_admin && <span className="admin-badge">Admin</span>}
+                  </div>
+                  <div className="user-email">{user.email || '-'}</div>
+                </div>
+              </div>
+              <div className="user-card-details">
+                <div className="user-detail">
+                  <span className="user-detail-label">Role</span>
+                  <span className="user-detail-value">{user.role}</span>
+                </div>
+                <div className="user-detail">
+                  <span className="user-detail-label">Last Login</span>
+                  <span className="user-detail-value">{formatDate(user.last_login_at)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Desktop: Table layout */}
           <table className="users-table">
             <thead>
               <tr>

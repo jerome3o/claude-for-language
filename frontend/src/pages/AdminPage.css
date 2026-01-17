@@ -1,15 +1,17 @@
+/* Mobile-first styles */
 .admin-page {
   padding: 1rem 0 2rem;
 }
 
 .admin-page h1 {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
 }
 
 .admin-page h2 {
-  margin-top: 2rem;
-  margin-bottom: 1rem;
-  font-size: 1.25rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.125rem;
 }
 
 .admin-error {
@@ -18,85 +20,95 @@
   color: var(--color-error);
   padding: 1rem;
   border-radius: var(--radius-md);
+  margin-bottom: 1rem;
 }
 
+/* Stat cards - mobile */
 .admin-stats {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .admin-stat-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 1.25rem 1.5rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  min-width: 120px;
 }
 
 .stat-number {
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 700;
   color: var(--color-primary);
+  line-height: 1;
 }
 
 .stat-label {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--color-text-light);
 }
 
+/* Mobile: Card-based layout */
 .users-table-container {
-  overflow-x: auto;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .users-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
+  display: none; /* Hide table on mobile */
 }
 
-.users-table th,
-.users-table td {
-  padding: 0.75rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid var(--color-border);
+/* Mobile user cards */
+.user-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-.users-table th {
-  background: var(--color-background);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.users-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.users-table tbody tr:hover {
-  background: var(--color-background);
-}
-
-.user-cell {
+.user-card-header {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 
 .user-avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.user-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .user-name {
   font-weight: 500;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.user-email {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-badge {
@@ -104,22 +116,131 @@
   color: white;
   font-size: 0.625rem;
   font-weight: 600;
-  padding: 0.125rem 0.375rem;
+  padding: 0.25rem 0.5rem;
   border-radius: var(--radius-sm);
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
+.user-card-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.8125rem;
+}
+
+.user-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.user-detail-label {
+  color: var(--color-text-light);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.user-detail-value {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+/* Tablet and up: Show table */
 @media (min-width: 640px) {
   .admin-page {
     padding: 1.5rem 0 3rem;
   }
 
-  .users-table th,
-  .users-table td {
-    padding: 1rem 1.25rem;
+  .admin-page h1 {
+    font-size: 2rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .admin-page h2 {
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    font-size: 1.25rem;
+  }
+
+  .admin-stats {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    max-width: 400px;
+  }
+
+  .admin-stat-card {
+    padding: 1.25rem 1.5rem;
+  }
+
+  .stat-number {
+    font-size: 2rem;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+  }
+
+  /* Hide mobile cards, show table */
+  .user-card {
+    display: none;
+  }
+
+  .users-table-container {
+    overflow-x: auto;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
   }
 
   .users-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
     font-size: 0.9375rem;
+  }
+
+  .users-table th,
+  .users-table td {
+    padding: 1rem 1.25rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .users-table th {
+    background: var(--color-background);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .users-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .users-table tbody tr:hover {
+    background: var(--color-background);
+  }
+
+  .user-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .user-name {
+    font-size: 0.9375rem;
+  }
+
+  .admin-badge {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.375rem;
   }
 }
