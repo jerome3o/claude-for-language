@@ -58,6 +58,16 @@ jobs:
           workingDirectory: worker
           command: deploy
 
+      - name: Set Worker Secrets
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
+          workingDirectory: worker
+          command: secret put ANTHROPIC_API_KEY
+          secrets: |
+            ANTHROPIC_API_KEY = ${{ secrets.ANTHROPIC_API_KEY }}
+
       - name: Deploy Frontend to Pages
         uses: cloudflare/wrangler-action@v3
         with:
