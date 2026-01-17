@@ -23,7 +23,7 @@ export interface DeckSettings {
 }
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {
-  new_cards_per_day: 20,
+  new_cards_per_day: 30,
   learning_steps: [1, 10],       // 1 min, 10 min
   graduating_interval: 1,        // 1 day
   easy_interval: 4,              // 4 days

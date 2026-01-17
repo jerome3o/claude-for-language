@@ -489,14 +489,17 @@ app.get('/api/study/next-card', async (c) => {
   const userId = c.get('user').id;
   const deckId = c.req.query('deck_id');
   const excludeNotes = c.req.query('exclude_notes');
+  const ignoreDailyLimit = c.req.query('ignore_daily_limit') === 'true';
 
   const excludeNoteIds = excludeNotes ? excludeNotes.split(',').filter(Boolean) : [];
 
-  const card = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds);
+  const card = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds, ignoreDailyLimit);
   const counts = await db.getQueueCounts(c.env.DB, userId, deckId);
 
   if (!card) {
-    return c.json({ card: null, counts });
+    // Check if there are more new cards beyond the daily limit
+    const hasMoreNewCards = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds, true);
+    return c.json({ card: null, counts, hasMoreNewCards: !!hasMoreNewCards });
   }
 
   // Get deck settings for interval previews

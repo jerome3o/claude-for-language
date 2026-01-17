@@ -873,7 +873,8 @@ export async function getNextStudyCard(
   db: D1Database,
   userId: string,
   deckId?: string,
-  excludeNoteIds: string[] = []
+  excludeNoteIds: string[] = [],
+  ignoreDailyLimit: boolean = false
 ): Promise<CardWithNote | null> {
   const now = Date.now();
   const today = new Date().toISOString().split('T')[0];
@@ -961,7 +962,7 @@ export async function getNextStudyCard(
     }
   }
 
-  if (studiedToday >= newCardsPerDay) {
+  if (!ignoreDailyLimit && studiedToday >= newCardsPerDay) {
     return null; // Daily limit reached
   }
 

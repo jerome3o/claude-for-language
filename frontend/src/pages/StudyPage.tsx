@@ -505,6 +505,8 @@ export function StudyPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [studyStarted, setStudyStarted] = useState(false);
   const [useOfflineMode, setUseOfflineMode] = useState(false);
+  const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
+  const [ignoreDailyLimit, setIgnoreDailyLimit] = useState(false);
 
   // Online data hooks
   const decksQuery = useQuery({
@@ -532,9 +534,10 @@ export function StudyPage() {
     }
     setIsLoading(true);
     try {
-      const result = await getNextCard(deckId, recentNotes.slice(-5));
+      const result = await getNextCard(deckId, recentNotes.slice(-5), ignoreDailyLimit);
       setCurrentCard(result.card);
       setCounts(result.counts);
+      setHasMoreNewCards(result.hasMoreNewCards || false);
       if (result.intervalPreviews) {
         setIntervalPreviews(result.intervalPreviews);
       }
@@ -550,7 +553,7 @@ export function StudyPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [deckId, recentNotes, useOfflineMode, isOnline]);
+  }, [deckId, recentNotes, useOfflineMode, isOnline, ignoreDailyLimit]);
 
   // Handle offline mode card updates
   useEffect(() => {
@@ -700,6 +703,25 @@ export function StudyPage() {
 
   // Study complete
   if (!isLoading && !currentCard) {
+    const handleStudyMoreNewCards = async () => {
+      setIgnoreDailyLimit(true);
+      setIsLoading(true);
+      try {
+        const result = await getNextCard(deckId, [], true);
+        setCurrentCard(result.card);
+        setCounts(result.counts);
+        setHasMoreNewCards(result.hasMoreNewCards || false);
+        if (result.intervalPreviews) {
+          setIntervalPreviews(result.intervalPreviews);
+        }
+        if (result.card) {
+          setRecentNotes([result.card.note_id]);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     return (
       <div className="page">
         <div className="container">
@@ -707,21 +729,33 @@ export function StudyPage() {
             <div style={{ fontSize: '4rem' }}>🎉</div>
             <h1 className="mt-2">All Done!</h1>
             <p className="text-light mt-2">
-              No more cards due right now.
+              {hasMoreNewCards
+                ? "You've finished your daily limit. Want to study more new cards?"
+                : "No more cards due right now."}
             </p>
-            <div className="flex gap-2 justify-center mt-4">
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  handleEndSession();
-                  queryClient.invalidateQueries({ queryKey: ['stats'] });
-                }}
-              >
-                Back to Decks
-              </button>
-              <Link to="/" className="btn btn-secondary">
-                Home
-              </Link>
+            <div className="flex flex-col gap-3 items-center mt-4">
+              {hasMoreNewCards && (
+                <button
+                  className="btn btn-primary btn-lg"
+                  onClick={handleStudyMoreNewCards}
+                >
+                  Study More New Cards
+                </button>
+              )}
+              <div className="flex gap-2 justify-center">
+                <button
+                  className={hasMoreNewCards ? "btn btn-secondary" : "btn btn-primary"}
+                  onClick={() => {
+                    handleEndSession();
+                    queryClient.invalidateQueries({ queryKey: ['stats'] });
+                  }}
+                >
+                  Back to Decks
+                </button>
+                <Link to="/" className="btn btn-secondary">
+                  Home
+                </Link>
+              </div>
             </div>
           </div>
         </div>

@@ -254,15 +254,18 @@ export interface NextCardResponse {
   card: CardWithNote | null;
   counts: QueueCounts;
   intervalPreviews?: Record<Rating, IntervalPreview>;
+  hasMoreNewCards?: boolean;
 }
 
 export async function getNextCard(
   deckId?: string,
-  excludeNoteIds: string[] = []
+  excludeNoteIds: string[] = [],
+  ignoreDailyLimit: boolean = false
 ): Promise<NextCardResponse> {
   const params = new URLSearchParams();
   if (deckId) params.set('deck_id', deckId);
   if (excludeNoteIds.length > 0) params.set('exclude_notes', excludeNoteIds.join(','));
+  if (ignoreDailyLimit) params.set('ignore_daily_limit', 'true');
   const query = params.toString();
   return fetchJSON<NextCardResponse>(`/study/next-card${query ? `?${query}` : ''}`);
 }
