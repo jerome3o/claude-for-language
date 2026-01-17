@@ -59,8 +59,14 @@ function generateId(): string {
 
 const CARD_TYPES = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const;
 
-// MCP Server with tools
+// Legacy class (non-SQLite) - kept for migration compatibility
 export class ChineseLearningMCP extends McpAgent<Env, Record<string, never>, Props> {
+  server = new McpServer({ name: "Legacy", version: "1.0.0" });
+  async init() {}
+}
+
+// MCP Server with tools (v2 uses SQLite-backed Durable Object)
+export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, Props> {
   server = new McpServer({
     name: "Chinese Learning App",
     version: "1.0.0",
@@ -880,7 +886,7 @@ app.get("/callback", async (c) => {
 // Export the OAuthProvider wrapper
 export default new OAuthProvider({
   apiHandlers: {
-    "/mcp": ChineseLearningMCP.serve("/mcp"),
+    "/mcp": ChineseLearningMCPv2.serve("/mcp"),
   },
   defaultHandler: app,
   authorizeEndpoint: "/authorize",

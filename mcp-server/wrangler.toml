@@ -15,15 +15,20 @@ database_id = "b1ccbb96-0328-4c36-95d8-d7fe18171d82"
 binding = "OAUTH_KV"
 id = "7477802c478b4d67ac8586f32bc42936"
 
-# Durable Object for MCP Agent state
+# Durable Object for MCP Agent state (SQLite-backed required by McpAgent)
 [durable_objects]
 bindings = [
-  { name = "MCP_OBJECT", class_name = "ChineseLearningMCP" }
+  { name = "MCP_OBJECT", class_name = "ChineseLearningMCPv2" }
 ]
 
+# v1 migration created non-SQLite class, v2 creates SQLite-backed class
 [[migrations]]
 tag = "v1"
 new_classes = ["ChineseLearningMCP"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ChineseLearningMCPv2"]
 
 [vars]
 ENVIRONMENT = "production"
