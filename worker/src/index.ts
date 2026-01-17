@@ -314,25 +314,23 @@ app.post('/api/ai/generate-deck', async (c) => {
       )
     );
 
-    // Generate TTS audio for all notes in background
+    // Generate TTS audio for all notes (wait for completion so frontend has audio URLs)
     console.log('[API] Starting TTS generation for', notes.length, 'notes');
-    c.executionCtx.waitUntil(
-      Promise.all(
-        notes.map(async (note) => {
-          console.log('[API] Generating TTS for AI note:', note.id, note.hanzi);
-          const audioKey = await generateTTS(c.env, note.hanzi, note.id);
-          console.log('[API] TTS result for AI note', note.id, ':', audioKey);
-          if (audioKey) {
-            await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
-            console.log('[API] Updated AI note with audioUrl:', audioKey);
-          }
-        })
-      ).catch((err) => {
-        console.error('[API] TTS generation failed for AI deck:', err);
+    const notesWithAudio = await Promise.all(
+      notes.map(async (note) => {
+        console.log('[API] Generating TTS for AI note:', note.id, note.hanzi);
+        const audioKey = await generateTTS(c.env, note.hanzi, note.id);
+        console.log('[API] TTS result for AI note', note.id, ':', audioKey);
+        if (audioKey) {
+          const updated = await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+          console.log('[API] Updated AI note with audioUrl:', audioKey);
+          return updated || note;
+        }
+        return note;
       })
     );
 
-    return c.json({ deck, notes }, 201);
+    return c.json({ deck, notes: notesWithAudio }, 201);
   } catch (error) {
     console.error('AI generation error:', error);
     return c.json({ error: 'Failed to generate deck' }, 500);
