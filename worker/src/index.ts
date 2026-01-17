@@ -83,20 +83,26 @@ app.get('/api/auth/callback', async (c) => {
   const isSecure = c.req.url.startsWith('https');
   const frontendUrl = isSecure ? 'https://chinese-learning-2x9.pages.dev' : 'http://localhost:3000';
 
+  console.log('[Auth Callback] Starting callback handler', { isSecure, frontendUrl });
+
   // Handle OAuth errors
   if (error) {
-    console.error('[Auth] OAuth error:', error);
+    console.error('[Auth Callback] OAuth error:', error);
     return Response.redirect(`${frontendUrl}?error=oauth_error`, 302);
   }
 
   if (!code || !state) {
+    console.error('[Auth Callback] Missing code or state');
     return Response.redirect(`${frontendUrl}?error=missing_params`, 302);
   }
 
   // Verify state
-  const cookieState = parseStateCookie(c.req.header('Cookie') || null);
+  const cookieHeader = c.req.header('Cookie') || null;
+  console.log('[Auth Callback] Cookie header:', cookieHeader);
+  const cookieState = parseStateCookie(cookieHeader);
+  console.log('[Auth Callback] State check:', { received: state, fromCookie: cookieState });
   if (state !== cookieState) {
-    console.error('[Auth] State mismatch');
+    console.error('[Auth Callback] State mismatch');
     return Response.redirect(`${frontendUrl}?error=invalid_state`, 302);
   }
 
@@ -104,16 +110,21 @@ app.get('/api/auth/callback', async (c) => {
     // Determine redirect URI (must match what was used in login)
     const url = new URL(c.req.url);
     const redirectUri = `${url.protocol}//${url.host}/api/auth/callback`;
+    console.log('[Auth Callback] Redirect URI:', redirectUri);
 
     // Exchange code for tokens
     const tokens = await exchangeCodeForTokens(c.env, code, redirectUri);
+    console.log('[Auth Callback] Got tokens');
 
     // Get user info from Google
     const googleUser = await getGoogleUserInfo(tokens.access_token);
+    console.log('[Auth Callback] Got Google user:', { email: googleUser.email, name: googleUser.name });
 
     // Create or update user in database
     const isAdminEmail = googleUser.email === c.env.ADMIN_EMAIL;
+    console.log('[Auth Callback] Is admin?', isAdminEmail);
     const { user, isNewUser } = await getOrCreateUser(c.env.DB, googleUser, isAdminEmail);
+    console.log('[Auth Callback] User:', { id: user.id, email: user.email, isNewUser });
 
     // Send notification for new users (in background)
     if (isNewUser && c.env.NTFY_TOPIC) {
@@ -122,20 +133,27 @@ app.get('/api/auth/callback', async (c) => {
 
     // Create session
     const session = await createSession(c.env.DB, user.id);
+    console.log('[Auth Callback] Created session:', session.id);
 
     // Redirect to frontend with session cookie
     // Note: Must use Headers object to set multiple Set-Cookie headers
+    const sessionCookie = createSessionCookie(session.id, isSecure);
+    const stateClearCookie = clearStateCookie(isSecure);
+    console.log('[Auth Callback] Session cookie:', sessionCookie);
+    console.log('[Auth Callback] Clear state cookie:', stateClearCookie);
+
     const headers = new Headers();
     headers.set('Location', frontendUrl);
-    headers.append('Set-Cookie', createSessionCookie(session.id, isSecure));
-    headers.append('Set-Cookie', clearStateCookie(isSecure));
+    headers.append('Set-Cookie', sessionCookie);
+    headers.append('Set-Cookie', stateClearCookie);
 
+    console.log('[Auth Callback] Redirecting to frontend');
     return new Response(null, {
       status: 302,
       headers,
     });
   } catch (error) {
-    console.error('[Auth] Callback error:', error);
+    console.error('[Auth Callback] Error:', error);
     return Response.redirect(`${frontendUrl}?error=auth_failed`, 302);
   }
 });
@@ -160,20 +178,26 @@ app.post('/api/auth/logout', async (c) => {
 
 app.get('/api/auth/me', async (c) => {
   const cookieHeader = c.req.header('Cookie') || null;
+  console.log('[Auth Me] Cookie header:', cookieHeader);
   const sessionId = parseSessionCookie(cookieHeader);
+  console.log('[Auth Me] Parsed session ID:', sessionId);
 
   if (!sessionId) {
+    console.log('[Auth Me] No session ID found, returning 401');
     return c.json({ error: 'Not authenticated' }, 401);
   }
 
   const result = await getSessionWithUser(c.env.DB, sessionId);
+  console.log('[Auth Me] Session lookup result:', result ? 'found' : 'not found');
 
   if (!result) {
+    console.log('[Auth Me] Session not found in DB, returning 401');
     return c.json({ error: 'Not authenticated' }, 401);
   }
 
   // Return user without sensitive fields
   const { user } = result;
+  console.log('[Auth Me] Returning user:', { id: user.id, email: user.email });
   return c.json({
     id: user.id,
     email: user.email,
