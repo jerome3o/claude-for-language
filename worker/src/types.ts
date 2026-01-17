@@ -3,6 +3,7 @@ export interface Env {
   DB: D1Database;
   AUDIO_BUCKET: R2Bucket;
   ANTHROPIC_API_KEY: string;
+  GOOGLE_TTS_API_KEY: string;
   ENVIRONMENT: string;
 }
 

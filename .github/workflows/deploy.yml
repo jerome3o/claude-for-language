@@ -60,7 +60,9 @@ jobs:
 
       - name: Set Worker Secrets
         working-directory: worker
-        run: echo "${{ secrets.ANTHROPIC_API_KEY }}" | npx wrangler secret put ANTHROPIC_API_KEY
+        run: |
+          echo "${{ secrets.ANTHROPIC_API_KEY }}" | npx wrangler secret put ANTHROPIC_API_KEY
+          echo "${{ secrets.GOOGLE_TTS_API_KEY }}" | npx wrangler secret put GOOGLE_TTS_API_KEY
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}

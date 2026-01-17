@@ -8,10 +8,11 @@ import {
   recordReview,
   completeSession,
   uploadRecording,
+  API_BASE,
 } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { CardWithNote, Rating, CARD_TYPE_INFO, RATING_INFO } from '../types';
-import { useAudioRecorder, useTTS } from '../hooks/useAudio';
+import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 
 function StudyCard({
   card,
@@ -30,7 +31,7 @@ function StudyCard({
 
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
-  const { isSpeaking, speak, stop: stopTTS } = useTTS();
+  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
 
   const cardInfo = CARD_TYPE_INFO[card.card_type];
   const isTypingCard = cardInfo.action === 'type';
@@ -46,10 +47,10 @@ function StudyCard({
   // Play audio for audio cards
   useEffect(() => {
     if (card.card_type === 'audio_to_hanzi' && !flipped) {
-      speak(card.note.hanzi);
+      playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
     }
-    return () => stopTTS();
-  }, [card, flipped, speak, stopTTS]);
+    return () => stopAudio();
+  }, [card, flipped, playAudio, stopAudio]);
 
   const reviewMutation = useMutation({
     mutationFn: async (rating: Rating) => {
@@ -153,10 +154,10 @@ function StudyCard({
             <p className="text-light mb-2">{cardInfo.prompt}</p>
             <button
               className="btn btn-lg btn-secondary mb-4"
-              onClick={() => speak(card.note.hanzi)}
-              disabled={isSpeaking}
+              onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+              disabled={isPlaying}
             >
-              {isSpeaking ? 'Playing...' : 'Play Audio'}
+              {isPlaying ? 'Playing...' : 'Play Audio'}
             </button>
             <div>
               <input
@@ -196,10 +197,10 @@ function StudyCard({
 
         <button
           className="btn btn-secondary mt-3"
-          onClick={() => speak(card.note.hanzi)}
-          disabled={isSpeaking}
+          onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+          disabled={isPlaying}
         >
-          {isSpeaking ? 'Playing...' : 'Play Audio'}
+          {isPlaying ? 'Playing...' : 'Play Audio'}
         </button>
 
         {card.note.fun_facts && (

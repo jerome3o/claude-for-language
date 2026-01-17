@@ -11,12 +11,14 @@ import {
   GeneratedNote,
 } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api`
-  : '/api';
+export const API_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL
+  : '';
+
+const API_PATH = `${API_BASE}/api`;
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${url}`, {
+  const response = await fetch(`${API_PATH}${url}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -154,7 +156,7 @@ export async function uploadRecording(reviewId: string, audioBlob: Blob): Promis
   formData.append('file', audioBlob, 'recording.webm');
   formData.append('review_id', reviewId);
 
-  const response = await fetch(`${API_BASE}/audio/upload`, {
+  const response = await fetch(`${API_PATH}/audio/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -167,7 +169,7 @@ export async function uploadRecording(reviewId: string, audioBlob: Blob): Promis
 }
 
 export function getAudioUrl(key: string): string {
-  return `${API_BASE}/audio/${key}`;
+  return `${API_PATH}/audio/${key}`;
 }
 
 // ============ AI Generation ============

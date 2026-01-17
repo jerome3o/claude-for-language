@@ -1,14 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { generateDeck } from '../api/client';
-import { useTTS } from '../hooks/useAudio';
+import { generateDeck, API_BASE } from '../api/client';
+import { useNoteAudio } from '../hooks/useAudio';
 import { NoteWithCards } from '../types';
 
 export function GeneratePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { speak, isSpeaking } = useTTS();
+  const { play: playAudio, isPlaying } = useNoteAudio();
 
   const [prompt, setPrompt] = useState('');
   const [deckName, setDeckName] = useState('');
@@ -75,11 +75,11 @@ export function GeneratePage() {
                       <span className="note-card-hanzi">{note.hanzi}</span>
                       <button
                         className="btn btn-sm btn-secondary"
-                        onClick={() => speak(note.hanzi)}
-                        disabled={isSpeaking}
+                        onClick={() => playAudio(note.audio_url || null, note.hanzi, API_BASE)}
+                        disabled={isPlaying}
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                       >
-                        {isSpeaking ? '...' : '🔊'}
+                        {isPlaying ? '...' : '🔊'}
                       </button>
                     </div>
                     <div className="note-card-details">

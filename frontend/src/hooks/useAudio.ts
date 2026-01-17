@@ -125,7 +125,7 @@ export function useAudioPlayer(url?: string) {
 }
 
 /**
- * Hook for text-to-speech using Web Speech API
+ * Hook for text-to-speech using Web Speech API (fallback)
  */
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -174,4 +174,77 @@ export function useTTS() {
     speak,
     stop,
   };
+}
+
+/**
+ * Hook for playing note audio - uses stored audio URL if available, falls back to browser TTS
+ */
+export function useNoteAudio() {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
+    // Stop any current playback
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    window.speechSynthesis.cancel();
+
+    // If we have a stored audio URL, use it
+    if (audioUrl) {
+      const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
+      const audio = new Audio(fullUrl);
+      audioRef.current = audio;
+
+      audio.onplay = () => setIsPlaying(true);
+      audio.onended = () => setIsPlaying(false);
+      audio.onerror = () => {
+        // Fallback to browser TTS on error
+        setIsPlaying(false);
+        speakWithBrowserTTS(text, setIsPlaying);
+      };
+
+      audio.play().catch(() => {
+        // Fallback to browser TTS
+        speakWithBrowserTTS(text, setIsPlaying);
+      });
+    } else {
+      // No stored audio, use browser TTS
+      speakWithBrowserTTS(text, setIsPlaying);
+    }
+  }, []);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    window.speechSynthesis.cancel();
+    setIsPlaying(false);
+  }, []);
+
+  return { isPlaying, play, stop };
+}
+
+function speakWithBrowserTTS(text: string, setIsPlaying: (playing: boolean) => void) {
+  if (!('speechSynthesis' in window)) return;
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'zh-CN';
+  utterance.rate = 0.8;
+
+  const voices = window.speechSynthesis.getVoices();
+  const chineseVoice = voices.find(
+    (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
+  );
+  if (chineseVoice) {
+    utterance.voice = chineseVoice;
+  }
+
+  utterance.onstart = () => setIsPlaying(true);
+  utterance.onend = () => setIsPlaying(false);
+  utterance.onerror = () => setIsPlaying(false);
+
+  window.speechSynthesis.speak(utterance);
 }

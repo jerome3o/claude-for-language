@@ -1,13 +1,7 @@
 import { Env } from '../types';
 
 /**
- * Audio service for TTS generation and storage
- *
- * For MVP, we use browser-based TTS (Web Speech API) on the frontend.
- * This service handles storing generated audio and user recordings in R2.
- *
- * Future enhancement: Integrate with Google Cloud TTS or Amazon Polly
- * for higher quality audio generation on the backend.
+ * Audio service for TTS generation and storage using Google Cloud TTS
  */
 
 /**
@@ -62,25 +56,59 @@ export function getRecordingKey(reviewId: string): string {
 }
 
 /**
- * Generate TTS audio using external service
- *
- * For MVP, this is a placeholder. The actual TTS generation
- * happens on the frontend using Web Speech API.
- *
- * To enable backend TTS:
- * 1. Add GOOGLE_TTS_API_KEY to environment
- * 2. Implement Google Cloud TTS API call here
- * 3. Store result in R2
+ * Generate TTS audio using Google Cloud Text-to-Speech API
  */
 export async function generateTTS(
-  _env: Env,
-  _text: string,
-  _language: string = 'zh-CN'
+  env: Env,
+  text: string,
+  noteId: string
 ): Promise<string | null> {
-  // Placeholder - return null to indicate frontend should use Web Speech API
-  // When implementing:
-  // 1. Call Google Cloud TTS API or similar
-  // 2. Store audio in R2
-  // 3. Return the R2 key
-  return null;
+  if (!env.GOOGLE_TTS_API_KEY) {
+    console.log('Google TTS API key not configured');
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${env.GOOGLE_TTS_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          input: { text },
+          voice: {
+            languageCode: 'cmn-CN',
+            name: 'cmn-CN-Wavenet-C', // Female Mandarin voice
+            ssmlGender: 'FEMALE',
+          },
+          audioConfig: {
+            audioEncoding: 'MP3',
+            speakingRate: 0.9, // Slightly slower for learning
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Google TTS error:', error);
+      return null;
+    }
+
+    const data = await response.json() as { audioContent: string };
+
+    // Decode base64 audio content
+    const audioBytes = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
+
+    // Store in R2
+    const key = getNoteAudioKey(noteId);
+    await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer, 'audio/mpeg');
+
+    return key;
+  } catch (error) {
+    console.error('TTS generation failed:', error);
+    return null;
+  }
 }

@@ -4,7 +4,7 @@ import { Env, Rating } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import { generateDeck, suggestCards } from './services/ai';
-import { storeAudio, getAudio, getRecordingKey } from './services/audio';
+import { storeAudio, getAudio, getRecordingKey, generateTTS } from './services/audio';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -85,6 +85,16 @@ app.post('/api/decks/:deckId/notes', async (c) => {
   }
 
   const note = await db.createNote(c.env.DB, deckId, hanzi, pinyin, english, undefined, fun_facts);
+
+  // Generate TTS audio in background (don't await to keep response fast)
+  c.executionCtx.waitUntil(
+    generateTTS(c.env, hanzi, note.id).then(async (audioKey) => {
+      if (audioKey) {
+        await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+      }
+    })
+  );
+
   return c.json(note, 201);
 });
 
@@ -296,6 +306,18 @@ app.post('/api/ai/generate-deck', async (c) => {
           undefined,
           note.fun_facts
         )
+      )
+    );
+
+    // Generate TTS audio for all notes in background
+    c.executionCtx.waitUntil(
+      Promise.all(
+        notes.map(async (note) => {
+          const audioKey = await generateTTS(c.env, note.hanzi, note.id);
+          if (audioKey) {
+            await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+          }
+        })
       )
     );
 

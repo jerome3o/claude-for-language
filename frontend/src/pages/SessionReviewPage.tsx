@@ -1,13 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
-import { getSession, getAudioUrl } from '../api/client';
+import { getSession, getAudioUrl, API_BASE } from '../api/client';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { RATING_INFO, CARD_TYPE_INFO } from '../types';
-import { useAudioPlayer, useTTS } from '../hooks/useAudio';
+import { useAudioPlayer, useNoteAudio } from '../hooks/useAudio';
 
 export function SessionReviewPage() {
   const { id } = useParams<{ id: string }>();
-  const { speak, isSpeaking } = useTTS();
+  const { play: playAudio, isPlaying } = useNoteAudio();
 
   const sessionQuery = useQuery({
     queryKey: ['session', id],
@@ -120,11 +120,11 @@ export function SessionReviewPage() {
                     <span className="note-card-hanzi">{review.card.note.hanzi}</span>
                     <button
                       className="btn btn-sm btn-secondary"
-                      onClick={() => speak(review.card.note.hanzi)}
-                      disabled={isSpeaking}
+                      onClick={() => playAudio(review.card.note.audio_url || null, review.card.note.hanzi, API_BASE)}
+                      disabled={isPlaying}
                       style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                     >
-                      {isSpeaking ? '...' : '🔊'}
+                      {isPlaying ? '...' : '🔊'}
                     </button>
                   </div>
                   <div className="note-card-details">
