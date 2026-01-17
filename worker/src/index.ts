@@ -124,15 +124,15 @@ app.get('/api/auth/callback', async (c) => {
     const session = await createSession(c.env.DB, user.id);
 
     // Redirect to frontend with session cookie
+    // Note: Must use Headers object to set multiple Set-Cookie headers
+    const headers = new Headers();
+    headers.set('Location', frontendUrl);
+    headers.append('Set-Cookie', createSessionCookie(session.id, isSecure));
+    headers.append('Set-Cookie', clearStateCookie(isSecure));
+
     return new Response(null, {
       status: 302,
-      headers: {
-        'Location': frontendUrl,
-        'Set-Cookie': [
-          createSessionCookie(session.id, isSecure),
-          clearStateCookie(isSecure),
-        ].join(', '),
-      },
+      headers,
     });
   } catch (error) {
     console.error('[Auth] Callback error:', error);
