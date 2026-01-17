@@ -863,11 +863,9 @@ async function handleMcpRequest(
   return createMcpHandler(server)(request, env, ctx);
 }
 
-// Worker entry point using OAuth provider
-export default new OAuthProvider({
-  apiRoute: "/mcp",
-  apiHandler: handleMcpRequest,
-  defaultHandler: async (request: Request, env: Env, ctx: ExecutionContext) => {
+// Default handler as ExportedHandler object
+const defaultHandler = {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Handle Google OAuth flows
@@ -890,6 +888,13 @@ export default new OAuthProvider({
 
     return new Response("Not Found", { status: 404 });
   },
+};
+
+// Worker entry point using OAuth provider
+export default new OAuthProvider({
+  apiRoute: "/mcp",
+  apiHandler: handleMcpRequest,
+  defaultHandler,
   authorizeEndpoint: "/oauth/authorize",
   tokenEndpoint: "/oauth/token",
   clientRegistrationEndpoint: "/oauth/register",
