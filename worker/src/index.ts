@@ -42,7 +42,7 @@ app.use('/api/*', cors({
       return origin;
     }
     // Allow production domains
-    if (origin?.includes('chinese-learning.pages.dev') || origin?.includes('jeromeswannack.workers.dev')) {
+    if (origin?.includes('chinese-learning-2x9.pages.dev') || origin?.includes('jeromeswannack.workers.dev')) {
       return origin;
     }
     // Allow any origin in development
@@ -81,7 +81,7 @@ app.get('/api/auth/callback', async (c) => {
   const error = c.req.query('error');
 
   const isSecure = c.req.url.startsWith('https');
-  const frontendUrl = isSecure ? 'https://chinese-learning.pages.dev' : 'http://localhost:3000';
+  const frontendUrl = isSecure ? 'https://chinese-learning-2x9.pages.dev' : 'http://localhost:3000';
 
   // Handle OAuth errors
   if (error) {
