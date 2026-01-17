@@ -415,6 +415,100 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     );
 
     this.server.tool(
+      "batch_add_notes",
+      "Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly)",
+      {
+        deck_id: z.string().describe("The deck ID"),
+        notes: z.array(z.object({
+          hanzi: z.string().describe("Chinese characters (simplified)"),
+          pinyin: z.string().describe("Pinyin with tone marks (e.g., nǐ hǎo)"),
+          english: z.string().describe("English translation"),
+          fun_facts: z.string().optional().describe("Cultural notes, memory aids, etc."),
+        })).describe("Array of notes to add"),
+      },
+      async ({ deck_id, notes }) => {
+        const deck = await this.env.DB
+          .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
+          .bind(deck_id, userId)
+          .first();
+
+        if (!deck) {
+          return {
+            content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
+            isError: true,
+          };
+        }
+
+        const results: { hanzi: string; pinyin: string; success: boolean; audioGenerated: boolean }[] = [];
+        const noteIds: string[] = [];
+
+        // Insert all notes and cards
+        for (const note of notes) {
+          try {
+            const noteId = generateId();
+            noteIds.push(noteId);
+
+            await this.env.DB
+              .prepare(
+                'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts) VALUES (?, ?, ?, ?, ?, ?)'
+              )
+              .bind(noteId, deck_id, note.hanzi, note.pinyin, note.english, note.fun_facts || null)
+              .run();
+
+            for (const cardType of CARD_TYPES) {
+              const cardId = generateId();
+              await this.env.DB
+                .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
+                .bind(cardId, noteId, cardType)
+                .run();
+            }
+
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: true, audioGenerated: false });
+          } catch (e) {
+            console.error(`Failed to add note ${note.hanzi}:`, e);
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, audioGenerated: false });
+          }
+        }
+
+        // Update deck timestamp
+        await this.env.DB
+          .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
+          .bind(deck_id)
+          .run();
+
+        // Generate TTS audio for all notes (in parallel)
+        const apiUrl = this.env.ENVIRONMENT === 'production'
+          ? 'https://chinese-learning-api.jeromeswannack.workers.dev'
+          : 'http://localhost:8787';
+
+        const audioPromises = noteIds.map(async (noteId, index) => {
+          try {
+            const response = await fetch(`${apiUrl}/api/notes/${noteId}/generate-audio`, {
+              method: 'POST',
+            });
+            if (response.ok) {
+              results[index].audioGenerated = true;
+            }
+          } catch (e) {
+            console.error(`Failed to generate audio for note ${noteId}:`, e);
+          }
+        });
+
+        await Promise.all(audioPromises);
+
+        const successful = results.filter(r => r.success);
+        const withAudio = results.filter(r => r.audioGenerated);
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Added ${successful.length}/${notes.length} notes (${withAudio.length} with audio):\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})${r.audioGenerated ? ' 🔊' : ''}`).join('\n')}`,
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
       "update_note",
       "Update an existing note",
       {

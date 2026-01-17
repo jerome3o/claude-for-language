@@ -370,6 +370,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `update_deck` | Update deck name/description |
 | `delete_deck` | Delete a deck and all its notes |
 | `add_note` | Add a vocabulary note (auto-generates TTS audio) |
+| `batch_add_notes` | Add multiple notes at once (more efficient for bulk operations) |
 | `update_note` | Update an existing note |
 | `delete_note` | Delete a note |
 | `get_note_history` | Get review history and Q&A for a note |
