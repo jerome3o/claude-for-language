@@ -49,20 +49,20 @@ export function HomePage() {
         {/* Quick Actions */}
         <div className="card mb-4">
           <h2 className="mb-3">Quick Actions</h2>
-          <div className="flex gap-2">
+          <div className="quick-links">
             {(stats?.cards_due_today || 0) > 0 ? (
-              <Link to="/study" className="btn btn-primary btn-lg">
+              <Link to="/study" className="btn btn-primary btn-lg btn-block">
                 Study Now ({stats?.cards_due_today} due)
               </Link>
             ) : (
-              <Link to="/study" className="btn btn-secondary btn-lg">
+              <Link to="/study" className="btn btn-secondary btn-lg btn-block">
                 Study (no cards due)
               </Link>
             )}
-            <Link to="/generate" className="btn btn-secondary btn-lg">
+            <Link to="/generate" className="btn btn-secondary btn-lg btn-block">
               Generate with AI
             </Link>
-            <Link to="/decks/new" className="btn btn-secondary btn-lg">
+            <Link to="/decks/new" className="btn btn-secondary btn-lg btn-block">
               Create Deck
             </Link>
           </div>
