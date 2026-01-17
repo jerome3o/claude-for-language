@@ -16,6 +16,7 @@ const PUBLIC_ROUTES = [
   '/api/auth/callback',
   '/api/auth/me', // Returns 401 if not authenticated, which is expected behavior
   '/api/oauth/', // MCP OAuth endpoints
+  '/api/audio/', // Audio files are public (TTS generated audio)
 ];
 
 function isPublicRoute(path: string): boolean {
