@@ -3,6 +3,7 @@ import { z } from "zod";
 import OAuthProvider, {
   OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
+import { WorkerEntrypoint } from "cloudflare:workers";
 
 // Types
 interface Env {
@@ -851,26 +852,25 @@ function createServer(env: Env, userId: string) {
   return server;
 }
 
-// MCP request handler (with user context from OAuth)
-async function handleMcpRequest(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  props: McpAuthProps
-): Promise<Response> {
-  const server = createServer(env, props.userId);
-  const { createMcpHandler } = await import("agents/mcp");
-  return createMcpHandler(server)(request, env, ctx);
+// MCP API handler class - receives authenticated requests
+export class McpApiHandler extends WorkerEntrypoint<Env> {
+  async fetch(request: Request): Promise<Response> {
+    // Get auth props from context (set by OAuthProvider)
+    const props = (this.ctx as unknown as { props: McpAuthProps }).props;
+    const server = createServer(this.env, props.userId);
+    const { createMcpHandler } = await import("agents/mcp");
+    return createMcpHandler(server)(request, this.env, this.ctx);
+  }
 }
 
-// Default handler as ExportedHandler object
-const defaultHandler = {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+// Default handler class for non-API routes
+export class DefaultHandler extends WorkerEntrypoint<Env> {
+  async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     // Handle Google OAuth flows
     if (url.pathname.startsWith("/oauth/google/")) {
-      return googleAuthHandler(request, env, ctx);
+      return googleAuthHandler(request, this.env, this.ctx);
     }
 
     // Health check
@@ -887,14 +887,14 @@ const defaultHandler = {
     }
 
     return new Response("Not Found", { status: 404 });
-  },
-};
+  }
+}
 
 // Worker entry point using OAuth provider
 export default new OAuthProvider({
   apiRoute: "/mcp",
-  apiHandler: handleMcpRequest,
-  defaultHandler,
+  apiHandler: McpApiHandler,
+  defaultHandler: DefaultHandler,
   authorizeEndpoint: "/oauth/authorize",
   tokenEndpoint: "/oauth/token",
   clientRegistrationEndpoint: "/oauth/register",
