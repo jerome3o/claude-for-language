@@ -119,10 +119,15 @@ export function getAllIntervalPreviews(
   interval: number,
   repetitions: number
 ): Record<Rating, SM2Preview> {
+  // Defensive defaults for new/unreviewed cards
+  const ef = easeFactor || 2.5;
+  const int = interval || 0;
+  const reps = repetitions || 0;
+
   return {
-    0: previewSM2Interval(0, easeFactor, interval, repetitions),
-    1: previewSM2Interval(1, easeFactor, interval, repetitions),
-    2: previewSM2Interval(2, easeFactor, interval, repetitions),
-    3: previewSM2Interval(3, easeFactor, interval, repetitions),
+    0: previewSM2Interval(0, ef, int, reps),
+    1: previewSM2Interval(1, ef, int, reps),
+    2: previewSM2Interval(2, ef, int, reps),
+    3: previewSM2Interval(3, ef, int, reps),
   };
 }
