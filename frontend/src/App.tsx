@@ -1,8 +1,10 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { NetworkProvider } from './contexts/NetworkContext';
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
+import { OfflineBanner } from './components/OfflineBanner';
 import { HomePage } from './pages/HomePage';
 import { SplashPage } from './pages/SplashPage';
 import { DecksPage, NewDeckPage } from './pages/DecksPage';
@@ -119,9 +121,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
+        <NetworkProvider>
+          <BrowserRouter>
+            <AppRoutes />
+            <OfflineBanner />
+          </BrowserRouter>
+        </NetworkProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

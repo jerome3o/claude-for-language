@@ -857,6 +857,61 @@ app.get('/api/stats/deck/:id', async (c) => {
   return c.json(stats);
 });
 
+// ============ Sync (for offline PWA) ============
+
+app.get('/api/sync/changes', async (c) => {
+  const userId = c.get('user').id;
+  const sinceParam = c.req.query('since');
+
+  if (!sinceParam) {
+    return c.json({ error: 'since parameter is required' }, 400);
+  }
+
+  const since = parseInt(sinceParam, 10);
+  if (isNaN(since)) {
+    return c.json({ error: 'since must be a valid timestamp' }, 400);
+  }
+
+  const sinceDate = new Date(since).toISOString();
+
+  // Get updated decks
+  const decksResult = await c.env.DB.prepare(`
+    SELECT * FROM decks
+    WHERE user_id = ? AND updated_at > ?
+  `).bind(userId, sinceDate).all();
+
+  // Get updated notes (across all user's decks)
+  const notesResult = await c.env.DB.prepare(`
+    SELECT n.* FROM notes n
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? AND n.updated_at > ?
+  `).bind(userId, sinceDate).all();
+
+  // Get updated cards (across all user's notes)
+  const cardsResult = await c.env.DB.prepare(`
+    SELECT c.* FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? AND c.updated_at > ?
+  `).bind(userId, sinceDate).all();
+
+  // For deletions, we'd need a deleted_items table (not implemented yet)
+  // For now, return empty arrays for deleted items
+  const deleted = {
+    deck_ids: [] as string[],
+    note_ids: [] as string[],
+    card_ids: [] as string[],
+  };
+
+  return c.json({
+    decks: decksResult.results || [],
+    notes: notesResult.results || [],
+    cards: cardsResult.results || [],
+    deleted,
+    server_time: new Date().toISOString(),
+  });
+});
+
 // Serve static files (frontend) for non-API routes
 app.get('*', async (c) => {
   // In production, this would serve from c.env.ASSETS
