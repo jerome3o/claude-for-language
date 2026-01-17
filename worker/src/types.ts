@@ -77,6 +77,14 @@ export interface CardReview {
   reviewed_at: string;
 }
 
+export interface NoteQuestion {
+  id: string;
+  note_id: string;
+  question: string;
+  answer: string;
+  asked_at: string;
+}
+
 // API request/response types
 export interface CreateDeckRequest {
   name: string;

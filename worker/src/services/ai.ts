@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { GeneratedDeck, GeneratedNote } from '../types';
+import { GeneratedDeck, GeneratedNote, Note } from '../types';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -131,4 +131,51 @@ Respond with JSON in this exact format:
   }
 
   return result.notes;
+}
+
+const ASK_SYSTEM_PROMPT = `You are a helpful Chinese language tutor. The user is studying a Chinese vocabulary word and has a question about it.
+
+Be concise but thorough in your answers. Focus on practical usage and learning. You can explain:
+- Grammar patterns and sentence structures
+- Cultural context and usage notes
+- Related vocabulary or phrases
+- Common mistakes to avoid
+- Memory aids or mnemonics
+- Pronunciation tips
+
+Keep your responses focused and helpful for language learning. Use examples with both Chinese characters and pinyin when relevant.`;
+
+/**
+ * Answer a question about a vocabulary note
+ */
+export async function askAboutNote(
+  apiKey: string,
+  note: Note,
+  question: string
+): Promise<string> {
+  const client = new Anthropic({ apiKey });
+
+  const context = `The user is studying this vocabulary:
+- Chinese: ${note.hanzi}
+- Pinyin: ${note.pinyin}
+- English: ${note.english}
+${note.fun_facts ? `- Notes: ${note.fun_facts}` : ''}
+
+User's question: ${question}`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1000,
+    messages: [
+      { role: 'user', content: context }
+    ],
+    system: ASK_SYSTEM_PROMPT,
+  });
+
+  const textContent = response.content.find(c => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('No text content in AI response');
+  }
+
+  return textContent.text;
 }

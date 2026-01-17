@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { Env, Rating } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
-import { generateDeck, suggestCards } from './services/ai';
+import { generateDeck, suggestCards, askAboutNote } from './services/ai';
 import { storeAudio, getAudio, getRecordingKey, generateTTS } from './services/audio';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -147,6 +147,39 @@ app.get('/api/notes/:id/history', async (c) => {
     return c.json({ error: 'Note not found' }, 404);
   }
   return c.json(history);
+});
+
+app.post('/api/notes/:id/ask', async (c) => {
+  const id = c.req.param('id');
+  const { question } = await c.req.json<{ question: string }>();
+
+  if (!question) {
+    return c.json({ error: 'question is required' }, 400);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  const note = await db.getNoteById(c.env.DB, id);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  try {
+    const answer = await askAboutNote(c.env.ANTHROPIC_API_KEY, note, question);
+    const noteQuestion = await db.createNoteQuestion(c.env.DB, id, question, answer);
+    return c.json(noteQuestion, 201);
+  } catch (error) {
+    console.error('AI ask error:', error);
+    return c.json({ error: 'Failed to get answer from AI' }, 500);
+  }
+});
+
+app.get('/api/notes/:id/questions', async (c) => {
+  const id = c.req.param('id');
+  const questions = await db.getNoteQuestions(c.env.DB, id);
+  return c.json(questions);
 });
 
 // ============ Cards ============

@@ -4,6 +4,7 @@ import {
   Card,
   StudySession,
   CardReview,
+  NoteQuestion,
   NoteWithCards,
   DeckWithNotes,
   CardWithNote,
@@ -561,6 +562,42 @@ export async function getNoteReviewHistory(
       card_stats: cardStats[card_type],
       reviews: byCardType[card_type] || [],
     }));
+}
+
+// ============ Note Questions ============
+
+export async function createNoteQuestion(
+  db: D1Database,
+  noteId: string,
+  question: string,
+  answer: string
+): Promise<NoteQuestion> {
+  const id = generateId();
+  await db
+    .prepare(
+      'INSERT INTO note_questions (id, note_id, question, answer) VALUES (?, ?, ?, ?)'
+    )
+    .bind(id, noteId, question, answer)
+    .run();
+
+  const noteQuestion = await db
+    .prepare('SELECT * FROM note_questions WHERE id = ?')
+    .bind(id)
+    .first<NoteQuestion>();
+
+  if (!noteQuestion) throw new Error('Failed to create note question');
+  return noteQuestion;
+}
+
+export async function getNoteQuestions(
+  db: D1Database,
+  noteId: string
+): Promise<NoteQuestion[]> {
+  const result = await db
+    .prepare('SELECT * FROM note_questions WHERE note_id = ? ORDER BY asked_at DESC')
+    .bind(noteId)
+    .all<NoteQuestion>();
+  return result.results;
 }
 
 // ============ Statistics ============

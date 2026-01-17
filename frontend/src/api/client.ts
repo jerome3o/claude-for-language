@@ -117,6 +117,25 @@ export async function getNoteHistory(noteId: string): Promise<NoteReviewHistory[
   return fetchJSON<NoteReviewHistory[]>(`/notes/${noteId}/history`);
 }
 
+export interface NoteQuestion {
+  id: string;
+  note_id: string;
+  question: string;
+  answer: string;
+  asked_at: string;
+}
+
+export async function askAboutNote(noteId: string, question: string): Promise<NoteQuestion> {
+  return fetchJSON<NoteQuestion>(`/notes/${noteId}/ask`, {
+    method: 'POST',
+    body: JSON.stringify({ question }),
+  });
+}
+
+export async function getNoteQuestions(noteId: string): Promise<NoteQuestion[]> {
+  return fetchJSON<NoteQuestion[]>(`/notes/${noteId}/questions`);
+}
+
 // ============ Cards ============
 
 export async function getDueCards(options?: {

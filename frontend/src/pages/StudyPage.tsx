@@ -8,7 +8,9 @@ import {
   recordReview,
   completeSession,
   uploadRecording,
+  askAboutNote,
   API_BASE,
+  NoteQuestion,
 } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { CardWithNote, Rating, CARD_TYPE_INFO, RATING_INFO } from '../types';
@@ -28,6 +30,13 @@ function StudyCard({
   const [userAnswer, setUserAnswer] = useState('');
   const [startTime] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Ask Claude state
+  const [showAskClaude, setShowAskClaude] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [conversation, setConversation] = useState<NoteQuestion[]>([]);
+  const [isAsking, setIsAsking] = useState(false);
+  const questionInputRef = useRef<HTMLInputElement>(null);
 
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
@@ -86,6 +95,21 @@ function StudyCard({
 
   const handleRate = (rating: Rating) => {
     reviewMutation.mutate(rating);
+  };
+
+  const handleAskClaude = async () => {
+    if (!question.trim() || isAsking) return;
+
+    setIsAsking(true);
+    try {
+      const response = await askAboutNote(card.note.id, question.trim());
+      setConversation((prev) => [...prev, response]);
+      setQuestion('');
+    } catch (error) {
+      console.error('Failed to ask Claude:', error);
+    } finally {
+      setIsAsking(false);
+    }
   };
 
   const renderFront = () => {
@@ -195,13 +219,26 @@ function StudyCard({
         <div className="pinyin mb-2">{card.note.pinyin}</div>
         <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
 
-        <button
-          className="btn btn-secondary mt-3"
-          onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
-          disabled={isPlaying}
-        >
-          {isPlaying ? 'Playing...' : 'Play Audio'}
-        </button>
+        <div className="flex gap-2 justify-center mt-3">
+          <button
+            className="btn btn-secondary"
+            onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+            disabled={isPlaying}
+          >
+            {isPlaying ? 'Playing...' : 'Play Audio'}
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              setShowAskClaude(!showAskClaude);
+              if (!showAskClaude) {
+                setTimeout(() => questionInputRef.current?.focus(), 100);
+              }
+            }}
+          >
+            {showAskClaude ? 'Hide Chat' : 'Ask Claude'}
+          </button>
+        </div>
 
         {card.note.fun_facts && (
           <div
@@ -214,6 +251,80 @@ function StudyCard({
             }}
           >
             {card.note.fun_facts}
+          </div>
+        )}
+
+        {/* Ask Claude Chat */}
+        {showAskClaude && (
+          <div
+            className="mt-3"
+            style={{
+              textAlign: 'left',
+              backgroundColor: '#f9fafb',
+              padding: '1rem',
+              borderRadius: '8px',
+              maxHeight: '300px',
+              overflowY: 'auto',
+            }}
+          >
+            {conversation.length === 0 && (
+              <p className="text-light" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                Ask a question about this word...
+              </p>
+            )}
+
+            {conversation.map((qa) => (
+              <div key={qa.id} style={{ marginBottom: '1rem' }}>
+                <div
+                  style={{
+                    backgroundColor: 'var(--color-primary)',
+                    color: 'white',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    marginBottom: '0.5rem',
+                    fontSize: '0.875rem',
+                  }}
+                >
+                  {qa.question}
+                </div>
+                <div
+                  style={{
+                    backgroundColor: 'white',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    fontSize: '0.875rem',
+                    whiteSpace: 'pre-wrap',
+                    border: '1px solid #e5e7eb',
+                  }}
+                >
+                  {qa.answer}
+                </div>
+              </div>
+            ))}
+
+            <div className="flex gap-2" style={{ marginTop: '0.5rem' }}>
+              <input
+                ref={questionInputRef}
+                type="text"
+                className="form-input"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="e.g., How do I use this in a sentence?"
+                style={{ fontSize: '0.875rem', flex: 1 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAskClaude();
+                }}
+                disabled={isAsking}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={handleAskClaude}
+                disabled={!question.trim() || isAsking}
+                style={{ padding: '0.5rem 1rem' }}
+              >
+                {isAsking ? '...' : 'Ask'}
+              </button>
+            </div>
           </div>
         )}
       </div>
