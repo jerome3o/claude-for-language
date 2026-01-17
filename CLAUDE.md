@@ -178,6 +178,46 @@ npm run dev:frontend
 2. Update card generation logic in `worker/src/services/cards.ts`
 3. Update study flow in frontend
 
+## MCP Server
+
+The app includes an MCP (Model Context Protocol) server that allows AI assistants like Claude to interact with your vocabulary data.
+
+### MCP Server URL
+`https://chinese-learning-mcp.jeromeswannack.workers.dev/sse`
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_decks` | List all decks with stats (note count, cards due, mastered) |
+| `get_deck` | Get a deck with all its notes |
+| `get_deck_progress` | Get detailed study progress for a deck |
+| `create_deck` | Create a new deck |
+| `update_deck` | Update deck name/description |
+| `delete_deck` | Delete a deck and all its notes |
+| `add_note` | Add a vocabulary note to a deck |
+| `update_note` | Update an existing note |
+| `delete_note` | Delete a note |
+| `get_due_cards` | Get cards due for review |
+| `get_overall_stats` | Get overall study statistics |
+
+### Connecting to Claude Desktop
+
+Use `mcp-remote` to connect Claude Desktop to the MCP server:
+```bash
+npx mcp-remote https://chinese-learning-mcp.jeromeswannack.workers.dev/sse
+```
+
+### Development
+
+```bash
+# Run MCP server locally
+npm run dev:mcp
+
+# Deploy MCP server
+npm run deploy:mcp
+```
+
 ## Future Considerations (Tutor Feature)
 The codebase is designed to support a future tutor view:
 - User model has a `role` field (student/tutor)

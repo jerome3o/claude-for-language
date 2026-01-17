@@ -73,3 +73,11 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
           command: pages deploy frontend/dist --project-name=chinese-learning --commit-dirty=true
+
+      - name: Deploy MCP Server
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
+          workingDirectory: mcp-server
+          command: deploy

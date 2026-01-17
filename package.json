@@ -4,15 +4,18 @@
   "private": true,
   "workspaces": [
     "worker",
-    "frontend"
+    "frontend",
+    "mcp-server"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:worker\" \"npm run dev:frontend\"",
     "dev:worker": "npm run dev -w worker",
     "dev:frontend": "npm run dev -w frontend",
+    "dev:mcp": "npm run dev -w mcp-server",
     "build": "npm run build -w frontend",
     "build:frontend": "npm run build -w frontend",
     "deploy": "npm run deploy -w worker",
+    "deploy:mcp": "npm run deploy -w mcp-server",
     "typecheck": "npm run typecheck -w worker && npm run typecheck -w frontend"
   },
   "devDependencies": {
