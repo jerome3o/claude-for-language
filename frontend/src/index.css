@@ -389,6 +389,11 @@ a:hover {
   font-weight: 400;
 }
 
+.count-active {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @media (min-width: 640px) {
   .queue-counts {
     font-size: 1.25rem;

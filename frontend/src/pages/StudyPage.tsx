@@ -30,20 +30,25 @@ import {
 } from '../hooks/useOfflineData';
 
 // Queue counts header component
-function QueueCountsHeader({ counts }: { counts: QueueCounts }) {
+function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activeQueue?: number }) {
   const total = counts.new + counts.learning + counts.review;
 
   if (total === 0) {
     return null;
   }
 
+  // CardQueue.NEW = 0, CardQueue.LEARNING = 1, CardQueue.REVIEW = 2, CardQueue.RELEARNING = 3
+  const isNewActive = activeQueue === 0;
+  const isLearningActive = activeQueue === 1 || activeQueue === 3; // Learning or Relearning
+  const isReviewActive = activeQueue === 2;
+
   return (
     <div className="queue-counts">
-      <span className="count-new" title="New cards">{counts.new}</span>
+      <span className={`count-new ${isNewActive ? 'count-active' : ''}`} title="New cards">{counts.new}</span>
       <span className="count-separator">+</span>
-      <span className="count-learning" title="Learning cards">{counts.learning}</span>
+      <span className={`count-learning ${isLearningActive ? 'count-active' : ''}`} title="Learning cards">{counts.learning}</span>
       <span className="count-separator">+</span>
-      <span className="count-review" title="Review cards">{counts.review}</span>
+      <span className={`count-review ${isReviewActive ? 'count-active' : ''}`} title="Review cards">{counts.review}</span>
     </div>
   );
 }
@@ -700,7 +705,7 @@ export function StudyPage() {
           >
             End
           </button>
-          <QueueCountsHeader counts={counts} />
+          <QueueCountsHeader counts={counts} activeQueue={currentCard?.queue} />
         </div>
 
         {/* Current Card */}
