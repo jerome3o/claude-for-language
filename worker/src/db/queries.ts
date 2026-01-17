@@ -792,7 +792,6 @@ export async function getQueueCounts(
   userId: string,
   deckId?: string
 ): Promise<QueueCounts> {
-  const now = Date.now();
   const today = new Date().toISOString().split('T')[0];
 
   let deckFilter = '';
@@ -819,14 +818,13 @@ export async function getQueueCounts(
     : `SELECT COALESCE(SUM(new_cards_studied), 0) as studied FROM daily_counts
        WHERE user_id = ? AND date = ?`;
 
-  // Get learning + relearning cards count (due now)
+  // Get learning + relearning cards count (all in learning, not just due)
   const learningQuery = `
     SELECT COUNT(*) as count FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? ${deckFilter}
     AND c.queue IN (1, 3)
-    AND c.due_timestamp <= ?
   `;
 
   // Get review cards count (due today)
@@ -844,7 +842,7 @@ export async function getQueueCounts(
     deckId
       ? db.prepare(dailyCountQuery).bind(userId, deckId, today).first<{ studied: number }>()
       : db.prepare(dailyCountQuery).bind(userId, today).first<{ studied: number }>(),
-    db.prepare(learningQuery).bind(...params, now).first<{ count: number }>(),
+    db.prepare(learningQuery).bind(...params).first<{ count: number }>(),
     db.prepare(reviewQuery).bind(...params).first<{ count: number }>(),
   ]);
 
