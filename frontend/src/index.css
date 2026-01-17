@@ -520,6 +520,24 @@ a:hover {
   margin-bottom: 1rem;
 }
 
+/* Quick links (Home page) */
+.quick-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .quick-links {
+    flex-direction: row;
+    gap: 1rem;
+  }
+
+  .quick-links .btn-block {
+    width: auto;
+  }
+}
+
 /* Deck card */
 .deck-card {
   display: block;
