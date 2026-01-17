@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, getAudioUrl, API_BASE } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note } from '../types';
@@ -300,26 +300,53 @@ function NoteCard({
   onEdit,
   onDelete,
   onHistory,
+  onAudioGenerated,
 }: {
   note: Note;
   onEdit: () => void;
   onDelete: () => void;
   onHistory: () => void;
+  onAudioGenerated: () => void;
 }) {
   const { isPlaying, play } = useNoteAudio();
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleGenerateAudio = async () => {
+    setIsGenerating(true);
+    try {
+      await generateNoteAudio(note.id);
+      onAudioGenerated();
+    } catch (error) {
+      console.error('Failed to generate audio:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
     <div className="note-card">
       <div className="note-card-content">
         <div className="flex items-center gap-2">
-          <button
-            className="btn btn-sm btn-secondary"
-            onClick={() => play(note.audio_url || null, note.hanzi, API_BASE)}
-            disabled={isPlaying}
-            style={{ padding: '0.25rem 0.5rem', minWidth: 'auto' }}
-          >
-            {isPlaying ? '...' : '▶'}
-          </button>
+          {note.audio_url ? (
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={() => play(note.audio_url || null, note.hanzi, API_BASE)}
+              disabled={isPlaying}
+              style={{ padding: '0.25rem 0.5rem', minWidth: 'auto' }}
+            >
+              {isPlaying ? '...' : '▶'}
+            </button>
+          ) : (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={handleGenerateAudio}
+              disabled={isGenerating}
+              style={{ padding: '0.25rem 0.5rem', minWidth: 'auto', fontSize: '0.7rem' }}
+              title="Generate audio"
+            >
+              {isGenerating ? '...' : '🔊+'}
+            </button>
+          )}
           <div className="note-card-hanzi">{note.hanzi}</div>
         </div>
         <div className="note-card-details">
@@ -490,6 +517,9 @@ export function DeckDetailPage() {
                     if (confirm(`Delete "${note.hanzi}"?`)) {
                       deleteNoteMutation.mutate(note.id);
                     }
+                  }}
+                  onAudioGenerated={() => {
+                    queryClient.invalidateQueries({ queryKey: ['deck', id] });
                   }}
                 />
               ))}

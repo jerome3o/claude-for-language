@@ -1,5 +1,6 @@
 import {
   Deck,
+  Note,
   DeckWithNotes,
   NoteWithCards,
   CardWithNote,
@@ -88,6 +89,12 @@ export async function updateNote(
   return fetchJSON<NoteWithCards>(`/notes/${id}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
+  });
+}
+
+export async function generateNoteAudio(noteId: string): Promise<Note> {
+  return fetchJSON<Note>(`/notes/${noteId}/generate-audio`, {
+    method: 'POST',
   });
 }
 

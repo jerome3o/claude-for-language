@@ -343,10 +343,24 @@ function createServer(env: Env) {
         .bind(deck_id)
         .run();
 
+      // Generate TTS audio via main API
+      let audioGenerated = false;
+      try {
+        const apiUrl = env.ENVIRONMENT === 'production'
+          ? 'https://chinese-learning-api.jeromeswannack.workers.dev'
+          : 'http://localhost:8787';
+        const audioResponse = await fetch(`${apiUrl}/api/notes/${noteId}/generate-audio`, {
+          method: 'POST',
+        });
+        audioGenerated = audioResponse.ok;
+      } catch (e) {
+        console.error('Failed to generate audio:', e);
+      }
+
       return {
         content: [{
           type: "text" as const,
-          text: `Added note: ${hanzi} (${pinyin}) - ${english}`,
+          text: `Added note: ${hanzi} (${pinyin}) - ${english}${audioGenerated ? ' (with audio)' : ' (audio generation pending)'}`,
         }],
       };
     }

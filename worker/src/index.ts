@@ -182,6 +182,33 @@ app.get('/api/notes/:id/questions', async (c) => {
   return c.json(questions);
 });
 
+app.post('/api/notes/:id/generate-audio', async (c) => {
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  if (!c.env.GOOGLE_TTS_API_KEY) {
+    return c.json({ error: 'TTS is not configured' }, 500);
+  }
+
+  try {
+    const audioKey = await generateTTS(c.env, note.hanzi, note.id);
+    if (audioKey) {
+      await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+      const updatedNote = await db.getNoteById(c.env.DB, note.id);
+      return c.json(updatedNote);
+    } else {
+      return c.json({ error: 'Failed to generate audio' }, 500);
+    }
+  } catch (error) {
+    console.error('TTS generation error:', error);
+    return c.json({ error: 'Failed to generate audio' }, 500);
+  }
+});
+
 // ============ Cards ============
 
 app.get('/api/cards/due', async (c) => {
