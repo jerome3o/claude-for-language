@@ -373,6 +373,10 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `batch_add_notes` | Add multiple notes at once (more efficient for bulk operations) |
 | `update_note` | Update an existing note |
 | `delete_note` | Delete a note |
+| `get_note_cards` | Get all cards for a note with their SRS state |
+| `set_card_familiarity` | Set familiarity level (new/seen/familiar/well_known/mastered) |
+| `update_card_settings` | Fine-grained control over card scheduling |
+| `batch_set_familiarity` | Set familiarity for multiple notes at once |
 | `get_note_history` | Get review history and Q&A for a note |
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |

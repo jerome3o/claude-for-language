@@ -629,6 +629,312 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       }
     );
 
+    // ============ Card Configuration Tools ============
+
+    this.server.tool(
+      "get_note_cards",
+      "Get all cards for a note with their current SRS state (ease factor, interval, queue, etc.)",
+      { note_id: z.string().describe("The note ID") },
+      async ({ note_id }) => {
+        const note = await this.env.DB
+          .prepare(`
+            SELECT n.*, d.name as deck_name FROM notes n
+            JOIN decks d ON n.deck_id = d.id
+            WHERE n.id = ? AND d.user_id = ?
+          `)
+          .bind(note_id, userId)
+          .first<Note & { deck_name: string }>();
+
+        if (!note) {
+          return {
+            content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
+            isError: true,
+          };
+        }
+
+        const cards = await this.env.DB
+          .prepare(`
+            SELECT id, card_type, ease_factor, interval, repetitions, queue, learning_step, next_review_at, due_timestamp
+            FROM cards WHERE note_id = ?
+          `)
+          .bind(note_id)
+          .all();
+
+        const queueNames: Record<number, string> = {
+          0: 'new',
+          1: 'learning',
+          2: 'review',
+          3: 'relearning',
+        };
+
+        const cardsWithLabels = cards.results.map((card: any) => ({
+          ...card,
+          queue_name: queueNames[card.queue] || 'unknown',
+        }));
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              note: {
+                id: note.id,
+                hanzi: note.hanzi,
+                pinyin: note.pinyin,
+                english: note.english,
+                deck_name: note.deck_name,
+              },
+              cards: cardsWithLabels,
+            }, null, 2),
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "set_card_familiarity",
+      "Set how familiar the user is with a note's cards. Use this to skip learning steps for cards the user already knows.",
+      {
+        note_id: z.string().describe("The note ID"),
+        familiarity: z.enum(['new', 'seen', 'familiar', 'well_known', 'mastered']).describe(
+          "Familiarity level: 'new' (start from scratch), 'seen' (1 day interval), 'familiar' (7 day interval), 'well_known' (30 day interval), 'mastered' (90 day interval)"
+        ),
+        card_types: z.array(z.enum(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'])).optional().describe(
+          "Which card types to update. If not specified, updates all 3 card types."
+        ),
+      },
+      async ({ note_id, familiarity, card_types }) => {
+        const note = await this.env.DB
+          .prepare(`
+            SELECT n.* FROM notes n
+            JOIN decks d ON n.deck_id = d.id
+            WHERE n.id = ? AND d.user_id = ?
+          `)
+          .bind(note_id, userId)
+          .first<Note>();
+
+        if (!note) {
+          return {
+            content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
+            isError: true,
+          };
+        }
+
+        // Define familiarity presets
+        const presets: Record<string, { queue: number; interval: number; ease_factor: number; repetitions: number }> = {
+          new: { queue: 0, interval: 0, ease_factor: 2.5, repetitions: 0 },
+          seen: { queue: 2, interval: 1, ease_factor: 2.5, repetitions: 1 },
+          familiar: { queue: 2, interval: 7, ease_factor: 2.5, repetitions: 2 },
+          well_known: { queue: 2, interval: 30, ease_factor: 2.6, repetitions: 4 },
+          mastered: { queue: 2, interval: 90, ease_factor: 2.7, repetitions: 6 },
+        };
+
+        const preset = presets[familiarity];
+        const typesToUpdate = card_types || ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
+
+        // Calculate next review date
+        const nextReview = preset.interval > 0 ? new Date() : null;
+        if (nextReview) {
+          nextReview.setDate(nextReview.getDate() + preset.interval);
+        }
+
+        for (const cardType of typesToUpdate) {
+          await this.env.DB
+            .prepare(`
+              UPDATE cards SET
+                queue = ?,
+                interval = ?,
+                ease_factor = ?,
+                repetitions = ?,
+                learning_step = 0,
+                next_review_at = ?,
+                due_timestamp = NULL
+              WHERE note_id = ? AND card_type = ?
+            `)
+            .bind(
+              preset.queue,
+              preset.interval,
+              preset.ease_factor,
+              preset.repetitions,
+              nextReview?.toISOString() || null,
+              note_id,
+              cardType
+            )
+            .run();
+        }
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Set "${note.hanzi}" (${note.pinyin}) to ${familiarity} for ${typesToUpdate.length} card type(s). ${preset.interval > 0 ? `Next review in ${preset.interval} day(s).` : 'Will appear as new card.'}`,
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "update_card_settings",
+      "Update specific SRS settings for a card. Use for fine-grained control over scheduling.",
+      {
+        note_id: z.string().describe("The note ID"),
+        card_type: z.enum(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi']).describe("Which card type to update"),
+        ease_factor: z.number().optional().describe("Ease factor (e.g., 2.5). Higher = longer intervals."),
+        interval: z.number().optional().describe("Current interval in days"),
+        queue: z.enum(['new', 'learning', 'review', 'relearning']).optional().describe("Card queue/state"),
+        next_review_days: z.number().optional().describe("Days until next review (sets next_review_at)"),
+      },
+      async ({ note_id, card_type, ease_factor, interval, queue, next_review_days }) => {
+        const note = await this.env.DB
+          .prepare(`
+            SELECT n.* FROM notes n
+            JOIN decks d ON n.deck_id = d.id
+            WHERE n.id = ? AND d.user_id = ?
+          `)
+          .bind(note_id, userId)
+          .first<Note>();
+
+        if (!note) {
+          return {
+            content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
+            isError: true,
+          };
+        }
+
+        const updates: string[] = [];
+        const values: (string | number | null)[] = [];
+
+        if (ease_factor !== undefined) {
+          updates.push('ease_factor = ?');
+          values.push(ease_factor);
+        }
+        if (interval !== undefined) {
+          updates.push('interval = ?');
+          values.push(interval);
+        }
+        if (queue !== undefined) {
+          const queueMap: Record<string, number> = { new: 0, learning: 1, review: 2, relearning: 3 };
+          updates.push('queue = ?');
+          values.push(queueMap[queue]);
+          if (queue === 'new') {
+            updates.push('learning_step = 0');
+            updates.push('next_review_at = NULL');
+            updates.push('due_timestamp = NULL');
+          }
+        }
+        if (next_review_days !== undefined) {
+          const nextReview = new Date();
+          nextReview.setDate(nextReview.getDate() + next_review_days);
+          updates.push('next_review_at = ?');
+          values.push(nextReview.toISOString());
+          updates.push('due_timestamp = NULL');
+        }
+
+        if (updates.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: "No updates provided" }],
+            isError: true,
+          };
+        }
+
+        values.push(note_id);
+        values.push(card_type);
+
+        await this.env.DB
+          .prepare(`UPDATE cards SET ${updates.join(', ')} WHERE note_id = ? AND card_type = ?`)
+          .bind(...values)
+          .run();
+
+        // Fetch updated card
+        const card = await this.env.DB
+          .prepare('SELECT * FROM cards WHERE note_id = ? AND card_type = ?')
+          .bind(note_id, card_type)
+          .first();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Updated ${card_type} card for "${note.hanzi}": ${JSON.stringify(card, null, 2)}`,
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "batch_set_familiarity",
+      "Set familiarity for multiple notes at once. Useful for marking a whole deck or set of words as already known.",
+      {
+        note_ids: z.array(z.string()).describe("Array of note IDs to update"),
+        familiarity: z.enum(['new', 'seen', 'familiar', 'well_known', 'mastered']).describe(
+          "Familiarity level to set for all notes"
+        ),
+      },
+      async ({ note_ids, familiarity }) => {
+        const presets: Record<string, { queue: number; interval: number; ease_factor: number; repetitions: number }> = {
+          new: { queue: 0, interval: 0, ease_factor: 2.5, repetitions: 0 },
+          seen: { queue: 2, interval: 1, ease_factor: 2.5, repetitions: 1 },
+          familiar: { queue: 2, interval: 7, ease_factor: 2.5, repetitions: 2 },
+          well_known: { queue: 2, interval: 30, ease_factor: 2.6, repetitions: 4 },
+          mastered: { queue: 2, interval: 90, ease_factor: 2.7, repetitions: 6 },
+        };
+
+        const preset = presets[familiarity];
+        let updatedCount = 0;
+        const errors: string[] = [];
+
+        for (const noteId of note_ids) {
+          // Verify note belongs to user
+          const note = await this.env.DB
+            .prepare(`
+              SELECT n.id FROM notes n
+              JOIN decks d ON n.deck_id = d.id
+              WHERE n.id = ? AND d.user_id = ?
+            `)
+            .bind(noteId, userId)
+            .first();
+
+          if (!note) {
+            errors.push(noteId);
+            continue;
+          }
+
+          const nextReview = preset.interval > 0 ? new Date() : null;
+          if (nextReview) {
+            nextReview.setDate(nextReview.getDate() + preset.interval);
+          }
+
+          await this.env.DB
+            .prepare(`
+              UPDATE cards SET
+                queue = ?,
+                interval = ?,
+                ease_factor = ?,
+                repetitions = ?,
+                learning_step = 0,
+                next_review_at = ?,
+                due_timestamp = NULL
+              WHERE note_id = ?
+            `)
+            .bind(
+              preset.queue,
+              preset.interval,
+              preset.ease_factor,
+              preset.repetitions,
+              nextReview?.toISOString() || null,
+              noteId
+            )
+            .run();
+
+          updatedCount++;
+        }
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Set ${updatedCount} note(s) to "${familiarity}"${errors.length > 0 ? `. ${errors.length} note(s) not found.` : '.'}`,
+          }],
+        };
+      }
+    );
+
     // ============ History Tools ============
 
     this.server.tool(
