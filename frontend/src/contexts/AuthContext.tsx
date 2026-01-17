@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { AuthUser } from '../types';
-import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents } from '../api/client';
+import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
+
+const SESSION_TOKEN_KEY = 'session_token';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -26,13 +28,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Initial load
+  // Initial load - check for token in URL first
   useEffect(() => {
     const loadUser = async () => {
+      // Check for session token in URL (from OAuth callback)
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('session_token');
+
+      if (urlToken) {
+        // Store token and clear from URL
+        localStorage.setItem(SESSION_TOKEN_KEY, urlToken);
+        setSessionToken(urlToken);
+        // Clean up URL
+        window.history.replaceState({}, '', window.location.pathname);
+      } else {
+        // Check localStorage for existing token
+        const storedToken = localStorage.getItem(SESSION_TOKEN_KEY);
+        if (storedToken) {
+          setSessionToken(storedToken);
+        }
+      }
+
       try {
         const userData = await getCurrentUser();
         setUser(userData);
       } catch {
+        // Clear invalid token
+        localStorage.removeItem(SESSION_TOKEN_KEY);
+        clearSessionToken();
         setUser(null);
       } finally {
         setIsLoading(false);
@@ -58,6 +81,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await apiLogout();
+    localStorage.removeItem(SESSION_TOKEN_KEY);
+    clearSessionToken();
     setUser(null);
     window.location.href = '/';
   }, []);

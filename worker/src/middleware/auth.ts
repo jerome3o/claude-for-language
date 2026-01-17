@@ -33,9 +33,16 @@ export async function authMiddleware(
     return next();
   }
 
-  // Get session from cookie
-  const cookieHeader = c.req.header('Cookie') || null;
-  const sessionId = parseSessionCookie(cookieHeader);
+  // Get session from Authorization header or cookie
+  let sessionId: string | null = null;
+  const authHeader = c.req.header('Authorization');
+
+  if (authHeader?.startsWith('Bearer ')) {
+    sessionId = authHeader.slice(7);
+  } else {
+    const cookieHeader = c.req.header('Cookie') || null;
+    sessionId = parseSessionCookie(cookieHeader);
+  }
 
   if (!sessionId) {
     return c.json({ error: 'Unauthorized' }, 401);

@@ -20,19 +20,37 @@ export const API_BASE = import.meta.env.VITE_API_URL
 
 const API_PATH = `${API_BASE}/api`;
 
+// Session token for Authorization header (used when cookies don't work cross-origin)
+let sessionToken: string | null = null;
+
+export function setSessionToken(token: string | null) {
+  sessionToken = token;
+}
+
+export function clearSessionToken() {
+  sessionToken = null;
+}
+
 // Event for handling unauthorized responses
 export const authEvents = {
   onUnauthorized: () => {},
 };
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...options?.headers as Record<string, string>,
+  };
+
+  // Add Authorization header if we have a session token
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
   const response = await fetch(`${API_PATH}${url}`, {
     ...options,
     credentials: 'include', // Include cookies for authentication
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
 
   if (response.status === 401) {
@@ -240,9 +258,15 @@ export async function uploadRecording(reviewId: string, audioBlob: Blob): Promis
   formData.append('file', audioBlob, 'recording.webm');
   formData.append('review_id', reviewId);
 
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
   const response = await fetch(`${API_PATH}/audio/upload`, {
     method: 'POST',
     credentials: 'include',
+    headers,
     body: formData,
   });
 

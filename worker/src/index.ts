@@ -135,19 +135,16 @@ app.get('/api/auth/callback', async (c) => {
     const session = await createSession(c.env.DB, user.id);
     console.log('[Auth Callback] Created session:', session.id);
 
-    // Redirect to frontend with session cookie
-    // Note: Must use Headers object to set multiple Set-Cookie headers
-    const sessionCookie = createSessionCookie(session.id, isSecure);
-    const stateClearCookie = clearStateCookie(isSecure);
-    console.log('[Auth Callback] Session cookie:', sessionCookie);
-    console.log('[Auth Callback] Clear state cookie:', stateClearCookie);
+    // Redirect to frontend with session token in URL
+    // We pass the token in the URL because third-party cookies are blocked by browsers
+    // Frontend will store this in localStorage and send as Authorization header
+    const redirectUrl = `${frontendUrl}?session_token=${session.id}`;
+    console.log('[Auth Callback] Redirecting to frontend with token in URL');
 
     const headers = new Headers();
-    headers.set('Location', frontendUrl);
-    headers.append('Set-Cookie', sessionCookie);
-    headers.append('Set-Cookie', stateClearCookie);
+    headers.set('Location', redirectUrl);
+    headers.append('Set-Cookie', clearStateCookie(isSecure));
 
-    console.log('[Auth Callback] Redirecting to frontend');
     return new Response(null, {
       status: 302,
       headers,
@@ -177,10 +174,20 @@ app.post('/api/auth/logout', async (c) => {
 });
 
 app.get('/api/auth/me', async (c) => {
-  const cookieHeader = c.req.header('Cookie') || null;
-  console.log('[Auth Me] Cookie header:', cookieHeader);
-  const sessionId = parseSessionCookie(cookieHeader);
-  console.log('[Auth Me] Parsed session ID:', sessionId);
+  // Try Authorization header first (preferred for cross-origin)
+  const authHeader = c.req.header('Authorization');
+  let sessionId: string | null = null;
+
+  if (authHeader?.startsWith('Bearer ')) {
+    sessionId = authHeader.slice(7);
+    console.log('[Auth Me] Got session from Authorization header');
+  } else {
+    // Fallback to cookie (for same-origin or when cookies work)
+    const cookieHeader = c.req.header('Cookie') || null;
+    console.log('[Auth Me] Cookie header:', cookieHeader);
+    sessionId = parseSessionCookie(cookieHeader);
+  }
+  console.log('[Auth Me] Session ID:', sessionId ? 'found' : 'not found');
 
   if (!sessionId) {
     console.log('[Auth Me] No session ID found, returning 401');
