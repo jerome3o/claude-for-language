@@ -10,6 +10,8 @@ import {
   OverviewStats,
   DeckStats,
   GeneratedNote,
+  AuthUser,
+  AdminUser,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -18,14 +20,25 @@ export const API_BASE = import.meta.env.VITE_API_URL
 
 const API_PATH = `${API_BASE}/api`;
 
+// Event for handling unauthorized responses
+export const authEvents = {
+  onUnauthorized: () => {},
+};
+
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_PATH}${url}`, {
     ...options,
+    credentials: 'include', // Include cookies for authentication
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
     },
   });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -33,6 +46,29 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   }
 
   return response.json();
+}
+
+// ============ Auth ============
+
+export async function getCurrentUser(): Promise<AuthUser> {
+  return fetchJSON<AuthUser>('/auth/me');
+}
+
+export async function logout(): Promise<void> {
+  await fetch(`${API_PATH}/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+}
+
+export function getLoginUrl(): string {
+  return `${API_PATH}/auth/login`;
+}
+
+// ============ Admin ============
+
+export async function getAdminUsers(): Promise<AdminUser[]> {
+  return fetchJSON<AdminUser[]>('/admin/users');
 }
 
 // ============ Decks ============
@@ -206,8 +242,14 @@ export async function uploadRecording(reviewId: string, audioBlob: Blob): Promis
 
   const response = await fetch(`${API_PATH}/audio/upload`, {
     method: 'POST',
+    credentials: 'include',
     body: formData,
   });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
 
   if (!response.ok) {
     throw new Error('Failed to upload recording');

@@ -17,7 +17,15 @@ binding = "AUDIO_BUCKET"
 bucket_name = "chinese-learning-audio"
 
 # Environment variables (secrets set via wrangler secret or dashboard)
-# Set ANTHROPIC_API_KEY with: `wrangler secret put ANTHROPIC_API_KEY`
+# Set secrets with: `wrangler secret put <SECRET_NAME>`
+# Required secrets:
+# - ANTHROPIC_API_KEY: Anthropic API key for AI features
+# - GOOGLE_TTS_API_KEY: Google Cloud TTS API key
+# - GOOGLE_CLIENT_ID: Google OAuth client ID
+# - GOOGLE_CLIENT_SECRET: Google OAuth client secret
+# - SESSION_SECRET: Random secret for session signing (openssl rand -base64 32)
+# - ADMIN_EMAIL: Email address of the admin user
+# - NTFY_TOPIC: ntfy.sh topic for new user notifications
 [vars]
 ENVIRONMENT = "production"
 

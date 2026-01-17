@@ -63,6 +63,11 @@ jobs:
         run: |
           echo "${{ secrets.ANTHROPIC_API_KEY }}" | npx wrangler secret put ANTHROPIC_API_KEY
           echo "${{ secrets.GOOGLE_TTS_API_KEY }}" | npx wrangler secret put GOOGLE_TTS_API_KEY
+          echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID
+          echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+          echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
+          echo "${{ secrets.ADMIN_EMAIL }}" | npx wrangler secret put ADMIN_EMAIL
+          echo "${{ secrets.NTFY_TOPIC }}" | npx wrangler secret put NTFY_TOPIC
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}
@@ -81,3 +86,13 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT }}
           workingDirectory: mcp-server
           command: deploy
+
+      - name: Set MCP Server Secrets
+        working-directory: mcp-server
+        run: |
+          echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID
+          echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+          echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}

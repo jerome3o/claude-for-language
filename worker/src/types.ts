@@ -5,6 +5,12 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   ENVIRONMENT: string;
+  // Auth secrets
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  SESSION_SECRET: string;
+  ADMIN_EMAIL: string;
+  NTFY_TOPIC: string;
 }
 
 // Card types
@@ -20,8 +26,51 @@ export type UserRole = 'student' | 'tutor';
 export interface User {
   id: string;
   email: string | null;
+  google_id: string | null;
+  name: string | null;
+  picture_url: string | null;
   role: UserRole;
+  is_admin: number;
+  last_login_at: string | null;
   created_at: string;
+}
+
+export interface AuthSession {
+  id: string;
+  user_id: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface OAuthClient {
+  client_id: string;
+  client_secret_hash: string | null;
+  client_name: string | null;
+  redirect_uris: string; // JSON array
+  grant_types: string;
+  created_at: string;
+}
+
+export interface OAuthToken {
+  id: string;
+  client_id: string;
+  user_id: string;
+  access_token_hash: string;
+  refresh_token_hash: string | null;
+  scope: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface OAuthCode {
+  code: string;
+  client_id: string;
+  user_id: string;
+  redirect_uri: string;
+  code_challenge: string | null;
+  code_challenge_method: string | null;
+  scope: string | null;
+  expires_at: string;
 }
 
 export interface Deck {

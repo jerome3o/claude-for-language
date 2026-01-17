@@ -1,12 +1,16 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { HomePage } from './pages/HomePage';
+import { SplashPage } from './pages/SplashPage';
 import { DecksPage, NewDeckPage } from './pages/DecksPage';
 import { DeckDetailPage } from './pages/DeckDetailPage';
 import { StudyPage } from './pages/StudyPage';
 import { SessionReviewPage } from './pages/SessionReviewPage';
 import { GeneratePage } from './pages/GeneratePage';
+import { AdminPage } from './pages/AdminPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -17,21 +21,108 @@ const queryClient = new QueryClient({
   },
 });
 
+function HomeOrSplash() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="container" style={{ textAlign: 'center', padding: '3rem' }}>
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <SplashPage />;
+  }
+
+  return (
+    <>
+      <Header />
+      <HomePage />
+    </>
+  );
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<HomeOrSplash />} />
+      <Route
+        path="/decks"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <DecksPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/decks/new"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <NewDeckPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/decks/:id"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <DeckDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/study"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <StudyPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/study/review/:id"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <SessionReviewPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/generate"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <GeneratePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <AdminRoute>
+            <Header />
+            <AdminPage />
+          </AdminRoute>
+        }
+      />
+    </Routes>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Header />
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/decks" element={<DecksPage />} />
-          <Route path="/decks/new" element={<NewDeckPage />} />
-          <Route path="/decks/:id" element={<DeckDetailPage />} />
-          <Route path="/study" element={<StudyPage />} />
-          <Route path="/study/review/:id" element={<SessionReviewPage />} />
-          <Route path="/generate" element={<GeneratePage />} />
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

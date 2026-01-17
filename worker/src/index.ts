@@ -1,38 +1,232 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, Rating } from './types';
+import { Env, Rating, User } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import { generateDeck, suggestCards, askAboutNote } from './services/ai';
 import { storeAudio, getAudio, getRecordingKey, generateTTS } from './services/audio';
+import {
+  getGoogleAuthUrl,
+  exchangeCodeForTokens,
+  getGoogleUserInfo,
+  getOrCreateUser,
+  createSession,
+  deleteSession,
+  createSessionCookie,
+  clearSessionCookie,
+  parseSessionCookie,
+  getSessionWithUser,
+  createStateCookie,
+  clearStateCookie,
+  parseStateCookie,
+  generateState,
+  getAllUsers,
+} from './services/auth';
+import { notifyNewUser } from './services/notifications';
+import { authMiddleware, adminMiddleware } from './middleware/auth';
+
+// Extend Hono context to include user
+declare module 'hono' {
+  interface ContextVariableMap {
+    user: User;
+  }
+}
 
 const app = new Hono<{ Bindings: Env }>();
 
-// CORS middleware
-app.use('/api/*', cors());
+// CORS middleware - allow credentials for cookie-based auth
+app.use('/api/*', cors({
+  origin: (origin) => {
+    // Allow localhost for development
+    if (origin?.includes('localhost') || origin?.includes('127.0.0.1')) {
+      return origin;
+    }
+    // Allow production domains
+    if (origin?.includes('chinese-learning.pages.dev') || origin?.includes('jeromeswannack.workers.dev')) {
+      return origin;
+    }
+    // Allow any origin in development
+    return origin || '*';
+  },
+  credentials: true,
+}));
 
-// Health check
+// Health check (public)
 app.get('/api/health', (c) => c.json({ status: 'ok' }));
+
+// ============ Auth Routes (public) ============
+
+app.get('/api/auth/login', (c) => {
+  const state = generateState();
+  const isSecure = c.req.url.startsWith('https');
+
+  // Determine redirect URI based on environment
+  const url = new URL(c.req.url);
+  const redirectUri = `${url.protocol}//${url.host}/api/auth/callback`;
+
+  const authUrl = getGoogleAuthUrl(c.env, state, redirectUri);
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': authUrl,
+      'Set-Cookie': createStateCookie(state, isSecure),
+    },
+  });
+});
+
+app.get('/api/auth/callback', async (c) => {
+  const code = c.req.query('code');
+  const state = c.req.query('state');
+  const error = c.req.query('error');
+
+  const isSecure = c.req.url.startsWith('https');
+  const frontendUrl = isSecure ? 'https://chinese-learning.pages.dev' : 'http://localhost:3000';
+
+  // Handle OAuth errors
+  if (error) {
+    console.error('[Auth] OAuth error:', error);
+    return Response.redirect(`${frontendUrl}?error=oauth_error`, 302);
+  }
+
+  if (!code || !state) {
+    return Response.redirect(`${frontendUrl}?error=missing_params`, 302);
+  }
+
+  // Verify state
+  const cookieState = parseStateCookie(c.req.header('Cookie') || null);
+  if (state !== cookieState) {
+    console.error('[Auth] State mismatch');
+    return Response.redirect(`${frontendUrl}?error=invalid_state`, 302);
+  }
+
+  try {
+    // Determine redirect URI (must match what was used in login)
+    const url = new URL(c.req.url);
+    const redirectUri = `${url.protocol}//${url.host}/api/auth/callback`;
+
+    // Exchange code for tokens
+    const tokens = await exchangeCodeForTokens(c.env, code, redirectUri);
+
+    // Get user info from Google
+    const googleUser = await getGoogleUserInfo(tokens.access_token);
+
+    // Create or update user in database
+    const isAdminEmail = googleUser.email === c.env.ADMIN_EMAIL;
+    const { user, isNewUser } = await getOrCreateUser(c.env.DB, googleUser, isAdminEmail);
+
+    // Send notification for new users (in background)
+    if (isNewUser && c.env.NTFY_TOPIC) {
+      c.executionCtx.waitUntil(notifyNewUser(c.env.NTFY_TOPIC, user));
+    }
+
+    // Create session
+    const session = await createSession(c.env.DB, user.id);
+
+    // Redirect to frontend with session cookie
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': frontendUrl,
+        'Set-Cookie': [
+          createSessionCookie(session.id, isSecure),
+          clearStateCookie(isSecure),
+        ].join(', '),
+      },
+    });
+  } catch (error) {
+    console.error('[Auth] Callback error:', error);
+    return Response.redirect(`${frontendUrl}?error=auth_failed`, 302);
+  }
+});
+
+app.post('/api/auth/logout', async (c) => {
+  const cookieHeader = c.req.header('Cookie') || null;
+  const sessionId = parseSessionCookie(cookieHeader);
+  const isSecure = c.req.url.startsWith('https');
+
+  if (sessionId) {
+    await deleteSession(c.env.DB, sessionId);
+  }
+
+  return new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Set-Cookie': clearSessionCookie(isSecure),
+    },
+  });
+});
+
+app.get('/api/auth/me', async (c) => {
+  const cookieHeader = c.req.header('Cookie') || null;
+  const sessionId = parseSessionCookie(cookieHeader);
+
+  if (!sessionId) {
+    return c.json({ error: 'Not authenticated' }, 401);
+  }
+
+  const result = await getSessionWithUser(c.env.DB, sessionId);
+
+  if (!result) {
+    return c.json({ error: 'Not authenticated' }, 401);
+  }
+
+  // Return user without sensitive fields
+  const { user } = result;
+  return c.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    picture_url: user.picture_url,
+    role: user.role,
+    is_admin: !!user.is_admin,
+  });
+});
+
+// Apply auth middleware to all /api/* routes except auth routes
+app.use('/api/*', authMiddleware);
+
+// ============ Admin Routes ============
+
+app.get('/api/admin/users', adminMiddleware, async (c) => {
+  const users = await getAllUsers(c.env.DB);
+
+  // Return users without sensitive fields
+  return c.json(users.map(user => ({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    picture_url: user.picture_url,
+    role: user.role,
+    is_admin: !!user.is_admin,
+    created_at: user.created_at,
+    last_login_at: user.last_login_at,
+  })));
+});
 
 // ============ Decks ============
 
 app.get('/api/decks', async (c) => {
-  const decks = await db.getAllDecks(c.env.DB);
+  const userId = c.get('user').id;
+  const decks = await db.getAllDecks(c.env.DB, userId);
   return c.json(decks);
 });
 
 app.post('/api/decks', async (c) => {
+  const userId = c.get('user').id;
   const { name, description } = await c.req.json<{ name: string; description?: string }>();
   if (!name) {
     return c.json({ error: 'Name is required' }, 400);
   }
-  const deck = await db.createDeck(c.env.DB, name, description);
+  const deck = await db.createDeck(c.env.DB, userId, name, description);
   return c.json(deck, 201);
 });
 
 app.get('/api/decks/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const deck = await db.getDeckWithNotes(c.env.DB, id);
+  const deck = await db.getDeckWithNotes(c.env.DB, id, userId);
   if (!deck) {
     return c.json({ error: 'Deck not found' }, 404);
   }
@@ -40,9 +234,10 @@ app.get('/api/decks/:id', async (c) => {
 });
 
 app.put('/api/decks/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
   const { name, description } = await c.req.json<{ name?: string; description?: string }>();
-  const deck = await db.updateDeck(c.env.DB, id, name, description);
+  const deck = await db.updateDeck(c.env.DB, id, userId, name, description);
   if (!deck) {
     return c.json({ error: 'Deck not found' }, 404);
   }
@@ -50,16 +245,18 @@ app.put('/api/decks/:id', async (c) => {
 });
 
 app.delete('/api/decks/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  await db.deleteDeck(c.env.DB, id);
+  await db.deleteDeck(c.env.DB, id, userId);
   return c.json({ success: true });
 });
 
 // ============ Notes ============
 
 app.get('/api/decks/:deckId/notes', async (c) => {
+  const userId = c.get('user').id;
   const deckId = c.req.param('deckId');
-  const deck = await db.getDeckWithNotes(c.env.DB, deckId);
+  const deck = await db.getDeckWithNotes(c.env.DB, deckId, userId);
   if (!deck) {
     return c.json({ error: 'Deck not found' }, 404);
   }
@@ -67,6 +264,7 @@ app.get('/api/decks/:deckId/notes', async (c) => {
 });
 
 app.post('/api/decks/:deckId/notes', async (c) => {
+  const userId = c.get('user').id;
   const deckId = c.req.param('deckId');
   const { hanzi, pinyin, english, fun_facts } = await c.req.json<{
     hanzi: string;
@@ -79,7 +277,7 @@ app.post('/api/decks/:deckId/notes', async (c) => {
     return c.json({ error: 'hanzi, pinyin, and english are required' }, 400);
   }
 
-  const deck = await db.getDeckById(c.env.DB, deckId);
+  const deck = await db.getDeckById(c.env.DB, deckId, userId);
   if (!deck) {
     return c.json({ error: 'Deck not found' }, 404);
   }
@@ -104,8 +302,9 @@ app.post('/api/decks/:deckId/notes', async (c) => {
 });
 
 app.get('/api/notes/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const note = await db.getNoteWithCards(c.env.DB, id);
+  const note = await db.getNoteWithCards(c.env.DB, id, userId);
   if (!note) {
     return c.json({ error: 'Note not found' }, 404);
   }
@@ -113,6 +312,7 @@ app.get('/api/notes/:id', async (c) => {
 });
 
 app.put('/api/notes/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
   const updates = await c.req.json<{
     hanzi?: string;
@@ -121,7 +321,7 @@ app.put('/api/notes/:id', async (c) => {
     fun_facts?: string;
   }>();
 
-  const note = await db.updateNote(c.env.DB, id, {
+  const note = await db.updateNote(c.env.DB, id, userId, {
     hanzi: updates.hanzi,
     pinyin: updates.pinyin,
     english: updates.english,
@@ -135,14 +335,16 @@ app.put('/api/notes/:id', async (c) => {
 });
 
 app.delete('/api/notes/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  await db.deleteNote(c.env.DB, id);
+  await db.deleteNote(c.env.DB, id, userId);
   return c.json({ success: true });
 });
 
 app.get('/api/notes/:id/history', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const history = await db.getNoteReviewHistory(c.env.DB, id);
+  const history = await db.getNoteReviewHistory(c.env.DB, id, userId);
   if (!history) {
     return c.json({ error: 'Note not found' }, 404);
   }
@@ -150,6 +352,7 @@ app.get('/api/notes/:id/history', async (c) => {
 });
 
 app.post('/api/notes/:id/ask', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
   const { question } = await c.req.json<{ question: string }>();
 
@@ -161,7 +364,7 @@ app.post('/api/notes/:id/ask', async (c) => {
     return c.json({ error: 'AI is not configured' }, 500);
   }
 
-  const note = await db.getNoteById(c.env.DB, id);
+  const note = await db.getNoteById(c.env.DB, id, userId);
   if (!note) {
     return c.json({ error: 'Note not found' }, 404);
   }
@@ -177,15 +380,17 @@ app.post('/api/notes/:id/ask', async (c) => {
 });
 
 app.get('/api/notes/:id/questions', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const questions = await db.getNoteQuestions(c.env.DB, id);
+  const questions = await db.getNoteQuestions(c.env.DB, id, userId);
   return c.json(questions);
 });
 
 app.post('/api/notes/:id/generate-audio', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
 
-  const note = await db.getNoteById(c.env.DB, id);
+  const note = await db.getNoteById(c.env.DB, id, userId);
   if (!note) {
     return c.json({ error: 'Note not found' }, 404);
   }
@@ -198,7 +403,7 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
     const audioKey = await generateTTS(c.env, note.hanzi, note.id);
     if (audioKey) {
       await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
-      const updatedNote = await db.getNoteById(c.env.DB, note.id);
+      const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
     } else {
       return c.json({ error: 'Failed to generate audio' }, 500);
@@ -212,17 +417,19 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
 // ============ Cards ============
 
 app.get('/api/cards/due', async (c) => {
+  const userId = c.get('user').id;
   const deckId = c.req.query('deck_id');
   const includeNew = c.req.query('include_new') !== 'false';
   const limit = parseInt(c.req.query('limit') || '20', 10);
 
-  const cards = await db.getDueCards(c.env.DB, deckId, includeNew, limit);
+  const cards = await db.getDueCards(c.env.DB, userId, deckId, includeNew, limit);
   return c.json(cards);
 });
 
 app.get('/api/cards/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const card = await db.getCardWithNote(c.env.DB, id);
+  const card = await db.getCardWithNote(c.env.DB, id, userId);
   if (!card) {
     return c.json({ error: 'Card not found' }, 404);
   }
@@ -232,14 +439,16 @@ app.get('/api/cards/:id', async (c) => {
 // ============ Study Sessions ============
 
 app.post('/api/study/sessions', async (c) => {
+  const userId = c.get('user').id;
   const { deck_id } = await c.req.json<{ deck_id?: string }>();
-  const session = await db.createStudySession(c.env.DB, deck_id);
+  const session = await db.createStudySession(c.env.DB, userId, deck_id);
   return c.json(session, 201);
 });
 
 app.get('/api/study/sessions/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const session = await db.getSessionWithReviews(c.env.DB, id);
+  const session = await db.getSessionWithReviews(c.env.DB, id, userId);
   if (!session) {
     return c.json({ error: 'Session not found' }, 404);
   }
@@ -247,6 +456,7 @@ app.get('/api/study/sessions/:id', async (c) => {
 });
 
 app.post('/api/study/sessions/:id/reviews', async (c) => {
+  const userId = c.get('user').id;
   const sessionId = c.req.param('id');
   const { card_id, rating, time_spent_ms, user_answer } = await c.req.json<{
     card_id: string;
@@ -259,8 +469,8 @@ app.post('/api/study/sessions/:id/reviews', async (c) => {
     return c.json({ error: 'card_id and rating are required' }, 400);
   }
 
-  // Get current card state
-  const card = await db.getCardById(c.env.DB, card_id);
+  // Get current card state (verify ownership)
+  const card = await db.getCardById(c.env.DB, card_id, userId);
   if (!card) {
     return c.json({ error: 'Card not found' }, 404);
   }
@@ -301,8 +511,9 @@ app.post('/api/study/sessions/:id/reviews', async (c) => {
 });
 
 app.put('/api/study/sessions/:id/complete', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const session = await db.completeStudySession(c.env.DB, id);
+  const session = await db.completeStudySession(c.env.DB, id, userId);
   if (!session) {
     return c.json({ error: 'Session not found' }, 404);
   }
@@ -352,6 +563,7 @@ app.get('/api/audio/*', async (c) => {
 // ============ AI Generation ============
 
 app.post('/api/ai/generate-deck', async (c) => {
+  const userId = c.get('user').id;
   const { prompt, deck_name } = await c.req.json<{ prompt: string; deck_name?: string }>();
 
   if (!prompt) {
@@ -366,7 +578,7 @@ app.post('/api/ai/generate-deck', async (c) => {
     const generated = await generateDeck(c.env.ANTHROPIC_API_KEY, prompt, deck_name);
 
     // Create the deck
-    const deck = await db.createDeck(c.env.DB, generated.deck_name, generated.deck_description);
+    const deck = await db.createDeck(c.env.DB, userId, generated.deck_name, generated.deck_description);
 
     // Create all notes
     const notes = await Promise.all(
@@ -441,13 +653,15 @@ app.get('/api/debug/notes-audio', async (c) => {
 // ============ Statistics ============
 
 app.get('/api/stats/overview', async (c) => {
-  const stats = await db.getOverviewStats(c.env.DB);
+  const userId = c.get('user').id;
+  const stats = await db.getOverviewStats(c.env.DB, userId);
   return c.json(stats);
 });
 
 app.get('/api/stats/deck/:id', async (c) => {
+  const userId = c.get('user').id;
   const id = c.req.param('id');
-  const stats = await db.getDeckStats(c.env.DB, id);
+  const stats = await db.getDeckStats(c.env.DB, id, userId);
   if (!stats) {
     return c.json({ error: 'Deck not found' }, 404);
   }

@@ -4,6 +4,25 @@ export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi
 // Rating values (SM-2)
 export type Rating = 0 | 1 | 2 | 3; // 0=again, 1=hard, 2=good, 3=easy
 
+// User roles
+export type UserRole = 'student' | 'tutor';
+
+// Auth user type (from /api/auth/me)
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  name: string | null;
+  picture_url: string | null;
+  role: UserRole;
+  is_admin: boolean;
+}
+
+// Admin user list type
+export interface AdminUser extends AuthUser {
+  created_at: string;
+  last_login_at: string | null;
+}
+
 // Database models
 export interface Deck {
   id: string;

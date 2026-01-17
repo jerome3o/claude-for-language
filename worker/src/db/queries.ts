@@ -13,17 +13,23 @@ import { generateId, CARD_TYPES } from '../services/cards';
 
 // ============ Decks ============
 
-export async function getAllDecks(db: D1Database): Promise<Deck[]> {
-  const result = await db.prepare('SELECT * FROM decks ORDER BY updated_at DESC').all<Deck>();
+export async function getAllDecks(db: D1Database, userId: string): Promise<Deck[]> {
+  const result = await db
+    .prepare('SELECT * FROM decks WHERE user_id = ? ORDER BY updated_at DESC')
+    .bind(userId)
+    .all<Deck>();
   return result.results;
 }
 
-export async function getDeckById(db: D1Database, id: string): Promise<Deck | null> {
-  return db.prepare('SELECT * FROM decks WHERE id = ?').bind(id).first<Deck>();
+export async function getDeckById(db: D1Database, id: string, userId: string): Promise<Deck | null> {
+  return db
+    .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
+    .bind(id, userId)
+    .first<Deck>();
 }
 
-export async function getDeckWithNotes(db: D1Database, id: string): Promise<DeckWithNotes | null> {
-  const deck = await getDeckById(db, id);
+export async function getDeckWithNotes(db: D1Database, id: string, userId: string): Promise<DeckWithNotes | null> {
+  const deck = await getDeckById(db, id, userId);
   if (!deck) return null;
 
   const notes = await db
@@ -36,16 +42,20 @@ export async function getDeckWithNotes(db: D1Database, id: string): Promise<Deck
 
 export async function createDeck(
   db: D1Database,
+  userId: string,
   name: string,
   description?: string
 ): Promise<Deck> {
   const id = generateId();
   await db
-    .prepare('INSERT INTO decks (id, name, description) VALUES (?, ?, ?)')
-    .bind(id, name, description || null)
+    .prepare('INSERT INTO decks (id, user_id, name, description) VALUES (?, ?, ?, ?)')
+    .bind(id, userId, name, description || null)
     .run();
 
-  const deck = await getDeckById(db, id);
+  const deck = await db
+    .prepare('SELECT * FROM decks WHERE id = ?')
+    .bind(id)
+    .first<Deck>();
   if (!deck) throw new Error('Failed to create deck');
   return deck;
 }
@@ -53,9 +63,14 @@ export async function createDeck(
 export async function updateDeck(
   db: D1Database,
   id: string,
+  userId: string,
   name?: string,
   description?: string
 ): Promise<Deck | null> {
+  // Verify ownership first
+  const existing = await getDeckById(db, id, userId);
+  if (!existing) return null;
+
   const updates: string[] = [];
   const values: (string | null)[] = [];
 
@@ -69,7 +84,7 @@ export async function updateDeck(
   }
 
   if (updates.length === 0) {
-    return getDeckById(db, id);
+    return existing;
   }
 
   updates.push("updated_at = datetime('now')");
@@ -80,21 +95,36 @@ export async function updateDeck(
     .bind(...values)
     .run();
 
-  return getDeckById(db, id);
+  return getDeckById(db, id, userId);
 }
 
-export async function deleteDeck(db: D1Database, id: string): Promise<void> {
-  await db.prepare('DELETE FROM decks WHERE id = ?').bind(id).run();
+export async function deleteDeck(db: D1Database, id: string, userId: string): Promise<void> {
+  // Only delete if user owns the deck
+  await db
+    .prepare('DELETE FROM decks WHERE id = ? AND user_id = ?')
+    .bind(id, userId)
+    .run();
 }
 
 // ============ Notes ============
 
-export async function getNoteById(db: D1Database, id: string): Promise<Note | null> {
+export async function getNoteById(db: D1Database, id: string, userId?: string): Promise<Note | null> {
+  if (userId) {
+    // Verify the note belongs to a deck owned by the user
+    return db
+      .prepare(`
+        SELECT n.* FROM notes n
+        JOIN decks d ON n.deck_id = d.id
+        WHERE n.id = ? AND d.user_id = ?
+      `)
+      .bind(id, userId)
+      .first<Note>();
+  }
   return db.prepare('SELECT * FROM notes WHERE id = ?').bind(id).first<Note>();
 }
 
-export async function getNoteWithCards(db: D1Database, id: string): Promise<NoteWithCards | null> {
-  const note = await getNoteById(db, id);
+export async function getNoteWithCards(db: D1Database, id: string, userId: string): Promise<NoteWithCards | null> {
+  const note = await getNoteById(db, id, userId);
   if (!note) return null;
 
   const cards = await db
@@ -141,15 +171,25 @@ export async function createNote(
     .bind(deckId)
     .run();
 
-  const result = await getNoteWithCards(db, noteId);
-  if (!result) throw new Error('Failed to create note');
-  return result;
+  // Return the note with cards (no user check needed since we just created it)
+  const note = await db.prepare('SELECT * FROM notes WHERE id = ?').bind(noteId).first<Note>();
+  const cards = await db.prepare('SELECT * FROM cards WHERE note_id = ?').bind(noteId).all<Card>();
+
+  if (!note) throw new Error('Failed to create note');
+  return { ...note, cards: cards.results };
 }
 
 export async function updateNote(
   db: D1Database,
   id: string,
-  updates: {
+  userIdOrUpdates?: string | {
+    hanzi?: string;
+    pinyin?: string;
+    english?: string;
+    audioUrl?: string;
+    funFacts?: string;
+  },
+  updates?: {
     hanzi?: string;
     pinyin?: string;
     english?: string;
@@ -157,32 +197,55 @@ export async function updateNote(
     funFacts?: string;
   }
 ): Promise<Note | null> {
+  // Handle overloaded function signature
+  let userId: string | undefined;
+  let actualUpdates: {
+    hanzi?: string;
+    pinyin?: string;
+    english?: string;
+    audioUrl?: string;
+    funFacts?: string;
+  };
+
+  if (typeof userIdOrUpdates === 'string') {
+    userId = userIdOrUpdates;
+    actualUpdates = updates || {};
+  } else {
+    actualUpdates = userIdOrUpdates || {};
+  }
+
+  // Verify ownership if userId provided
+  if (userId) {
+    const existing = await getNoteById(db, id, userId);
+    if (!existing) return null;
+  }
+
   const fields: string[] = [];
   const values: (string | null)[] = [];
 
-  if (updates.hanzi !== undefined) {
+  if (actualUpdates.hanzi !== undefined) {
     fields.push('hanzi = ?');
-    values.push(updates.hanzi);
+    values.push(actualUpdates.hanzi);
   }
-  if (updates.pinyin !== undefined) {
+  if (actualUpdates.pinyin !== undefined) {
     fields.push('pinyin = ?');
-    values.push(updates.pinyin);
+    values.push(actualUpdates.pinyin);
   }
-  if (updates.english !== undefined) {
+  if (actualUpdates.english !== undefined) {
     fields.push('english = ?');
-    values.push(updates.english);
+    values.push(actualUpdates.english);
   }
-  if (updates.audioUrl !== undefined) {
+  if (actualUpdates.audioUrl !== undefined) {
     fields.push('audio_url = ?');
-    values.push(updates.audioUrl);
+    values.push(actualUpdates.audioUrl);
   }
-  if (updates.funFacts !== undefined) {
+  if (actualUpdates.funFacts !== undefined) {
     fields.push('fun_facts = ?');
-    values.push(updates.funFacts);
+    values.push(actualUpdates.funFacts);
   }
 
   if (fields.length === 0) {
-    return getNoteById(db, id);
+    return getNoteById(db, id, userId);
   }
 
   fields.push("updated_at = datetime('now')");
@@ -205,27 +268,37 @@ export async function updateNote(
   return note;
 }
 
-export async function deleteNote(db: D1Database, id: string): Promise<void> {
-  const note = await getNoteById(db, id);
+export async function deleteNote(db: D1Database, id: string, userId: string): Promise<void> {
+  // Verify ownership first
+  const note = await getNoteById(db, id, userId);
+  if (!note) return;
+
   await db.prepare('DELETE FROM notes WHERE id = ?').bind(id).run();
 
   // Update deck's updated_at
-  if (note) {
-    await db
-      .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-      .bind(note.deck_id)
-      .run();
-  }
+  await db
+    .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
+    .bind(note.deck_id)
+    .run();
 }
 
 // ============ Cards ============
 
-export async function getCardById(db: D1Database, id: string): Promise<Card | null> {
-  return db.prepare('SELECT * FROM cards WHERE id = ?').bind(id).first<Card>();
+export async function getCardById(db: D1Database, id: string, userId: string): Promise<Card | null> {
+  // Verify the card belongs to a note in a deck owned by the user
+  return db
+    .prepare(`
+      SELECT c.* FROM cards c
+      JOIN notes n ON c.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE c.id = ? AND d.user_id = ?
+    `)
+    .bind(id, userId)
+    .first<Card>();
 }
 
-export async function getCardWithNote(db: D1Database, id: string): Promise<CardWithNote | null> {
-  const card = await getCardById(db, id);
+export async function getCardWithNote(db: D1Database, id: string, userId: string): Promise<CardWithNote | null> {
+  const card = await getCardById(db, id, userId);
   if (!card) return null;
 
   const note = await getNoteById(db, card.note_id);
@@ -236,6 +309,7 @@ export async function getCardWithNote(db: D1Database, id: string): Promise<CardW
 
 export async function getDueCards(
   db: D1Database,
+  userId: string,
   deckId?: string,
   includeNew: boolean = true,
   limit: number = 20
@@ -244,10 +318,11 @@ export async function getDueCards(
     SELECT c.*, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id
     FROM cards c
     JOIN notes n ON c.note_id = n.id
-    WHERE (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
   `;
 
-  const params: (string | number)[] = [];
+  const params: (string | number)[] = [userId];
 
   if (!includeNew) {
     query += ' AND c.next_review_at IS NOT NULL';
@@ -316,12 +391,13 @@ export async function updateCardSM2(
 
 export async function createStudySession(
   db: D1Database,
+  userId: string,
   deckId?: string
 ): Promise<StudySession> {
   const id = generateId();
   await db
-    .prepare('INSERT INTO study_sessions (id, deck_id) VALUES (?, ?)')
-    .bind(id, deckId || null)
+    .prepare('INSERT INTO study_sessions (id, user_id, deck_id) VALUES (?, ?, ?)')
+    .bind(id, userId, deckId || null)
     .run();
 
   const session = await db
@@ -335,18 +411,24 @@ export async function createStudySession(
 
 export async function getStudySession(
   db: D1Database,
-  id: string
+  id: string,
+  userId: string
 ): Promise<StudySession | null> {
   return db
-    .prepare('SELECT * FROM study_sessions WHERE id = ?')
-    .bind(id)
+    .prepare('SELECT * FROM study_sessions WHERE id = ? AND user_id = ?')
+    .bind(id, userId)
     .first<StudySession>();
 }
 
 export async function completeStudySession(
   db: D1Database,
-  id: string
+  id: string,
+  userId: string
 ): Promise<StudySession | null> {
+  // Verify ownership
+  const existing = await getStudySession(db, id, userId);
+  if (!existing) return null;
+
   // Count cards studied
   const countResult = await db
     .prepare('SELECT COUNT(*) as count FROM card_reviews WHERE session_id = ?')
@@ -362,14 +444,15 @@ export async function completeStudySession(
     .bind(cardsStudied, id)
     .run();
 
-  return getStudySession(db, id);
+  return getStudySession(db, id, userId);
 }
 
 export async function getSessionWithReviews(
   db: D1Database,
-  sessionId: string
+  sessionId: string,
+  userId: string
 ): Promise<StudySession & { reviews: (CardReview & { card: CardWithNote })[] } | null> {
-  const session = await getStudySession(db, sessionId);
+  const session = await getStudySession(db, sessionId, userId);
   if (!session) return null;
 
   const reviews = await db
@@ -480,14 +563,11 @@ export interface NoteReviewHistory {
 
 export async function getNoteReviewHistory(
   db: D1Database,
-  noteId: string
+  noteId: string,
+  userId: string
 ): Promise<NoteReviewHistory[] | null> {
-  // First verify note exists
-  const note = await db
-    .prepare('SELECT id FROM notes WHERE id = ?')
-    .bind(noteId)
-    .first();
-
+  // First verify note exists and belongs to user
+  const note = await getNoteById(db, noteId, userId);
   if (!note) return null;
 
   // Get card stats for this note
@@ -591,8 +671,13 @@ export async function createNoteQuestion(
 
 export async function getNoteQuestions(
   db: D1Database,
-  noteId: string
+  noteId: string,
+  userId: string
 ): Promise<NoteQuestion[]> {
+  // Verify note belongs to user first
+  const note = await getNoteById(db, noteId, userId);
+  if (!note) return [];
+
   const result = await db
     .prepare('SELECT * FROM note_questions WHERE note_id = ? ORDER BY asked_at DESC')
     .bind(noteId)
@@ -602,25 +687,32 @@ export async function getNoteQuestions(
 
 // ============ Statistics ============
 
-export async function getOverviewStats(db: D1Database): Promise<{
+export async function getOverviewStats(db: D1Database, userId: string): Promise<{
   total_cards: number;
   cards_due_today: number;
   cards_studied_today: number;
   total_decks: number;
 }> {
   const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
-    db.prepare('SELECT COUNT(*) as count FROM cards').first<{ count: number }>(),
-    db
-      .prepare(
-        "SELECT COUNT(*) as count FROM cards WHERE next_review_at IS NULL OR next_review_at <= datetime('now')"
-      )
-      .first<{ count: number }>(),
-    db
-      .prepare(
-        "SELECT COUNT(*) as count FROM card_reviews WHERE date(reviewed_at) = date('now')"
-      )
-      .first<{ count: number }>(),
-    db.prepare('SELECT COUNT(*) as count FROM decks').first<{ count: number }>(),
+    db.prepare(`
+      SELECT COUNT(*) as count FROM cards c
+      JOIN notes n ON c.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+    `).bind(userId).first<{ count: number }>(),
+    db.prepare(`
+      SELECT COUNT(*) as count FROM cards c
+      JOIN notes n ON c.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+    `).bind(userId).first<{ count: number }>(),
+    db.prepare(`
+      SELECT COUNT(*) as count FROM card_reviews cr
+      JOIN study_sessions ss ON cr.session_id = ss.id
+      WHERE ss.user_id = ? AND date(cr.reviewed_at) = date('now')
+    `).bind(userId).first<{ count: number }>(),
+    db.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
+      .bind(userId).first<{ count: number }>(),
   ]);
 
   return {
@@ -633,14 +725,15 @@ export async function getOverviewStats(db: D1Database): Promise<{
 
 export async function getDeckStats(
   db: D1Database,
-  deckId: string
+  deckId: string,
+  userId: string
 ): Promise<{
   total_notes: number;
   total_cards: number;
   cards_due: number;
   cards_mastered: number;
 } | null> {
-  const deck = await getDeckById(db, deckId);
+  const deck = await getDeckById(db, deckId, userId);
   if (!deck) return null;
 
   const [totalNotes, totalCards, cardsDue, cardsMastered] = await Promise.all([

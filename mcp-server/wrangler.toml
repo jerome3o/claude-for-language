@@ -9,8 +9,19 @@ binding = "DB"
 database_name = "chinese-learning-db"
 database_id = "b1ccbb96-0328-4c36-95d8-d7fe18171d82"
 
+# KV Namespace for OAuth state storage
+# Create with: wrangler kv:namespace create OAUTH_KV
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "7477802c478b4d67ac8586f32bc42936"
+
 [vars]
 ENVIRONMENT = "production"
+
+# Secrets (set via wrangler secret put):
+# - GOOGLE_CLIENT_ID
+# - GOOGLE_CLIENT_SECRET
+# - SESSION_SECRET
 
 [dev]
 port = 8788

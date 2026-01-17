@@ -1,9 +1,26 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import OAuthProvider, {
+  OAuthHelpers,
+} from "@cloudflare/workers-oauth-provider";
 
 // Types
 interface Env {
   DB: D1Database;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  SESSION_SECRET: string;
+  ENVIRONMENT: string;
+  // OAuth KV storage
+  OAUTH_KV: KVNamespace;
+}
+
+interface User {
+  id: string;
+  email: string | null;
+  google_id: string | null;
+  name: string | null;
+  picture_url: string | null;
 }
 
 interface Deck {
@@ -26,6 +43,12 @@ interface Note {
   updated_at: string;
 }
 
+// Props passed from OAuth middleware to downstream handlers
+interface McpAuthProps {
+  userId: string;
+  userEmail: string | null;
+}
+
 // Utility function to generate IDs
 function generateId(): string {
   return crypto.randomUUID();
@@ -33,8 +56,161 @@ function generateId(): string {
 
 const CARD_TYPES = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const;
 
-// Create MCP server with tools
-function createServer(env: Env) {
+// Google OAuth handler for user authentication
+async function googleAuthHandler(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+
+  // Start Google OAuth flow
+  if (url.pathname === "/oauth/google/start") {
+    const oauthReqInfo = url.searchParams.get("oauthReqInfo");
+    if (!oauthReqInfo) {
+      return new Response("Missing OAuth request info", { status: 400 });
+    }
+
+    const state = btoa(oauthReqInfo);
+    const redirectUri = `${url.origin}/oauth/google/callback`;
+
+    const params = new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      state,
+      access_type: "offline",
+      prompt: "consent",
+    });
+
+    return Response.redirect(
+      `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+      302
+    );
+  }
+
+  // Handle Google OAuth callback
+  if (url.pathname === "/oauth/google/callback") {
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const error = url.searchParams.get("error");
+
+    if (error || !code || !state) {
+      return new Response("OAuth failed: " + (error || "missing params"), { status: 400 });
+    }
+
+    // Exchange code for tokens
+    const redirectUri = `${url.origin}/oauth/google/callback`;
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: redirectUri,
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const err = await tokenResponse.text();
+      return new Response("Token exchange failed: " + err, { status: 500 });
+    }
+
+    const tokens = await tokenResponse.json() as { access_token: string };
+
+    // Get user info from Google
+    const userInfoResponse = await fetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+    );
+
+    if (!userInfoResponse.ok) {
+      return new Response("Failed to get user info", { status: 500 });
+    }
+
+    const googleUser = await userInfoResponse.json() as {
+      id: string;
+      email: string;
+      name: string;
+      picture: string;
+    };
+
+    // Get or create user in database
+    let user = await env.DB
+      .prepare("SELECT * FROM users WHERE google_id = ?")
+      .bind(googleUser.id)
+      .first<User>();
+
+    if (!user) {
+      // Check by email
+      user = await env.DB
+        .prepare("SELECT * FROM users WHERE email = ?")
+        .bind(googleUser.email)
+        .first<User>();
+
+      if (user) {
+        // Link Google account
+        await env.DB
+          .prepare(`
+            UPDATE users SET
+              google_id = ?,
+              name = ?,
+              picture_url = ?,
+              last_login_at = datetime('now')
+            WHERE id = ?
+          `)
+          .bind(googleUser.id, googleUser.name, googleUser.picture, user.id)
+          .run();
+      } else {
+        // Create new user
+        const userId = generateId();
+        await env.DB
+          .prepare(`
+            INSERT INTO users (id, email, google_id, name, picture_url, role, is_admin, last_login_at)
+            VALUES (?, ?, ?, ?, ?, 'student', 0, datetime('now'))
+          `)
+          .bind(userId, googleUser.email, googleUser.id, googleUser.name, googleUser.picture)
+          .run();
+
+        user = await env.DB
+          .prepare("SELECT * FROM users WHERE id = ?")
+          .bind(userId)
+          .first<User>();
+      }
+    } else {
+      // Update last login
+      await env.DB
+        .prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
+        .bind(user.id)
+        .run();
+    }
+
+    if (!user) {
+      return new Response("Failed to create or get user", { status: 500 });
+    }
+
+    // Decode the original OAuth request info
+    let oauthReqInfo: string;
+    try {
+      oauthReqInfo = atob(state);
+    } catch {
+      return new Response("Invalid state", { status: 400 });
+    }
+
+    // Complete the OAuth flow by redirecting back to the OAuth provider
+    // with user info
+    const completeUrl = new URL("/oauth/authorize/complete", url.origin);
+    completeUrl.searchParams.set("oauthReqInfo", oauthReqInfo);
+    completeUrl.searchParams.set("userId", user.id);
+    completeUrl.searchParams.set("userEmail", user.email || "");
+
+    return Response.redirect(completeUrl.toString(), 302);
+  }
+
+  return new Response("Not Found", { status: 404 });
+}
+
+// Create MCP server with tools (now receives userId for data isolation)
+function createServer(env: Env, userId: string) {
   const server = new McpServer({
     name: "Chinese Learning App",
     version: "1.0.0",
@@ -48,7 +224,8 @@ function createServer(env: Env) {
     {},
     async () => {
       const decks = await env.DB
-        .prepare('SELECT * FROM decks ORDER BY updated_at DESC')
+        .prepare('SELECT * FROM decks WHERE user_id = ? ORDER BY updated_at DESC')
+        .bind(userId)
         .all<Deck>();
 
       const decksWithStats = await Promise.all(
@@ -91,8 +268,8 @@ function createServer(env: Env) {
     { deck_id: z.string().describe("The deck ID") },
     async ({ deck_id }) => {
       const deck = await env.DB
-        .prepare('SELECT * FROM decks WHERE id = ?')
-        .bind(deck_id)
+        .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
+        .bind(deck_id, userId)
         .first<Deck>();
 
       if (!deck) {
@@ -122,8 +299,8 @@ function createServer(env: Env) {
     { deck_id: z.string().describe("The deck ID") },
     async ({ deck_id }) => {
       const deck = await env.DB
-        .prepare('SELECT * FROM decks WHERE id = ?')
-        .bind(deck_id)
+        .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
+        .bind(deck_id, userId)
         .first<Deck>();
 
       if (!deck) {
@@ -197,8 +374,8 @@ function createServer(env: Env) {
     async ({ name, description }) => {
       const id = generateId();
       await env.DB
-        .prepare('INSERT INTO decks (id, name, description) VALUES (?, ?, ?)')
-        .bind(id, name, description || null)
+        .prepare('INSERT INTO decks (id, user_id, name, description) VALUES (?, ?, ?, ?)')
+        .bind(id, userId, name, description || null)
         .run();
 
       const deck = await env.DB
@@ -224,6 +401,19 @@ function createServer(env: Env) {
       description: z.string().optional().describe("New description for the deck"),
     },
     async ({ deck_id, name, description }) => {
+      // Verify ownership
+      const existing = await env.DB
+        .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
+        .bind(deck_id, userId)
+        .first<Deck>();
+
+      if (!existing) {
+        return {
+          content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
+          isError: true,
+        };
+      }
+
       const updates: string[] = [];
       const values: (string | null)[] = [];
 
@@ -271,8 +461,8 @@ function createServer(env: Env) {
     { deck_id: z.string().describe("The deck ID to delete") },
     async ({ deck_id }) => {
       const deck = await env.DB
-        .prepare('SELECT * FROM decks WHERE id = ?')
-        .bind(deck_id)
+        .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
+        .bind(deck_id, userId)
         .first<Deck>();
 
       if (!deck) {
@@ -310,8 +500,8 @@ function createServer(env: Env) {
     },
     async ({ deck_id, hanzi, pinyin, english, fun_facts }) => {
       const deck = await env.DB
-        .prepare('SELECT id FROM decks WHERE id = ?')
-        .bind(deck_id)
+        .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
+        .bind(deck_id, userId)
         .first();
 
       if (!deck) {
@@ -377,6 +567,23 @@ function createServer(env: Env) {
       fun_facts: z.string().optional().describe("New fun facts/notes"),
     },
     async ({ note_id, hanzi, pinyin, english, fun_facts }) => {
+      // Verify ownership via deck
+      const note = await env.DB
+        .prepare(`
+          SELECT n.* FROM notes n
+          JOIN decks d ON n.deck_id = d.id
+          WHERE n.id = ? AND d.user_id = ?
+        `)
+        .bind(note_id, userId)
+        .first<Note>();
+
+      if (!note) {
+        return {
+          content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
+          isError: true,
+        };
+      }
+
       const updates: string[] = [];
       const values: (string | null)[] = [];
 
@@ -412,22 +619,20 @@ function createServer(env: Env) {
         .bind(...values)
         .run();
 
-      const note = await env.DB
+      await env.DB
+        .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
+        .bind(note.deck_id)
+        .run();
+
+      const updatedNote = await env.DB
         .prepare('SELECT * FROM notes WHERE id = ?')
         .bind(note_id)
         .first<Note>();
 
-      if (note) {
-        await env.DB
-          .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-          .bind(note.deck_id)
-          .run();
-      }
-
       return {
         content: [{
           type: "text" as const,
-          text: `Updated note: ${JSON.stringify(note, null, 2)}`,
+          text: `Updated note: ${JSON.stringify(updatedNote, null, 2)}`,
         }],
       };
     }
@@ -439,8 +644,12 @@ function createServer(env: Env) {
     { note_id: z.string().describe("The note ID to delete") },
     async ({ note_id }) => {
       const note = await env.DB
-        .prepare('SELECT * FROM notes WHERE id = ?')
-        .bind(note_id)
+        .prepare(`
+          SELECT n.* FROM notes n
+          JOIN decks d ON n.deck_id = d.id
+          WHERE n.id = ? AND d.user_id = ?
+        `)
+        .bind(note_id, userId)
         .first<Note>();
 
       if (!note) {
@@ -477,8 +686,12 @@ function createServer(env: Env) {
     { note_id: z.string().describe("The note ID") },
     async ({ note_id }) => {
       const note = await env.DB
-        .prepare('SELECT * FROM notes WHERE id = ?')
-        .bind(note_id)
+        .prepare(`
+          SELECT n.* FROM notes n
+          JOIN decks d ON n.deck_id = d.id
+          WHERE n.id = ? AND d.user_id = ?
+        `)
+        .bind(note_id, userId)
         .first<Note>();
 
       if (!note) {
@@ -550,10 +763,11 @@ function createServer(env: Env) {
         SELECT c.*, n.hanzi, n.pinyin, n.english, n.fun_facts, n.deck_id
         FROM cards c
         JOIN notes n ON c.note_id = n.id
-        WHERE (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+        JOIN decks d ON n.deck_id = d.id
+        WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
       `;
 
-      const params: (string | number)[] = [];
+      const params: (string | number)[] = [userId];
 
       if (deck_id) {
         query += ' AND n.deck_id = ?';
@@ -599,14 +813,25 @@ function createServer(env: Env) {
     {},
     async () => {
       const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
-        env.DB.prepare('SELECT COUNT(*) as count FROM cards').first<{ count: number }>(),
-        env.DB.prepare(
-          "SELECT COUNT(*) as count FROM cards WHERE next_review_at IS NULL OR next_review_at <= datetime('now')"
-        ).first<{ count: number }>(),
-        env.DB.prepare(
-          "SELECT COUNT(*) as count FROM card_reviews WHERE date(reviewed_at) = date('now')"
-        ).first<{ count: number }>(),
-        env.DB.prepare('SELECT COUNT(*) as count FROM decks').first<{ count: number }>(),
+        env.DB.prepare(`
+          SELECT COUNT(*) as count FROM cards c
+          JOIN notes n ON c.note_id = n.id
+          JOIN decks d ON n.deck_id = d.id
+          WHERE d.user_id = ?
+        `).bind(userId).first<{ count: number }>(),
+        env.DB.prepare(`
+          SELECT COUNT(*) as count FROM cards c
+          JOIN notes n ON c.note_id = n.id
+          JOIN decks d ON n.deck_id = d.id
+          WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+        `).bind(userId).first<{ count: number }>(),
+        env.DB.prepare(`
+          SELECT COUNT(*) as count FROM card_reviews cr
+          JOIN study_sessions ss ON cr.session_id = ss.id
+          WHERE ss.user_id = ? AND date(cr.reviewed_at) = date('now')
+        `).bind(userId).first<{ count: number }>(),
+        env.DB.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
+          .bind(userId).first<{ count: number }>(),
       ]);
 
       return {
@@ -626,18 +851,28 @@ function createServer(env: Env) {
   return server;
 }
 
-// Worker entry point using Streamable HTTP transport
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+// MCP request handler (with user context from OAuth)
+async function handleMcpRequest(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  props: McpAuthProps
+): Promise<Response> {
+  const server = createServer(env, props.userId);
+  const { createMcpHandler } = await import("agents/mcp");
+  return createMcpHandler(server)(request, env, ctx);
+}
+
+// Worker entry point using OAuth provider
+export default new OAuthProvider({
+  apiRoute: "/mcp",
+  apiHandler: handleMcpRequest,
+  defaultHandler: async (request: Request, env: Env, ctx: ExecutionContext) => {
     const url = new URL(request.url);
 
-    // Handle MCP endpoint with Streamable HTTP
-    if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
-      const server = createServer(env);
-
-      // Import and use the streamable HTTP handler
-      const { createMcpHandler } = await import("agents/mcp");
-      return createMcpHandler(server)(request, env, ctx);
+    // Handle Google OAuth flows
+    if (url.pathname.startsWith("/oauth/google/")) {
+      return googleAuthHandler(request, env, ctx);
     }
 
     // Health check
@@ -646,7 +881,7 @@ export default {
         status: "ok",
         name: "Chinese Learning MCP Server",
         version: "1.0.0",
-        transport: "Streamable HTTP",
+        transport: "Streamable HTTP with OAuth 2.1",
         endpoint: "/mcp",
       }), {
         headers: { "Content-Type": "application/json" },
@@ -655,4 +890,9 @@ export default {
 
     return new Response("Not Found", { status: 404 });
   },
-};
+  authorizeEndpoint: "/oauth/authorize",
+  tokenEndpoint: "/oauth/token",
+  clientRegistrationEndpoint: "/oauth/register",
+  // Use Google as upstream identity provider
+  // Users will be redirected to /oauth/google/start for authentication
+});
