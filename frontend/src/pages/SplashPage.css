@@ -3,7 +3,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: 0.75rem;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
 }
 
@@ -11,7 +11,7 @@
   max-width: 400px;
   width: 100%;
   text-align: center;
-  padding: 2rem;
+  padding: 1.5rem;
 }
 
 .splash-title {
@@ -43,7 +43,7 @@
 .splash-features {
   display: flex;
   justify-content: center;
-  gap: 1.5rem;
+  gap: 1rem;
   margin-bottom: 2rem;
   flex-wrap: wrap;
 }
@@ -65,8 +65,8 @@
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: #ef4444;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
   margin-bottom: 1.5rem;
   font-size: 0.875rem;
 }
@@ -78,11 +78,11 @@
   gap: 0.75rem;
   width: 100%;
   max-width: 280px;
-  padding: 0.875rem 1.5rem;
+  padding: 0.625rem 1rem;
   background: #fff;
   color: #333;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 1rem;
   font-weight: 500;
   cursor: pointer;
@@ -109,7 +109,7 @@
 
 @media (min-width: 640px) {
   .splash-content {
-    padding: 3rem;
+    padding: 2rem;
   }
 
   .splash-hanzi {
@@ -125,6 +125,6 @@
   }
 
   .splash-features {
-    gap: 2rem;
+    gap: 1.5rem;
   }
 }

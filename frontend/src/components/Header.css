@@ -64,7 +64,7 @@
 }
 
 .user-menu-info {
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
@@ -90,7 +90,7 @@
 .user-menu-item {
   display: block;
   width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
   background: none;
   border: none;

@@ -219,7 +219,7 @@ function StudyCard({
         return (
           <div className="text-center">
             <p className="text-light mb-2">{cardInfo.prompt}</p>
-            <div style={{ fontSize: '2rem', fontWeight: 500 }}>{card.note.english}</div>
+            <div style={{ fontSize: '2.5rem', fontWeight: 500 }}>{card.note.english}</div>
             <div className="mt-4">
               <input
                 ref={inputRef}
@@ -289,7 +289,7 @@ function StudyCard({
 
         <div className="hanzi hanzi-large mb-2">{card.note.hanzi}</div>
         <div className="pinyin mb-2">{card.note.pinyin}</div>
-        <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
+        <div style={{ fontSize: '1.75rem', fontWeight: 500 }}>{card.note.english}</div>
 
         <div className="flex gap-2 justify-center flex-wrap mt-3">
           <button
@@ -326,8 +326,8 @@ function StudyCard({
             style={{
               fontSize: '0.875rem',
               backgroundColor: '#f3f4f6',
-              padding: '0.75rem',
-              borderRadius: '8px',
+              padding: '0.5rem',
+              borderRadius: '4px',
             }}
           >
             {card.note.fun_facts}
@@ -341,8 +341,8 @@ function StudyCard({
             style={{
               textAlign: 'left',
               backgroundColor: '#f9fafb',
-              padding: '1rem',
-              borderRadius: '8px',
+              padding: '0.75rem',
+              borderRadius: '4px',
               maxHeight: '300px',
               overflowY: 'auto',
             }}
@@ -354,14 +354,14 @@ function StudyCard({
             )}
 
             {conversation.map((qa) => (
-              <div key={qa.id} style={{ marginBottom: '1rem' }}>
+              <div key={qa.id} style={{ marginBottom: '0.75rem' }}>
                 <div
                   style={{
                     backgroundColor: 'var(--color-primary)',
                     color: 'white',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
-                    marginBottom: '0.5rem',
+                    padding: '0.375rem 0.5rem',
+                    borderRadius: '4px',
+                    marginBottom: '0.375rem',
                     fontSize: '0.875rem',
                   }}
                 >
@@ -370,8 +370,8 @@ function StudyCard({
                 <div
                   style={{
                     backgroundColor: 'white',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
+                    padding: '0.375rem 0.5rem',
+                    borderRadius: '4px',
                     fontSize: '0.875rem',
                     whiteSpace: 'pre-wrap',
                     border: '1px solid #e5e7eb',
@@ -400,7 +400,7 @@ function StudyCard({
                 className="btn btn-primary"
                 onClick={handleAskClaude}
                 disabled={!question.trim() || isAsking}
-                style={{ padding: '0.5rem 1rem' }}
+                style={{ padding: '0.375rem 0.75rem' }}
               >
                 {isAsking ? '...' : 'Ask'}
               </button>
@@ -461,7 +461,7 @@ function StudyCard({
   };
 
   return (
-    <div className="card" style={{ minHeight: '400px' }}>
+    <div className="card" style={{ minHeight: '350px' }}>
       <div className="study-card">
         {!flipped ? (
           <>
