@@ -507,6 +507,8 @@ export function DeckDetailPage() {
   const [historyNote, setHistoryNote] = useState<Note | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [isGeneratingAllAudio, setIsGeneratingAllAudio] = useState(false);
+  const [audioGenerationProgress, setAudioGenerationProgress] = useState({ done: 0, total: 0 });
 
   const deckQuery = useQuery({
     queryKey: ['deck', id],
@@ -554,6 +556,28 @@ export function DeckDetailPage() {
     },
   });
 
+  const generateAllMissingAudio = async () => {
+    if (!deckQuery.data) return;
+
+    const notesWithoutAudio = deckQuery.data.notes.filter(note => !note.audio_url);
+    if (notesWithoutAudio.length === 0) return;
+
+    setIsGeneratingAllAudio(true);
+    setAudioGenerationProgress({ done: 0, total: notesWithoutAudio.length });
+
+    for (let i = 0; i < notesWithoutAudio.length; i++) {
+      try {
+        await generateNoteAudio(notesWithoutAudio[i].id);
+        setAudioGenerationProgress({ done: i + 1, total: notesWithoutAudio.length });
+      } catch (error) {
+        console.error(`Failed to generate audio for ${notesWithoutAudio[i].hanzi}:`, error);
+      }
+    }
+
+    setIsGeneratingAllAudio(false);
+    queryClient.invalidateQueries({ queryKey: ['deck', id] });
+  };
+
   if (deckQuery.isLoading) {
     return <Loading />;
   }
@@ -575,11 +599,22 @@ export function DeckDetailPage() {
           </Link>
           <h1 className="mt-1">{deck.name}</h1>
           {deck.description && <p className="text-light mt-1">{deck.description}</p>}
-          <div className="flex gap-2 mt-3">
+          <div className="flex gap-2 mt-3 flex-wrap">
             {stats && stats.cards_due > 0 && (
               <Link to={`/study?deck=${id}`} className="btn btn-primary">
                 Study ({stats.cards_due} due)
               </Link>
+            )}
+            {deck.notes.filter(n => !n.audio_url).length > 0 && (
+              <button
+                className="btn btn-secondary"
+                onClick={generateAllMissingAudio}
+                disabled={isGeneratingAllAudio}
+              >
+                {isGeneratingAllAudio
+                  ? `Generating Audio (${audioGenerationProgress.done}/${audioGenerationProgress.total})`
+                  : `Generate All Audio (${deck.notes.filter(n => !n.audio_url).length})`}
+              </button>
             )}
             <button
               className="btn btn-secondary"
