@@ -294,6 +294,71 @@ The app includes an MCP (Model Context Protocol) server that allows AI assistant
 ### MCP Server URL (Streamable HTTP)
 `https://chinese-learning-mcp.jeromeswannack.workers.dev/mcp`
 
+### Architecture Overview
+
+The MCP server uses several key technologies:
+- **`@cloudflare/workers-oauth-provider`**: Wraps the worker with OAuth 2.1 support
+- **`agents/mcp` (McpAgent)**: Class-based MCP server pattern from the `agents` package
+- **Hono**: HTTP routing framework for the OAuth flow endpoints
+- **Google OAuth**: User authentication via Google Sign-In
+
+### Critical Implementation Details
+
+#### 1. SQLite-Backed Durable Objects (IMPORTANT!)
+
+The `McpAgent` class **requires SQLite-backed Durable Objects**. This is a common pitfall:
+
+```toml
+# wrangler.toml - CORRECT configuration
+[durable_objects]
+bindings = [
+  { name = "MCP_OBJECT", class_name = "ChineseLearningMCPv2" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChineseLearningMCPv2"]  # Must use new_sqlite_classes, NOT new_classes!
+```
+
+If you see this error, the Durable Object is not SQLite-backed:
+```
+Error: SqlError: SQL query failed: This Durable Object is not backed by SQLite storage
+```
+
+**Note**: An existing non-SQLite class cannot be converted. You must create a new class with a different name using `new_sqlite_classes`.
+
+#### 2. OAuth Flow Implementation
+
+The `OAuthProvider` does NOT auto-handle the authorization UI. Your `defaultHandler` must implement:
+- `GET /authorize` - Parse OAuth request, store state in KV, redirect to Google
+- `GET /callback` - Exchange Google code for tokens, get user info, call `completeAuthorization()`
+
+```typescript
+// Key pattern in callback handler:
+const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
+  request: oauthReqInfo,  // Original OAuth request from KV
+  userId: user.id,
+  metadata: { label: user.name || user.email },
+  scope: oauthReqInfo.scope,
+  props: { userId, userEmail, userName },  // Passed to McpAgent
+});
+return c.redirect(redirectTo);
+```
+
+#### 3. Required Secrets
+
+Set these via `wrangler secret put`:
+- `GOOGLE_CLIENT_ID` - From Google Cloud Console
+- `GOOGLE_CLIENT_SECRET` - From Google Cloud Console
+- `COOKIE_ENCRYPTION_KEY` - Generate with `openssl rand -hex 32`
+
+#### 4. Google OAuth Setup
+
+In Google Cloud Console, add this callback URL:
+```
+https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
+```
+
 ### Available Tools
 
 | Tool | Description |
@@ -316,6 +381,15 @@ The app includes an MCP (Model Context Protocol) server that allows AI assistant
 - Notes created via MCP will have audio available for playback
 - Use `get_note_history` to see a user's study progress and questions asked about a note
 
+### Connecting to Claude.ai
+
+Add the MCP server URL in Claude.ai settings:
+```
+https://chinese-learning-mcp.jeromeswannack.workers.dev/mcp
+```
+
+Claude.ai will handle the OAuth flow automatically.
+
 ### Connecting to Claude Desktop
 
 Use `mcp-remote` to connect Claude Desktop to the MCP server:
@@ -332,6 +406,18 @@ npm run dev:mcp
 # Deploy MCP server
 npm run deploy:mcp
 ```
+
+### Debugging
+
+To view live logs while testing:
+```bash
+cd mcp-server && npx wrangler tail --format pretty
+```
+
+Common issues:
+- **"Could not find McpAgent binding for MCP_OBJECT"** - Missing Durable Object config in wrangler.toml
+- **"This Durable Object is not backed by SQLite storage"** - Used `new_classes` instead of `new_sqlite_classes`
+- **OAuth errors after deploy** - GitHub Actions may overwrite secrets; ensure `MCP_COOKIE_ENCRYPTION_KEY` is set in GitHub secrets
 
 ## Future Considerations (Tutor Feature)
 The codebase is designed to support a future tutor view:
