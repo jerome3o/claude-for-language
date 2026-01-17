@@ -140,6 +140,15 @@ app.delete('/api/notes/:id', async (c) => {
   return c.json({ success: true });
 });
 
+app.get('/api/notes/:id/history', async (c) => {
+  const id = c.req.param('id');
+  const history = await db.getNoteReviewHistory(c.env.DB, id);
+  if (!history) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+  return c.json(history);
+});
+
 // ============ Cards ============
 
 app.get('/api/cards/due', async (c) => {

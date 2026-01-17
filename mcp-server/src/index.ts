@@ -455,6 +455,73 @@ function createServer(env: Env) {
     }
   );
 
+  // ============ History Tools ============
+
+  server.tool(
+    "get_note_history",
+    "Get review history for a note including all card types, ratings, and recordings",
+    { note_id: z.string().describe("The note ID") },
+    async ({ note_id }) => {
+      const note = await env.DB
+        .prepare('SELECT * FROM notes WHERE id = ?')
+        .bind(note_id)
+        .first<Note>();
+
+      if (!note) {
+        return {
+          content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
+          isError: true,
+        };
+      }
+
+      const reviews = await env.DB
+        .prepare(`
+          SELECT cr.id, cr.rating, cr.time_spent_ms, cr.user_answer, cr.recording_url, cr.reviewed_at, c.card_type
+          FROM card_reviews cr
+          JOIN cards c ON cr.card_id = c.id
+          WHERE c.note_id = ?
+          ORDER BY cr.reviewed_at DESC
+        `)
+        .bind(note_id)
+        .all<{
+          id: string;
+          rating: number;
+          time_spent_ms: number | null;
+          user_answer: string | null;
+          recording_url: string | null;
+          reviewed_at: string;
+          card_type: string;
+        }>();
+
+      const ratingLabels = ['Again', 'Hard', 'Good', 'Easy'];
+      const byCardType: Record<string, any[]> = {};
+
+      for (const review of reviews.results) {
+        if (!byCardType[review.card_type]) {
+          byCardType[review.card_type] = [];
+        }
+        byCardType[review.card_type].push({
+          reviewed_at: review.reviewed_at,
+          rating: ratingLabels[review.rating] || review.rating,
+          time_spent_ms: review.time_spent_ms,
+          user_answer: review.user_answer,
+          has_recording: !!review.recording_url,
+        });
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english },
+            total_reviews: reviews.results.length,
+            history_by_card_type: byCardType,
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
   // ============ Study Tools ============
 
   server.tool(

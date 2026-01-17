@@ -1,9 +1,108 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getAudioUrl } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note } from '../types';
+
+const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
+const CARD_TYPE_LABELS: Record<string, string> = {
+  hanzi_to_meaning: 'Hanzi → Meaning',
+  meaning_to_hanzi: 'Meaning → Hanzi',
+  audio_to_hanzi: 'Audio → Hanzi',
+};
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function NoteHistoryModal({
+  note,
+  onClose,
+}: {
+  note: Note;
+  onClose: () => void;
+}) {
+  const historyQuery = useQuery({
+    queryKey: ['noteHistory', note.id],
+    queryFn: () => getNoteHistory(note.id),
+  });
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">History: {note.hanzi}</h2>
+          <button className="modal-close" onClick={onClose}>
+            &times;
+          </button>
+        </div>
+
+        {historyQuery.isLoading && <Loading />}
+        {historyQuery.error && <ErrorMessage message="Failed to load history" />}
+
+        {historyQuery.data && historyQuery.data.length === 0 && (
+          <p className="text-light">No reviews yet. Study this card to see history.</p>
+        )}
+
+        {historyQuery.data && historyQuery.data.length > 0 && (
+          <div className="flex flex-col gap-4">
+            {historyQuery.data.map((cardHistory) => (
+              <div key={cardHistory.card_type}>
+                <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
+                  {CARD_TYPE_LABELS[cardHistory.card_type] || cardHistory.card_type}
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {cardHistory.reviews.map((review) => (
+                    <div
+                      key={review.id}
+                      className="card"
+                      style={{ padding: '0.75rem', background: 'var(--bg-elevated)' }}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="text-light">{formatDate(review.reviewed_at)}</span>
+                        <span
+                          style={{
+                            padding: '0.125rem 0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.875rem',
+                            background: review.rating >= 2 ? 'var(--success)' : 'var(--error)',
+                            color: 'white',
+                          }}
+                        >
+                          {RATING_LABELS[review.rating]}
+                        </span>
+                      </div>
+                      {review.user_answer && (
+                        <p style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                          Answer: <span className="hanzi">{review.user_answer}</span>
+                        </p>
+                      )}
+                      {review.recording_url && (
+                        <audio
+                          controls
+                          src={getAudioUrl(review.recording_url)}
+                          style={{ marginTop: '0.5rem', width: '100%', height: '32px' }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="modal-actions" style={{ marginTop: '1rem' }}>
+          <button className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface NoteFormData {
   hanzi: string;
@@ -104,10 +203,12 @@ function NoteCard({
   note,
   onEdit,
   onDelete,
+  onHistory,
 }: {
   note: Note;
   onEdit: () => void;
   onDelete: () => void;
+  onHistory: () => void;
 }) {
   return (
     <div className="note-card">
@@ -125,6 +226,9 @@ function NoteCard({
         )}
       </div>
       <div className="note-card-actions">
+        <button className="btn btn-sm btn-secondary" onClick={onHistory}>
+          History
+        </button>
         <button className="btn btn-sm btn-secondary" onClick={onEdit}>
           Edit
         </button>
@@ -143,6 +247,7 @@ export function DeckDetailPage() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [historyNote, setHistoryNote] = useState<Note | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const deckQuery = useQuery({
@@ -272,6 +377,7 @@ export function DeckDetailPage() {
                   key={note.id}
                   note={note}
                   onEdit={() => setEditingNote(note)}
+                  onHistory={() => setHistoryNote(note)}
                   onDelete={() => {
                     if (confirm(`Delete "${note.hanzi}"?`)) {
                       deleteNoteMutation.mutate(note.id);
@@ -327,6 +433,11 @@ export function DeckDetailPage() {
               />
             </div>
           </div>
+        )}
+
+        {/* Note History Modal */}
+        {historyNote && (
+          <NoteHistoryModal note={historyNote} onClose={() => setHistoryNote(null)} />
         )}
 
         {/* Delete Deck Confirmation */}

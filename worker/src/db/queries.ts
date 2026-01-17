@@ -457,6 +457,74 @@ export async function createCardReview(
   return review;
 }
 
+// ============ Note History ============
+
+export interface NoteReviewHistory {
+  card_type: string;
+  reviews: Array<{
+    id: string;
+    rating: number;
+    time_spent_ms: number | null;
+    user_answer: string | null;
+    recording_url: string | null;
+    reviewed_at: string;
+  }>;
+}
+
+export async function getNoteReviewHistory(
+  db: D1Database,
+  noteId: string
+): Promise<NoteReviewHistory[] | null> {
+  // First verify note exists
+  const note = await db
+    .prepare('SELECT id FROM notes WHERE id = ?')
+    .bind(noteId)
+    .first();
+
+  if (!note) return null;
+
+  // Get all reviews for all cards of this note
+  const reviews = await db
+    .prepare(`
+      SELECT cr.id, cr.rating, cr.time_spent_ms, cr.user_answer, cr.recording_url, cr.reviewed_at, c.card_type
+      FROM card_reviews cr
+      JOIN cards c ON cr.card_id = c.id
+      WHERE c.note_id = ?
+      ORDER BY cr.reviewed_at DESC
+    `)
+    .bind(noteId)
+    .all<{
+      id: string;
+      rating: number;
+      time_spent_ms: number | null;
+      user_answer: string | null;
+      recording_url: string | null;
+      reviewed_at: string;
+      card_type: string;
+    }>();
+
+  // Group by card type
+  const byCardType: Record<string, NoteReviewHistory['reviews']> = {};
+  for (const review of reviews.results) {
+    if (!byCardType[review.card_type]) {
+      byCardType[review.card_type] = [];
+    }
+    byCardType[review.card_type].push({
+      id: review.id,
+      rating: review.rating,
+      time_spent_ms: review.time_spent_ms,
+      user_answer: review.user_answer,
+      recording_url: review.recording_url,
+      reviewed_at: review.reviewed_at,
+    });
+  }
+
+  return Object.entries(byCardType).map(([card_type, reviews]) => ({
+    card_type,
+    reviews,
+  }));
+}
+
 // ============ Statistics ============
 
 export async function getOverviewStats(db: D1Database): Promise<{

@@ -95,6 +95,22 @@ export async function deleteNote(id: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/notes/${id}`, { method: 'DELETE' });
 }
 
+export interface NoteReviewHistory {
+  card_type: string;
+  reviews: Array<{
+    id: string;
+    rating: number;
+    time_spent_ms: number | null;
+    user_answer: string | null;
+    recording_url: string | null;
+    reviewed_at: string;
+  }>;
+}
+
+export async function getNoteHistory(noteId: string): Promise<NoteReviewHistory[]> {
+  return fetchJSON<NoteReviewHistory[]>(`/notes/${noteId}/history`);
+}
+
 // ============ Cards ============
 
 export async function getDueCards(options?: {
