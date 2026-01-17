@@ -5,13 +5,13 @@ const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate voca
 
 For each vocabulary item, provide:
 - hanzi: Chinese characters (simplified)
-- pinyin: Romanized pronunciation with tone numbers (e.g., "ni3 hao3" for 你好)
+- pinyin: Romanized pronunciation with tone marks/accents (e.g., "nǐ hǎo" for 你好, "māmā" for 妈妈)
 - english: Clear, concise English translation
 - fun_facts: Optional cultural context, usage notes, memory aids, or interesting tidbits (can be empty string)
 
 Important guidelines:
 - Use simplified Chinese characters
-- Include tone numbers in pinyin (1-4, or 5 for neutral tone)
+- Use proper pinyin with tone marks (ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ) - NOT tone numbers
 - For phrases, include spaces between syllables in pinyin
 - Make vocabulary practical and commonly used
 - Include a mix of single characters and multi-character words/phrases when appropriate
@@ -41,7 +41,7 @@ Respond with JSON in this exact format:
   "notes": [
     {
       "hanzi": "Chinese characters",
-      "pinyin": "pin1 yin1 with tone numbers",
+      "pinyin": "pīnyīn with tone marks",
       "english": "English meaning",
       "fun_facts": "Optional cultural note or memory aid"
     }
@@ -98,7 +98,7 @@ Respond with JSON in this exact format:
   "notes": [
     {
       "hanzi": "Chinese characters",
-      "pinyin": "pin1 yin1 with tone numbers",
+      "pinyin": "pīnyīn with tone marks",
       "english": "English meaning",
       "fun_facts": "Optional cultural note or memory aid"
     }
