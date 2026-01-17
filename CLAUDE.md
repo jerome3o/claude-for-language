@@ -182,8 +182,8 @@ npm run dev:frontend
 
 The app includes an MCP (Model Context Protocol) server that allows AI assistants like Claude to interact with your vocabulary data.
 
-### MCP Server URL
-`https://chinese-learning-mcp.jeromeswannack.workers.dev/sse`
+### MCP Server URL (Streamable HTTP)
+`https://chinese-learning-mcp.jeromeswannack.workers.dev/mcp`
 
 ### Available Tools
 
@@ -205,7 +205,7 @@ The app includes an MCP (Model Context Protocol) server that allows AI assistant
 
 Use `mcp-remote` to connect Claude Desktop to the MCP server:
 ```bash
-npx mcp-remote https://chinese-learning-mcp.jeromeswannack.workers.dev/sse
+npx mcp-remote https://chinese-learning-mcp.jeromeswannack.workers.dev/mcp
 ```
 
 ### Development

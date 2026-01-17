@@ -9,15 +9,6 @@ binding = "DB"
 database_name = "chinese-learning-db"
 database_id = "b1ccbb96-0328-4c36-95d8-d7fe18171d82"
 
-# Durable Objects for MCP state
-[[durable_objects.bindings]]
-name = "MCP_OBJECT"
-class_name = "ChineseLearningMCP"
-
-[[migrations]]
-tag = "v1"
-new_classes = ["ChineseLearningMCP"]
-
 [vars]
 ENVIRONMENT = "production"
 
