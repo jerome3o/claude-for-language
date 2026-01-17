@@ -36,8 +36,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── worker/                 # Cloudflare Worker (API backend)
 │   ├── src/
 │   │   ├── index.ts       # Main entry point, routes
-│   │   ├── routes/        # API route handlers
-│   │   ├── services/      # Business logic (SM-2 algorithm, AI generation)
+│   │   ├── services/      # Business logic (SM-2, AI, TTS)
 │   │   ├── db/            # Database queries and migrations
 │   │   └── types.ts       # TypeScript types
 │   ├── wrangler.toml      # Cloudflare Worker config
@@ -46,11 +45,17 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── frontend/              # React + Vite frontend
 │   ├── src/
 │   │   ├── components/    # React components
-│   │   ├── pages/         # Page components
-│   │   ├── hooks/         # Custom React hooks
-│   │   ├── api/           # API client
-│   │   └── types.ts       # TypeScript types (shared with worker)
+│   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.)
+│   │   ├── hooks/         # Custom React hooks (useAudio, etc.)
+│   │   ├── api/           # API client functions
+│   │   └── types.ts       # TypeScript types
 │   ├── vite.config.ts
+│   └── package.json
+│
+├── mcp-server/            # MCP Server for AI assistant integration
+│   ├── src/
+│   │   └── index.ts       # MCP tools and server setup
+│   ├── wrangler.toml      # Separate worker config (shares D1 database)
 │   └── package.json
 │
 ├── docs/                  # Documentation
@@ -59,7 +64,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   └── SETUP.md          # Setup and deployment guide
 │
 ├── .github/workflows/     # GitHub Actions
-│   └── deploy.yml        # Auto-deploy on push to main
+│   └── deploy.yml        # Auto-deploy all services on push to main
 │
 └── package.json          # Root package.json (workspaces)
 ```
@@ -85,15 +90,75 @@ Each card tracks:
 
 Ratings: `again` (0), `hard` (1), `good` (2), `easy` (3)
 
-### Audio Storage
-- Generated audio (gTTS) and user recordings stored in Cloudflare R2
-- Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
-- Types: `generated` (gTTS), `recordings` (user)
+### Database Tables
+- `users` - User accounts (for future multi-user/tutor support)
+- `decks` - Vocabulary decks
+- `notes` - Vocabulary items (hanzi, pinyin, english, audio_url, fun_facts)
+- `cards` - SRS cards (3 per note, one per card_type)
+- `study_sessions` - Study session records
+- `card_reviews` - Individual review records (rating, time, answer, recording_url)
+- `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at)
 
-### AI Card Generation
-Uses Anthropic Claude API to generate cards. Two modes:
-1. **Deck generation**: "Generate cards about zoo vocabulary" → creates full deck
-2. **Card suggestions**: While editing, suggest related cards
+### Audio Storage
+- Generated TTS audio and user recordings stored in Cloudflare R2
+- Audio URLs follow pattern: `/{bucket}/{type}/{id}.mp3`
+- Types: `generated` (TTS), `recordings` (user voice)
+- TTS is generated via Google Cloud Text-to-Speech API (Mandarin Wavenet voice)
+
+### AI Features
+Uses Anthropic Claude API for several features:
+
+1. **Deck generation**: "Generate cards about zoo vocabulary" → creates full deck with 8-12 cards
+2. **Card suggestions**: While editing, suggest related vocabulary
+3. **Ask Claude**: During study, ask questions about a card (grammar, usage, cultural context)
+   - Questions and answers are stored in `note_questions` table
+   - Visible in note history modal
+
+### Pinyin Format
+- Always use **tone marks** (nǐ hǎo), NOT tone numbers (ni3 hao3)
+- Use proper Unicode: ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ
+
+## Feature Overview
+
+### Study Flow
+1. User selects a deck (or "All Decks") and starts a study session
+2. Cards are shown based on spaced repetition schedule (due cards first)
+3. Three card types test different skills:
+   - **Hanzi → Meaning**: See characters, speak aloud, reveal answer
+   - **Meaning → Hanzi**: See English, type characters, check answer
+   - **Audio → Hanzi**: Hear audio, type characters, check answer
+4. On answer reveal:
+   - Play TTS audio
+   - **Ask Claude** about the word (grammar, usage, examples)
+   - Rate difficulty (Again/Hard/Good/Easy)
+5. Session ends when all cards reviewed
+
+### Deck Management
+- Create/edit/delete decks
+- Add notes manually or via AI generation
+- Each note has: hanzi, pinyin (with tone marks), English, optional fun facts
+- Each note auto-generates 3 cards (one per card type)
+- **Play audio** button on each note in deck view
+- **Generate audio** button if TTS is missing (🔊+)
+
+### Note History
+Each note has a **History** button showing:
+- **Review history** by card type with:
+  - Date/time of each review
+  - Rating given (color-coded)
+  - Time spent
+  - User's typed answer
+  - Audio recording (if recorded)
+- **Current card stats**: interval, ease factor, repetitions
+- **Questions asked** to Claude with answers
+
+### AI Integration
+- **Generate Deck**: Describe a topic, get 8-12 vocabulary cards
+- **Ask Claude**: During study, ask about grammar, usage, examples, mnemonics
+- Q&A is saved and viewable in note history
+
+### MCP Server
+AI assistants can manage vocabulary via MCP (see MCP Server section below).
 
 ## Development Guidelines
 
@@ -158,8 +223,52 @@ npm run dev:frontend
 ```
 
 ### Environment Variables / Secrets
-- `ANTHROPIC_API_KEY`: For AI card generation (set in Cloudflare dashboard or wrangler.toml)
+- `ANTHROPIC_API_KEY`: For AI card generation and Ask Claude feature
+- `GOOGLE_TTS_API_KEY`: For Google Cloud Text-to-Speech audio generation
 - D1 and R2 bindings are configured in `wrangler.toml`
+
+Set secrets via:
+```bash
+cd worker && npx wrangler secret put ANTHROPIC_API_KEY
+cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
+```
+
+## API Endpoints Reference
+
+### Decks
+- `GET /api/decks` - List all decks
+- `POST /api/decks` - Create deck
+- `GET /api/decks/:id` - Get deck with notes
+- `PUT /api/decks/:id` - Update deck
+- `DELETE /api/decks/:id` - Delete deck
+
+### Notes
+- `GET /api/notes/:id` - Get note with cards
+- `POST /api/decks/:deckId/notes` - Create note (auto-generates TTS)
+- `PUT /api/notes/:id` - Update note
+- `DELETE /api/notes/:id` - Delete note
+- `GET /api/notes/:id/history` - Get review history and card stats
+- `POST /api/notes/:id/ask` - Ask Claude about a note
+- `GET /api/notes/:id/questions` - Get Q&A history
+- `POST /api/notes/:id/generate-audio` - Generate TTS audio for note
+
+### Cards & Study
+- `GET /api/cards/due` - Get due cards (optional `?deck_id=`)
+- `POST /api/study/sessions` - Start study session
+- `POST /api/study/sessions/:id/reviews` - Record a review
+- `PUT /api/study/sessions/:id/complete` - Complete session
+
+### Audio
+- `POST /api/audio/upload` - Upload user recording
+- `GET /api/audio/*` - Get audio file from R2
+
+### AI
+- `POST /api/ai/generate-deck` - Generate deck from prompt
+- `POST /api/ai/suggest-cards` - Get card suggestions
+
+### Stats
+- `GET /api/stats/overview` - Overall statistics
+- `GET /api/stats/deck/:id` - Deck statistics
 
 ## Common Tasks
 
@@ -195,11 +304,17 @@ The app includes an MCP (Model Context Protocol) server that allows AI assistant
 | `create_deck` | Create a new deck |
 | `update_deck` | Update deck name/description |
 | `delete_deck` | Delete a deck and all its notes |
-| `add_note` | Add a vocabulary note to a deck |
+| `add_note` | Add a vocabulary note (auto-generates TTS audio) |
 | `update_note` | Update an existing note |
 | `delete_note` | Delete a note |
+| `get_note_history` | Get review history and Q&A for a note |
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
+
+### Notes on MCP Usage
+- When `add_note` is called, the MCP server automatically calls the main API to generate TTS audio
+- Notes created via MCP will have audio available for playback
+- Use `get_note_history` to see a user's study progress and questions asked about a note
 
 ### Connecting to Claude Desktop
 
