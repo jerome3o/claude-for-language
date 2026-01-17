@@ -21,7 +21,7 @@ ENVIRONMENT = "production"
 # Secrets (set via wrangler secret put):
 # - GOOGLE_CLIENT_ID
 # - GOOGLE_CLIENT_SECRET
-# - SESSION_SECRET
+# - COOKIE_ENCRYPTION_KEY (generate with: openssl rand -hex 32)
 
 [dev]
 port = 8788
