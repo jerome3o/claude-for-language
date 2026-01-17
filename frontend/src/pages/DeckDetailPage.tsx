@@ -210,10 +210,22 @@ function DeckSettingsModal({
   onSave: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Basic settings
   const [newCardsPerDay, setNewCardsPerDay] = useState(deck.new_cards_per_day?.toString() || '20');
   const [learningSteps, setLearningSteps] = useState(deck.learning_steps || '1 10');
   const [graduatingInterval, setGraduatingInterval] = useState(deck.graduating_interval?.toString() || '1');
   const [easyInterval, setEasyInterval] = useState(deck.easy_interval?.toString() || '4');
+  const [relearningSteps, setRelearningSteps] = useState(deck.relearning_steps || '10');
+
+  // Advanced settings (stored as percentages in DB)
+  const [startingEase, setStartingEase] = useState(((deck.starting_ease || 250) / 100).toString());
+  const [minimumEase, setMinimumEase] = useState(((deck.minimum_ease || 130) / 100).toString());
+  const [maximumEase, setMaximumEase] = useState(((deck.maximum_ease || 300) / 100).toString());
+  const [intervalModifier, setIntervalModifier] = useState(((deck.interval_modifier || 100) / 100).toString());
+  const [hardMultiplier, setHardMultiplier] = useState(((deck.hard_multiplier || 120) / 100).toString());
+  const [easyBonus, setEasyBonus] = useState(((deck.easy_bonus || 130) / 100).toString());
 
   const saveMutation = useMutation({
     mutationFn: () => updateDeckSettings(deck.id, {
@@ -221,6 +233,13 @@ function DeckSettingsModal({
       learning_steps: learningSteps,
       graduating_interval: parseInt(graduatingInterval, 10) || 1,
       easy_interval: parseInt(easyInterval, 10) || 4,
+      relearning_steps: relearningSteps,
+      starting_ease: Math.round(parseFloat(startingEase) * 100) || 250,
+      minimum_ease: Math.round(parseFloat(minimumEase) * 100) || 130,
+      maximum_ease: Math.round(parseFloat(maximumEase) * 100) || 300,
+      interval_modifier: Math.round(parseFloat(intervalModifier) * 100) || 100,
+      hard_multiplier: Math.round(parseFloat(hardMultiplier) * 100) || 120,
+      easy_bonus: Math.round(parseFloat(easyBonus) * 100) || 130,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deck', deck.id] });
@@ -231,7 +250,7 @@ function DeckSettingsModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
         <div className="modal-header">
           <h2 className="modal-title">Deck Settings</h2>
           <button className="modal-close" onClick={onClose}>
@@ -244,7 +263,22 @@ function DeckSettingsModal({
             e.preventDefault();
             saveMutation.mutate();
           }}
+          style={{ maxHeight: '70vh', overflowY: 'auto' }}
         >
+          {/* How SRS Works Section */}
+          <div style={{ background: 'var(--bg-elevated)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
+            <strong>How Spaced Repetition Works:</strong>
+            <ul style={{ margin: '0.5rem 0 0 1rem', paddingLeft: '0.5rem' }}>
+              <li><strong>New cards</strong> go through learning steps (1min → 10min → graduate)</li>
+              <li><strong>Good</strong> advances to next step or graduates the card</li>
+              <li><strong>Again</strong> resets to the first learning step</li>
+              <li><strong>Graduated cards</strong> use the ease factor to calculate intervals</li>
+              <li><strong>Ease factor</strong> adjusts based on your answers (harder = lower ease)</li>
+            </ul>
+          </div>
+
+          <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Learning</h3>
+
           <div className="form-group">
             <label className="form-label">New cards per day</label>
             <input
@@ -256,7 +290,7 @@ function DeckSettingsModal({
               max="1000"
             />
             <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
-              Maximum number of new cards to introduce each day
+              Maximum new cards introduced each day. Set to 0 to only review.
             </p>
           </div>
 
@@ -270,41 +304,206 @@ function DeckSettingsModal({
               placeholder="1 10"
             />
             <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
-              Space-separated minutes. Default: 1 10 (1 min, then 10 min)
+              Steps for new cards before graduating. "1 10" = see again in 1 min, then 10 min, then graduate.
             </p>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Graduating interval (days)</label>
+            <label className="form-label">Relearning steps (minutes)</label>
             <input
-              type="number"
+              type="text"
               className="form-input"
-              value={graduatingInterval}
-              onChange={(e) => setGraduatingInterval(e.target.value)}
-              min="1"
-              max="365"
+              value={relearningSteps}
+              onChange={(e) => setRelearningSteps(e.target.value)}
+              placeholder="10"
             />
             <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
-              Days until next review after completing all learning steps
+              Steps when you press "Again" on a review card. After completing, returns to review.
             </p>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Easy interval (days)</label>
-            <input
-              type="number"
-              className="form-input"
-              value={easyInterval}
-              onChange={(e) => setEasyInterval(e.target.value)}
-              min="1"
-              max="365"
-            />
-            <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
-              Days until next review when pressing Easy on a new card
-            </p>
+          <div className="grid grid-cols-2">
+            <div className="form-group">
+              <label className="form-label">Graduating interval</label>
+              <input
+                type="number"
+                className="form-input"
+                value={graduatingInterval}
+                onChange={(e) => setGraduatingInterval(e.target.value)}
+                min="1"
+                max="365"
+              />
+              <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                Days after graduating (Good)
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Easy interval</label>
+              <input
+                type="number"
+                className="form-input"
+                value={easyInterval}
+                onChange={(e) => setEasyInterval(e.target.value)}
+                min="1"
+                max="365"
+              />
+              <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                Days when pressing Easy on new card
+              </p>
+            </div>
           </div>
 
-          <div className="modal-actions">
+          {/* Advanced Settings Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--color-primary)',
+              cursor: 'pointer',
+              padding: '0.5rem 0',
+              fontSize: '0.9rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+            }}
+          >
+            {showAdvanced ? '▼' : '▶'} Advanced Settings
+          </button>
+
+          {showAdvanced && (
+            <>
+              <div style={{ background: 'var(--bg-elevated)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                <strong>Ease Factor Explained:</strong>
+                <p style={{ margin: '0.5rem 0 0 0' }}>
+                  Each card has an "ease factor" (default 2.5). When you review:
+                </p>
+                <ul style={{ margin: '0.25rem 0 0 1rem', paddingLeft: '0.5rem' }}>
+                  <li><strong>Good:</strong> next interval = current × ease (e.g., 10d × 2.5 = 25d)</li>
+                  <li><strong>Hard:</strong> ease drops 15%, interval × hard multiplier</li>
+                  <li><strong>Easy:</strong> ease rises 15%, interval × ease × easy bonus</li>
+                  <li><strong>Again:</strong> ease drops 20%, card enters relearning</li>
+                </ul>
+              </div>
+
+              <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Ease Settings</h3>
+
+              <div className="grid grid-cols-3">
+                <div className="form-group">
+                  <label className="form-label">Starting ease</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={startingEase}
+                    onChange={(e) => setStartingEase(e.target.value)}
+                    min="1.0"
+                    max="5.0"
+                    step="0.1"
+                  />
+                  <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                    Default: 2.5
+                  </p>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Minimum ease</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={minimumEase}
+                    onChange={(e) => setMinimumEase(e.target.value)}
+                    min="1.0"
+                    max="5.0"
+                    step="0.1"
+                  />
+                  <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                    Default: 1.3
+                  </p>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Maximum ease</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={maximumEase}
+                    onChange={(e) => setMaximumEase(e.target.value)}
+                    min="1.0"
+                    max="5.0"
+                    step="0.1"
+                  />
+                  <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                    Default: 3.0
+                  </p>
+                </div>
+              </div>
+
+              <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Interval Multipliers</h3>
+
+              <div className="grid grid-cols-3">
+                <div className="form-group">
+                  <label className="form-label">Interval modifier</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={intervalModifier}
+                    onChange={(e) => setIntervalModifier(e.target.value)}
+                    min="0.5"
+                    max="2.0"
+                    step="0.1"
+                  />
+                  <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                    Multiplies all intervals
+                  </p>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Hard multiplier</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={hardMultiplier}
+                    onChange={(e) => setHardMultiplier(e.target.value)}
+                    min="1.0"
+                    max="2.0"
+                    step="0.1"
+                  />
+                  <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                    Default: 1.2
+                  </p>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Easy bonus</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={easyBonus}
+                    onChange={(e) => setEasyBonus(e.target.value)}
+                    min="1.0"
+                    max="2.0"
+                    step="0.1"
+                  />
+                  <p className="text-light mt-1" style={{ fontSize: '0.75rem' }}>
+                    Default: 1.3
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--bg-elevated)', padding: '0.75rem', borderRadius: '8px', marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                <strong>Example:</strong> Card at 10 days, ease 2.5, interval modifier 1.0:
+                <ul style={{ margin: '0.25rem 0 0 1rem', paddingLeft: '0.5rem' }}>
+                  <li>Good: 10 × 2.5 × 1.0 = 25 days</li>
+                  <li>Hard: 10 × 1.2 × 1.0 = 12 days (ease → 2.35)</li>
+                  <li>Easy: 10 × 2.5 × 1.3 × 1.0 = 33 days (ease → 2.65)</li>
+                </ul>
+              </div>
+            </>
+          )}
+
+          <div className="modal-actions" style={{ marginTop: '1rem' }}>
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>

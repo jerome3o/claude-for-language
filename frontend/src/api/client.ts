@@ -125,6 +125,13 @@ export async function updateDeckSettings(
     learning_steps?: string;
     graduating_interval?: number;
     easy_interval?: number;
+    relearning_steps?: string;
+    starting_ease?: number;
+    minimum_ease?: number;
+    maximum_ease?: number;
+    interval_modifier?: number;
+    hard_multiplier?: number;
+    easy_bonus?: number;
   }
 ): Promise<Deck> {
   return fetchJSON<Deck>(`/decks/${id}/settings`, {

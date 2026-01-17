@@ -1100,6 +1100,13 @@ export async function updateDeckSettings(
     learning_steps: string;
     graduating_interval: number;
     easy_interval: number;
+    relearning_steps: string;
+    starting_ease: number;
+    minimum_ease: number;
+    maximum_ease: number;
+    interval_modifier: number;
+    hard_multiplier: number;
+    easy_bonus: number;
   }>
 ): Promise<Deck | null> {
   const existing = await getDeckById(db, deckId, userId);
@@ -1123,6 +1130,34 @@ export async function updateDeckSettings(
   if (settings.easy_interval !== undefined) {
     updates.push('easy_interval = ?');
     values.push(settings.easy_interval);
+  }
+  if (settings.relearning_steps !== undefined) {
+    updates.push('relearning_steps = ?');
+    values.push(settings.relearning_steps);
+  }
+  if (settings.starting_ease !== undefined) {
+    updates.push('starting_ease = ?');
+    values.push(settings.starting_ease);
+  }
+  if (settings.minimum_ease !== undefined) {
+    updates.push('minimum_ease = ?');
+    values.push(settings.minimum_ease);
+  }
+  if (settings.maximum_ease !== undefined) {
+    updates.push('maximum_ease = ?');
+    values.push(settings.maximum_ease);
+  }
+  if (settings.interval_modifier !== undefined) {
+    updates.push('interval_modifier = ?');
+    values.push(settings.interval_modifier);
+  }
+  if (settings.hard_multiplier !== undefined) {
+    updates.push('hard_multiplier = ?');
+    values.push(settings.hard_multiplier);
+  }
+  if (settings.easy_bonus !== undefined) {
+    updates.push('easy_bonus = ?');
+    values.push(settings.easy_bonus);
   }
 
   if (updates.length === 0) {

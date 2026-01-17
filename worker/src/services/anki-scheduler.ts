@@ -19,7 +19,13 @@ export interface DeckSettings {
   learning_steps: number[];      // minutes
   graduating_interval: number;   // days
   easy_interval: number;         // days
-  relearning_steps: number[];    // minutes (default: [10])
+  relearning_steps: number[];    // minutes
+  starting_ease: number;         // e.g., 2.5 (stored as 250 in DB)
+  minimum_ease: number;          // e.g., 1.3 (stored as 130 in DB)
+  maximum_ease: number;          // e.g., 3.0 (stored as 300 in DB)
+  interval_modifier: number;     // e.g., 1.0 (stored as 100 in DB)
+  hard_multiplier: number;       // e.g., 1.2 (stored as 120 in DB)
+  easy_bonus: number;            // e.g., 1.3 (stored as 130 in DB)
 }
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {
@@ -28,6 +34,12 @@ export const DEFAULT_DECK_SETTINGS: DeckSettings = {
   graduating_interval: 1,        // 1 day
   easy_interval: 4,              // 4 days
   relearning_steps: [10],        // 10 min
+  starting_ease: 2.5,            // 250%
+  minimum_ease: 1.3,             // 130%
+  maximum_ease: 3.0,             // 300%
+  interval_modifier: 1.0,        // 100%
+  hard_multiplier: 1.2,          // 120%
+  easy_bonus: 1.3,               // 130%
 };
 
 export interface SchedulerResult {
@@ -151,7 +163,7 @@ export function scheduleNewOrLearningCard(
       return {
         queue: CardQueue.REVIEW,
         learning_step: 0,
-        ease_factor: currentEaseFactor + 0.15, // Bonus ease for easy
+        ease_factor: Math.min(settings.maximum_ease, currentEaseFactor + 0.15), // Bonus ease for easy
         interval: settings.easy_interval,
         repetitions: 1,
         due_timestamp: null,
@@ -178,9 +190,15 @@ export function scheduleReviewCard(
   let interval: number;
   let repetitions = currentRepetitions;
 
+  // Helper to clamp ease factor within bounds
+  const clampEase = (ease: number) => Math.max(settings.minimum_ease, Math.min(settings.maximum_ease, ease));
+
+  // Helper to apply interval modifier
+  const applyModifier = (days: number) => Math.max(1, Math.round(days * settings.interval_modifier));
+
   switch (rating) {
     case 0: // Again - enter relearning queue
-      easeFactor = Math.max(1.3, easeFactor - 0.2);
+      easeFactor = clampEase(easeFactor - 0.2);
       const relearningSteps = settings.relearning_steps;
       return {
         queue: CardQueue.RELEARNING,
@@ -192,20 +210,20 @@ export function scheduleReviewCard(
         next_review_at: null,
       };
 
-    case 1: // Hard - interval * 1.2, ease -15%
-      easeFactor = Math.max(1.3, easeFactor - 0.15);
-      interval = Math.max(1, Math.round(currentInterval * 1.2));
+    case 1: // Hard - interval * hard_multiplier, ease -15%
+      easeFactor = clampEase(easeFactor - 0.15);
+      interval = applyModifier(Math.round(currentInterval * settings.hard_multiplier));
       repetitions += 1;
       break;
 
     case 2: // Good - interval * easeFactor
-      interval = Math.max(1, Math.round(currentInterval * easeFactor));
+      interval = applyModifier(Math.round(currentInterval * easeFactor));
       repetitions += 1;
       break;
 
-    case 3: // Easy - interval * easeFactor * 1.3, ease +15%
-      easeFactor = Math.min(3.0, easeFactor + 0.15);
-      interval = Math.max(1, Math.round(currentInterval * easeFactor * 1.3));
+    case 3: // Easy - interval * easeFactor * easy_bonus, ease +15%
+      easeFactor = clampEase(easeFactor + 0.15);
+      interval = applyModifier(Math.round(currentInterval * easeFactor * settings.easy_bonus));
       repetitions += 1;
       break;
 
@@ -364,17 +382,18 @@ export function getIntervalPreview(
 
   // For review cards
   if (currentQueue === CardQueue.REVIEW) {
+    const applyModifier = (days: number) => Math.max(1, Math.round(days * settings.interval_modifier));
     switch (rating) {
       case 0: // Again
         return { intervalText: `${settings.relearning_steps[0]}m`, queue: CardQueue.RELEARNING };
       case 1: // Hard
-        const hardInterval = Math.max(1, Math.round(currentInterval * 1.2));
+        const hardInterval = applyModifier(Math.round(currentInterval * settings.hard_multiplier));
         return { intervalText: formatInterval(hardInterval * 1440), queue: CardQueue.REVIEW };
       case 2: // Good
-        const goodInterval = Math.max(1, Math.round(currentInterval * currentEaseFactor));
+        const goodInterval = applyModifier(Math.round(currentInterval * currentEaseFactor));
         return { intervalText: formatInterval(goodInterval * 1440), queue: CardQueue.REVIEW };
       case 3: // Easy
-        const easyInterval = Math.max(1, Math.round(currentInterval * currentEaseFactor * 1.3));
+        const easyInterval = applyModifier(Math.round(currentInterval * currentEaseFactor * settings.easy_bonus));
         return { intervalText: formatInterval(easyInterval * 1440), queue: CardQueue.REVIEW };
     }
   }

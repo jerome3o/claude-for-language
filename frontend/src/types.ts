@@ -54,6 +54,13 @@ export interface Deck {
   learning_steps: string;  // Space-separated minutes, e.g., "1 10"
   graduating_interval: number;  // Days
   easy_interval: number;  // Days
+  relearning_steps: string;  // Space-separated minutes, e.g., "10"
+  starting_ease: number;  // Stored as percentage, e.g., 250 = 2.5
+  minimum_ease: number;  // Stored as percentage, e.g., 130 = 1.3
+  maximum_ease: number;  // Stored as percentage, e.g., 300 = 3.0
+  interval_modifier: number;  // Stored as percentage, e.g., 100 = 1.0
+  hard_multiplier: number;  // Stored as percentage, e.g., 120 = 1.2
+  easy_bonus: number;  // Stored as percentage, e.g., 130 = 1.3
   created_at: string;
   updated_at: string;
 }

@@ -603,6 +603,13 @@ app.put('/api/decks/:id/settings', async (c) => {
     learning_steps?: string;
     graduating_interval?: number;
     easy_interval?: number;
+    relearning_steps?: string;
+    starting_ease?: number;
+    minimum_ease?: number;
+    maximum_ease?: number;
+    interval_modifier?: number;
+    hard_multiplier?: number;
+    easy_bonus?: number;
   }>();
 
   const deck = await db.updateDeckSettings(c.env.DB, deckId, userId, settings);
