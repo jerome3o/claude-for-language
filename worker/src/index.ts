@@ -584,9 +584,15 @@ app.get('/api/audio/*', async (c) => {
     return c.json({ error: 'Audio not found' }, 404);
   }
 
+  // Get origin for CORS
+  const origin = c.req.header('Origin') || '*';
+
   const headers = new Headers();
-  headers.set('Content-Type', object.httpMetadata?.contentType || 'audio/webm');
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'audio/mpeg');
   headers.set('Cache-Control', 'public, max-age=31536000');
+  // Explicit CORS headers for audio element cross-origin playback
+  headers.set('Access-Control-Allow-Origin', origin);
+  headers.set('Access-Control-Allow-Credentials', 'true');
 
   return new Response(object.body, { headers });
 });
