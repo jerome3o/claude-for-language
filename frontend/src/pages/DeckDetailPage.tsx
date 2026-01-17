@@ -17,6 +17,24 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+function formatTime(ms: number | null): string {
+  if (!ms) return '';
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+function formatInterval(days: number): string {
+  if (days === 0) return 'New';
+  if (days === 1) return '1 day';
+  if (days < 30) return `${days} days`;
+  if (days < 365) return `${Math.round(days / 30)} months`;
+  return `${(days / 365).toFixed(1)} years`;
+}
+
 function NoteHistoryModal({
   note,
   onClose,
@@ -50,45 +68,71 @@ function NoteHistoryModal({
           <div className="flex flex-col gap-4">
             {historyQuery.data.map((cardHistory) => (
               <div key={cardHistory.card_type}>
-                <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
-                  {CARD_TYPE_LABELS[cardHistory.card_type] || cardHistory.card_type}
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {cardHistory.reviews.map((review) => (
-                    <div
-                      key={review.id}
-                      className="card"
-                      style={{ padding: '0.75rem', background: 'var(--bg-elevated)' }}
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="text-light">{formatDate(review.reviewed_at)}</span>
-                        <span
-                          style={{
-                            padding: '0.125rem 0.5rem',
-                            borderRadius: '4px',
-                            fontSize: '0.875rem',
-                            background: review.rating >= 2 ? 'var(--success)' : 'var(--error)',
-                            color: 'white',
-                          }}
-                        >
-                          {RATING_LABELS[review.rating]}
-                        </span>
-                      </div>
-                      {review.user_answer && (
-                        <p style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
-                          Answer: <span className="hanzi">{review.user_answer}</span>
-                        </p>
-                      )}
-                      {review.recording_url && (
-                        <audio
-                          controls
-                          src={getAudioUrl(review.recording_url)}
-                          style={{ marginTop: '0.5rem', width: '100%', height: '32px' }}
-                        />
-                      )}
-                    </div>
-                  ))}
+                <div className="flex justify-between items-center" style={{ marginBottom: '0.5rem' }}>
+                  <h3 style={{ fontSize: '1rem', margin: 0 }}>
+                    {CARD_TYPE_LABELS[cardHistory.card_type] || cardHistory.card_type}
+                  </h3>
+                  <div className="flex gap-2" style={{ fontSize: '0.75rem' }}>
+                    <span className="text-light">
+                      Interval: <strong>{formatInterval(cardHistory.card_stats.interval)}</strong>
+                    </span>
+                    <span className="text-light">
+                      Ease: <strong>{(cardHistory.card_stats.ease_factor * 100).toFixed(0)}%</strong>
+                    </span>
+                    <span className="text-light">
+                      Reps: <strong>{cardHistory.card_stats.repetitions}</strong>
+                    </span>
+                  </div>
                 </div>
+                {cardHistory.reviews.length === 0 ? (
+                  <p className="text-light" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>
+                    Not yet reviewed
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {cardHistory.reviews.map((review) => (
+                      <div
+                        key={review.id}
+                        className="card"
+                        style={{ padding: '0.75rem', background: 'var(--bg-elevated)' }}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <span className="text-light">{formatDate(review.reviewed_at)}</span>
+                            {review.time_spent_ms && (
+                              <span className="text-light" style={{ marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+                                ({formatTime(review.time_spent_ms)})
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            style={{
+                              padding: '0.125rem 0.5rem',
+                              borderRadius: '4px',
+                              fontSize: '0.875rem',
+                              background: review.rating >= 2 ? 'var(--success)' : 'var(--error)',
+                              color: 'white',
+                            }}
+                          >
+                            {RATING_LABELS[review.rating]}
+                          </span>
+                        </div>
+                        {review.user_answer && (
+                          <p style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                            Answer: <span className="hanzi">{review.user_answer}</span>
+                          </p>
+                        )}
+                        {review.recording_url && (
+                          <audio
+                            controls
+                            src={getAudioUrl(review.recording_url)}
+                            style={{ marginTop: '0.5rem', width: '100%', height: '32px' }}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

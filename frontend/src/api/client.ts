@@ -97,6 +97,12 @@ export async function deleteNote(id: string): Promise<void> {
 
 export interface NoteReviewHistory {
   card_type: string;
+  card_stats: {
+    ease_factor: number;
+    interval: number;
+    repetitions: number;
+    next_review_at: string | null;
+  };
   reviews: Array<{
     id: string;
     rating: number;

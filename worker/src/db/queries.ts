@@ -461,6 +461,12 @@ export async function createCardReview(
 
 export interface NoteReviewHistory {
   card_type: string;
+  card_stats: {
+    ease_factor: number;
+    interval: number;
+    repetitions: number;
+    next_review_at: string | null;
+  };
   reviews: Array<{
     id: string;
     rating: number;
@@ -482,6 +488,33 @@ export async function getNoteReviewHistory(
     .first();
 
   if (!note) return null;
+
+  // Get card stats for this note
+  const cards = await db
+    .prepare(`
+      SELECT id, card_type, ease_factor, interval, repetitions, next_review_at
+      FROM cards
+      WHERE note_id = ?
+    `)
+    .bind(noteId)
+    .all<{
+      id: string;
+      card_type: string;
+      ease_factor: number;
+      interval: number;
+      repetitions: number;
+      next_review_at: string | null;
+    }>();
+
+  const cardStats: Record<string, NoteReviewHistory['card_stats']> = {};
+  for (const card of cards.results) {
+    cardStats[card.card_type] = {
+      ease_factor: card.ease_factor,
+      interval: card.interval,
+      repetitions: card.repetitions,
+      next_review_at: card.next_review_at,
+    };
+  }
 
   // Get all reviews for all cards of this note
   const reviews = await db
@@ -519,10 +552,15 @@ export async function getNoteReviewHistory(
     });
   }
 
-  return Object.entries(byCardType).map(([card_type, reviews]) => ({
-    card_type,
-    reviews,
-  }));
+  // Return all card types (even those with no reviews yet)
+  const allCardTypes = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
+  return allCardTypes
+    .filter(ct => cardStats[ct]) // Only include card types that exist
+    .map((card_type) => ({
+      card_type,
+      card_stats: cardStats[card_type],
+      reviews: byCardType[card_type] || [],
+    }));
 }
 
 // ============ Statistics ============
