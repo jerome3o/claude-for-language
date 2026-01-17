@@ -212,34 +212,6 @@ function StudyCard({
           <div className="text-center">
             <p className="text-light mb-2">{cardInfo.prompt}</p>
             <div className="hanzi hanzi-large">{card.note.hanzi}</div>
-            {isSpeakingCard && (
-              <div className="mt-4">
-                {isRecording ? (
-                  <button className="btn btn-error" onClick={stopRecording}>
-                    Stop Recording
-                  </button>
-                ) : audioBlob ? (
-                  <div className="flex gap-2 justify-center">
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        const url = URL.createObjectURL(audioBlob);
-                        new Audio(url).play();
-                      }}
-                    >
-                      Play Recording
-                    </button>
-                    <button className="btn btn-secondary" onClick={clearRecording}>
-                      Re-record
-                    </button>
-                  </div>
-                ) : (
-                  <button className="btn btn-primary" onClick={startRecording}>
-                    Record Your Pronunciation
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         );
 
@@ -295,6 +267,13 @@ function StudyCard({
     }
   };
 
+  const playUserRecording = () => {
+    if (audioBlob) {
+      const url = URL.createObjectURL(audioBlob);
+      new Audio(url).play();
+    }
+  };
+
   const renderBack = () => {
     const isCorrect =
       isTypingCard &&
@@ -312,7 +291,7 @@ function StudyCard({
         <div className="pinyin mb-2">{card.note.pinyin}</div>
         <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
 
-        <div className="flex gap-2 justify-center mt-3">
+        <div className="flex gap-2 justify-center flex-wrap mt-3">
           <button
             className="btn btn-secondary"
             onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
@@ -320,6 +299,14 @@ function StudyCard({
           >
             {isPlaying ? 'Playing...' : 'Play Audio'}
           </button>
+          {audioBlob && (
+            <button
+              className="btn btn-secondary"
+              onClick={playUserRecording}
+            >
+              Play My Recording
+            </button>
+          )}
           <button
             className="btn btn-secondary"
             onClick={() => {
@@ -424,6 +411,55 @@ function StudyCard({
     );
   };
 
+  const renderSpeakingCardButtons = () => {
+    if (isRecording) {
+      return (
+        <button className="btn btn-error btn-lg" onClick={stopRecording}>
+          Stop Recording
+        </button>
+      );
+    }
+
+    if (audioBlob) {
+      return (
+        <div className="flex flex-col gap-3 items-center">
+          <div className="flex gap-2 justify-center">
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                const url = URL.createObjectURL(audioBlob);
+                new Audio(url).play();
+              }}
+            >
+              Play Recording
+            </button>
+            <button className="btn btn-secondary" onClick={clearRecording}>
+              Re-record
+            </button>
+          </div>
+          <button className="btn btn-primary btn-lg" onClick={handleFlip}>
+            Check Answer
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-3 items-center">
+        <button className="btn btn-primary btn-lg" onClick={startRecording}>
+          Record Your Pronunciation
+        </button>
+        <button
+          className="btn-link text-light"
+          onClick={handleFlip}
+          style={{ fontSize: '0.875rem' }}
+        >
+          Skip recording
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="card" style={{ minHeight: '400px' }}>
       <div className="study-card">
@@ -431,9 +467,13 @@ function StudyCard({
           <>
             {renderFront()}
             <div className="mt-4 text-center">
-              <button className="btn btn-primary btn-lg" onClick={handleFlip}>
-                {isTypingCard ? 'Check Answer' : 'Show Answer'}
-              </button>
+              {isSpeakingCard ? (
+                renderSpeakingCardButtons()
+              ) : (
+                <button className="btn btn-primary btn-lg" onClick={handleFlip}>
+                  {isTypingCard ? 'Check Answer' : 'Show Answer'}
+                </button>
+              )}
             </div>
           </>
         ) : (
