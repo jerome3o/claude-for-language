@@ -14,8 +14,3 @@ ENVIRONMENT = "production"
 
 [dev]
 port = 8788
-
-# Migration to delete the old Durable Object class
-[[migrations]]
-tag = "v1"
-deleted_classes = ["ChineseLearningMCP"]
