@@ -11,7 +11,7 @@ export function Header() {
           <Link to="/">Home</Link>
           <Link to="/decks">Decks</Link>
           <Link to="/study">Study</Link>
-          <Link to="/generate">AI Generate</Link>
+          <Link to="/generate">Generate</Link>
         </nav>
       </div>
     </header>

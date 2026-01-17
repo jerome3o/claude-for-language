@@ -206,25 +206,23 @@ export function DeckDetailPage() {
     <div className="page">
       <div className="container">
         {/* Header */}
-        <div className="flex justify-between items-center mb-2">
-          <div>
-            <Link to="/decks" className="text-light">
-              &larr; Back to Decks
-            </Link>
-            <h1 className="mt-1">{deck.name}</h1>
-            {deck.description && <p className="text-light">{deck.description}</p>}
-          </div>
-          <div className="flex gap-2">
+        <div className="mb-4">
+          <Link to="/decks" className="text-light">
+            &larr; Back to Decks
+          </Link>
+          <h1 className="mt-1">{deck.name}</h1>
+          {deck.description && <p className="text-light mt-1">{deck.description}</p>}
+          <div className="flex gap-2 mt-3">
             {stats && stats.cards_due > 0 && (
               <Link to={`/study?deck=${id}`} className="btn btn-primary">
                 Study ({stats.cards_due} due)
               </Link>
             )}
             <button
-              className="btn btn-error btn-secondary"
+              className="btn btn-secondary"
               onClick={() => setShowDeleteConfirm(true)}
             >
-              Delete Deck
+              Delete
             </button>
           </div>
         </div>
