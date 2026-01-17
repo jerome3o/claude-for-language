@@ -97,13 +97,53 @@ Uses Anthropic Claude API to generate cards. Two modes:
 
 ## Development Guidelines
 
+### Mobile-First Design (IMPORTANT)
+
+**This app is primarily used on mobile devices.** All UI work must prioritize mobile experience.
+
+#### CSS Guidelines
+- Write mobile styles first, then use `@media (min-width: 640px)` for larger screens
+- Minimum touch target size: 44px height for buttons and interactive elements
+- Use relative units (rem) for font sizes, not px
+- Test all changes on mobile viewport (375px width) before desktop
+
+#### Key Breakpoints
+- Mobile: < 640px (default styles)
+- Tablet/Desktop: >= 640px (`@media (min-width: 640px)`)
+- Large Desktop: >= 1024px (rarely needed)
+
+#### Mobile UX Checklist
+- [ ] Buttons are easily tappable (min 44px height)
+- [ ] Text is readable without zooming (min 16px for body text)
+- [ ] Forms don't cause zoom on iOS (inputs must be 16px+)
+- [ ] Content doesn't overflow horizontally
+- [ ] Modals are usable on small screens
+- [ ] Navigation is accessible with one hand
+
+#### Common Patterns
+```css
+/* Mobile-first example */
+.element {
+  padding: 1rem;        /* Mobile */
+  font-size: 0.875rem;  /* Mobile */
+}
+
+@media (min-width: 640px) {
+  .element {
+    padding: 1.5rem;    /* Desktop */
+    font-size: 1rem;    /* Desktop */
+  }
+}
+```
+
 ### When Adding Features
 1. Update types in `worker/src/types.ts` and `frontend/src/types.ts`
 2. Add database migrations to `worker/src/db/migrations/`
 3. Add API routes to `worker/src/routes/`
 4. Add frontend components/pages as needed
-5. Update this CLAUDE.md if the change affects project structure
-6. Update docs/SPEC.md if adding new features
+5. **Test on mobile viewport before committing**
+6. Update this CLAUDE.md if the change affects project structure
+7. Update docs/SPEC.md if adding new features
 
 ### Database Migrations
 Migrations are in `worker/src/db/migrations/`. Run order is determined by filename prefix (001_, 002_, etc.).
