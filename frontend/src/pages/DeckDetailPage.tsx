@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, getAudioUrl } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, getAudioUrl, API_BASE } from '../api/client';
+import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note } from '../types';
 
@@ -305,10 +306,22 @@ function NoteCard({
   onDelete: () => void;
   onHistory: () => void;
 }) {
+  const { isPlaying, play } = useNoteAudio();
+
   return (
     <div className="note-card">
       <div className="note-card-content">
-        <div className="note-card-hanzi">{note.hanzi}</div>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={() => play(note.audio_url || null, note.hanzi, API_BASE)}
+            disabled={isPlaying}
+            style={{ padding: '0.25rem 0.5rem', minWidth: 'auto' }}
+          >
+            {isPlaying ? '...' : '▶'}
+          </button>
+          <div className="note-card-hanzi">{note.hanzi}</div>
+        </div>
         <div className="note-card-details">
           <span className="pinyin">{note.pinyin}</span>
           <span> - </span>
