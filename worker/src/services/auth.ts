@@ -245,7 +245,8 @@ export function createSessionCookie(sessionId: string, secure: boolean = true): 
     `session=${sessionId}`,
     `Path=/`,
     `HttpOnly`,
-    `SameSite=Lax`,
+    // SameSite=None required for cross-origin cookies (frontend and API on different domains)
+    `SameSite=${secure ? 'None' : 'Lax'}`,
     `Max-Age=${maxAge}`,
   ];
   if (secure) {
@@ -259,7 +260,7 @@ export function clearSessionCookie(secure: boolean = true): string {
     'session=',
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${secure ? 'None' : 'Lax'}`,
     'Max-Age=0',
   ];
   if (secure) {
