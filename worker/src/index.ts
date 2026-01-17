@@ -1,8 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, Rating, User } from './types';
+import { Env, Rating, User, CardQueue } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
+import {
+  scheduleCard,
+  getIntervalPreview,
+  DEFAULT_DECK_SETTINGS,
+  parseLearningSteps,
+} from './services/anki-scheduler';
 import { generateDeck, suggestCards, askAboutNote } from './services/ai';
 import { storeAudio, getAudio, getRecordingKey, generateTTS } from './services/audio';
 import {
@@ -457,6 +463,15 @@ app.get('/api/cards/due', async (c) => {
   return c.json(cards);
 });
 
+// Queue counts for Anki-style display (must be before :id route)
+app.get('/api/cards/queue-counts', async (c) => {
+  const userId = c.get('user').id;
+  const deckId = c.req.query('deck_id');
+
+  const counts = await db.getQueueCounts(c.env.DB, userId, deckId);
+  return c.json(counts);
+});
+
 app.get('/api/cards/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
@@ -465,6 +480,136 @@ app.get('/api/cards/:id', async (c) => {
     return c.json({ error: 'Card not found' }, 404);
   }
   return c.json(card);
+});
+
+// ============ Anki-style Study ============
+
+// Get next card to study
+app.get('/api/study/next-card', async (c) => {
+  const userId = c.get('user').id;
+  const deckId = c.req.query('deck_id');
+  const excludeNotes = c.req.query('exclude_notes');
+
+  const excludeNoteIds = excludeNotes ? excludeNotes.split(',').filter(Boolean) : [];
+
+  const card = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds);
+  const counts = await db.getQueueCounts(c.env.DB, userId, deckId);
+
+  if (!card) {
+    return c.json({ card: null, counts });
+  }
+
+  // Get deck settings for interval previews
+  let settings = DEFAULT_DECK_SETTINGS;
+  if (card.note.deck_id) {
+    const deckSettings = await db.getDeckSettings(c.env.DB, card.note.deck_id, userId);
+    if (deckSettings) {
+      settings = deckSettings;
+    }
+  }
+
+  // Calculate interval previews for all ratings
+  const intervalPreviews = {
+    0: getIntervalPreview(0, card.queue, card.learning_step, card.ease_factor, card.interval, card.repetitions, settings),
+    1: getIntervalPreview(1, card.queue, card.learning_step, card.ease_factor, card.interval, card.repetitions, settings),
+    2: getIntervalPreview(2, card.queue, card.learning_step, card.ease_factor, card.interval, card.repetitions, settings),
+    3: getIntervalPreview(3, card.queue, card.learning_step, card.ease_factor, card.interval, card.repetitions, settings),
+  };
+
+  return c.json({ card, counts, intervalPreviews });
+});
+
+// Submit review with Anki-style scheduling
+app.post('/api/study/review', async (c) => {
+  const userId = c.get('user').id;
+  const { card_id, rating, time_spent_ms, user_answer, session_id } = await c.req.json<{
+    card_id: string;
+    rating: Rating;
+    time_spent_ms?: number;
+    user_answer?: string;
+    session_id?: string;
+  }>();
+
+  if (!card_id || rating === undefined) {
+    return c.json({ error: 'card_id and rating are required' }, 400);
+  }
+
+  // Get current card state (verify ownership)
+  const card = await db.getCardWithNote(c.env.DB, card_id, userId);
+  if (!card) {
+    return c.json({ error: 'Card not found' }, 404);
+  }
+
+  // Get deck settings
+  let settings = DEFAULT_DECK_SETTINGS;
+  if (card.note.deck_id) {
+    const deckSettings = await db.getDeckSettings(c.env.DB, card.note.deck_id, userId);
+    if (deckSettings) {
+      settings = deckSettings;
+    }
+  }
+
+  // If this is a new card being studied, increment daily count
+  if (card.queue === CardQueue.NEW) {
+    await db.incrementDailyNewCount(c.env.DB, userId, card.note.deck_id);
+  }
+
+  // Calculate new scheduling values using Anki algorithm
+  const result = scheduleCard(
+    rating,
+    card.queue,
+    card.learning_step,
+    card.ease_factor,
+    card.interval,
+    card.repetitions,
+    settings
+  );
+
+  // Update card with new values
+  await db.updateCardSchedule(c.env.DB, card_id, result);
+
+  // Create review record if we have a session
+  let review = null;
+  if (session_id) {
+    review = await db.createCardReview(
+      c.env.DB,
+      session_id,
+      card_id,
+      rating,
+      time_spent_ms,
+      user_answer
+    );
+  }
+
+  // Get updated queue counts
+  const counts = await db.getQueueCounts(c.env.DB, userId, card.note.deck_id);
+
+  return c.json({
+    review,
+    counts,
+    next_queue: result.queue,
+    next_interval: result.interval,
+    next_due: result.due_timestamp || result.next_review_at?.toISOString(),
+  }, 201);
+});
+
+// ============ Deck Settings ============
+
+app.put('/api/decks/:id/settings', async (c) => {
+  const userId = c.get('user').id;
+  const deckId = c.req.param('id');
+  const settings = await c.req.json<{
+    new_cards_per_day?: number;
+    learning_steps?: string;
+    graduating_interval?: number;
+    easy_interval?: number;
+  }>();
+
+  const deck = await db.updateDeckSettings(c.env.DB, deckId, userId, settings);
+  if (!deck) {
+    return c.json({ error: 'Deck not found' }, 404);
+  }
+  return c.json(deck);
 });
 
 // ============ Study Sessions ============

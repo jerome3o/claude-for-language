@@ -12,6 +12,8 @@ import {
   GeneratedNote,
   AuthUser,
   AdminUser,
+  QueueCounts,
+  IntervalPreview,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -116,6 +118,21 @@ export async function updateDeck(
   });
 }
 
+export async function updateDeckSettings(
+  id: string,
+  settings: {
+    new_cards_per_day?: number;
+    learning_steps?: string;
+    graduating_interval?: number;
+    easy_interval?: number;
+  }
+): Promise<Deck> {
+  return fetchJSON<Deck>(`/decks/${id}/settings`, {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
 export async function deleteDeck(id: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/decks/${id}`, { method: 'DELETE' });
 }
@@ -215,6 +232,54 @@ export async function getDueCards(options?: {
 
 export async function getCard(id: string): Promise<CardWithNote> {
   return fetchJSON<CardWithNote>(`/cards/${id}`);
+}
+
+// Queue counts for Anki-style display
+export async function getQueueCounts(deckId?: string): Promise<QueueCounts> {
+  const params = new URLSearchParams();
+  if (deckId) params.set('deck_id', deckId);
+  const query = params.toString();
+  return fetchJSON<QueueCounts>(`/cards/queue-counts${query ? `?${query}` : ''}`);
+}
+
+// Get next card to study with interval previews
+export interface NextCardResponse {
+  card: CardWithNote | null;
+  counts: QueueCounts;
+  intervalPreviews?: Record<Rating, IntervalPreview>;
+}
+
+export async function getNextCard(
+  deckId?: string,
+  excludeNoteIds: string[] = []
+): Promise<NextCardResponse> {
+  const params = new URLSearchParams();
+  if (deckId) params.set('deck_id', deckId);
+  if (excludeNoteIds.length > 0) params.set('exclude_notes', excludeNoteIds.join(','));
+  const query = params.toString();
+  return fetchJSON<NextCardResponse>(`/study/next-card${query ? `?${query}` : ''}`);
+}
+
+// Submit review with Anki-style scheduling
+export interface ReviewResponse {
+  review: { id: string } | null;
+  counts: QueueCounts;
+  next_queue: number;
+  next_interval: number;
+  next_due: string;
+}
+
+export async function submitReview(data: {
+  card_id: string;
+  rating: Rating;
+  time_spent_ms?: number;
+  user_answer?: string;
+  session_id?: string;
+}): Promise<ReviewResponse> {
+  return fetchJSON<ReviewResponse>('/study/review', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 // ============ Study Sessions ============

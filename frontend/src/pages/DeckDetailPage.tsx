@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, API_BASE } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, updateDeckSettings, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
-import { Note } from '../types';
+import { Note, Deck } from '../types';
 
 const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -200,6 +200,128 @@ function NoteHistoryModal({
   );
 }
 
+function DeckSettingsModal({
+  deck,
+  onClose,
+  onSave,
+}: {
+  deck: Deck;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [newCardsPerDay, setNewCardsPerDay] = useState(deck.new_cards_per_day?.toString() || '20');
+  const [learningSteps, setLearningSteps] = useState(deck.learning_steps || '1 10');
+  const [graduatingInterval, setGraduatingInterval] = useState(deck.graduating_interval?.toString() || '1');
+  const [easyInterval, setEasyInterval] = useState(deck.easy_interval?.toString() || '4');
+
+  const saveMutation = useMutation({
+    mutationFn: () => updateDeckSettings(deck.id, {
+      new_cards_per_day: parseInt(newCardsPerDay, 10) || 20,
+      learning_steps: learningSteps,
+      graduating_interval: parseInt(graduatingInterval, 10) || 1,
+      easy_interval: parseInt(easyInterval, 10) || 4,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deck', deck.id] });
+      onSave();
+      onClose();
+    },
+  });
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">Deck Settings</h2>
+          <button className="modal-close" onClick={onClose}>
+            &times;
+          </button>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveMutation.mutate();
+          }}
+        >
+          <div className="form-group">
+            <label className="form-label">New cards per day</label>
+            <input
+              type="number"
+              className="form-input"
+              value={newCardsPerDay}
+              onChange={(e) => setNewCardsPerDay(e.target.value)}
+              min="0"
+              max="1000"
+            />
+            <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
+              Maximum number of new cards to introduce each day
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Learning steps (minutes)</label>
+            <input
+              type="text"
+              className="form-input"
+              value={learningSteps}
+              onChange={(e) => setLearningSteps(e.target.value)}
+              placeholder="1 10"
+            />
+            <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
+              Space-separated minutes. Default: 1 10 (1 min, then 10 min)
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Graduating interval (days)</label>
+            <input
+              type="number"
+              className="form-input"
+              value={graduatingInterval}
+              onChange={(e) => setGraduatingInterval(e.target.value)}
+              min="1"
+              max="365"
+            />
+            <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
+              Days until next review after completing all learning steps
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Easy interval (days)</label>
+            <input
+              type="number"
+              className="form-input"
+              value={easyInterval}
+              onChange={(e) => setEasyInterval(e.target.value)}
+              min="1"
+              max="365"
+            />
+            <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
+              Days until next review when pressing Easy on a new card
+            </p>
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={saveMutation.isPending}
+            >
+              {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 interface NoteFormData {
   hanzi: string;
   pinyin: string;
@@ -384,6 +506,7 @@ export function DeckDetailPage() {
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [historyNote, setHistoryNote] = useState<Note | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const deckQuery = useQuery({
     queryKey: ['deck', id],
@@ -458,6 +581,12 @@ export function DeckDetailPage() {
                 Study ({stats.cards_due} due)
               </Link>
             )}
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowSettings(true)}
+            >
+              Settings
+            </button>
             <button
               className="btn btn-secondary"
               onClick={() => setShowDeleteConfirm(true)}
@@ -609,6 +738,17 @@ export function DeckDetailPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Deck Settings Modal */}
+        {showSettings && (
+          <DeckSettingsModal
+            deck={deck}
+            onClose={() => setShowSettings(false)}
+            onSave={() => {
+              queryClient.invalidateQueries({ queryKey: ['deck', id] });
+            }}
+          />
         )}
       </div>
     </div>

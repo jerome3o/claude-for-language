@@ -8,8 +8,11 @@ import {
   NoteWithCards,
   DeckWithNotes,
   CardWithNote,
+  CardQueue,
+  QueueCounts,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
+import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 
 // ============ Decks ============
 
@@ -345,10 +348,13 @@ export async function getDueCards(
     id: row.id as string,
     note_id: row.note_id as string,
     card_type: row.card_type as Card['card_type'],
-    ease_factor: row.ease_factor as number,
-    interval: row.interval as number,
-    repetitions: row.repetitions as number,
+    ease_factor: (row.ease_factor as number) || 2.5,
+    interval: (row.interval as number) || 0,
+    repetitions: (row.repetitions as number) || 0,
     next_review_at: row.next_review_at as string | null,
+    queue: (row.queue as CardQueue) ?? CardQueue.NEW,
+    learning_step: (row.learning_step as number) || 0,
+    due_timestamp: row.due_timestamp as number | null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     note: {
@@ -481,10 +487,13 @@ export async function getSessionWithReviews(
       id: row.card_id as string,
       note_id: row.note_id as string,
       card_type: row.card_type as Card['card_type'],
-      ease_factor: row.ease_factor as number,
-      interval: row.interval as number,
-      repetitions: row.repetitions as number,
+      ease_factor: (row.ease_factor as number) || 2.5,
+      interval: (row.interval as number) || 0,
+      repetitions: (row.repetitions as number) || 0,
       next_review_at: null,
+      queue: CardQueue.REVIEW,
+      learning_step: 0,
+      due_timestamp: null,
       created_at: '',
       updated_at: '',
       note: {
@@ -771,4 +780,363 @@ export async function getDeckStats(
     cards_due: cardsDue?.count || 0,
     cards_mastered: cardsMastered?.count || 0,
   };
+}
+
+// ============ Anki-style Queue Management ============
+
+/**
+ * Get queue counts (new/learning/review) for display
+ */
+export async function getQueueCounts(
+  db: D1Database,
+  userId: string,
+  deckId?: string
+): Promise<QueueCounts> {
+  const now = Date.now();
+  const today = new Date().toISOString().split('T')[0];
+
+  let deckFilter = '';
+  const params: (string | number)[] = [userId];
+
+  if (deckId) {
+    deckFilter = 'AND n.deck_id = ?';
+    params.push(deckId);
+  }
+
+  // Get new cards count (respecting daily limit)
+  const newCardsQuery = `
+    SELECT COUNT(*) as count FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? ${deckFilter}
+    AND c.queue = 0
+  `;
+
+  // Get today's new card count for this user/deck
+  const dailyCountQuery = deckId
+    ? `SELECT COALESCE(SUM(new_cards_studied), 0) as studied FROM daily_counts
+       WHERE user_id = ? AND deck_id = ? AND date = ?`
+    : `SELECT COALESCE(SUM(new_cards_studied), 0) as studied FROM daily_counts
+       WHERE user_id = ? AND date = ?`;
+
+  // Get learning + relearning cards count (due now)
+  const learningQuery = `
+    SELECT COUNT(*) as count FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? ${deckFilter}
+    AND c.queue IN (1, 3)
+    AND c.due_timestamp <= ?
+  `;
+
+  // Get review cards count (due today)
+  const reviewQuery = `
+    SELECT COUNT(*) as count FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? ${deckFilter}
+    AND c.queue = 2
+    AND c.next_review_at <= datetime('now')
+  `;
+
+  const [newResult, dailyResult, learningResult, reviewResult] = await Promise.all([
+    db.prepare(newCardsQuery).bind(...params).first<{ count: number }>(),
+    deckId
+      ? db.prepare(dailyCountQuery).bind(userId, deckId, today).first<{ studied: number }>()
+      : db.prepare(dailyCountQuery).bind(userId, today).first<{ studied: number }>(),
+    db.prepare(learningQuery).bind(...params, now).first<{ count: number }>(),
+    db.prepare(reviewQuery).bind(...params).first<{ count: number }>(),
+  ]);
+
+  // Get deck settings for new card limit
+  let newCardsPerDay = DEFAULT_DECK_SETTINGS.new_cards_per_day;
+  if (deckId) {
+    const deck = await getDeckById(db, deckId, userId);
+    if (deck) {
+      newCardsPerDay = deck.new_cards_per_day;
+    }
+  }
+
+  const totalNewCards = newResult?.count || 0;
+  const studiedToday = dailyResult?.studied || 0;
+  const remainingNew = Math.max(0, Math.min(totalNewCards, newCardsPerDay - studiedToday));
+
+  return {
+    new: remainingNew,
+    learning: learningResult?.count || 0,
+    review: reviewResult?.count || 0,
+  };
+}
+
+/**
+ * Get next card to study (priority: learning -> review -> new)
+ */
+export async function getNextStudyCard(
+  db: D1Database,
+  userId: string,
+  deckId?: string,
+  excludeNoteIds: string[] = []
+): Promise<CardWithNote | null> {
+  const now = Date.now();
+  const today = new Date().toISOString().split('T')[0];
+
+  let deckFilter = '';
+  const baseParams: string[] = [userId];
+
+  if (deckId) {
+    deckFilter = 'AND n.deck_id = ?';
+    baseParams.push(deckId);
+  }
+
+  // Build note exclusion clause
+  let noteExclude = '';
+  if (excludeNoteIds.length > 0) {
+    noteExclude = `AND c.note_id NOT IN (${excludeNoteIds.map(() => '?').join(',')})`;
+  }
+
+  const selectFields = `
+    c.id, c.note_id, c.card_type, c.ease_factor, c.interval, c.repetitions,
+    c.next_review_at, c.queue, c.learning_step, c.due_timestamp,
+    c.created_at, c.updated_at,
+    n.id as n_id, n.deck_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts
+  `;
+
+  // Priority 1: Learning/Relearning cards due now
+  const learningQuery = `
+    SELECT ${selectFields} FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? ${deckFilter}
+    AND c.queue IN (1, 3)
+    AND c.due_timestamp <= ?
+    ${noteExclude}
+    ORDER BY c.due_timestamp ASC
+    LIMIT 1
+  `;
+
+  const learningParams = [...baseParams, now.toString(), ...excludeNoteIds];
+  const learningCard = await db.prepare(learningQuery).bind(...learningParams).first();
+
+  if (learningCard) {
+    return mapCardWithNote(learningCard);
+  }
+
+  // Priority 2: Review cards due today
+  const reviewQuery = `
+    SELECT ${selectFields} FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? ${deckFilter}
+    AND c.queue = 2
+    AND c.next_review_at <= datetime('now')
+    ${noteExclude}
+    ORDER BY c.next_review_at ASC
+    LIMIT 1
+  `;
+
+  const reviewParams = [...baseParams, ...excludeNoteIds];
+  const reviewCard = await db.prepare(reviewQuery).bind(...reviewParams).first();
+
+  if (reviewCard) {
+    return mapCardWithNote(reviewCard);
+  }
+
+  // Priority 3: New cards (check daily limit)
+  const dailyCountQuery = deckId
+    ? `SELECT COALESCE(SUM(new_cards_studied), 0) as studied FROM daily_counts
+       WHERE user_id = ? AND deck_id = ? AND date = ?`
+    : `SELECT COALESCE(SUM(new_cards_studied), 0) as studied FROM daily_counts
+       WHERE user_id = ? AND date = ?`;
+
+  const dailyResult = deckId
+    ? await db.prepare(dailyCountQuery).bind(userId, deckId, today).first<{ studied: number }>()
+    : await db.prepare(dailyCountQuery).bind(userId, today).first<{ studied: number }>();
+
+  const studiedToday = dailyResult?.studied || 0;
+
+  // Get new card limit
+  let newCardsPerDay = DEFAULT_DECK_SETTINGS.new_cards_per_day;
+  if (deckId) {
+    const deck = await getDeckById(db, deckId, userId);
+    if (deck) {
+      newCardsPerDay = deck.new_cards_per_day;
+    }
+  }
+
+  if (studiedToday >= newCardsPerDay) {
+    return null; // Daily limit reached
+  }
+
+  const newQuery = `
+    SELECT ${selectFields} FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ? ${deckFilter}
+    AND c.queue = 0
+    ${noteExclude}
+    ORDER BY RANDOM()
+    LIMIT 1
+  `;
+
+  const newParams = [...baseParams, ...excludeNoteIds];
+  const newCard = await db.prepare(newQuery).bind(...newParams).first();
+
+  if (newCard) {
+    return mapCardWithNote(newCard);
+  }
+
+  return null;
+}
+
+/**
+ * Helper to map query result to CardWithNote
+ */
+function mapCardWithNote(row: Record<string, unknown>): CardWithNote {
+  return {
+    id: row.id as string,
+    note_id: row.note_id as string,
+    card_type: row.card_type as Card['card_type'],
+    ease_factor: (row.ease_factor as number) || 2.5,
+    interval: (row.interval as number) || 0,
+    repetitions: (row.repetitions as number) || 0,
+    next_review_at: row.next_review_at as string | null,
+    queue: (row.queue as CardQueue) ?? CardQueue.NEW,
+    learning_step: (row.learning_step as number) || 0,
+    due_timestamp: row.due_timestamp as number | null,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+    note: {
+      id: row.n_id as string || row.note_id as string,
+      deck_id: row.deck_id as string,
+      hanzi: row.hanzi as string,
+      pinyin: row.pinyin as string,
+      english: row.english as string,
+      audio_url: row.audio_url as string | null,
+      fun_facts: row.fun_facts as string | null,
+      created_at: '',
+      updated_at: '',
+    },
+  };
+}
+
+/**
+ * Increment daily new card count
+ */
+export async function incrementDailyNewCount(
+  db: D1Database,
+  userId: string,
+  deckId?: string
+): Promise<void> {
+  const today = new Date().toISOString().split('T')[0];
+  const id = generateId();
+
+  // Try to insert, update on conflict
+  await db.prepare(`
+    INSERT INTO daily_counts (id, user_id, deck_id, date, new_cards_studied)
+    VALUES (?, ?, ?, ?, 1)
+    ON CONFLICT(user_id, deck_id, date) DO UPDATE SET
+      new_cards_studied = new_cards_studied + 1
+  `).bind(id, userId, deckId || null, today).run();
+}
+
+/**
+ * Update card with new scheduling values from Anki scheduler
+ */
+export async function updateCardSchedule(
+  db: D1Database,
+  cardId: string,
+  result: SchedulerResult
+): Promise<void> {
+  await db.prepare(`
+    UPDATE cards SET
+      queue = ?,
+      learning_step = ?,
+      ease_factor = ?,
+      interval = ?,
+      repetitions = ?,
+      due_timestamp = ?,
+      next_review_at = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(
+    result.queue,
+    result.learning_step,
+    result.ease_factor,
+    result.interval,
+    result.repetitions,
+    result.due_timestamp,
+    result.next_review_at?.toISOString() || null,
+    cardId
+  ).run();
+}
+
+/**
+ * Get deck settings for scheduling
+ */
+export async function getDeckSettings(
+  db: D1Database,
+  deckId: string,
+  userId: string
+): Promise<DeckSettings | null> {
+  const deck = await getDeckById(db, deckId, userId);
+  if (!deck) return null;
+
+  return {
+    new_cards_per_day: deck.new_cards_per_day,
+    learning_steps: parseLearningSteps(deck.learning_steps),
+    graduating_interval: deck.graduating_interval,
+    easy_interval: deck.easy_interval,
+    relearning_steps: DEFAULT_DECK_SETTINGS.relearning_steps,
+  };
+}
+
+/**
+ * Update deck settings
+ */
+export async function updateDeckSettings(
+  db: D1Database,
+  deckId: string,
+  userId: string,
+  settings: Partial<{
+    new_cards_per_day: number;
+    learning_steps: string;
+    graduating_interval: number;
+    easy_interval: number;
+  }>
+): Promise<Deck | null> {
+  const existing = await getDeckById(db, deckId, userId);
+  if (!existing) return null;
+
+  const updates: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  if (settings.new_cards_per_day !== undefined) {
+    updates.push('new_cards_per_day = ?');
+    values.push(settings.new_cards_per_day);
+  }
+  if (settings.learning_steps !== undefined) {
+    updates.push('learning_steps = ?');
+    values.push(settings.learning_steps);
+  }
+  if (settings.graduating_interval !== undefined) {
+    updates.push('graduating_interval = ?');
+    values.push(settings.graduating_interval);
+  }
+  if (settings.easy_interval !== undefined) {
+    updates.push('easy_interval = ?');
+    values.push(settings.easy_interval);
+  }
+
+  if (updates.length === 0) {
+    return existing;
+  }
+
+  updates.push("updated_at = datetime('now')");
+  values.push(deckId);
+
+  await db.prepare(`UPDATE decks SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...values)
+    .run();
+
+  return getDeckById(db, deckId, userId);
 }

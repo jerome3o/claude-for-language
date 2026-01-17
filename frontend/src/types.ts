@@ -4,6 +4,27 @@ export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi
 // Rating values (SM-2)
 export type Rating = 0 | 1 | 2 | 3; // 0=again, 1=hard, 2=good, 3=easy
 
+// Card queue values (Anki-style)
+export enum CardQueue {
+  NEW = 0,
+  LEARNING = 1,
+  REVIEW = 2,
+  RELEARNING = 3,
+}
+
+// Queue counts for Anki-style display
+export interface QueueCounts {
+  new: number;      // Blue - new cards
+  learning: number; // Red - learning + relearning cards
+  review: number;   // Green - review cards
+}
+
+// Interval preview for rating buttons
+export interface IntervalPreview {
+  intervalText: string;
+  queue: CardQueue;
+}
+
 // User roles
 export type UserRole = 'student' | 'tutor';
 
@@ -29,6 +50,10 @@ export interface Deck {
   user_id: string | null;
   name: string;
   description: string | null;
+  new_cards_per_day: number;
+  learning_steps: string;  // Space-separated minutes, e.g., "1 10"
+  graduating_interval: number;  // Days
+  easy_interval: number;  // Days
   created_at: string;
   updated_at: string;
 }
@@ -53,6 +78,9 @@ export interface Card {
   interval: number;
   repetitions: number;
   next_review_at: string | null;
+  queue: CardQueue;
+  learning_step: number;
+  due_timestamp: number | null;
   created_at: string;
   updated_at: string;
 }

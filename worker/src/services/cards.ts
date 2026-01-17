@@ -1,4 +1,4 @@
-import { CardType, Card } from '../types';
+import { CardType, Card, CardQueue } from '../types';
 
 /**
  * Generate a unique ID using crypto
@@ -28,6 +28,9 @@ export function createCardsForNote(noteId: string): Omit<Card, 'created_at' | 'u
     interval: 0,
     repetitions: 0,
     next_review_at: null,
+    queue: CardQueue.NEW,
+    learning_step: 0,
+    due_timestamp: null,
   }));
 }
 

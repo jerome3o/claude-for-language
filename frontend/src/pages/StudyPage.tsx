@@ -1,38 +1,56 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  getDueCards,
   getDecks,
-  startSession,
-  recordReview,
-  completeSession,
+  getNextCard,
+  submitReview,
   uploadRecording,
   askAboutNote,
+  startSession,
   API_BASE,
   NoteQuestion,
 } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
-import { CardWithNote, Rating, CARD_TYPE_INFO, RATING_INFO } from '../types';
+import {
+  CardWithNote,
+  Rating,
+  CARD_TYPE_INFO,
+  RATING_INFO,
+  QueueCounts,
+  IntervalPreview,
+} from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
-import { getAllIntervalPreviews } from '../utils/sm2';
-import { useMemo } from 'react';
 
-// Rating buttons with Anki-style interval previews
+// Queue counts header component
+function QueueCountsHeader({ counts }: { counts: QueueCounts }) {
+  const total = counts.new + counts.learning + counts.review;
+
+  if (total === 0) {
+    return null;
+  }
+
+  return (
+    <div className="queue-counts">
+      <span className="count-new" title="New cards">{counts.new}</span>
+      <span className="count-separator">+</span>
+      <span className="count-learning" title="Learning cards">{counts.learning}</span>
+      <span className="count-separator">+</span>
+      <span className="count-review" title="Review cards">{counts.review}</span>
+    </div>
+  );
+}
+
+// Rating buttons with interval previews from backend
 function RatingButtons({
-  card,
+  intervalPreviews,
   onRate,
   disabled,
 }: {
-  card: CardWithNote;
+  intervalPreviews: Record<Rating, IntervalPreview>;
   onRate: (rating: Rating) => void;
   disabled: boolean;
 }) {
-  const intervalPreviews = useMemo(
-    () => getAllIntervalPreviews(card.ease_factor, card.interval, card.repetitions),
-    [card.ease_factor, card.interval, card.repetitions]
-  );
-
   return (
     <div className="mt-4">
       <p className="text-center text-light mb-2">How well did you know this?</p>
@@ -55,14 +73,15 @@ function RatingButtons({
 
 function StudyCard({
   card,
+  intervalPreviews,
   sessionId,
   onComplete,
 }: {
   card: CardWithNote;
-  sessionId: string;
-  onComplete: () => void;
+  intervalPreviews: Record<Rating, IntervalPreview>;
+  sessionId: string | null;
+  onComplete: (counts: QueueCounts) => void;
 }) {
-  const queryClient = useQueryClient();
   const [flipped, setFlipped] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
   const [startTime] = useState(Date.now());
@@ -101,31 +120,28 @@ function StudyCard({
   const reviewMutation = useMutation({
     mutationFn: async (rating: Rating) => {
       const timeSpent = Date.now() - startTime;
-      const result = await recordReview(sessionId, {
+      const result = await submitReview({
         card_id: card.id,
         rating,
         time_spent_ms: timeSpent,
         user_answer: userAnswer || undefined,
+        session_id: sessionId || undefined,
       });
 
       // Upload recording if exists
-      if (audioBlob && result.review.id) {
+      if (audioBlob && result.review?.id) {
         await uploadRecording(result.review.id, audioBlob);
       }
 
       return result;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dueCards'] });
-      onComplete();
+    onSuccess: (result) => {
+      onComplete(result.counts);
     },
   });
 
   const handleFlip = () => {
-    if (isTypingCard && !flipped) {
-      // Check answer before flipping
-      setFlipped(true);
-    } else if (!flipped) {
+    if (!flipped) {
       setFlipped(true);
     }
   };
@@ -384,7 +400,7 @@ function StudyCard({
           <>
             {renderBack()}
             <RatingButtons
-              card={card}
+              intervalPreviews={intervalPreviews}
               onRate={handleRate}
               disabled={reviewMutation.isPending}
             />
@@ -401,57 +417,80 @@ export function StudyPage() {
 
   const deckId = searchParams.get('deck') || undefined;
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [cards, setCards] = useState<CardWithNote[]>([]);
-  const [completed, setCompleted] = useState(false);
+  const [currentCard, setCurrentCard] = useState<CardWithNote | null>(null);
+  const [intervalPreviews, setIntervalPreviews] = useState<Record<Rating, IntervalPreview> | null>(null);
+  const [counts, setCounts] = useState<QueueCounts>({ new: 0, learning: 0, review: 0 });
+  const [recentNotes, setRecentNotes] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [studyStarted, setStudyStarted] = useState(false);
 
   const decksQuery = useQuery({
     queryKey: ['decks'],
     queryFn: getDecks,
   });
 
-  const dueCardsQuery = useQuery({
-    queryKey: ['dueCards', deckId],
-    queryFn: () => getDueCards({ deckId, limit: 50 }),
-    enabled: !sessionId,
-  });
-
-  const startSessionMutation = useMutation({
-    mutationFn: () => startSession(deckId),
-    onSuccess: (session) => {
-      setSessionId(session.id);
-      setCards(dueCardsQuery.data || []);
-    },
-  });
-
-  const completeSessionMutation = useMutation({
-    mutationFn: () => completeSession(sessionId!),
-    onSuccess: () => {
-      setCompleted(true);
-      queryClient.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
-
-  const handleStartStudy = () => {
-    startSessionMutation.mutate();
-  };
-
-  const handleCardComplete = () => {
-    if (currentIndex < cards.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    } else {
-      completeSessionMutation.mutate();
+  // Load next card
+  const loadNextCard = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = await getNextCard(deckId, recentNotes.slice(-5));
+      setCurrentCard(result.card);
+      setCounts(result.counts);
+      if (result.intervalPreviews) {
+        setIntervalPreviews(result.intervalPreviews);
+      }
+      if (result.card) {
+        setRecentNotes(prev => [...prev.slice(-4), result.card!.note_id]);
+      }
+    } catch (error) {
+      console.error('Failed to load next card:', error);
+    } finally {
+      setIsLoading(false);
     }
+  }, [deckId, recentNotes]);
+
+  // Initial load of counts
+  useEffect(() => {
+    if (!studyStarted) {
+      getNextCard(deckId, []).then(result => {
+        setCounts(result.counts);
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
+      });
+    }
+  }, [deckId, studyStarted]);
+
+  const handleStartStudy = async () => {
+    // Create a session for tracking (optional, for review history)
+    const session = await startSession(deckId);
+    setSessionId(session.id);
+    setStudyStarted(true);
+    setRecentNotes([]);
+    await loadNextCard();
   };
 
-  // Show deck selection if no session started
-  if (!sessionId) {
-    if (dueCardsQuery.isLoading || decksQuery.isLoading) {
+  const handleCardComplete = (newCounts: QueueCounts) => {
+    setCounts(newCounts);
+    loadNextCard();
+  };
+
+  const handleEndSession = () => {
+    setStudyStarted(false);
+    setSessionId(null);
+    setCurrentCard(null);
+    setRecentNotes([]);
+    queryClient.invalidateQueries({ queryKey: ['stats'] });
+  };
+
+  // Show deck selection if study hasn't started
+  if (!studyStarted) {
+    if (isLoading || decksQuery.isLoading) {
       return <Loading />;
     }
 
     const decks = decksQuery.data || [];
-    const dueCards = dueCardsQuery.data || [];
+    const totalDue = counts.new + counts.learning + counts.review;
 
     return (
       <div className="page">
@@ -466,7 +505,7 @@ export function StudyPage() {
                 <Link to="/study" className="deck-card">
                   <div className="deck-card-title">All Decks</div>
                   <div className="deck-card-stats">
-                    <span>{dueCards.length} cards due</span>
+                    <QueueCountsHeader counts={counts} />
                   </div>
                 </Link>
                 {decks.map((deck) => (
@@ -479,7 +518,7 @@ export function StudyPage() {
           )}
 
           {/* Start Study */}
-          {dueCards.length === 0 ? (
+          {totalDue === 0 ? (
             <EmptyState
               icon="🎉"
               title="No cards due!"
@@ -492,7 +531,8 @@ export function StudyPage() {
             />
           ) : (
             <div className="card text-center">
-              <h2 className="mb-2">{dueCards.length} cards due</h2>
+              <QueueCountsHeader counts={counts} />
+              <h2 className="mt-3 mb-2">{totalDue} cards to study</h2>
               <p className="text-light mb-4">
                 {deckId
                   ? `From "${decks.find((d) => d.id === deckId)?.name || 'this deck'}"`
@@ -501,9 +541,8 @@ export function StudyPage() {
               <button
                 className="btn btn-primary btn-lg"
                 onClick={handleStartStudy}
-                disabled={startSessionMutation.isPending}
               >
-                {startSessionMutation.isPending ? 'Starting...' : 'Start Studying'}
+                Start Studying
               </button>
             </div>
           )}
@@ -512,32 +551,26 @@ export function StudyPage() {
     );
   }
 
-  // Study completed
-  if (completed) {
+  // Study complete
+  if (!isLoading && !currentCard) {
     return (
       <div className="page">
         <div className="container">
           <div className="card text-center">
             <div style={{ fontSize: '4rem' }}>🎉</div>
-            <h1 className="mt-2">Session Complete!</h1>
+            <h1 className="mt-2">All Done!</h1>
             <p className="text-light mt-2">
-              You studied {cards.length} card{cards.length !== 1 ? 's' : ''}
+              No more cards due right now.
             </p>
             <div className="flex gap-2 justify-center mt-4">
-              <Link to={`/study/review/${sessionId}`} className="btn btn-secondary">
-                Review Session
-              </Link>
               <button
                 className="btn btn-primary"
                 onClick={() => {
-                  setSessionId(null);
-                  setCurrentIndex(0);
-                  setCards([]);
-                  setCompleted(false);
-                  queryClient.invalidateQueries({ queryKey: ['dueCards'] });
+                  handleEndSession();
+                  queryClient.invalidateQueries({ queryKey: ['stats'] });
                 }}
               >
-                Study More
+                Back to Decks
               </button>
               <Link to="/" className="btn btn-secondary">
                 Home
@@ -549,58 +582,37 @@ export function StudyPage() {
     );
   }
 
-  // Active study session
-  const currentCard = cards[currentIndex];
-
+  // Active study
   return (
     <div className="page">
       <div className="container" style={{ maxWidth: '600px' }}>
-        {/* Progress */}
+        {/* Header with queue counts */}
         <div className="flex justify-between items-center mb-4">
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => {
               if (confirm('End this study session?')) {
-                completeSessionMutation.mutate();
+                handleEndSession();
               }
             }}
           >
-            End Session
+            End
           </button>
-          <div className="text-light">
-            {currentIndex + 1} / {cards.length}
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div
-          style={{
-            height: '4px',
-            backgroundColor: '#e5e7eb',
-            borderRadius: '2px',
-            marginBottom: '1.5rem',
-          }}
-        >
-          <div
-            style={{
-              height: '100%',
-              backgroundColor: 'var(--color-primary)',
-              borderRadius: '2px',
-              width: `${((currentIndex + 1) / cards.length) * 100}%`,
-              transition: 'width 0.3s',
-            }}
-          />
+          <QueueCountsHeader counts={counts} />
         </div>
 
         {/* Current Card */}
-        {currentCard && (
+        {isLoading ? (
+          <Loading />
+        ) : currentCard && intervalPreviews ? (
           <StudyCard
-            key={currentCard.id + currentIndex}
+            key={currentCard.id}
             card={currentCard}
+            intervalPreviews={intervalPreviews}
             sessionId={sessionId}
             onComplete={handleCardComplete}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
