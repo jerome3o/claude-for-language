@@ -93,7 +93,7 @@ function StudyCard({
   card: CardWithNote;
   intervalPreviews: Record<Rating, IntervalPreview>;
   sessionId: string | null;
-  onComplete: (counts: QueueCounts) => void;
+  onComplete: () => void;
   isOffline?: boolean;
 }) {
   const [flipped, setFlipped] = useState(false);
@@ -160,8 +160,8 @@ function StudyCard({
 
       return result;
     },
-    onSuccess: (result) => {
-      onComplete(result.counts);
+    onSuccess: () => {
+      onComplete();
     },
   });
 
@@ -177,8 +177,7 @@ function StudyCard({
           userAnswer: userAnswer || undefined,
           sessionId: sessionId || undefined,
         });
-        // Call onComplete with placeholder - the offline hooks will update counts
-        onComplete({ new: 0, learning: 0, review: 0 });
+        onComplete();
       } else {
         // Use online mutation
         onlineReviewMutation.mutate(rating);
@@ -620,7 +619,7 @@ export function StudyPage() {
     }
   };
 
-  const handleCardComplete = (newCounts: QueueCounts) => {
+  const handleCardComplete = () => {
     if (useOfflineMode) {
       // In offline mode, update recent notes and let the hook handle the next card
       if (currentCard) {
@@ -628,7 +627,7 @@ export function StudyPage() {
       }
       // Counts will be updated by the hook
     } else {
-      setCounts(newCounts);
+      // Don't set counts here - loadNextCard will set them to avoid flicker
       loadNextCard();
     }
   };
