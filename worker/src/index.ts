@@ -373,7 +373,7 @@ app.post('/api/decks', async (c) => {
 app.get('/api/decks/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
-  const deck = await db.getDeckWithNotes(c.env.DB, id, userId);
+  const deck = await db.getDeckWithNotesAndCards(c.env.DB, id, userId);
   if (!deck) {
     return c.json({ error: 'Deck not found' }, 404);
   }

@@ -43,6 +43,54 @@ export async function getDeckWithNotes(db: D1Database, id: string, userId: strin
   return { ...deck, notes: notes.results };
 }
 
+// Extended type for notes with cards included
+export interface NoteWithCardsInDeck extends Note {
+  cards: Card[];
+}
+
+export interface DeckWithNotesAndCards extends Deck {
+  notes: NoteWithCardsInDeck[];
+}
+
+export async function getDeckWithNotesAndCards(db: D1Database, id: string, userId: string): Promise<DeckWithNotesAndCards | null> {
+  const deck = await getDeckById(db, id, userId);
+  if (!deck) return null;
+
+  const notes = await db
+    .prepare('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at DESC')
+    .bind(id)
+    .all<Note>();
+
+  // Get all cards for all notes in one query
+  const noteIds = notes.results.map(n => n.id);
+  if (noteIds.length === 0) {
+    return { ...deck, notes: [] };
+  }
+
+  const placeholders = noteIds.map(() => '?').join(',');
+  const cards = await db
+    .prepare(`SELECT * FROM cards WHERE note_id IN (${placeholders})`)
+    .bind(...noteIds)
+    .all<Card>();
+
+  // Group cards by note_id
+  const cardsByNoteId: Record<string, Card[]> = {};
+  for (const card of cards.results) {
+    if (!cardsByNoteId[card.note_id]) {
+      cardsByNoteId[card.note_id] = [];
+    }
+    cardsByNoteId[card.note_id].push(card);
+  }
+
+  // Attach cards to notes
+  const notesWithCards: NoteWithCardsInDeck[] = notes.results.map(note => ({
+    ...note,
+    cards: cardsByNoteId[note.id] || [],
+  }));
+
+  return { ...deck, notes: notesWithCards };
+}
+
 export async function createDeck(
   db: D1Database,
   userId: string,
@@ -1119,7 +1167,13 @@ export async function getDeckSettings(
     learning_steps: parseLearningSteps(deck.learning_steps),
     graduating_interval: deck.graduating_interval,
     easy_interval: deck.easy_interval,
-    relearning_steps: DEFAULT_DECK_SETTINGS.relearning_steps,
+    relearning_steps: parseLearningSteps(deck.relearning_steps),
+    starting_ease: deck.starting_ease / 100,
+    minimum_ease: deck.minimum_ease / 100,
+    maximum_ease: deck.maximum_ease / 100,
+    interval_modifier: deck.interval_modifier / 100,
+    hard_multiplier: deck.hard_multiplier / 100,
+    easy_bonus: deck.easy_bonus / 100,
   };
 }
 

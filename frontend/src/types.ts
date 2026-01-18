@@ -121,7 +121,7 @@ export interface NoteWithCards extends Note {
 }
 
 export interface DeckWithNotes extends Deck {
-  notes: Note[];
+  notes: NoteWithCards[];
 }
 
 export interface CardWithNote extends Card {

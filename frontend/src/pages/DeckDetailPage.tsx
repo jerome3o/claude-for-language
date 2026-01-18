@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, exportDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
-import { Note, Deck } from '../types';
+import { Note, Deck, Card, CardQueue, NoteWithCards } from '../types';
 
 const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -34,6 +34,122 @@ function formatInterval(days: number): string {
   if (days < 30) return `${days} days`;
   if (days < 365) return `${Math.round(days / 30)} months`;
   return `${(days / 365).toFixed(1)} years`;
+}
+
+// Short card type labels for the status display
+const CARD_TYPE_SHORT: Record<string, string> = {
+  hanzi_to_meaning: 'H→M',
+  meaning_to_hanzi: 'M→H',
+  audio_to_hanzi: 'A→H',
+};
+
+function getCardStatus(card: Card): { label: string; color: string; priority: number } {
+  const now = new Date();
+
+  if (card.queue === CardQueue.NEW) {
+    return { label: 'New', color: '#3b82f6', priority: 3 }; // blue
+  }
+
+  if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+    // Check if due now
+    if (card.due_timestamp && card.due_timestamp <= Date.now()) {
+      return { label: 'Due', color: '#ef4444', priority: 0 }; // red
+    }
+    // Still learning but not due yet
+    const dueIn = card.due_timestamp ? Math.ceil((card.due_timestamp - Date.now()) / 60000) : 0;
+    return { label: dueIn > 0 ? `${dueIn}m` : 'Learning', color: '#f97316', priority: 1 }; // orange
+  }
+
+  if (card.queue === CardQueue.REVIEW) {
+    const nextReview = card.next_review_at ? new Date(card.next_review_at) : null;
+    if (!nextReview || nextReview <= now) {
+      return { label: 'Due', color: '#22c55e', priority: 0 }; // green
+    }
+    // Calculate days until due
+    const daysUntil = Math.ceil((nextReview.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysUntil === 1) {
+      return { label: '1d', color: '#22c55e', priority: 2 };
+    }
+    if (daysUntil < 7) {
+      return { label: `${daysUntil}d`, color: '#22c55e', priority: 2 };
+    }
+    if (daysUntil < 30) {
+      return { label: `${Math.round(daysUntil / 7)}w`, color: '#22c55e', priority: 2 };
+    }
+    if (daysUntil < 365) {
+      return { label: `${Math.round(daysUntil / 30)}mo`, color: '#22c55e', priority: 2 };
+    }
+    return { label: `${(daysUntil / 365).toFixed(1)}y`, color: '#22c55e', priority: 2 };
+  }
+
+  return { label: '?', color: '#9ca3af', priority: 4 };
+}
+
+function getNoteLearningStatus(cards: Card[]): {
+  nextDue: string | null;
+  isDue: boolean;
+  allNew: boolean;
+  avgInterval: number;
+  avgEase: number;
+  totalReps: number;
+} {
+  const now = new Date();
+  let earliestDue: Date | null = null;
+  let isDue = false;
+  let allNew = true;
+  let totalInterval = 0;
+  let totalEase = 0;
+  let totalReps = 0;
+
+  for (const card of cards) {
+    if (card.queue !== CardQueue.NEW) {
+      allNew = false;
+    }
+
+    totalInterval += card.interval;
+    totalEase += card.ease_factor;
+    totalReps += card.repetitions;
+
+    // Check if due
+    if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+      if (card.due_timestamp && card.due_timestamp <= Date.now()) {
+        isDue = true;
+      }
+    } else if (card.queue === CardQueue.REVIEW && card.next_review_at) {
+      const nextReview = new Date(card.next_review_at);
+      if (nextReview <= now) {
+        isDue = true;
+      }
+      if (!earliestDue || nextReview < earliestDue) {
+        earliestDue = nextReview;
+      }
+    } else if (card.queue === CardQueue.NEW) {
+      isDue = true;
+    }
+  }
+
+  let nextDue: string | null = null;
+  if (earliestDue && earliestDue > now) {
+    const daysUntil = Math.ceil((earliestDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysUntil === 0) {
+      nextDue = 'Today';
+    } else if (daysUntil === 1) {
+      nextDue = 'Tomorrow';
+    } else if (daysUntil < 7) {
+      nextDue = `${daysUntil} days`;
+    } else {
+      nextDue = earliestDue.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+  }
+
+  return {
+    nextDue,
+    isDue,
+    allNew,
+    avgInterval: cards.length > 0 ? Math.round(totalInterval / cards.length) : 0,
+    avgEase: cards.length > 0 ? totalEase / cards.length : 2.5,
+    totalReps,
+  };
 }
 
 function NoteHistoryModal({
@@ -659,7 +775,7 @@ function NoteCard({
   onHistory,
   onAudioGenerated,
 }: {
-  note: Note;
+  note: NoteWithCards;
   onEdit: () => void;
   onDelete: () => void;
   onHistory: () => void;
@@ -679,6 +795,15 @@ function NoteCard({
       setIsGenerating(false);
     }
   };
+
+  // Get learning status for all cards
+  const learningStatus = getNoteLearningStatus(note.cards || []);
+
+  // Sort cards by card_type for consistent display order
+  const sortedCards = [...(note.cards || [])].sort((a, b) => {
+    const order = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
+    return order.indexOf(a.card_type) - order.indexOf(b.card_type);
+  });
 
   return (
     <div className="note-card">
@@ -716,6 +841,57 @@ function NoteCard({
             {note.fun_facts}
           </p>
         )}
+
+        {/* Learning Status */}
+        {sortedCards.length > 0 && (
+          <div className="note-learning-status">
+            <div className="card-status-row">
+              {sortedCards.map((card) => {
+                const status = getCardStatus(card);
+                return (
+                  <div
+                    key={card.id}
+                    className="card-status-item"
+                    title={`${CARD_TYPE_LABELS[card.card_type]}: ${status.label}${card.interval > 0 ? ` (${formatInterval(card.interval)} interval)` : ''}`}
+                  >
+                    <span className="card-type-label">{CARD_TYPE_SHORT[card.card_type]}</span>
+                    <span
+                      className="card-status-badge"
+                      style={{ backgroundColor: status.color }}
+                    >
+                      {status.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Summary row */}
+            <div className="note-status-summary">
+              {learningStatus.allNew ? (
+                <span className="text-light">Not started</span>
+              ) : (
+                <>
+                  <span className="text-light">
+                    {learningStatus.totalReps} reviews
+                  </span>
+                  <span className="text-light">
+                    {Math.round(learningStatus.avgEase * 100)}% ease
+                  </span>
+                  {learningStatus.avgInterval > 0 && (
+                    <span className="text-light">
+                      ~{formatInterval(learningStatus.avgInterval)}
+                    </span>
+                  )}
+                  {learningStatus.nextDue && !learningStatus.isDue && (
+                    <span className="text-light">
+                      Next: {learningStatus.nextDue}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       <div className="note-card-actions">
         <button className="btn btn-sm btn-secondary" onClick={onHistory}>
@@ -738,8 +914,8 @@ export function DeckDetailPage() {
   const queryClient = useQueryClient();
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingNote, setEditingNote] = useState<Note | null>(null);
-  const [historyNote, setHistoryNote] = useState<Note | null>(null);
+  const [editingNote, setEditingNote] = useState<NoteWithCards | null>(null);
+  const [historyNote, setHistoryNote] = useState<NoteWithCards | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isGeneratingAllAudio, setIsGeneratingAllAudio] = useState(false);
