@@ -78,7 +78,9 @@ class SyncService {
         console.error('[fullSync] Deck list error response:', text);
         throw new Error('Failed to fetch decks');
       }
-      const decks: Deck[] = await decksResponse.json();
+      const decksText = await decksResponse.text();
+      console.log('[fullSync] Deck list body (first 500 chars):', decksText.slice(0, 500));
+      const decks: Deck[] = JSON.parse(decksText);
       console.log('[fullSync] Got', decks.length, 'decks');
 
       // Fetch full data for each deck (includes notes AND cards)
