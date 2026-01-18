@@ -1,5 +1,22 @@
 /* Mobile-first styles for Chat Page */
 
+/* Override body/root min-height to prevent 100vh vs 100dvh mismatch on mobile */
+body:has(.chat-page),
+body:has(.chat-page) #root {
+  min-height: 100dvh;
+  min-height: 100vh; /* Fallback for browsers without dvh support */
+  height: 100dvh;
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  body:has(.chat-page),
+  body:has(.chat-page) #root {
+    min-height: 100dvh;
+    height: 100dvh;
+  }
+}
+
 .chat-page {
   display: flex;
   flex-direction: column;
