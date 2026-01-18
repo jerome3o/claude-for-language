@@ -444,11 +444,7 @@ function StudyCard({
       <div className="study-topbar">
         <button
           className="study-close-btn"
-          onClick={() => {
-            if (confirm('End this study session?')) {
-              onEnd();
-            }
-          }}
+          onClick={onEnd}
           aria-label="End session"
         >
           ✕
