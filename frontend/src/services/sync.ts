@@ -1,5 +1,14 @@
 import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData } from '../db/database';
-import { Deck, Note, Card, DeckWithNotes } from '../types';
+import { Deck, Note, Card } from '../types';
+
+// Extended type for deck with notes and cards (from API)
+interface NoteWithCards extends Note {
+  cards: Card[];
+}
+
+interface DeckWithNotesAndCards extends Deck {
+  notes: NoteWithCards[];
+}
 
 // API response types for sync endpoint
 interface SyncChangesResponse {
@@ -67,37 +76,37 @@ class SyncService {
       }
       const decks: Deck[] = await decksResponse.json();
 
-      // Fetch full data for each deck (includes notes)
+      // Fetch full data for each deck (includes notes AND cards)
       const deckPromises = decks.map(async (deck) => {
         const deckResponse = await fetch(`/api/decks/${deck.id}`);
         if (!deckResponse.ok) {
           throw new Error(`Failed to fetch deck ${deck.id}`);
         }
-        return deckResponse.json() as Promise<DeckWithNotes>;
+        return deckResponse.json() as Promise<DeckWithNotesAndCards>;
       });
 
       const fullDecks = await Promise.all(deckPromises);
 
-      // Fetch cards for all notes
+      // Extract notes and cards from deck responses (no need for extra requests!)
       const allNotes: Note[] = [];
       const allCards: LocalCard[] = [];
 
       for (const deck of fullDecks) {
         for (const note of deck.notes) {
-          allNotes.push(note);
+          // Extract cards from note
+          const { cards, ...noteWithoutCards } = note;
+          allNotes.push(noteWithoutCards);
 
-          // Fetch cards for this note
-          const cardsResponse = await fetch(`/api/notes/${note.id}`);
-          if (cardsResponse.ok) {
-            const noteWithCards = await cardsResponse.json();
-            if (noteWithCards.cards) {
-              for (const card of noteWithCards.cards) {
-                allCards.push(cardToLocal(card, deck.id));
-              }
+          // Add cards with deck_id
+          if (cards) {
+            for (const card of cards) {
+              allCards.push(cardToLocal(card, deck.id));
             }
           }
         }
       }
+
+      console.log(`[fullSync] Synced ${fullDecks.length} decks, ${allNotes.length} notes, ${allCards.length} cards`);
 
       // Clear existing data and insert new
       await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
