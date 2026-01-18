@@ -538,9 +538,11 @@ export function StudyPage() {
       // In offline mode, data comes from hooks
       return;
     }
-    setIsLoading(true);
+    // Only show loading spinner if request takes > 150ms (avoid flash)
+    const loadingTimeout = setTimeout(() => setIsLoading(true), 150);
     try {
       const result = await getNextCard(deckId, recentNotes.slice(-5), ignoreDailyLimit);
+      clearTimeout(loadingTimeout);
       setCurrentCard(result.card);
       setCounts(result.counts);
       setHasMoreNewCards(result.hasMoreNewCards || false);
@@ -551,6 +553,7 @@ export function StudyPage() {
         setRecentNotes(prev => [...prev.slice(-4), result.card!.note_id]);
       }
     } catch (error) {
+      clearTimeout(loadingTimeout);
       console.error('Failed to load next card:', error);
       // If online request fails, switch to offline mode
       if (!isOnline) {
