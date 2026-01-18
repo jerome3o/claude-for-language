@@ -12,9 +12,12 @@ For each vocabulary item, provide:
 Important guidelines:
 - Use simplified Chinese characters
 - Use proper pinyin with tone marks (ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ) - NOT tone numbers
-- For phrases, include spaces between syllables in pinyin
-- Make vocabulary practical and commonly used
-- Include a mix of single characters and multi-character words/phrases when appropriate
+- CRITICAL for pinyin spacing: Put spaces BETWEEN WORDS, not between every syllable. Multi-syllable words should be written as one unit.
+  - CORRECT: "wǒ xiǎng mǎi zhège" (我想买这个) - "zhège" is one word
+  - CORRECT: "qǐngwèn xǐshǒujiān zài nǎlǐ?" (请问洗手间在哪里?) - compound words stay together
+  - WRONG: "wǒ xiǎng mǎi zhè ge" - splits "zhège" incorrectly
+  - WRONG: "qǐng wèn xǐ shǒu jiān zài nǎ lǐ" - splits every syllable
+- Prefer practical sentences and phrases over single words - things the learner would actually say or hear in real conversations
 - Keep fun_facts brief but informative
 
 Always respond with valid JSON.`;
@@ -31,8 +34,16 @@ export async function generateDeck(
 
   const userPrompt = `Generate a vocabulary deck about: "${prompt}"
 
-Create 8-12 vocabulary items that would be useful for this topic.
-Include a mix of difficulty levels.
+Create 8-12 items that would be useful for this topic. Focus on:
+- **Practical sentences and phrases** the learner would actually say or hear when interacting around this theme
+- Include some key vocabulary words, but prioritize useful phrases and questions
+- Think about real conversations: What would someone ask? What would they need to say? What might they hear?
+- Mix of difficulty levels
+
+For example, for a "restaurant" deck, prefer phrases like:
+- "我想点菜" (wǒ xiǎng diǎncài - I'd like to order)
+- "请问有什么推荐的？" (qǐngwèn yǒu shénme tuījiàn de? - What do you recommend?)
+Rather than just single words like "menu" or "waiter".
 
 Respond with JSON in this exact format:
 {
@@ -90,8 +101,9 @@ export async function suggestCards(
 
   const userPrompt = `Based on this context: "${context}"
 
-Suggest ${count} related Chinese vocabulary items that would complement this.
-These should be useful vocabulary that relates to or extends the given context.
+Suggest ${count} related Chinese items that would complement this.
+Focus on practical sentences and phrases the learner might actually use in real conversations around this topic.
+Include some key vocabulary, but prioritize useful phrases and questions.
 
 Respond with JSON in this exact format:
 {
