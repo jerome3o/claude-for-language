@@ -26,6 +26,7 @@ import {
   useSubmitReviewOffline,
   useHasMoreNewCards,
 } from '../hooks/useOfflineData';
+import ReactMarkdown from 'react-markdown';
 
 // Character diff component for typed answers (Anki-style)
 function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correctAnswer: string }) {
@@ -352,7 +353,7 @@ function StudyCard({
         <div
           className="modal"
           onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: '90%', width: '500px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          style={{ maxWidth: '95%', width: '600px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
         >
           <div className="modal-header">
             <div className="modal-title">Ask about: {card.note.hanzi}</div>
@@ -380,17 +381,8 @@ function StudyCard({
                 >
                   {qa.question}
                 </div>
-                <div
-                  style={{
-                    backgroundColor: '#f9fafb',
-                    padding: '0.75rem 1rem',
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
-                    whiteSpace: 'pre-wrap',
-                    border: '1px solid #e5e7eb',
-                  }}
-                >
-                  {qa.answer}
+                <div className="claude-response">
+                  <ReactMarkdown>{qa.answer}</ReactMarkdown>
                 </div>
               </div>
             ))}
