@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, updateDeckSettings, exportDeck, API_BASE } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, exportDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck } from '../types';
@@ -212,6 +212,10 @@ function DeckSettingsModal({
   const queryClient = useQueryClient();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Deck info
+  const [name, setName] = useState(deck.name);
+  const [description, setDescription] = useState(deck.description || '');
+
   // Basic settings
   const [newCardsPerDay, setNewCardsPerDay] = useState(deck.new_cards_per_day?.toString() || '20');
   const [learningSteps, setLearningSteps] = useState(deck.learning_steps || '1 10');
@@ -228,21 +232,27 @@ function DeckSettingsModal({
   const [easyBonus, setEasyBonus] = useState(((deck.easy_bonus || 130) / 100).toString());
 
   const saveMutation = useMutation({
-    mutationFn: () => updateDeckSettings(deck.id, {
-      new_cards_per_day: parseInt(newCardsPerDay, 10) || 20,
-      learning_steps: learningSteps,
-      graduating_interval: parseInt(graduatingInterval, 10) || 1,
-      easy_interval: parseInt(easyInterval, 10) || 4,
-      relearning_steps: relearningSteps,
-      starting_ease: Math.round(parseFloat(startingEase) * 100) || 250,
-      minimum_ease: Math.round(parseFloat(minimumEase) * 100) || 130,
-      maximum_ease: Math.round(parseFloat(maximumEase) * 100) || 300,
-      interval_modifier: Math.round(parseFloat(intervalModifier) * 100) || 100,
-      hard_multiplier: Math.round(parseFloat(hardMultiplier) * 100) || 120,
-      easy_bonus: Math.round(parseFloat(easyBonus) * 100) || 130,
-    }),
+    mutationFn: async () => {
+      // Update deck name and description
+      await updateDeck(deck.id, { name, description: description || undefined });
+      // Update SRS settings
+      await updateDeckSettings(deck.id, {
+        new_cards_per_day: parseInt(newCardsPerDay, 10) || 20,
+        learning_steps: learningSteps,
+        graduating_interval: parseInt(graduatingInterval, 10) || 1,
+        easy_interval: parseInt(easyInterval, 10) || 4,
+        relearning_steps: relearningSteps,
+        starting_ease: Math.round(parseFloat(startingEase) * 100) || 250,
+        minimum_ease: Math.round(parseFloat(minimumEase) * 100) || 130,
+        maximum_ease: Math.round(parseFloat(maximumEase) * 100) || 300,
+        interval_modifier: Math.round(parseFloat(intervalModifier) * 100) || 100,
+        hard_multiplier: Math.round(parseFloat(hardMultiplier) * 100) || 120,
+        easy_bonus: Math.round(parseFloat(easyBonus) * 100) || 130,
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deck', deck.id] });
+      queryClient.invalidateQueries({ queryKey: ['decks'] });
       onSave();
       onClose();
     },
@@ -265,6 +275,32 @@ function DeckSettingsModal({
           }}
           style={{ maxHeight: '70vh', overflowY: 'auto' }}
         >
+          {/* Deck Info Section */}
+          <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Deck Info</h3>
+
+          <div className="form-group">
+            <label className="form-label">Deck Name</label>
+            <input
+              type="text"
+              className="form-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter deck name"
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Description (optional)</label>
+            <textarea
+              className="form-textarea"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Enter deck description"
+              rows={2}
+            />
+          </div>
+
           {/* How SRS Works Section */}
           <div style={{ background: 'var(--bg-elevated)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
             <strong>How Spaced Repetition Works:</strong>
@@ -510,7 +546,7 @@ function DeckSettingsModal({
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || !name.trim()}
             >
               {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
             </button>
