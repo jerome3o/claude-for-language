@@ -1,13 +1,6 @@
 /* Header user section */
 .header-user {
   position: relative;
-  margin-left: 0.5rem;
-}
-
-@media (min-width: 640px) {
-  .header-user {
-    margin-left: 1rem;
-  }
 }
 
 .user-button {

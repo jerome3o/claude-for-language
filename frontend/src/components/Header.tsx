@@ -31,10 +31,13 @@ export function Header() {
         <Link to="/" className="header-title">
           汉语学习
         </Link>
-        <nav className="header-nav">
-          <Link to="/connections">Connections</Link>
-          {user?.is_admin && <Link to="/admin">Admin</Link>}
-        </nav>
+        <div className="header-right">
+          <nav className="header-nav">
+            <Link to="/">Home</Link>
+            <Link to="/decks">Decks</Link>
+            <Link to="/connections">Connections</Link>
+            {user?.is_admin && <Link to="/admin">Admin</Link>}
+          </nav>
         {user && (
           <div className="header-user" ref={menuRef}>
             <button
@@ -68,6 +71,7 @@ export function Header() {
             )}
           </div>
         )}
+        </div>
       </div>
     </header>
   );

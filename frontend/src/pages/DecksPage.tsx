@@ -145,6 +145,9 @@ export function DecksPage() {
         <div className="flex justify-between items-center mb-4">
           <h1>Your Decks</h1>
           <div className="flex gap-2">
+            <Link to="/generate" className="btn btn-secondary">
+              AI Generate
+            </Link>
             <button
               className="btn btn-secondary"
               onClick={handleImportClick}

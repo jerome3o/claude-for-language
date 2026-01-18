@@ -379,7 +379,7 @@ export async function getDueCards(
     FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+    WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))
   `;
 
   const params: (string | number)[] = [userId];
@@ -804,7 +804,7 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
       SELECT COUNT(*) as count FROM cards c
       JOIN notes n ON c.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))
     `).bind(userId).first<{ count: number }>(),
     db.prepare(`
       SELECT COUNT(*) as count FROM card_reviews cr
@@ -851,7 +851,7 @@ export async function getDeckStats(
       .prepare(
         `SELECT COUNT(*) as count FROM cards c
          JOIN notes n ON c.note_id = n.id
-         WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))`
+         WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))`
       )
       .bind(deckId)
       .first<{ count: number }>(),
@@ -918,14 +918,14 @@ export async function getQueueCounts(
     AND c.queue IN (1, 3)
   `;
 
-  // Get review cards count (due today)
+  // Get review cards count (due by end of today)
   const reviewQuery = `
     SELECT COUNT(*) as count FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? ${deckFilter}
     AND c.queue = 2
-    AND c.next_review_at <= datetime('now')
+    AND c.next_review_at <= date('now', '+1 day', 'start of day')
   `;
 
   const [newResult, dailyResult, learningResult, reviewResult] = await Promise.all([
@@ -1011,14 +1011,14 @@ export async function getNextStudyCard(
     return mapCardWithNote(learningCard);
   }
 
-  // Priority 2: Review cards due today
+  // Priority 2: Review cards due by end of today
   const reviewQuery = `
     SELECT ${selectFields} FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? ${deckFilter}
     AND c.queue = 2
-    AND c.next_review_at <= datetime('now')
+    AND c.next_review_at <= date('now', '+1 day', 'start of day')
     ${noteExclude}
     ORDER BY c.next_review_at ASC
     LIMIT 1

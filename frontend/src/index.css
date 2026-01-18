@@ -315,6 +315,19 @@ a:hover {
   }
 }
 
+/* Header right section - nav and user together */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .header-right {
+    gap: 0.75rem;
+  }
+}
+
 .header-nav {
   display: flex;
   gap: 0.25rem;

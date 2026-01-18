@@ -206,7 +206,7 @@ export function ChatPage() {
           </div>
         ) : (
           messagesByDate.map((group, i) => (
-            <div key={i}>
+            <div key={i} className="chat-date-group">
               <div className="chat-date-divider">
                 <span>{formatDate(group.date)}</span>
               </div>

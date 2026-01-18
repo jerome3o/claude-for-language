@@ -178,7 +178,10 @@ export async function getNewCardsStudiedToday(deckId?: string): Promise<number> 
 
 export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Promise<LocalCard[]> {
   const now = Date.now();
-  const nowIso = new Date().toISOString();
+  // Get end of today (midnight tonight) for review cards
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  const endOfTodayIso = today.toISOString();
 
   let cards: LocalCard[];
   if (deckId) {
@@ -216,7 +219,8 @@ export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Pr
         dueCards.push(card);
       }
     } else if (card.queue === CardQueue.REVIEW) {
-      if (!card.next_review_at || card.next_review_at <= nowIso) {
+      // Include all cards due by end of today
+      if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
         dueCards.push(card);
       }
     }
