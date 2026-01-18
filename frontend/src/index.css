@@ -367,91 +367,86 @@ a:hover {
 .gap-2 { gap: 1rem; }
 .gap-3 { gap: 1.5rem; }
 
-/* Study page - compact layout with scroll prevention */
-/* Prevent body scroll when study page is active */
-html:has(.study-page),
-html:has(.study-page) body {
+/* Fullscreen study page */
+html:has(.study-page-fullscreen),
+html:has(.study-page-fullscreen) body {
   overflow: hidden;
   height: 100%;
 }
 
-.study-page {
-  overflow: hidden;
-  height: calc(100vh - 52px); /* Fallback for browsers without dvh */
-  height: calc(100dvh - 52px); /* viewport height minus header */
-  padding: 0 !important; /* Override .page padding */
-  display: flex;
-  flex-direction: column;
-  overscroll-behavior: none;
+/* Hide header when in fullscreen study mode */
+html:has(.study-page-fullscreen) .header {
+  display: none;
 }
 
-.study-page > .container {
-  flex: 1;
-  min-height: 0; /* Allow flex children to shrink */
-  overflow: hidden;
+.study-page-fullscreen {
+  position: fixed;
+  inset: 0;
+  background-color: var(--color-surface);
   display: flex;
   flex-direction: column;
   padding: 0.5rem;
+  z-index: 200;
 }
 
 @media (min-width: 640px) {
-  .study-page > .container {
+  .study-page-fullscreen {
     padding: 1rem;
   }
 }
 
-.study-page .study-header {
+.study-fullscreen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.study-topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
+  padding: 0.75rem 1rem;
   flex-shrink: 0;
 }
 
-.study-page .card {
+.study-close-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-light);
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.study-close-btn:hover {
+  background-color: var(--color-background);
+  color: var(--color-text);
+}
+
+.study-card-content {
   flex: 1;
-  min-height: 0; /* Allow flex children to shrink */
-  overflow-y: auto; /* allow scroll inside card if needed for Ask Claude */
-  overscroll-behavior: contain; /* Prevent scroll from chaining to parent */
   display: flex;
   flex-direction: column;
-  padding: 0.75rem;
-  margin: 0;
+  justify-content: center;
+  padding: 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-@media (min-width: 640px) {
-  .study-page .card {
-    padding: 1rem;
-  }
-}
-
-.study-page .study-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  padding-top: 1rem;
-}
-
-@media (min-width: 640px) {
-  .study-page .study-card {
-    justify-content: center;
-    padding-top: 0;
-  }
-}
-
-/* Study card animations */
-.study-card {
-  perspective: 1000px;
-}
-
+/* Study card animations (unused but kept for reference) */
 .study-card-inner {
   transition: transform 0.6s;
   transform-style: preserve-3d;
-}
-
-.study-card.flipped .study-card-inner {
-  transform: rotateY(180deg);
 }
 
 /* Queue counts (Anki-style) */

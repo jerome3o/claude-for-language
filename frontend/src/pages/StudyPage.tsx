@@ -85,12 +85,16 @@ function StudyCard({
   card,
   intervalPreviews,
   sessionId,
+  counts,
   onComplete,
+  onEnd,
 }: {
   card: CardWithNote;
   intervalPreviews: Record<Rating, IntervalPreview>;
   sessionId: string | null;
+  counts: QueueCounts;
   onComplete: () => void;
+  onEnd: () => void;
 }) {
   const [flipped, setFlipped] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
@@ -431,8 +435,25 @@ function StudyCard({
   };
 
   return (
-    <div className="card">
-      <div className="study-card">
+    <div className="study-fullscreen">
+      {/* Top bar with close button and queue counts */}
+      <div className="study-topbar">
+        <button
+          className="study-close-btn"
+          onClick={() => {
+            if (confirm('End this study session?')) {
+              onEnd();
+            }
+          }}
+          aria-label="End session"
+        >
+          ✕
+        </button>
+        <QueueCountsHeader counts={counts} activeQueue={card.queue} />
+      </div>
+
+      {/* Card content */}
+      <div className="study-card-content">
         {!flipped ? (
           <>
             {renderFront()}
@@ -631,38 +652,22 @@ export function StudyPage() {
     );
   }
 
-  // Active study
+  // Active study - fullscreen mode
   return (
-    <div className="page study-page">
-      <div className="container" style={{ maxWidth: '600px' }}>
-        {/* Header with queue counts */}
-        <div className="study-header">
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              if (confirm('End this study session?')) {
-                handleEndSession();
-              }
-            }}
-          >
-            End
-          </button>
-          <QueueCountsHeader counts={counts} activeQueue={currentCard?.queue} />
-        </div>
-
-        {/* Current Card */}
-        {isLoading ? (
-          <Loading />
-        ) : currentCard && intervalPreviews ? (
-          <StudyCard
-            key={currentCard.id}
-            card={currentCard}
-            intervalPreviews={intervalPreviews}
-            sessionId={sessionId}
-            onComplete={handleCardComplete}
-          />
-        ) : null}
-      </div>
+    <div className="study-page-fullscreen">
+      {isLoading ? (
+        <Loading />
+      ) : currentCard && intervalPreviews ? (
+        <StudyCard
+          key={currentCard.id}
+          card={currentCard}
+          intervalPreviews={intervalPreviews}
+          sessionId={sessionId}
+          counts={counts}
+          onComplete={handleCardComplete}
+          onEnd={handleEndSession}
+        />
+      ) : null}
     </div>
   );
 }
