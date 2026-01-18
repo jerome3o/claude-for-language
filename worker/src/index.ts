@@ -391,70 +391,82 @@ app.post('/api/decks/import', async (c) => {
 
   // Create deck
   const deck = await db.createDeck(c.env.DB, userId, data.deck.name, data.deck.description);
-  console.log('[Import] Created deck:', deck.id);
+  console.log('[Import] Created deck:', deck.id, 'with', data.notes.length, 'notes to import');
 
-  // Import notes
-  const importedNotes: Array<{ hanzi: string; success: boolean; error?: string }> = [];
+  // For large imports, we create the deck and return immediately,
+  // then process notes in batches in the background
+  const BATCH_SIZE = 50;
+  const totalNotes = data.notes.length;
 
-  for (const noteData of data.notes) {
-    try {
-      if (!noteData.hanzi || !noteData.pinyin || !noteData.english) {
-        importedNotes.push({ hanzi: noteData.hanzi || 'unknown', success: false, error: 'Missing required fields' });
-        continue;
-      }
+  // Process notes in background using waitUntil
+  c.executionCtx.waitUntil((async () => {
+    let successCount = 0;
+    let errorCount = 0;
 
-      // Create note
-      const note = await db.createNote(
-        c.env.DB,
-        deck.id,
-        noteData.hanzi,
-        noteData.pinyin,
-        noteData.english,
-        undefined, // audio_url - will be generated
-        noteData.fun_facts
-      );
+    for (let i = 0; i < data.notes.length; i += BATCH_SIZE) {
+      const batch = data.notes.slice(i, i + BATCH_SIZE);
+      console.log(`[Import] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}, notes ${i + 1}-${Math.min(i + BATCH_SIZE, data.notes.length)}`);
 
-      // Set card progress if provided
-      if (noteData.progress && noteData.progress.interval > 0) {
-        const noteWithCards = await db.getNoteWithCards(c.env.DB, note.id, userId);
-        if (noteWithCards?.cards) {
-          for (const card of noteWithCards.cards) {
-            await db.setCardProgress(
-              c.env.DB,
-              card.id,
-              noteData.progress.interval,
-              noteData.progress.ease_factor || 2.5,
-              noteData.progress.repetitions || 1
-            );
+      for (const noteData of batch) {
+        try {
+          if (!noteData.hanzi || !noteData.pinyin || !noteData.english) {
+            errorCount++;
+            continue;
           }
+
+          // Create note
+          const note = await db.createNote(
+            c.env.DB,
+            deck.id,
+            noteData.hanzi,
+            noteData.pinyin,
+            noteData.english,
+            undefined,
+            noteData.fun_facts
+          );
+
+          // Set card progress if provided
+          if (noteData.progress && noteData.progress.interval > 0) {
+            const noteWithCards = await db.getNoteWithCards(c.env.DB, note.id, userId);
+            if (noteWithCards?.cards) {
+              for (const card of noteWithCards.cards) {
+                await db.setCardProgress(
+                  c.env.DB,
+                  card.id,
+                  noteData.progress.interval,
+                  noteData.progress.ease_factor || 2.5,
+                  noteData.progress.repetitions || 1
+                );
+              }
+            }
+          }
+
+          // Generate TTS audio (don't await, let it run in parallel)
+          generateTTS(c.env, noteData.hanzi, note.id).then(async (audioKey) => {
+            if (audioKey) {
+              await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+            }
+          }).catch((err) => {
+            console.error('[Import] TTS failed for', noteData.hanzi, err);
+          });
+
+          successCount++;
+        } catch (err) {
+          console.error('[Import] Failed to import note:', noteData.hanzi, err);
+          errorCount++;
         }
       }
-
-      // Generate TTS audio in background
-      c.executionCtx.waitUntil(
-        generateTTS(c.env, noteData.hanzi, note.id).then(async (audioKey) => {
-          if (audioKey) {
-            await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
-          }
-        }).catch((err) => {
-          console.error('[Import] TTS failed for', noteData.hanzi, err);
-        })
-      );
-
-      importedNotes.push({ hanzi: noteData.hanzi, success: true });
-    } catch (err) {
-      console.error('[Import] Failed to import note:', noteData.hanzi, err);
-      importedNotes.push({ hanzi: noteData.hanzi, success: false, error: String(err) });
     }
-  }
 
-  const successCount = importedNotes.filter(n => n.success).length;
+    console.log(`[Import] Completed: ${successCount} success, ${errorCount} errors`);
+  })());
 
+  // Return immediately with deck info - notes are being imported in background
   return c.json({
     deck_id: deck.id,
-    imported: successCount,
-    total: data.notes.length,
-    notes: importedNotes,
+    imported: 0, // Will be processed in background
+    total: totalNotes,
+    message: `Importing ${totalNotes} notes in background. Refresh the deck to see progress.`,
   }, 201);
 });
 
