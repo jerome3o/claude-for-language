@@ -26,7 +26,7 @@ import {
   clearStateCookie,
   parseStateCookie,
   generateState,
-  getAllUsers,
+  getAllUsersWithStats,
 } from './services/auth';
 import { notifyNewUser } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
@@ -227,9 +227,9 @@ app.use('/api/*', authMiddleware);
 // ============ Admin Routes ============
 
 app.get('/api/admin/users', adminMiddleware, async (c) => {
-  const users = await getAllUsers(c.env.DB);
+  const users = await getAllUsersWithStats(c.env.DB);
 
-  // Return users without sensitive fields
+  // Return users without sensitive fields, with stats
   return c.json(users.map(user => ({
     id: user.id,
     email: user.email,
@@ -239,6 +239,9 @@ app.get('/api/admin/users', adminMiddleware, async (c) => {
     is_admin: !!user.is_admin,
     created_at: user.created_at,
     last_login_at: user.last_login_at,
+    deck_count: user.deck_count,
+    note_count: user.note_count,
+    review_count: user.review_count,
   })));
 });
 
