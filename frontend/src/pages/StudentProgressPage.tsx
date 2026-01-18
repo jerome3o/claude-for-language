@@ -1,10 +1,47 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getStudentProgress, getRelationship } from '../api/client';
+import { getStudentDailyProgress, getRelationship } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
 import { getMyRoleInRelationship } from '../types';
 import './StudentProgressPage.css';
+
+function formatTime(ms: number): string {
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMins = minutes % 60;
+  return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`;
+}
+
+function formatDate(dateStr: string): { day: string; full: string } {
+  const date = new Date(dateStr + 'T12:00:00'); // Add time to avoid timezone issues
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const isToday = date.toDateString() === today.toDateString();
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+
+  const full = date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+
+  if (isToday) {
+    return { day: 'Today', full };
+  } else if (isYesterday) {
+    return { day: 'Yesterday', full };
+  } else {
+    return {
+      day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      full,
+    };
+  }
+}
 
 export function StudentProgressPage() {
   const { relId } = useParams<{ relId: string }>();
@@ -17,8 +54,8 @@ export function StudentProgressPage() {
   });
 
   const progressQuery = useQuery({
-    queryKey: ['studentProgress', relId],
-    queryFn: () => getStudentProgress(relId!),
+    queryKey: ['studentDailyProgress', relId],
+    queryFn: () => getStudentDailyProgress(relId!),
     enabled: !!relId,
   });
 
@@ -44,7 +81,7 @@ export function StudentProgressPage() {
   }
 
   const progress = progressQuery.data!;
-  const { stats, decks } = progress;
+  const { student, summary, days } = progress;
 
   return (
     <div className="page">
@@ -53,79 +90,77 @@ export function StudentProgressPage() {
         <div className="progress-header">
           <Link to={`/connections/${relId}`} className="back-link">← Back</Link>
           <div className="progress-user">
-            {progress.user.picture_url ? (
-              <img src={progress.user.picture_url} alt="" className="progress-avatar" />
+            {student.picture_url ? (
+              <img src={student.picture_url} alt="" className="progress-avatar" />
             ) : (
               <div className="progress-avatar placeholder">
-                {(progress.user.name || progress.user.email || '?')[0].toUpperCase()}
+                {(student.name || student.email || '?')[0].toUpperCase()}
               </div>
             )}
             <div>
-              <h1>{progress.user.name || 'Unknown'}'s Progress</h1>
-              <span className="progress-email">{progress.user.email}</span>
+              <h1>{student.name || 'Unknown'}'s Progress</h1>
+              <span className="progress-email">{student.email}</span>
             </div>
           </div>
         </div>
 
-        {/* Stats Overview */}
-        <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-value">{stats.cards_studied_today}</div>
-            <div className="stat-label">Studied Today</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.cards_due_today}</div>
-            <div className="stat-label">Due Today</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.cards_studied_this_week}</div>
-            <div className="stat-label">This Week</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.average_accuracy}%</div>
-            <div className="stat-label">Accuracy</div>
+        {/* 30-Day Summary */}
+        <div className="summary-section">
+          <h2>30-Day Summary</h2>
+          <div className="stats-grid">
+            <div className="stat-card">
+              <div className="stat-value">{summary.total_reviews_30d}</div>
+              <div className="stat-label">Reviews</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{summary.total_days_active}</div>
+              <div className="stat-label">Days Active</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{summary.average_accuracy}%</div>
+              <div className="stat-label">Accuracy</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{formatTime(summary.total_time_ms)}</div>
+              <div className="stat-label">Study Time</div>
+            </div>
           </div>
         </div>
 
-        {/* Total Stats */}
-        <div className="total-stats">
-          <span className="total-stat">
-            <strong>{stats.total_cards}</strong> total cards
-          </span>
-        </div>
-
-        {/* Decks */}
+        {/* Daily Activity */}
         <div className="progress-section">
-          <h2>Decks</h2>
-          {decks.length === 0 ? (
+          <h2>Daily Activity</h2>
+          {days.length === 0 ? (
             <EmptyState
-              icon="📚"
-              title="No decks yet"
-              description="Your student hasn't created any decks"
+              icon="📅"
+              title="No activity yet"
+              description="Your student hasn't studied in the last 30 days"
             />
           ) : (
-            <div className="deck-progress-list">
-              {decks.map((deck) => {
-                const masteredPercent = deck.total_notes > 0
-                  ? Math.round((deck.cards_mastered / (deck.total_notes * 3)) * 100)
-                  : 0;
+            <div className="daily-list">
+              {days.map((day) => {
+                const { day: dayLabel, full } = formatDate(day.date);
                 return (
-                  <div key={deck.id} className="deck-progress-card">
-                    <div className="deck-progress-header">
-                      <span className="deck-progress-name">{deck.name}</span>
-                      <span className="deck-progress-notes">{deck.total_notes} notes</span>
+                  <Link
+                    key={day.date}
+                    to={`/connections/${relId}/progress/day/${day.date}`}
+                    className="daily-item"
+                  >
+                    <div className="daily-item-header">
+                      <span className="daily-day">{dayLabel}</span>
+                      <span className="daily-date">({full})</span>
+                      <span className="daily-arrow">→</span>
                     </div>
-                    <div className="deck-progress-bar">
-                      <div
-                        className="deck-progress-fill"
-                        style={{ width: `${masteredPercent}%` }}
-                      />
+                    <div className="daily-stats">
+                      <span>{day.reviews_count} reviews</span>
+                      <span className="stat-separator">•</span>
+                      <span>{day.unique_cards} cards</span>
+                      <span className="stat-separator">•</span>
+                      <span>{day.accuracy}%</span>
+                      <span className="stat-separator">•</span>
+                      <span>{formatTime(day.time_spent_ms)}</span>
                     </div>
-                    <div className="deck-progress-stats">
-                      <span>{deck.cards_due} due</span>
-                      <span>{deck.cards_mastered} mastered ({masteredPercent}%)</span>
-                    </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>

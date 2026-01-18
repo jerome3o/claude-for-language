@@ -17,6 +17,8 @@ import { ConnectionsPage } from './pages/ConnectionsPage';
 import { ConnectionDetailPage } from './pages/ConnectionDetailPage';
 import { ChatPage } from './pages/ChatPage';
 import { StudentProgressPage } from './pages/StudentProgressPage';
+import { DayDetailPage } from './pages/DayDetailPage';
+import { CardReviewDetailPage } from './pages/CardReviewDetailPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -149,6 +151,24 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <StudentProgressPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId/progress/day/:date"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <DayDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId/progress/day/:date/card/:cardId"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <CardReviewDetailPage />
           </ProtectedRoute>
         }
       />

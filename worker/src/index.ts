@@ -37,6 +37,9 @@ import {
   removeRelationship,
   getRelationshipById,
   getStudentProgress,
+  getStudentDailyProgress,
+  getStudentDayCards,
+  getStudentCardReviews,
 } from './services/relationships';
 import {
   getConversations,
@@ -1257,7 +1260,7 @@ app.delete('/api/relationships/:id', async (c) => {
   }
 });
 
-// Get student progress (tutor only)
+// Get student progress (tutor only) - legacy endpoint
 app.get('/api/relationships/:id/student-progress', async (c) => {
   const userId = c.get('user').id;
   const relId = c.req.param('id');
@@ -1267,6 +1270,51 @@ app.get('/api/relationships/:id/student-progress', async (c) => {
     return c.json(progress);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get student progress';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get student daily activity summary (last 30 days)
+app.get('/api/relationships/:id/student-progress/daily', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('id');
+
+  try {
+    const progress = await getStudentDailyProgress(c.env.DB, relId, userId);
+    return c.json(progress);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get student progress';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get cards reviewed on a specific day
+app.get('/api/relationships/:id/student-progress/day/:date', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('id');
+  const date = c.req.param('date');
+
+  try {
+    const dayCards = await getStudentDayCards(c.env.DB, relId, userId, date);
+    return c.json(dayCards);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get day details';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get review details for a specific card on a specific day
+app.get('/api/relationships/:id/student-progress/day/:date/card/:cardId', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('id');
+  const date = c.req.param('date');
+  const cardId = c.req.param('cardId');
+
+  try {
+    const cardReviews = await getStudentCardReviews(c.env.DB, relId, userId, date, cardId);
+    return c.json(cardReviews);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get card reviews';
     return c.json({ error: message }, 400);
   }
 });

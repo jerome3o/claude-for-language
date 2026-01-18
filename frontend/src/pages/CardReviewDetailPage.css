@@ -1,0 +1,212 @@
+/* Mobile-first styles for Card Review Detail Page */
+
+.review-detail-header {
+  margin-bottom: 1.5rem;
+}
+
+.review-detail-header .back-link {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  color: var(--primary-color, #3b82f6);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.review-detail-header .back-link:hover {
+  text-decoration: underline;
+}
+
+.review-date {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+/* Card Info Box */
+.card-info-box {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.card-info-hanzi {
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.card-info-pinyin {
+  font-size: 1.125rem;
+  color: var(--text-light, #666);
+  margin-bottom: 0.25rem;
+}
+
+.card-info-english {
+  font-size: 1rem;
+  color: var(--text-lighter, #999);
+  margin-bottom: 1rem;
+}
+
+.play-audio-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-height: 44px;
+}
+
+.play-audio-btn:hover {
+  background: var(--primary-hover, #2563eb);
+}
+
+.play-audio-btn.playing {
+  background: var(--text-light, #666);
+}
+
+.card-info-type {
+  margin-top: 1rem;
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
+/* Reviews Section */
+.reviews-section {
+  margin-bottom: 2rem;
+}
+
+.reviews-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-light, #666);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Reviews List */
+.reviews-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.review-item {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.review-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.review-time {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.rating-badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: white;
+}
+
+.review-duration {
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
+/* Review Answer */
+.review-answer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--muted-bg, #f5f5f5);
+  border-radius: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.answer-label {
+  color: var(--text-light, #666);
+}
+
+.answer-text {
+  font-weight: 500;
+}
+
+.answer-correct {
+  color: var(--success-color, #22c55e);
+  font-weight: bold;
+}
+
+.answer-incorrect {
+  color: var(--error-color, #ef4444);
+  font-weight: bold;
+}
+
+/* Review Recording */
+.review-recording {
+  margin-top: 0.5rem;
+}
+
+.play-recording-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: var(--muted-bg, #f5f5f5);
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-color, #333);
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-height: 36px;
+}
+
+.play-recording-btn:hover {
+  background: var(--border-color, #e5e5e5);
+}
+
+.play-recording-btn.playing {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  border-color: var(--primary-color, #3b82f6);
+}
+
+/* Desktop styles */
+@media (min-width: 640px) {
+  .card-info-hanzi {
+    font-size: 3rem;
+  }
+
+  .card-info-pinyin {
+    font-size: 1.25rem;
+  }
+
+  .review-item {
+    padding: 1.25rem;
+  }
+}

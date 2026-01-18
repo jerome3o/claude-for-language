@@ -22,6 +22,9 @@ import {
   MessageWithSender,
   SharedDeckWithDetails,
   StudentProgress,
+  DailyActivitySummary,
+  DayCardsDetail,
+  CardReviewsDetail,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -600,4 +603,24 @@ export async function shareDeck(
 
 export async function getSharedDecks(relationshipId: string): Promise<SharedDeckWithDetails[]> {
   return fetchJSON<SharedDeckWithDetails[]>(`/relationships/${relationshipId}/shared-decks`);
+}
+
+// ============ Student Progress (Enhanced) ============
+
+export async function getStudentDailyProgress(relationshipId: string): Promise<DailyActivitySummary> {
+  return fetchJSON<DailyActivitySummary>(`/relationships/${relationshipId}/student-progress/daily`);
+}
+
+export async function getStudentDayCards(relationshipId: string, date: string): Promise<DayCardsDetail> {
+  return fetchJSON<DayCardsDetail>(`/relationships/${relationshipId}/student-progress/day/${date}`);
+}
+
+export async function getStudentCardReviews(
+  relationshipId: string,
+  date: string,
+  cardId: string
+): Promise<CardReviewsDetail> {
+  return fetchJSON<CardReviewsDetail>(
+    `/relationships/${relationshipId}/student-progress/day/${date}/card/${cardId}`
+  );
 }

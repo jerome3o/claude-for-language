@@ -273,6 +273,79 @@ export interface StudentProgress {
   }>;
 }
 
+// Daily activity summary for student progress (last 30 days)
+export interface DailyActivitySummary {
+  student: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    picture_url: string | null;
+  };
+  summary: {
+    total_reviews_30d: number;
+    total_days_active: number;
+    average_accuracy: number;
+    total_time_ms: number;
+  };
+  days: Array<{
+    date: string;
+    reviews_count: number;
+    unique_cards: number;
+    accuracy: number;
+    time_spent_ms: number;
+  }>;
+}
+
+// Cards reviewed on a specific day
+export interface DayCardsDetail {
+  date: string;
+  summary: {
+    total_reviews: number;
+    unique_cards: number;
+    accuracy: number;
+    time_spent_ms: number;
+  };
+  cards: Array<{
+    card_id: string;
+    card_type: CardType;
+    note: {
+      id: string;
+      hanzi: string;
+      pinyin: string;
+      english: string;
+    };
+    review_count: number;
+    ratings: number[];
+    average_rating: number;
+    total_time_ms: number;
+    has_answers: boolean;
+    has_recordings: boolean;
+  }>;
+}
+
+// Review details for a specific card on a specific day
+export interface CardReviewsDetail {
+  card: {
+    id: string;
+    card_type: CardType;
+    note: {
+      id: string;
+      hanzi: string;
+      pinyin: string;
+      english: string;
+      audio_url: string | null;
+    };
+  };
+  reviews: Array<{
+    id: string;
+    reviewed_at: string;
+    rating: number;
+    time_spent_ms: number | null;
+    user_answer: string | null;
+    recording_url: string | null;
+  }>;
+}
+
 // Helper function to determine the current user's role in a relationship
 export function getMyRoleInRelationship(
   relationship: TutorRelationship,
