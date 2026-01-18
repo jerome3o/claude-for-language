@@ -182,47 +182,43 @@ export function useTTS() {
 export function useNoteAudio() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const hasTriedFallbackRef = useRef(false);
 
   const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
-    console.log('[useNoteAudio] play called:', { audioUrl, text, apiBase });
-
     // Stop any current playback
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
     window.speechSynthesis.cancel();
+    hasTriedFallbackRef.current = false;
 
     // If we have a stored audio URL, use it
     if (audioUrl) {
       const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
-      console.log('[useNoteAudio] Playing from stored audio:', fullUrl);
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 
-      audio.onplay = () => {
-        console.log('[useNoteAudio] Audio started playing');
-        setIsPlaying(true);
-      };
-      audio.onended = () => {
-        console.log('[useNoteAudio] Audio ended');
-        setIsPlaying(false);
-      };
-      audio.onerror = (e) => {
-        // Fallback to browser TTS on error
-        console.error('[useNoteAudio] Audio error, falling back to browser TTS:', e);
-        setIsPlaying(false);
-        speakWithBrowserTTS(text, setIsPlaying);
+      audio.onplay = () => setIsPlaying(true);
+      audio.onended = () => setIsPlaying(false);
+      audio.onerror = () => {
+        // Fallback to browser TTS on error (only once)
+        if (!hasTriedFallbackRef.current) {
+          hasTriedFallbackRef.current = true;
+          setIsPlaying(false);
+          speakWithBrowserTTS(text, setIsPlaying);
+        }
       };
 
-      audio.play().catch((err) => {
-        // Fallback to browser TTS
-        console.error('[useNoteAudio] Play failed, falling back to browser TTS:', err);
-        speakWithBrowserTTS(text, setIsPlaying);
+      audio.play().catch(() => {
+        // Fallback to browser TTS (only once)
+        if (!hasTriedFallbackRef.current) {
+          hasTriedFallbackRef.current = true;
+          speakWithBrowserTTS(text, setIsPlaying);
+        }
       });
     } else {
       // No stored audio, use browser TTS
-      console.log('[useNoteAudio] No stored audio, using browser TTS');
       speakWithBrowserTTS(text, setIsPlaying);
     }
   }, []);

@@ -137,9 +137,13 @@ function StudyCard({
   // Auto-play audio when answer is revealed
   useEffect(() => {
     if (flipped) {
-      playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
+      // Small delay to ensure any previous audio is fully stopped
+      const timer = setTimeout(() => {
+        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [flipped]);
+  }, [flipped, card.note.audio_url, card.note.hanzi, playAudio]);
 
   const handleFlip = () => {
     if (!flipped) {
