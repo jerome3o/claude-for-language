@@ -70,16 +70,25 @@ class SyncService {
 
     try {
       // Fetch all decks
+      console.log('[fullSync] Fetching deck list...');
       const decksResponse = await fetch('/api/decks');
+      console.log('[fullSync] Deck list response:', decksResponse.status, decksResponse.statusText);
       if (!decksResponse.ok) {
+        const text = await decksResponse.text();
+        console.error('[fullSync] Deck list error response:', text);
         throw new Error('Failed to fetch decks');
       }
       const decks: Deck[] = await decksResponse.json();
+      console.log('[fullSync] Got', decks.length, 'decks');
 
       // Fetch full data for each deck (includes notes AND cards)
       const deckPromises = decks.map(async (deck) => {
+        console.log('[fullSync] Fetching deck:', deck.id);
         const deckResponse = await fetch(`/api/decks/${deck.id}`);
+        console.log('[fullSync] Deck response:', deck.id, deckResponse.status);
         if (!deckResponse.ok) {
+          const text = await deckResponse.text();
+          console.error('[fullSync] Deck error response:', text);
           throw new Error(`Failed to fetch deck ${deck.id}`);
         }
         return deckResponse.json() as Promise<DeckWithNotesAndCards>;
