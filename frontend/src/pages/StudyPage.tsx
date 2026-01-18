@@ -290,46 +290,52 @@ function StudyCard({
             {card.note.fun_facts}
           </div>
         )}
+      </div>
+    );
+  };
 
-        {/* Ask Claude Chat */}
-        {showAskClaude && (
-          <div
-            className="mt-2"
-            style={{
-              textAlign: 'left',
-              backgroundColor: '#f9fafb',
-              padding: '0.5rem',
-              borderRadius: '6px',
-              maxHeight: '150px',
-              overflowY: 'auto',
-            }}
-          >
+  const renderAskClaudeModal = () => {
+    if (!showAskClaude) return null;
+
+    return (
+      <div className="modal-overlay" onClick={() => setShowAskClaude(false)}>
+        <div
+          className="modal"
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: '90%', width: '500px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+        >
+          <div className="modal-header">
+            <div className="modal-title">Ask about: {card.note.hanzi}</div>
+            <button className="modal-close" onClick={() => setShowAskClaude(false)}>×</button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem' }}>
             {conversation.length === 0 && (
-              <p className="text-light" style={{ fontSize: '0.75rem', marginBottom: '0.375rem' }}>
-                Ask about this word...
+              <p className="text-light" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                Ask a question about this word - grammar, usage, examples, etc.
               </p>
             )}
 
             {conversation.map((qa) => (
-              <div key={qa.id} style={{ marginBottom: '0.5rem' }}>
+              <div key={qa.id} style={{ marginBottom: '1rem' }}>
                 <div
                   style={{
                     backgroundColor: 'var(--color-primary)',
                     color: 'white',
-                    padding: '0.375rem 0.5rem',
-                    borderRadius: '6px',
-                    marginBottom: '0.25rem',
-                    fontSize: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '8px',
+                    marginBottom: '0.5rem',
+                    fontSize: '0.875rem',
                   }}
                 >
                   {qa.question}
                 </div>
                 <div
                   style={{
-                    backgroundColor: 'white',
-                    padding: '0.375rem 0.5rem',
-                    borderRadius: '6px',
-                    fontSize: '0.75rem',
+                    backgroundColor: '#f9fafb',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '8px',
+                    fontSize: '0.875rem',
                     whiteSpace: 'pre-wrap',
                     border: '1px solid #e5e7eb',
                   }}
@@ -338,31 +344,31 @@ function StudyCard({
                 </div>
               </div>
             ))}
-
-            <div className="flex gap-1" style={{ marginTop: '0.375rem' }}>
-              <input
-                ref={questionInputRef}
-                type="text"
-                className="form-input"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ask a question..."
-                style={{ fontSize: '0.875rem', flex: 1, padding: '0.5rem' }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAskClaude();
-                }}
-                disabled={isAsking}
-              />
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={handleAskClaude}
-                disabled={!question.trim() || isAsking}
-              >
-                {isAsking ? '...' : 'Ask'}
-              </button>
-            </div>
           </div>
-        )}
+
+          <div className="flex gap-2">
+            <input
+              ref={questionInputRef}
+              type="text"
+              className="form-input"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Ask a question..."
+              style={{ flex: 1 }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAskClaude();
+              }}
+              disabled={isAsking}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={handleAskClaude}
+              disabled={!question.trim() || isAsking}
+            >
+              {isAsking ? '...' : 'Ask'}
+            </button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -450,53 +456,58 @@ function StudyCard({
   };
 
   return (
-    <div className="study-fullscreen">
-      {/* Top bar with close button and queue counts */}
-      <div className="study-topbar">
-        <button
-          className="study-close-btn"
-          onClick={onEnd}
-          aria-label="End session"
-        >
-          ✕
-        </button>
-        <QueueCountsHeader counts={counts} activeQueue={card.queue} />
+    <>
+      <div className="study-fullscreen">
+        {/* Top bar with close button and queue counts */}
+        <div className="study-topbar">
+          <button
+            className="study-close-btn"
+            onClick={onEnd}
+            aria-label="End session"
+          >
+            ✕
+          </button>
+          <QueueCountsHeader counts={counts} activeQueue={card.queue} />
+        </div>
+
+        {/* Card content */}
+        <div className="study-card-content">
+          {!flipped ? (
+            <>
+              <div className="study-card-main">
+                {renderFront()}
+              </div>
+              <div className="study-card-actions text-center">
+                {isSpeakingCard ? (
+                  renderSpeakingCardButtons()
+                ) : (
+                  <button className="btn btn-primary" onClick={handleFlip}>
+                    {isTypingCard ? 'Check Answer' : 'Show Answer'}
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="study-card-main">
+                {renderBackMain()}
+              </div>
+              <div className="study-card-actions">
+                {renderBackActions()}
+                <RatingButtons
+                  intervalPreviews={intervalPreviews}
+                  onRate={handleRate}
+                  disabled={reviewMutation.isPending}
+                />
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Card content */}
-      <div className="study-card-content">
-        {!flipped ? (
-          <>
-            <div className="study-card-main">
-              {renderFront()}
-            </div>
-            <div className="study-card-actions text-center">
-              {isSpeakingCard ? (
-                renderSpeakingCardButtons()
-              ) : (
-                <button className="btn btn-primary" onClick={handleFlip}>
-                  {isTypingCard ? 'Check Answer' : 'Show Answer'}
-                </button>
-              )}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="study-card-main">
-              {renderBackMain()}
-            </div>
-            <div className="study-card-actions">
-              {renderBackActions()}
-              <RatingButtons
-                intervalPreviews={intervalPreviews}
-                onRate={handleRate}
-                disabled={reviewMutation.isPending}
-              />
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+      {/* Ask Claude Modal */}
+      {renderAskClaudeModal()}
+    </>
   );
 }
 
