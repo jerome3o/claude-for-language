@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, LocalCard, PendingReview, getDueCards, getQueueCounts, getSyncMeta } from '../db/database';
+import { db, LocalCard, PendingReview, getDueCards, getQueueCounts, getSyncMeta, hasMoreNewCards as checkHasMoreNewCards } from '../db/database';
 import { scheduleCard, deckSettingsFromDb, DeckSettings, DEFAULT_DECK_SETTINGS, getIntervalPreview } from '../services/anki-scheduler';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview } from '../types';
@@ -62,10 +62,10 @@ export function useOfflineDueCards(deckId?: string) {
 }
 
 // Hook to get queue counts
-export function useOfflineQueueCounts(deckId?: string) {
+export function useOfflineQueueCounts(deckId?: string, ignoreDailyLimit = false) {
   const counts = useLiveQuery(
-    () => getQueueCounts(deckId),
-    [deckId]
+    () => getQueueCounts(deckId, ignoreDailyLimit),
+    [deckId, ignoreDailyLimit]
   );
 
   return {
@@ -84,20 +84,30 @@ export function usePendingReviewsCount() {
   return count || 0;
 }
 
+// Hook to check if there are more new cards beyond the daily limit
+export function useHasMoreNewCards(deckId?: string) {
+  const result = useLiveQuery(
+    () => checkHasMoreNewCards(deckId),
+    [deckId]
+  );
+
+  return result ?? false;
+}
+
 // Hook to get the next card to study (offline-first)
-export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = []) {
+export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [], ignoreDailyLimit = false) {
   const queryClient = useQueryClient();
 
   // Get all due cards
   const allDueCards = useLiveQuery(
-    () => getDueCards(deckId),
-    [deckId]
+    () => getDueCards(deckId, ignoreDailyLimit),
+    [deckId, ignoreDailyLimit]
   );
 
   // Get queue counts
   const counts = useLiveQuery(
-    () => getQueueCounts(deckId),
-    [deckId]
+    () => getQueueCounts(deckId, ignoreDailyLimit),
+    [deckId, ignoreDailyLimit]
   );
 
   // Filter out excluded notes and pick the next card
@@ -253,6 +263,7 @@ export function useSubmitReviewOffline() {
           time_spent_ms: timeSpentMs || null,
           user_answer: userAnswer || null,
           reviewed_at: reviewedAt,
+          original_queue: card.queue,
           new_queue: result.queue,
           new_learning_step: result.learning_step,
           new_ease_factor: result.ease_factor,

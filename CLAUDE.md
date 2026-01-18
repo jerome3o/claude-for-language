@@ -118,20 +118,62 @@ Uses Anthropic Claude API for several features:
 - Always use **tone marks** (nǐ hǎo), NOT tone numbers (ni3 hao3)
 - Use proper Unicode: ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ
 
+## Offline-First Architecture (CRITICAL)
+
+**Study mode MUST work fully offline.** This is a core requirement - users study on the subway, on planes, and in areas with poor connectivity.
+
+### Offline-First Principles
+
+1. **Study is 100% local-first**: All study functionality uses IndexedDB (via Dexie). No network requests are made during card reviews. Transitions between cards are instant.
+
+2. **Background sync**: Reviews are queued locally in `pendingReviews` table and synced to the server when online. The sync is non-blocking and happens automatically.
+
+3. **Data is cached locally**: Decks, notes, and cards are stored in IndexedDB. The app works immediately on load using cached data.
+
+4. **Graceful degradation for other features**: Features that require internet (AI generation, Ask Claude, TTS generation) should fail gracefully with clear user feedback - not crash or hang.
+
+### What Works Offline
+- Viewing decks and notes (from local cache)
+- **All study functionality** - card display, rating, queue management, daily limits
+- Audio playback (if previously cached)
+- Viewing statistics (from local data)
+
+### What Requires Internet (Fail Gracefully)
+- AI deck generation
+- Ask Claude questions
+- TTS audio generation
+- Initial data sync (first load)
+- Session creation (best-effort, non-blocking)
+
+### Key Implementation Files
+- `frontend/src/db/database.ts` - IndexedDB schema and queries (Dexie)
+- `frontend/src/hooks/useOfflineData.ts` - Offline-first React hooks
+- `frontend/src/services/sync.ts` - Background sync service
+- `frontend/src/contexts/NetworkContext.tsx` - Online/offline detection
+
+### When Adding Features
+- **Study-related features**: Must work offline. Use `useOfflineData` hooks, store data in IndexedDB.
+- **Other features**: Should fail gracefully. Show clear error messages, don't block the UI, don't prevent navigation.
+
 ## Feature Overview
 
-### Study Flow
+### Study Flow (Offline-First)
+**Study works 100% offline** - no loading spinners between cards, instant transitions.
+
 1. User selects a deck (or "All Decks") and starts a study session
 2. Cards are shown based on spaced repetition schedule (due cards first)
-3. Three card types test different skills:
+3. Daily new card limits are enforced locally (configurable per deck)
+4. Three card types test different skills:
    - **Hanzi → Meaning**: See characters, speak aloud, reveal answer
    - **Meaning → Hanzi**: See English, type characters, check answer
    - **Audio → Hanzi**: Hear audio, type characters, check answer
-4. On answer reveal:
-   - Play TTS audio
-   - **Ask Claude** about the word (grammar, usage, examples)
+5. On answer reveal:
+   - Play TTS audio (if cached)
+   - **Ask Claude** about the word (requires internet, fails gracefully)
    - Rate difficulty (Again/Hard/Good/Easy)
-5. Session ends when all cards reviewed
+6. Reviews are saved locally and synced to server in background
+7. "Study More" button appears when daily limit reached (bypasses limit)
+8. Session ends when all due cards reviewed
 
 ### Deck Management
 - Create/edit/delete decks

@@ -3,29 +3,108 @@
 ## System Overview
 
 ```
-┌─────────────────┐     ┌──────────────────────────────────────┐
-│                 │     │         Cloudflare Edge              │
-│    Browser      │────▶│  ┌─────────────────────────────┐    │
-│  (React App)    │     │  │     Cloudflare Worker       │    │
-│                 │◀────│  │       (API Server)          │    │
-└─────────────────┘     │  └──────────┬──────────────────┘    │
-                        │             │                        │
-                        │    ┌────────┴────────┐              │
-                        │    │                 │              │
-                        │    ▼                 ▼              │
-                        │  ┌─────┐         ┌─────┐           │
-                        │  │ D1  │         │ R2  │           │
-                        │  │(SQL)│         │(Blob)│          │
-                        │  └─────┘         └─────┘           │
-                        └──────────────────────────────────────┘
-                                      │
-                                      │ API calls
-                                      ▼
-                        ┌─────────────────────────┐
-                        │    Anthropic Claude     │
-                        │    (Card Generation)    │
-                        └─────────────────────────┘
+┌─────────────────────────────────────┐
+│            Browser                   │
+│  ┌─────────────────────────────┐    │
+│  │        React App            │    │
+│  │  ┌───────────────────────┐  │    │
+│  │  │  IndexedDB (Dexie)    │  │    │     ┌──────────────────────────────────────┐
+│  │  │  - Decks, Notes, Cards│  │    │     │         Cloudflare Edge              │
+│  │  │  - Pending Reviews    │  │    │     │  ┌─────────────────────────────┐    │
+│  │  │  - Cached Audio       │  │────┼────▶│  │     Cloudflare Worker       │    │
+│  │  └───────────────────────┘  │    │     │  │       (API Server)          │    │
+│  │                             │◀───┼─────│  └──────────┬──────────────────┘    │
+│  │  Study: 100% Local-First    │    │     │             │                        │
+│  │  Other: Online with fallback│    │     │    ┌────────┴────────┐              │
+│  └─────────────────────────────┘    │     │    │                 │              │
+└─────────────────────────────────────┘     │    ▼                 ▼              │
+                                            │  ┌─────┐         ┌─────┐           │
+                                            │  │ D1  │         │ R2  │           │
+                                            │  │(SQL)│         │(Blob)│          │
+                                            │  └─────┘         └─────┘           │
+                                            └──────────────────────────────────────┘
+                                                          │
+                                                          │ API calls
+                                                          ▼
+                                            ┌─────────────────────────┐
+                                            │    Anthropic Claude     │
+                                            │    (Card Generation)    │
+                                            └─────────────────────────┘
 ```
+
+## Offline-First Architecture (CRITICAL)
+
+**Study mode must work 100% offline.** Users study on subways, planes, and in areas with poor connectivity.
+
+### Local Database (IndexedDB via Dexie)
+
+```
+ChineseLearningDB
+├── decks          # Cached deck data
+├── notes          # Cached notes with audio URLs
+├── cards          # Card state (queue, interval, ease, due dates)
+├── pendingReviews # Reviews queued for sync
+├── cachedAudio    # Blob storage for audio files
+├── syncMeta       # Last sync timestamps
+└── studySessions  # Local session tracking
+```
+
+### Data Flow
+
+**Study Session (Offline-First):**
+```
+1. User starts study
+   └─▶ Read cards from IndexedDB (instant)
+
+2. User rates card
+   └─▶ Update card in IndexedDB (instant)
+   └─▶ Queue review in pendingReviews
+   └─▶ Show next card from IndexedDB (instant)
+
+3. Background sync (when online)
+   └─▶ POST pending reviews to API
+   └─▶ Mark reviews as synced
+```
+
+**Other Features (Online with Graceful Fallback):**
+```
+1. AI Generation, Ask Claude, TTS
+   └─▶ Check online status
+   └─▶ If offline: Show clear error message
+   └─▶ If online: Make API request
+   └─▶ On failure: Show error, don't block UI
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/db/database.ts` | IndexedDB schema, queries, daily limit logic |
+| `frontend/src/hooks/useOfflineData.ts` | Offline-first React hooks with Dexie live queries |
+| `frontend/src/services/sync.ts` | Background sync of pending reviews |
+| `frontend/src/services/anki-scheduler.ts` | Local SRS calculations |
+| `frontend/src/contexts/NetworkContext.tsx` | Online/offline detection |
+
+### Daily Limit Tracking
+
+New card limits are enforced locally:
+- `PendingReview.original_queue` tracks if card was NEW when reviewed
+- `getNewCardsStudiedToday()` counts NEW cards reviewed today
+- `getDueCards(deckId, ignoreDailyLimit)` applies/bypasses limit
+
+### Sync Status UI
+
+The `OfflineBanner` component (bottom of screen) shows:
+- **Offline**: Yellow banner with pending review count
+- **Syncing**: Blue banner with spinner
+- **Pending**: Yellow banner, tappable to trigger sync
+- **Synced**: Brief green confirmation (auto-hides after 2s)
+
+The `SyncStatusIndicator` component (small dot for header) shows:
+- Gray circle: offline
+- Blue spinning: syncing
+- Yellow dot: pending reviews
+- Green dot: synced (with tooltip showing last sync time)
 
 ## Database Schema (D1)
 

@@ -1,10 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  getDecks,
-  getNextCard,
-  submitReview,
   uploadRecording,
   askAboutNote,
   startSession,
@@ -27,6 +24,7 @@ import {
   useOfflineNextCard,
   useOfflineQueueCounts,
   useSubmitReviewOffline,
+  useHasMoreNewCards,
 } from '../hooks/useOfflineData';
 
 // Queue counts header component
@@ -88,13 +86,11 @@ function StudyCard({
   intervalPreviews,
   sessionId,
   onComplete,
-  isOffline,
 }: {
   card: CardWithNote;
   intervalPreviews: Record<Rating, IntervalPreview>;
   sessionId: string | null;
   onComplete: () => void;
-  isOffline?: boolean;
 }) {
   const [flipped, setFlipped] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
@@ -112,8 +108,8 @@ function StudyCard({
     useAudioRecorder();
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
 
-  // Offline review submission
-  const offlineReviewMutation = useSubmitReviewOffline();
+  // Review submission (always uses offline/local-first approach)
+  const reviewMutation = useSubmitReviewOffline();
 
   const cardInfo = CARD_TYPE_INFO[card.card_type];
   const isTypingCard = cardInfo.action === 'type';
@@ -141,59 +137,28 @@ function StudyCard({
     }
   }, [flipped]);
 
-  // Online review mutation
-  const onlineReviewMutation = useMutation({
-    mutationFn: async (rating: Rating) => {
-      const timeSpent = Date.now() - startTime;
-      const result = await submitReview({
-        card_id: card.id,
-        rating,
-        time_spent_ms: timeSpent,
-        user_answer: userAnswer || undefined,
-        session_id: sessionId || undefined,
-      });
-
-      // Upload recording if exists
-      if (audioBlob && result.review?.id) {
-        await uploadRecording(result.review.id, audioBlob);
-      }
-
-      return result;
-    },
-    onSuccess: () => {
-      onComplete();
-    },
-  });
-
-  // Combined mutation that handles both online and offline
-  const reviewMutation = {
-    mutate: async (rating: Rating) => {
-      if (isOffline) {
-        // Use offline mutation
-        await offlineReviewMutation.mutateAsync({
-          cardId: card.id,
-          rating,
-          timeSpentMs: Date.now() - startTime,
-          userAnswer: userAnswer || undefined,
-          sessionId: sessionId || undefined,
-        });
-        onComplete();
-      } else {
-        // Use online mutation
-        onlineReviewMutation.mutate(rating);
-      }
-    },
-    isPending: onlineReviewMutation.isPending || offlineReviewMutation.isPending,
-  };
-
   const handleFlip = () => {
     if (!flipped) {
       setFlipped(true);
     }
   };
 
-  const handleRate = (rating: Rating) => {
-    reviewMutation.mutate(rating);
+  const handleRate = async (rating: Rating) => {
+    const timeSpent = Date.now() - startTime;
+    await reviewMutation.mutateAsync({
+      cardId: card.id,
+      rating,
+      timeSpentMs: timeSpent,
+      userAnswer: userAnswer || undefined,
+      sessionId: sessionId || undefined,
+    });
+
+    // Upload recording if exists (best-effort, non-blocking)
+    if (audioBlob) {
+      uploadRecording(card.id, audioBlob).catch(console.error);
+    }
+
+    onComplete();
   };
 
   const handleAskClaude = async () => {
@@ -500,152 +465,60 @@ function StudyCard({
 export function StudyPage() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { isOnline, isInitialized } = useNetwork();
+  const { isOnline } = useNetwork();
 
   const deckId = searchParams.get('deck') || undefined;
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [currentCard, setCurrentCard] = useState<CardWithNote | null>(null);
-  const [intervalPreviews, setIntervalPreviews] = useState<Record<Rating, IntervalPreview> | null>(null);
-  const [counts, setCounts] = useState<QueueCounts>({ new: 0, learning: 0, review: 0 });
   const [recentNotes, setRecentNotes] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [studyStarted, setStudyStarted] = useState(false);
-  const [useOfflineMode, setUseOfflineMode] = useState(false);
-  const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
   const [ignoreDailyLimit, setIgnoreDailyLimit] = useState(false);
 
-  // Online data hooks
-  const decksQuery = useQuery({
-    queryKey: ['decks'],
-    queryFn: getDecks,
-    enabled: isOnline,
-  });
-
-  // Offline data hooks
-  const { decks: offlineDecks } = useOfflineDecks();
-  const offlineQueueCounts = useOfflineQueueCounts(deckId);
+  // All data comes from offline/local-first hooks
+  const { decks } = useOfflineDecks();
+  const offlineQueueCounts = useOfflineQueueCounts(deckId, ignoreDailyLimit);
   const offlineNextCard = useOfflineNextCard(
-    studyStarted && useOfflineMode ? deckId : undefined,
-    recentNotes.slice(-5)
+    studyStarted ? deckId : undefined,
+    recentNotes.slice(-5),
+    ignoreDailyLimit
   );
+  const hasMoreNewCards = useHasMoreNewCards(deckId);
 
-  // Decide which data to use
-  const decks = isOnline && decksQuery.data ? decksQuery.data : offlineDecks;
-
-  // Load next card (online mode)
-  const loadNextCard = useCallback(async () => {
-    if (useOfflineMode) {
-      // In offline mode, data comes from hooks
-      return;
-    }
-    // Only show loading spinner if request takes > 150ms (avoid flash)
-    const loadingTimeout = setTimeout(() => setIsLoading(true), 150);
-    try {
-      const result = await getNextCard(deckId, recentNotes.slice(-5), ignoreDailyLimit);
-      clearTimeout(loadingTimeout);
-      setCurrentCard(result.card);
-      setCounts(result.counts);
-      setHasMoreNewCards(result.hasMoreNewCards || false);
-      if (result.intervalPreviews) {
-        setIntervalPreviews(result.intervalPreviews);
-      }
-      if (result.card) {
-        setRecentNotes(prev => [...prev.slice(-4), result.card!.note_id]);
-      }
-    } catch (error) {
-      clearTimeout(loadingTimeout);
-      console.error('Failed to load next card:', error);
-      // If online request fails, switch to offline mode
-      if (!isOnline) {
-        setUseOfflineMode(true);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [deckId, recentNotes, useOfflineMode, isOnline, ignoreDailyLimit]);
-
-  // Handle offline mode card updates
-  useEffect(() => {
-    if (useOfflineMode && studyStarted && offlineNextCard.card) {
-      setCurrentCard(offlineNextCard.card);
-      setCounts(offlineNextCard.counts);
-      if (offlineNextCard.intervalPreviews) {
-        setIntervalPreviews(offlineNextCard.intervalPreviews);
-      }
-      setIsLoading(false);
-    } else if (useOfflineMode && studyStarted && !offlineNextCard.isLoading && !offlineNextCard.card) {
-      setCurrentCard(null);
-      setIsLoading(false);
-    }
-  }, [useOfflineMode, studyStarted, offlineNextCard.card, offlineNextCard.counts, offlineNextCard.intervalPreviews, offlineNextCard.isLoading]);
-
-  // Initial load of counts
-  useEffect(() => {
-    if (!studyStarted) {
-      if (isOnline) {
-        getNextCard(deckId, []).then(result => {
-          setCounts(result.counts);
-          setIsLoading(false);
-        }).catch(() => {
-          // Fall back to offline counts
-          setCounts(offlineQueueCounts.counts);
-          setIsLoading(false);
-        });
-      } else {
-        // Offline - use IndexedDB counts
-        setCounts(offlineQueueCounts.counts);
-        setIsLoading(false);
-        setUseOfflineMode(true);
-      }
-    }
-  }, [deckId, studyStarted, isOnline, offlineQueueCounts.counts]);
+  // Derive state from hooks
+  const counts = offlineQueueCounts.counts;
+  const currentCard = studyStarted ? offlineNextCard.card : null;
+  const intervalPreviews = offlineNextCard.intervalPreviews;
+  const isLoading = studyStarted ? offlineNextCard.isLoading : offlineQueueCounts.isLoading;
 
   const handleStartStudy = async () => {
     setStudyStarted(true);
     setRecentNotes([]);
 
-    if (isOnline && !useOfflineMode) {
-      try {
-        // Create a session for tracking (optional, for review history)
-        const session = await startSession(deckId);
-        setSessionId(session.id);
-        await loadNextCard();
-      } catch (error) {
-        console.error('Failed to start session, switching to offline mode:', error);
-        setUseOfflineMode(true);
-        setIsLoading(false);
-      }
-    } else {
-      // Offline mode - no session needed
-      setUseOfflineMode(true);
-      setIsLoading(false);
+    // Best-effort session creation (non-blocking)
+    if (isOnline) {
+      startSession(deckId)
+        .then(session => setSessionId(session.id))
+        .catch(() => {});
     }
   };
 
   const handleCardComplete = () => {
-    if (useOfflineMode) {
-      // In offline mode, update recent notes and let the hook handle the next card
-      if (currentCard) {
-        setRecentNotes(prev => [...prev.slice(-4), currentCard.note_id]);
-      }
-      // Counts will be updated by the hook
-    } else {
-      // Don't set counts here - loadNextCard will set them to avoid flicker
-      loadNextCard();
+    // Update recent notes - hook reactively provides next card
+    if (currentCard) {
+      setRecentNotes(prev => [...prev.slice(-4), currentCard.note_id]);
     }
   };
 
   const handleEndSession = () => {
     setStudyStarted(false);
     setSessionId(null);
-    setCurrentCard(null);
     setRecentNotes([]);
+    setIgnoreDailyLimit(false);
     queryClient.invalidateQueries({ queryKey: ['stats'] });
   };
 
   // Show deck selection if study hasn't started
   if (!studyStarted) {
-    if (isLoading || (isOnline && decksQuery.isLoading && !isInitialized)) {
+    if (isLoading) {
       return <Loading />;
     }
 
@@ -712,23 +585,10 @@ export function StudyPage() {
 
   // Study complete
   if (!isLoading && !currentCard) {
-    const handleStudyMoreNewCards = async () => {
+    const handleStudyMoreNewCards = () => {
+      // Setting ignoreDailyLimit will reactively show more cards via hooks
       setIgnoreDailyLimit(true);
-      setIsLoading(true);
-      try {
-        const result = await getNextCard(deckId, [], true);
-        setCurrentCard(result.card);
-        setCounts(result.counts);
-        setHasMoreNewCards(result.hasMoreNewCards || false);
-        if (result.intervalPreviews) {
-          setIntervalPreviews(result.intervalPreviews);
-        }
-        if (result.card) {
-          setRecentNotes([result.card.note_id]);
-        }
-      } finally {
-        setIsLoading(false);
-      }
+      setRecentNotes([]);
     };
 
     return (
@@ -801,7 +661,6 @@ export function StudyPage() {
             intervalPreviews={intervalPreviews}
             sessionId={sessionId}
             onComplete={handleCardComplete}
-            isOffline={useOfflineMode}
           />
         ) : null}
       </div>
