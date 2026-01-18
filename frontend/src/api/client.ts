@@ -397,11 +397,12 @@ export async function getDeckStats(deckId: string): Promise<DeckStats> {
 
 export interface DeckExport {
   version: number;
-  exported_at: string;
+  exported_at?: string;
   deck: {
     name: string;
     description?: string;
   };
+  deck_id?: string; // Optional: append to existing deck
   notes: Array<{
     hanzi: string;
     pinyin: string;

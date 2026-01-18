@@ -367,6 +367,7 @@ app.post('/api/decks/import', async (c) => {
       name: string;
       description?: string;
     };
+    deck_id?: string; // Optional: append to existing deck
     notes: ImportNote[];
   }
 
@@ -381,17 +382,28 @@ app.post('/api/decks/import', async (c) => {
     return c.json({ error: 'Unsupported format version' }, 400);
   }
 
-  if (!data.deck.name) {
-    return c.json({ error: 'Deck name is required' }, 400);
+  if (!data.deck.name && !data.deck_id) {
+    return c.json({ error: 'Deck name or deck_id is required' }, 400);
   }
 
   if (!Array.isArray(data.notes) || data.notes.length === 0) {
     return c.json({ error: 'At least one note is required' }, 400);
   }
 
-  // Create deck
-  const deck = await db.createDeck(c.env.DB, userId, data.deck.name, data.deck.description);
-  console.log('[Import] Created deck:', deck.id, 'with', data.notes.length, 'notes to import');
+  // Create or use existing deck
+  let deck;
+  if (data.deck_id) {
+    // Append to existing deck
+    deck = await db.getDeckById(c.env.DB, data.deck_id, userId);
+    if (!deck) {
+      return c.json({ error: 'Deck not found' }, 404);
+    }
+    console.log('[Import] Appending to deck:', deck.id, 'with', data.notes.length, 'notes');
+  } else {
+    // Create new deck
+    deck = await db.createDeck(c.env.DB, userId, data.deck.name, data.deck.description);
+    console.log('[Import] Created deck:', deck.id, 'with', data.notes.length, 'notes to import');
+  }
 
   // For large imports, we create the deck and return immediately,
   // then process notes in batches in the background

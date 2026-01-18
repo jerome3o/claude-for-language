@@ -62,12 +62,15 @@ export function DecksPage() {
     fileInputRef.current?.click();
   };
 
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsImporting(true);
     setImportError(null);
+    setImportProgress(null);
 
     try {
       const text = await file.text();
@@ -78,14 +81,47 @@ export function DecksPage() {
         throw new Error('Invalid file format');
       }
 
-      const result = await importDeck(data);
+      // Import in chunks to avoid Cloudflare subrequest limits
+      const CHUNK_SIZE = 25;
+      const chunks: DeckExport['notes'][] = [];
+      for (let i = 0; i < data.notes.length; i += CHUNK_SIZE) {
+        chunks.push(data.notes.slice(i, i + CHUNK_SIZE));
+      }
+
+      setImportProgress({ done: 0, total: data.notes.length });
+
+      // First chunk creates the deck
+      const firstResult = await importDeck({
+        ...data,
+        notes: chunks[0],
+      });
+      const deckId = firstResult.deck_id;
+      let totalImported = firstResult.imported;
+      setImportProgress({ done: chunks[0].length, total: data.notes.length });
+
+      // Remaining chunks append to existing deck
+      for (let i = 1; i < chunks.length; i++) {
+        try {
+          const result = await importDeck({
+            ...data,
+            deck_id: deckId, // Append to existing deck
+            notes: chunks[i],
+          });
+          totalImported += result.imported;
+        } catch (err) {
+          console.error(`Chunk ${i + 1} failed:`, err);
+        }
+        setImportProgress({ done: Math.min((i + 1) * CHUNK_SIZE, data.notes.length), total: data.notes.length });
+      }
+
       queryClient.invalidateQueries({ queryKey: ['decks'] });
-      navigate(`/decks/${result.deck_id}`);
+      navigate(`/decks/${deckId}`);
     } catch (err) {
       console.error('Import error:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to import deck');
     } finally {
       setIsImporting(false);
+      setImportProgress(null);
       // Reset input so same file can be selected again
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -114,7 +150,9 @@ export function DecksPage() {
               onClick={handleImportClick}
               disabled={isImporting}
             >
-              {isImporting ? 'Importing...' : 'Import'}
+              {isImporting
+                ? (importProgress ? `Importing ${importProgress.done}/${importProgress.total}...` : 'Importing...')
+                : 'Import'}
             </button>
             <button className="btn btn-primary" onClick={() => setShowModal(true)}>
               New Deck
