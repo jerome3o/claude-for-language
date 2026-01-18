@@ -182,16 +182,26 @@ export function useTTS() {
 export function useNoteAudio() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const hasTriedFallbackRef = useRef(false);
+  const playIdRef = useRef(0); // Track which play() call is current
 
-  const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
-    // Stop any current playback
+  const cleanupAudio = useCallback(() => {
     if (audioRef.current) {
+      // Remove all event handlers to prevent stale callbacks
+      audioRef.current.onplay = null;
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current.pause();
       audioRef.current = null;
     }
     window.speechSynthesis.cancel();
-    hasTriedFallbackRef.current = false;
+  }, []);
+
+  const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
+    // Increment play ID to invalidate any pending callbacks from previous plays
+    const currentPlayId = ++playIdRef.current;
+
+    // Stop any current playback
+    cleanupAudio();
 
     // If we have a stored audio URL, use it
     if (audioUrl) {
@@ -199,44 +209,55 @@ export function useNoteAudio() {
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 
-      audio.onplay = () => setIsPlaying(true);
-      audio.onended = () => setIsPlaying(false);
-      audio.onerror = () => {
-        // Fallback to browser TTS on error (only once)
-        if (!hasTriedFallbackRef.current) {
-          hasTriedFallbackRef.current = true;
+      audio.onplay = () => {
+        if (playIdRef.current === currentPlayId) {
+          setIsPlaying(true);
+        }
+      };
+      audio.onended = () => {
+        if (playIdRef.current === currentPlayId) {
           setIsPlaying(false);
-          speakWithBrowserTTS(text, setIsPlaying);
+        }
+      };
+      audio.onerror = () => {
+        // Only fallback if this is still the current play request
+        if (playIdRef.current === currentPlayId) {
+          setIsPlaying(false);
+          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
         }
       };
 
       audio.play().catch(() => {
-        // Fallback to browser TTS (only once)
-        if (!hasTriedFallbackRef.current) {
-          hasTriedFallbackRef.current = true;
-          speakWithBrowserTTS(text, setIsPlaying);
+        // Only fallback if this is still the current play request
+        if (playIdRef.current === currentPlayId) {
+          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
         }
       });
     } else {
       // No stored audio, use browser TTS
-      speakWithBrowserTTS(text, setIsPlaying);
+      speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
     }
-  }, []);
+  }, [cleanupAudio]);
 
   const stop = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    window.speechSynthesis.cancel();
+    playIdRef.current++; // Invalidate any pending callbacks
+    cleanupAudio();
     setIsPlaying(false);
-  }, []);
+  }, [cleanupAudio]);
 
   return { isPlaying, play, stop };
 }
 
-function speakWithBrowserTTS(text: string, setIsPlaying: (playing: boolean) => void) {
+function speakWithBrowserTTS(
+  text: string,
+  setIsPlaying: (playing: boolean) => void,
+  playId: number,
+  playIdRef: { current: number }
+) {
   if (!('speechSynthesis' in window)) return;
+
+  // Don't speak if this play request has been superseded
+  if (playIdRef.current !== playId) return;
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'zh-CN';
@@ -250,9 +271,15 @@ function speakWithBrowserTTS(text: string, setIsPlaying: (playing: boolean) => v
     utterance.voice = chineseVoice;
   }
 
-  utterance.onstart = () => setIsPlaying(true);
-  utterance.onend = () => setIsPlaying(false);
-  utterance.onerror = () => setIsPlaying(false);
+  utterance.onstart = () => {
+    if (playIdRef.current === playId) setIsPlaying(true);
+  };
+  utterance.onend = () => {
+    if (playIdRef.current === playId) setIsPlaying(false);
+  };
+  utterance.onerror = () => {
+    if (playIdRef.current === playId) setIsPlaying(false);
+  };
 
   window.speechSynthesis.speak(utterance);
 }
