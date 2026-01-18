@@ -362,23 +362,37 @@ a:hover {
 .gap-3 { gap: 1.5rem; }
 
 /* Study page - prevent scrolling */
+/* Prevent body scroll when study page is active */
+html:has(.study-page),
+html:has(.study-page) body {
+  overflow: hidden;
+  height: 100%;
+}
+
 .study-page {
   overflow: hidden;
+  height: calc(100vh - 60px); /* Fallback for browsers without dvh */
   height: calc(100dvh - 60px); /* viewport height minus header */
+  padding: 0; /* Override .page padding */
   display: flex;
   flex-direction: column;
+  overscroll-behavior: none;
 }
 
 .study-page > .container {
   flex: 1;
+  min-height: 0; /* Allow flex children to shrink */
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  padding: 1rem; /* Add padding inside container instead */
 }
 
 .study-page .card {
   flex: 1;
+  min-height: 0; /* Allow flex children to shrink */
   overflow-y: auto; /* allow scroll inside card if needed for Ask Claude */
+  overscroll-behavior: contain; /* Prevent scroll from chaining to parent */
   display: flex;
   flex-direction: column;
 }
