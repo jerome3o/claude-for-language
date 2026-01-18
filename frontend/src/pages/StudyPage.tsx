@@ -312,10 +312,6 @@ function StudyCard({
   };
 
   const renderBackMain = () => {
-    const isCorrect =
-      isTypingCard &&
-      userAnswer.trim() === card.note.hanzi;
-
     return (
       <div className="text-center">
         {isTypingCard && userAnswer ? (
