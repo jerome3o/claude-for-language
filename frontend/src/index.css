@@ -61,27 +61,33 @@ h3 { font-size: 1.125rem; }
 
 /* Chinese text styling */
 .hanzi {
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 400;
   line-height: 1.2;
 }
 
 .hanzi-large {
-  font-size: 3rem;
+  font-size: 2.5rem;
 }
 
 @media (min-width: 640px) {
   .hanzi {
-    font-size: 3rem;
+    font-size: 2.5rem;
   }
   .hanzi-large {
-    font-size: 5rem;
+    font-size: 4rem;
   }
 }
 
 .pinyin {
-  font-size: 1.25rem;
+  font-size: 1rem;
   color: var(--color-text-light);
+}
+
+@media (min-width: 640px) {
+  .pinyin {
+    font-size: 1.25rem;
+  }
 }
 
 /* Links */
@@ -361,7 +367,7 @@ a:hover {
 .gap-2 { gap: 1rem; }
 .gap-3 { gap: 1.5rem; }
 
-/* Study page - prevent scrolling */
+/* Study page - compact layout with scroll prevention */
 /* Prevent body scroll when study page is active */
 html:has(.study-page),
 html:has(.study-page) body {
@@ -371,9 +377,9 @@ html:has(.study-page) body {
 
 .study-page {
   overflow: hidden;
-  height: calc(100vh - 60px); /* Fallback for browsers without dvh */
-  height: calc(100dvh - 60px); /* viewport height minus header */
-  padding: 0; /* Override .page padding */
+  height: calc(100vh - 52px); /* Fallback for browsers without dvh */
+  height: calc(100dvh - 52px); /* viewport height minus header */
+  padding: 0 !important; /* Override .page padding */
   display: flex;
   flex-direction: column;
   overscroll-behavior: none;
@@ -385,7 +391,21 @@ html:has(.study-page) body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding: 1rem; /* Add padding inside container instead */
+  padding: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .study-page > .container {
+    padding: 1rem;
+  }
+}
+
+.study-page .study-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  flex-shrink: 0;
 }
 
 .study-page .card {
@@ -395,13 +415,29 @@ html:has(.study-page) body {
   overscroll-behavior: contain; /* Prevent scroll from chaining to parent */
   display: flex;
   flex-direction: column;
+  padding: 0.75rem;
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .study-page .card {
+    padding: 1rem;
+  }
 }
 
 .study-page .study-card {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-top: 1rem;
+}
+
+@media (min-width: 640px) {
+  .study-page .study-card {
+    justify-content: center;
+    padding-top: 0;
+  }
 }
 
 /* Study card animations */
@@ -460,25 +496,19 @@ html:has(.study-page) body {
 /* Rating buttons */
 .rating-buttons {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.5rem;
-}
-
-@media (min-width: 480px) {
-  .rating-buttons {
-    grid-template-columns: repeat(4, 1fr);
-  }
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.375rem;
 }
 
 .rating-btn {
-  padding: 0.75rem 0.5rem;
+  padding: 0.5rem 0.25rem;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
-  min-height: 56px;
+  min-height: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -487,28 +517,32 @@ html:has(.study-page) body {
 }
 
 .rating-label {
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
 .rating-interval {
-  font-size: 0.75rem;
+  font-size: 0.625rem;
   font-weight: 500;
   opacity: 0.8;
 }
 
 @media (min-width: 640px) {
+  .rating-buttons {
+    gap: 0.5rem;
+  }
+
   .rating-btn {
-    padding: 0.875rem 1rem;
-    min-height: 60px;
+    padding: 0.75rem 0.5rem;
+    min-height: 56px;
   }
 
   .rating-label {
-    font-size: 1rem;
+    font-size: 0.875rem;
   }
 
   .rating-interval {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
   }
 }
 

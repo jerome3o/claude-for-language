@@ -62,8 +62,8 @@ function RatingButtons({
   disabled: boolean;
 }) {
   return (
-    <div className="mt-4">
-      <p className="text-center text-light mb-2">How well did you know this?</p>
+    <div className="mt-3">
+      <p className="text-center text-light mb-1" style={{ fontSize: '0.8125rem' }}>How well did you know this?</p>
       <div className="rating-buttons">
         {([0, 1, 2, 3] as Rating[]).map((rating) => (
           <button
@@ -181,7 +181,7 @@ function StudyCard({
       case 'hanzi_to_meaning':
         return (
           <div className="text-center">
-            <p className="text-light mb-2">{cardInfo.prompt}</p>
+            <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
             <div className="hanzi hanzi-large">{card.note.hanzi}</div>
           </div>
         );
@@ -189,9 +189,9 @@ function StudyCard({
       case 'meaning_to_hanzi':
         return (
           <div className="text-center">
-            <p className="text-light mb-2">{cardInfo.prompt}</p>
-            <div style={{ fontSize: '2rem', fontWeight: 500 }}>{card.note.english}</div>
-            <div className="mt-4">
+            <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
+            <div style={{ fontSize: '1.5rem', fontWeight: 500 }}>{card.note.english}</div>
+            <div className="mt-3">
               <input
                 ref={inputRef}
                 type="text"
@@ -199,7 +199,7 @@ function StudyCard({
                 value={userAnswer}
                 onChange={(e) => setUserAnswer(e.target.value)}
                 placeholder="Type in Chinese..."
-                style={{ fontSize: '1.5rem', textAlign: 'center', maxWidth: '300px' }}
+                style={{ fontSize: '1.25rem', textAlign: 'center', maxWidth: '280px' }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleFlip();
                 }}
@@ -211,9 +211,9 @@ function StudyCard({
       case 'audio_to_hanzi':
         return (
           <div className="text-center">
-            <p className="text-light mb-2">{cardInfo.prompt}</p>
+            <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
             <button
-              className="btn btn-lg btn-secondary mb-4"
+              className="btn btn-secondary mb-3"
               onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
               disabled={isPlaying}
             >
@@ -227,7 +227,7 @@ function StudyCard({
                 value={userAnswer}
                 onChange={(e) => setUserAnswer(e.target.value)}
                 placeholder="Type what you hear..."
-                style={{ fontSize: '1.5rem', textAlign: 'center', maxWidth: '300px' }}
+                style={{ fontSize: '1.25rem', textAlign: 'center', maxWidth: '280px' }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleFlip();
                 }}
@@ -253,18 +253,18 @@ function StudyCard({
     return (
       <div className="text-center">
         {isTypingCard && userAnswer && (
-          <div className={`mb-3 ${isCorrect ? 'text-success' : 'text-error'}`}>
+          <div className={`mb-2 ${isCorrect ? 'text-success' : 'text-error'}`} style={{ fontSize: '0.875rem' }}>
             {isCorrect ? 'Correct!' : `Your answer: ${userAnswer}`}
           </div>
         )}
 
-        <div className="hanzi hanzi-large mb-2">{card.note.hanzi}</div>
-        <div className="pinyin mb-2">{card.note.pinyin}</div>
-        <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
+        <div className="hanzi hanzi-large mb-1">{card.note.hanzi}</div>
+        <div className="pinyin mb-1">{card.note.pinyin}</div>
+        <div style={{ fontSize: '1.125rem' }}>{card.note.english}</div>
 
-        <div className="flex gap-2 justify-center flex-wrap mt-3">
+        <div className="flex gap-1 justify-center flex-wrap mt-2">
           <button
-            className="btn btn-secondary"
+            className="btn btn-secondary btn-sm"
             onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
             disabled={isPlaying}
           >
@@ -272,14 +272,14 @@ function StudyCard({
           </button>
           {audioBlob && (
             <button
-              className="btn btn-secondary"
+              className="btn btn-secondary btn-sm"
               onClick={playUserRecording}
             >
-              Play My Recording
+              My Recording
             </button>
           )}
           <button
-            className="btn btn-secondary"
+            className="btn btn-secondary btn-sm"
             onClick={() => {
               setShowAskClaude(!showAskClaude);
               if (!showAskClaude) {
@@ -287,18 +287,18 @@ function StudyCard({
               }
             }}
           >
-            {showAskClaude ? 'Hide Chat' : 'Ask Claude'}
+            {showAskClaude ? 'Hide' : 'Ask Claude'}
           </button>
         </div>
 
         {card.note.fun_facts && (
           <div
-            className="mt-3 text-light"
+            className="mt-2 text-light"
             style={{
-              fontSize: '0.875rem',
+              fontSize: '0.8125rem',
               backgroundColor: '#f3f4f6',
-              padding: '0.75rem',
-              borderRadius: '8px',
+              padding: '0.5rem',
+              borderRadius: '6px',
             }}
           >
             {card.note.fun_facts}
@@ -308,32 +308,32 @@ function StudyCard({
         {/* Ask Claude Chat */}
         {showAskClaude && (
           <div
-            className="mt-3"
+            className="mt-2"
             style={{
               textAlign: 'left',
               backgroundColor: '#f9fafb',
-              padding: '1rem',
-              borderRadius: '8px',
-              maxHeight: '300px',
+              padding: '0.5rem',
+              borderRadius: '6px',
+              maxHeight: '200px',
               overflowY: 'auto',
             }}
           >
             {conversation.length === 0 && (
-              <p className="text-light" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-                Ask a question about this word...
+              <p className="text-light" style={{ fontSize: '0.75rem', marginBottom: '0.375rem' }}>
+                Ask about this word...
               </p>
             )}
 
             {conversation.map((qa) => (
-              <div key={qa.id} style={{ marginBottom: '1rem' }}>
+              <div key={qa.id} style={{ marginBottom: '0.5rem' }}>
                 <div
                   style={{
                     backgroundColor: 'var(--color-primary)',
                     color: 'white',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
-                    marginBottom: '0.5rem',
-                    fontSize: '0.875rem',
+                    padding: '0.375rem 0.5rem',
+                    borderRadius: '6px',
+                    marginBottom: '0.25rem',
+                    fontSize: '0.75rem',
                   }}
                 >
                   {qa.question}
@@ -341,9 +341,9 @@ function StudyCard({
                 <div
                   style={{
                     backgroundColor: 'white',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
+                    padding: '0.375rem 0.5rem',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
                     whiteSpace: 'pre-wrap',
                     border: '1px solid #e5e7eb',
                   }}
@@ -353,25 +353,24 @@ function StudyCard({
               </div>
             ))}
 
-            <div className="flex gap-2" style={{ marginTop: '0.5rem' }}>
+            <div className="flex gap-1" style={{ marginTop: '0.375rem' }}>
               <input
                 ref={questionInputRef}
                 type="text"
                 className="form-input"
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="e.g., How do I use this in a sentence?"
-                style={{ fontSize: '0.875rem', flex: 1 }}
+                placeholder="Ask a question..."
+                style={{ fontSize: '0.875rem', flex: 1, padding: '0.5rem' }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleAskClaude();
                 }}
                 disabled={isAsking}
               />
               <button
-                className="btn btn-primary"
+                className="btn btn-primary btn-sm"
                 onClick={handleAskClaude}
                 disabled={!question.trim() || isAsking}
-                style={{ padding: '0.5rem 1rem' }}
               >
                 {isAsking ? '...' : 'Ask'}
               </button>
@@ -385,7 +384,7 @@ function StudyCard({
   const renderSpeakingCardButtons = () => {
     if (isRecording) {
       return (
-        <button className="btn btn-error btn-lg" onClick={stopRecording}>
+        <button className="btn btn-error" onClick={stopRecording}>
           Stop Recording
         </button>
       );
@@ -393,10 +392,10 @@ function StudyCard({
 
     if (audioBlob) {
       return (
-        <div className="flex flex-col gap-3 items-center">
-          <div className="flex gap-2 justify-center">
+        <div className="flex flex-col gap-2 items-center">
+          <div className="flex gap-1 justify-center">
             <button
-              className="btn btn-secondary"
+              className="btn btn-secondary btn-sm"
               onClick={() => {
                 const url = URL.createObjectURL(audioBlob);
                 new Audio(url).play();
@@ -404,11 +403,11 @@ function StudyCard({
             >
               Play Recording
             </button>
-            <button className="btn btn-secondary" onClick={clearRecording}>
+            <button className="btn btn-secondary btn-sm" onClick={clearRecording}>
               Re-record
             </button>
           </div>
-          <button className="btn btn-primary btn-lg" onClick={handleFlip}>
+          <button className="btn btn-primary" onClick={handleFlip}>
             Check Answer
           </button>
         </div>
@@ -416,14 +415,14 @@ function StudyCard({
     }
 
     return (
-      <div className="flex flex-col gap-3 items-center">
-        <button className="btn btn-primary btn-lg" onClick={startRecording}>
+      <div className="flex flex-col gap-2 items-center">
+        <button className="btn btn-primary" onClick={startRecording}>
           Record Your Pronunciation
         </button>
         <button
           className="btn-link text-light"
           onClick={handleFlip}
-          style={{ fontSize: '0.875rem' }}
+          style={{ fontSize: '0.8125rem' }}
         >
           Skip recording
         </button>
@@ -432,16 +431,16 @@ function StudyCard({
   };
 
   return (
-    <div className="card" style={{ minHeight: '400px' }}>
+    <div className="card">
       <div className="study-card">
         {!flipped ? (
           <>
             {renderFront()}
-            <div className="mt-4 text-center">
+            <div className="mt-3 text-center">
               {isSpeakingCard ? (
                 renderSpeakingCardButtons()
               ) : (
-                <button className="btn btn-primary btn-lg" onClick={handleFlip}>
+                <button className="btn btn-primary" onClick={handleFlip}>
                   {isTypingCard ? 'Check Answer' : 'Show Answer'}
                 </button>
               )}
@@ -637,7 +636,7 @@ export function StudyPage() {
     <div className="page study-page">
       <div className="container" style={{ maxWidth: '600px' }}>
         {/* Header with queue counts */}
-        <div className="flex justify-between items-center mb-4">
+        <div className="study-header">
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => {
