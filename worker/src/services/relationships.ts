@@ -628,6 +628,223 @@ export async function getStudentCardReviews(
   };
 }
 
+// ============ Self Progress (for viewing own progress) ============
+
+/**
+ * Get daily activity summary for the current user (last 30 days)
+ */
+export async function getMyDailyProgress(
+  db: D1Database,
+  userId: string
+): Promise<Omit<DailyActivitySummary, 'student'> & { summary: DailyActivitySummary['summary']; days: DailyActivitySummary['days'] }> {
+  // Get daily activity for last 30 days
+  const dailyResult = await db.prepare(`
+    SELECT
+      date(cr.reviewed_at) as date,
+      COUNT(*) as reviews_count,
+      COUNT(DISTINCT cr.card_id) as unique_cards,
+      AVG(CASE WHEN cr.rating >= 2 THEN 1.0 ELSE 0.0 END) * 100 as accuracy,
+      SUM(cr.time_spent_ms) as time_spent_ms
+    FROM card_reviews cr
+    JOIN study_sessions ss ON cr.session_id = ss.id
+    WHERE ss.user_id = ?
+      AND cr.reviewed_at >= datetime('now', '-30 days')
+    GROUP BY date(cr.reviewed_at)
+    ORDER BY date DESC
+  `).bind(userId).all<{
+    date: string;
+    reviews_count: number;
+    unique_cards: number;
+    accuracy: number;
+    time_spent_ms: number;
+  }>();
+
+  const days = dailyResult.results || [];
+
+  // Calculate summary stats
+  const totalReviews30d = days.reduce((sum, d) => sum + d.reviews_count, 0);
+  const totalDaysActive = days.length;
+  const totalTimeMs = days.reduce((sum, d) => sum + (d.time_spent_ms || 0), 0);
+  const avgAccuracy = days.length > 0
+    ? Math.round(days.reduce((sum, d) => sum + d.accuracy, 0) / days.length)
+    : 0;
+
+  return {
+    summary: {
+      total_reviews_30d: totalReviews30d,
+      total_days_active: totalDaysActive,
+      average_accuracy: avgAccuracy,
+      total_time_ms: totalTimeMs,
+    },
+    days: days.map(d => ({
+      date: d.date,
+      reviews_count: d.reviews_count,
+      unique_cards: d.unique_cards,
+      accuracy: Math.round(d.accuracy),
+      time_spent_ms: d.time_spent_ms || 0,
+    })),
+  };
+}
+
+/**
+ * Get cards reviewed on a specific day for the current user
+ */
+export async function getMyDayCards(
+  db: D1Database,
+  userId: string,
+  date: string
+): Promise<DayCardsDetail> {
+  // Get cards reviewed that day with aggregated stats
+  const cardsResult = await db.prepare(`
+    SELECT
+      c.id as card_id,
+      c.card_type,
+      n.id as note_id,
+      n.hanzi,
+      n.pinyin,
+      n.english,
+      COUNT(*) as review_count,
+      GROUP_CONCAT(cr.rating) as ratings,
+      AVG(cr.rating) as avg_rating,
+      SUM(cr.time_spent_ms) as total_time_ms,
+      MAX(CASE WHEN cr.user_answer IS NOT NULL AND cr.user_answer != '' THEN 1 ELSE 0 END) as has_answers,
+      MAX(CASE WHEN cr.recording_url IS NOT NULL AND cr.recording_url != '' THEN 1 ELSE 0 END) as has_recordings
+    FROM card_reviews cr
+    JOIN study_sessions ss ON cr.session_id = ss.id
+    JOIN cards c ON cr.card_id = c.id
+    JOIN notes n ON c.note_id = n.id
+    WHERE ss.user_id = ?
+      AND date(cr.reviewed_at) = ?
+    GROUP BY c.id
+    ORDER BY review_count DESC, avg_rating ASC
+  `).bind(userId, date).all<{
+    card_id: string;
+    card_type: string;
+    note_id: string;
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    review_count: number;
+    ratings: string;
+    avg_rating: number;
+    total_time_ms: number;
+    has_answers: number;
+    has_recordings: number;
+  }>();
+
+  const cards = (cardsResult.results || []).map(r => ({
+    card_id: r.card_id,
+    card_type: r.card_type,
+    note: {
+      id: r.note_id,
+      hanzi: r.hanzi,
+      pinyin: r.pinyin,
+      english: r.english,
+    },
+    review_count: r.review_count,
+    ratings: r.ratings ? r.ratings.split(',').map(Number) : [],
+    average_rating: r.avg_rating,
+    total_time_ms: r.total_time_ms || 0,
+    has_answers: r.has_answers === 1,
+    has_recordings: r.has_recordings === 1,
+  }));
+
+  // Calculate summary
+  const totalReviews = cards.reduce((sum, c) => sum + c.review_count, 0);
+  const allRatings = cards.flatMap(c => c.ratings);
+  const accuracy = allRatings.length > 0
+    ? Math.round((allRatings.filter(r => r >= 2).length / allRatings.length) * 100)
+    : 0;
+  const totalTimeMs = cards.reduce((sum, c) => sum + c.total_time_ms, 0);
+
+  return {
+    date,
+    summary: {
+      total_reviews: totalReviews,
+      unique_cards: cards.length,
+      accuracy,
+      time_spent_ms: totalTimeMs,
+    },
+    cards,
+  };
+}
+
+/**
+ * Get review details for a specific card on a specific day for the current user
+ */
+export async function getMyCardReviews(
+  db: D1Database,
+  userId: string,
+  date: string,
+  cardId: string
+): Promise<CardReviewsDetail> {
+  // Get card with note info
+  const cardResult = await db.prepare(`
+    SELECT
+      c.id,
+      c.card_type,
+      n.id as note_id,
+      n.hanzi,
+      n.pinyin,
+      n.english,
+      n.audio_url
+    FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    WHERE c.id = ?
+  `).bind(cardId).first<{
+    id: string;
+    card_type: string;
+    note_id: string;
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    audio_url: string | null;
+  }>();
+
+  if (!cardResult) {
+    throw new Error('Card not found');
+  }
+
+  // Get reviews for that card on that day
+  const reviewsResult = await db.prepare(`
+    SELECT
+      cr.id,
+      cr.reviewed_at,
+      cr.rating,
+      cr.time_spent_ms,
+      cr.user_answer,
+      cr.recording_url
+    FROM card_reviews cr
+    JOIN study_sessions ss ON cr.session_id = ss.id
+    WHERE cr.card_id = ?
+      AND ss.user_id = ?
+      AND date(cr.reviewed_at) = ?
+    ORDER BY cr.reviewed_at ASC
+  `).bind(cardId, userId, date).all<{
+    id: string;
+    reviewed_at: string;
+    rating: number;
+    time_spent_ms: number | null;
+    user_answer: string | null;
+    recording_url: string | null;
+  }>();
+
+  return {
+    card: {
+      id: cardResult.id,
+      card_type: cardResult.card_type,
+      note: {
+        id: cardResult.note_id,
+        hanzi: cardResult.hanzi,
+        pinyin: cardResult.pinyin,
+        english: cardResult.english,
+        audio_url: cardResult.audio_url,
+      },
+    },
+    reviews: reviewsResult.results || [],
+  };
+}
+
 /**
  * Get student progress for a tutor
  */

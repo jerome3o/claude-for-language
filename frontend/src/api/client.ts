@@ -25,6 +25,7 @@ import {
   DailyActivitySummary,
   DayCardsDetail,
   CardReviewsDetail,
+  MyDailyProgress,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -623,4 +624,18 @@ export async function getStudentCardReviews(
   return fetchJSON<CardReviewsDetail>(
     `/relationships/${relationshipId}/student-progress/day/${date}/card/${cardId}`
   );
+}
+
+// ============ My Progress (Self-view) ============
+
+export async function getMyDailyProgress(): Promise<MyDailyProgress> {
+  return fetchJSON<MyDailyProgress>('/progress/daily');
+}
+
+export async function getMyDayCards(date: string): Promise<DayCardsDetail> {
+  return fetchJSON<DayCardsDetail>(`/progress/day/${date}`);
+}
+
+export async function getMyCardReviews(date: string, cardId: string): Promise<CardReviewsDetail> {
+  return fetchJSON<CardReviewsDetail>(`/progress/day/${date}/card/${cardId}`);
 }

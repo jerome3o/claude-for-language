@@ -35,6 +35,7 @@ export function Header() {
           <nav className="header-nav">
             <Link to="/">Home</Link>
             <Link to="/decks">Decks</Link>
+            <Link to="/progress">Progress</Link>
             <Link to="/connections">Connections</Link>
             {user?.is_admin && <Link to="/admin">Admin</Link>}
           </nav>

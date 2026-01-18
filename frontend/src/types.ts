@@ -323,6 +323,23 @@ export interface DayCardsDetail {
   }>;
 }
 
+// Self progress summary (without student info)
+export interface MyDailyProgress {
+  summary: {
+    total_reviews_30d: number;
+    total_days_active: number;
+    average_accuracy: number;
+    total_time_ms: number;
+  };
+  days: Array<{
+    date: string;
+    reviews_count: number;
+    unique_cards: number;
+    accuracy: number;
+    time_spent_ms: number;
+  }>;
+}
+
 // Review details for a specific card on a specific day
 export interface CardReviewsDetail {
   card: {

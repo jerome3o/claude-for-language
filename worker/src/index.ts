@@ -40,6 +40,9 @@ import {
   getStudentDailyProgress,
   getStudentDayCards,
   getStudentCardReviews,
+  getMyDailyProgress,
+  getMyDayCards,
+  getMyCardReviews,
 } from './services/relationships';
 import {
   getConversations,
@@ -1497,6 +1500,50 @@ app.get('/api/debug/notes-audio', async (c) => {
     notes: results.results,
     hasGoogleTtsKey: !!c.env.GOOGLE_TTS_API_KEY,
   });
+});
+
+// ============ My Progress (Self-view) ============
+
+// Get my daily activity summary (last 30 days)
+app.get('/api/progress/daily', async (c) => {
+  const userId = c.get('user').id;
+
+  try {
+    const progress = await getMyDailyProgress(c.env.DB, userId);
+    return c.json(progress);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get progress';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get cards I reviewed on a specific day
+app.get('/api/progress/day/:date', async (c) => {
+  const userId = c.get('user').id;
+  const date = c.req.param('date');
+
+  try {
+    const dayCards = await getMyDayCards(c.env.DB, userId, date);
+    return c.json(dayCards);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get day details';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get review details for a specific card on a specific day
+app.get('/api/progress/day/:date/card/:cardId', async (c) => {
+  const userId = c.get('user').id;
+  const date = c.req.param('date');
+  const cardId = c.req.param('cardId');
+
+  try {
+    const cardReviews = await getMyCardReviews(c.env.DB, userId, date, cardId);
+    return c.json(cardReviews);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get card reviews';
+    return c.json({ error: message }, 400);
+  }
 });
 
 // ============ Statistics ============
