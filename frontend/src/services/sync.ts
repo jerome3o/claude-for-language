@@ -1,5 +1,8 @@
 import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData } from '../db/database';
 import { Deck, Note, Card } from '../types';
+import { API_BASE, getAuthHeaders } from '../api/client';
+
+const API_PATH = `${API_BASE}/api`;
 
 // Extended type for deck with notes and cards (from API)
 interface NoteWithCards extends Note {
@@ -70,23 +73,25 @@ class SyncService {
 
     try {
       // Fetch all decks
-      console.log('[fullSync] Fetching deck list...');
-      const decksResponse = await fetch('/api/decks');
-      console.log('[fullSync] Deck list response:', decksResponse.status, decksResponse.statusText);
+      console.log('[fullSync] Fetching deck list from:', `${API_PATH}/decks`);
+      const decksResponse = await fetch(`${API_PATH}/decks`, {
+        headers: getAuthHeaders(),
+      });
+      console.log('[fullSync] Deck list response:', decksResponse.status);
       if (!decksResponse.ok) {
         const text = await decksResponse.text();
         console.error('[fullSync] Deck list error response:', text);
         throw new Error('Failed to fetch decks');
       }
-      const decksText = await decksResponse.text();
-      console.log('[fullSync] Deck list body (first 500 chars):', decksText.slice(0, 500));
-      const decks: Deck[] = JSON.parse(decksText);
+      const decks: Deck[] = await decksResponse.json();
       console.log('[fullSync] Got', decks.length, 'decks');
 
       // Fetch full data for each deck (includes notes AND cards)
       const deckPromises = decks.map(async (deck) => {
         console.log('[fullSync] Fetching deck:', deck.id);
-        const deckResponse = await fetch(`/api/decks/${deck.id}`);
+        const deckResponse = await fetch(`${API_PATH}/decks/${deck.id}`, {
+          headers: getAuthHeaders(),
+        });
         console.log('[fullSync] Deck response:', deck.id, deckResponse.status);
         if (!deckResponse.ok) {
           const text = await deckResponse.text();
@@ -159,7 +164,9 @@ class SyncService {
 
     try {
       const since = syncMeta.last_incremental_sync;
-      const response = await fetch(`/api/sync/changes?since=${since}`);
+      const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
+        headers: getAuthHeaders(),
+      });
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -250,10 +257,11 @@ class SyncService {
 
     for (const review of pending) {
       try {
-        const response = await fetch('/api/study/review', {
+        const response = await fetch(`${API_PATH}/study/review`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...getAuthHeaders(),
           },
           body: JSON.stringify({
             card_id: review.card_id,

@@ -33,6 +33,14 @@ export function clearSessionToken() {
   sessionToken = null;
 }
 
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+  return headers;
+}
+
 // Event for handling unauthorized responses
 export const authEvents = {
   onUnauthorized: () => {},
