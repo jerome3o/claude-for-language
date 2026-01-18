@@ -450,6 +450,12 @@ html:has(.study-page-fullscreen) .header {
   justify-content: center;
 }
 
+/* Typing cards: anchor content to top so keyboard doesn't shift text */
+.study-card-main--typing {
+  justify-content: flex-start;
+  padding-top: 2rem;
+}
+
 .study-card-actions {
   flex-shrink: 0;
   padding-top: 1rem;

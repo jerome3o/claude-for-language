@@ -524,7 +524,7 @@ function StudyCard({
         <div className="study-card-content">
           {!flipped ? (
             <>
-              <div className="study-card-main">
+              <div className={`study-card-main ${isTypingCard ? 'study-card-main--typing' : ''}`}>
                 {renderFront()}
               </div>
               <div className="study-card-actions text-center">
