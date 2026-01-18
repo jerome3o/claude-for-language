@@ -718,7 +718,10 @@ app.get('/api/notes/:id/history', async (c) => {
 app.post('/api/notes/:id/ask', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
-  const { question } = await c.req.json<{ question: string }>();
+  const { question, context } = await c.req.json<{
+    question: string;
+    context?: { userAnswer?: string; correctAnswer?: string; cardType?: string };
+  }>();
 
   if (!question) {
     return c.json({ error: 'question is required' }, 400);
@@ -734,7 +737,7 @@ app.post('/api/notes/:id/ask', async (c) => {
   }
 
   try {
-    const answer = await askAboutNote(c.env.ANTHROPIC_API_KEY, note, question);
+    const answer = await askAboutNote(c.env.ANTHROPIC_API_KEY, note, question, context);
     const noteQuestion = await db.createNoteQuestion(c.env.DB, id, question, answer);
     return c.json(noteQuestion, 201);
   } catch (error) {

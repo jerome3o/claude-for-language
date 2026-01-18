@@ -249,10 +249,14 @@ export interface NoteQuestion {
   asked_at: string;
 }
 
-export async function askAboutNote(noteId: string, question: string): Promise<NoteQuestion> {
+export async function askAboutNote(
+  noteId: string,
+  question: string,
+  context?: { userAnswer?: string; correctAnswer?: string; cardType?: string }
+): Promise<NoteQuestion> {
   return fetchJSON<NoteQuestion>(`/notes/${noteId}/ask`, {
     method: 'POST',
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, context }),
   });
 }
 

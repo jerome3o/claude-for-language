@@ -145,23 +145,46 @@ Be concise but thorough in your answers. Focus on practical usage and learning. 
 
 Keep your responses focused and helpful for language learning. Use examples with both Chinese characters and pinyin when relevant.`;
 
+export interface AskContext {
+  userAnswer?: string;
+  correctAnswer?: string;
+  cardType?: string;
+}
+
 /**
  * Answer a question about a vocabulary note
  */
 export async function askAboutNote(
   apiKey: string,
   note: Note,
-  question: string
+  question: string,
+  askContext?: AskContext
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
 
-  const context = `The user is studying this vocabulary:
-- Chinese: ${note.hanzi}
-- Pinyin: ${note.pinyin}
-- English: ${note.english}
-${note.fun_facts ? `- Notes: ${note.fun_facts}` : ''}
+  let contextParts = [
+    `The user is studying this vocabulary:`,
+    `- Chinese: ${note.hanzi}`,
+    `- Pinyin: ${note.pinyin}`,
+    `- English: ${note.english}`,
+  ];
 
-User's question: ${question}`;
+  if (note.fun_facts) {
+    contextParts.push(`- Notes: ${note.fun_facts}`);
+  }
+
+  // Add user's answer context if provided
+  if (askContext?.userAnswer) {
+    contextParts.push('');
+    contextParts.push(`The user was asked to write the Chinese characters.`);
+    contextParts.push(`User's answer: ${askContext.userAnswer}`);
+    contextParts.push(`Correct answer: ${askContext.correctAnswer || note.hanzi}`);
+  }
+
+  contextParts.push('');
+  contextParts.push(`User's question: ${question}`);
+
+  const context = contextParts.join('\n');
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',

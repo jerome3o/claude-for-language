@@ -174,7 +174,14 @@ function StudyCard({
 
     setIsAsking(true);
     try {
-      const response = await askAboutNote(card.note.id, question.trim());
+      // Include user's answer context for typing cards
+      const context = isTypingCard && userAnswer ? {
+        userAnswer: userAnswer,
+        correctAnswer: card.note.hanzi,
+        cardType: card.card_type,
+      } : undefined;
+
+      const response = await askAboutNote(card.note.id, question.trim(), context);
       setConversation((prev) => [...prev, response]);
       setQuestion('');
     } catch (error) {
