@@ -48,6 +48,27 @@
   background-color: #fde68a;
 }
 
+.offline-banner-synced {
+  background-color: #d1fae5;
+  color: #065f46;
+  border-top: 1px solid #10b981;
+  animation: slideUp 0.3s ease-out, fadeOut 0.5s ease-out 1.5s forwards;
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.offline-banner-check {
+  font-size: 1rem;
+  color: #10b981;
+}
+
 .offline-banner-icon {
   width: 1.25rem;
   height: 1.25rem;
@@ -98,4 +119,30 @@ body:has(.offline-banner) {
     font-size: 0.8125rem;
     padding: 0.625rem 0.75rem;
   }
+}
+
+/* Small sync status indicator (for header) */
+.sync-indicator {
+  font-size: 0.625rem;
+  cursor: default;
+  user-select: none;
+}
+
+.sync-indicator-offline {
+  color: #9ca3af;
+}
+
+.sync-indicator-syncing {
+  color: #3b82f6;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+.sync-indicator-pending {
+  color: #f59e0b;
+  cursor: pointer;
+}
+
+.sync-indicator-synced {
+  color: #10b981;
 }

@@ -61,21 +61,30 @@ export async function getDeckWithNotesAndCards(db: D1Database, id: string, userI
     .bind(id)
     .all<Note>();
 
-  // Get all cards for all notes in one query
+  // Get all cards for all notes (batch to avoid SQLite parameter limit of 999)
   const noteIds = notes.results.map(n => n.id);
+  console.log(`[getDeckWithNotesAndCards] Fetching cards for ${noteIds.length} notes (batched)`);
   if (noteIds.length === 0) {
     return { ...deck, notes: [] };
   }
 
-  const placeholders = noteIds.map(() => '?').join(',');
-  const cards = await db
-    .prepare(`SELECT * FROM cards WHERE note_id IN (${placeholders})`)
-    .bind(...noteIds)
-    .all<Card>();
+  // Batch queries to stay under D1's parameter limit (lower than standard SQLite's 999)
+  const BATCH_SIZE = 100;
+  const allCards: Card[] = [];
+
+  for (let i = 0; i < noteIds.length; i += BATCH_SIZE) {
+    const batch = noteIds.slice(i, i + BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+    const cards = await db
+      .prepare(`SELECT * FROM cards WHERE note_id IN (${placeholders})`)
+      .bind(...batch)
+      .all<Card>();
+    allCards.push(...cards.results);
+  }
 
   // Group cards by note_id
   const cardsByNoteId: Record<string, Card[]> = {};
-  for (const card of cards.results) {
+  for (const card of allCards) {
     if (!cardsByNoteId[card.note_id]) {
       cardsByNoteId[card.note_id] = [];
     }

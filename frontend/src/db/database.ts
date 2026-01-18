@@ -61,6 +61,8 @@ export interface PendingReview {
   time_spent_ms: number | null;
   user_answer: string | null;
   reviewed_at: string;
+  // Original queue before this review (for daily limit tracking)
+  original_queue: CardQueue;
   // Computed result (applied locally immediately)
   new_queue: CardQueue;
   new_learning_step: number;
@@ -147,37 +149,80 @@ export async function getCardsByDeckId(deckId: string): Promise<LocalCard[]> {
   return db.cards.where('deck_id').equals(deckId).toArray();
 }
 
-export async function getDueCards(deckId?: string): Promise<LocalCard[]> {
+// Count new cards studied today (for daily limit enforcement)
+export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const allReviews = await db.pendingReviews.toArray();
+
+  // Get unique cards reviewed today that started as NEW
+  const newCardReviews = allReviews.filter(r =>
+    r.reviewed_at.startsWith(today) &&
+    r.original_queue === CardQueue.NEW
+  );
+
+  // Get unique card IDs (first review of a NEW card counts)
+  const uniqueNewCards = new Set<string>();
+  for (const review of newCardReviews) {
+    if (deckId) {
+      const card = await db.cards.get(review.card_id);
+      if (card && card.deck_id === deckId) {
+        uniqueNewCards.add(review.card_id);
+      }
+    } else {
+      uniqueNewCards.add(review.card_id);
+    }
+  }
+
+  return uniqueNewCards.size;
+}
+
+export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Promise<LocalCard[]> {
   const now = Date.now();
   const nowIso = new Date().toISOString();
 
   let cards: LocalCard[];
-
   if (deckId) {
     cards = await db.cards.where('deck_id').equals(deckId).toArray();
   } else {
     cards = await db.cards.toArray();
   }
 
+  // Get deck settings for new card limit
+  let newCardsPerDay = 30; // default
+  if (deckId) {
+    const deck = await db.decks.get(deckId);
+    if (deck) {
+      newCardsPerDay = deck.new_cards_per_day;
+    }
+  }
+
+  // Get new cards studied today
+  const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
+  const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
+
   // Filter for due cards
-  return cards.filter(card => {
-    // New cards are always due (up to daily limit)
+  const dueCards: LocalCard[] = [];
+  let newCardCount = 0;
+
+  for (const card of cards) {
     if (card.queue === CardQueue.NEW) {
-      return true;
+      // Apply daily limit for new cards
+      if (ignoreDailyLimit || newCardCount < remainingNewCards) {
+        dueCards.push(card);
+        newCardCount++;
+      }
+    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+      if (!card.due_timestamp || card.due_timestamp <= now) {
+        dueCards.push(card);
+      }
+    } else if (card.queue === CardQueue.REVIEW) {
+      if (!card.next_review_at || card.next_review_at <= nowIso) {
+        dueCards.push(card);
+      }
     }
+  }
 
-    // Learning/relearning cards - check due_timestamp
-    if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-      return !card.due_timestamp || card.due_timestamp <= now;
-    }
-
-    // Review cards - check next_review_at
-    if (card.queue === CardQueue.REVIEW) {
-      return !card.next_review_at || card.next_review_at <= nowIso;
-    }
-
-    return false;
-  });
+  return dueCards;
 }
 
 export async function getPendingReviews(): Promise<PendingReview[]> {
@@ -208,12 +253,19 @@ export async function clearAllData(): Promise<void> {
 }
 
 // Get queue counts for display (Anki-style)
-export async function getQueueCounts(deckId?: string): Promise<{ new: number; learning: number; review: number }> {
-  const cards = await getDueCards(deckId);
+export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false): Promise<{ new: number; learning: number; review: number }> {
+  const cards = await getDueCards(deckId, ignoreDailyLimit);
 
   return {
     new: cards.filter(c => c.queue === CardQueue.NEW).length,
     learning: cards.filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING).length,
     review: cards.filter(c => c.queue === CardQueue.REVIEW).length,
   };
+}
+
+// Check if there are more new cards beyond the daily limit
+export async function hasMoreNewCards(deckId?: string): Promise<boolean> {
+  const limitedCount = (await getQueueCounts(deckId, false)).new;
+  const unlimitedCount = (await getQueueCounts(deckId, true)).new;
+  return unlimitedCount > limitedCount;
 }
