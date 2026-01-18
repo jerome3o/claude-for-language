@@ -63,12 +63,13 @@ export async function getDeckWithNotesAndCards(db: D1Database, id: string, userI
 
   // Get all cards for all notes (batch to avoid SQLite parameter limit of 999)
   const noteIds = notes.results.map(n => n.id);
+  console.log(`[getDeckWithNotesAndCards] Fetching cards for ${noteIds.length} notes (batched)`);
   if (noteIds.length === 0) {
     return { ...deck, notes: [] };
   }
 
-  // Batch queries to stay under SQLite's 999 parameter limit
-  const BATCH_SIZE = 500;
+  // Batch queries to stay under D1's parameter limit (lower than standard SQLite's 999)
+  const BATCH_SIZE = 100;
   const allCards: Card[] = [];
 
   for (let i = 0; i < noteIds.length; i += BATCH_SIZE) {

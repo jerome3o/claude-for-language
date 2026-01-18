@@ -87,7 +87,18 @@ export function usePendingReviewsCount() {
 // Hook to check if there are more new cards beyond the daily limit
 export function useHasMoreNewCards(deckId?: string) {
   const result = useLiveQuery(
-    () => checkHasMoreNewCards(deckId),
+    async () => {
+      const hasMore = await checkHasMoreNewCards(deckId);
+      const limitedCounts = await getQueueCounts(deckId, false);
+      const unlimitedCounts = await getQueueCounts(deckId, true);
+      console.log('[useHasMoreNewCards]', {
+        hasMore,
+        limitedNew: limitedCounts.new,
+        unlimitedNew: unlimitedCounts.new,
+        deckId
+      });
+      return hasMore;
+    },
     [deckId]
   );
 
