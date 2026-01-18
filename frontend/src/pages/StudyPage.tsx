@@ -126,13 +126,20 @@ function StudyCard({
     }
   }, [isTypingCard, flipped]);
 
-  // Play audio for audio cards
+  // Play audio for audio cards on front
   useEffect(() => {
     if (card.card_type === 'audio_to_hanzi' && !flipped) {
       playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
     }
     return () => stopAudio();
   }, [card, flipped, playAudio, stopAudio]);
+
+  // Auto-play audio when answer is revealed
+  useEffect(() => {
+    if (flipped) {
+      playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
+    }
+  }, [flipped]);
 
   // Online review mutation
   const onlineReviewMutation = useMutation({
