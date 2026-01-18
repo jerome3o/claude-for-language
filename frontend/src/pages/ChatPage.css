@@ -8,9 +8,11 @@
   background: var(--background, #f5f5f5);
 }
 
-/* Override body padding when on chat page - the chat page handles its own layout */
+/* Override body styling when on chat page - handles its own layout */
 body:has(.chat-page) {
   padding-bottom: 0 !important;
+  /* Ensure background extends to edge in PWA safe area */
+  background: white;
 }
 
 /* Add padding to chat input when offline banner is visible */
@@ -184,15 +186,16 @@ body:has(.offline-banner) .chat-input-form {
   padding: 0 0.25rem;
 }
 
-/* Input */
+/* Input - extends into safe area on iOS PWA */
 .chat-input-form {
   display: flex;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   background: white;
   border-top: 1px solid var(--border-color, #e5e5e5);
   flex-shrink: 0;
+  /* Add safe area padding so content is above home indicator, but background fills the area */
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
 }
 
 .chat-input {
