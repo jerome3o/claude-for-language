@@ -32,6 +32,7 @@ export function Header() {
           汉语学习
         </Link>
         <nav className="header-nav">
+          <Link to="/connections">Connections</Link>
           {user?.is_admin && <Link to="/admin">Admin</Link>}
         </nav>
         {user && (

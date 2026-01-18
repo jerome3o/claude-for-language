@@ -1,0 +1,247 @@
+/* Mobile-first styles for Connections Page */
+
+.connections-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.connections-header h1 {
+  margin: 0;
+}
+
+/* Invite Form */
+.invite-form {
+  padding: 1rem;
+}
+
+.invite-form h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.125rem;
+}
+
+.invite-form .form-group {
+  margin-bottom: 1rem;
+}
+
+.invite-form label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.invite-form input[type="email"] {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+  font-size: 1rem;
+}
+
+.role-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.role-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  border: 2px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.role-option input {
+  display: none;
+}
+
+.role-option.selected {
+  border-color: var(--primary-color, #3b82f6);
+  background-color: var(--primary-bg, #eff6ff);
+}
+
+.role-option .role-icon {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.role-option .role-desc {
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
+/* Sections */
+.connections-section {
+  margin-bottom: 2rem;
+}
+
+.connections-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-light, #666);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Connection List */
+.connections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Connection Card */
+.connection-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.connection-card.active:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-color, #3b82f6);
+}
+
+.connection-card.pending {
+  background: var(--warning-bg, #fffbeb);
+  border-color: var(--warning-border, #fcd34d);
+}
+
+.connection-card.pending.outgoing {
+  background: var(--muted-bg, #f5f5f5);
+  border-color: var(--border-color, #e5e5e5);
+}
+
+/* User Info */
+.connection-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.connection-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.connection-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  font-weight: 600;
+  font-size: 1.125rem;
+}
+
+.connection-user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.connection-name {
+  font-weight: 600;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connection-email {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Description for pending */
+.connection-description {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+/* Actions */
+.connection-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-basis: 100%;
+}
+
+/* Role Badge */
+.connection-role-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.connection-role-badge.tutor {
+  background: var(--success-bg, #dcfce7);
+  color: var(--success-text, #166534);
+}
+
+.connection-role-badge.student {
+  background: var(--info-bg, #dbeafe);
+  color: var(--info-text, #1e40af);
+}
+
+/* Arrow */
+.connection-arrow {
+  margin-left: auto;
+  color: var(--text-light, #666);
+  font-size: 1.25rem;
+}
+
+/* Desktop styles */
+@media (min-width: 640px) {
+  .connections-header h1 {
+    font-size: 1.75rem;
+  }
+
+  .invite-form {
+    padding: 1.5rem;
+    max-width: 500px;
+  }
+
+  .connection-card {
+    flex-wrap: nowrap;
+    padding: 1rem 1.5rem;
+  }
+
+  .connection-description {
+    flex-basis: auto;
+    flex: 1;
+    text-align: right;
+    margin-right: 1rem;
+  }
+
+  .connection-actions {
+    flex-basis: auto;
+  }
+}

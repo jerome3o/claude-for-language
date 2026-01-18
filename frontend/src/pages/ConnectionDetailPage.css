@@ -1,0 +1,304 @@
+/* Mobile-first styles for Connection Detail Page */
+
+.connection-detail-header {
+  margin-bottom: 1.5rem;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: var(--primary-color, #3b82f6);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+.connection-detail-user {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.connection-detail-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.connection-detail-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  font-weight: 600;
+  font-size: 1.5rem;
+}
+
+.connection-detail-info h1 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.5rem;
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.role-badge.tutor {
+  background: var(--info-bg, #dbeafe);
+  color: var(--info-text, #1e40af);
+}
+
+.role-badge.student {
+  background: var(--success-bg, #dcfce7);
+  color: var(--success-text, #166534);
+}
+
+/* Quick Actions */
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.quick-actions .btn {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* Detail Section */
+.detail-section {
+  margin-bottom: 2rem;
+}
+
+.detail-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-light, #666);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Conversations List */
+.conversations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.conversation-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.conversation-item:hover {
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.conversation-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.conversation-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.conversation-preview {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation-time {
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+  white-space: nowrap;
+  margin-left: 1rem;
+}
+
+/* Shared Decks List */
+.shared-decks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.shared-deck-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+}
+
+.shared-deck-name {
+  font-weight: 500;
+}
+
+.shared-deck-date {
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
+/* Danger Zone */
+.danger-zone {
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color, #e5e5e5);
+}
+
+.btn-danger {
+  background: var(--error-color, #ef4444);
+  color: white;
+  border: none;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 1000;
+}
+
+.modal {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+}
+
+.modal .form-group {
+  margin-bottom: 1rem;
+}
+
+.modal label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.modal input[type="text"] {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+  font-size: 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* Share Deck List */
+.share-deck-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.share-deck-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.share-deck-option:hover {
+  border-color: var(--primary-color, #3b82f6);
+  background-color: var(--primary-bg, #eff6ff);
+}
+
+.share-deck-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.share-deck-name {
+  font-weight: 500;
+}
+
+.share-deck-desc {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+/* Desktop styles */
+@media (min-width: 640px) {
+  .connection-detail-avatar {
+    width: 80px;
+    height: 80px;
+  }
+
+  .connection-detail-info h1 {
+    font-size: 1.75rem;
+  }
+
+  .quick-actions .btn {
+    flex: 0 0 auto;
+    min-width: 140px;
+  }
+
+  .modal {
+    padding: 2rem;
+  }
+}

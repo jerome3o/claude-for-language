@@ -178,3 +178,117 @@ export const CARD_TYPE_INFO: Record<CardType, { prompt: string; action: 'speak' 
     action: 'type',
   },
 };
+
+// ============ Tutor-Student Relationships ============
+
+export type RelationshipStatus = 'pending' | 'active' | 'removed';
+export type RelationshipRole = 'tutor' | 'student';
+
+export interface TutorRelationship {
+  id: string;
+  requester_id: string;
+  recipient_id: string;
+  requester_role: RelationshipRole;
+  status: RelationshipStatus;
+  created_at: string;
+  accepted_at: string | null;
+}
+
+export interface UserSummary {
+  id: string;
+  email: string | null;
+  name: string | null;
+  picture_url: string | null;
+}
+
+export interface TutorRelationshipWithUsers extends TutorRelationship {
+  requester: UserSummary;
+  recipient: UserSummary;
+}
+
+export interface Conversation {
+  id: string;
+  relationship_id: string;
+  title: string | null;
+  created_at: string;
+  last_message_at: string | null;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+}
+
+export interface MessageWithSender extends Message {
+  sender: {
+    id: string;
+    name: string | null;
+    picture_url: string | null;
+  };
+}
+
+export interface ConversationWithLastMessage extends Conversation {
+  last_message?: Message;
+  other_user: UserSummary;
+}
+
+export interface SharedDeck {
+  id: string;
+  relationship_id: string;
+  source_deck_id: string;
+  target_deck_id: string;
+  shared_at: string;
+}
+
+export interface SharedDeckWithDetails extends SharedDeck {
+  source_deck_name: string;
+  target_deck_name: string;
+}
+
+export interface MyRelationships {
+  tutors: TutorRelationshipWithUsers[];
+  students: TutorRelationshipWithUsers[];
+  pending_incoming: TutorRelationshipWithUsers[];
+  pending_outgoing: TutorRelationshipWithUsers[];
+}
+
+export interface StudentProgress {
+  user: UserSummary;
+  stats: {
+    total_cards: number;
+    cards_due_today: number;
+    cards_studied_today: number;
+    cards_studied_this_week: number;
+    average_accuracy: number;
+  };
+  decks: Array<{
+    id: string;
+    name: string;
+    total_notes: number;
+    cards_due: number;
+    cards_mastered: number;
+  }>;
+}
+
+// Helper function to determine the current user's role in a relationship
+export function getMyRoleInRelationship(
+  relationship: TutorRelationship,
+  myId: string
+): RelationshipRole {
+  const iAmRequester = relationship.requester_id === myId;
+  if (iAmRequester) return relationship.requester_role;
+  return relationship.requester_role === 'tutor' ? 'student' : 'tutor';
+}
+
+// Helper function to get the other user in a relationship
+export function getOtherUserInRelationship(
+  relationship: TutorRelationshipWithUsers,
+  myId: string
+): UserSummary {
+  return relationship.requester_id === myId
+    ? relationship.recipient
+    : relationship.requester;
+}

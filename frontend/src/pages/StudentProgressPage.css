@@ -1,0 +1,182 @@
+/* Mobile-first styles for Student Progress Page */
+
+.progress-header {
+  margin-bottom: 1.5rem;
+}
+
+.progress-header .back-link {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: var(--primary-color, #3b82f6);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.progress-header .back-link:hover {
+  text-decoration: underline;
+}
+
+.progress-user {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.progress-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.progress-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+.progress-user h1 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.25rem;
+}
+
+.progress-email {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.stat-card {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary-color, #3b82f6);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.25rem;
+}
+
+/* Total Stats */
+.total-stats {
+  text-align: center;
+  padding: 0.75rem;
+  background: var(--muted-bg, #f5f5f5);
+  border-radius: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.total-stat {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+/* Progress Section */
+.progress-section {
+  margin-bottom: 2rem;
+}
+
+.progress-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-light, #666);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Deck Progress List */
+.deck-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.deck-progress-card {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.deck-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.deck-progress-name {
+  font-weight: 600;
+}
+
+.deck-progress-notes {
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
+.deck-progress-bar {
+  height: 8px;
+  background: var(--muted-bg, #e5e5e5);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.deck-progress-fill {
+  height: 100%;
+  background: var(--success-color, #22c55e);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.deck-progress-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
+/* Desktop styles */
+@media (min-width: 640px) {
+  .progress-user h1 {
+    font-size: 1.5rem;
+  }
+
+  .progress-avatar {
+    width: 64px;
+    height: 64px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+  }
+}

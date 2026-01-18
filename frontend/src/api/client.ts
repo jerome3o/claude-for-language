@@ -14,6 +14,14 @@ import {
   AdminUser,
   QueueCounts,
   IntervalPreview,
+  MyRelationships,
+  TutorRelationshipWithUsers,
+  RelationshipRole,
+  ConversationWithLastMessage,
+  Conversation,
+  MessageWithSender,
+  SharedDeckWithDetails,
+  StudentProgress,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -479,4 +487,117 @@ export async function importDeck(data: DeckExport): Promise<ImportResult> {
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+// ============ Relationships (Tutor-Student) ============
+
+export async function getMyRelationships(): Promise<MyRelationships> {
+  return fetchJSON<MyRelationships>('/relationships');
+}
+
+export async function createRelationship(
+  recipientEmail: string,
+  role: RelationshipRole
+): Promise<TutorRelationshipWithUsers> {
+  return fetchJSON<TutorRelationshipWithUsers>('/relationships', {
+    method: 'POST',
+    body: JSON.stringify({ recipient_email: recipientEmail, role }),
+  });
+}
+
+export async function getRelationship(id: string): Promise<TutorRelationshipWithUsers> {
+  return fetchJSON<TutorRelationshipWithUsers>(`/relationships/${id}`);
+}
+
+export async function acceptRelationship(id: string): Promise<TutorRelationshipWithUsers> {
+  return fetchJSON<TutorRelationshipWithUsers>(`/relationships/${id}/accept`, {
+    method: 'POST',
+  });
+}
+
+export async function removeRelationship(id: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/relationships/${id}`, { method: 'DELETE' });
+}
+
+export async function getStudentProgress(relationshipId: string): Promise<StudentProgress> {
+  return fetchJSON<StudentProgress>(`/relationships/${relationshipId}/student-progress`);
+}
+
+// ============ Conversations ============
+
+export async function getConversations(relationshipId: string): Promise<ConversationWithLastMessage[]> {
+  return fetchJSON<ConversationWithLastMessage[]>(`/relationships/${relationshipId}/conversations`);
+}
+
+export async function createConversation(
+  relationshipId: string,
+  title?: string
+): Promise<Conversation> {
+  return fetchJSON<Conversation>(`/relationships/${relationshipId}/conversations`, {
+    method: 'POST',
+    body: JSON.stringify({ title }),
+  });
+}
+
+export interface MessagesResponse {
+  messages: MessageWithSender[];
+  latest_timestamp: string | null;
+}
+
+export async function getMessages(
+  conversationId: string,
+  since?: string
+): Promise<MessagesResponse> {
+  const params = new URLSearchParams();
+  if (since) params.set('since', since);
+  const query = params.toString();
+  return fetchJSON<MessagesResponse>(
+    `/conversations/${conversationId}/messages${query ? `?${query}` : ''}`
+  );
+}
+
+export async function sendMessage(
+  conversationId: string,
+  content: string
+): Promise<MessageWithSender> {
+  return fetchJSON<MessageWithSender>(`/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export interface GeneratedFlashcard {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  fun_facts?: string;
+}
+
+export async function generateFlashcardFromChat(
+  conversationId: string,
+  messageIds?: string[]
+): Promise<{ flashcard: GeneratedFlashcard }> {
+  return fetchJSON<{ flashcard: GeneratedFlashcard }>(
+    `/conversations/${conversationId}/generate-flashcard`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ message_ids: messageIds }),
+    }
+  );
+}
+
+// ============ Deck Sharing ============
+
+export async function shareDeck(
+  relationshipId: string,
+  deckId: string
+): Promise<SharedDeckWithDetails> {
+  return fetchJSON<SharedDeckWithDetails>(`/relationships/${relationshipId}/share-deck`, {
+    method: 'POST',
+    body: JSON.stringify({ deck_id: deckId }),
+  });
+}
+
+export async function getSharedDecks(relationshipId: string): Promise<SharedDeckWithDetails[]> {
+  return fetchJSON<SharedDeckWithDetails[]>(`/relationships/${relationshipId}/shared-decks`);
 }

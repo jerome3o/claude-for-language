@@ -30,6 +30,26 @@ import {
 } from './services/auth';
 import { notifyNewUser } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
+import {
+  createRelationship,
+  getMyRelationships,
+  acceptRelationship,
+  removeRelationship,
+  getRelationshipById,
+  getStudentProgress,
+} from './services/relationships';
+import {
+  getConversations,
+  createConversation,
+  getConversationById,
+  getMessages,
+  sendMessage,
+  shareDeck,
+  getSharedDecks,
+  getChatContext,
+  buildFlashcardPrompt,
+} from './services/conversations';
+import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, GenerateFlashcardRequest } from './types';
 
 // Extend Hono context to include user
 declare module 'hono' {
@@ -1157,6 +1177,265 @@ app.post('/api/ai/suggest-cards', async (c) => {
   } catch (error) {
     console.error('AI suggestion error:', error);
     return c.json({ error: 'Failed to generate suggestions' }, 500);
+  }
+});
+
+// ============ Relationships (Tutor-Student) ============
+
+// List my relationships (tutors, students, pending)
+app.get('/api/relationships', async (c) => {
+  const userId = c.get('user').id;
+  const relationships = await getMyRelationships(c.env.DB, userId);
+  return c.json(relationships);
+});
+
+// Create a new relationship request
+app.post('/api/relationships', async (c) => {
+  const userId = c.get('user').id;
+  const { recipient_email, role } = await c.req.json<CreateRelationshipRequest>();
+
+  if (!recipient_email || !role) {
+    return c.json({ error: 'recipient_email and role are required' }, 400);
+  }
+
+  if (role !== 'tutor' && role !== 'student') {
+    return c.json({ error: 'role must be "tutor" or "student"' }, 400);
+  }
+
+  try {
+    const relationship = await createRelationship(c.env.DB, userId, recipient_email, role);
+    return c.json(relationship, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create relationship';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get a specific relationship
+app.get('/api/relationships/:id', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('id');
+
+  const relationship = await getRelationshipById(c.env.DB, relId);
+  if (!relationship) {
+    return c.json({ error: 'Relationship not found' }, 404);
+  }
+
+  // Verify user is part of this relationship
+  if (relationship.requester_id !== userId && relationship.recipient_id !== userId) {
+    return c.json({ error: 'Not authorized' }, 403);
+  }
+
+  return c.json(relationship);
+});
+
+// Accept a pending relationship request
+app.post('/api/relationships/:id/accept', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('id');
+
+  try {
+    const relationship = await acceptRelationship(c.env.DB, relId, userId);
+    return c.json(relationship);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to accept relationship';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Remove a relationship
+app.delete('/api/relationships/:id', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('id');
+
+  try {
+    await removeRelationship(c.env.DB, relId, userId);
+    return c.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to remove relationship';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get student progress (tutor only)
+app.get('/api/relationships/:id/student-progress', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('id');
+
+  try {
+    const progress = await getStudentProgress(c.env.DB, relId, userId);
+    return c.json(progress);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get student progress';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// ============ Conversations ============
+
+// List conversations for a relationship
+app.get('/api/relationships/:relId/conversations', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+
+  try {
+    const conversations = await getConversations(c.env.DB, relId, userId);
+    return c.json(conversations);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get conversations';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Create a new conversation
+app.post('/api/relationships/:relId/conversations', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+  const { title } = await c.req.json<{ title?: string }>();
+
+  try {
+    const conversation = await createConversation(c.env.DB, relId, userId, title);
+    return c.json(conversation, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create conversation';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get messages for a conversation (supports polling with ?since=)
+app.get('/api/conversations/:id/messages', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const since = c.req.query('since');
+
+  try {
+    const result = await getMessages(c.env.DB, convId, userId, since);
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get messages';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Send a message
+app.post('/api/conversations/:id/messages', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const { content } = await c.req.json<SendMessageRequest>();
+
+  if (!content || content.trim() === '') {
+    return c.json({ error: 'Message content is required' }, 400);
+  }
+
+  try {
+    const message = await sendMessage(c.env.DB, convId, userId, content);
+    return c.json(message, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send message';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Generate flashcard from conversation
+app.post('/api/conversations/:id/generate-flashcard', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const { message_ids } = await c.req.json<GenerateFlashcardRequest>();
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    // Get chat context
+    const chatContext = await getChatContext(c.env.DB, convId, userId, message_ids);
+    if (!chatContext || chatContext.trim() === '') {
+      return c.json({ error: 'No messages found to generate flashcard from' }, 400);
+    }
+
+    // Build prompt and call AI
+    const prompt = buildFlashcardPrompt(chatContext);
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': c.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to generate flashcard');
+    }
+
+    const data = await response.json() as {
+      content: Array<{ type: string; text?: string }>;
+    };
+
+    const textContent = data.content.find((c) => c.type === 'text');
+    if (!textContent || !textContent.text) {
+      throw new Error('No response from AI');
+    }
+
+    // Parse the JSON response
+    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Invalid AI response format');
+    }
+
+    const flashcard = JSON.parse(jsonMatch[0]) as {
+      hanzi: string;
+      pinyin: string;
+      english: string;
+      fun_facts?: string;
+    };
+
+    return c.json({ flashcard });
+  } catch (error) {
+    console.error('Generate flashcard error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to generate flashcard';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// ============ Deck Sharing ============
+
+// Share a deck with a student
+app.post('/api/relationships/:relId/share-deck', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+  const { deck_id } = await c.req.json<ShareDeckRequest>();
+
+  if (!deck_id) {
+    return c.json({ error: 'deck_id is required' }, 400);
+  }
+
+  try {
+    const shared = await shareDeck(c.env.DB, relId, userId, deck_id);
+    return c.json(shared, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to share deck';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get shared decks for a relationship
+app.get('/api/relationships/:relId/shared-decks', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+
+  try {
+    const sharedDecks = await getSharedDecks(c.env.DB, relId, userId);
+    return c.json(sharedDecks);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get shared decks';
+    return c.json({ error: message }, 400);
   }
 });
 

@@ -13,6 +13,10 @@ import { StudyPage } from './pages/StudyPage';
 import { SessionReviewPage } from './pages/SessionReviewPage';
 import { GeneratePage } from './pages/GeneratePage';
 import { AdminPage } from './pages/AdminPage';
+import { ConnectionsPage } from './pages/ConnectionsPage';
+import { ConnectionDetailPage } from './pages/ConnectionDetailPage';
+import { ChatPage } from './pages/ChatPage';
+import { StudentProgressPage } from './pages/StudentProgressPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -111,6 +115,41 @@ function AppRoutes() {
             <Header />
             <AdminPage />
           </AdminRoute>
+        }
+      />
+      <Route
+        path="/connections"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ConnectionsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ConnectionDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId/chat/:convId"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId/progress"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <StudentProgressPage />
+          </ProtectedRoute>
         }
       />
     </Routes>

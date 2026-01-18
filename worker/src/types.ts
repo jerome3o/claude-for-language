@@ -265,3 +265,109 @@ export interface DailyCount {
   date: string;
   new_cards_studied: number;
 }
+
+// ============ Tutor-Student Relationships ============
+
+export type RelationshipStatus = 'pending' | 'active' | 'removed';
+export type RelationshipRole = 'tutor' | 'student';
+
+export interface TutorRelationship {
+  id: string;
+  requester_id: string;
+  recipient_id: string;
+  requester_role: RelationshipRole;
+  status: RelationshipStatus;
+  created_at: string;
+  accepted_at: string | null;
+}
+
+export interface TutorRelationshipWithUsers extends TutorRelationship {
+  requester: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+  recipient: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+}
+
+export interface Conversation {
+  id: string;
+  relationship_id: string;
+  title: string | null;
+  created_at: string;
+  last_message_at: string | null;
+}
+
+export interface ConversationWithLastMessage extends Conversation {
+  last_message?: Message;
+  other_user: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+}
+
+export interface MessageWithSender extends Message {
+  sender: Pick<User, 'id' | 'name' | 'picture_url'>;
+}
+
+export interface SharedDeck {
+  id: string;
+  relationship_id: string;
+  source_deck_id: string;
+  target_deck_id: string;
+  shared_at: string;
+}
+
+export interface SharedDeckWithDetails extends SharedDeck {
+  source_deck_name: string;
+  target_deck_name: string;
+}
+
+// Request/Response types for relationships
+export interface CreateRelationshipRequest {
+  recipient_email: string;
+  role: RelationshipRole; // The role the requester wants to be
+}
+
+export interface CreateConversationRequest {
+  title?: string;
+}
+
+export interface SendMessageRequest {
+  content: string;
+}
+
+export interface ShareDeckRequest {
+  deck_id: string;
+}
+
+export interface GenerateFlashcardRequest {
+  message_ids?: string[]; // Optional: specific messages to use as context
+}
+
+// Response types
+export interface MyRelationships {
+  tutors: TutorRelationshipWithUsers[];
+  students: TutorRelationshipWithUsers[];
+  pending_incoming: TutorRelationshipWithUsers[];
+  pending_outgoing: TutorRelationshipWithUsers[];
+}
+
+export interface StudentProgress {
+  user: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+  stats: {
+    total_cards: number;
+    cards_due_today: number;
+    cards_studied_today: number;
+    cards_studied_this_week: number;
+    average_accuracy: number;
+  };
+  decks: Array<{
+    id: string;
+    name: string;
+    total_notes: number;
+    cards_due: number;
+    cards_mastered: number;
+  }>;
+}
