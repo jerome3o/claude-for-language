@@ -61,32 +61,32 @@ h3 { font-size: 1.125rem; }
 
 /* Chinese text styling */
 .hanzi {
-  font-size: 1.75rem;
+  font-size: 2.5rem;
   font-weight: 400;
   line-height: 1.2;
 }
 
 .hanzi-large {
-  font-size: 2.5rem;
+  font-size: 4rem;
 }
 
 @media (min-width: 640px) {
   .hanzi {
-    font-size: 2.5rem;
+    font-size: 3rem;
   }
   .hanzi-large {
-    font-size: 4rem;
+    font-size: 5rem;
   }
 }
 
 .pinyin {
-  font-size: 1rem;
+  font-size: 1.25rem;
   color: var(--color-text-light);
 }
 
 @media (min-width: 640px) {
   .pinyin {
-    font-size: 1.25rem;
+    font-size: 1.5rem;
   }
 }
 
@@ -437,10 +437,22 @@ html:has(.study-page-fullscreen) .header {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
   padding: 1rem;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.study-card-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.study-card-actions {
+  flex-shrink: 0;
+  padding-top: 1rem;
 }
 
 /* Study card animations (unused but kept for reference) */

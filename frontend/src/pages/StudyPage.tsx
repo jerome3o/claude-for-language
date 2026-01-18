@@ -249,7 +249,7 @@ function StudyCard({
     }
   };
 
-  const renderBack = () => {
+  const renderBackMain = () => {
     const isCorrect =
       isTypingCard &&
       userAnswer.trim().toLowerCase() === card.note.hanzi.toLowerCase();
@@ -264,40 +264,11 @@ function StudyCard({
 
         <div className="hanzi hanzi-large mb-1">{card.note.hanzi}</div>
         <div className="pinyin mb-1">{card.note.pinyin}</div>
-        <div style={{ fontSize: '1.125rem' }}>{card.note.english}</div>
-
-        <div className="flex gap-1 justify-center flex-wrap mt-2">
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
-            disabled={isPlaying}
-          >
-            {isPlaying ? 'Playing...' : 'Play Audio'}
-          </button>
-          {audioBlob && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={playUserRecording}
-            >
-              My Recording
-            </button>
-          )}
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              setShowAskClaude(!showAskClaude);
-              if (!showAskClaude) {
-                setTimeout(() => questionInputRef.current?.focus(), 100);
-              }
-            }}
-          >
-            {showAskClaude ? 'Hide' : 'Ask Claude'}
-          </button>
-        </div>
+        <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
 
         {card.note.fun_facts && (
           <div
-            className="mt-2 text-light"
+            className="mt-3 text-light"
             style={{
               fontSize: '0.8125rem',
               backgroundColor: '#f3f4f6',
@@ -318,7 +289,7 @@ function StudyCard({
               backgroundColor: '#f9fafb',
               padding: '0.5rem',
               borderRadius: '6px',
-              maxHeight: '200px',
+              maxHeight: '150px',
               overflowY: 'auto',
             }}
           >
@@ -381,6 +352,39 @@ function StudyCard({
             </div>
           </div>
         )}
+      </div>
+    );
+  };
+
+  const renderBackActions = () => {
+    return (
+      <div className="flex gap-1 justify-center flex-wrap mb-3">
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+          disabled={isPlaying}
+        >
+          {isPlaying ? 'Playing...' : 'Play Audio'}
+        </button>
+        {audioBlob && (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={playUserRecording}
+          >
+            My Recording
+          </button>
+        )}
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            setShowAskClaude(!showAskClaude);
+            if (!showAskClaude) {
+              setTimeout(() => questionInputRef.current?.focus(), 100);
+            }
+          }}
+        >
+          {showAskClaude ? 'Hide' : 'Ask Claude'}
+        </button>
       </div>
     );
   };
@@ -456,8 +460,10 @@ function StudyCard({
       <div className="study-card-content">
         {!flipped ? (
           <>
-            {renderFront()}
-            <div className="mt-3 text-center">
+            <div className="study-card-main">
+              {renderFront()}
+            </div>
+            <div className="study-card-actions text-center">
               {isSpeakingCard ? (
                 renderSpeakingCardButtons()
               ) : (
@@ -469,12 +475,17 @@ function StudyCard({
           </>
         ) : (
           <>
-            {renderBack()}
-            <RatingButtons
-              intervalPreviews={intervalPreviews}
-              onRate={handleRate}
-              disabled={reviewMutation.isPending}
-            />
+            <div className="study-card-main">
+              {renderBackMain()}
+            </div>
+            <div className="study-card-actions">
+              {renderBackActions()}
+              <RatingButtons
+                intervalPreviews={intervalPreviews}
+                onRate={handleRate}
+                disabled={reviewMutation.isPending}
+              />
+            </div>
           </>
         )}
       </div>
