@@ -345,40 +345,62 @@ function StudyCard({
     );
   };
 
+  const sendQuickQuestion = async (questionText: string) => {
+    setQuestion(questionText);
+    // Need to call the API directly since setQuestion is async
+    setIsAsking(true);
+    try {
+      const context = isTypingCard && userAnswer ? {
+        userAnswer: userAnswer,
+        correctAnswer: card.note.hanzi,
+        cardType: card.card_type,
+      } : undefined;
+
+      const response = await askAboutNote(card.note.id, questionText, context);
+      setConversation((prev) => [...prev, response]);
+      setQuestion('');
+    } catch (error) {
+      console.error('Failed to ask Claude:', error);
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
   const renderAskClaudeModal = () => {
     if (!showAskClaude) return null;
 
+    const quickActions = [
+      { label: 'Use in sentence', question: 'Please use this word in a few example sentences with pinyin and English translations.' },
+      { label: 'Explain characters', question: 'Please break down each character in this word, explaining the radicals, components, and individual meanings.' },
+      { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
+    ];
+
     return (
-      <div className="modal-overlay" onClick={() => setShowAskClaude(false)}>
-        <div
-          className="modal"
-          onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: '95%', width: '600px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
-        >
+      <div className="modal-overlay claude-modal-overlay">
+        <div className="modal claude-modal" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <div className="modal-title">Ask about: {card.note.hanzi}</div>
             <button className="modal-close" onClick={() => setShowAskClaude(false)}>×</button>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', marginBottom: '1rem' }}>
-            {conversation.length === 0 && (
-              <p className="text-light" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-                Ask a question about this word - grammar, usage, examples, etc.
-              </p>
+          <div className="claude-modal-content">
+            {conversation.length === 0 && !isAsking && (
+              <div className="claude-quick-actions">
+                {quickActions.map((action) => (
+                  <button
+                    key={action.label}
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => sendQuickQuestion(action.question)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
             )}
 
             {conversation.map((qa) => (
-              <div key={qa.id} style={{ marginBottom: '1rem' }}>
-                <div
-                  style={{
-                    backgroundColor: 'var(--color-primary)',
-                    color: 'white',
-                    padding: '0.75rem 1rem',
-                    borderRadius: '8px',
-                    marginBottom: '0.5rem',
-                    fontSize: '0.875rem',
-                  }}
-                >
+              <div key={qa.id} className="claude-message-pair">
+                <div className="claude-user-message">
                   {qa.question}
                 </div>
                 <div className="claude-response">
@@ -386,9 +408,13 @@ function StudyCard({
                 </div>
               </div>
             ))}
+
+            {isAsking && (
+              <div className="claude-loading">Thinking...</div>
+            )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="claude-input-row">
             <input
               ref={questionInputRef}
               type="text"
@@ -396,7 +422,6 @@ function StudyCard({
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="Ask a question..."
-              style={{ flex: 1 }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleAskClaude();
               }}
@@ -407,7 +432,7 @@ function StudyCard({
               onClick={handleAskClaude}
               disabled={!question.trim() || isAsking}
             >
-              {isAsking ? '...' : 'Ask'}
+              Ask
             </button>
           </div>
         </div>

@@ -584,6 +584,84 @@ html:has(.study-page-fullscreen) .header {
 .claude-response h2 { font-size: 1rem; }
 .claude-response h3 { font-size: 0.9375rem; }
 
+/* Claude chat modal - nearly fullscreen */
+.claude-modal-overlay {
+  padding: 0.5rem;
+}
+
+.claude-modal {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100%;
+  max-height: 100% !important;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.75rem;
+}
+
+.claude-modal .modal-header {
+  padding: 0.75rem 1rem;
+  flex-shrink: 0;
+}
+
+.claude-modal-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1rem;
+  padding-bottom: 0.5rem;
+}
+
+.claude-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.claude-message-pair {
+  margin-bottom: 1rem;
+}
+
+.claude-user-message {
+  background-color: var(--color-primary);
+  color: white;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.claude-loading {
+  color: var(--color-text-light);
+  font-size: 0.875rem;
+  padding: 0.5rem 0;
+}
+
+.claude-input-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.claude-input-row .form-input {
+  flex: 1;
+}
+
+@media (min-width: 640px) {
+  .claude-modal-overlay {
+    padding: 1rem;
+  }
+
+  .claude-modal {
+    max-width: 700px !important;
+    width: 700px !important;
+    height: auto;
+    max-height: 90vh !important;
+  }
+}
+
 /* Study card animations (unused but kept for reference) */
 .study-card-inner {
   transition: transform 0.6s;
