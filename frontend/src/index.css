@@ -361,6 +361,35 @@ a:hover {
 .gap-2 { gap: 1rem; }
 .gap-3 { gap: 1.5rem; }
 
+/* Study page - prevent scrolling */
+.study-page {
+  overflow: hidden;
+  height: calc(100dvh - 60px); /* viewport height minus header */
+  display: flex;
+  flex-direction: column;
+}
+
+.study-page > .container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.study-page .card {
+  flex: 1;
+  overflow-y: auto; /* allow scroll inside card if needed for Ask Claude */
+  display: flex;
+  flex-direction: column;
+}
+
+.study-page .study-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 /* Study card animations */
 .study-card {
   perspective: 1000px;

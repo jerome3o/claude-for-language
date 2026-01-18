@@ -771,7 +771,7 @@ export function StudyPage() {
 
   // Active study
   return (
-    <div className="page">
+    <div className="page study-page">
       <div className="container" style={{ maxWidth: '600px' }}>
         {/* Header with queue counts */}
         <div className="flex justify-between items-center mb-4">
