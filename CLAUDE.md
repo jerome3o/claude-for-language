@@ -91,13 +91,17 @@ Each card tracks:
 Ratings: `again` (0), `hard` (1), `good` (2), `easy` (3)
 
 ### Database Tables
-- `users` - User accounts (for future multi-user/tutor support)
+- `users` - User accounts
 - `decks` - Vocabulary decks
 - `notes` - Vocabulary items (hanzi, pinyin, english, audio_url, fun_facts)
 - `cards` - SRS cards (3 per note, one per card_type)
 - `study_sessions` - Study session records
 - `card_reviews` - Individual review records (rating, time, answer, recording_url)
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at)
+- `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
+- `conversations` - Chat threads within a tutor-student relationship
+- `messages` - Individual chat messages
+- `shared_decks` - Record of decks shared from tutor to student
 
 ### Audio Storage
 - Generated TTS audio and user recordings stored in Cloudflare R2
@@ -254,6 +258,13 @@ AI assistants can manage vocabulary via MCP (see MCP Server section below).
 
 ### Database Migrations
 Migrations are in `worker/src/db/migrations/`. Run order is determined by filename prefix (001_, 002_, etc.).
+
+**Local development**: Apply migrations with:
+```bash
+cd worker && npx wrangler d1 migrations apply chinese-learning-db --local
+```
+
+**Production**: Migrations are applied automatically by CI on push to main (see Deployment section).
 
 ### Testing Locally
 ```bash
@@ -466,14 +477,65 @@ Common issues:
 - **"This Durable Object is not backed by SQLite storage"** - Used `new_classes` instead of `new_sqlite_classes`
 - **OAuth errors after deploy** - GitHub Actions may overwrite secrets; ensure `MCP_COOKIE_ENCRYPTION_KEY` is set in GitHub secrets
 
-## Future Considerations (Tutor Feature)
-The codebase is designed to support a future tutor view:
-- User model has a `role` field (student/tutor)
-- Decks can be assigned to specific students
-- CardReviews store audio recordings for tutor review
-- Auth can be added via Cloudflare Zero Trust
+## Deployment
 
-When implementing tutor features:
-1. Add tutor-specific routes with role checking
-2. Create tutor dashboard pages in frontend
-3. Add student assignment to decks
+### How Deployment Works
+
+**Deployment is automatic via GitHub Actions.** When you push to `main`, the CI pipeline (`.github/workflows/deploy.yml`) automatically:
+
+1. Runs TypeScript type checking
+2. Builds the frontend
+3. **Applies D1 database migrations to production** (automatically)
+4. Deploys the Worker API
+5. Sets worker secrets
+6. Deploys the frontend to Cloudflare Pages
+7. Deploys the MCP server
+
+### To Deploy
+
+Simply push to main:
+```bash
+git push origin main
+```
+
+**You do NOT need to manually run migrations for production** - the CI handles this automatically before deploying the worker.
+
+### Manual Deployment (if needed)
+
+If you need to deploy manually without CI:
+```bash
+# Apply migrations to production
+cd worker && npx wrangler d1 migrations apply chinese-learning-db --remote
+
+# Deploy everything
+npm run deploy
+```
+
+### Monitoring Deployments
+
+Check GitHub Actions for deployment status. If a deployment fails:
+1. Check the Actions tab on GitHub for error logs
+2. Common issues: TypeScript errors, migration failures, missing secrets
+
+## Tutor-Student Feature
+
+The app supports many-to-many tutor-student relationships where users can be tutors to some people and students to others.
+
+### Key Tables
+- `tutor_relationships` - Pairing between users with role and status
+- `conversations` - Chat threads within a relationship
+- `messages` - Individual messages in conversations
+- `shared_decks` - Record of decks shared from tutor to student
+
+### Features
+- **Pairing**: Either party invites by email, specifying their role (tutor/student)
+- **Chat**: Polling-based messaging (3-second intervals)
+- **Flashcard Generation**: AI generates flashcards from chat context
+- **Deck Sharing**: Tutors can copy decks to students (auto-added)
+- **Student Progress**: Tutors can view student study statistics
+
+### Frontend Routes
+- `/connections` - List all connections and pending requests
+- `/connections/:relId` - View a specific connection (conversations, shared decks)
+- `/connections/:relId/chat/:convId` - Chat interface
+- `/connections/:relId/progress` - Student progress view (tutor only)
