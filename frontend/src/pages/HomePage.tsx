@@ -62,8 +62,8 @@ export function HomePage() {
             <Link to="/generate" className="btn btn-secondary btn-lg btn-block">
               Generate with AI
             </Link>
-            <Link to="/decks/new" className="btn btn-secondary btn-lg btn-block">
-              Create Deck
+            <Link to="/decks" className="btn btn-secondary btn-lg btn-block">
+              View Decks
             </Link>
           </div>
         </div>

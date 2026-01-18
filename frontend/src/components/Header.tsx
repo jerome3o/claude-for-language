@@ -32,10 +32,6 @@ export function Header() {
           汉语学习
         </Link>
         <nav className="header-nav">
-          <Link to="/">Home</Link>
-          <Link to="/decks">Decks</Link>
-          <Link to="/study">Study</Link>
-          <Link to="/generate">Generate</Link>
           {user?.is_admin && <Link to="/admin">Admin</Link>}
         </nav>
         {user && (
