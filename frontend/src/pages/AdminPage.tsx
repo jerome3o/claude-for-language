@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react';
 import { AdminUser } from '../types';
-import { getAdminUsers } from '../api/client';
+import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats } from '../api/client';
 import './AdminPage.css';
 
 export function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Storage state
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+  const [orphanStats, setOrphanStats] = useState<OrphanStats | null>(null);
+  const [isLoadingStorage, setIsLoadingStorage] = useState(false);
+  const [isCheckingOrphans, setIsCheckingOrphans] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null);
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -22,6 +30,48 @@ export function AdminPage() {
 
     loadUsers();
   }, []);
+
+  const loadStorageStats = async () => {
+    setIsLoadingStorage(true);
+    try {
+      const stats = await getStorageStats();
+      setStorageStats(stats);
+    } catch (err) {
+      console.error('Failed to load storage stats:', err);
+    } finally {
+      setIsLoadingStorage(false);
+    }
+  };
+
+  const checkOrphans = async () => {
+    setIsCheckingOrphans(true);
+    setOrphanStats(null);
+    try {
+      const stats = await getOrphanStats();
+      setOrphanStats(stats);
+    } catch (err) {
+      console.error('Failed to check orphans:', err);
+    } finally {
+      setIsCheckingOrphans(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    if (!confirm('Delete all orphaned audio files? This cannot be undone.')) return;
+    setIsCleaning(true);
+    setCleanupResult(null);
+    try {
+      const result = await cleanupOrphans();
+      setCleanupResult(`Deleted ${result.deleted_count} files (${result.deleted_size_mb} MB)`);
+      setOrphanStats(null);
+      // Refresh storage stats
+      loadStorageStats();
+    } catch (err) {
+      setCleanupResult('Cleanup failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsCleaning(false);
+    }
+  };
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
@@ -78,6 +128,58 @@ export function AdminPage() {
             <span className="stat-number">{users.reduce((sum, u) => sum + u.review_count, 0)}</span>
             <span className="stat-label">Total Reviews</span>
           </div>
+        </div>
+
+        <h2>Storage</h2>
+        <div className="storage-section">
+          <div className="storage-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={loadStorageStats}
+              disabled={isLoadingStorage}
+            >
+              {isLoadingStorage ? 'Loading...' : 'Check Storage'}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={checkOrphans}
+              disabled={isCheckingOrphans}
+            >
+              {isCheckingOrphans ? 'Checking...' : 'Find Orphans'}
+            </button>
+            {orphanStats && orphanStats.orphan_count > 0 && (
+              <button
+                className="btn btn-primary"
+                onClick={handleCleanup}
+                disabled={isCleaning}
+              >
+                {isCleaning ? 'Cleaning...' : `Delete ${orphanStats.orphan_count} Orphans`}
+              </button>
+            )}
+          </div>
+
+          {storageStats && (
+            <div className="storage-stats">
+              <span>{storageStats.total_files} files</span>
+              <span>{storageStats.total_size_mb} MB total</span>
+            </div>
+          )}
+
+          {orphanStats && (
+            <div className="orphan-stats">
+              {orphanStats.orphan_count === 0 ? (
+                <span className="no-orphans">No orphaned files found</span>
+              ) : (
+                <span className="orphan-warning">
+                  {orphanStats.orphan_count} orphaned files ({orphanStats.orphan_size_mb} MB)
+                </span>
+              )}
+            </div>
+          )}
+
+          {cleanupResult && (
+            <div className="cleanup-result">{cleanupResult}</div>
+          )}
         </div>
 
         <h2>All Users</h2>

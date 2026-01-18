@@ -10,7 +10,7 @@ import {
   parseLearningSteps,
 } from './services/anki-scheduler';
 import { generateDeck, suggestCards, askAboutNote } from './services/ai';
-import { storeAudio, getAudio, getRecordingKey, generateTTS } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -245,6 +245,113 @@ app.get('/api/admin/users', adminMiddleware, async (c) => {
   })));
 });
 
+// Get R2 storage stats
+app.get('/api/admin/storage', adminMiddleware, async (c) => {
+  let totalFiles = 0;
+  let totalSize = 0;
+  let cursor: string | undefined;
+
+  // List all objects in bucket
+  do {
+    const listed = await c.env.AUDIO_BUCKET.list({ cursor, limit: 1000 });
+    for (const obj of listed.objects) {
+      totalFiles++;
+      totalSize += obj.size;
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+
+  return c.json({
+    total_files: totalFiles,
+    total_size_bytes: totalSize,
+    total_size_mb: Math.round(totalSize / 1024 / 1024 * 100) / 100,
+  });
+});
+
+// Find orphaned audio files (in R2 but not referenced in DB)
+app.get('/api/admin/storage/orphans', adminMiddleware, async (c) => {
+  // Get all audio URLs from DB
+  const dbResult = await c.env.DB.prepare(
+    'SELECT DISTINCT audio_url FROM notes WHERE audio_url IS NOT NULL'
+  ).all<{ audio_url: string }>();
+  const dbAudioUrls = new Set(dbResult.results.map(r => r.audio_url));
+
+  // Also get recording URLs from reviews
+  const reviewResult = await c.env.DB.prepare(
+    'SELECT DISTINCT recording_url FROM card_reviews WHERE recording_url IS NOT NULL'
+  ).all<{ recording_url: string }>();
+  for (const r of reviewResult.results) {
+    dbAudioUrls.add(r.recording_url);
+  }
+
+  // List all R2 objects and find orphans
+  const orphans: Array<{ key: string; size: number }> = [];
+  let cursor: string | undefined;
+
+  do {
+    const listed = await c.env.AUDIO_BUCKET.list({ cursor, limit: 1000 });
+    for (const obj of listed.objects) {
+      if (!dbAudioUrls.has(obj.key)) {
+        orphans.push({ key: obj.key, size: obj.size });
+      }
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+
+  const totalOrphanSize = orphans.reduce((sum, o) => sum + o.size, 0);
+
+  return c.json({
+    orphan_count: orphans.length,
+    orphan_size_bytes: totalOrphanSize,
+    orphan_size_mb: Math.round(totalOrphanSize / 1024 / 1024 * 100) / 100,
+    orphans: orphans.slice(0, 100), // Return first 100 for preview
+  });
+});
+
+// Delete orphaned audio files
+app.post('/api/admin/storage/cleanup', adminMiddleware, async (c) => {
+  // Get all audio URLs from DB
+  const dbResult = await c.env.DB.prepare(
+    'SELECT DISTINCT audio_url FROM notes WHERE audio_url IS NOT NULL'
+  ).all<{ audio_url: string }>();
+  const dbAudioUrls = new Set(dbResult.results.map(r => r.audio_url));
+
+  // Also get recording URLs from reviews
+  const reviewResult = await c.env.DB.prepare(
+    'SELECT DISTINCT recording_url FROM card_reviews WHERE recording_url IS NOT NULL'
+  ).all<{ recording_url: string }>();
+  for (const r of reviewResult.results) {
+    dbAudioUrls.add(r.recording_url);
+  }
+
+  // List all R2 objects and delete orphans
+  let deletedCount = 0;
+  let deletedSize = 0;
+  let cursor: string | undefined;
+
+  do {
+    const listed = await c.env.AUDIO_BUCKET.list({ cursor, limit: 1000 });
+    for (const obj of listed.objects) {
+      if (!dbAudioUrls.has(obj.key)) {
+        try {
+          await c.env.AUDIO_BUCKET.delete(obj.key);
+          deletedCount++;
+          deletedSize += obj.size;
+        } catch (err) {
+          console.error('[Cleanup] Failed to delete:', obj.key, err);
+        }
+      }
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+
+  return c.json({
+    deleted_count: deletedCount,
+    deleted_size_bytes: deletedSize,
+    deleted_size_mb: Math.round(deletedSize / 1024 / 1024 * 100) / 100,
+  });
+});
+
 // ============ Decks ============
 
 app.get('/api/decks', async (c) => {
@@ -287,6 +394,21 @@ app.put('/api/decks/:id', async (c) => {
 app.delete('/api/decks/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
+
+  // Get all notes in deck to delete their audio
+  const deck = await db.getDeckWithNotes(c.env.DB, id, userId);
+  if (deck) {
+    for (const note of deck.notes) {
+      if (note.audio_url) {
+        try {
+          await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
+        } catch (err) {
+          console.error('[Delete Deck] Failed to delete audio for note', note.id, err);
+        }
+      }
+    }
+  }
+
   await db.deleteDeck(c.env.DB, id, userId);
   return c.json({ success: true });
 });
@@ -568,6 +690,17 @@ app.put('/api/notes/:id', async (c) => {
 app.delete('/api/notes/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
+
+  // Get note to find audio_url before deleting
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (note?.audio_url) {
+    try {
+      await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
+    } catch (err) {
+      console.error('[Delete Note] Failed to delete audio:', err);
+    }
+  }
+
   await db.deleteNote(c.env.DB, id, userId);
   return c.json({ success: true });
 });

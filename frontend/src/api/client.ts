@@ -91,6 +91,37 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
   return fetchJSON<AdminUser[]>('/admin/users');
 }
 
+export interface StorageStats {
+  total_files: number;
+  total_size_bytes: number;
+  total_size_mb: number;
+}
+
+export interface OrphanStats {
+  orphan_count: number;
+  orphan_size_bytes: number;
+  orphan_size_mb: number;
+  orphans: Array<{ key: string; size: number }>;
+}
+
+export interface CleanupResult {
+  deleted_count: number;
+  deleted_size_bytes: number;
+  deleted_size_mb: number;
+}
+
+export async function getStorageStats(): Promise<StorageStats> {
+  return fetchJSON<StorageStats>('/admin/storage');
+}
+
+export async function getOrphanStats(): Promise<OrphanStats> {
+  return fetchJSON<OrphanStats>('/admin/storage/orphans');
+}
+
+export async function cleanupOrphans(): Promise<CleanupResult> {
+  return fetchJSON<CleanupResult>('/admin/storage/cleanup', { method: 'POST' });
+}
+
 // ============ Decks ============
 
 export async function getDecks(): Promise<Deck[]> {
