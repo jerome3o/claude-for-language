@@ -3,8 +3,6 @@ import { AdminUser } from '../types';
 import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats } from '../api/client';
 import './AdminPage.css';
 
-const BUILD_TIME = __BUILD_TIME__;
-
 export function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -303,7 +301,9 @@ export function AdminPage() {
         <div className="debug-section">
           <div className="debug-info">
             <span className="debug-label">Build Time:</span>
-            <span className="debug-value">{formatDate(BUILD_TIME)}</span>
+            <span className="debug-value">
+              {formatDate(import.meta.env.VITE_BUILD_TIME || new Date().toISOString())}
+            </span>
           </div>
           <button
             className="btn btn-secondary"
