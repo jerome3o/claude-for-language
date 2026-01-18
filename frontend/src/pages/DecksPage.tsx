@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { getDecks, createDeck, getDeckStats } from '../api/client';
+import { useState, useRef } from 'react';
+import { getDecks, createDeck, getDeckStats, importDeck, DeckExport } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Deck } from '../types';
 
@@ -38,6 +38,9 @@ export function DecksPage() {
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const decksQuery = useQuery({
     queryKey: ['decks'],
@@ -55,6 +58,41 @@ export function DecksPage() {
     },
   });
 
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportError(null);
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as DeckExport;
+
+      // Basic validation
+      if (!data.version || !data.deck || !data.notes) {
+        throw new Error('Invalid file format');
+      }
+
+      const result = await importDeck(data);
+      queryClient.invalidateQueries({ queryKey: ['decks'] });
+      navigate(`/decks/${result.deck_id}`);
+    } catch (err) {
+      console.error('Import error:', err);
+      setImportError(err instanceof Error ? err.message : 'Failed to import deck');
+    } finally {
+      setIsImporting(false);
+      // Reset input so same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   if (decksQuery.isLoading) {
     return <Loading />;
   }
@@ -70,10 +108,38 @@ export function DecksPage() {
       <div className="container">
         <div className="flex justify-between items-center mb-4">
           <h1>Your Decks</h1>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            New Deck
-          </button>
+          <div className="flex gap-2">
+            <button
+              className="btn btn-secondary"
+              onClick={handleImportClick}
+              disabled={isImporting}
+            >
+              {isImporting ? 'Importing...' : 'Import'}
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+              New Deck
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+          />
         </div>
+
+        {importError && (
+          <div className="error-banner mb-4" style={{ padding: '0.75rem', background: 'var(--error-light)', color: 'var(--error)', borderRadius: '0.5rem' }}>
+            Import failed: {importError}
+            <button
+              onClick={() => setImportError(null)}
+              style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}
+            >
+              &times;
+            </button>
+          </div>
+        )}
 
         {decks.length === 0 ? (
           <EmptyState

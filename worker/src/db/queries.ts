@@ -393,6 +393,40 @@ export async function updateCardSM2(
     .run();
 }
 
+/**
+ * Set card progress directly (for imports)
+ * Sets the card to review queue with the given SRS values
+ */
+export async function setCardProgress(
+  db: D1Database,
+  cardId: string,
+  interval: number,
+  easeFactor: number,
+  repetitions: number
+): Promise<void> {
+  // Calculate next review date based on interval
+  const nextReviewAt = new Date();
+  nextReviewAt.setDate(nextReviewAt.getDate() + interval);
+
+  // Set queue to REVIEW if interval > 0, otherwise NEW
+  const queue = interval > 0 ? CardQueue.REVIEW : CardQueue.NEW;
+
+  await db
+    .prepare(
+      `UPDATE cards SET
+        queue = ?,
+        learning_step = 0,
+        ease_factor = ?,
+        interval = ?,
+        repetitions = ?,
+        next_review_at = ?,
+        updated_at = datetime('now')
+      WHERE id = ?`
+    )
+    .bind(queue, easeFactor, interval, repetitions, nextReviewAt.toISOString(), cardId)
+    .run();
+}
+
 // ============ Study Sessions ============
 
 export async function createStudySession(

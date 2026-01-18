@@ -392,3 +392,47 @@ export async function getOverviewStats(): Promise<OverviewStats> {
 export async function getDeckStats(deckId: string): Promise<DeckStats> {
   return fetchJSON<DeckStats>(`/stats/deck/${deckId}`);
 }
+
+// ============ Import / Export ============
+
+export interface DeckExport {
+  version: number;
+  exported_at: string;
+  deck: {
+    name: string;
+    description?: string;
+  };
+  notes: Array<{
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    fun_facts?: string;
+    progress?: {
+      interval: number;
+      ease_factor: number;
+      repetitions: number;
+    };
+  }>;
+}
+
+export interface ImportResult {
+  deck_id: string;
+  imported: number;
+  total: number;
+  notes: Array<{
+    hanzi: string;
+    success: boolean;
+    error?: string;
+  }>;
+}
+
+export async function exportDeck(deckId: string): Promise<DeckExport> {
+  return fetchJSON<DeckExport>(`/decks/${deckId}/export`);
+}
+
+export async function importDeck(data: DeckExport): Promise<ImportResult> {
+  return fetchJSON<ImportResult>('/decks/import', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}

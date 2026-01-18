@@ -288,6 +288,173 @@ app.delete('/api/decks/:id', async (c) => {
   return c.json({ success: true });
 });
 
+// Export deck as JSON
+app.get('/api/decks/:id/export', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const deck = await db.getDeckWithNotes(c.env.DB, id, userId);
+  if (!deck) {
+    return c.json({ error: 'Deck not found' }, 404);
+  }
+
+  // Get all cards for each note to include progress
+  const notesWithProgress = await Promise.all(
+    deck.notes.map(async (note) => {
+      const noteWithCards = await db.getNoteWithCards(c.env.DB, note.id, userId);
+      const cards = noteWithCards?.cards || [];
+
+      // Average progress across all card types
+      const avgInterval = cards.length > 0
+        ? Math.round(cards.reduce((sum, c) => sum + c.interval, 0) / cards.length)
+        : 0;
+      const avgEase = cards.length > 0
+        ? cards.reduce((sum, c) => sum + c.ease_factor, 0) / cards.length
+        : 2.5;
+      const avgReps = cards.length > 0
+        ? Math.round(cards.reduce((sum, c) => sum + c.repetitions, 0) / cards.length)
+        : 0;
+
+      return {
+        hanzi: note.hanzi,
+        pinyin: note.pinyin,
+        english: note.english,
+        fun_facts: note.fun_facts || undefined,
+        progress: avgInterval > 0 || avgReps > 0 ? {
+          interval: avgInterval,
+          ease_factor: avgEase,
+          repetitions: avgReps,
+        } : undefined,
+      };
+    })
+  );
+
+  const exportData = {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    deck: {
+      name: deck.name,
+      description: deck.description || undefined,
+    },
+    notes: notesWithProgress,
+  };
+
+  return c.json(exportData);
+});
+
+// Import deck from JSON
+app.post('/api/decks/import', async (c) => {
+  const userId = c.get('user').id;
+
+  interface ImportNote {
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    fun_facts?: string;
+    progress?: {
+      interval: number;
+      ease_factor: number;
+      repetitions: number;
+    };
+  }
+
+  interface ImportData {
+    version: number;
+    deck: {
+      name: string;
+      description?: string;
+    };
+    notes: ImportNote[];
+  }
+
+  const data = await c.req.json<ImportData>();
+
+  // Validate
+  if (!data.version || !data.deck || !data.notes) {
+    return c.json({ error: 'Invalid import format' }, 400);
+  }
+
+  if (data.version !== 1) {
+    return c.json({ error: 'Unsupported format version' }, 400);
+  }
+
+  if (!data.deck.name) {
+    return c.json({ error: 'Deck name is required' }, 400);
+  }
+
+  if (!Array.isArray(data.notes) || data.notes.length === 0) {
+    return c.json({ error: 'At least one note is required' }, 400);
+  }
+
+  // Create deck
+  const deck = await db.createDeck(c.env.DB, userId, data.deck.name, data.deck.description);
+  console.log('[Import] Created deck:', deck.id);
+
+  // Import notes
+  const importedNotes: Array<{ hanzi: string; success: boolean; error?: string }> = [];
+
+  for (const noteData of data.notes) {
+    try {
+      if (!noteData.hanzi || !noteData.pinyin || !noteData.english) {
+        importedNotes.push({ hanzi: noteData.hanzi || 'unknown', success: false, error: 'Missing required fields' });
+        continue;
+      }
+
+      // Create note
+      const note = await db.createNote(
+        c.env.DB,
+        deck.id,
+        noteData.hanzi,
+        noteData.pinyin,
+        noteData.english,
+        undefined, // audio_url - will be generated
+        noteData.fun_facts
+      );
+
+      // Set card progress if provided
+      if (noteData.progress && noteData.progress.interval > 0) {
+        const noteWithCards = await db.getNoteWithCards(c.env.DB, note.id, userId);
+        if (noteWithCards?.cards) {
+          for (const card of noteWithCards.cards) {
+            await db.setCardProgress(
+              c.env.DB,
+              card.id,
+              noteData.progress.interval,
+              noteData.progress.ease_factor || 2.5,
+              noteData.progress.repetitions || 1
+            );
+          }
+        }
+      }
+
+      // Generate TTS audio in background
+      c.executionCtx.waitUntil(
+        generateTTS(c.env, noteData.hanzi, note.id).then(async (audioKey) => {
+          if (audioKey) {
+            await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+          }
+        }).catch((err) => {
+          console.error('[Import] TTS failed for', noteData.hanzi, err);
+        })
+      );
+
+      importedNotes.push({ hanzi: noteData.hanzi, success: true });
+    } catch (err) {
+      console.error('[Import] Failed to import note:', noteData.hanzi, err);
+      importedNotes.push({ hanzi: noteData.hanzi, success: false, error: String(err) });
+    }
+  }
+
+  const successCount = importedNotes.filter(n => n.success).length;
+
+  return c.json({
+    deck_id: deck.id,
+    imported: successCount,
+    total: data.notes.length,
+    notes: importedNotes,
+  }, 201);
+});
+
 // ============ Notes ============
 
 app.get('/api/decks/:deckId/notes', async (c) => {
