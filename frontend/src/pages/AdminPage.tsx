@@ -67,8 +67,16 @@ export function AdminPage() {
             <span className="stat-label">Total Users</span>
           </div>
           <div className="admin-stat-card">
-            <span className="stat-number">{users.filter(u => u.is_admin).length}</span>
-            <span className="stat-label">Admins</span>
+            <span className="stat-number">{users.reduce((sum, u) => sum + u.deck_count, 0)}</span>
+            <span className="stat-label">Total Decks</span>
+          </div>
+          <div className="admin-stat-card">
+            <span className="stat-number">{users.reduce((sum, u) => sum + u.note_count, 0)}</span>
+            <span className="stat-label">Total Notes</span>
+          </div>
+          <div className="admin-stat-card">
+            <span className="stat-number">{users.reduce((sum, u) => sum + u.review_count, 0)}</span>
+            <span className="stat-label">Total Reviews</span>
           </div>
         </div>
 
@@ -93,6 +101,20 @@ export function AdminPage() {
                   <div className="user-email">{user.email || '-'}</div>
                 </div>
               </div>
+              <div className="user-card-stats">
+                <div className="user-stat">
+                  <span className="user-stat-number">{user.deck_count}</span>
+                  <span className="user-stat-label">Decks</span>
+                </div>
+                <div className="user-stat">
+                  <span className="user-stat-number">{user.note_count}</span>
+                  <span className="user-stat-label">Notes</span>
+                </div>
+                <div className="user-stat">
+                  <span className="user-stat-number">{user.review_count}</span>
+                  <span className="user-stat-label">Reviews</span>
+                </div>
+              </div>
               <div className="user-card-details">
                 <div className="user-detail">
                   <span className="user-detail-label">Role</span>
@@ -112,8 +134,9 @@ export function AdminPage() {
               <tr>
                 <th>User</th>
                 <th>Email</th>
-                <th>Role</th>
-                <th>Created</th>
+                <th>Decks</th>
+                <th>Notes</th>
+                <th>Reviews</th>
                 <th>Last Login</th>
               </tr>
             </thead>
@@ -132,8 +155,9 @@ export function AdminPage() {
                     {user.is_admin && <span className="admin-badge">Admin</span>}
                   </td>
                   <td>{user.email || '-'}</td>
-                  <td>{user.role}</td>
-                  <td>{formatDate(user.created_at)}</td>
+                  <td className="stat-cell">{user.deck_count}</td>
+                  <td className="stat-cell">{user.note_count}</td>
+                  <td className="stat-cell">{user.review_count}</td>
                   <td>{formatDate(user.last_login_at)}</td>
                 </tr>
               ))}

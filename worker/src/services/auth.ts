@@ -335,3 +335,52 @@ export async function getAllUsers(db: D1Database): Promise<User[]> {
     .all<User>();
   return result.results;
 }
+
+// Get statistics for a user (for admin page)
+export interface UserStats {
+  deck_count: number;
+  note_count: number;
+  review_count: number;
+}
+
+export async function getUserStats(db: D1Database, userId: string): Promise<UserStats> {
+  const [deckCount, noteCount, reviewCount] = await Promise.all([
+    db.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
+      .bind(userId)
+      .first<{ count: number }>(),
+    db.prepare(`
+      SELECT COUNT(*) as count FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+    `)
+      .bind(userId)
+      .first<{ count: number }>(),
+    db.prepare(`
+      SELECT COUNT(*) as count FROM card_reviews cr
+      JOIN study_sessions ss ON cr.session_id = ss.id
+      WHERE ss.user_id = ?
+    `)
+      .bind(userId)
+      .first<{ count: number }>(),
+  ]);
+
+  return {
+    deck_count: deckCount?.count || 0,
+    note_count: noteCount?.count || 0,
+    review_count: reviewCount?.count || 0,
+  };
+}
+
+// Get stats for all users at once (more efficient for admin page)
+export async function getAllUsersWithStats(db: D1Database): Promise<(User & UserStats)[]> {
+  const users = await getAllUsers(db);
+
+  // Get all stats in parallel
+  const statsPromises = users.map(user => getUserStats(db, user.id));
+  const allStats = await Promise.all(statsPromises);
+
+  return users.map((user, index) => ({
+    ...user,
+    ...allStats[index],
+  }));
+}

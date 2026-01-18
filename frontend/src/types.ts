@@ -42,6 +42,9 @@ export interface AuthUser {
 export interface AdminUser extends AuthUser {
   created_at: string;
   last_login_at: string | null;
+  deck_count: number;
+  note_count: number;
+  review_count: number;
 }
 
 // Database models
