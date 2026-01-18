@@ -23,7 +23,7 @@ export function ChatPage() {
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const [messages, setMessages] = useState<MessageWithSender[]>([]);
+  const [newMessages, setNewMessages] = useState<MessageWithSender[]>([]);
   const [lastTimestamp, setLastTimestamp] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -36,6 +36,12 @@ export function ChatPage() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Reset state when conversation changes
+  useEffect(() => {
+    setNewMessages([]);
+    setLastTimestamp(null);
+  }, [convId]);
+
   const relationshipQuery = useQuery({
     queryKey: ['relationship', relId],
     queryFn: () => getRelationship(relId!),
@@ -44,15 +50,18 @@ export function ChatPage() {
 
   // Initial messages load
   const initialMessagesQuery = useQuery({
-    queryKey: ['messages', convId, 'initial'],
-    queryFn: async () => {
-      const result = await getMessages(convId!);
-      setMessages(result.messages);
-      setLastTimestamp(result.latest_timestamp);
-      return result;
-    },
+    queryKey: ['messages', convId],
+    queryFn: () => getMessages(convId!),
     enabled: !!convId,
+    staleTime: 0, // Always refetch when navigating back
   });
+
+  // Set lastTimestamp when initial messages load
+  useEffect(() => {
+    if (initialMessagesQuery.data) {
+      setLastTimestamp(initialMessagesQuery.data.latest_timestamp);
+    }
+  }, [initialMessagesQuery.data]);
 
   // Polling for new messages
   const pollMessages = useCallback(async () => {
@@ -60,7 +69,7 @@ export function ChatPage() {
     try {
       const result = await getMessages(convId, lastTimestamp);
       if (result.messages.length > 0) {
-        setMessages(prev => [...prev, ...result.messages]);
+        setNewMessages(prev => [...prev, ...result.messages]);
         setLastTimestamp(result.latest_timestamp);
       }
     } catch (error) {
@@ -74,15 +83,21 @@ export function ChatPage() {
     return () => clearInterval(interval);
   }, [convId, lastTimestamp, pollMessages]);
 
+  // Combine initial messages with new messages from polling
+  const messages = [
+    ...(initialMessagesQuery.data?.messages || []),
+    ...newMessages,
+  ];
+
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]);
 
   const sendMutation = useMutation({
     mutationFn: (content: string) => sendMessage(convId!, content),
     onSuccess: (newMsg) => {
-      setMessages(prev => [...prev, newMsg]);
+      setNewMessages(prev => [...prev, newMsg]);
       setLastTimestamp(newMsg.created_at);
       setNewMessage('');
     },
