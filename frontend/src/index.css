@@ -455,6 +455,56 @@ html:has(.study-page-fullscreen) .header {
   padding-top: 1rem;
 }
 
+/* Answer diff (Anki-style character comparison) */
+.answer-diff {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.answer-diff-row {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+
+.answer-diff-arrow {
+  color: var(--color-text-light);
+  font-size: 1.5rem;
+}
+
+.diff-char {
+  font-size: 2.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  min-width: 3rem;
+  text-align: center;
+}
+
+@media (min-width: 640px) {
+  .diff-char {
+    font-size: 3.5rem;
+    padding: 0.375rem 0.75rem;
+    min-width: 4rem;
+  }
+}
+
+.diff-correct {
+  background-color: #166534;
+  color: white;
+}
+
+.diff-wrong {
+  background-color: #991b1b;
+  color: white;
+}
+
+.diff-expected {
+  background-color: #e5e7eb;
+  color: var(--color-text);
+}
+
 /* Study card animations (unused but kept for reference) */
 .study-card-inner {
   transition: transform 0.6s;

@@ -27,6 +27,57 @@ import {
   useHasMoreNewCards,
 } from '../hooks/useOfflineData';
 
+// Character diff component for typed answers (Anki-style)
+function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correctAnswer: string }) {
+  // Compare character by character
+  const maxLen = Math.max(userAnswer.length, correctAnswer.length);
+  const userChars: { char: string; correct: boolean }[] = [];
+  const correctChars: { char: string; matched: boolean }[] = [];
+
+  for (let i = 0; i < maxLen; i++) {
+    const userChar = userAnswer[i] || '';
+    const correctChar = correctAnswer[i] || '';
+    const isMatch = userChar === correctChar;
+
+    if (i < userAnswer.length) {
+      userChars.push({ char: userChar, correct: isMatch });
+    }
+    if (i < correctAnswer.length) {
+      correctChars.push({ char: correctChar, matched: isMatch });
+    }
+  }
+
+  const isFullyCorrect = userAnswer === correctAnswer;
+
+  if (isFullyCorrect) {
+    return (
+      <div className="answer-diff">
+        <div className="answer-diff-row">
+          {userChars.map((c, i) => (
+            <span key={i} className="diff-char diff-correct">{c.char}</span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="answer-diff">
+      <div className="answer-diff-row">
+        {userChars.map((c, i) => (
+          <span key={i} className={`diff-char ${c.correct ? 'diff-correct' : 'diff-wrong'}`}>{c.char}</span>
+        ))}
+      </div>
+      <div className="answer-diff-arrow">↓</div>
+      <div className="answer-diff-row">
+        {correctChars.map((c, i) => (
+          <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}`}>{c.char}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Queue counts header component
 function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activeQueue?: number }) {
   const total = counts.new + counts.learning + counts.review;
@@ -263,17 +314,20 @@ function StudyCard({
   const renderBackMain = () => {
     const isCorrect =
       isTypingCard &&
-      userAnswer.trim().toLowerCase() === card.note.hanzi.toLowerCase();
+      userAnswer.trim() === card.note.hanzi;
 
     return (
       <div className="text-center">
-        {isTypingCard && userAnswer && (
-          <div className={`mb-2 ${isCorrect ? 'text-success' : 'text-error'}`} style={{ fontSize: '0.875rem' }}>
-            {isCorrect ? 'Correct!' : `Your answer: ${userAnswer}`}
+        {isTypingCard && userAnswer ? (
+          // Show character-by-character diff for typed answers
+          <div className="mb-3">
+            <AnswerDiff userAnswer={userAnswer.trim()} correctAnswer={card.note.hanzi} />
           </div>
+        ) : (
+          // Show just the hanzi for non-typing cards
+          <div className="hanzi hanzi-large mb-1">{card.note.hanzi}</div>
         )}
 
-        <div className="hanzi hanzi-large mb-1">{card.note.hanzi}</div>
         <div className="pinyin mb-1">{card.note.pinyin}</div>
         <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
 
