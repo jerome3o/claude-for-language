@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { AdminUser } from '../types';
 import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats } from '../api/client';
 import './AdminPage.css';
+
+const BUILD_TIME = __BUILD_TIME__;
 
 export function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -15,6 +17,9 @@ export function AdminPage() {
   const [isCheckingOrphans, setIsCheckingOrphans] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<string | null>(null);
+
+  // Cache state
+  const [isClearing, setIsClearing] = useState(false);
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -72,6 +77,33 @@ export function AdminPage() {
       setIsCleaning(false);
     }
   };
+
+  const handleClearCache = useCallback(async () => {
+    setIsClearing(true);
+    try {
+      // Unregister service workers
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          await registration.unregister();
+        }
+      }
+
+      // Clear all caches
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        for (const cacheName of cacheNames) {
+          await caches.delete(cacheName);
+        }
+      }
+
+      // Reload the page
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to clear cache:', err);
+      setIsClearing(false);
+    }
+  }, []);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
@@ -265,6 +297,21 @@ export function AdminPage() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        <h2>Debug</h2>
+        <div className="debug-section">
+          <div className="debug-info">
+            <span className="debug-label">Build Time:</span>
+            <span className="debug-value">{formatDate(BUILD_TIME)}</span>
+          </div>
+          <button
+            className="btn btn-secondary"
+            onClick={handleClearCache}
+            disabled={isClearing}
+          >
+            {isClearing ? 'Clearing...' : 'Clear Cache & Reload'}
+          </button>
         </div>
       </div>
     </div>
