@@ -881,12 +881,13 @@ app.get('/api/study/next-card', async (c) => {
 // Submit review with Anki-style scheduling
 app.post('/api/study/review', async (c) => {
   const userId = c.get('user').id;
-  const { card_id, rating, time_spent_ms, user_answer, session_id, offline_result } = await c.req.json<{
+  const { card_id, rating, time_spent_ms, user_answer, session_id, reviewed_at, offline_result } = await c.req.json<{
     card_id: string;
     rating: Rating;
     time_spent_ms?: number;
     user_answer?: string;
     session_id?: string;
+    reviewed_at?: string; // ISO timestamp from client (for offline sync)
     offline_result?: {
       queue: number;
       learning_step: number;
@@ -970,7 +971,9 @@ app.post('/api/study/review', async (c) => {
     card_id,
     rating,
     time_spent_ms,
-    user_answer
+    user_answer,
+    undefined, // recordingUrl
+    reviewed_at // Actual review time (from offline sync)
   );
 
   // Get updated queue counts

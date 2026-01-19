@@ -284,6 +284,7 @@ class SyncService {
             time_spent_ms: review.time_spent_ms,
             user_answer: review.user_answer,
             session_id: review.session_id,
+            reviewed_at: review.reviewed_at, // Actual time of review (for correct date grouping)
             // Include the computed result so server can verify or use it
             offline_result: {
               queue: review.new_queue,

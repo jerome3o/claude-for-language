@@ -613,24 +613,47 @@ export async function createCardReview(
   rating: number,
   timeSpentMs?: number,
   userAnswer?: string,
-  recordingUrl?: string
+  recordingUrl?: string,
+  reviewedAt?: string // ISO timestamp - if provided, use this instead of server time
 ): Promise<CardReview> {
   const id = generateId();
-  await db
-    .prepare(
-      `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      id,
-      sessionId,
-      cardId,
-      rating,
-      timeSpentMs || null,
-      userAnswer || null,
-      recordingUrl || null
-    )
-    .run();
+
+  if (reviewedAt) {
+    // Use provided timestamp (from offline sync)
+    await db
+      .prepare(
+        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        id,
+        sessionId,
+        cardId,
+        rating,
+        timeSpentMs || null,
+        userAnswer || null,
+        recordingUrl || null,
+        reviewedAt
+      )
+      .run();
+  } else {
+    // Use database default (current time)
+    await db
+      .prepare(
+        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        id,
+        sessionId,
+        cardId,
+        rating,
+        timeSpentMs || null,
+        userAnswer || null,
+        recordingUrl || null
+      )
+      .run();
+  }
 
   const review = await db
     .prepare('SELECT * FROM card_reviews WHERE id = ?')
