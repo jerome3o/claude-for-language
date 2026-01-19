@@ -215,7 +215,10 @@ function StudyCard({
 
     // Upload recording if exists (best-effort, non-blocking)
     if (audioBlob) {
-      uploadRecording(card.id, audioBlob).catch(console.error);
+      console.log('[handleRate] Uploading recording for card:', card.id, 'blob size:', audioBlob.size);
+      uploadRecording(card.id, audioBlob)
+        .then(result => console.log('[handleRate] Recording uploaded:', result))
+        .catch(err => console.error('[handleRate] Recording upload failed:', err));
     }
 
     onComplete();

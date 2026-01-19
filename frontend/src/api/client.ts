@@ -384,6 +384,7 @@ export async function completeSession(id: string): Promise<StudySession> {
 // ============ Audio ============
 
 export async function uploadRecording(cardId: string, audioBlob: Blob): Promise<{ url: string }> {
+  console.log('[uploadRecording] Starting upload for card:', cardId);
   const formData = new FormData();
   formData.append('file', audioBlob, 'recording.webm');
   formData.append('card_id', cardId); // Server finds the most recent review for this card
@@ -393,6 +394,7 @@ export async function uploadRecording(cardId: string, audioBlob: Blob): Promise<
     headers['Authorization'] = `Bearer ${sessionToken}`;
   }
 
+  console.log('[uploadRecording] Sending request to:', `${API_PATH}/audio/upload`);
   const response = await fetch(`${API_PATH}/audio/upload`, {
     method: 'POST',
     credentials: 'include',
@@ -400,16 +402,22 @@ export async function uploadRecording(cardId: string, audioBlob: Blob): Promise<
     body: formData,
   });
 
+  console.log('[uploadRecording] Response status:', response.status);
+
   if (response.status === 401) {
     authEvents.onUnauthorized();
     throw new Error('Unauthorized');
   }
 
   if (!response.ok) {
-    throw new Error('Failed to upload recording');
+    const errorText = await response.text();
+    console.error('[uploadRecording] Error response:', errorText);
+    throw new Error('Failed to upload recording: ' + errorText);
   }
 
-  return response.json();
+  const result = await response.json();
+  console.log('[uploadRecording] Success:', result);
+  return result;
 }
 
 export function getAudioUrl(key: string): string {
