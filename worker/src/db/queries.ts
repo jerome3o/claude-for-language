@@ -860,66 +860,6 @@ export async function getSessionWithReviews(
   return { ...session, reviews: mappedReviews };
 }
 
-// ============ Card Reviews ============
-
-export async function createCardReview(
-  db: D1Database,
-  sessionId: string,
-  cardId: string,
-  rating: number,
-  timeSpentMs?: number,
-  userAnswer?: string,
-  recordingUrl?: string,
-  reviewedAt?: string // ISO timestamp - if provided, use this instead of server time
-): Promise<CardReview> {
-  const id = generateId();
-
-  if (reviewedAt) {
-    // Use provided timestamp (from offline sync)
-    await db
-      .prepare(
-        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        id,
-        sessionId,
-        cardId,
-        rating,
-        timeSpentMs || null,
-        userAnswer || null,
-        recordingUrl || null,
-        reviewedAt
-      )
-      .run();
-  } else {
-    // Use database default (current time)
-    await db
-      .prepare(
-        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        id,
-        sessionId,
-        cardId,
-        rating,
-        timeSpentMs || null,
-        userAnswer || null,
-        recordingUrl || null
-      )
-      .run();
-  }
-
-  const review = await db
-    .prepare('SELECT * FROM card_reviews WHERE id = ?')
-    .bind(id)
-    .first<CardReview>();
-
-  if (!review) throw new Error('Failed to create review');
-  return review;
-}
-
 // ============ Note History ============
 
 export interface NoteReviewHistory {
@@ -1086,9 +1026,8 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
       WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))
     `).bind(userId).first<{ count: number }>(),
     db.prepare(`
-      SELECT COUNT(*) as count FROM card_reviews cr
-      JOIN study_sessions ss ON cr.session_id = ss.id
-      WHERE ss.user_id = ? AND date(cr.reviewed_at) = date('now')
+      SELECT COUNT(*) as count FROM review_events
+      WHERE user_id = ? AND date(reviewed_at) = date('now')
     `).bind(userId).first<{ count: number }>(),
     db.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
       .bind(userId).first<{ count: number }>(),

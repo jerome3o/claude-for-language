@@ -356,9 +356,8 @@ export async function getUserStats(db: D1Database, userId: string): Promise<User
       .bind(userId)
       .first<{ count: number }>(),
     db.prepare(`
-      SELECT COUNT(*) as count FROM card_reviews cr
-      JOIN study_sessions ss ON cr.session_id = ss.id
-      WHERE ss.user_id = ?
+      SELECT COUNT(*) as count FROM review_events
+      WHERE user_id = ?
     `)
       .bind(userId)
       .first<{ count: number }>(),

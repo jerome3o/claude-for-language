@@ -1,7 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import { CardType, CardQueue, Rating } from '../types';
 
-// ============ Event-Sourced Types ============
+// ============ Review Event Types ============
 
 export interface LocalReviewEvent {
   id: string;
@@ -41,9 +41,8 @@ export interface EventSyncMeta {
   last_sync_at: string | null;
 }
 
-// ============ Legacy Types (still in use) ============
+// ============ Core Types ============
 
-// Local database types with sync metadata
 export interface LocalDeck {
   id: string;
   user_id: string | null;
@@ -95,32 +94,6 @@ export interface LocalCard {
   _synced_at: number | null;
 }
 
-export interface PendingReview {
-  id: string;
-  card_id: string;
-  session_id: string | null;
-  rating: Rating;
-  time_spent_ms: number | null;
-  user_answer: string | null;
-  reviewed_at: string;
-  // Original queue before this review (for daily limit tracking)
-  original_queue: CardQueue;
-  // Computed result (applied locally immediately)
-  new_queue: CardQueue;
-  new_learning_step: number;
-  new_ease_factor: number;
-  new_interval: number;
-  new_repetitions: number;
-  new_next_review_at: string | null;
-  new_due_timestamp: number | null;
-  // Recording blob (stored until sync completes, then uploaded)
-  recording_blob?: Blob;
-  // Sync status
-  _pending: boolean;
-  _retries: number;
-  _last_error: string | null;
-}
-
 export interface CachedAudio {
   key: string; // audio_url
   blob: Blob;
@@ -145,16 +118,15 @@ export interface LocalStudySession {
 
 // Dexie database class
 export class ChineseLearningDB extends Dexie {
-  // Legacy tables (still in use during migration)
+  // Core tables
   decks!: Table<LocalDeck, string>;
   notes!: Table<LocalNote, string>;
   cards!: Table<LocalCard, string>;
-  pendingReviews!: Table<PendingReview, string>;
   cachedAudio!: Table<CachedAudio, string>;
   syncMeta!: Table<SyncMeta, string>;
   studySessions!: Table<LocalStudySession, string>;
 
-  // Event-sourced tables (new architecture)
+  // Event-sourced tables
   reviewEvents!: Table<LocalReviewEvent, string>;
   cardCheckpoints!: Table<LocalCardCheckpoint, string>;
   pendingRecordings!: Table<PendingRecording, string>;
@@ -174,9 +146,8 @@ export class ChineseLearningDB extends Dexie {
       studySessions: 'id, deck_id, started_at, _synced',
     });
 
-    // Version 2: Add event-sourced tables for new sync architecture
+    // Version 2: Add event-sourced tables
     this.version(2).stores({
-      // Existing tables (unchanged)
       decks: 'id, user_id, updated_at, _synced_at',
       notes: 'id, deck_id, updated_at, _synced_at',
       cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
@@ -184,7 +155,21 @@ export class ChineseLearningDB extends Dexie {
       cachedAudio: 'key, cached_at',
       syncMeta: 'id',
       studySessions: 'id, deck_id, started_at, _synced',
-      // New event-sourced tables
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+    });
+
+    // Version 3: Remove legacy pendingReviews table
+    this.version(3).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      pendingReviews: null, // Delete this table
+      cachedAudio: 'key, cached_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
       reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
       cardCheckpoints: 'card_id',
       pendingRecordings: 'id, uploaded',
@@ -196,7 +181,7 @@ export class ChineseLearningDB extends Dexie {
 // Singleton database instance
 export const db = new ChineseLearningDB();
 
-// Helper functions for common operations
+// ============ Deck/Note/Card Helpers ============
 
 export async function getDeckById(deckId: string): Promise<LocalDeck | undefined> {
   return db.decks.get(deckId);
@@ -218,32 +203,60 @@ export async function getCardsByDeckId(deckId: string): Promise<LocalCard[]> {
   return db.cards.where('deck_id').equals(deckId).toArray();
 }
 
-// Count new cards studied today (for daily limit enforcement)
+// ============ Daily Limit Tracking ============
+
+/**
+ * Count new cards studied today (for daily limit enforcement).
+ * Uses reviewEvents to find cards that were NEW when first reviewed today.
+ */
 export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const allReviews = await db.pendingReviews.toArray();
 
-  // Get unique cards reviewed today that started as NEW
-  const newCardReviews = allReviews.filter(r =>
-    r.reviewed_at.startsWith(today) &&
-    r.original_queue === CardQueue.NEW
-  );
+  // Get all review events from today
+  const todayEvents = await db.reviewEvents
+    .filter(e => e.reviewed_at.startsWith(today))
+    .toArray();
 
-  // Get unique card IDs (first review of a NEW card counts)
+  if (todayEvents.length === 0) return 0;
+
+  // Group by card_id and find first review of each card
+  const cardFirstReview = new Map<string, LocalReviewEvent>();
+  for (const event of todayEvents) {
+    const existing = cardFirstReview.get(event.card_id);
+    if (!existing || event.reviewed_at < existing.reviewed_at) {
+      cardFirstReview.set(event.card_id, event);
+    }
+  }
+
+  // For each card, check if it was NEW before today's first review
+  // A card was NEW if it had no reviews before today
   const uniqueNewCards = new Set<string>();
-  for (const review of newCardReviews) {
-    if (deckId) {
-      const card = await db.cards.get(review.card_id);
-      if (card && card.deck_id === deckId) {
-        uniqueNewCards.add(review.card_id);
+
+  for (const [cardId] of cardFirstReview) {
+    // Check if card had any reviews before today
+    const priorReviews = await db.reviewEvents
+      .where('card_id')
+      .equals(cardId)
+      .filter(e => !e.reviewed_at.startsWith(today))
+      .count();
+
+    if (priorReviews === 0) {
+      // This was a NEW card - check deck filter
+      if (deckId) {
+        const card = await db.cards.get(cardId);
+        if (card && card.deck_id === deckId) {
+          uniqueNewCards.add(cardId);
+        }
+      } else {
+        uniqueNewCards.add(cardId);
       }
-    } else {
-      uniqueNewCards.add(review.card_id);
     }
   }
 
   return uniqueNewCards.size;
 }
+
+// ============ Due Cards ============
 
 export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Promise<LocalCard[]> {
   const now = Date.now();
@@ -298,14 +311,7 @@ export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Pr
   return dueCards;
 }
 
-export async function getPendingReviews(): Promise<PendingReview[]> {
-  // Use filter since _pending is boolean
-  return db.pendingReviews.filter(r => r._pending === true).toArray();
-}
-
-export async function getPendingReviewCount(): Promise<number> {
-  return (await getPendingReviews()).length;
-}
+// ============ Sync Metadata ============
 
 export async function getSyncMeta(): Promise<SyncMeta | undefined> {
   return db.syncMeta.get('sync_state');
@@ -316,17 +322,20 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.pendingReviews, db.syncMeta, db.studySessions], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
-    await db.pendingReviews.clear();
     await db.syncMeta.clear();
     await db.studySessions.clear();
+    await db.reviewEvents.clear();
+    await db.cardCheckpoints.clear();
+    await db.eventSyncMeta.clear();
   });
 }
 
-// Get queue counts for display (Anki-style)
+// ============ Queue Counts ============
+
 export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false): Promise<{ new: number; learning: number; review: number }> {
   const cards = await getDueCards(deckId, ignoreDailyLimit);
 
@@ -337,67 +346,34 @@ export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false):
   };
 }
 
-// Check if there are more new cards beyond the daily limit
 export async function hasMoreNewCards(deckId?: string): Promise<boolean> {
   const limitedCount = (await getQueueCounts(deckId, false)).new;
   const unlimitedCount = (await getQueueCounts(deckId, true)).new;
   return unlimitedCount > limitedCount;
 }
 
-// Clear old synced pending reviews (keep last 7 days)
-export async function cleanupSyncedReviews(): Promise<number> {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const cutoffDate = sevenDaysAgo.toISOString();
+// ============ Database Stats ============
 
-  // Get all synced reviews older than 7 days
-  const oldReviews = await db.pendingReviews
-    .filter(r => !r._pending && r.reviewed_at < cutoffDate)
-    .toArray();
-
-  if (oldReviews.length > 0) {
-    await db.pendingReviews.bulkDelete(oldReviews.map(r => r.id));
-  }
-
-  return oldReviews.length;
-}
-
-// Get database stats for debugging
 export async function getDatabaseStats(): Promise<{
   decks: number;
   notes: number;
   cards: number;
-  pendingReviews: number;
-  syncedReviews: number;
-  reviewEvents?: number;
-  unsyncedEvents?: number;
+  reviewEvents: number;
+  unsyncedEvents: number;
 }> {
-  const [decks, notes, cards, pendingReviews, syncedReviews] = await Promise.all([
+  const [decks, notes, cards, reviewEvents, unsyncedEvents] = await Promise.all([
     db.decks.count(),
     db.notes.count(),
     db.cards.count(),
-    db.pendingReviews.where('_pending').equals(1).count(),
-    db.pendingReviews.where('_pending').equals(0).count(),
+    db.reviewEvents.count(),
+    db.reviewEvents.where('_synced').equals(0).count(),
   ]);
 
-  // Try to get event-sourced stats (may not exist in older DBs)
-  let reviewEvents = 0;
-  let unsyncedEvents = 0;
-  try {
-    reviewEvents = await db.reviewEvents.count();
-    unsyncedEvents = await db.reviewEvents.where('_synced').equals(0).count();
-  } catch {
-    // Tables may not exist yet
-  }
-
-  return { decks, notes, cards, pendingReviews, syncedReviews, reviewEvents, unsyncedEvents };
+  return { decks, notes, cards, reviewEvents, unsyncedEvents };
 }
 
-// ============ Event-Sourced Helper Functions ============
+// ============ Review Event Functions ============
 
-/**
- * Create a local review event
- */
 export async function createLocalReviewEvent(event: Omit<LocalReviewEvent, '_created_at'>): Promise<void> {
   await db.reviewEvents.put({
     ...event,
@@ -405,9 +381,6 @@ export async function createLocalReviewEvent(event: Omit<LocalReviewEvent, '_cre
   });
 }
 
-/**
- * Get all review events for a card (sorted by reviewed_at)
- */
 export async function getCardReviewEvents(cardId: string): Promise<LocalReviewEvent[]> {
   return db.reviewEvents
     .where('card_id')
@@ -415,9 +388,6 @@ export async function getCardReviewEvents(cardId: string): Promise<LocalReviewEv
     .sortBy('reviewed_at');
 }
 
-/**
- * Get unsynced review events
- */
 export async function getUnsyncedReviewEvents(limit = 100): Promise<LocalReviewEvent[]> {
   return db.reviewEvents
     .where('_synced')
@@ -426,9 +396,6 @@ export async function getUnsyncedReviewEvents(limit = 100): Promise<LocalReviewE
     .toArray();
 }
 
-/**
- * Mark review events as synced
- */
 export async function markReviewEventsSynced(eventIds: string[]): Promise<void> {
   await db.reviewEvents
     .where('id')
@@ -436,30 +403,22 @@ export async function markReviewEventsSynced(eventIds: string[]): Promise<void> 
     .modify({ _synced: true });
 }
 
-/**
- * Get card checkpoint
- */
+// ============ Checkpoint Functions ============
+
 export async function getCardCheckpoint(cardId: string): Promise<LocalCardCheckpoint | undefined> {
   return db.cardCheckpoints.get(cardId);
 }
 
-/**
- * Update or create card checkpoint
- */
 export async function upsertCardCheckpoint(checkpoint: LocalCardCheckpoint): Promise<void> {
   await db.cardCheckpoints.put(checkpoint);
 }
 
-/**
- * Get event sync metadata
- */
+// ============ Event Sync Metadata ============
+
 export async function getEventSyncMeta(): Promise<EventSyncMeta | undefined> {
   return db.eventSyncMeta.get('event_sync_state');
 }
 
-/**
- * Update event sync metadata
- */
 export async function updateEventSyncMeta(lastEventSyncedAt: string): Promise<void> {
   await db.eventSyncMeta.put({
     id: 'event_sync_state',
@@ -468,30 +427,20 @@ export async function updateEventSyncMeta(lastEventSyncedAt: string): Promise<vo
   });
 }
 
-/**
- * Store a pending recording
- */
+// ============ Recording Functions ============
+
 export async function storePendingRecording(recording: PendingRecording): Promise<void> {
   await db.pendingRecordings.put(recording);
 }
 
-/**
- * Get pending recordings that haven't been uploaded
- */
 export async function getPendingRecordings(): Promise<PendingRecording[]> {
   return db.pendingRecordings.where('uploaded').equals(0).toArray();
 }
 
-/**
- * Mark a recording as uploaded
- */
 export async function markRecordingUploaded(id: string): Promise<void> {
   await db.pendingRecordings.update(id, { uploaded: true });
 }
 
-/**
- * Clean up uploaded recordings older than 24 hours
- */
 export async function cleanupUploadedRecordings(): Promise<number> {
   const oneDayAgo = new Date();
   oneDayAgo.setDate(oneDayAgo.getDate() - 1);

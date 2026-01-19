@@ -78,8 +78,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
   2. `meaning_to_hanzi`: Show english → user types hanzi → reveal audio/pinyin/hanzi
   3. `audio_to_hanzi`: Play audio → user types hanzi → reveal pinyin/hanzi/english
 - **Deck**: Collection of Notes (and their generated Cards)
-- **StudySession**: A study session with multiple card reviews
-- **CardReview**: Individual card review within a session (rating, time, audio recording)
+- **ReviewEvent**: Individual card review (rating, time, audio recording). Card state is computed from review history.
 
 ### Spaced Repetition (SM-2 Algorithm)
 Each card tracks:
@@ -95,8 +94,8 @@ Ratings: `again` (0), `hard` (1), `good` (2), `easy` (3)
 - `decks` - Vocabulary decks
 - `notes` - Vocabulary items (hanzi, pinyin, english, audio_url, fun_facts)
 - `cards` - SRS cards (3 per note, one per card_type)
-- `study_sessions` - Study session records
-- `card_reviews` - Individual review records (rating, time, answer, recording_url)
+- `review_events` - Individual review records (rating, time, answer, recording_url). Card state is computed from these.
+- `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at)
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
@@ -130,7 +129,7 @@ Uses Anthropic Claude API for several features:
 
 1. **Study is 100% local-first**: All study functionality uses IndexedDB (via Dexie). No network requests are made during card reviews. Transitions between cards are instant.
 
-2. **Background sync**: Reviews are queued locally in `pendingReviews` table and synced to the server when online. The sync is non-blocking and happens automatically.
+2. **Event-sourced reviews**: Reviews are stored as immutable events in `reviewEvents` table. Card state is computed from events, never stored. Events sync to server when online.
 
 3. **Data is cached locally**: Decks, notes, and cards are stored in IndexedDB. The app works immediately on load using cached data.
 
@@ -153,7 +152,9 @@ Uses Anthropic Claude API for several features:
 - `frontend/src/db/database.ts` - IndexedDB schema and queries (Dexie)
 - `frontend/src/hooks/useOfflineData.ts` - Offline-first React hooks
 - `frontend/src/services/sync.ts` - Background sync service
+- `frontend/src/services/review-events.ts` - Review event creation and state computation
 - `frontend/src/contexts/NetworkContext.tsx` - Online/offline detection
+- `shared/scheduler/compute-state.ts` - Pure function to compute card state from events
 
 ### When Adding Features
 - **Study-related features**: Must work offline. Use `useOfflineData` hooks, store data in IndexedDB.

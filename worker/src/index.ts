@@ -302,9 +302,9 @@ app.get('/api/admin/storage/orphans', adminMiddleware, async (c) => {
   ).all<{ audio_url: string }>();
   const dbAudioUrls = new Set(dbResult.results.map(r => r.audio_url));
 
-  // Also get recording URLs from reviews
+  // Also get recording URLs from review_events
   const reviewResult = await c.env.DB.prepare(
-    'SELECT DISTINCT recording_url FROM card_reviews WHERE recording_url IS NOT NULL'
+    'SELECT DISTINCT recording_url FROM review_events WHERE recording_url IS NOT NULL'
   ).all<{ recording_url: string }>();
   for (const r of reviewResult.results) {
     dbAudioUrls.add(r.recording_url);
@@ -342,9 +342,9 @@ app.post('/api/admin/storage/cleanup', adminMiddleware, async (c) => {
   ).all<{ audio_url: string }>();
   const dbAudioUrls = new Set(dbResult.results.map(r => r.audio_url));
 
-  // Also get recording URLs from reviews
+  // Also get recording URLs from review_events
   const reviewResult = await c.env.DB.prepare(
-    'SELECT DISTINCT recording_url FROM card_reviews WHERE recording_url IS NOT NULL'
+    'SELECT DISTINCT recording_url FROM review_events WHERE recording_url IS NOT NULL'
   ).all<{ recording_url: string }>();
   for (const r of reviewResult.results) {
     dbAudioUrls.add(r.recording_url);
@@ -1148,15 +1148,14 @@ app.post('/api/audio/upload', async (c) => {
 
   let targetReviewId = reviewId;
 
-  // If card_id provided instead of review_id, find the most recent review for this card by this user
+  // If card_id provided instead of review_id, find the most recent review event for this card by this user
   if (!targetReviewId && cardId) {
     console.log('[audio/upload] Looking for review with card_id:', cardId, 'user_id:', userId);
     const recentReview = await c.env.DB.prepare(`
-      SELECT cr.id
-      FROM card_reviews cr
-      JOIN study_sessions ss ON cr.session_id = ss.id
-      WHERE cr.card_id = ? AND ss.user_id = ?
-      ORDER BY cr.reviewed_at DESC
+      SELECT id
+      FROM review_events
+      WHERE card_id = ? AND user_id = ?
+      ORDER BY reviewed_at DESC
       LIMIT 1
     `).bind(cardId, userId).first<{ id: string }>();
 
@@ -1173,8 +1172,8 @@ app.post('/api/audio/upload', async (c) => {
   const arrayBuffer = await blob.arrayBuffer();
   await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type);
 
-  // Update review with recording URL
-  await c.env.DB.prepare('UPDATE card_reviews SET recording_url = ? WHERE id = ?')
+  // Update review event with recording URL
+  await c.env.DB.prepare('UPDATE review_events SET recording_url = ? WHERE id = ?')
     .bind(key, targetReviewId)
     .run();
 

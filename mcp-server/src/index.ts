@@ -960,11 +960,11 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
         const reviews = await this.env.DB
           .prepare(`
-            SELECT cr.id, cr.rating, cr.time_spent_ms, cr.user_answer, cr.recording_url, cr.reviewed_at, c.card_type
-            FROM card_reviews cr
-            JOIN cards c ON cr.card_id = c.id
+            SELECT re.id, re.rating, re.time_spent_ms, re.user_answer, re.recording_url, re.reviewed_at, c.card_type
+            FROM review_events re
+            JOIN cards c ON re.card_id = c.id
             WHERE c.note_id = ?
-            ORDER BY cr.reviewed_at DESC
+            ORDER BY re.reviewed_at DESC
           `)
           .bind(note_id)
           .all<{
@@ -1083,9 +1083,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
             WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
           `).bind(userId).first<{ count: number }>(),
           this.env.DB.prepare(`
-            SELECT COUNT(*) as count FROM card_reviews cr
-            JOIN study_sessions ss ON cr.session_id = ss.id
-            WHERE ss.user_id = ? AND date(cr.reviewed_at) = date('now')
+            SELECT COUNT(*) as count FROM review_events
+            WHERE user_id = ? AND date(reviewed_at) = date('now')
           `).bind(userId).first<{ count: number }>(),
           this.env.DB.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
             .bind(userId).first<{ count: number }>(),

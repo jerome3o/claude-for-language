@@ -15,9 +15,6 @@ type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 
 // ============ Relationships ============
 
-/**
- * Find a user by email
- */
 export async function getUserByEmail(
   db: D1Database,
   email: string
@@ -28,9 +25,6 @@ export async function getUserByEmail(
     .first<User>();
 }
 
-/**
- * Get user summary by ID
- */
 async function getUserSummary(
   db: D1Database,
   userId: string
@@ -41,27 +35,21 @@ async function getUserSummary(
     .first<UserSummary>();
 }
 
-/**
- * Create a new relationship request
- */
 export async function createRelationship(
   db: D1Database,
   requesterId: string,
   recipientEmail: string,
   requesterRole: RelationshipRole
 ): Promise<TutorRelationshipWithUsers> {
-  // Find recipient by email
   const recipient = await getUserByEmail(db, recipientEmail);
   if (!recipient) {
     throw new Error('User not found with that email');
   }
 
-  // Can't create relationship with yourself
   if (recipient.id === requesterId) {
     throw new Error('Cannot create a relationship with yourself');
   }
 
-  // Check if relationship already exists (in either direction)
   const existing = await db
     .prepare(`
       SELECT * FROM tutor_relationships
@@ -87,9 +75,6 @@ export async function createRelationship(
   return getRelationshipById(db, id) as Promise<TutorRelationshipWithUsers>;
 }
 
-/**
- * Get a relationship by ID with user details
- */
 export async function getRelationshipById(
   db: D1Database,
   relationshipId: string
@@ -115,14 +100,10 @@ export async function getRelationshipById(
   };
 }
 
-/**
- * Get all relationships for a user, categorized
- */
 export async function getMyRelationships(
   db: D1Database,
   userId: string
 ): Promise<MyRelationships> {
-  // Get all relationships where user is involved
   const result = await db
     .prepare(`
       SELECT * FROM tutor_relationships
@@ -135,21 +116,18 @@ export async function getMyRelationships(
 
   const relationships = result.results;
 
-  // Gather all user IDs for batch lookup
   const userIds = new Set<string>();
   for (const rel of relationships) {
     userIds.add(rel.requester_id);
     userIds.add(rel.recipient_id);
   }
 
-  // Batch fetch user summaries
   const userMap = new Map<string, UserSummary>();
   for (const uid of userIds) {
     const user = await getUserSummary(db, uid);
     if (user) userMap.set(uid, user);
   }
 
-  // Categorize relationships
   const tutors: TutorRelationshipWithUsers[] = [];
   const students: TutorRelationshipWithUsers[] = [];
   const pendingIncoming: TutorRelationshipWithUsers[] = [];
@@ -196,15 +174,11 @@ export async function getMyRelationships(
   };
 }
 
-/**
- * Accept a pending relationship request
- */
 export async function acceptRelationship(
   db: D1Database,
   relationshipId: string,
   userId: string
 ): Promise<TutorRelationshipWithUsers> {
-  // Verify the relationship exists and user is the recipient
   const rel = await db
     .prepare('SELECT * FROM tutor_relationships WHERE id = ?')
     .bind(relationshipId)
@@ -234,9 +208,6 @@ export async function acceptRelationship(
   return getRelationshipById(db, relationshipId) as Promise<TutorRelationshipWithUsers>;
 }
 
-/**
- * Remove a relationship (either party can do this)
- */
 export async function removeRelationship(
   db: D1Database,
   relationshipId: string,
@@ -261,9 +232,6 @@ export async function removeRelationship(
     .run();
 }
 
-/**
- * Verify user is part of a relationship and return the relationship
- */
 export async function verifyRelationshipAccess(
   db: D1Database,
   relationshipId: string,
@@ -284,16 +252,10 @@ export async function verifyRelationshipAccess(
   return rel;
 }
 
-/**
- * Get the other user in a relationship
- */
 export function getOtherUserId(rel: TutorRelationship, myId: string): string {
   return rel.requester_id === myId ? rel.recipient_id : rel.requester_id;
 }
 
-/**
- * Get the current user's role in a relationship
- */
 export function getMyRole(rel: TutorRelationship, myId: string): RelationshipRole {
   const iAmRequester = rel.requester_id === myId;
   if (iAmRequester) return rel.requester_role;
@@ -382,7 +344,6 @@ export async function getStudentDailyProgress(
 ): Promise<DailyActivitySummary> {
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
 
-  // Verify tutor is actually the tutor in this relationship
   const myRole = getMyRole(rel, tutorId);
   if (myRole !== 'tutor') {
     throw new Error('Only the tutor can view student progress');
@@ -394,19 +355,18 @@ export async function getStudentDailyProgress(
     throw new Error('Student not found');
   }
 
-  // Get daily activity for last 30 days
+  // Get daily activity for last 30 days from review_events
   const dailyResult = await db.prepare(`
     SELECT
-      date(cr.reviewed_at) as date,
+      date(re.reviewed_at) as date,
       COUNT(*) as reviews_count,
-      COUNT(DISTINCT cr.card_id) as unique_cards,
-      AVG(CASE WHEN cr.rating >= 2 THEN 1.0 ELSE 0.0 END) * 100 as accuracy,
-      SUM(cr.time_spent_ms) as time_spent_ms
-    FROM card_reviews cr
-    JOIN study_sessions ss ON cr.session_id = ss.id
-    WHERE ss.user_id = ?
-      AND cr.reviewed_at >= datetime('now', '-30 days')
-    GROUP BY date(cr.reviewed_at)
+      COUNT(DISTINCT re.card_id) as unique_cards,
+      AVG(CASE WHEN re.rating >= 2 THEN 1.0 ELSE 0.0 END) * 100 as accuracy,
+      SUM(re.time_spent_ms) as time_spent_ms
+    FROM review_events re
+    WHERE re.user_id = ?
+      AND re.reviewed_at >= datetime('now', '-30 days')
+    GROUP BY date(re.reviewed_at)
     ORDER BY date DESC
   `).bind(studentId).all<{
     date: string;
@@ -418,7 +378,6 @@ export async function getStudentDailyProgress(
 
   const days = dailyResult.results || [];
 
-  // Calculate summary stats
   const totalReviews30d = days.reduce((sum, d) => sum + d.reviews_count, 0);
   const totalDaysActive = days.length;
   const totalTimeMs = days.reduce((sum, d) => sum + (d.time_spent_ms || 0), 0);
@@ -467,7 +426,7 @@ export async function getStudentDayCards(
 
   const studentId = getOtherUserId(rel, tutorId);
 
-  // Get cards reviewed that day with aggregated stats
+  // Get cards reviewed that day with aggregated stats from review_events
   const cardsResult = await db.prepare(`
     SELECT
       c.id as card_id,
@@ -477,17 +436,16 @@ export async function getStudentDayCards(
       n.pinyin,
       n.english,
       COUNT(*) as review_count,
-      GROUP_CONCAT(cr.rating) as ratings,
-      AVG(cr.rating) as avg_rating,
-      SUM(cr.time_spent_ms) as total_time_ms,
-      MAX(CASE WHEN cr.user_answer IS NOT NULL AND cr.user_answer != '' THEN 1 ELSE 0 END) as has_answers,
-      MAX(CASE WHEN cr.recording_url IS NOT NULL AND cr.recording_url != '' THEN 1 ELSE 0 END) as has_recordings
-    FROM card_reviews cr
-    JOIN study_sessions ss ON cr.session_id = ss.id
-    JOIN cards c ON cr.card_id = c.id
+      GROUP_CONCAT(re.rating) as ratings,
+      AVG(re.rating) as avg_rating,
+      SUM(re.time_spent_ms) as total_time_ms,
+      MAX(CASE WHEN re.user_answer IS NOT NULL AND re.user_answer != '' THEN 1 ELSE 0 END) as has_answers,
+      MAX(CASE WHEN re.recording_url IS NOT NULL AND re.recording_url != '' THEN 1 ELSE 0 END) as has_recordings
+    FROM review_events re
+    JOIN cards c ON re.card_id = c.id
     JOIN notes n ON c.note_id = n.id
-    WHERE ss.user_id = ?
-      AND date(cr.reviewed_at) = ?
+    WHERE re.user_id = ?
+      AND date(re.reviewed_at) = ?
     GROUP BY c.id
     ORDER BY review_count DESC, avg_rating ASC
   `).bind(studentId, date).all<{
@@ -522,7 +480,6 @@ export async function getStudentDayCards(
     has_recordings: r.has_recordings === 1,
   }));
 
-  // Calculate summary
   const totalReviews = cards.reduce((sum, c) => sum + c.review_count, 0);
   const allRatings = cards.flatMap(c => c.ratings);
   const accuracy = allRatings.length > 0
@@ -588,21 +545,20 @@ export async function getStudentCardReviews(
     throw new Error('Card not found');
   }
 
-  // Get reviews for that card on that day
+  // Get reviews for that card on that day from review_events
   const reviewsResult = await db.prepare(`
     SELECT
-      cr.id,
-      cr.reviewed_at,
-      cr.rating,
-      cr.time_spent_ms,
-      cr.user_answer,
-      cr.recording_url
-    FROM card_reviews cr
-    JOIN study_sessions ss ON cr.session_id = ss.id
-    WHERE cr.card_id = ?
-      AND ss.user_id = ?
-      AND date(cr.reviewed_at) = ?
-    ORDER BY cr.reviewed_at ASC
+      re.id,
+      re.reviewed_at,
+      re.rating,
+      re.time_spent_ms,
+      re.user_answer,
+      re.recording_url
+    FROM review_events re
+    WHERE re.card_id = ?
+      AND re.user_id = ?
+      AND date(re.reviewed_at) = ?
+    ORDER BY re.reviewed_at ASC
   `).bind(cardId, studentId, date).all<{
     id: string;
     reviewed_at: string;
@@ -637,19 +593,18 @@ export async function getMyDailyProgress(
   db: D1Database,
   userId: string
 ): Promise<Omit<DailyActivitySummary, 'student'> & { summary: DailyActivitySummary['summary']; days: DailyActivitySummary['days'] }> {
-  // Get daily activity for last 30 days
+  // Get daily activity for last 30 days from review_events
   const dailyResult = await db.prepare(`
     SELECT
-      date(cr.reviewed_at) as date,
+      date(re.reviewed_at) as date,
       COUNT(*) as reviews_count,
-      COUNT(DISTINCT cr.card_id) as unique_cards,
-      AVG(CASE WHEN cr.rating >= 2 THEN 1.0 ELSE 0.0 END) * 100 as accuracy,
-      SUM(cr.time_spent_ms) as time_spent_ms
-    FROM card_reviews cr
-    JOIN study_sessions ss ON cr.session_id = ss.id
-    WHERE ss.user_id = ?
-      AND cr.reviewed_at >= datetime('now', '-30 days')
-    GROUP BY date(cr.reviewed_at)
+      COUNT(DISTINCT re.card_id) as unique_cards,
+      AVG(CASE WHEN re.rating >= 2 THEN 1.0 ELSE 0.0 END) * 100 as accuracy,
+      SUM(re.time_spent_ms) as time_spent_ms
+    FROM review_events re
+    WHERE re.user_id = ?
+      AND re.reviewed_at >= datetime('now', '-30 days')
+    GROUP BY date(re.reviewed_at)
     ORDER BY date DESC
   `).bind(userId).all<{
     date: string;
@@ -661,7 +616,6 @@ export async function getMyDailyProgress(
 
   const days = dailyResult.results || [];
 
-  // Calculate summary stats
   const totalReviews30d = days.reduce((sum, d) => sum + d.reviews_count, 0);
   const totalDaysActive = days.length;
   const totalTimeMs = days.reduce((sum, d) => sum + (d.time_spent_ms || 0), 0);
@@ -694,7 +648,7 @@ export async function getMyDayCards(
   userId: string,
   date: string
 ): Promise<DayCardsDetail> {
-  // Get cards reviewed that day with aggregated stats
+  // Get cards reviewed that day with aggregated stats from review_events
   const cardsResult = await db.prepare(`
     SELECT
       c.id as card_id,
@@ -704,17 +658,16 @@ export async function getMyDayCards(
       n.pinyin,
       n.english,
       COUNT(*) as review_count,
-      GROUP_CONCAT(cr.rating) as ratings,
-      AVG(cr.rating) as avg_rating,
-      SUM(cr.time_spent_ms) as total_time_ms,
-      MAX(CASE WHEN cr.user_answer IS NOT NULL AND cr.user_answer != '' THEN 1 ELSE 0 END) as has_answers,
-      MAX(CASE WHEN cr.recording_url IS NOT NULL AND cr.recording_url != '' THEN 1 ELSE 0 END) as has_recordings
-    FROM card_reviews cr
-    JOIN study_sessions ss ON cr.session_id = ss.id
-    JOIN cards c ON cr.card_id = c.id
+      GROUP_CONCAT(re.rating) as ratings,
+      AVG(re.rating) as avg_rating,
+      SUM(re.time_spent_ms) as total_time_ms,
+      MAX(CASE WHEN re.user_answer IS NOT NULL AND re.user_answer != '' THEN 1 ELSE 0 END) as has_answers,
+      MAX(CASE WHEN re.recording_url IS NOT NULL AND re.recording_url != '' THEN 1 ELSE 0 END) as has_recordings
+    FROM review_events re
+    JOIN cards c ON re.card_id = c.id
     JOIN notes n ON c.note_id = n.id
-    WHERE ss.user_id = ?
-      AND date(cr.reviewed_at) = ?
+    WHERE re.user_id = ?
+      AND date(re.reviewed_at) = ?
     GROUP BY c.id
     ORDER BY review_count DESC, avg_rating ASC
   `).bind(userId, date).all<{
@@ -749,7 +702,6 @@ export async function getMyDayCards(
     has_recordings: r.has_recordings === 1,
   }));
 
-  // Calculate summary
   const totalReviews = cards.reduce((sum, c) => sum + c.review_count, 0);
   const allRatings = cards.flatMap(c => c.ratings);
   const accuracy = allRatings.length > 0
@@ -805,21 +757,20 @@ export async function getMyCardReviews(
     throw new Error('Card not found');
   }
 
-  // Get reviews for that card on that day
+  // Get reviews for that card on that day from review_events
   const reviewsResult = await db.prepare(`
     SELECT
-      cr.id,
-      cr.reviewed_at,
-      cr.rating,
-      cr.time_spent_ms,
-      cr.user_answer,
-      cr.recording_url
-    FROM card_reviews cr
-    JOIN study_sessions ss ON cr.session_id = ss.id
-    WHERE cr.card_id = ?
-      AND ss.user_id = ?
-      AND date(cr.reviewed_at) = ?
-    ORDER BY cr.reviewed_at ASC
+      re.id,
+      re.reviewed_at,
+      re.rating,
+      re.time_spent_ms,
+      re.user_answer,
+      re.recording_url
+    FROM review_events re
+    WHERE re.card_id = ?
+      AND re.user_id = ?
+      AND date(re.reviewed_at) = ?
+    ORDER BY re.reviewed_at ASC
   `).bind(cardId, userId, date).all<{
     id: string;
     reviewed_at: string;
@@ -855,7 +806,6 @@ export async function getStudentProgress(
 ): Promise<StudentProgress> {
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
 
-  // Verify tutor is actually the tutor in this relationship
   const myRole = getMyRole(rel, tutorId);
   if (myRole !== 'tutor') {
     throw new Error('Only the tutor can view student progress');
@@ -867,7 +817,7 @@ export async function getStudentProgress(
     throw new Error('Student not found');
   }
 
-  // Get student stats
+  // Get student stats using review_events
   const [totalCards, cardsDue, studiedToday, studiedThisWeek, avgAccuracy] = await Promise.all([
     db.prepare(`
       SELECT COUNT(*) as count FROM cards c
@@ -884,21 +834,18 @@ export async function getStudentProgress(
     `).bind(studentId).first<{ count: number }>(),
 
     db.prepare(`
-      SELECT COUNT(*) as count FROM card_reviews cr
-      JOIN study_sessions ss ON cr.session_id = ss.id
-      WHERE ss.user_id = ? AND date(cr.reviewed_at) = date('now')
+      SELECT COUNT(*) as count FROM review_events re
+      WHERE re.user_id = ? AND date(re.reviewed_at) = date('now')
     `).bind(studentId).first<{ count: number }>(),
 
     db.prepare(`
-      SELECT COUNT(*) as count FROM card_reviews cr
-      JOIN study_sessions ss ON cr.session_id = ss.id
-      WHERE ss.user_id = ? AND cr.reviewed_at >= datetime('now', '-7 days')
+      SELECT COUNT(*) as count FROM review_events re
+      WHERE re.user_id = ? AND re.reviewed_at >= datetime('now', '-7 days')
     `).bind(studentId).first<{ count: number }>(),
 
     db.prepare(`
-      SELECT AVG(CASE WHEN rating >= 2 THEN 1.0 ELSE 0.0 END) as avg FROM card_reviews cr
-      JOIN study_sessions ss ON cr.session_id = ss.id
-      WHERE ss.user_id = ?
+      SELECT AVG(CASE WHEN rating >= 2 THEN 1.0 ELSE 0.0 END) as avg FROM review_events re
+      WHERE re.user_id = ?
     `).bind(studentId).first<{ avg: number | null }>(),
   ]);
 

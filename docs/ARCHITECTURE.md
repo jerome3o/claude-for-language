@@ -40,30 +40,35 @@
 
 ```
 ChineseLearningDB
-├── decks          # Cached deck data
-├── notes          # Cached notes with audio URLs
-├── cards          # Card state (queue, interval, ease, due dates)
-├── pendingReviews # Reviews queued for sync
-├── cachedAudio    # Blob storage for audio files
-├── syncMeta       # Last sync timestamps
-└── studySessions  # Local session tracking
+├── decks            # Cached deck data
+├── notes            # Cached notes with audio URLs
+├── cards            # Card state (queue, interval, ease, due dates)
+├── reviewEvents     # Review events (source of truth for card state)
+├── cardCheckpoints  # Cached card state for performance
+├── cachedAudio      # Blob storage for audio files
+├── syncMeta         # Last sync timestamps
+├── eventSyncMeta    # Event sync cursors
+└── studySessions    # Local session tracking
 ```
 
 ### Data Flow
 
-**Study Session (Offline-First):**
+**Study Session (Offline-First, Event-Sourced):**
 ```
 1. User starts study
    └─▶ Read cards from IndexedDB (instant)
+   └─▶ Compute card state from reviewEvents + cardCheckpoints
 
 2. User rates card
-   └─▶ Update card in IndexedDB (instant)
-   └─▶ Queue review in pendingReviews
-   └─▶ Show next card from IndexedDB (instant)
+   └─▶ Create review event in reviewEvents
+   └─▶ Compute new card state from events (instant)
+   └─▶ Update cardCheckpoints cache
+   └─▶ Show next card (instant)
 
 3. Background sync (when online)
-   └─▶ POST pending reviews to API
-   └─▶ Mark reviews as synced
+   └─▶ POST unsynced review events to API
+   └─▶ Mark events as synced
+   └─▶ Pull new events from server (for multi-device sync)
 ```
 
 **Other Features (Online with Graceful Fallback):**
@@ -81,15 +86,17 @@ ChineseLearningDB
 |------|---------|
 | `frontend/src/db/database.ts` | IndexedDB schema, queries, daily limit logic |
 | `frontend/src/hooks/useOfflineData.ts` | Offline-first React hooks with Dexie live queries |
-| `frontend/src/services/sync.ts` | Background sync of pending reviews |
+| `frontend/src/services/sync.ts` | Background sync of review events |
+| `frontend/src/services/review-events.ts` | Review event creation and state computation |
 | `frontend/src/services/anki-scheduler.ts` | Local SRS calculations |
 | `frontend/src/contexts/NetworkContext.tsx` | Online/offline detection |
+| `shared/scheduler/compute-state.ts` | Pure function to compute card state from events |
 
 ### Daily Limit Tracking
 
 New card limits are enforced locally:
-- `PendingReview.original_queue` tracks if card was NEW when reviewed
-- `getNewCardsStudiedToday()` counts NEW cards reviewed today
+- `LocalReviewEvent.original_queue` tracks if card was NEW when reviewed
+- `getNewCardsStudiedToday()` counts NEW cards reviewed today from reviewEvents
 - `getDueCards(deckId, ignoreDailyLimit)` applies/bypasses limit
 
 ### Sync Status UI
@@ -179,19 +186,42 @@ CREATE TABLE study_sessions (
 );
 ```
 
-### card_reviews
+### review_events (Event-Sourced)
 ```sql
-CREATE TABLE card_reviews (
+CREATE TABLE review_events (
   id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
   card_id TEXT NOT NULL,
-  rating INTEGER NOT NULL, -- 0=again, 1=hard, 2=good, 3=easy
+  user_id TEXT NOT NULL,
+  rating INTEGER NOT NULL CHECK (rating >= 0 AND rating <= 3),
   time_spent_ms INTEGER,
   user_answer TEXT,
   recording_url TEXT,
-  reviewed_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (session_id) REFERENCES study_sessions(id) ON DELETE CASCADE,
-  FOREIGN KEY (card_id) REFERENCES cards(id)
+  reviewed_at TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  -- Debug snapshot (NOT used for state computation)
+  snapshot_queue INTEGER,
+  snapshot_ease REAL,
+  snapshot_interval INTEGER,
+  FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+);
+```
+
+Card state is computed from review events using `computeCardState()`, not stored. Checkpoints cache computed state for performance.
+
+### card_checkpoints (Performance Cache)
+```sql
+CREATE TABLE card_checkpoints (
+  card_id TEXT PRIMARY KEY,
+  checkpoint_at TEXT NOT NULL,
+  event_count INTEGER NOT NULL,
+  queue INTEGER NOT NULL,
+  learning_step INTEGER NOT NULL,
+  ease_factor REAL NOT NULL,
+  interval INTEGER NOT NULL,
+  repetitions INTEGER NOT NULL,
+  next_review_at TEXT,
+  due_timestamp INTEGER,
+  FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
 );
 ```
 

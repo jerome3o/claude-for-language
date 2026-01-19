@@ -8,10 +8,13 @@ beforeEach(async () => {
   await db.decks.clear();
   await db.notes.clear();
   await db.cards.clear();
-  await db.pendingReviews.clear();
   await db.syncMeta.clear();
   await db.studySessions.clear();
   await db.cachedAudio.clear();
+  await db.reviewEvents.clear();
+  await db.cardCheckpoints.clear();
+  await db.pendingRecordings.clear();
+  await db.eventSyncMeta.clear();
 });
 
 // Clean up after each test
