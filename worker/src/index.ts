@@ -1101,23 +1101,49 @@ app.put('/api/study/sessions/:id/complete', async (c) => {
 // ============ Audio ============
 
 app.post('/api/audio/upload', async (c) => {
+  const userId = c.get('user').id;
   const formData = await c.req.formData();
   const file = formData.get('file') as unknown;
-  const reviewId = formData.get('review_id');
+  const reviewId = formData.get('review_id') as string | null;
+  const cardId = formData.get('card_id') as string | null;
 
   // Check if file is a Blob/File (has arrayBuffer method)
-  if (!file || typeof file !== 'object' || !('arrayBuffer' in file) || !reviewId || typeof reviewId !== 'string') {
-    return c.json({ error: 'file and review_id are required' }, 400);
+  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+    return c.json({ error: 'file is required' }, 400);
+  }
+
+  // Need either review_id or card_id
+  if (!reviewId && !cardId) {
+    return c.json({ error: 'review_id or card_id is required' }, 400);
+  }
+
+  let targetReviewId = reviewId;
+
+  // If card_id provided instead of review_id, find the most recent review for this card by this user
+  if (!targetReviewId && cardId) {
+    const recentReview = await c.env.DB.prepare(`
+      SELECT cr.id
+      FROM card_reviews cr
+      JOIN study_sessions ss ON cr.session_id = ss.id
+      WHERE cr.card_id = ? AND ss.user_id = ?
+      ORDER BY cr.reviewed_at DESC
+      LIMIT 1
+    `).bind(cardId, userId).first<{ id: string }>();
+
+    if (!recentReview) {
+      return c.json({ error: 'No review found for this card' }, 404);
+    }
+    targetReviewId = recentReview.id;
   }
 
   const blob = file as Blob;
-  const key = getRecordingKey(reviewId);
+  const key = getRecordingKey(targetReviewId!);
   const arrayBuffer = await blob.arrayBuffer();
   await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type);
 
   // Update review with recording URL
   await c.env.DB.prepare('UPDATE card_reviews SET recording_url = ? WHERE id = ?')
-    .bind(key, reviewId)
+    .bind(key, targetReviewId)
     .run();
 
   return c.json({ key, url: `/api/audio/${key}` }, 201);

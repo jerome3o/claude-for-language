@@ -383,10 +383,10 @@ export async function completeSession(id: string): Promise<StudySession> {
 
 // ============ Audio ============
 
-export async function uploadRecording(reviewId: string, audioBlob: Blob): Promise<{ url: string }> {
+export async function uploadRecording(cardId: string, audioBlob: Blob): Promise<{ url: string }> {
   const formData = new FormData();
   formData.append('file', audioBlob, 'recording.webm');
-  formData.append('review_id', reviewId);
+  formData.append('card_id', cardId); // Server finds the most recent review for this card
 
   const headers: Record<string, string> = {};
   if (sessionToken) {
