@@ -71,6 +71,8 @@ export interface PendingReview {
   new_repetitions: number;
   new_next_review_at: string | null;
   new_due_timestamp: number | null;
+  // Recording blob (stored until sync completes, then uploaded)
+  recording_blob?: Blob;
   // Sync status
   _pending: boolean;
   _retries: number;

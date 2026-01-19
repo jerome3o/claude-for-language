@@ -1,6 +1,6 @@
 import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData } from '../db/database';
 import { Deck, Note, Card } from '../types';
-import { API_BASE, getAuthHeaders } from '../api/client';
+import { API_BASE, getAuthHeaders, uploadRecording } from '../api/client';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -295,6 +295,17 @@ class SyncService {
         });
 
         if (response.ok) {
+          // Upload recording if present (now that review exists on server)
+          if (review.recording_blob) {
+            try {
+              await uploadRecording(review.card_id, review.recording_blob);
+              console.log('[syncPendingReviews] Recording uploaded for card:', review.card_id);
+            } catch (uploadErr) {
+              console.error('[syncPendingReviews] Failed to upload recording:', uploadErr);
+              // Continue anyway - review is synced, just recording failed
+            }
+          }
+
           // Delete synced review immediately instead of marking as synced
           // This prevents the pendingReviews table from growing unboundedly
           await db.pendingReviews.delete(review.id);

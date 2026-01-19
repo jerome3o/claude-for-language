@@ -2,7 +2,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import {
-  uploadRecording,
   askAboutNote,
   startSession,
   API_BASE,
@@ -211,23 +210,8 @@ function StudyCard({
       timeSpentMs: timeSpent,
       userAnswer: userAnswer || undefined,
       sessionId: sessionId || undefined,
+      recordingBlob: audioBlob || undefined, // Recording will be uploaded after sync
     });
-
-    // Upload recording if exists (best-effort, non-blocking)
-    // Delay slightly to allow the review sync to complete first
-    if (audioBlob) {
-      const cardIdForUpload = card.id;
-      const blobForUpload = audioBlob;
-      console.log('[handleRate] Will upload recording for card:', cardIdForUpload, 'blob size:', blobForUpload.size);
-
-      // Wait 2 seconds for the review to sync, then upload
-      setTimeout(() => {
-        console.log('[handleRate] Uploading recording now...');
-        uploadRecording(cardIdForUpload, blobForUpload)
-          .then(result => console.log('[handleRate] Recording uploaded:', result))
-          .catch(err => console.error('[handleRate] Recording upload failed:', err));
-      }, 2000);
-    }
 
     onComplete();
   };

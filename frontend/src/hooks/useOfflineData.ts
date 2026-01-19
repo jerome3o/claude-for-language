@@ -213,12 +213,14 @@ export function useSubmitReviewOffline() {
       timeSpentMs,
       userAnswer,
       sessionId,
+      recordingBlob,
     }: {
       cardId: string;
       rating: Rating;
       timeSpentMs?: number;
       userAnswer?: string;
       sessionId?: string;
+      recordingBlob?: Blob;
     }) => {
       // Get the card
       const card = await db.cards.get(cardId);
@@ -274,6 +276,7 @@ export function useSubmitReviewOffline() {
         new_repetitions: result.repetitions,
         new_next_review_at: result.next_review_at?.toISOString() || null,
         new_due_timestamp: result.due_timestamp,
+        recording_blob: recordingBlob, // Store recording to upload after sync
         _pending: true,
         _retries: 0,
         _last_error: null,
