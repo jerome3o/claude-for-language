@@ -16,7 +16,8 @@
     "build:frontend": "npm run build -w frontend",
     "deploy": "npm run deploy -w worker",
     "deploy:mcp": "npm run deploy -w mcp-server",
-    "typecheck": "npm run typecheck -w worker && npm run typecheck -w frontend"
+    "typecheck": "npm run typecheck -w worker && npm run typecheck -w frontend",
+    "test": "npm run test -w frontend"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

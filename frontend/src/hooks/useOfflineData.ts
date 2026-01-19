@@ -1,3 +1,4 @@
+import React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, LocalCard, PendingReview, getDueCards, getQueueCounts, getSyncMeta, hasMoreNewCards as checkHasMoreNewCards } from '../db/database';
@@ -6,33 +7,58 @@ import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview } from '../types';
 
 // Hook to get all decks from IndexedDB with background sync
-export function useOfflineDecks() {
+// Pass apiDecks to detect mismatches and auto-fix via full sync
+export function useOfflineDecks(apiDecks?: { id: string }[]) {
   // Use Dexie live query for reactive updates
   const decks = useLiveQuery(async () => {
     const result = await db.decks.toArray();
-    console.log('[useOfflineDecks] Got decks from IndexedDB:', result.length, result.map(d => ({ id: d.id, name: d.name })));
     return result;
   }, []);
 
+  // Detect mismatch: API has decks that aren't in IndexedDB
+  const localDeckIds = new Set((decks || []).map(d => d.id));
+  const missingDecks = apiDecks?.filter(d => !localDeckIds.has(d.id)) || [];
+  const hasMismatch = missingDecks.length > 0;
+
+  // Auto-trigger full sync when mismatch detected
+  const [isAutoSyncing, setIsAutoSyncing] = React.useState(false);
+  React.useEffect(() => {
+    if (hasMismatch && navigator.onLine && !isAutoSyncing && !syncService.isSyncingNow) {
+      console.log('[useOfflineDecks] Mismatch detected! API has decks not in IndexedDB:', missingDecks.map(d => d.id));
+      console.log('[useOfflineDecks] Triggering full sync to fix...');
+      setIsAutoSyncing(true);
+      syncService.fullSync()
+        .then(() => console.log('[useOfflineDecks] Auto full sync complete'))
+        .catch(err => console.error('[useOfflineDecks] Auto full sync failed:', err))
+        .finally(() => setIsAutoSyncing(false));
+    }
+  }, [hasMismatch, missingDecks, isAutoSyncing]);
+
   // Trigger background sync when online
   const triggerSync = async () => {
-    console.log('[useOfflineDecks] triggerSync called, online:', navigator.onLine);
     if (navigator.onLine) {
       const needsSync = await syncService.needsFullSync();
-      console.log('[useOfflineDecks] needsFullSync:', needsSync);
       if (needsSync) {
         await syncService.fullSync();
       } else {
         await syncService.syncInBackground();
       }
-      console.log('[useOfflineDecks] sync complete');
+    }
+  };
+
+  // Force a full sync (clear and re-download)
+  const forceFullSync = async () => {
+    if (navigator.onLine) {
+      await syncService.forceFreshSync();
     }
   };
 
   return {
     decks: decks || [],
     isLoading: decks === undefined,
+    isSyncing: isAutoSyncing || syncService.isSyncingNow,
     triggerSync,
+    forceFullSync,
   };
 }
 

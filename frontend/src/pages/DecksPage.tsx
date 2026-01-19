@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { getDecks, createDeck, getDeckStats, importDeck, DeckExport } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Deck, QueueCounts } from '../types';
-import { useOfflineQueueCounts } from '../hooks/useOfflineData';
+import { useOfflineQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
 
 // Queue counts display component (same style as study page)
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -26,16 +26,7 @@ function DeckCard({ deck }: { deck: Deck }) {
   });
 
   // Get offline queue counts for this specific deck
-  const { counts: offlineCounts, isLoading: countsLoading } = useOfflineQueueCounts(deck.id, false);
-
-  // Debug logging
-  useEffect(() => {
-    console.log(`[DeckCard] Deck "${deck.name}" (${deck.id}):`, {
-      offlineCounts,
-      countsLoading,
-      apiStats: statsQuery.data,
-    });
-  }, [deck.id, deck.name, offlineCounts, countsLoading, statsQuery.data]);
+  const { counts: offlineCounts } = useOfflineQueueCounts(deck.id, false);
 
   const stats = statsQuery.data;
   const totalDue = offlineCounts.new + offlineCounts.learning + offlineCounts.review;
@@ -65,9 +56,6 @@ function DeckCard({ deck }: { deck: Deck }) {
           to={`/study?deck=${deck.id}`}
           className="btn btn-primary btn-sm"
           style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
-          onClick={() => {
-            console.log(`[DeckCard] Study button clicked for deck "${deck.name}" (${deck.id}), counts:`, offlineCounts);
-          }}
         >
           Study {totalDue > 0 ? `(${totalDue})` : ''}
         </Link>
@@ -90,6 +78,9 @@ export function DecksPage() {
     queryKey: ['decks'],
     queryFn: getDecks,
   });
+
+  // Pass API decks to detect mismatch with IndexedDB and auto-sync
+  const { isSyncing } = useOfflineDecks(decksQuery.data);
 
   const createMutation = useMutation({
     mutationFn: () => createDeck(name, description || undefined),
@@ -223,6 +214,12 @@ export function DecksPage() {
             >
               &times;
             </button>
+          </div>
+        )}
+
+        {isSyncing && (
+          <div className="mb-4" style={{ padding: '0.75rem', background: '#dbeafe', color: '#1d4ed8', borderRadius: '0.5rem', textAlign: 'center' }}>
+            Syncing decks...
           </div>
         )}
 
