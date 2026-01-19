@@ -585,7 +585,8 @@ export function StudyPage() {
   const [ignoreDailyLimit, setIgnoreDailyLimit] = useState(false);
 
   // All data comes from offline/local-first hooks
-  const { decks } = useOfflineDecks();
+  const { decks, triggerSync } = useOfflineDecks();
+  const [isSyncing, setIsSyncing] = useState(false);
   const offlineQueueCounts = useOfflineQueueCounts(deckId, ignoreDailyLimit);
   const offlineNextCard = useOfflineNextCard(
     studyStarted ? deckId : undefined,
@@ -667,9 +668,22 @@ export function StudyPage() {
               title="No cards due!"
               description="You're all caught up. Check back later or add more cards."
               action={
-                <Link to="/decks" className="btn btn-primary">
-                  View Decks
-                </Link>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      setIsSyncing(true);
+                      await triggerSync();
+                      setIsSyncing(false);
+                    }}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? 'Syncing...' : 'Refresh'}
+                  </button>
+                  <Link to="/decks" className="btn btn-primary">
+                    View Decks
+                  </Link>
+                </div>
               }
             />
           ) : (

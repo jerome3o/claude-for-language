@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { generateDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
+import { syncService } from '../services/sync';
 import { NoteWithCards } from '../types';
 
 export function GeneratePage() {
@@ -19,9 +20,11 @@ export function GeneratePage() {
 
   const generateMutation = useMutation({
     mutationFn: () => generateDeck(prompt, deckName || undefined),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       setGeneratedDeck(result);
       queryClient.invalidateQueries({ queryKey: ['decks'] });
+      // Sync to IndexedDB so the new deck is available for offline study
+      await syncService.incrementalSync();
     },
   });
 
