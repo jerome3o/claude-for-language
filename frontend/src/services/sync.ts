@@ -51,6 +51,7 @@ function cardToLocal(card: Card, deckId: string): LocalCard {
 
 class SyncService {
   private isSyncing = false;
+  private isSyncingReviews = false;
   private syncListeners: Set<(syncing: boolean) => void> = new Set();
 
   addSyncListener(listener: (syncing: boolean) => void) {
@@ -243,6 +244,22 @@ class SyncService {
    * Sync pending reviews to the server
    */
   async syncPendingReviews(): Promise<{ synced: number; failed: number }> {
+    // Prevent concurrent syncs - this is critical to avoid duplicate reviews
+    if (this.isSyncingReviews) {
+      console.log('[syncPendingReviews] Already syncing, skipping');
+      return { synced: 0, failed: 0 };
+    }
+
+    this.isSyncingReviews = true;
+
+    try {
+      return await this._syncPendingReviewsInternal();
+    } finally {
+      this.isSyncingReviews = false;
+    }
+  }
+
+  private async _syncPendingReviewsInternal(): Promise<{ synced: number; failed: number }> {
     // First, clean up any old synced reviews that are clogging the table
     // Use filter since _pending is boolean but indexed as 0/1
     const allReviews = await db.pendingReviews.toArray();
@@ -281,6 +298,7 @@ class SyncService {
             user_answer: review.user_answer,
             session_id: review.session_id,
             reviewed_at: review.reviewed_at, // Actual time of review (for correct date grouping)
+            client_review_id: review.id, // Unique ID for deduplication - prevents duplicate reviews on retry
             // Include the computed result so server can verify or use it
             offline_result: {
               queue: review.new_queue,

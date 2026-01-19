@@ -881,13 +881,14 @@ app.get('/api/study/next-card', async (c) => {
 // Submit review with Anki-style scheduling
 app.post('/api/study/review', async (c) => {
   const userId = c.get('user').id;
-  const { card_id, rating, time_spent_ms, user_answer, session_id, reviewed_at, offline_result } = await c.req.json<{
+  const { card_id, rating, time_spent_ms, user_answer, session_id, reviewed_at, client_review_id, offline_result } = await c.req.json<{
     card_id: string;
     rating: Rating;
     time_spent_ms?: number;
     user_answer?: string;
     session_id?: string;
     reviewed_at?: string; // ISO timestamp from client (for offline sync)
+    client_review_id?: string; // Unique ID from client for deduplication
     offline_result?: {
       queue: number;
       learning_step: number;
@@ -901,6 +902,25 @@ app.post('/api/study/review', async (c) => {
 
   if (!card_id || rating === undefined) {
     return c.json({ error: 'card_id and rating are required' }, 400);
+  }
+
+  // Check for duplicate review using client_review_id (idempotency check)
+  // This prevents duplicates when the client retries a sync request
+  if (client_review_id) {
+    const existingReview = await c.env.DB.prepare(
+      'SELECT id FROM card_reviews WHERE client_review_id = ?'
+    ).bind(client_review_id).first<{ id: string }>();
+
+    if (existingReview) {
+      // Review already exists - return success without creating a duplicate
+      console.log(`[review] Duplicate review detected: client_review_id=${client_review_id}, existing_id=${existingReview.id}`);
+      const counts = await db.getQueueCounts(c.env.DB, userId, undefined);
+      return c.json({
+        review: { id: existingReview.id },
+        counts,
+        deduplicated: true,
+      }, 200);
+    }
   }
 
   // Get current card state (verify ownership)
@@ -973,7 +993,8 @@ app.post('/api/study/review', async (c) => {
     time_spent_ms,
     user_answer,
     undefined, // recordingUrl
-    reviewed_at // Actual review time (from offline sync)
+    reviewed_at, // Actual review time (from offline sync)
+    client_review_id // Client-generated ID for deduplication
   );
 
   // Get updated queue counts

@@ -614,7 +614,8 @@ export async function createCardReview(
   timeSpentMs?: number,
   userAnswer?: string,
   recordingUrl?: string,
-  reviewedAt?: string // ISO timestamp - if provided, use this instead of server time
+  reviewedAt?: string, // ISO timestamp - if provided, use this instead of server time
+  clientReviewId?: string // Client-generated ID for deduplication
 ): Promise<CardReview> {
   const id = generateId();
 
@@ -622,7 +623,26 @@ export async function createCardReview(
     // Use provided timestamp (from offline sync)
     await db
       .prepare(
-        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at)
+        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at, client_review_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        id,
+        sessionId,
+        cardId,
+        rating,
+        timeSpentMs || null,
+        userAnswer || null,
+        recordingUrl || null,
+        reviewedAt,
+        clientReviewId || null
+      )
+      .run();
+  } else {
+    // Use database default (current time)
+    await db
+      .prepare(
+        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url, client_review_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
@@ -633,24 +653,7 @@ export async function createCardReview(
         timeSpentMs || null,
         userAnswer || null,
         recordingUrl || null,
-        reviewedAt
-      )
-      .run();
-  } else {
-    // Use database default (current time)
-    await db
-      .prepare(
-        `INSERT INTO card_reviews (id, session_id, card_id, rating, time_spent_ms, user_answer, recording_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        id,
-        sessionId,
-        cardId,
-        rating,
-        timeSpentMs || null,
-        userAnswer || null,
-        recordingUrl || null
+        clientReviewId || null
       )
       .run();
   }
