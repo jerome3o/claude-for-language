@@ -1,4 +1,4 @@
-import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData } from '../db/database';
+import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData, cleanupSyncedReviews } from '../db/database';
 import { Deck, Note, Card } from '../types';
 import { API_BASE, getAuthHeaders, uploadRecording } from '../api/client';
 
@@ -243,16 +243,13 @@ class SyncService {
    * Sync pending reviews to the server
    */
   async syncPendingReviews(): Promise<{ synced: number; failed: number }> {
-    // First, clean up any old synced reviews that are clogging the table
-    // Use filter since _pending is boolean but indexed as 0/1
-    const allReviews = await db.pendingReviews.toArray();
-    const syncedReviews = allReviews.filter(r => r._pending === false || (r._pending as unknown) === 0);
-    const pendingReviews = allReviews.filter(r => r._pending === true || (r._pending as unknown) === 1);
+    // Clean up old synced reviews (older than 7 days) to prevent table growth
+    // Keep recent synced reviews for daily new card count tracking
+    await cleanupSyncedReviews();
 
-    if (syncedReviews.length > 0) {
-      // Delete all synced reviews (they're already on the server)
-      await db.pendingReviews.bulkDelete(syncedReviews.map(r => r.id));
-    }
+    // Get only pending reviews (not yet synced)
+    const allReviews = await db.pendingReviews.toArray();
+    const pendingReviews = allReviews.filter(r => r._pending === true || (r._pending as unknown) === 1);
 
     if (pendingReviews.length === 0) {
       return { synced: 0, failed: 0 };
@@ -306,9 +303,10 @@ class SyncService {
             }
           }
 
-          // Delete synced review immediately instead of marking as synced
-          // This prevents the pendingReviews table from growing unboundedly
-          await db.pendingReviews.delete(review.id);
+          // Mark review as synced instead of deleting
+          // This preserves the review for daily new card count tracking
+          // Old synced reviews are cleaned up by cleanupSyncedReviews()
+          await db.pendingReviews.update(review.id, { _pending: false });
           synced++;
         } else {
           const error = await response.text();
