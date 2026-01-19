@@ -102,6 +102,23 @@ function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activ
   );
 }
 
+// Deck row with its own queue counts (uses hook for reactive updates)
+function DeckStudyRow({ deck }: { deck: { id: string; name: string } }) {
+  const counts = useOfflineQueueCounts(deck.id, false);
+  const totalDue = counts.counts.new + counts.counts.learning + counts.counts.review;
+
+  return (
+    <Link to={`/study?deck=${deck.id}`} className="deck-card">
+      <div className="deck-card-title">{deck.name}</div>
+      {totalDue > 0 && (
+        <div className="deck-card-stats">
+          <QueueCountsHeader counts={counts.counts} />
+        </div>
+      )}
+    </Link>
+  );
+}
+
 // Rating buttons with interval previews from backend
 function RatingButtons({
   intervalPreviews,
@@ -653,9 +670,7 @@ export function StudyPage() {
                   </div>
                 </Link>
                 {decks.map((deck) => (
-                  <Link key={deck.id} to={`/study?deck=${deck.id}`} className="deck-card">
-                    <div className="deck-card-title">{deck.name}</div>
-                  </Link>
+                  <DeckStudyRow key={deck.id} deck={deck} />
                 ))}
               </div>
             </div>
