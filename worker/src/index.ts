@@ -881,12 +881,21 @@ app.get('/api/study/next-card', async (c) => {
 // Submit review with Anki-style scheduling
 app.post('/api/study/review', async (c) => {
   const userId = c.get('user').id;
-  const { card_id, rating, time_spent_ms, user_answer, session_id } = await c.req.json<{
+  const { card_id, rating, time_spent_ms, user_answer, session_id, offline_result } = await c.req.json<{
     card_id: string;
     rating: Rating;
     time_spent_ms?: number;
     user_answer?: string;
     session_id?: string;
+    offline_result?: {
+      queue: number;
+      learning_step: number;
+      ease_factor: number;
+      interval: number;
+      repetitions: number;
+      next_review_at: string | null;
+      due_timestamp: number | null;
+    };
   }>();
 
   if (!card_id || rating === undefined) {
@@ -913,32 +922,56 @@ app.post('/api/study/review', async (c) => {
     await db.incrementDailyNewCount(c.env.DB, userId, card.note.deck_id);
   }
 
-  // Calculate new scheduling values using Anki algorithm
-  const result = scheduleCard(
-    rating,
-    card.queue,
-    card.learning_step,
-    card.ease_factor,
-    card.interval,
-    card.repetitions,
-    settings
-  );
+  // Use offline_result if provided (from offline sync), otherwise calculate
+  let result;
+  if (offline_result) {
+    // Trust the offline calculation - convert to SchedulerResult format
+    result = {
+      queue: offline_result.queue,
+      learning_step: offline_result.learning_step,
+      ease_factor: offline_result.ease_factor,
+      interval: offline_result.interval,
+      repetitions: offline_result.repetitions,
+      next_review_at: offline_result.next_review_at ? new Date(offline_result.next_review_at) : null,
+      due_timestamp: offline_result.due_timestamp,
+    };
+  } else {
+    // Calculate new scheduling values using Anki algorithm
+    result = scheduleCard(
+      rating,
+      card.queue,
+      card.learning_step,
+      card.ease_factor,
+      card.interval,
+      card.repetitions,
+      settings
+    );
+  }
 
   // Update card with new values
   await db.updateCardSchedule(c.env.DB, card_id, result);
 
-  // Create review record if we have a session
+  // Create review record - auto-create session if needed for offline synced reviews
   let review = null;
-  if (session_id) {
-    review = await db.createCardReview(
-      c.env.DB,
-      session_id,
-      card_id,
-      rating,
-      time_spent_ms,
-      user_answer
-    );
+  let effectiveSessionId = session_id;
+
+  // If no session_id provided (offline review), create an auto-session
+  if (!effectiveSessionId) {
+    const autoSession = await db.createStudySession(c.env.DB, userId, card.note.deck_id);
+    effectiveSessionId = autoSession.id;
+    // Mark it as completed immediately since it's a sync of past reviews
+    await db.completeStudySession(c.env.DB, autoSession.id, userId);
   }
+
+  // Always create review record so we have history
+  review = await db.createCardReview(
+    c.env.DB,
+    effectiveSessionId,
+    card_id,
+    rating,
+    time_spent_ms,
+    user_answer
+  );
 
   // Get updated queue counts
   const counts = await db.getQueueCounts(c.env.DB, userId, card.note.deck_id);
