@@ -1,9 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { getDecks, createDeck, getDeckStats, importDeck, DeckExport } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
-import { Deck } from '../types';
+import { Deck, QueueCounts } from '../types';
+import { useOfflineQueueCounts } from '../hooks/useOfflineData';
+
+// Queue counts display component (same style as study page)
+function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
+  return (
+    <div className="queue-counts" style={{ fontSize: '0.875rem' }}>
+      <span style={{ color: '#3b82f6', fontWeight: 600 }}>{counts.new}</span>
+      <span style={{ color: '#9ca3af' }}>+</span>
+      <span style={{ color: '#f97316', fontWeight: 600 }}>{counts.learning}</span>
+      <span style={{ color: '#9ca3af' }}>+</span>
+      <span style={{ color: '#22c55e', fontWeight: 600 }}>{counts.review}</span>
+    </div>
+  );
+}
 
 function DeckCard({ deck }: { deck: Deck }) {
   const statsQuery = useQuery({
@@ -11,24 +25,54 @@ function DeckCard({ deck }: { deck: Deck }) {
     queryFn: () => getDeckStats(deck.id),
   });
 
+  // Get offline queue counts for this specific deck
+  const { counts: offlineCounts, isLoading: countsLoading } = useOfflineQueueCounts(deck.id, false);
+
+  // Debug logging
+  useEffect(() => {
+    console.log(`[DeckCard] Deck "${deck.name}" (${deck.id}):`, {
+      offlineCounts,
+      countsLoading,
+      apiStats: statsQuery.data,
+    });
+  }, [deck.id, deck.name, offlineCounts, countsLoading, statsQuery.data]);
+
   const stats = statsQuery.data;
+  const totalDue = offlineCounts.new + offlineCounts.learning + offlineCounts.review;
 
   return (
-    <Link to={`/decks/${deck.id}`} className="deck-card">
-      <div className="deck-card-title">{deck.name}</div>
-      {deck.description && (
-        <p className="text-light mb-2" style={{ fontSize: '0.875rem' }}>
-          {deck.description}
-        </p>
-      )}
-      {stats && (
-        <div className="deck-card-stats">
-          <span>{stats.total_notes} notes</span>
-          <span>{stats.cards_due} due</span>
-          {stats.cards_mastered > 0 && <span>{stats.cards_mastered} mastered</span>}
-        </div>
-      )}
-    </Link>
+    <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+        <div className="deck-card-title">{deck.name}</div>
+        {deck.description && (
+          <p className="text-light mb-2" style={{ fontSize: '0.875rem' }}>
+            {deck.description}
+          </p>
+        )}
+        {stats && (
+          <div className="deck-card-stats">
+            <span>{stats.total_notes} notes</span>
+            <span>{stats.cards_due} due (API)</span>
+            {stats.cards_mastered > 0 && <span>{stats.cards_mastered} mastered</span>}
+          </div>
+        )}
+      </Link>
+
+      {/* Study button with offline queue counts */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #e5e7eb' }}>
+        <QueueCountsBadge counts={offlineCounts} />
+        <Link
+          to={`/study?deck=${deck.id}`}
+          className="btn btn-primary btn-sm"
+          style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+          onClick={() => {
+            console.log(`[DeckCard] Study button clicked for deck "${deck.name}" (${deck.id}), counts:`, offlineCounts);
+          }}
+        >
+          Study {totalDue > 0 ? `(${totalDue})` : ''}
+        </Link>
+      </div>
+    </div>
   );
 }
 
