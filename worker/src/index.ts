@@ -1101,11 +1101,18 @@ app.put('/api/study/sessions/:id/complete', async (c) => {
 // ============ Audio ============
 
 app.post('/api/audio/upload', async (c) => {
-  const userId = c.get('user').id;
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  const userId = user.id;
+
   const formData = await c.req.formData();
   const file = formData.get('file') as unknown;
   const reviewId = formData.get('review_id') as string | null;
   const cardId = formData.get('card_id') as string | null;
+
+  console.log('[audio/upload] userId:', userId, 'cardId:', cardId, 'reviewId:', reviewId);
 
   // Check if file is a Blob/File (has arrayBuffer method)
   if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
@@ -1121,6 +1128,7 @@ app.post('/api/audio/upload', async (c) => {
 
   // If card_id provided instead of review_id, find the most recent review for this card by this user
   if (!targetReviewId && cardId) {
+    console.log('[audio/upload] Looking for review with card_id:', cardId, 'user_id:', userId);
     const recentReview = await c.env.DB.prepare(`
       SELECT cr.id
       FROM card_reviews cr
@@ -1129,6 +1137,8 @@ app.post('/api/audio/upload', async (c) => {
       ORDER BY cr.reviewed_at DESC
       LIMIT 1
     `).bind(cardId, userId).first<{ id: string }>();
+
+    console.log('[audio/upload] Query result:', recentReview);
 
     if (!recentReview) {
       return c.json({ error: 'No review found for this card' }, 404);
