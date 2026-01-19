@@ -1,4 +1,4 @@
-import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData, cleanupSyncedReviews } from '../db/database';
+import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData } from '../db/database';
 import { Deck, Note, Card } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 
