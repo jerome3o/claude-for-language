@@ -53,6 +53,10 @@ export function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+export function getAuthToken(): string | null {
+  return sessionToken;
+}
+
 // Event for handling unauthorized responses
 export const authEvents = {
   onUnauthorized: () => {},

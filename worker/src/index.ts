@@ -898,13 +898,14 @@ app.get('/api/study/next-card', async (c) => {
 // Submit review with Anki-style scheduling
 app.post('/api/study/review', async (c) => {
   const userId = c.get('user').id;
-  const { card_id, rating, time_spent_ms, user_answer, session_id, reviewed_at, offline_result } = await c.req.json<{
+  const { card_id, rating, time_spent_ms, user_answer, session_id, reviewed_at, offline_result, event_id } = await c.req.json<{
     card_id: string;
     rating: Rating;
     time_spent_ms?: number;
     user_answer?: string;
     session_id?: string;
     reviewed_at?: string; // ISO timestamp from client (for offline sync)
+    event_id?: string; // Client-generated event ID for idempotency
     offline_result?: {
       queue: number;
       learning_step: number;
@@ -969,35 +970,30 @@ app.post('/api/study/review', async (c) => {
   // Update card with new values
   await db.updateCardSchedule(c.env.DB, card_id, result);
 
-  // Create review record - auto-create session if needed for offline synced reviews
-  let review = null;
-  let effectiveSessionId = session_id;
-
-  // If no session_id provided (offline review), create an auto-session
-  if (!effectiveSessionId) {
-    const autoSession = await db.createStudySession(c.env.DB, userId, card.note.deck_id);
-    effectiveSessionId = autoSession.id;
-    // Mark it as completed immediately since it's a sync of past reviews
-    await db.completeStudySession(c.env.DB, autoSession.id, userId);
-  }
-
-  // Always create review record so we have history
-  review = await db.createCardReview(
+  // Create review event (source of truth for sync)
+  const actualReviewedAt = reviewed_at || new Date().toISOString();
+  await db.createReviewEvent(
     c.env.DB,
-    effectiveSessionId,
     card_id,
+    userId,
     rating,
+    actualReviewedAt,
     time_spent_ms,
     user_answer,
-    undefined, // recordingUrl
-    reviewed_at // Actual review time (from offline sync)
+    undefined, // recordingUrl - will be updated separately
+    {
+      queue: result.queue,
+      ease_factor: result.ease_factor,
+      interval: result.interval,
+      next_review_at: result.next_review_at?.toISOString() || null,
+    }
   );
 
   // Get updated queue counts
   const counts = await db.getQueueCounts(c.env.DB, userId, card.note.deck_id);
 
   return c.json({
-    review,
+    success: true,
     counts,
     next_queue: result.queue,
     next_interval: result.interval,
@@ -1088,18 +1084,27 @@ app.post('/api/study/sessions/:id/reviews', async (c) => {
     sm2Result.nextReviewAt
   );
 
-  // Create the review record
-  const review = await db.createCardReview(
+  // Create review event (source of truth)
+  const reviewedAt = new Date().toISOString();
+  await db.createReviewEvent(
     c.env.DB,
-    sessionId,
     card_id,
+    userId,
     rating,
+    reviewedAt,
     time_spent_ms,
-    user_answer
+    user_answer,
+    undefined, // recordingUrl
+    {
+      queue: card.queue, // Note: SM-2 doesn't update queue, keeping original
+      ease_factor: sm2Result.easeFactor,
+      interval: sm2Result.interval,
+      next_review_at: sm2Result.nextReviewAt.toISOString(),
+    }
   );
 
   return c.json({
-    review,
+    success: true,
     next_review_at: sm2Result.nextReviewAt.toISOString(),
     interval: sm2Result.interval,
   }, 201);
@@ -1651,6 +1656,248 @@ app.get('/api/stats/deck/:id', async (c) => {
     return c.json({ error: 'Deck not found' }, 404);
   }
   return c.json(stats);
+});
+
+// ============ Review Events (Event-Sourced Sync) ============
+
+// Backfill endpoint - migrate card_reviews to review_events
+app.post('/api/admin/backfill-events', async (c) => {
+  const userId = c.get('user').id;
+
+  // Only allow admin users
+  const user = await c.env.DB.prepare('SELECT is_admin FROM users WHERE id = ?')
+    .bind(userId)
+    .first<{ is_admin: number }>();
+
+  if (!user?.is_admin) {
+    return c.json({ error: 'Admin access required' }, 403);
+  }
+
+  let eventsCreated = 0;
+  let checkpointsCreated = 0;
+  const errors: string[] = [];
+
+  try {
+    // Step 1: Get all card_reviews that don't have corresponding review_events
+    const reviews = await c.env.DB.prepare(`
+      SELECT cr.*, c.note_id, n.deck_id, ss.user_id
+      FROM card_reviews cr
+      JOIN cards c ON cr.card_id = c.id
+      JOIN notes n ON c.note_id = n.id
+      JOIN study_sessions ss ON cr.session_id = ss.id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM review_events re
+        WHERE re.card_id = cr.card_id
+        AND re.reviewed_at = cr.reviewed_at
+        AND re.rating = cr.rating
+      )
+      ORDER BY cr.reviewed_at ASC
+    `).all();
+
+    // Step 2: Insert review events
+    for (const review of reviews.results as Array<{
+      id: string;
+      card_id: string;
+      rating: number;
+      time_spent_ms: number | null;
+      user_answer: string | null;
+      recording_url: string | null;
+      reviewed_at: string;
+      user_id: string;
+    }>) {
+      try {
+        const eventId = `backfill-${review.id}`;
+        await c.env.DB.prepare(`
+          INSERT OR IGNORE INTO review_events (
+            id, card_id, user_id, rating, time_spent_ms, user_answer,
+            recording_url, reviewed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          eventId,
+          review.card_id,
+          review.user_id,
+          review.rating,
+          review.time_spent_ms,
+          review.user_answer,
+          review.recording_url,
+          review.reviewed_at
+        ).run();
+        eventsCreated++;
+      } catch (err) {
+        errors.push(`Failed to create event for review ${review.id}: ${err}`);
+      }
+    }
+
+    // Step 3: Create checkpoints from current card state
+    const cards = await c.env.DB.prepare(`
+      SELECT c.*, n.deck_id, d.user_id
+      FROM cards c
+      JOIN notes n ON c.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE c.queue > 0 OR c.repetitions > 0
+    `).all();
+
+    for (const card of cards.results as Array<{
+      id: string;
+      queue: number;
+      learning_step: number;
+      ease_factor: number;
+      interval: number;
+      repetitions: number;
+      next_review_at: string | null;
+      due_timestamp: number | null;
+    }>) {
+      try {
+        // Count events for this card
+        const eventCount = await c.env.DB.prepare(`
+          SELECT COUNT(*) as count FROM review_events WHERE card_id = ?
+        `).bind(card.id).first<{ count: number }>();
+
+        if (eventCount && eventCount.count > 0) {
+          // Get the latest event timestamp
+          const latestEvent = await c.env.DB.prepare(`
+            SELECT reviewed_at FROM review_events
+            WHERE card_id = ?
+            ORDER BY reviewed_at DESC
+            LIMIT 1
+          `).bind(card.id).first<{ reviewed_at: string }>();
+
+          await c.env.DB.prepare(`
+            INSERT OR REPLACE INTO card_checkpoints (
+              card_id, checkpoint_at, event_count, queue, learning_step,
+              ease_factor, interval, repetitions, next_review_at, due_timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            card.id,
+            latestEvent?.reviewed_at || new Date().toISOString(),
+            eventCount.count,
+            card.queue,
+            card.learning_step,
+            card.ease_factor,
+            card.interval,
+            card.repetitions,
+            card.next_review_at,
+            card.due_timestamp
+          ).run();
+          checkpointsCreated++;
+        }
+      } catch (err) {
+        errors.push(`Failed to create checkpoint for card ${card.id}: ${err}`);
+      }
+    }
+
+    return c.json({
+      success: true,
+      events_created: eventsCreated,
+      checkpoints_created: checkpointsCreated,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    return c.json({
+      success: false,
+      error: String(err),
+      events_created: eventsCreated,
+      checkpoints_created: checkpointsCreated,
+    }, 500);
+  }
+});
+
+// Upload batch of review events (from offline sync)
+app.post('/api/reviews', async (c) => {
+  const userId = c.get('user').id;
+  const { events } = await c.req.json<{
+    events: Array<{
+      id: string;
+      card_id: string;
+      rating: Rating;
+      reviewed_at: string;
+      time_spent_ms?: number;
+      user_answer?: string;
+    }>;
+  }>();
+
+  if (!events || !Array.isArray(events)) {
+    return c.json({ error: 'events array is required' }, 400);
+  }
+
+  if (events.length === 0) {
+    return c.json({ created: 0, skipped: 0 });
+  }
+
+  // Validate all events have required fields
+  for (const event of events) {
+    if (!event.id || !event.card_id || event.rating === undefined || !event.reviewed_at) {
+      return c.json({ error: 'Each event must have id, card_id, rating, and reviewed_at' }, 400);
+    }
+  }
+
+  // Verify all cards belong to this user
+  const cardIds = [...new Set(events.map(e => e.card_id))];
+  const verificationPromises = cardIds.map(cardId =>
+    db.getCardById(c.env.DB, cardId, userId)
+  );
+  const cards = await Promise.all(verificationPromises);
+
+  if (cards.some(card => !card)) {
+    return c.json({ error: 'One or more cards not found or not owned by user' }, 404);
+  }
+
+  // Create events with user_id added
+  const eventsWithUser = events.map(e => ({
+    ...e,
+    user_id: userId,
+  }));
+
+  const result = await db.createReviewEventsBatch(c.env.DB, eventsWithUser);
+
+  // Update sync metadata with the latest event timestamp
+  if (events.length > 0) {
+    const latestEvent = events.reduce((latest, e) =>
+      e.reviewed_at > latest.reviewed_at ? e : latest
+    );
+    await db.updateSyncMetadata(c.env.DB, userId, latestEvent.reviewed_at);
+  }
+
+  return c.json(result);
+});
+
+// Get review events since a timestamp (for sync)
+app.get('/api/reviews', async (c) => {
+  const userId = c.get('user').id;
+  const since = c.req.query('since');
+  const limit = parseInt(c.req.query('limit') || '1000', 10);
+
+  if (!since) {
+    return c.json({ error: 'since parameter is required (ISO timestamp)' }, 400);
+  }
+
+  const events = await db.getReviewEventsSince(c.env.DB, userId, since, limit);
+
+  // Get sync metadata
+  const metadata = await db.getSyncMetadata(c.env.DB, userId);
+
+  return c.json({
+    events,
+    has_more: events.length >= limit,
+    server_time: new Date().toISOString(),
+    last_sync_at: metadata?.last_sync_at || null,
+  });
+});
+
+// Get review events for a specific card
+app.get('/api/cards/:id/events', async (c) => {
+  const userId = c.get('user').id;
+  const cardId = c.req.param('id');
+
+  // Verify card ownership
+  const card = await db.getCardById(c.env.DB, cardId, userId);
+  if (!card) {
+    return c.json({ error: 'Card not found' }, 404);
+  }
+
+  const events = await db.getCardReviewEvents(c.env.DB, cardId, userId);
+
+  return c.json({ events });
 });
 
 // ============ Sync (for offline PWA) ============

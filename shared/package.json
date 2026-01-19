@@ -1,0 +1,14 @@
+{
+  "name": "@chinese-learning/shared",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./scheduler/index.ts",
+  "types": "./scheduler/index.ts",
+  "exports": {
+    "./scheduler": {
+      "types": "./scheduler/index.ts",
+      "import": "./scheduler/index.ts",
+      "require": "./scheduler/index.ts"
+    }
+  }
+}

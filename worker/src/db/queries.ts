@@ -10,9 +10,265 @@ import {
   CardWithNote,
   CardQueue,
   QueueCounts,
+  Rating,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
+
+// ============ Review Events (Event-Sourced Architecture) ============
+
+export interface ReviewEvent {
+  id: string;
+  card_id: string;
+  user_id: string;
+  rating: Rating;
+  time_spent_ms: number | null;
+  user_answer: string | null;
+  recording_url: string | null;
+  reviewed_at: string;
+  created_at: string;
+  // Snapshot for debugging (not used for computation)
+  snapshot_queue: number | null;
+  snapshot_ease: number | null;
+  snapshot_interval: number | null;
+  snapshot_next_review_at: string | null;
+}
+
+export interface CardCheckpoint {
+  card_id: string;
+  checkpoint_at: string;
+  event_count: number;
+  queue: number;
+  learning_step: number;
+  ease_factor: number;
+  interval: number;
+  repetitions: number;
+  next_review_at: string | null;
+  due_timestamp: number | null;
+  updated_at: string;
+}
+
+/**
+ * Create a review event (for dual-write during migration)
+ */
+export async function createReviewEvent(
+  db: D1Database,
+  cardId: string,
+  userId: string,
+  rating: Rating,
+  reviewedAt: string,
+  timeSpentMs?: number,
+  userAnswer?: string,
+  recordingUrl?: string,
+  snapshot?: {
+    queue: number;
+    ease_factor: number;
+    interval: number;
+    next_review_at: string | null;
+  }
+): Promise<ReviewEvent> {
+  const id = generateId();
+
+  await db.prepare(`
+    INSERT INTO review_events (
+      id, card_id, user_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at,
+      snapshot_queue, snapshot_ease, snapshot_interval, snapshot_next_review_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    id,
+    cardId,
+    userId,
+    rating,
+    timeSpentMs || null,
+    userAnswer || null,
+    recordingUrl || null,
+    reviewedAt,
+    snapshot?.queue ?? null,
+    snapshot?.ease_factor ?? null,
+    snapshot?.interval ?? null,
+    snapshot?.next_review_at ?? null
+  ).run();
+
+  const event = await db.prepare('SELECT * FROM review_events WHERE id = ?')
+    .bind(id)
+    .first<ReviewEvent>();
+
+  if (!event) throw new Error('Failed to create review event');
+  return event;
+}
+
+/**
+ * Create multiple review events in a batch (for sync upload)
+ */
+export async function createReviewEventsBatch(
+  db: D1Database,
+  events: Array<{
+    id: string;
+    card_id: string;
+    user_id: string;
+    rating: Rating;
+    reviewed_at: string;
+    time_spent_ms?: number;
+    user_answer?: string;
+    recording_url?: string;
+  }>
+): Promise<{ created: number; skipped: number }> {
+  let created = 0;
+  let skipped = 0;
+
+  for (const event of events) {
+    try {
+      // Check if event already exists (idempotency)
+      const existing = await db.prepare('SELECT id FROM review_events WHERE id = ?')
+        .bind(event.id)
+        .first();
+
+      if (existing) {
+        skipped++;
+        continue;
+      }
+
+      await db.prepare(`
+        INSERT INTO review_events (
+          id, card_id, user_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        event.id,
+        event.card_id,
+        event.user_id,
+        event.rating,
+        event.time_spent_ms || null,
+        event.user_answer || null,
+        event.recording_url || null,
+        event.reviewed_at
+      ).run();
+
+      created++;
+    } catch (err) {
+      console.error('[createReviewEventsBatch] Error creating event:', event.id, err);
+      skipped++;
+    }
+  }
+
+  return { created, skipped };
+}
+
+/**
+ * Get review events for a user since a given timestamp
+ */
+export async function getReviewEventsSince(
+  db: D1Database,
+  userId: string,
+  since: string,
+  limit: number = 1000
+): Promise<ReviewEvent[]> {
+  const result = await db.prepare(`
+    SELECT * FROM review_events
+    WHERE user_id = ? AND created_at > ?
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).bind(userId, since, limit).all<ReviewEvent>();
+
+  return result.results;
+}
+
+/**
+ * Get review events for a specific card
+ */
+export async function getCardReviewEvents(
+  db: D1Database,
+  cardId: string,
+  userId: string
+): Promise<ReviewEvent[]> {
+  const result = await db.prepare(`
+    SELECT * FROM review_events
+    WHERE card_id = ? AND user_id = ?
+    ORDER BY reviewed_at ASC
+  `).bind(cardId, userId).all<ReviewEvent>();
+
+  return result.results;
+}
+
+/**
+ * Get or create a card checkpoint
+ */
+export async function getCardCheckpoint(
+  db: D1Database,
+  cardId: string
+): Promise<CardCheckpoint | null> {
+  return db.prepare('SELECT * FROM card_checkpoints WHERE card_id = ?')
+    .bind(cardId)
+    .first<CardCheckpoint>();
+}
+
+/**
+ * Update or create a card checkpoint
+ */
+export async function upsertCardCheckpoint(
+  db: D1Database,
+  checkpoint: Omit<CardCheckpoint, 'updated_at'>
+): Promise<void> {
+  await db.prepare(`
+    INSERT INTO card_checkpoints (
+      card_id, checkpoint_at, event_count, queue, learning_step,
+      ease_factor, interval, repetitions, next_review_at, due_timestamp
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(card_id) DO UPDATE SET
+      checkpoint_at = excluded.checkpoint_at,
+      event_count = excluded.event_count,
+      queue = excluded.queue,
+      learning_step = excluded.learning_step,
+      ease_factor = excluded.ease_factor,
+      interval = excluded.interval,
+      repetitions = excluded.repetitions,
+      next_review_at = excluded.next_review_at,
+      due_timestamp = excluded.due_timestamp,
+      updated_at = datetime('now')
+  `).bind(
+    checkpoint.card_id,
+    checkpoint.checkpoint_at,
+    checkpoint.event_count,
+    checkpoint.queue,
+    checkpoint.learning_step,
+    checkpoint.ease_factor,
+    checkpoint.interval,
+    checkpoint.repetitions,
+    checkpoint.next_review_at,
+    checkpoint.due_timestamp
+  ).run();
+}
+
+/**
+ * Get sync metadata for a user
+ */
+export async function getSyncMetadata(
+  db: D1Database,
+  userId: string
+): Promise<{ last_event_at: string | null; last_sync_at: string | null } | null> {
+  return db.prepare('SELECT last_event_at, last_sync_at FROM sync_metadata WHERE user_id = ?')
+    .bind(userId)
+    .first();
+}
+
+/**
+ * Update sync metadata for a user
+ */
+export async function updateSyncMetadata(
+  db: D1Database,
+  userId: string,
+  lastEventAt: string
+): Promise<void> {
+  await db.prepare(`
+    INSERT INTO sync_metadata (user_id, last_event_at, last_sync_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET
+      last_event_at = excluded.last_event_at,
+      last_sync_at = datetime('now')
+  `).bind(userId, lastEventAt).run();
+}
 
 // ============ Decks ============
 
@@ -720,14 +976,14 @@ export async function getNoteReviewHistory(
     };
   }
 
-  // Get all reviews for all cards of this note
+  // Get all reviews for all cards of this note (from review_events table)
   const reviews = await db
     .prepare(`
-      SELECT cr.id, cr.rating, cr.time_spent_ms, cr.user_answer, cr.recording_url, cr.reviewed_at, c.card_type
-      FROM card_reviews cr
-      JOIN cards c ON cr.card_id = c.id
+      SELECT re.id, re.rating, re.time_spent_ms, re.user_answer, re.recording_url, re.reviewed_at, c.card_type
+      FROM review_events re
+      JOIN cards c ON re.card_id = c.id
       WHERE c.note_id = ?
-      ORDER BY cr.reviewed_at DESC
+      ORDER BY re.reviewed_at DESC
     `)
     .bind(noteId)
     .all<{

@@ -1,6 +1,16 @@
-import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData, cleanupSyncedReviews } from '../db/database';
+import {
+  db,
+  LocalDeck,
+  LocalNote,
+  LocalCard,
+  updateSyncMeta,
+  getSyncMeta,
+  clearAllData,
+  cleanupUploadedRecordings,
+} from '../db/database';
 import { Deck, Note, Card } from '../types';
-import { API_BASE, getAuthHeaders, uploadRecording } from '../api/client';
+import { API_BASE, getAuthHeaders, getAuthToken } from '../api/client';
+import { syncReviewEvents, downloadReviewEvents } from './review-events';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -276,87 +286,6 @@ class SyncService {
   }
 
   /**
-   * Sync pending reviews to the server
-   */
-  async syncPendingReviews(): Promise<{ synced: number; failed: number }> {
-    // Clean up old synced reviews (older than 7 days) to prevent table growth
-    await cleanupSyncedReviews();
-
-    // Get only pending reviews (not yet synced)
-    const allReviews = await db.pendingReviews.toArray();
-    const pendingReviews = allReviews.filter(r => r._pending === true || (r._pending as unknown) === 1);
-
-    if (pendingReviews.length === 0) {
-      return { synced: 0, failed: 0 };
-    }
-
-    let synced = 0;
-    let failed = 0;
-
-    // Sort by reviewed_at to maintain chronological order
-    pendingReviews.sort((a, b) => new Date(a.reviewed_at).getTime() - new Date(b.reviewed_at).getTime());
-
-    for (const review of pendingReviews) {
-      try {
-        const response = await fetch(`${API_PATH}/study/review`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders(),
-          },
-          body: JSON.stringify({
-            card_id: review.card_id,
-            rating: review.rating,
-            time_spent_ms: review.time_spent_ms,
-            user_answer: review.user_answer,
-            session_id: review.session_id,
-            reviewed_at: review.reviewed_at,
-            offline_result: {
-              queue: review.new_queue,
-              learning_step: review.new_learning_step,
-              ease_factor: review.new_ease_factor,
-              interval: review.new_interval,
-              repetitions: review.new_repetitions,
-              next_review_at: review.new_next_review_at,
-              due_timestamp: review.new_due_timestamp,
-            },
-          }),
-        });
-
-        if (response.ok) {
-          // Upload recording if present
-          if (review.recording_blob) {
-            try {
-              await uploadRecording(review.card_id, review.recording_blob);
-            } catch (uploadErr) {
-              console.error('[Sync] Failed to upload recording:', uploadErr);
-            }
-          }
-
-          // Mark review as synced
-          await db.pendingReviews.update(review.id, { _pending: false });
-          synced++;
-        } else {
-          const error = await response.text();
-          await db.pendingReviews.update(review.id, {
-            _retries: review._retries + 1,
-            _last_error: error,
-          });
-          failed++;
-        }
-      } catch (error) {
-        await db.pendingReviews.update(review.id, {
-          _retries: review._retries + 1,
-          _last_error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        failed++;
-      }
-    }
-
-    return { synced, failed };
-  }
-
-  /**
    * Check if local database needs a full sync
    */
   async needsFullSync(): Promise<boolean> {
@@ -371,7 +300,30 @@ class SyncService {
   }
 
   /**
-   * Sync everything - incremental sync + pending reviews
+   * Sync review events (event-sourced architecture)
+   * Uploads unsynced events and downloads new events from server
+   */
+  async syncEvents(): Promise<{ uploaded: number; downloaded: number; errors: string[] }> {
+    const token = getAuthToken();
+
+    // Upload unsynced events
+    const uploadResult = await syncReviewEvents(token);
+
+    // Download new events from server
+    const downloadResult = await downloadReviewEvents(token);
+
+    // Clean up old uploaded recordings
+    await cleanupUploadedRecordings();
+
+    return {
+      uploaded: uploadResult.synced,
+      downloaded: downloadResult.downloaded,
+      errors: [...uploadResult.errors, ...downloadResult.errors],
+    };
+  }
+
+  /**
+   * Sync everything - review events + deck/note/card data
    * Called when coming online or periodically
    */
   async syncInBackground(): Promise<void> {
@@ -379,7 +331,10 @@ class SyncService {
 
     try {
       if (navigator.onLine) {
-        await this.syncPendingReviews();
+        // Sync review events (event-sourced architecture)
+        await this.syncEvents();
+
+        // Sync deck/note/card data
         await this.incrementalSync();
       }
     } catch (error) {

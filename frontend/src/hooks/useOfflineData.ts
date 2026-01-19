@@ -1,7 +1,16 @@
 import React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, LocalCard, PendingReview, getDueCards, getQueueCounts, getSyncMeta, hasMoreNewCards as checkHasMoreNewCards } from '../db/database';
+import {
+  db,
+  LocalCard,
+  getDueCards,
+  getQueueCounts,
+  getSyncMeta,
+  hasMoreNewCards as checkHasMoreNewCards,
+  createLocalReviewEvent,
+  storePendingRecording,
+} from '../db/database';
 import { scheduleCard, deckSettingsFromDb, DeckSettings, DEFAULT_DECK_SETTINGS, getIntervalPreview } from '../services/anki-scheduler';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview } from '../types';
@@ -112,12 +121,12 @@ export function useOfflineQueueCounts(deckId?: string, ignoreDailyLimit = false)
   };
 }
 
-// Hook to get pending reviews count
+// Hook to get pending (unsynced) review events count
 export function usePendingReviewsCount() {
   const count = useLiveQuery(
     async () => {
-      const all = await db.pendingReviews.toArray();
-      return all.filter(r => r._pending === true).length;
+      // Count unsynced review events (new event-sourced architecture)
+      return db.reviewEvents.where('_synced').equals(0).count();
     },
     []
   );
@@ -250,7 +259,7 @@ export function useSubmitReviewOffline() {
       rating,
       timeSpentMs,
       userAnswer,
-      sessionId,
+      sessionId: _sessionId, // Kept for API compatibility, no longer used in event-sourced architecture
       recordingBlob,
     }: {
       cardId: string;
@@ -296,39 +305,31 @@ export function useSubmitReviewOffline() {
         updated_at: reviewedAt,
       });
 
-      // Create pending review for sync - do this in background (non-blocking)
-      // This allows the UI to respond immediately after the card is updated
-      const pendingReview: PendingReview = {
+      // Create review event for event-sourced architecture
+      await createLocalReviewEvent({
         id: reviewId,
         card_id: cardId,
-        session_id: sessionId || null,
         rating,
         time_spent_ms: timeSpentMs || null,
         user_answer: userAnswer || null,
         reviewed_at: reviewedAt,
-        original_queue: card.queue,
-        new_queue: result.queue,
-        new_learning_step: result.learning_step,
-        new_ease_factor: result.ease_factor,
-        new_interval: result.interval,
-        new_repetitions: result.repetitions,
-        new_next_review_at: result.next_review_at?.toISOString() || null,
-        new_due_timestamp: result.due_timestamp,
-        recording_blob: recordingBlob, // Store recording to upload after sync
-        _pending: true,
-        _retries: 0,
-        _last_error: null,
-      };
+        _synced: false,
+      });
 
-      // Fire and forget - don't block UI on this slow operation
-      db.pendingReviews.put(pendingReview)
-        .then(() => {
-          // Sync after adding the pending review
-          if (navigator.onLine) {
-            syncService.syncPendingReviews().catch(console.error);
-          }
-        })
-        .catch(console.error);
+      // Store recording blob separately (will be uploaded during sync)
+      if (recordingBlob) {
+        await storePendingRecording({
+          id: reviewId,
+          blob: recordingBlob,
+          uploaded: false,
+          created_at: reviewedAt,
+        });
+      }
+
+      // Trigger background sync if online
+      if (navigator.onLine) {
+        syncService.syncEvents().catch(console.error);
+      }
 
       return {
         queue: result.queue,
