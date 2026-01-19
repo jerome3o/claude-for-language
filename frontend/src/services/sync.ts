@@ -244,6 +244,7 @@ class SyncService {
    */
   async syncPendingReviews(): Promise<{ synced: number; failed: number }> {
     const pending = await db.pendingReviews.where('_pending').equals(1).toArray();
+    console.log('[syncPendingReviews] found', pending.length, 'pending reviews');
 
     if (pending.length === 0) {
       return { synced: 0, failed: 0 };

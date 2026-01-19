@@ -228,15 +228,20 @@ export function useSubmitReviewOffline() {
       userAnswer?: string;
       sessionId?: string;
     }) => {
+      const t0 = performance.now();
+      console.log('[submitReview] START', { cardId, rating });
+
       // Get the card
       const card = await db.cards.get(cardId);
       if (!card) {
         throw new Error('Card not found');
       }
+      console.log('[submitReview] got card', Math.round(performance.now() - t0), 'ms');
 
       // Get deck settings
       const deck = await db.decks.get(card.deck_id);
       const settings = deck ? deckSettingsFromDb(deck) : DEFAULT_DECK_SETTINGS;
+      console.log('[submitReview] got deck', Math.round(performance.now() - t0), 'ms');
 
       // Calculate new scheduling state
       const result = scheduleCard(
@@ -248,6 +253,7 @@ export function useSubmitReviewOffline() {
         card.repetitions,
         settings
       );
+      console.log('[submitReview] scheduled', Math.round(performance.now() - t0), 'ms');
 
       const reviewId = crypto.randomUUID();
       const reviewedAt = new Date().toISOString();
@@ -289,12 +295,15 @@ export function useSubmitReviewOffline() {
 
         await db.pendingReviews.put(pendingReview);
       });
+      console.log('[submitReview] transaction done', Math.round(performance.now() - t0), 'ms');
 
-      // Try to sync if online
+      // Try to sync if online (non-blocking)
       if (navigator.onLine) {
+        console.log('[submitReview] starting background sync');
         syncService.syncPendingReviews().catch(console.error);
       }
 
+      console.log('[submitReview] DONE', Math.round(performance.now() - t0), 'ms');
       return {
         queue: result.queue,
         interval: result.interval,
