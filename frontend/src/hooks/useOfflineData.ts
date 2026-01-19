@@ -90,18 +90,7 @@ export function usePendingReviewsCount() {
 // Hook to check if there are more new cards beyond the daily limit
 export function useHasMoreNewCards(deckId?: string) {
   const result = useLiveQuery(
-    async () => {
-      const hasMore = await checkHasMoreNewCards(deckId);
-      const limitedCounts = await getQueueCounts(deckId, false);
-      const unlimitedCounts = await getQueueCounts(deckId, true);
-      console.log('[useHasMoreNewCards]', {
-        hasMore,
-        limitedNew: limitedCounts.new,
-        unlimitedNew: unlimitedCounts.new,
-        deckId
-      });
-      return hasMore;
-    },
+    () => checkHasMoreNewCards(deckId),
     [deckId]
   );
 
@@ -231,25 +220,15 @@ export function useSubmitReviewOffline() {
       userAnswer?: string;
       sessionId?: string;
     }) => {
-      const t0 = performance.now();
-      console.log('[submitReview] START', { cardId, rating });
-
-      // Log database stats
-      const cardCount = await db.cards.count();
-      const pendingCount = await db.pendingReviews.count();
-      console.log('[submitReview] DB stats: cards=', cardCount, 'pendingReviews=', pendingCount);
-
       // Get the card
       const card = await db.cards.get(cardId);
       if (!card) {
         throw new Error('Card not found');
       }
-      console.log('[submitReview] got card', Math.round(performance.now() - t0), 'ms');
 
       // Get deck settings
       const deck = await db.decks.get(card.deck_id);
       const settings = deck ? deckSettingsFromDb(deck) : DEFAULT_DECK_SETTINGS;
-      console.log('[submitReview] got deck', Math.round(performance.now() - t0), 'ms');
 
       // Calculate new scheduling state
       const result = scheduleCard(
@@ -261,13 +240,11 @@ export function useSubmitReviewOffline() {
         card.repetitions,
         settings
       );
-      console.log('[submitReview] scheduled', Math.round(performance.now() - t0), 'ms');
 
       const reviewId = crypto.randomUUID();
       const reviewedAt = new Date().toISOString();
 
       // Update card with new state - this is the critical path for UI responsiveness
-      const t1 = performance.now();
       await db.cards.update(cardId, {
         queue: result.queue,
         learning_step: result.learning_step,
@@ -278,7 +255,6 @@ export function useSubmitReviewOffline() {
         due_timestamp: result.due_timestamp,
         updated_at: reviewedAt,
       });
-      console.log('[submitReview] card updated', Math.round(performance.now() - t1), 'ms');
 
       // Create pending review for sync - do this in background (non-blocking)
       // This allows the UI to respond immediately after the card is updated
@@ -306,15 +282,13 @@ export function useSubmitReviewOffline() {
       // Fire and forget - don't block UI on this slow operation
       db.pendingReviews.put(pendingReview)
         .then(() => {
-          console.log('[submitReview] pending review added (background)');
           // Sync after adding the pending review
           if (navigator.onLine) {
             syncService.syncPendingReviews().catch(console.error);
           }
         })
-        .catch(err => console.error('[submitReview] failed to add pending review:', err));
+        .catch(console.error);
 
-      console.log('[submitReview] DONE', Math.round(performance.now() - t0), 'ms');
       return {
         queue: result.queue,
         interval: result.interval,

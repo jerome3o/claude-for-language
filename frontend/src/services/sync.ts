@@ -250,13 +250,9 @@ class SyncService {
     const pendingReviews = allReviews.filter(r => r._pending === true || (r._pending as unknown) === 1);
 
     if (syncedReviews.length > 0) {
-      console.log('[syncPendingReviews] cleaning up', syncedReviews.length, 'old synced reviews');
       // Delete all synced reviews (they're already on the server)
       await db.pendingReviews.bulkDelete(syncedReviews.map(r => r.id));
-      console.log('[syncPendingReviews] cleanup done, remaining:', await db.pendingReviews.count());
     }
-
-    console.log('[syncPendingReviews] found', pendingReviews.length, 'pending reviews');
 
     if (pendingReviews.length === 0) {
       return { synced: 0, failed: 0 };
