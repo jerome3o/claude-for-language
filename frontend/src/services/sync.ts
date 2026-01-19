@@ -1,4 +1,4 @@
-import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData } from '../db/database';
+import { db, LocalDeck, LocalNote, LocalCard, updateSyncMeta, getSyncMeta, clearAllData, cleanupSyncedReviews } from '../db/database';
 import { Deck, Note, Card } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 
@@ -243,6 +243,17 @@ class SyncService {
    * Sync pending reviews to the server
    */
   async syncPendingReviews(): Promise<{ synced: number; failed: number }> {
+    // First, clean up any old synced reviews that are clogging the table
+    const totalCount = await db.pendingReviews.count();
+    const pendingCount = await db.pendingReviews.where('_pending').equals(1).count();
+    const syncedCount = totalCount - pendingCount;
+
+    if (syncedCount > 0) {
+      console.log('[syncPendingReviews] cleaning up', syncedCount, 'old synced reviews');
+      // Delete all synced reviews (they're already on the server)
+      await db.pendingReviews.where('_pending').equals(0).delete();
+    }
+
     const pending = await db.pendingReviews.where('_pending').equals(1).toArray();
     console.log('[syncPendingReviews] found', pending.length, 'pending reviews');
 
@@ -284,11 +295,9 @@ class SyncService {
         });
 
         if (response.ok) {
-          // Mark as synced
-          await db.pendingReviews.update(review.id, {
-            _pending: false,
-            _last_error: null,
-          });
+          // Delete synced review immediately instead of marking as synced
+          // This prevents the pendingReviews table from growing unboundedly
+          await db.pendingReviews.delete(review.id);
           synced++;
         } else {
           const error = await response.text();

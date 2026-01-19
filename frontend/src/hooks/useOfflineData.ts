@@ -263,7 +263,7 @@ export function useSubmitReviewOffline() {
       const reviewId = crypto.randomUUID();
       const reviewedAt = new Date().toISOString();
 
-      // Update card with new state (without transaction wrapper to test performance)
+      // Update card with new state - this is the critical path for UI responsiveness
       const t1 = performance.now();
       await db.cards.update(cardId, {
         queue: result.queue,
@@ -277,7 +277,8 @@ export function useSubmitReviewOffline() {
       });
       console.log('[submitReview] card updated', Math.round(performance.now() - t1), 'ms');
 
-      // Create pending review for sync
+      // Create pending review for sync - do this in background (non-blocking)
+      // This allows the UI to respond immediately after the card is updated
       const pendingReview: PendingReview = {
         id: reviewId,
         card_id: cardId,
@@ -299,16 +300,16 @@ export function useSubmitReviewOffline() {
         _last_error: null,
       };
 
-      const t2 = performance.now();
-      await db.pendingReviews.put(pendingReview);
-      console.log('[submitReview] pending review added', Math.round(performance.now() - t2), 'ms');
-      console.log('[submitReview] total db ops', Math.round(performance.now() - t0), 'ms');
-
-      // Try to sync if online (non-blocking)
-      if (navigator.onLine) {
-        console.log('[submitReview] starting background sync');
-        syncService.syncPendingReviews().catch(console.error);
-      }
+      // Fire and forget - don't block UI on this slow operation
+      db.pendingReviews.put(pendingReview)
+        .then(() => {
+          console.log('[submitReview] pending review added (background)');
+          // Sync after adding the pending review
+          if (navigator.onLine) {
+            syncService.syncPendingReviews().catch(console.error);
+          }
+        })
+        .catch(err => console.error('[submitReview] failed to add pending review:', err));
 
       console.log('[submitReview] DONE', Math.round(performance.now() - t0), 'ms');
       return {
