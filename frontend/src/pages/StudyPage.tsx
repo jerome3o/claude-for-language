@@ -214,11 +214,19 @@ function StudyCard({
     });
 
     // Upload recording if exists (best-effort, non-blocking)
+    // Delay slightly to allow the review sync to complete first
     if (audioBlob) {
-      console.log('[handleRate] Uploading recording for card:', card.id, 'blob size:', audioBlob.size);
-      uploadRecording(card.id, audioBlob)
-        .then(result => console.log('[handleRate] Recording uploaded:', result))
-        .catch(err => console.error('[handleRate] Recording upload failed:', err));
+      const cardIdForUpload = card.id;
+      const blobForUpload = audioBlob;
+      console.log('[handleRate] Will upload recording for card:', cardIdForUpload, 'blob size:', blobForUpload.size);
+
+      // Wait 2 seconds for the review to sync, then upload
+      setTimeout(() => {
+        console.log('[handleRate] Uploading recording now...');
+        uploadRecording(cardIdForUpload, blobForUpload)
+          .then(result => console.log('[handleRate] Recording uploaded:', result))
+          .catch(err => console.error('[handleRate] Recording upload failed:', err));
+      }, 2000);
     }
 
     onComplete();
