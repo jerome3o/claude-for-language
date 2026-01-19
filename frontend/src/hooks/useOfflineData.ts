@@ -231,6 +231,11 @@ export function useSubmitReviewOffline() {
       const t0 = performance.now();
       console.log('[submitReview] START', { cardId, rating });
 
+      // Log database stats
+      const cardCount = await db.cards.count();
+      const pendingCount = await db.pendingReviews.count();
+      console.log('[submitReview] DB stats: cards=', cardCount, 'pendingReviews=', pendingCount);
+
       // Get the card
       const card = await db.cards.get(cardId);
       if (!card) {
@@ -258,44 +263,46 @@ export function useSubmitReviewOffline() {
       const reviewId = crypto.randomUUID();
       const reviewedAt = new Date().toISOString();
 
-      await db.transaction('rw', [db.cards, db.pendingReviews], async () => {
-        // Update card with new state
-        await db.cards.update(cardId, {
-          queue: result.queue,
-          learning_step: result.learning_step,
-          ease_factor: result.ease_factor,
-          interval: result.interval,
-          repetitions: result.repetitions,
-          next_review_at: result.next_review_at?.toISOString() || null,
-          due_timestamp: result.due_timestamp,
-          updated_at: reviewedAt,
-        });
-
-        // Create pending review for sync
-        const pendingReview: PendingReview = {
-          id: reviewId,
-          card_id: cardId,
-          session_id: sessionId || null,
-          rating,
-          time_spent_ms: timeSpentMs || null,
-          user_answer: userAnswer || null,
-          reviewed_at: reviewedAt,
-          original_queue: card.queue,
-          new_queue: result.queue,
-          new_learning_step: result.learning_step,
-          new_ease_factor: result.ease_factor,
-          new_interval: result.interval,
-          new_repetitions: result.repetitions,
-          new_next_review_at: result.next_review_at?.toISOString() || null,
-          new_due_timestamp: result.due_timestamp,
-          _pending: true,
-          _retries: 0,
-          _last_error: null,
-        };
-
-        await db.pendingReviews.put(pendingReview);
+      // Update card with new state (without transaction wrapper to test performance)
+      const t1 = performance.now();
+      await db.cards.update(cardId, {
+        queue: result.queue,
+        learning_step: result.learning_step,
+        ease_factor: result.ease_factor,
+        interval: result.interval,
+        repetitions: result.repetitions,
+        next_review_at: result.next_review_at?.toISOString() || null,
+        due_timestamp: result.due_timestamp,
+        updated_at: reviewedAt,
       });
-      console.log('[submitReview] transaction done', Math.round(performance.now() - t0), 'ms');
+      console.log('[submitReview] card updated', Math.round(performance.now() - t1), 'ms');
+
+      // Create pending review for sync
+      const pendingReview: PendingReview = {
+        id: reviewId,
+        card_id: cardId,
+        session_id: sessionId || null,
+        rating,
+        time_spent_ms: timeSpentMs || null,
+        user_answer: userAnswer || null,
+        reviewed_at: reviewedAt,
+        original_queue: card.queue,
+        new_queue: result.queue,
+        new_learning_step: result.learning_step,
+        new_ease_factor: result.ease_factor,
+        new_interval: result.interval,
+        new_repetitions: result.repetitions,
+        new_next_review_at: result.next_review_at?.toISOString() || null,
+        new_due_timestamp: result.due_timestamp,
+        _pending: true,
+        _retries: 0,
+        _last_error: null,
+      };
+
+      const t2 = performance.now();
+      await db.pendingReviews.put(pendingReview);
+      console.log('[submitReview] pending review added', Math.round(performance.now() - t2), 'ms');
+      console.log('[submitReview] total db ops', Math.round(performance.now() - t0), 'ms');
 
       // Try to sync if online (non-blocking)
       if (navigator.onLine) {

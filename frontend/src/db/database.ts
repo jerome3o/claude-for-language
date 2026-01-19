@@ -273,3 +273,41 @@ export async function hasMoreNewCards(deckId?: string): Promise<boolean> {
   const unlimitedCount = (await getQueueCounts(deckId, true)).new;
   return unlimitedCount > limitedCount;
 }
+
+// Clear old synced pending reviews (keep last 7 days)
+export async function cleanupSyncedReviews(): Promise<number> {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const cutoffDate = sevenDaysAgo.toISOString();
+
+  // Get all synced reviews older than 7 days
+  const oldReviews = await db.pendingReviews
+    .filter(r => !r._pending && r.reviewed_at < cutoffDate)
+    .toArray();
+
+  if (oldReviews.length > 0) {
+    await db.pendingReviews.bulkDelete(oldReviews.map(r => r.id));
+    console.log(`[cleanup] Deleted ${oldReviews.length} old synced reviews`);
+  }
+
+  return oldReviews.length;
+}
+
+// Get database stats for debugging
+export async function getDatabaseStats(): Promise<{
+  decks: number;
+  notes: number;
+  cards: number;
+  pendingReviews: number;
+  syncedReviews: number;
+}> {
+  const [decks, notes, cards, pendingReviews, syncedReviews] = await Promise.all([
+    db.decks.count(),
+    db.notes.count(),
+    db.cards.count(),
+    db.pendingReviews.where('_pending').equals(1).count(),
+    db.pendingReviews.where('_pending').equals(0).count(),
+  ]);
+
+  return { decks, notes, cards, pendingReviews, syncedReviews };
+}
