@@ -16,11 +16,22 @@ const PUBLIC_ROUTES = [
   '/api/auth/callback',
   '/api/auth/me', // Returns 401 if not authenticated, which is expected behavior
   '/api/oauth/', // MCP OAuth endpoints
-  '/api/audio/', // Audio files are public (TTS generated audio)
 ];
 
-function isPublicRoute(path: string): boolean {
-  return PUBLIC_ROUTES.some(route => path.startsWith(route));
+// Routes that are public only for GET requests (e.g., serving audio files)
+const PUBLIC_GET_ROUTES = [
+  '/api/audio/', // Audio files are public for playback, but upload requires auth
+];
+
+function isPublicRoute(path: string, method: string): boolean {
+  if (PUBLIC_ROUTES.some(route => path.startsWith(route))) {
+    return true;
+  }
+  // Allow GET requests to audio routes (for playback) but require auth for POST (upload)
+  if (method === 'GET' && PUBLIC_GET_ROUTES.some(route => path.startsWith(route))) {
+    return true;
+  }
+  return false;
 }
 
 export async function authMiddleware(
@@ -28,9 +39,10 @@ export async function authMiddleware(
   next: Next
 ): Promise<Response | void> {
   const path = c.req.path;
+  const method = c.req.method;
 
   // Skip auth for public routes
-  if (isPublicRoute(path)) {
+  if (isPublicRoute(path, method)) {
     return next();
   }
 
