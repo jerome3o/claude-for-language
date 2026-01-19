@@ -51,6 +51,8 @@ function cardToLocal(card: Card, deckId: string): LocalCard {
 
 class SyncService {
   private isSyncing = false;
+  private pendingFullSync = false;
+  private syncPromise: Promise<void> | null = null;
   private syncListeners: Set<(syncing: boolean) => void> = new Set();
 
   addSyncListener(listener: (syncing: boolean) => void) {
@@ -64,14 +66,45 @@ class SyncService {
   }
 
   /**
+   * Wait for any in-progress sync to complete
+   */
+  async waitForSync(): Promise<void> {
+    if (this.syncPromise) {
+      await this.syncPromise;
+    }
+  }
+
+  /**
    * Perform a full sync - fetches all data from server
    * Called on first load or when local DB is empty
+   * If a sync is already in progress, queues another sync for after it completes
    */
   async fullSync(): Promise<void> {
-    if (this.isSyncing) return;
+    if (this.isSyncing) {
+      // Queue a full sync to run after current sync completes
+      this.pendingFullSync = true;
+      await this.waitForSync();
+      // After waiting, check if we should still sync (another call might have handled it)
+      if (!this.pendingFullSync) return;
+      this.pendingFullSync = false;
+    }
     this.notifySyncListeners(true);
 
+    this.syncPromise = this._doFullSync();
     try {
+      await this.syncPromise;
+    } finally {
+      this.syncPromise = null;
+      this.notifySyncListeners(false);
+      // Check if another sync was requested while we were syncing
+      if (this.pendingFullSync) {
+        this.pendingFullSync = false;
+        this.fullSync(); // Don't await - let it run
+      }
+    }
+  }
+
+  private async _doFullSync(): Promise<void> {
       // Fetch all decks
       console.log('[fullSync] Fetching deck list from:', `${API_PATH}/decks`);
       const decksResponse = await fetch(`${API_PATH}/decks`, {
@@ -143,16 +176,19 @@ class SyncService {
       });
 
       console.log(`Full sync complete: ${fullDecks.length} decks, ${allNotes.length} notes, ${allCards.length} cards`);
-    } finally {
-      this.notifySyncListeners(false);
-    }
   }
 
   /**
    * Perform an incremental sync - fetches only changes since last sync
+   * If a sync is already in progress, waits for it then syncs again
    */
   async incrementalSync(): Promise<void> {
-    if (this.isSyncing) return;
+    if (this.isSyncing) {
+      // Wait for current sync to complete, then do an incremental sync
+      await this.waitForSync();
+      // Check if we still need to sync (fullSync might have been queued and run)
+      if (this.isSyncing) return;
+    }
 
     const syncMeta = await getSyncMeta();
     if (!syncMeta?.last_incremental_sync) {
@@ -161,82 +197,90 @@ class SyncService {
     }
 
     this.notifySyncListeners(true);
+    this.syncPromise = this._doIncrementalSync(syncMeta.last_incremental_sync);
 
     try {
-      const since = syncMeta.last_incremental_sync;
-      const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
-        headers: getAuthHeaders(),
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          // Endpoint not available, fall back to full sync
-          console.log('Incremental sync endpoint not available, falling back to full sync');
-          return this.fullSync();
-        }
-        throw new Error('Failed to fetch sync changes');
-      }
-
-      const changes: SyncChangesResponse = await response.json();
-
-      await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
-        // Apply deletions first
-        if (changes.deleted.deck_ids.length > 0) {
-          await db.decks.bulkDelete(changes.deleted.deck_ids);
-        }
-        if (changes.deleted.note_ids.length > 0) {
-          await db.notes.bulkDelete(changes.deleted.note_ids);
-        }
-        if (changes.deleted.card_ids.length > 0) {
-          await db.cards.bulkDelete(changes.deleted.card_ids);
-        }
-
-        // Apply updates/inserts
-        if (changes.decks.length > 0) {
-          await db.decks.bulkPut(changes.decks.map(d => deckToLocal(d)));
-        }
-        if (changes.notes.length > 0) {
-          await db.notes.bulkPut(changes.notes.map(n => noteToLocal(n)));
-        }
-        if (changes.cards.length > 0) {
-          // Need to get deck_id for each card
-          const cardsByNote = new Map<string, Card[]>();
-          for (const card of changes.cards) {
-            const existing = cardsByNote.get(card.note_id) || [];
-            existing.push(card);
-            cardsByNote.set(card.note_id, existing);
-          }
-
-          // Get deck_id from notes
-          const noteIds = Array.from(cardsByNote.keys());
-          const notes = await db.notes.where('id').anyOf(noteIds).toArray();
-          const noteToDeck = new Map(notes.map(n => [n.id, n.deck_id]));
-
-          const localCards: LocalCard[] = [];
-          for (const card of changes.cards) {
-            const deckId = noteToDeck.get(card.note_id);
-            if (deckId) {
-              localCards.push(cardToLocal(card, deckId));
-            }
-          }
-
-          if (localCards.length > 0) {
-            await db.cards.bulkPut(localCards);
-          }
-        }
-
-        await updateSyncMeta({
-          id: 'sync_state',
-          last_incremental_sync: new Date(changes.server_time).getTime(),
-          user_id: syncMeta.user_id,
-          last_full_sync: syncMeta.last_full_sync,
-        });
-      });
-
-      console.log(`Incremental sync complete: ${changes.decks.length} decks, ${changes.notes.length} notes, ${changes.cards.length} cards updated`);
+      await this.syncPromise;
     } finally {
+      this.syncPromise = null;
       this.notifySyncListeners(false);
     }
+  }
+
+  private async _doIncrementalSync(since: number): Promise<void> {
+    const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
+      headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        // Endpoint not available, fall back to full sync
+        console.log('Incremental sync endpoint not available, falling back to full sync');
+        return this.fullSync();
+      }
+      throw new Error('Failed to fetch sync changes');
+    }
+
+    const changes: SyncChangesResponse = await response.json();
+
+    // Get current sync meta for preserving user_id and last_full_sync
+    const currentSyncMeta = await getSyncMeta();
+
+    await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
+      // Apply deletions first
+      if (changes.deleted.deck_ids.length > 0) {
+        await db.decks.bulkDelete(changes.deleted.deck_ids);
+      }
+      if (changes.deleted.note_ids.length > 0) {
+        await db.notes.bulkDelete(changes.deleted.note_ids);
+      }
+      if (changes.deleted.card_ids.length > 0) {
+        await db.cards.bulkDelete(changes.deleted.card_ids);
+      }
+
+      // Apply updates/inserts
+      if (changes.decks.length > 0) {
+        await db.decks.bulkPut(changes.decks.map(d => deckToLocal(d)));
+      }
+      if (changes.notes.length > 0) {
+        await db.notes.bulkPut(changes.notes.map(n => noteToLocal(n)));
+      }
+      if (changes.cards.length > 0) {
+        // Need to get deck_id for each card
+        const cardsByNote = new Map<string, Card[]>();
+        for (const card of changes.cards) {
+          const existing = cardsByNote.get(card.note_id) || [];
+          existing.push(card);
+          cardsByNote.set(card.note_id, existing);
+        }
+
+        // Get deck_id from notes (includes just-synced notes in this transaction)
+        const noteIds = Array.from(cardsByNote.keys());
+        const notes = await db.notes.where('id').anyOf(noteIds).toArray();
+        const noteToDeck = new Map(notes.map(n => [n.id, n.deck_id]));
+
+        const localCards: LocalCard[] = [];
+        for (const card of changes.cards) {
+          const deckId = noteToDeck.get(card.note_id);
+          if (deckId) {
+            localCards.push(cardToLocal(card, deckId));
+          }
+        }
+
+        if (localCards.length > 0) {
+          await db.cards.bulkPut(localCards);
+        }
+      }
+
+      await updateSyncMeta({
+        id: 'sync_state',
+        last_incremental_sync: new Date(changes.server_time).getTime(),
+        user_id: currentSyncMeta?.user_id || null,
+        last_full_sync: currentSyncMeta?.last_full_sync || null,
+      });
+    });
+
+    console.log(`Incremental sync complete: ${changes.decks.length} decks, ${changes.notes.length} notes, ${changes.cards.length} cards updated`);
   }
 
   /**
