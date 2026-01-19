@@ -8,17 +8,24 @@ import { Rating, CardQueue, CardWithNote, Note, IntervalPreview } from '../types
 // Hook to get all decks from IndexedDB with background sync
 export function useOfflineDecks() {
   // Use Dexie live query for reactive updates
-  const decks = useLiveQuery(() => db.decks.toArray(), []);
+  const decks = useLiveQuery(async () => {
+    const result = await db.decks.toArray();
+    console.log('[useOfflineDecks] Got decks from IndexedDB:', result.length, result.map(d => ({ id: d.id, name: d.name })));
+    return result;
+  }, []);
 
   // Trigger background sync when online
   const triggerSync = async () => {
+    console.log('[useOfflineDecks] triggerSync called, online:', navigator.onLine);
     if (navigator.onLine) {
       const needsSync = await syncService.needsFullSync();
+      console.log('[useOfflineDecks] needsFullSync:', needsSync);
       if (needsSync) {
         await syncService.fullSync();
       } else {
-        syncService.syncInBackground();
+        await syncService.syncInBackground();
       }
+      console.log('[useOfflineDecks] sync complete');
     }
   };
 
@@ -64,7 +71,12 @@ export function useOfflineDueCards(deckId?: string) {
 // Hook to get queue counts
 export function useOfflineQueueCounts(deckId?: string, ignoreDailyLimit = false) {
   const counts = useLiveQuery(
-    () => getQueueCounts(deckId, ignoreDailyLimit),
+    async () => {
+      console.log(`[useOfflineQueueCounts] Querying counts for deckId: ${deckId}, ignoreDailyLimit: ${ignoreDailyLimit}`);
+      const result = await getQueueCounts(deckId, ignoreDailyLimit);
+      console.log(`[useOfflineQueueCounts] Result for deckId ${deckId}:`, result);
+      return result;
+    },
     [deckId, ignoreDailyLimit]
   );
 

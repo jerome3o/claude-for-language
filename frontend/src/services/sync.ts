@@ -70,7 +70,9 @@ class SyncService {
    */
   async waitForSync(): Promise<void> {
     if (this.syncPromise) {
+      console.log('[SyncService] waitForSync: waiting for in-progress sync...');
       await this.syncPromise;
+      console.log('[SyncService] waitForSync: done waiting');
     }
   }
 
@@ -80,24 +82,35 @@ class SyncService {
    * If a sync is already in progress, queues another sync for after it completes
    */
   async fullSync(): Promise<void> {
+    console.log('[SyncService] fullSync called, isSyncing:', this.isSyncing, 'pendingFullSync:', this.pendingFullSync);
     if (this.isSyncing) {
       // Queue a full sync to run after current sync completes
+      console.log('[SyncService] fullSync: sync in progress, queueing...');
       this.pendingFullSync = true;
       await this.waitForSync();
       // After waiting, check if we should still sync (another call might have handled it)
-      if (!this.pendingFullSync) return;
+      if (!this.pendingFullSync) {
+        console.log('[SyncService] fullSync: pendingFullSync was cleared, returning');
+        return;
+      }
       this.pendingFullSync = false;
     }
+    console.log('[SyncService] fullSync: starting sync');
     this.notifySyncListeners(true);
 
     this.syncPromise = this._doFullSync();
     try {
       await this.syncPromise;
+      console.log('[SyncService] fullSync: completed successfully');
+    } catch (err) {
+      console.error('[SyncService] fullSync: error during sync', err);
+      throw err;
     } finally {
       this.syncPromise = null;
       this.notifySyncListeners(false);
       // Check if another sync was requested while we were syncing
       if (this.pendingFullSync) {
+        console.log('[SyncService] fullSync: another sync was requested, starting it');
         this.pendingFullSync = false;
         this.fullSync(); // Don't await - let it run
       }
@@ -155,9 +168,25 @@ class SyncService {
         }
       }
 
-      console.log(`[fullSync] Synced ${fullDecks.length} decks, ${allNotes.length} notes, ${allCards.length} cards`);
+      console.log(`[fullSync] Extracted from API: ${fullDecks.length} decks, ${allNotes.length} notes, ${allCards.length} cards`);
+
+      // Log details about each deck's cards
+      for (const deck of fullDecks) {
+        const deckCards = allCards.filter(c => c.deck_id === deck.id);
+        console.log(`[fullSync] Deck "${deck.name}" (${deck.id}): ${deck.notes.length} notes, ${deckCards.length} cards`);
+        // Log card queue distribution
+        const queueCounts = { new: 0, learning: 0, review: 0, relearning: 0 };
+        for (const card of deckCards) {
+          if (card.queue === 0) queueCounts.new++;
+          else if (card.queue === 1) queueCounts.learning++;
+          else if (card.queue === 2) queueCounts.review++;
+          else if (card.queue === 3) queueCounts.relearning++;
+        }
+        console.log(`[fullSync] Deck "${deck.name}" queue distribution:`, queueCounts);
+      }
 
       // Clear existing data and insert new
+      console.log('[fullSync] Clearing IndexedDB and inserting new data...');
       await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
         await db.decks.clear();
         await db.notes.clear();
@@ -175,7 +204,16 @@ class SyncService {
         });
       });
 
-      console.log(`Full sync complete: ${fullDecks.length} decks, ${allNotes.length} notes, ${allCards.length} cards`);
+      // Verify what's in IndexedDB after sync
+      const dbDecks = await db.decks.toArray();
+      const dbCards = await db.cards.toArray();
+      console.log(`[fullSync] After sync - IndexedDB has: ${dbDecks.length} decks, ${dbCards.length} cards`);
+      for (const deck of dbDecks) {
+        const deckCards = dbCards.filter(c => c.deck_id === deck.id);
+        console.log(`[fullSync] IndexedDB Deck "${deck.name}" (${deck.id}): ${deckCards.length} cards`);
+      }
+
+      console.log(`[fullSync] Full sync complete!`);
   }
 
   /**
@@ -183,24 +221,36 @@ class SyncService {
    * If a sync is already in progress, waits for it then syncs again
    */
   async incrementalSync(): Promise<void> {
+    console.log('[SyncService] incrementalSync called, isSyncing:', this.isSyncing);
     if (this.isSyncing) {
+      console.log('[SyncService] incrementalSync: sync in progress, waiting...');
       // Wait for current sync to complete, then do an incremental sync
       await this.waitForSync();
       // Check if we still need to sync (fullSync might have been queued and run)
-      if (this.isSyncing) return;
+      if (this.isSyncing) {
+        console.log('[SyncService] incrementalSync: still syncing after wait, returning');
+        return;
+      }
     }
 
     const syncMeta = await getSyncMeta();
+    console.log('[SyncService] incrementalSync: syncMeta:', syncMeta);
     if (!syncMeta?.last_incremental_sync) {
       // No previous sync, do a full sync instead
+      console.log('[SyncService] incrementalSync: no previous sync, doing full sync');
       return this.fullSync();
     }
 
+    console.log('[SyncService] incrementalSync: starting incremental sync since', new Date(syncMeta.last_incremental_sync).toISOString());
     this.notifySyncListeners(true);
     this.syncPromise = this._doIncrementalSync(syncMeta.last_incremental_sync);
 
     try {
       await this.syncPromise;
+      console.log('[SyncService] incrementalSync: completed successfully');
+    } catch (err) {
+      console.error('[SyncService] incrementalSync: error', err);
+      throw err;
     } finally {
       this.syncPromise = null;
       this.notifySyncListeners(false);
@@ -208,6 +258,7 @@ class SyncService {
   }
 
   private async _doIncrementalSync(since: number): Promise<void> {
+    console.log('[incrementalSync] Fetching changes since:', new Date(since).toISOString());
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
     });
@@ -215,13 +266,32 @@ class SyncService {
     if (!response.ok) {
       if (response.status === 404) {
         // Endpoint not available, fall back to full sync
-        console.log('Incremental sync endpoint not available, falling back to full sync');
+        console.log('[incrementalSync] Endpoint not available (404), falling back to full sync');
         return this.fullSync();
       }
+      console.error('[incrementalSync] Failed to fetch sync changes:', response.status);
       throw new Error('Failed to fetch sync changes');
     }
 
     const changes: SyncChangesResponse = await response.json();
+    console.log('[incrementalSync] Received changes:', {
+      decks: changes.decks.length,
+      notes: changes.notes.length,
+      cards: changes.cards.length,
+      deleted: changes.deleted,
+      server_time: changes.server_time,
+    });
+
+    // Log details about changed decks
+    for (const deck of changes.decks) {
+      console.log('[incrementalSync] Changed deck:', deck.id, deck.name);
+    }
+    for (const note of changes.notes) {
+      console.log('[incrementalSync] Changed note:', note.id, note.hanzi, 'deck:', note.deck_id);
+    }
+    for (const card of changes.cards) {
+      console.log('[incrementalSync] Changed card:', card.id, 'note:', card.note_id, 'queue:', card.queue);
+    }
 
     // Get current sync meta for preserving user_id and last_full_sync
     const currentSyncMeta = await getSyncMeta();
@@ -246,6 +316,7 @@ class SyncService {
         await db.notes.bulkPut(changes.notes.map(n => noteToLocal(n)));
       }
       if (changes.cards.length > 0) {
+        console.log('[incrementalSync] Processing', changes.cards.length, 'cards...');
         // Need to get deck_id for each card
         const cardsByNote = new Map<string, Card[]>();
         for (const card of changes.cards) {
@@ -256,19 +327,27 @@ class SyncService {
 
         // Get deck_id from notes (includes just-synced notes in this transaction)
         const noteIds = Array.from(cardsByNote.keys());
+        console.log('[incrementalSync] Looking up deck_id for note_ids:', noteIds);
         const notes = await db.notes.where('id').anyOf(noteIds).toArray();
+        console.log('[incrementalSync] Found', notes.length, 'notes in IndexedDB');
         const noteToDeck = new Map(notes.map(n => [n.id, n.deck_id]));
 
         const localCards: LocalCard[] = [];
+        let missingDeckIdCount = 0;
         for (const card of changes.cards) {
           const deckId = noteToDeck.get(card.note_id);
           if (deckId) {
             localCards.push(cardToLocal(card, deckId));
+          } else {
+            missingDeckIdCount++;
+            console.warn('[incrementalSync] Could not find deck_id for card:', card.id, 'note_id:', card.note_id);
           }
         }
 
+        console.log('[incrementalSync] Cards with deck_id:', localCards.length, 'missing deck_id:', missingDeckIdCount);
         if (localCards.length > 0) {
           await db.cards.bulkPut(localCards);
+          console.log('[incrementalSync] Inserted', localCards.length, 'cards to IndexedDB');
         }
       }
 
@@ -280,7 +359,23 @@ class SyncService {
       });
     });
 
-    console.log(`Incremental sync complete: ${changes.decks.length} decks, ${changes.notes.length} notes, ${changes.cards.length} cards updated`);
+    // Verify what's in IndexedDB after sync
+    const dbDecks = await db.decks.toArray();
+    const dbCards = await db.cards.toArray();
+    console.log(`[incrementalSync] After sync - IndexedDB has: ${dbDecks.length} decks, ${dbCards.length} cards`);
+    for (const deck of dbDecks) {
+      const deckCards = dbCards.filter(c => c.deck_id === deck.id);
+      const queueCounts = { new: 0, learning: 0, review: 0, relearning: 0 };
+      for (const card of deckCards) {
+        if (card.queue === 0) queueCounts.new++;
+        else if (card.queue === 1) queueCounts.learning++;
+        else if (card.queue === 2) queueCounts.review++;
+        else if (card.queue === 3) queueCounts.relearning++;
+      }
+      console.log(`[incrementalSync] IndexedDB Deck "${deck.name}" (${deck.id}): ${deckCards.length} cards, queues:`, queueCounts);
+    }
+
+    console.log(`[incrementalSync] Incremental sync complete!`);
   }
 
   /**

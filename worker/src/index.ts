@@ -399,10 +399,27 @@ app.post('/api/decks', async (c) => {
 app.get('/api/decks/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
+  console.log('[API decks/:id] Fetching deck:', id, 'for user:', userId);
   const deck = await db.getDeckWithNotesAndCards(c.env.DB, id, userId);
   if (!deck) {
+    console.log('[API decks/:id] Deck not found:', id);
     return c.json({ error: 'Deck not found' }, 404);
   }
+  // Log card queue distribution
+  const queueCounts = { new: 0, learning: 0, review: 0, relearning: 0 };
+  let totalCards = 0;
+  for (const note of deck.notes) {
+    if (note.cards) {
+      for (const card of note.cards) {
+        totalCards++;
+        if (card.queue === 0) queueCounts.new++;
+        else if (card.queue === 1) queueCounts.learning++;
+        else if (card.queue === 2) queueCounts.review++;
+        else if (card.queue === 3) queueCounts.relearning++;
+      }
+    }
+  }
+  console.log('[API decks/:id] Deck:', deck.name, 'notes:', deck.notes.length, 'cards:', totalCards, 'queues:', queueCounts);
   return c.json(deck);
 });
 
@@ -1642,6 +1659,8 @@ app.get('/api/sync/changes', async (c) => {
   const userId = c.get('user').id;
   const sinceParam = c.req.query('since');
 
+  console.log('[API sync/changes] userId:', userId, 'sinceParam:', sinceParam);
+
   if (!sinceParam) {
     return c.json({ error: 'since parameter is required' }, 400);
   }
@@ -1652,12 +1671,17 @@ app.get('/api/sync/changes', async (c) => {
   }
 
   const sinceDate = new Date(since).toISOString();
+  console.log('[API sync/changes] sinceDate:', sinceDate);
 
   // Get updated decks
   const decksResult = await c.env.DB.prepare(`
     SELECT * FROM decks
     WHERE user_id = ? AND updated_at > ?
   `).bind(userId, sinceDate).all();
+  console.log('[API sync/changes] decks found:', decksResult.results?.length || 0);
+  for (const deck of (decksResult.results || []) as any[]) {
+    console.log('[API sync/changes] deck:', deck.id, deck.name, 'updated_at:', deck.updated_at);
+  }
 
   // Get updated notes (across all user's decks)
   const notesResult = await c.env.DB.prepare(`
@@ -1665,6 +1689,10 @@ app.get('/api/sync/changes', async (c) => {
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? AND n.updated_at > ?
   `).bind(userId, sinceDate).all();
+  console.log('[API sync/changes] notes found:', notesResult.results?.length || 0);
+  for (const note of (notesResult.results || []) as any[]) {
+    console.log('[API sync/changes] note:', note.id, note.hanzi, 'deck_id:', note.deck_id, 'updated_at:', note.updated_at);
+  }
 
   // Get updated cards (across all user's notes)
   const cardsResult = await c.env.DB.prepare(`
@@ -1673,6 +1701,10 @@ app.get('/api/sync/changes', async (c) => {
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? AND c.updated_at > ?
   `).bind(userId, sinceDate).all();
+  console.log('[API sync/changes] cards found:', cardsResult.results?.length || 0);
+  for (const card of (cardsResult.results || []) as any[]) {
+    console.log('[API sync/changes] card:', card.id, 'note_id:', card.note_id, 'queue:', card.queue, 'updated_at:', card.updated_at);
+  }
 
   // For deletions, we'd need a deleted_items table (not implemented yet)
   // For now, return empty arrays for deleted items
@@ -1681,6 +1713,12 @@ app.get('/api/sync/changes', async (c) => {
     note_ids: [] as string[],
     card_ids: [] as string[],
   };
+
+  console.log('[API sync/changes] Returning:', {
+    decks: decksResult.results?.length || 0,
+    notes: notesResult.results?.length || 0,
+    cards: cardsResult.results?.length || 0,
+  });
 
   return c.json({
     decks: decksResult.results || [],
