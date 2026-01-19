@@ -77,7 +77,10 @@ export function useOfflineQueueCounts(deckId?: string, ignoreDailyLimit = false)
 // Hook to get pending reviews count
 export function usePendingReviewsCount() {
   const count = useLiveQuery(
-    () => db.pendingReviews.where('_pending').equals(1).count(),
+    async () => {
+      const all = await db.pendingReviews.toArray();
+      return all.filter(r => r._pending === true).length;
+    },
     []
   );
 

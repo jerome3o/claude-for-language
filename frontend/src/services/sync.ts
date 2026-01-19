@@ -244,22 +244,25 @@ class SyncService {
    */
   async syncPendingReviews(): Promise<{ synced: number; failed: number }> {
     // First, clean up any old synced reviews that are clogging the table
-    const totalCount = await db.pendingReviews.count();
-    const pendingCount = await db.pendingReviews.where('_pending').equals(1).count();
-    const syncedCount = totalCount - pendingCount;
+    // Use filter since _pending is boolean but indexed as 0/1
+    const allReviews = await db.pendingReviews.toArray();
+    const syncedReviews = allReviews.filter(r => r._pending === false || (r._pending as unknown) === 0);
+    const pendingReviews = allReviews.filter(r => r._pending === true || (r._pending as unknown) === 1);
 
-    if (syncedCount > 0) {
-      console.log('[syncPendingReviews] cleaning up', syncedCount, 'old synced reviews');
+    if (syncedReviews.length > 0) {
+      console.log('[syncPendingReviews] cleaning up', syncedReviews.length, 'old synced reviews');
       // Delete all synced reviews (they're already on the server)
-      await db.pendingReviews.where('_pending').equals(0).delete();
+      await db.pendingReviews.bulkDelete(syncedReviews.map(r => r.id));
+      console.log('[syncPendingReviews] cleanup done, remaining:', await db.pendingReviews.count());
     }
 
-    const pending = await db.pendingReviews.where('_pending').equals(1).toArray();
-    console.log('[syncPendingReviews] found', pending.length, 'pending reviews');
+    console.log('[syncPendingReviews] found', pendingReviews.length, 'pending reviews');
 
-    if (pending.length === 0) {
+    if (pendingReviews.length === 0) {
       return { synced: 0, failed: 0 };
     }
+
+    const pending = pendingReviews;
 
     let synced = 0;
     let failed = 0;

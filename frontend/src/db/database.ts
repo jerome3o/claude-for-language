@@ -230,11 +230,12 @@ export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Pr
 }
 
 export async function getPendingReviews(): Promise<PendingReview[]> {
-  return db.pendingReviews.where('_pending').equals(1).toArray();
+  // Use filter since _pending is boolean
+  return db.pendingReviews.filter(r => r._pending === true).toArray();
 }
 
 export async function getPendingReviewCount(): Promise<number> {
-  return db.pendingReviews.where('_pending').equals(1).count();
+  return (await getPendingReviews()).length;
 }
 
 export async function getSyncMeta(): Promise<SyncMeta | undefined> {
