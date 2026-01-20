@@ -21,6 +21,8 @@ import { CardReviewDetailPage } from './pages/CardReviewDetailPage';
 import { MyProgressPage } from './pages/MyProgressPage';
 import { MyDayDetailPage } from './pages/MyDayDetailPage';
 import { MyCardReviewDetailPage } from './pages/MyCardReviewDetailPage';
+import { TutorReviewInboxPage } from './pages/TutorReviewInboxPage';
+import { TutorReviewDetailPage } from './pages/TutorReviewDetailPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -180,6 +182,24 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <CardReviewDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tutor-reviews"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <TutorReviewInboxPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/tutor-reviews/:requestId"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <TutorReviewDetailPage />
           </ProtectedRoute>
         }
       />

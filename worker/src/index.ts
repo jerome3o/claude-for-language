@@ -55,7 +55,16 @@ import {
   getChatContext,
   buildFlashcardPrompt,
 } from './services/conversations';
-import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, GenerateFlashcardRequest } from './types';
+import {
+  createTutorReviewRequest,
+  getTutorReviewRequestById,
+  getTutorReviewInbox,
+  getStudentSentRequests,
+  respondToTutorReviewRequest,
+  archiveTutorReviewRequest,
+  getPendingReviewRequestCount,
+} from './services/tutor-review-requests';
+import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, GenerateFlashcardRequest, CreateTutorReviewRequest, RespondToTutorReviewRequest, TutorReviewRequestStatus } from './types';
 
 // Extend Hono context to include user
 declare module 'hono' {
@@ -1681,6 +1690,117 @@ app.get('/api/relationships/:relId/shared-decks', async (c) => {
     return c.json(sharedDecks);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get shared decks';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// ============ Tutor Review Requests ============
+
+// Create a new tutor review request (student flags a card for tutor review)
+app.post('/api/tutor-review-requests', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<CreateTutorReviewRequest>();
+
+  if (!body.relationship_id || !body.note_id || !body.card_id || !body.message) {
+    return c.json({ error: 'relationship_id, note_id, card_id, and message are required' }, 400);
+  }
+
+  try {
+    const request = await createTutorReviewRequest(c.env.DB, userId, body);
+    return c.json(request, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create review request';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get tutor's inbox (review requests sent to them)
+app.get('/api/tutor-review-requests/inbox', async (c) => {
+  const userId = c.get('user').id;
+  const status = c.req.query('status') as TutorReviewRequestStatus | undefined;
+
+  try {
+    const requests = await getTutorReviewInbox(c.env.DB, userId, status);
+    return c.json(requests);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get review requests';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get count of pending review requests (for badge/notification)
+app.get('/api/tutor-review-requests/pending-count', async (c) => {
+  const userId = c.get('user').id;
+
+  try {
+    const count = await getPendingReviewRequestCount(c.env.DB, userId);
+    return c.json({ count });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get pending count';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get student's sent review requests
+app.get('/api/tutor-review-requests/sent', async (c) => {
+  const userId = c.get('user').id;
+  const status = c.req.query('status') as TutorReviewRequestStatus | undefined;
+
+  try {
+    const requests = await getStudentSentRequests(c.env.DB, userId, status);
+    return c.json(requests);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get sent requests';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get a specific tutor review request
+app.get('/api/tutor-review-requests/:id', async (c) => {
+  const userId = c.get('user').id;
+  const requestId = c.req.param('id');
+
+  try {
+    const request = await getTutorReviewRequestById(c.env.DB, requestId, userId);
+    if (!request) {
+      return c.json({ error: 'Review request not found' }, 404);
+    }
+    return c.json(request);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get review request';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Respond to a tutor review request (tutor only)
+app.post('/api/tutor-review-requests/:id/respond', async (c) => {
+  const userId = c.get('user').id;
+  const requestId = c.req.param('id');
+  const { response } = await c.req.json<RespondToTutorReviewRequest>();
+
+  if (!response || response.trim() === '') {
+    return c.json({ error: 'Response is required' }, 400);
+  }
+
+  try {
+    const request = await respondToTutorReviewRequest(c.env.DB, requestId, userId, response);
+    return c.json(request);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to respond to request';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Archive a tutor review request
+app.post('/api/tutor-review-requests/:id/archive', async (c) => {
+  const userId = c.get('user').id;
+  const requestId = c.req.param('id');
+
+  try {
+    await archiveTutorReviewRequest(c.env.DB, requestId, userId);
+    return c.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to archive request';
     return c.json({ error: message }, 400);
   }
 });

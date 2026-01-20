@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import {
@@ -6,6 +6,8 @@ import {
   startSession,
   API_BASE,
   NoteQuestion,
+  getMyRelationships,
+  createTutorReviewRequest,
 } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import {
@@ -15,9 +17,12 @@ import {
   RATING_INFO,
   QueueCounts,
   IntervalPreview,
+  TutorRelationshipWithUsers,
+  getOtherUserInRelationship,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
+import { useAuth } from '../contexts/AuthContext';
 import {
   useOfflineDecks,
   useOfflineNextCard,
@@ -169,6 +174,8 @@ function StudyCard({
   onComplete: () => void;
   onEnd: () => void;
 }) {
+  const { user } = useAuth();
+  const { isOnline } = useNetwork();
 
   const [flipped, setFlipped] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
@@ -185,6 +192,24 @@ function StudyCard({
   // Debug modal state
   const [showDebug, setShowDebug] = useState(false);
   const [reviewHistory, setReviewHistory] = useState<LocalReviewEvent[]>([]);
+
+  // Flag for tutor review state
+  const [flagForTutor, setFlagForTutor] = useState(false);
+  const [showFlagModal, setShowFlagModal] = useState(false);
+  const [selectedTutor, setSelectedTutor] = useState<TutorRelationshipWithUsers | null>(null);
+  const [flagMessage, setFlagMessage] = useState('');
+  const [isFlagging, setIsFlagging] = useState(false);
+  const flagMessageRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fetch tutors for flag feature
+  const { data: relationships } = useQuery({
+    queryKey: ['relationships'],
+    queryFn: getMyRelationships,
+    enabled: isOnline,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const tutors = relationships?.tutors || [];
 
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
@@ -266,6 +291,53 @@ function StudyCard({
       recordingBlob: audioBlob || undefined, // Recording will be uploaded after sync
     });
 
+    // If flag is checked, show modal to select tutor and write message
+    if (flagForTutor && tutors.length > 0 && isOnline) {
+      setShowFlagModal(true);
+      // Auto-select first tutor if only one
+      if (tutors.length === 1) {
+        setSelectedTutor(tutors[0]);
+      }
+      setTimeout(() => flagMessageRef.current?.focus(), 100);
+      return; // Don't complete yet, wait for flag submission
+    }
+
+    onComplete();
+  };
+
+  const handleFlagSubmit = async () => {
+    if (!selectedTutor || !flagMessage.trim() || isFlagging) return;
+
+    setIsFlagging(true);
+    try {
+      await createTutorReviewRequest({
+        relationship_id: selectedTutor.id,
+        note_id: card.note.id,
+        card_id: card.id,
+        message: flagMessage.trim(),
+      });
+
+      // Reset flag state
+      setShowFlagModal(false);
+      setFlagForTutor(false);
+      setSelectedTutor(null);
+      setFlagMessage('');
+
+      onComplete();
+    } catch (error) {
+      console.error('Failed to create flag:', error);
+      // Still complete the card even if flag fails
+      onComplete();
+    } finally {
+      setIsFlagging(false);
+    }
+  };
+
+  const handleFlagCancel = () => {
+    setShowFlagModal(false);
+    setFlagForTutor(false);
+    setSelectedTutor(null);
+    setFlagMessage('');
     onComplete();
   };
 
@@ -590,40 +662,151 @@ function StudyCard({
 
   const renderBackActions = () => {
     return (
-      <div className="flex gap-1 justify-center flex-wrap mb-3">
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
-          disabled={isPlaying}
-        >
-          {isPlaying ? 'Playing...' : 'Play Audio'}
-        </button>
-        {audioBlob && (
+      <div className="flex flex-col gap-2 mb-3">
+        <div className="flex gap-1 justify-center flex-wrap">
           <button
             className="btn btn-secondary btn-sm"
-            onClick={playUserRecording}
+            onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
+            disabled={isPlaying}
           >
-            My Recording
+            {isPlaying ? 'Playing...' : 'Play Audio'}
           </button>
+          {audioBlob && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={playUserRecording}
+            >
+              My Recording
+            </button>
+          )}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              setShowAskClaude(!showAskClaude);
+              if (!showAskClaude) {
+                setTimeout(() => questionInputRef.current?.focus(), 100);
+              }
+            }}
+          >
+            {showAskClaude ? 'Hide' : 'Ask Claude'}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowDebug(true)}
+            title="Show debug info"
+          >
+            🔍
+          </button>
+        </div>
+
+        {/* Flag for tutor review checkbox */}
+        {tutors.length > 0 && isOnline && (
+          <label className="flex items-center justify-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={flagForTutor}
+              onChange={(e) => setFlagForTutor(e.target.checked)}
+              className="form-checkbox"
+            />
+            <span className="text-light">Flag for tutor review</span>
+          </label>
         )}
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={() => {
-            setShowAskClaude(!showAskClaude);
-            if (!showAskClaude) {
-              setTimeout(() => questionInputRef.current?.focus(), 100);
-            }
-          }}
-        >
-          {showAskClaude ? 'Hide' : 'Ask Claude'}
-        </button>
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={() => setShowDebug(true)}
-          title="Show debug info"
-        >
-          🔍
-        </button>
+      </div>
+    );
+  };
+
+  const renderFlagModal = () => {
+    if (!showFlagModal) return null;
+
+    return (
+      <div className="modal-overlay" onClick={handleFlagCancel}>
+        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+          <div className="modal-header">
+            <div className="modal-title">Flag for Tutor Review</div>
+            <button className="modal-close" onClick={handleFlagCancel}>×</button>
+          </div>
+
+          <div className="modal-body">
+            {/* Card preview */}
+            <div style={{
+              backgroundColor: '#f3f4f6',
+              padding: '0.75rem',
+              borderRadius: '6px',
+              marginBottom: '1rem',
+              textAlign: 'center'
+            }}>
+              <div className="hanzi" style={{ fontSize: '1.5rem' }}>{card.note.hanzi}</div>
+              <div className="pinyin" style={{ fontSize: '0.875rem' }}>{card.note.pinyin}</div>
+              <div style={{ fontSize: '0.875rem', color: '#666' }}>{card.note.english}</div>
+            </div>
+
+            {/* Tutor selection (if multiple) */}
+            {tutors.length > 1 && (
+              <div className="form-group mb-3">
+                <label className="form-label">Select Tutor</label>
+                <select
+                  className="form-input"
+                  value={selectedTutor?.id || ''}
+                  onChange={(e) => {
+                    const tutor = tutors.find(t => t.id === e.target.value);
+                    setSelectedTutor(tutor || null);
+                  }}
+                >
+                  <option value="">Choose a tutor...</option>
+                  {tutors.map((rel) => {
+                    const tutor = user ? getOtherUserInRelationship(rel, user.id) : null;
+                    return (
+                      <option key={rel.id} value={rel.id}>
+                        {tutor?.name || tutor?.email || 'Tutor'}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {/* Single tutor display */}
+            {tutors.length === 1 && selectedTutor && (
+              <div className="mb-3" style={{ fontSize: '0.875rem', color: '#666' }}>
+                Sending to: <strong>
+                  {user ? (getOtherUserInRelationship(selectedTutor, user.id)?.name ||
+                    getOtherUserInRelationship(selectedTutor, user.id)?.email) : 'Tutor'}
+                </strong>
+              </div>
+            )}
+
+            {/* Message input */}
+            <div className="form-group">
+              <label className="form-label">What would you like help with?</label>
+              <textarea
+                ref={flagMessageRef}
+                className="form-input"
+                value={flagMessage}
+                onChange={(e) => setFlagMessage(e.target.value)}
+                placeholder="e.g., The audio sounds different than I expected..."
+                rows={3}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+          </div>
+
+          <div className="modal-footer">
+            <button
+              className="btn btn-secondary"
+              onClick={handleFlagCancel}
+              disabled={isFlagging}
+            >
+              Skip
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleFlagSubmit}
+              disabled={!selectedTutor || !flagMessage.trim() || isFlagging}
+            >
+              {isFlagging ? 'Sending...' : 'Send to Tutor'}
+            </button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -757,6 +940,9 @@ function StudyCard({
 
       {/* Debug Modal */}
       {renderDebugModal()}
+
+      {/* Flag for Tutor Modal */}
+      {renderFlagModal()}
     </>
   );
 }

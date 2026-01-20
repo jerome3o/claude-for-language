@@ -1,0 +1,234 @@
+.review-inbox-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.review-inbox-header h1 {
+  margin: 0;
+}
+
+.review-inbox-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.review-inbox-tab {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.review-inbox-tab:hover {
+  background: #f9fafb;
+}
+
+.review-inbox-tab.active {
+  background: #6366f1;
+  color: white;
+  border-color: #6366f1;
+}
+
+.review-inbox-badge {
+  background: #ef4444;
+  color: white;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.review-inbox-tab.active .review-inbox-badge {
+  background: white;
+  color: #6366f1;
+}
+
+.review-inbox-filters {
+  margin-bottom: 1rem;
+}
+
+.review-inbox-filters .form-input-sm {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.review-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.review-request-card {
+  display: block;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1rem;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.review-request-card:hover {
+  border-color: #6366f1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.review-request-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.review-request-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.review-request-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.review-request-avatar-placeholder {
+  background: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.review-request-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.review-request-name {
+  font-weight: 500;
+  font-size: 0.9375rem;
+  color: #111827;
+}
+
+.review-request-time {
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+.review-request-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+  text-transform: capitalize;
+}
+
+.review-request-card-preview {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.review-request-hanzi {
+  font-size: 1.5rem;
+  font-weight: 500;
+  min-width: 60px;
+  text-align: center;
+}
+
+.review-request-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.review-request-pinyin {
+  font-size: 0.875rem;
+  color: #6366f1;
+}
+
+.review-request-english {
+  font-size: 0.875rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review-request-message {
+  font-size: 0.875rem;
+  color: #374151;
+  font-style: italic;
+  margin-bottom: 0.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.review-request-rating {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.review-request-answer {
+  color: #374151;
+}
+
+.review-request-response {
+  font-size: 0.8125rem;
+  color: #059669;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.review-request-arrow {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  font-size: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .review-inbox-tabs {
+    max-width: 300px;
+  }
+
+  .review-request-card {
+    padding: 1.25rem;
+    padding-right: 2.5rem;
+  }
+}

@@ -26,6 +26,8 @@ import {
   DayCardsDetail,
   CardReviewsDetail,
   MyDailyProgress,
+  TutorReviewRequestWithDetails,
+  TutorReviewRequestStatus,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -617,4 +619,67 @@ export async function getMyDayCards(date: string): Promise<DayCardsDetail> {
 
 export async function getMyCardReviews(date: string, cardId: string): Promise<CardReviewsDetail> {
   return fetchJSON<CardReviewsDetail>(`/progress/day/${date}/card/${cardId}`);
+}
+
+// ============ Tutor Review Requests ============
+
+export async function createTutorReviewRequest(data: {
+  relationship_id: string;
+  note_id: string;
+  card_id: string;
+  review_event_id?: string;
+  message: string;
+}): Promise<TutorReviewRequestWithDetails> {
+  return fetchJSON<TutorReviewRequestWithDetails>('/tutor-review-requests', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getTutorReviewInbox(
+  status?: TutorReviewRequestStatus
+): Promise<TutorReviewRequestWithDetails[]> {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  const query = params.toString();
+  return fetchJSON<TutorReviewRequestWithDetails[]>(
+    `/tutor-review-requests/inbox${query ? `?${query}` : ''}`
+  );
+}
+
+export async function getPendingReviewRequestCount(): Promise<{ count: number }> {
+  return fetchJSON<{ count: number }>('/tutor-review-requests/pending-count');
+}
+
+export async function getStudentSentRequests(
+  status?: TutorReviewRequestStatus
+): Promise<TutorReviewRequestWithDetails[]> {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  const query = params.toString();
+  return fetchJSON<TutorReviewRequestWithDetails[]>(
+    `/tutor-review-requests/sent${query ? `?${query}` : ''}`
+  );
+}
+
+export async function getTutorReviewRequest(
+  requestId: string
+): Promise<TutorReviewRequestWithDetails> {
+  return fetchJSON<TutorReviewRequestWithDetails>(`/tutor-review-requests/${requestId}`);
+}
+
+export async function respondToTutorReviewRequest(
+  requestId: string,
+  response: string
+): Promise<TutorReviewRequestWithDetails> {
+  return fetchJSON<TutorReviewRequestWithDetails>(`/tutor-review-requests/${requestId}/respond`, {
+    method: 'POST',
+    body: JSON.stringify({ response }),
+  });
+}
+
+export async function archiveTutorReviewRequest(requestId: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/tutor-review-requests/${requestId}/archive`, {
+    method: 'POST',
+  });
 }
