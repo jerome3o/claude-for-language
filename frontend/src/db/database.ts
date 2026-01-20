@@ -273,38 +273,67 @@ export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Pr
     cards = await db.cards.toArray();
   }
 
-  // Get deck settings for new card limit
-  let newCardsPerDay = 30; // default
+  // Filter for due cards
+  const dueCards: LocalCard[] = [];
+
   if (deckId) {
+    // Single deck mode - use that deck's limit
+    let newCardsPerDay = 30; // default
     const deck = await db.decks.get(deckId);
     if (deck) {
       newCardsPerDay = deck.new_cards_per_day;
     }
-  }
+    const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
+    const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
+    let newCardCount = 0;
 
-  // Get new cards studied today
-  const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
-  const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
-
-  // Filter for due cards
-  const dueCards: LocalCard[] = [];
-  let newCardCount = 0;
-
-  for (const card of cards) {
-    if (card.queue === CardQueue.NEW) {
-      // Apply daily limit for new cards
-      if (ignoreDailyLimit || newCardCount < remainingNewCards) {
-        dueCards.push(card);
-        newCardCount++;
+    for (const card of cards) {
+      if (card.queue === CardQueue.NEW) {
+        if (ignoreDailyLimit || newCardCount < remainingNewCards) {
+          dueCards.push(card);
+          newCardCount++;
+        }
+      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+        if (!card.due_timestamp || card.due_timestamp <= now) {
+          dueCards.push(card);
+        }
+      } else if (card.queue === CardQueue.REVIEW) {
+        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
+          dueCards.push(card);
+        }
       }
-    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-      if (!card.due_timestamp || card.due_timestamp <= now) {
-        dueCards.push(card);
-      }
-    } else if (card.queue === CardQueue.REVIEW) {
-      // Include all cards due by end of today
-      if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
-        dueCards.push(card);
+    }
+  } else {
+    // All Decks mode - respect per-deck new card limits
+    const allDecks = await db.decks.toArray();
+
+    // Build a map of deck_id -> remaining new cards for that deck
+    const deckLimits = new Map<string, number>();
+    const deckNewCounts = new Map<string, number>();
+
+    for (const deck of allDecks) {
+      const studiedToday = await getNewCardsStudiedToday(deck.id);
+      const remaining = Math.max(0, deck.new_cards_per_day - studiedToday);
+      deckLimits.set(deck.id, remaining);
+      deckNewCounts.set(deck.id, 0);
+    }
+
+    for (const card of cards) {
+      if (card.queue === CardQueue.NEW) {
+        const deckRemaining = deckLimits.get(card.deck_id) || 0;
+        const deckCurrentNew = deckNewCounts.get(card.deck_id) || 0;
+        if (ignoreDailyLimit || deckCurrentNew < deckRemaining) {
+          dueCards.push(card);
+          deckNewCounts.set(card.deck_id, deckCurrentNew + 1);
+        }
+      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+        if (!card.due_timestamp || card.due_timestamp <= now) {
+          dueCards.push(card);
+        }
+      } else if (card.queue === CardQueue.REVIEW) {
+        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
+          dueCards.push(card);
+        }
       }
     }
   }
