@@ -199,6 +199,12 @@ export function useNoteAudio() {
   const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
     // Increment play ID to invalidate any pending callbacks from previous plays
     const currentPlayId = ++playIdRef.current;
+    console.log('[useNoteAudio] play() called', {
+      audioUrl,
+      text,
+      playId: currentPlayId,
+      timestamp: new Date().toISOString(),
+    });
 
     // Stop any current playback
     cleanupAudio();
@@ -206,6 +212,7 @@ export function useNoteAudio() {
     // If we have a stored audio URL, use it
     if (audioUrl) {
       const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
+      console.log('[useNoteAudio] Playing from URL:', fullUrl);
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 

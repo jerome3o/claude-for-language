@@ -164,6 +164,14 @@ function StudyCard({
   onComplete: () => void;
   onEnd: () => void;
 }) {
+  console.log('[StudyCard] Render', {
+    cardId: card.id,
+    cardType: card.card_type,
+    noteId: card.note.id,
+    hanzi: card.note.hanzi,
+    timestamp: new Date().toISOString(),
+  });
+
   const [flipped, setFlipped] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
   const [startTime] = useState(Date.now());
@@ -196,7 +204,14 @@ function StudyCard({
 
   // Play audio for audio cards on front
   useEffect(() => {
+    console.log('[StudyCard] Audio effect running', {
+      cardType: card.card_type,
+      cardId: card.id,
+      flipped,
+      audioUrl: card.note.audio_url,
+    });
     if (card.card_type === 'audio_to_hanzi' && !flipped) {
+      console.log('[StudyCard] Triggering auto-play for audio card');
       playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
     }
     return () => stopAudio();
@@ -617,6 +632,18 @@ export function StudyPage() {
   const currentCard = studyStarted ? offlineNextCard.card : null;
   const intervalPreviews = offlineNextCard.intervalPreviews;
   const isLoading = studyStarted ? offlineNextCard.isLoading : offlineQueueCounts.isLoading;
+
+  // Debug logging
+  console.log('[StudyPage] Render', {
+    studyStarted,
+    currentCardId: currentCard?.id,
+    currentCardType: currentCard?.card_type,
+    currentNoteHanzi: currentCard?.note?.hanzi,
+    counts,
+    recentNotesLength: recentNotes.length,
+    isLoading,
+    timestamp: new Date().toISOString(),
+  });
 
   const handleStartStudy = async () => {
     setStudyStarted(true);

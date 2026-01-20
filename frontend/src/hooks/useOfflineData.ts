@@ -164,10 +164,17 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
   // Priority: Learning due NOW > Mix(New, Review) proportionally > Learning with delay
   const nextCard = useLiveQuery(async () => {
     const now = Date.now();
+    console.log('[useOfflineNextCard] Card selection running', {
+      allDueCardsLength: allDueCards?.length,
+      excludeNoteIdsLength: excludeNoteIds.length,
+      deckId,
+      timestamp: new Date().toISOString(),
+    });
 
     if (allDueCards && allDueCards.length > 0) {
       // Filter out cards from excluded notes
       const availableCards = allDueCards.filter(card => !excludeNoteIds.includes(card.note_id));
+      console.log('[useOfflineNextCard] Available cards after filtering:', availableCards.length);
 
       if (availableCards.length > 0) {
         // 1. Learning/relearning cards due NOW always have priority (they have timers)
@@ -177,6 +184,11 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
         );
         if (learningDue.length > 0) {
           learningDue.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          console.log('[useOfflineNextCard] Selected LEARNING card (due now):', {
+            cardId: learningDue[0].id,
+            queue: learningDue[0].queue,
+            noteId: learningDue[0].note_id,
+          });
           return learningDue[0];
         }
 
@@ -189,15 +201,34 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
           // Proportional selection: probability based on queue sizes
           const newProbability = newCards.length / totalMixable;
           const random = Math.random();
+          console.log('[useOfflineNextCard] Proportional selection:', {
+            newCards: newCards.length,
+            reviewCards: reviewCards.length,
+            newProbability,
+            random,
+            willSelectNew: random < newProbability,
+          });
 
           if (random < newProbability && newCards.length > 0) {
             // Pick a new card
+            console.log('[useOfflineNextCard] Selected NEW card:', {
+              cardId: newCards[0].id,
+              noteId: newCards[0].note_id,
+            });
             return newCards[0];
           } else if (reviewCards.length > 0) {
             // Pick a review card
+            console.log('[useOfflineNextCard] Selected REVIEW card:', {
+              cardId: reviewCards[0].id,
+              noteId: reviewCards[0].note_id,
+            });
             return reviewCards[0];
           } else if (newCards.length > 0) {
             // Fallback to new if no review cards
+            console.log('[useOfflineNextCard] Fallback to NEW card:', {
+              cardId: newCards[0].id,
+              noteId: newCards[0].note_id,
+            });
             return newCards[0];
           }
         }
@@ -206,6 +237,7 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
 
     // 3. If nothing immediately due, check for learning cards with delays.
     // Serve them immediately so the user doesn't have to wait.
+    console.log('[useOfflineNextCard] Checking for delayed learning cards...');
     let delayedLearningCards: LocalCard[];
     if (deckId) {
       delayedLearningCards = await db.cards
@@ -224,9 +256,15 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     if (delayedLearningCards.length > 0) {
       // Return the one with the shortest delay
       delayedLearningCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+      console.log('[useOfflineNextCard] Selected DELAYED LEARNING card:', {
+        cardId: delayedLearningCards[0].id,
+        noteId: delayedLearningCards[0].note_id,
+        dueTimestamp: delayedLearningCards[0].due_timestamp,
+      });
       return delayedLearningCards[0];
     }
 
+    console.log('[useOfflineNextCard] No card selected');
     return null;
   }, [allDueCards, excludeNoteIds, deckId]);
 
