@@ -103,12 +103,16 @@ function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activ
 }
 
 // Deck row with its own queue counts (uses hook for reactive updates)
-function DeckStudyRow({ deck }: { deck: { id: string; name: string } }) {
+function DeckStudyRow({ deck, isSelected }: { deck: { id: string; name: string }; isSelected?: boolean }) {
   const counts = useOfflineQueueCounts(deck.id, false);
   const totalDue = counts.counts.new + counts.counts.learning + counts.counts.review;
 
   return (
-    <Link to={`/study?deck=${deck.id}`} className="deck-card">
+    <Link
+      to={`/study?deck=${deck.id}`}
+      className="deck-card"
+      style={isSelected ? { backgroundColor: '#e0e7ff', borderColor: '#6366f1' } : undefined}
+    >
       <div className="deck-card-title">{deck.name}</div>
       {totalDue > 0 && (
         <div className="deck-card-stats">
@@ -750,23 +754,25 @@ export function StudyPage() {
         <div className="container">
           <h1 className="mb-4">Study</h1>
 
-          {/* Deck Selection */}
-          {!deckId && (
-            <div className="card mb-4">
-              <h2 className="mb-3">Select a Deck</h2>
-              <div className="flex flex-col gap-2">
-                <Link to="/study" className="deck-card">
-                  <div className="deck-card-title">All Decks</div>
-                  <div className="deck-card-stats">
-                    <QueueCountsHeader counts={counts} />
-                  </div>
-                </Link>
-                {decks.map((deck) => (
-                  <DeckStudyRow key={deck.id} deck={deck} />
-                ))}
-              </div>
+          {/* Deck Selection - always visible */}
+          <div className="card mb-4">
+            <h2 className="mb-3">Select a Deck</h2>
+            <div className="flex flex-col gap-2">
+              <Link
+                to="/study"
+                className="deck-card"
+                style={!deckId ? { backgroundColor: '#e0e7ff', borderColor: '#6366f1' } : undefined}
+              >
+                <div className="deck-card-title">All Decks</div>
+                <div className="deck-card-stats">
+                  <QueueCountsHeader counts={counts} />
+                </div>
+              </Link>
+              {decks.map((deck) => (
+                <DeckStudyRow key={deck.id} deck={deck} isSelected={deckId === deck.id} />
+              ))}
             </div>
-          )}
+          </div>
 
           {/* Start Study */}
           {totalDue === 0 ? (
@@ -787,7 +793,7 @@ export function StudyPage() {
                   >
                     {isSyncing ? 'Syncing...' : 'Refresh'}
                   </button>
-                  <Link to="/decks" className="btn btn-primary">
+                  <Link to="/" className="btn btn-primary">
                     View Decks
                   </Link>
                 </div>

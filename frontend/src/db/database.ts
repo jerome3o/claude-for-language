@@ -359,37 +359,62 @@ export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false):
     cards = await db.cards.toArray();
   }
 
-  // Get deck settings for new card limit
-  let newCardsPerDay = 30;
-  if (deckId) {
-    const deck = await db.decks.get(deckId);
-    if (deck) {
-      newCardsPerDay = deck.new_cards_per_day;
-    }
-  }
-
-  // Get new cards studied today
-  const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
-  const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
-
   let newCount = 0;
   let learningCount = 0;
   let reviewCount = 0;
 
-  for (const card of cards) {
-    if (card.queue === CardQueue.NEW) {
-      // Apply daily limit for new cards
-      if (ignoreDailyLimit || newCount < remainingNewCards) {
-        newCount++;
+  if (deckId) {
+    // Single deck mode - use that deck's limit
+    let newCardsPerDay = 30;
+    const deck = await db.decks.get(deckId);
+    if (deck) {
+      newCardsPerDay = deck.new_cards_per_day;
+    }
+    const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
+    const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
+
+    for (const card of cards) {
+      if (card.queue === CardQueue.NEW) {
+        if (ignoreDailyLimit || newCount < remainingNewCards) {
+          newCount++;
+        }
+      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+        learningCount++;
+      } else if (card.queue === CardQueue.REVIEW) {
+        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
+          reviewCount++;
+        }
       }
-    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-      // Count ALL learning/relearning cards, even those with delays.
-      // This matches Anki: failing a card immediately increments the red count.
-      learningCount++;
-    } else if (card.queue === CardQueue.REVIEW) {
-      // Only count review cards due by end of today
-      if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
-        reviewCount++;
+    }
+  } else {
+    // All Decks mode - sum up per-deck limits
+    const allDecks = await db.decks.toArray();
+
+    // Build a map of deck_id -> remaining new cards for that deck
+    const deckLimits = new Map<string, number>();
+    const deckNewCounts = new Map<string, number>();
+
+    for (const deck of allDecks) {
+      const studiedToday = await getNewCardsStudiedToday(deck.id);
+      const remaining = Math.max(0, deck.new_cards_per_day - studiedToday);
+      deckLimits.set(deck.id, remaining);
+      deckNewCounts.set(deck.id, 0);
+    }
+
+    for (const card of cards) {
+      if (card.queue === CardQueue.NEW) {
+        const deckRemaining = deckLimits.get(card.deck_id) || 0;
+        const deckCurrentNew = deckNewCounts.get(card.deck_id) || 0;
+        if (ignoreDailyLimit || deckCurrentNew < deckRemaining) {
+          newCount++;
+          deckNewCounts.set(card.deck_id, deckCurrentNew + 1);
+        }
+      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+        learningCount++;
+      } else if (card.queue === CardQueue.REVIEW) {
+        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
+          reviewCount++;
+        }
       }
     }
   }

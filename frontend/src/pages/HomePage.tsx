@@ -124,12 +124,32 @@ export function HomePage() {
         </div>
 
         {/* Your Decks */}
-        <div className="card">
+        <div className="card" style={{ position: 'relative' }}>
           <h2 className="mb-3">Your Decks</h2>
 
           {isSyncing && (
-            <div className="mb-3" style={{ padding: '0.5rem', background: '#dbeafe', color: '#1d4ed8', borderRadius: '0.5rem', textAlign: 'center', fontSize: '0.875rem' }}>
-              Syncing decks...
+            <div style={{
+              position: 'absolute',
+              top: '0.5rem',
+              right: '0.5rem',
+              padding: '0.25rem 0.5rem',
+              background: '#dbeafe',
+              color: '#1d4ed8',
+              borderRadius: '1rem',
+              fontSize: '0.6875rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem'
+            }}>
+              <span style={{
+                width: '0.5rem',
+                height: '0.5rem',
+                border: '1.5px solid #93c5fd',
+                borderTopColor: '#3b82f6',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+              }}></span>
+              Syncing
             </div>
           )}
 
