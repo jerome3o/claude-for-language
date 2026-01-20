@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AdminUser } from '../types';
 import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats } from '../api/client';
+import { syncService } from '../services/sync';
 import './AdminPage.css';
 
 export function AdminPage() {
@@ -18,6 +19,10 @@ export function AdminPage() {
 
   // Cache state
   const [isClearing, setIsClearing] = useState(false);
+
+  // Card fix state
+  const [isFixingCards, setIsFixingCards] = useState(false);
+  const [cardFixResult, setCardFixResult] = useState<string | null>(null);
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -100,6 +105,20 @@ export function AdminPage() {
     } catch (err) {
       console.error('Failed to clear cache:', err);
       setIsClearing(false);
+    }
+  }, []);
+
+  const handleFixCardStates = useCallback(async () => {
+    setIsFixingCards(true);
+    setCardFixResult(null);
+    try {
+      const result = await syncService.fixAllCardStates();
+      setCardFixResult(`Fixed ${result.fixed} of ${result.total} cards${result.errors.length > 0 ? ` (${result.errors.length} errors)` : ''}`);
+    } catch (err) {
+      console.error('Failed to fix card states:', err);
+      setCardFixResult('Failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsFixingCards(false);
     }
   }, []);
 
@@ -305,13 +324,26 @@ export function AdminPage() {
               {formatDate(import.meta.env.VITE_BUILD_TIME || new Date().toISOString())}
             </span>
           </div>
-          <button
-            className="btn btn-secondary"
-            onClick={handleClearCache}
-            disabled={isClearing}
-          >
-            {isClearing ? 'Clearing...' : 'Clear Cache & Reload'}
-          </button>
+          <div className="debug-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={handleClearCache}
+              disabled={isClearing}
+            >
+              {isClearing ? 'Clearing...' : 'Clear Cache & Reload'}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleFixCardStates}
+              disabled={isFixingCards}
+              title="Recompute all card scheduling states from review events. Use this to fix cards that were corrupted by sync issues."
+            >
+              {isFixingCards ? 'Fixing...' : 'Fix Card States'}
+            </button>
+          </div>
+          {cardFixResult && (
+            <div className="card-fix-result">{cardFixResult}</div>
+          )}
         </div>
       </div>
     </div>

@@ -355,10 +355,27 @@
   font-size: 0.75rem;
 }
 
+.debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.card-fix-result {
+  padding: 0.5rem 0.75rem;
+  background: var(--color-background);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+}
+
 @media (min-width: 640px) {
   .debug-section {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .debug-actions {
+    flex-wrap: nowrap;
   }
 }
