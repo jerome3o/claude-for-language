@@ -189,8 +189,8 @@ describe('applyReview - REVIEW cards', () => {
     // Interval resets to 1 day
     expect(newState.interval).toBe(1);
     expect(newState.repetitions).toBe(0);
-    // Due in 10 minutes (first relearning step)
-    expect(newState.due_timestamp).toBe(addMinutes(new Date(baseTime), 10).getTime());
+    // Due in 1 minute (first relearning step)
+    expect(newState.due_timestamp).toBe(addMinutes(new Date(baseTime), 1).getTime());
   });
 
   it('Hard on REVIEW increases interval with hard_multiplier', () => {
@@ -254,7 +254,7 @@ describe('applyReview - REVIEW cards', () => {
 
 describe('applyReview - RELEARNING cards', () => {
   const baseTime = '2024-01-15T10:00:00.000Z';
-  const settings = DEFAULT_DECK_SETTINGS; // relearning_steps: [10]
+  const settings = DEFAULT_DECK_SETTINGS; // relearning_steps: [1]
 
   const relearningState: ComputedCardState = {
     queue: CardQueue.RELEARNING,
@@ -280,7 +280,7 @@ describe('applyReview - RELEARNING cards', () => {
 
     expect(newState.queue).toBe(CardQueue.RELEARNING);
     expect(newState.learning_step).toBe(0);
-    expect(newState.due_timestamp).toBe(addMinutes(new Date(baseTime), 10).getTime());
+    expect(newState.due_timestamp).toBe(addMinutes(new Date(baseTime), 1).getTime());
   });
 });
 

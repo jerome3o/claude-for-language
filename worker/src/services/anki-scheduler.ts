@@ -33,7 +33,7 @@ export const DEFAULT_DECK_SETTINGS: DeckSettings = {
   learning_steps: [1, 10],       // 1 min, 10 min
   graduating_interval: 1,        // 1 day
   easy_interval: 4,              // 4 days
-  relearning_steps: [10],        // 10 min
+  relearning_steps: [1],         // 1 min
   starting_ease: 2.5,            // 250%
   minimum_ease: 1.3,             // 130%
   maximum_ease: 3.0,             // 300%
