@@ -771,35 +771,43 @@ export function StudyPage() {
   const [recentNotes, setRecentNotes] = useState<string[]>([]);
   const [studyStarted, setStudyStarted] = useState(false);
 
-  // Bonus new cards - persisted in localStorage, resets daily
-  const getTodayKey = () => `bonusNewCards_${new Date().toISOString().slice(0, 10)}`;
-  const getStoredBonus = (): number => {
+  // Bonus new cards - persisted in localStorage per deck, resets daily
+  const getTodayKey = (forDeckId?: string) =>
+    `bonusNewCards_${forDeckId || 'all'}_${new Date().toISOString().slice(0, 10)}`;
+
+  const getStoredBonus = (forDeckId?: string): number => {
     try {
-      const stored = localStorage.getItem(getTodayKey());
+      const stored = localStorage.getItem(getTodayKey(forDeckId));
       return stored ? parseInt(stored, 10) || 0 : 0;
     } catch {
       return 0;
     }
   };
-  const [bonusNewCards, setBonusNewCards] = useState(getStoredBonus);
+
+  const [bonusNewCards, setBonusNewCards] = useState(() => getStoredBonus(deckId));
+
+  // Re-read bonus when deckId changes
+  useEffect(() => {
+    setBonusNewCards(getStoredBonus(deckId));
+  }, [deckId]);
 
   // Persist bonus to localStorage whenever it changes
   useEffect(() => {
     try {
       // Clean up old keys (from previous days)
-      const todayKey = getTodayKey();
-      for (let i = 0; i < localStorage.length; i++) {
+      const todayDate = new Date().toISOString().slice(0, 10);
+      for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
-        if (key?.startsWith('bonusNewCards_') && key !== todayKey) {
+        if (key?.startsWith('bonusNewCards_') && !key.endsWith(todayDate)) {
           localStorage.removeItem(key);
         }
       }
-      // Save current bonus
-      localStorage.setItem(todayKey, String(bonusNewCards));
+      // Save current bonus for this deck
+      localStorage.setItem(getTodayKey(deckId), String(bonusNewCards));
     } catch {
       // localStorage might be unavailable
     }
-  }, [bonusNewCards]);
+  }, [bonusNewCards, deckId]);
 
   // All data comes from offline/local-first hooks
   const { decks, triggerSync } = useOfflineDecks();
