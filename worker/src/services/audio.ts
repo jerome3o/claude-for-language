@@ -163,7 +163,7 @@ export async function generateMiniMaxTTS(
 
     // Store in R2
     const key = getNoteAudioKey(noteId);
-    await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer, 'audio/mpeg');
+    await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer as ArrayBuffer, 'audio/mpeg');
     console.log('[TTS] Stored MiniMax audio in R2 with key:', key);
 
     return key;
@@ -229,7 +229,7 @@ export async function generateGoogleTTS(
 
     // Store in R2
     const key = getNoteAudioKey(noteId);
-    await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer, 'audio/mpeg');
+    await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer as ArrayBuffer, 'audio/mpeg');
     console.log('[TTS] Stored audio in R2 with key:', key);
 
     return key;
