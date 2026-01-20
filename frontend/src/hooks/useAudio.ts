@@ -202,6 +202,7 @@ export function useNoteAudio() {
     console.log('[useNoteAudio] play() called', {
       audioUrl,
       text,
+      apiBase,
       playId: currentPlayId,
       timestamp: new Date().toISOString(),
     });
@@ -212,7 +213,7 @@ export function useNoteAudio() {
     // If we have a stored audio URL, use it
     if (audioUrl) {
       const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
-      console.log('[useNoteAudio] Playing from URL:', fullUrl);
+      console.log('[useNoteAudio] Playing from URL:', fullUrl, 'for text:', text);
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 

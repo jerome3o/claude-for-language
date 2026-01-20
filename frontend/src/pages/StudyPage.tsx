@@ -215,15 +215,22 @@ function StudyCard({
     console.log('[StudyCard] Audio effect running', {
       cardType: card.card_type,
       cardId: card.id,
+      noteId: card.note.id,
+      hanzi: card.note.hanzi,
       flipped,
       audioUrl: card.note.audio_url,
       alreadyPlayed: playedAudioForCardRef.current === card.id,
+      playedAudioForCardRef: playedAudioForCardRef.current,
     });
 
     if (card.card_type === 'audio_to_hanzi' && !flipped) {
       // Only play if we haven't already played for this card
       if (playedAudioForCardRef.current !== card.id) {
-        console.log('[StudyCard] Triggering auto-play for audio card');
+        console.log('[StudyCard] Triggering auto-play for audio card', {
+          cardId: card.id,
+          hanzi: card.note.hanzi,
+          audioUrl: card.note.audio_url,
+        });
         playedAudioForCardRef.current = card.id;
         playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
       } else {
