@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, exportDeck, API_BASE } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, Card, CardQueue, NoteWithCards } from '../types';
@@ -919,7 +919,6 @@ export function DeckDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isGeneratingAllAudio, setIsGeneratingAllAudio] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const [audioGenerationProgress, setAudioGenerationProgress] = useState({ done: 0, total: 0 });
 
   const deckQuery = useQuery({
@@ -964,30 +963,9 @@ export function DeckDetailPage() {
     mutationFn: () => deleteDeck(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decks'] });
-      navigate('/decks');
+      navigate('/');
     },
   });
-
-  const handleExport = async () => {
-    if (!id) return;
-    setIsExporting(true);
-    try {
-      const data = await exportDeck(id);
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${deck?.name || 'deck'}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Export failed:', err);
-    } finally {
-      setIsExporting(false);
-    }
-  };
 
   const generateAllMissingAudio = async () => {
     if (!deckQuery.data) return;
@@ -1054,13 +1032,6 @@ export function DeckDetailPage() {
               onClick={() => setShowSettings(true)}
             >
               Settings
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={handleExport}
-              disabled={isExporting}
-            >
-              {isExporting ? 'Exporting...' : 'Export'}
             </button>
             <button
               className="btn btn-secondary"

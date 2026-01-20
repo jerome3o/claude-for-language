@@ -7,7 +7,6 @@ import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
 import { HomePage } from './pages/HomePage';
 import { SplashPage } from './pages/SplashPage';
-import { DecksPage, NewDeckPage } from './pages/DecksPage';
 import { DeckDetailPage } from './pages/DeckDetailPage';
 import { StudyPage } from './pages/StudyPage';
 import { SessionReviewPage } from './pages/SessionReviewPage';
@@ -59,24 +58,6 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<HomeOrSplash />} />
-      <Route
-        path="/decks"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <DecksPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/decks/new"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <NewDeckPage />
-          </ProtectedRoute>
-        }
-      />
       <Route
         path="/decks/:id"
         element={
