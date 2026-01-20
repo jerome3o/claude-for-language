@@ -25,6 +25,7 @@ import {
   useSubmitReviewOffline,
   useHasMoreNewCards,
 } from '../hooks/useOfflineData';
+import { getCardReviewEvents, LocalReviewEvent } from '../db/database';
 import ReactMarkdown from 'react-markdown';
 
 // Character diff component for typed answers (Anki-style)
@@ -181,6 +182,10 @@ function StudyCard({
   const [isAsking, setIsAsking] = useState(false);
   const questionInputRef = useRef<HTMLInputElement>(null);
 
+  // Debug modal state
+  const [showDebug, setShowDebug] = useState(false);
+  const [reviewHistory, setReviewHistory] = useState<LocalReviewEvent[]>([]);
+
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio } = useNoteAudio();
@@ -224,6 +229,13 @@ function StudyCard({
       playedAudioForRef.current = null;
     };
   }, [card.id]);
+
+  // Load review history when debug modal opens
+  useEffect(() => {
+    if (showDebug) {
+      getCardReviewEvents(card.id).then(setReviewHistory);
+    }
+  }, [showDebug, card.id]);
 
 
   // Auto-play audio when answer is revealed
@@ -374,6 +386,134 @@ function StudyCard({
     }
   };
 
+  const renderDebugModal = () => {
+    if (!showDebug) return null;
+
+    const queueNames = ['NEW', 'LEARNING', 'REVIEW', 'RELEARNING'];
+    const ratingNames = ['Again', 'Hard', 'Good', 'Easy'];
+
+    // Format timestamp nicely
+    const formatTime = (isoString: string) => {
+      const date = new Date(isoString);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
+      return `${Math.floor(diffMins / 1440)}d ago`;
+    };
+
+    // Calculate what interval each rating would give from the CURRENT state
+    const currentPreviews = intervalPreviews;
+
+    return (
+      <div className="modal-overlay" onClick={() => setShowDebug(false)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+          <div className="modal-header">
+            <div className="modal-title">Debug Info: {card.note.hanzi}</div>
+            <button className="modal-close" onClick={() => setShowDebug(false)}>×</button>
+          </div>
+
+          <div className="modal-body" style={{ fontSize: '0.8125rem' }}>
+            {/* Current Card State */}
+            <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f3f4f6', borderRadius: '6px' }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Current Card State</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem' }}>
+                <div><strong>Card ID:</strong> {card.id.slice(0, 8)}...</div>
+                <div><strong>Type:</strong> {card.card_type}</div>
+                <div><strong>Queue:</strong> <span style={{
+                  color: card.queue === 0 ? '#3b82f6' : card.queue === 2 ? '#22c55e' : '#ef4444',
+                  fontWeight: 600
+                }}>{queueNames[card.queue]}</span></div>
+                <div><strong>Learning Step:</strong> {card.learning_step}</div>
+                <div><strong>Ease:</strong> {(card.ease_factor * 100).toFixed(0)}%</div>
+                <div><strong>Interval:</strong> {card.interval}d</div>
+                <div><strong>Reps:</strong> {card.repetitions}</div>
+                <div><strong>Due:</strong> {card.due_timestamp
+                  ? formatTime(new Date(card.due_timestamp).toISOString())
+                  : card.next_review_at
+                    ? formatTime(card.next_review_at)
+                    : 'N/A'
+                }</div>
+              </div>
+            </div>
+
+            {/* What each rating would do */}
+            {currentPreviews && (
+              <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#fef3c7', borderRadius: '6px' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Rating Preview (if rated now)</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
+                  {([0, 1, 2, 3] as Rating[]).map((r) => (
+                    <div key={r} style={{
+                      padding: '0.25rem',
+                      backgroundColor: RATING_INFO[r].color + '20',
+                      borderRadius: '4px'
+                    }}>
+                      <div style={{ fontWeight: 600 }}>{ratingNames[r]}</div>
+                      <div>{currentPreviews[r].intervalText}</div>
+                      <div style={{ fontSize: '0.7rem', color: '#666' }}>{queueNames[currentPreviews[r].queue]}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Review History */}
+            <div>
+              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>
+                Review History ({reviewHistory.length} reviews)
+              </h4>
+              {reviewHistory.length === 0 ? (
+                <div style={{ color: '#666', fontStyle: 'italic' }}>No reviews yet</div>
+              ) : (
+                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                  {reviewHistory.slice().reverse().map((event, idx) => (
+                    <div
+                      key={event.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '0.5rem',
+                        backgroundColor: idx % 2 === 0 ? '#f9fafb' : 'white',
+                        borderRadius: '4px'
+                      }}
+                    >
+                      <div>
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '0.125rem 0.5rem',
+                          borderRadius: '4px',
+                          backgroundColor: RATING_INFO[event.rating as Rating].color,
+                          color: 'white',
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          marginRight: '0.5rem'
+                        }}>
+                          {ratingNames[event.rating]}
+                        </span>
+                        {event.time_spent_ms && (
+                          <span style={{ color: '#666' }}>
+                            {(event.time_spent_ms / 1000).toFixed(1)}s
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ color: '#666' }}>
+                        {formatTime(event.reviewed_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderAskClaudeModal = () => {
     if (!showAskClaude) return null;
 
@@ -476,6 +616,13 @@ function StudyCard({
           }}
         >
           {showAskClaude ? 'Hide' : 'Ask Claude'}
+        </button>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => setShowDebug(true)}
+          title="Show debug info"
+        >
+          🔍
         </button>
       </div>
     );
@@ -607,6 +754,9 @@ function StudyCard({
 
       {/* Ask Claude Modal */}
       {renderAskClaudeModal()}
+
+      {/* Debug Modal */}
+      {renderDebugModal()}
     </>
   );
 }
