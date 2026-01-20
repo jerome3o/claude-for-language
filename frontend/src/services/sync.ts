@@ -10,7 +10,7 @@ import {
 } from '../db/database';
 import { Deck, Note, Card } from '../types';
 import { API_BASE, getAuthHeaders, getAuthToken } from '../api/client';
-import { syncReviewEvents, downloadReviewEvents } from './review-events';
+import { syncReviewEvents, downloadReviewEvents, fixAllCardStates } from './review-events';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -162,15 +162,33 @@ class SyncService {
       }
     }
 
-    // Clear existing data and insert new
+    // Sync data while preserving local card scheduling state
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
+      // Clear and replace decks and notes (their data comes from server)
       await db.decks.clear();
       await db.notes.clear();
-      await db.cards.clear();
 
       await db.decks.bulkPut(fullDecks.map(d => deckToLocal(d)));
       await db.notes.bulkPut(allNotes.map(n => noteToLocal(n)));
-      await db.cards.bulkPut(allCards);
+
+      // For cards: only INSERT new ones, preserve existing card scheduling state
+      // Card scheduling is computed from local review events, not synced from server
+      const existingCardIds = new Set((await db.cards.toArray()).map(c => c.id));
+      const serverCardIds = new Set(allCards.map(c => c.id));
+
+      // Delete cards that no longer exist on server
+      const cardsToDelete = [...existingCardIds].filter(id => !serverCardIds.has(id));
+      if (cardsToDelete.length > 0) {
+        console.log('[Sync] Deleting', cardsToDelete.length, 'cards that no longer exist on server');
+        await db.cards.bulkDelete(cardsToDelete);
+      }
+
+      // Only insert NEW cards (don't overwrite existing scheduling state)
+      const newCards = allCards.filter(c => !existingCardIds.has(c.id));
+      if (newCards.length > 0) {
+        console.log('[Sync] Inserting', newCards.length, 'new cards (preserving', existingCardIds.size - cardsToDelete.length, 'existing)');
+        await db.cards.bulkPut(newCards);
+      }
 
       await updateSyncMeta({
         id: 'sync_state',
@@ -249,30 +267,47 @@ class SyncService {
         await db.notes.bulkPut(changes.notes.map(n => noteToLocal(n)));
       }
       if (changes.cards.length > 0) {
-        // Need to get deck_id for each card from notes
-        const cardsByNote = new Map<string, Card[]>();
-        for (const card of changes.cards) {
-          const existing = cardsByNote.get(card.note_id) || [];
-          existing.push(card);
-          cardsByNote.set(card.note_id, existing);
-        }
+        // IMPORTANT: Only INSERT new cards, don't update existing ones!
+        // Card scheduling state (queue, interval, ease_factor, etc.) is computed from
+        // local review events, not synced from server. Overwriting would clobber progress.
 
-        const noteIds = Array.from(cardsByNote.keys());
-        const notes = await db.notes.where('id').anyOf(noteIds).toArray();
-        const noteToDeck = new Map(notes.map(n => [n.id, n.deck_id]));
+        // Get existing card IDs to skip
+        const existingCardIds = new Set(
+          (await db.cards.where('id').anyOf(changes.cards.map(c => c.id)).toArray()).map(c => c.id)
+        );
 
-        const localCards: LocalCard[] = [];
-        for (const card of changes.cards) {
-          const deckId = noteToDeck.get(card.note_id);
-          if (deckId) {
-            localCards.push(cardToLocal(card, deckId));
-          } else {
-            console.warn('[Sync] Could not find deck_id for card:', card.id);
+        // Filter to only new cards
+        const newCards = changes.cards.filter(c => !existingCardIds.has(c.id));
+
+        if (newCards.length > 0) {
+          // Need to get deck_id for each card from notes
+          const cardsByNote = new Map<string, Card[]>();
+          for (const card of newCards) {
+            const existing = cardsByNote.get(card.note_id) || [];
+            existing.push(card);
+            cardsByNote.set(card.note_id, existing);
           }
-        }
 
-        if (localCards.length > 0) {
-          await db.cards.bulkPut(localCards);
+          const noteIds = Array.from(cardsByNote.keys());
+          const notes = await db.notes.where('id').anyOf(noteIds).toArray();
+          const noteToDeck = new Map(notes.map(n => [n.id, n.deck_id]));
+
+          const localCards: LocalCard[] = [];
+          for (const card of newCards) {
+            const deckId = noteToDeck.get(card.note_id);
+            if (deckId) {
+              localCards.push(cardToLocal(card, deckId));
+            } else {
+              console.warn('[Sync] Could not find deck_id for card:', card.id);
+            }
+          }
+
+          if (localCards.length > 0) {
+            console.log('[Sync] Inserting new cards only:', localCards.length, '(skipped', existingCardIds.size, 'existing)');
+            await db.cards.bulkPut(localCards);
+          }
+        } else {
+          console.log('[Sync] All', changes.cards.length, 'cards already exist locally, skipping to preserve scheduling state');
         }
       }
 
@@ -352,6 +387,18 @@ class SyncService {
 
   get isSyncingNow(): boolean {
     return this.isSyncing;
+  }
+
+  /**
+   * Fix all card states by recomputing from review events.
+   * Use this to recover from sync corruption where card scheduling
+   * state doesn't match the review event history.
+   */
+  async fixAllCardStates(): Promise<{ total: number; fixed: number; errors: string[] }> {
+    console.log('[SyncService] Starting card state recovery...');
+    const result = await fixAllCardStates();
+    console.log('[SyncService] Card state recovery complete:', result);
+    return result;
   }
 }
 

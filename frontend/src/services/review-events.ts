@@ -296,6 +296,8 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
 
     // Store events locally (skip if already exists)
     let downloaded = 0;
+    const affectedCardIds = new Set<string>();
+
     for (const serverEvent of result.events) {
       const exists = await db.reviewEvents.get(serverEvent.id);
       if (!exists) {
@@ -309,6 +311,20 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
           _synced: true, // Already on server
         });
         downloaded++;
+        affectedCardIds.add(serverEvent.card_id);
+      }
+    }
+
+    // Recompute card state for all affected cards
+    // This ensures downloaded events are reflected in card scheduling
+    if (affectedCardIds.size > 0) {
+      console.log('[downloadReviewEvents] Recomputing state for', affectedCardIds.size, 'cards with new events');
+      for (const cardId of affectedCardIds) {
+        try {
+          await fixCardState(cardId);
+        } catch (err) {
+          console.error('[downloadReviewEvents] Failed to recompute card state:', cardId, err);
+        }
       }
     }
 
@@ -386,4 +402,42 @@ export async function fixCardState(cardId: string): Promise<ComputedCardState> {
   });
 
   return computed;
+}
+
+/**
+ * Fix ALL card states by recomputing from events.
+ * Use this to recover from sync corruption or other issues.
+ */
+export async function fixAllCardStates(): Promise<{
+  total: number;
+  fixed: number;
+  errors: string[];
+}> {
+  const allCards = await db.cards.toArray();
+  let fixed = 0;
+  const errors: string[] = [];
+
+  console.log('[fixAllCardStates] Starting to recompute', allCards.length, 'cards');
+
+  for (const card of allCards) {
+    try {
+      const { matches, stored, computed } = await verifyCardState(card.id);
+      if (!matches) {
+        console.log('[fixAllCardStates] Fixing card', card.id, {
+          stored: stored ? { queue: stored.queue, interval: stored.interval, reps: stored.repetitions } : null,
+          computed: { queue: computed.queue, interval: computed.interval, reps: computed.repetitions },
+        });
+        await fixCardState(card.id);
+        fixed++;
+      }
+    } catch (err) {
+      const errorMsg = `Failed to fix card ${card.id}: ${err instanceof Error ? err.message : 'Unknown error'}`;
+      console.error('[fixAllCardStates]', errorMsg);
+      errors.push(errorMsg);
+    }
+  }
+
+  console.log('[fixAllCardStates] Complete. Fixed', fixed, 'of', allCards.length, 'cards');
+
+  return { total: allCards.length, fixed, errors };
 }
