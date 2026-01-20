@@ -798,11 +798,9 @@ function NoteCard({
   };
 
   const handleUpgradeAudio = async () => {
-    console.log('[NoteCard] handleUpgradeAudio called for', note.hanzi);
     setIsUpgrading(true);
     try {
       await upgradeNoteAudio(note.id);
-      console.log('[NoteCard] upgrade complete, calling onAudioGenerated');
       onAudioGenerated();
     } catch (error) {
       console.error('Failed to upgrade audio:', error);
@@ -1051,7 +1049,6 @@ export function DeckDetailPage() {
 
     for (let i = 0; i < notesToUpgrade.length; i++) {
       try {
-        console.log(`[DeckDetailPage] Upgrading ${i + 1}/${notesToUpgrade.length}: ${notesToUpgrade[i].hanzi}`);
         await upgradeNoteAudio(notesToUpgrade[i].id);
         setAudioGenerationProgress({ done: i + 1, total: notesToUpgrade.length });
       } catch (error) {

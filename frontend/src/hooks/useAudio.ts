@@ -199,7 +199,6 @@ export function useNoteAudio() {
   const play = useCallback((audioUrl: string | null, text: string, apiBase: string, cacheBuster?: string) => {
     // Increment play ID to invalidate any pending callbacks from previous plays
     const currentPlayId = ++playIdRef.current;
-    console.log('[useNoteAudio] play() called', { audioUrl, text, cacheBuster, playId: currentPlayId });
 
     // Stop any current playback
     cleanupAudio();
@@ -209,41 +208,35 @@ export function useNoteAudio() {
       // Add cache buster to force reload after audio is regenerated
       const cacheParam = cacheBuster ? `?v=${encodeURIComponent(cacheBuster)}` : '';
       const fullUrl = `${apiBase}/api/audio/${audioUrl}${cacheParam}`;
-      console.log('[useNoteAudio] Creating audio element', { fullUrl, playId: currentPlayId });
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 
       audio.onplay = () => {
-        console.log('[useNoteAudio] onplay fired', { playId: currentPlayId, currentRef: playIdRef.current });
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(true);
         }
       };
       audio.onended = () => {
-        console.log('[useNoteAudio] onended fired', { playId: currentPlayId });
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(false);
         }
       };
-      audio.onerror = (e) => {
-        console.log('[useNoteAudio] onerror fired', { playId: currentPlayId, error: e });
+      audio.onerror = () => {
+        // Only fallback if this is still the current play request
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(false);
-          // Don't fallback to TTS - let the user know the audio failed
-          // The real fix is to ensure MiniMax audio is valid
+          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
         }
       };
 
-      audio.play().catch((err) => {
-        console.log('[useNoteAudio] play() promise rejected', { playId: currentPlayId, err });
+      audio.play().catch(() => {
+        // Only fallback if this is still the current play request
         if (playIdRef.current === currentPlayId) {
-          // Don't fallback to TTS for now - we need to fix the MiniMax audio format
-          setIsPlaying(false);
+          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
         }
       });
     } else {
       // No stored audio, use browser TTS
-      console.log('[useNoteAudio] No audio URL, using browser TTS');
       speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
     }
   }, [cleanupAudio]);
