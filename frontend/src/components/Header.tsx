@@ -36,6 +36,7 @@ export function Header() {
             <Link to="/">Home</Link>
             <Link to="/progress">Progress</Link>
             <Link to="/connections">Connections</Link>
+            <Link to="/tutor-reviews">Reviews</Link>
             {user?.is_admin && <Link to="/admin">Admin</Link>}
           </nav>
         {user && (

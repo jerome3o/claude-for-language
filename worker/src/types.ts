@@ -376,3 +376,50 @@ export interface StudentProgress {
     cards_mastered: number;
   }>;
 }
+
+// ============ Tutor Review Requests ============
+
+export type TutorReviewRequestStatus = 'pending' | 'reviewed' | 'archived';
+
+export interface TutorReviewRequest {
+  id: string;
+  relationship_id: string;
+  student_id: string;
+  tutor_id: string;
+  note_id: string;
+  card_id: string;
+  review_event_id: string | null;
+  message: string;
+  status: TutorReviewRequestStatus;
+  tutor_response: string | null;
+  responded_at: string | null;
+  created_at: string;
+}
+
+export interface TutorReviewRequestWithDetails extends TutorReviewRequest {
+  student: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+  tutor: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+  note: Note;
+  card: Card;
+  review_event: {
+    id: string;
+    rating: Rating;
+    time_spent_ms: number | null;
+    user_answer: string | null;
+    recording_url: string | null;
+    reviewed_at: string;
+  } | null;
+  deck: Pick<Deck, 'id' | 'name'>;
+}
+
+export interface CreateTutorReviewRequest {
+  relationship_id: string;
+  note_id: string;
+  card_id: string;
+  review_event_id?: string;
+  message: string;
+}
+
+export interface RespondToTutorReviewRequest {
+  response: string;
+}
