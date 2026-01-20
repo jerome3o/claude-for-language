@@ -161,41 +161,74 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
   );
 
   // Filter out excluded notes and pick the next card
+  // Priority: Learning due NOW > Mix(New, Review) proportionally > Learning with delay
   const nextCard = useLiveQuery(async () => {
-    if (!allDueCards || allDueCards.length === 0) return null;
-
-    // Filter out cards from excluded notes
-    const availableCards = allDueCards.filter(card => !excludeNoteIds.includes(card.note_id));
-    if (availableCards.length === 0) return null;
-
-    // Priority: Learning/Relearning (due now) > Review > New
     const now = Date.now();
 
-    // First, check for learning/relearning cards that are due
-    const learningDue = availableCards.filter(c =>
-      (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-      c.due_timestamp && c.due_timestamp <= now
-    );
-    if (learningDue.length > 0) {
-      // Return the one due first
-      learningDue.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-      return learningDue[0];
+    if (allDueCards && allDueCards.length > 0) {
+      // Filter out cards from excluded notes
+      const availableCards = allDueCards.filter(card => !excludeNoteIds.includes(card.note_id));
+
+      if (availableCards.length > 0) {
+        // 1. Learning/relearning cards due NOW always have priority (they have timers)
+        const learningDue = availableCards.filter(c =>
+          (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+          c.due_timestamp && c.due_timestamp <= now
+        );
+        if (learningDue.length > 0) {
+          learningDue.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          return learningDue[0];
+        }
+
+        // 2. Mix new and review cards proportionally (Anki "Mix with reviews" mode)
+        const newCards = availableCards.filter(c => c.queue === CardQueue.NEW);
+        const reviewCards = availableCards.filter(c => c.queue === CardQueue.REVIEW);
+        const totalMixable = newCards.length + reviewCards.length;
+
+        if (totalMixable > 0) {
+          // Proportional selection: probability based on queue sizes
+          const newProbability = newCards.length / totalMixable;
+          const random = Math.random();
+
+          if (random < newProbability && newCards.length > 0) {
+            // Pick a new card
+            return newCards[0];
+          } else if (reviewCards.length > 0) {
+            // Pick a review card
+            return reviewCards[0];
+          } else if (newCards.length > 0) {
+            // Fallback to new if no review cards
+            return newCards[0];
+          }
+        }
+      }
     }
 
-    // Next, review cards
-    const reviewDue = availableCards.filter(c => c.queue === CardQueue.REVIEW);
-    if (reviewDue.length > 0) {
-      return reviewDue[0];
+    // 3. If nothing immediately due, check for learning cards with delays.
+    // Serve them immediately so the user doesn't have to wait.
+    let delayedLearningCards: LocalCard[];
+    if (deckId) {
+      delayedLearningCards = await db.cards
+        .where('deck_id').equals(deckId)
+        .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
+        .toArray();
+    } else {
+      delayedLearningCards = await db.cards
+        .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
+        .toArray();
     }
 
-    // Finally, new cards
-    const newCards = availableCards.filter(c => c.queue === CardQueue.NEW);
-    if (newCards.length > 0) {
-      return newCards[0];
+    // Filter out excluded notes
+    delayedLearningCards = delayedLearningCards.filter(c => !excludeNoteIds.includes(c.note_id));
+
+    if (delayedLearningCards.length > 0) {
+      // Return the one with the shortest delay
+      delayedLearningCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+      return delayedLearningCards[0];
     }
 
     return null;
-  }, [allDueCards, excludeNoteIds]);
+  }, [allDueCards, excludeNoteIds, deckId]);
 
   // Get note for the card
   const note = useLiveQuery(

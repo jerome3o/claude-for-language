@@ -336,13 +336,68 @@ export async function clearAllData(): Promise<void> {
 
 // ============ Queue Counts ============
 
+/**
+ * Get queue counts for the current study session.
+ *
+ * Unlike getDueCards (which only returns immediately available cards),
+ * this includes ALL learning/relearning cards regardless of their delay.
+ * This matches Anki behavior where failing a card increments the red count
+ * immediately, even though the card won't be shown again for a few minutes.
+ *
+ * When all counts hit zero, the user is done studying for the day.
+ */
 export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false): Promise<{ new: number; learning: number; review: number }> {
-  const cards = await getDueCards(deckId, ignoreDailyLimit);
+  // Get end of today for review cards
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  const endOfTodayIso = today.toISOString();
+
+  let cards: LocalCard[];
+  if (deckId) {
+    cards = await db.cards.where('deck_id').equals(deckId).toArray();
+  } else {
+    cards = await db.cards.toArray();
+  }
+
+  // Get deck settings for new card limit
+  let newCardsPerDay = 30;
+  if (deckId) {
+    const deck = await db.decks.get(deckId);
+    if (deck) {
+      newCardsPerDay = deck.new_cards_per_day;
+    }
+  }
+
+  // Get new cards studied today
+  const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
+  const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
+
+  let newCount = 0;
+  let learningCount = 0;
+  let reviewCount = 0;
+
+  for (const card of cards) {
+    if (card.queue === CardQueue.NEW) {
+      // Apply daily limit for new cards
+      if (ignoreDailyLimit || newCount < remainingNewCards) {
+        newCount++;
+      }
+    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+      // Count ALL learning/relearning cards, even those with delays.
+      // This matches Anki: failing a card immediately increments the red count.
+      learningCount++;
+    } else if (card.queue === CardQueue.REVIEW) {
+      // Only count review cards due by end of today
+      if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
+        reviewCount++;
+      }
+    }
+  }
 
   return {
-    new: cards.filter(c => c.queue === CardQueue.NEW).length,
-    learning: cards.filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING).length,
-    review: cards.filter(c => c.queue === CardQueue.REVIEW).length,
+    new: newCount,
+    learning: learningCount,
+    review: reviewCount,
   };
 }
 
