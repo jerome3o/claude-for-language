@@ -119,27 +119,33 @@ export async function generateMiniMaxTTS(
     console.log('[TTS] MiniMax response keys:', Object.keys(data));
     console.log('[TTS] MiniMax base_resp:', data.base_resp);
 
-    // MiniMax returns base64 audio in data.audio or audio_file
-    const audioBase64 = data.data?.audio || data.audio_file;
-    if (!audioBase64) {
+    // MiniMax returns audio in data.audio - need to detect encoding (hex vs base64)
+    const audioData = data.data?.audio;
+    if (!audioData) {
       console.error('[TTS] MiniMax TTS: No audio in response', JSON.stringify(data).slice(0, 500));
       return null;
     }
 
-    console.log('[TTS] Got MiniMax audio content, base64 length:', audioBase64.length);
+    console.log('[TTS] Got MiniMax audio content, length:', audioData.length);
+    console.log('[TTS] First 20 chars:', audioData.slice(0, 20));
 
-    // Check if it has a data URL prefix and strip it
-    let cleanBase64 = audioBase64;
-    if (audioBase64.startsWith('data:')) {
-      const commaIndex = audioBase64.indexOf(',');
-      if (commaIndex !== -1) {
-        cleanBase64 = audioBase64.slice(commaIndex + 1);
-        console.log('[TTS] Stripped data URL prefix, new length:', cleanBase64.length);
+    // Detect encoding: hex only uses 0-9a-fA-F, base64 uses more chars
+    const isLikelyHex = /^[0-9a-fA-F]+$/.test(audioData.slice(0, 100));
+    console.log('[TTS] Encoding detection - isLikelyHex:', isLikelyHex);
+
+    let audioBytes: Uint8Array;
+    if (isLikelyHex) {
+      // Decode hex to bytes
+      console.log('[TTS] Decoding as HEX');
+      audioBytes = new Uint8Array(audioData.length / 2);
+      for (let i = 0; i < audioData.length; i += 2) {
+        audioBytes[i / 2] = parseInt(audioData.substr(i, 2), 16);
       }
+    } else {
+      // Decode base64 to bytes
+      console.log('[TTS] Decoding as BASE64');
+      audioBytes = Uint8Array.from(atob(audioData), c => c.charCodeAt(0));
     }
-
-    // Decode base64 audio content
-    const audioBytes = Uint8Array.from(atob(cleanBase64), c => c.charCodeAt(0));
     console.log('[TTS] Decoded audio bytes:', audioBytes.length);
 
     // Log first few bytes to verify it's MP3 (should start with ID3 or 0xFF 0xFB)
@@ -150,6 +156,10 @@ export async function generateMiniMaxTTS(
     const isID3 = audioBytes[0] === 0x49 && audioBytes[1] === 0x44 && audioBytes[2] === 0x33; // "ID3"
     const isMP3Frame = audioBytes[0] === 0xFF && (audioBytes[1] & 0xE0) === 0xE0; // MP3 frame sync
     console.log('[TTS] Audio format check:', { isID3, isMP3Frame });
+
+    if (!isID3 && !isMP3Frame) {
+      console.error('[TTS] Warning: Audio does not appear to be valid MP3, first bytes:', header);
+    }
 
     // Store in R2
     const key = getNoteAudioKey(noteId);
