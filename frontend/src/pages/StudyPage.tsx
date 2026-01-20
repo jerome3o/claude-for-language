@@ -180,6 +180,7 @@ function StudyCard({
   const [userAnswer, setUserAnswer] = useState('');
   const [startTime] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
+  const typingFooterRef = useRef<HTMLDivElement>(null);
 
   // Ask Claude state
   const [showAskClaude, setShowAskClaude] = useState(false);
@@ -244,6 +245,43 @@ function StudyCard({
     };
   }, [card.id]);
 
+  // Handle keyboard visibility for typing cards using VisualViewport API
+  useEffect(() => {
+    if (!isTypingCard || flipped) return;
+
+    const footer = typingFooterRef.current;
+    if (!footer) return;
+
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const handleViewportChange = () => {
+      // Calculate how much the keyboard is covering
+      const keyboardHeight = window.innerHeight - viewport.height;
+
+      if (keyboardHeight > 100) {
+        // Keyboard is open - move footer up
+        // Account for any offset from the top (scrolled page)
+        const offsetTop = viewport.offsetTop;
+        footer.style.transform = `translateY(-${keyboardHeight - offsetTop}px)`;
+      } else {
+        // Keyboard is closed
+        footer.style.transform = 'translateY(0)';
+      }
+    };
+
+    viewport.addEventListener('resize', handleViewportChange);
+    viewport.addEventListener('scroll', handleViewportChange);
+
+    // Initial check
+    handleViewportChange();
+
+    return () => {
+      viewport.removeEventListener('resize', handleViewportChange);
+      viewport.removeEventListener('scroll', handleViewportChange);
+      footer.style.transform = 'translateY(0)';
+    };
+  }, [isTypingCard, flipped]);
 
   // Auto-play audio when answer is revealed
   useEffect(() => {
@@ -553,7 +591,7 @@ function StudyCard({
   const renderTypingFooter = () => {
     const placeholder = card.card_type === 'audio_to_hanzi' ? 'Type what you hear...' : 'Type in Chinese...';
     return (
-      <div className="study-typing-footer">
+      <div className="study-typing-footer" ref={typingFooterRef}>
         <input
           ref={inputRef}
           type="text"
@@ -588,7 +626,10 @@ function StudyCard({
         </div>
 
         {/* Card content */}
-        <div className="study-card-content">
+        <div
+          className="study-card-content"
+          style={isTypingCard && !flipped ? { paddingBottom: '8rem' } : undefined}
+        >
           {!flipped ? (
             <>
               <div className={`study-card-main ${isTypingCard ? 'study-card-main--typing' : ''}`}>
@@ -623,7 +664,7 @@ function StudyCard({
           )}
         </div>
 
-        {/* Typing footer - part of flex flow, stays at bottom */}
+        {/* Typing footer - separate from card content, stays above keyboard */}
         {isTypingCard && !flipped && renderTypingFooter()}
       </div>
 

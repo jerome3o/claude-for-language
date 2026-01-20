@@ -415,7 +415,7 @@ a:hover {
 html:has(.study-page-fullscreen),
 html:has(.study-page-fullscreen) body {
   overflow: hidden;
-  height: 100dvh;
+  height: 100%;
 }
 
 /* Hide header when in fullscreen study mode */
@@ -425,16 +425,12 @@ html:has(.study-page-fullscreen) .header {
 
 .study-page-fullscreen {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 100dvh; /* Use dynamic viewport height - shrinks when keyboard opens */
+  inset: 0;
   background-color: var(--color-surface);
   display: flex;
   flex-direction: column;
   padding: 0.5rem;
   z-index: 200;
-  overflow: hidden;
 }
 
 @media (min-width: 640px) {
@@ -510,13 +506,19 @@ html:has(.study-page-fullscreen) .header {
   padding-top: 1rem;
 }
 
-/* Typing card footer - part of flex flow, stays at bottom of container */
+/* Typing card footer - fixed at bottom, moves above keyboard via JS */
 .study-typing-footer {
-  flex-shrink: 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
   padding: 0.75rem;
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
+  z-index: 210;
+  /* Transition for smooth keyboard animation */
+  transition: transform 0.1s ease-out;
 }
 
 .study-typing-footer .form-input {
