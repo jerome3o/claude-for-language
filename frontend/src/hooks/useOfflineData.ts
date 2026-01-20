@@ -319,7 +319,10 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
   }
 
   // Combine card and note into CardWithNote format
-  const cardWithNote: CardWithNote | null = nextCard && note ? {
+  // Only return when data is consistent (card.note_id matches note.id)
+  // This prevents returning stale note data when card changes
+  const dataIsConsistent = nextCard && note && nextCard.note_id === note.id;
+  const cardWithNote: CardWithNote | null = dataIsConsistent ? {
     ...nextCard,
     note: note as Note,
   } : null;

@@ -168,13 +168,6 @@ function StudyCard({
   onComplete: () => void;
   onEnd: () => void;
 }) {
-  console.log('[StudyCard] Render', {
-    cardId: card.id,
-    cardType: card.card_type,
-    noteId: card.note.id,
-    hanzi: card.note.hanzi,
-    timestamp: new Date().toISOString(),
-  });
 
   const [flipped, setFlipped] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
@@ -192,8 +185,7 @@ function StudyCard({
     useAudioRecorder();
   const { isPlaying, play: playAudio } = useNoteAudio();
 
-  // Track which card+note combo we've played audio for to prevent re-triggering
-  // We need both because card data can arrive before note data is fully loaded
+  // Track which card we've played audio for to prevent re-triggering
   const playedAudioForRef = useRef<string | null>(null);
 
   // Review submission (always uses offline/local-first approach)
@@ -211,45 +203,20 @@ function StudyCard({
   }, [isTypingCard, flipped]);
 
   // Play audio for audio cards on front
-  // Only play when data is consistent (card.note_id matches card.note.id)
-  // This prevents playing stale audio when card updates but note data lags behind
+  // Note: useOfflineNextCard guarantees card.note_id === card.note.id (data consistency)
   useEffect(() => {
-    const dataIsConsistent = card.note_id === card.note.id;
-    console.log('[StudyCard] Audio effect running', {
-      cardType: card.card_type,
-      cardId: card.id,
-      cardNoteId: card.note_id,
-      noteId: card.note.id,
-      hanzi: card.note.hanzi,
-      dataIsConsistent,
-      flipped,
-      audioUrl: card.note.audio_url,
-      alreadyPlayed: playedAudioForRef.current === card.id,
-    });
-
-    if (card.card_type === 'audio_to_hanzi' && !flipped && dataIsConsistent) {
-      // Only play if we haven't already played for this card AND data is consistent
+    if (card.card_type === 'audio_to_hanzi' && !flipped) {
+      // Only play if we haven't already played for this card
       if (playedAudioForRef.current !== card.id) {
-        console.log('[StudyCard] Triggering auto-play for audio card', {
+        console.log('[StudyCard] Auto-playing audio for card', {
           cardId: card.id,
-          noteId: card.note.id,
           hanzi: card.note.hanzi,
-          audioUrl: card.note.audio_url,
         });
         playedAudioForRef.current = card.id;
         playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
-      } else {
-        console.log('[StudyCard] Skipping auto-play, already played for this card');
       }
-    } else if (card.card_type === 'audio_to_hanzi' && !flipped && !dataIsConsistent) {
-      console.log('[StudyCard] Waiting for consistent data before playing audio');
     }
-
-    return () => {
-      // Only stop audio if we're unmounting or switching cards
-      // Don't stop on re-renders of the same card
-    };
-  }, [card.id, card.note_id, card.note.id, card.card_type, card.note.audio_url, card.note.hanzi, flipped, playAudio]);
+  }, [card.id, card.card_type, card.note.audio_url, card.note.hanzi, flipped, playAudio]);
 
   // Reset the played audio ref when card changes
   useEffect(() => {
@@ -671,18 +638,6 @@ export function StudyPage() {
   const currentCard = studyStarted ? offlineNextCard.card : null;
   const intervalPreviews = offlineNextCard.intervalPreviews;
   const isLoading = studyStarted ? offlineNextCard.isLoading : offlineQueueCounts.isLoading;
-
-  // Debug logging
-  console.log('[StudyPage] Render', {
-    studyStarted,
-    currentCardId: currentCard?.id,
-    currentCardType: currentCard?.card_type,
-    currentNoteHanzi: currentCard?.note?.hanzi,
-    counts,
-    recentNotesLength: recentNotes.length,
-    isLoading,
-    timestamp: new Date().toISOString(),
-  });
 
   const handleStartStudy = async () => {
     setStudyStarted(true);
