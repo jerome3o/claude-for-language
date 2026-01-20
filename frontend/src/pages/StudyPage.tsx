@@ -186,7 +186,10 @@ function StudyCard({
 
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
-  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
+  const { isPlaying, play: playAudio } = useNoteAudio();
+
+  // Track which card we've played audio for to prevent re-triggering
+  const playedAudioForCardRef = useRef<string | null>(null);
 
   // Review submission (always uses offline/local-first approach)
   const reviewMutation = useSubmitReviewOffline();
@@ -203,19 +206,39 @@ function StudyCard({
   }, [isTypingCard, flipped]);
 
   // Play audio for audio cards on front
+  // Use ref to prevent re-triggering when component re-renders with same card
   useEffect(() => {
     console.log('[StudyCard] Audio effect running', {
       cardType: card.card_type,
       cardId: card.id,
       flipped,
       audioUrl: card.note.audio_url,
+      alreadyPlayed: playedAudioForCardRef.current === card.id,
     });
+
     if (card.card_type === 'audio_to_hanzi' && !flipped) {
-      console.log('[StudyCard] Triggering auto-play for audio card');
-      playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
+      // Only play if we haven't already played for this card
+      if (playedAudioForCardRef.current !== card.id) {
+        console.log('[StudyCard] Triggering auto-play for audio card');
+        playedAudioForCardRef.current = card.id;
+        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
+      } else {
+        console.log('[StudyCard] Skipping auto-play, already played for this card');
+      }
     }
-    return () => stopAudio();
-  }, [card, flipped, playAudio, stopAudio]);
+
+    return () => {
+      // Only stop audio if we're unmounting or switching cards
+      // Don't stop on re-renders of the same card
+    };
+  }, [card.id, card.card_type, card.note.audio_url, card.note.hanzi, flipped, playAudio]);
+
+  // Reset the played audio ref when card changes
+  useEffect(() => {
+    return () => {
+      playedAudioForCardRef.current = null;
+    };
+  }, [card.id]);
 
   // Auto-play audio when answer is revealed
   useEffect(() => {
