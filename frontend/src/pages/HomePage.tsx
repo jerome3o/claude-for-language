@@ -26,7 +26,7 @@ function DeckCard({ deck }: { deck: Deck }) {
   });
 
   // Get offline queue counts for this specific deck
-  const { counts: offlineCounts } = useOfflineQueueCounts(deck.id, false);
+  const { counts: offlineCounts } = useOfflineQueueCounts(deck.id);
 
   const stats = statsQuery.data;
   const totalDue = offlineCounts.new + offlineCounts.learning + offlineCounts.review;

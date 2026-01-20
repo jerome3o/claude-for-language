@@ -259,7 +259,14 @@ export async function getNewCardsStudiedToday(deckId?: string): Promise<number> 
 
 // ============ Due Cards ============
 
-export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Promise<LocalCard[]> {
+/**
+ * Get cards that are due for study.
+ *
+ * @param deckId - Optional deck ID to filter by
+ * @param bonusNewCards - Number of extra new cards to allow beyond the daily limit (default 0)
+ *                        Pass Infinity to ignore the limit entirely
+ */
+export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<LocalCard[]> {
   const now = Date.now();
   // Get end of today (midnight tonight) for review cards
   const today = new Date();
@@ -284,12 +291,14 @@ export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Pr
       newCardsPerDay = deck.new_cards_per_day;
     }
     const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
-    const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
+    // Apply bonus to the effective limit
+    const effectiveLimit = newCardsPerDay + bonusNewCards;
+    const remainingNewCards = Math.max(0, effectiveLimit - newCardsStudiedToday);
     let newCardCount = 0;
 
     for (const card of cards) {
       if (card.queue === CardQueue.NEW) {
-        if (ignoreDailyLimit || newCardCount < remainingNewCards) {
+        if (newCardCount < remainingNewCards) {
           dueCards.push(card);
           newCardCount++;
         }
@@ -313,7 +322,9 @@ export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Pr
 
     for (const deck of allDecks) {
       const studiedToday = await getNewCardsStudiedToday(deck.id);
-      const remaining = Math.max(0, deck.new_cards_per_day - studiedToday);
+      // Apply bonus proportionally across decks (or to total if not specified)
+      const effectiveLimit = deck.new_cards_per_day + bonusNewCards;
+      const remaining = Math.max(0, effectiveLimit - studiedToday);
       deckLimits.set(deck.id, remaining);
       deckNewCounts.set(deck.id, 0);
     }
@@ -322,7 +333,7 @@ export async function getDueCards(deckId?: string, ignoreDailyLimit = false): Pr
       if (card.queue === CardQueue.NEW) {
         const deckRemaining = deckLimits.get(card.deck_id) || 0;
         const deckCurrentNew = deckNewCounts.get(card.deck_id) || 0;
-        if (ignoreDailyLimit || deckCurrentNew < deckRemaining) {
+        if (deckCurrentNew < deckRemaining) {
           dueCards.push(card);
           deckNewCounts.set(card.deck_id, deckCurrentNew + 1);
         }
@@ -375,8 +386,12 @@ export async function clearAllData(): Promise<void> {
  * immediately, even though the card won't be shown again for a few minutes.
  *
  * When all counts hit zero, the user is done studying for the day.
+ *
+ * @param deckId - Optional deck ID to filter by
+ * @param bonusNewCards - Number of extra new cards to allow beyond the daily limit (default 0)
+ *                        Pass Infinity to ignore the limit entirely
  */
-export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false): Promise<{ new: number; learning: number; review: number }> {
+export async function getQueueCounts(deckId?: string, bonusNewCards = 0): Promise<{ new: number; learning: number; review: number }> {
   // Get end of today for review cards
   const today = new Date();
   today.setHours(23, 59, 59, 999);
@@ -401,11 +416,12 @@ export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false):
       newCardsPerDay = deck.new_cards_per_day;
     }
     const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
-    const remainingNewCards = Math.max(0, newCardsPerDay - newCardsStudiedToday);
+    const effectiveLimit = newCardsPerDay + bonusNewCards;
+    const remainingNewCards = Math.max(0, effectiveLimit - newCardsStudiedToday);
 
     for (const card of cards) {
       if (card.queue === CardQueue.NEW) {
-        if (ignoreDailyLimit || newCount < remainingNewCards) {
+        if (newCount < remainingNewCards) {
           newCount++;
         }
       } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
@@ -426,7 +442,8 @@ export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false):
 
     for (const deck of allDecks) {
       const studiedToday = await getNewCardsStudiedToday(deck.id);
-      const remaining = Math.max(0, deck.new_cards_per_day - studiedToday);
+      const effectiveLimit = deck.new_cards_per_day + bonusNewCards;
+      const remaining = Math.max(0, effectiveLimit - studiedToday);
       deckLimits.set(deck.id, remaining);
       deckNewCounts.set(deck.id, 0);
     }
@@ -435,7 +452,7 @@ export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false):
       if (card.queue === CardQueue.NEW) {
         const deckRemaining = deckLimits.get(card.deck_id) || 0;
         const deckCurrentNew = deckNewCounts.get(card.deck_id) || 0;
-        if (ignoreDailyLimit || deckCurrentNew < deckRemaining) {
+        if (deckCurrentNew < deckRemaining) {
           newCount++;
           deckNewCounts.set(card.deck_id, deckCurrentNew + 1);
         }
@@ -456,10 +473,12 @@ export async function getQueueCounts(deckId?: string, ignoreDailyLimit = false):
   };
 }
 
-export async function hasMoreNewCards(deckId?: string): Promise<boolean> {
-  const limitedCount = (await getQueueCounts(deckId, false)).new;
-  const unlimitedCount = (await getQueueCounts(deckId, true)).new;
-  return unlimitedCount > limitedCount;
+export async function hasMoreNewCards(deckId?: string, currentBonus = 0): Promise<boolean> {
+  const limitedCounts = await getQueueCounts(deckId, currentBonus);
+  const unlimitedCounts = await getQueueCounts(deckId, Infinity);
+  const hasMore = unlimitedCounts.new > limitedCounts.new;
+  console.log(`[hasMoreNewCards] deckId: ${deckId}, currentBonus: ${currentBonus}, limitedNew: ${limitedCounts.new}, unlimitedNew: ${unlimitedCounts.new}, hasMore: ${hasMore}`);
+  return hasMore;
 }
 
 // ============ Database Stats ============
