@@ -196,7 +196,7 @@ export function useNoteAudio() {
     window.speechSynthesis.cancel();
   }, []);
 
-  const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
+  const play = useCallback((audioUrl: string | null, text: string, apiBase: string, cacheBuster?: string) => {
     // Increment play ID to invalidate any pending callbacks from previous plays
     const currentPlayId = ++playIdRef.current;
 
@@ -205,7 +205,9 @@ export function useNoteAudio() {
 
     // If we have a stored audio URL, use it
     if (audioUrl) {
-      const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
+      // Add cache buster to force reload after audio is regenerated
+      const cacheParam = cacheBuster ? `?v=${encodeURIComponent(cacheBuster)}` : '';
+      const fullUrl = `${apiBase}/api/audio/${audioUrl}${cacheParam}`;
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 

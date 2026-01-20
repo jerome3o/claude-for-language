@@ -213,7 +213,7 @@ function StudyCard({
           hanzi: card.note.hanzi,
         });
         playedAudioForRef.current = card.id;
-        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
+        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at);
       }
     }
   }, [card.id, card.card_type, card.note.audio_url, card.note.hanzi, flipped, playAudio]);
@@ -231,7 +231,7 @@ function StudyCard({
     if (flipped) {
       // Small delay to ensure any previous audio is fully stopped
       const timer = setTimeout(() => {
-        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
+        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at);
       }, 50);
       return () => clearTimeout(timer);
     }
@@ -303,7 +303,7 @@ function StudyCard({
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
             <button
               className="btn btn-secondary mb-3"
-              onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+              onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
               disabled={isPlaying}
             >
               {isPlaying ? 'Playing...' : 'Play Audio'}
@@ -453,7 +453,7 @@ function StudyCard({
       <div className="flex gap-1 justify-center flex-wrap mb-3">
         <button
           className="btn btn-secondary btn-sm"
-          onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+          onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
           disabled={isPlaying}
         >
           {isPlaying ? 'Playing...' : 'Play Audio'}

@@ -829,7 +829,7 @@ function NoteCard({
             <>
               <button
                 className="btn btn-sm btn-secondary"
-                onClick={() => play(note.audio_url || null, note.hanzi, API_BASE)}
+                onClick={() => play(note.audio_url || null, note.hanzi, API_BASE, note.updated_at)}
                 disabled={isPlaying}
                 style={{ padding: '0.25rem 0.5rem', minWidth: 'auto' }}
               >
