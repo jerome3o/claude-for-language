@@ -144,6 +144,9 @@ export function useHasMoreNewCards(deckId?: string) {
   return result ?? false;
 }
 
+// Track the currently selected card to prevent flickering from random re-selection
+let currentSelectedCardId: string | null = null;
+
 // Hook to get the next card to study (offline-first)
 export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [], ignoreDailyLimit = false) {
   const queryClient = useQueryClient();
@@ -161,12 +164,13 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
   );
 
   // Filter out excluded notes and pick the next card
-  // Priority: Learning due NOW > Mix(New, Review) proportionally > Learning with delay
+  // Priority: Learning due NOW > Current card (if still valid) > Mix(New, Review) proportionally > Learning with delay
   const nextCard = useLiveQuery(async () => {
     const now = Date.now();
     console.log('[useOfflineNextCard] Card selection running', {
       allDueCardsLength: allDueCards?.length,
       excludeNoteIdsLength: excludeNoteIds.length,
+      currentSelectedCardId,
       deckId,
       timestamp: new Date().toISOString(),
     });
@@ -184,6 +188,7 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
         );
         if (learningDue.length > 0) {
           learningDue.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          currentSelectedCardId = learningDue[0].id;
           console.log('[useOfflineNextCard] Selected LEARNING card (due now):', {
             cardId: learningDue[0].id,
             queue: learningDue[0].queue,
@@ -192,7 +197,23 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
           return learningDue[0];
         }
 
-        // 2. Mix new and review cards proportionally (Anki "Mix with reviews" mode)
+        // 2. If we have a currently selected card and it's still available, keep it
+        // This prevents flickering from random re-selection on each render
+        if (currentSelectedCardId) {
+          const currentCard = availableCards.find(c => c.id === currentSelectedCardId);
+          if (currentCard) {
+            console.log('[useOfflineNextCard] Keeping current card:', {
+              cardId: currentCard.id,
+              noteId: currentCard.note_id,
+            });
+            return currentCard;
+          }
+          // Current card no longer available, clear it
+          console.log('[useOfflineNextCard] Current card no longer available, will select new');
+          currentSelectedCardId = null;
+        }
+
+        // 3. Mix new and review cards proportionally (Anki "Mix with reviews" mode)
         const newCards = availableCards.filter(c => c.queue === CardQueue.NEW);
         const reviewCards = availableCards.filter(c => c.queue === CardQueue.REVIEW);
         const totalMixable = newCards.length + reviewCards.length;
@@ -209,33 +230,36 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
             willSelectNew: random < newProbability,
           });
 
+          let selectedCard: LocalCard | null = null;
           if (random < newProbability && newCards.length > 0) {
-            // Pick a new card
+            selectedCard = newCards[0];
             console.log('[useOfflineNextCard] Selected NEW card:', {
-              cardId: newCards[0].id,
-              noteId: newCards[0].note_id,
+              cardId: selectedCard.id,
+              noteId: selectedCard.note_id,
             });
-            return newCards[0];
           } else if (reviewCards.length > 0) {
-            // Pick a review card
+            selectedCard = reviewCards[0];
             console.log('[useOfflineNextCard] Selected REVIEW card:', {
-              cardId: reviewCards[0].id,
-              noteId: reviewCards[0].note_id,
+              cardId: selectedCard.id,
+              noteId: selectedCard.note_id,
             });
-            return reviewCards[0];
           } else if (newCards.length > 0) {
-            // Fallback to new if no review cards
+            selectedCard = newCards[0];
             console.log('[useOfflineNextCard] Fallback to NEW card:', {
-              cardId: newCards[0].id,
-              noteId: newCards[0].note_id,
+              cardId: selectedCard.id,
+              noteId: selectedCard.note_id,
             });
-            return newCards[0];
+          }
+
+          if (selectedCard) {
+            currentSelectedCardId = selectedCard.id;
+            return selectedCard;
           }
         }
       }
     }
 
-    // 3. If nothing immediately due, check for learning cards with delays.
+    // 4. If nothing immediately due, check for learning cards with delays.
     // Serve them immediately so the user doesn't have to wait.
     console.log('[useOfflineNextCard] Checking for delayed learning cards...');
     let delayedLearningCards: LocalCard[];
@@ -256,6 +280,7 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     if (delayedLearningCards.length > 0) {
       // Return the one with the shortest delay
       delayedLearningCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+      currentSelectedCardId = delayedLearningCards[0].id;
       console.log('[useOfflineNextCard] Selected DELAYED LEARNING card:', {
         cardId: delayedLearningCards[0].id,
         noteId: delayedLearningCards[0].note_id,
@@ -265,6 +290,7 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     }
 
     console.log('[useOfflineNextCard] No card selected');
+    currentSelectedCardId = null;
     return null;
   }, [allDueCards, excludeNoteIds, deckId]);
 
