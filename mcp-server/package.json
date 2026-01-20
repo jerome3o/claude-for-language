@@ -2,13 +2,16 @@
   "name": "chinese-learning-mcp",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "dev": "npm run build:ui && wrangler dev",
+    "deploy": "npm run build:ui && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "build:ui": "vite build && node scripts/embed-html.js"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.0.5",
+    "@modelcontextprotocol/ext-apps": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "agents": "^0.3.5",
     "hono": "^4.0.0",
@@ -17,6 +20,8 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
     "typescript": "^5.5.0",
-    "wrangler": "^3.99.0"
+    "vite": "^7.3.1",
+    "vite-plugin-singlefile": "^2.3.0",
+    "wrangler": "^4.59.3"
   }
 }

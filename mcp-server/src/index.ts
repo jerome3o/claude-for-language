@@ -6,6 +6,12 @@ import OAuthProvider, {
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
+import {
+  registerAppTool,
+  registerAppResource,
+  RESOURCE_MIME_TYPE,
+} from "@modelcontextprotocol/ext-apps/server";
+import { STUDY_APP_HTML } from "./study-app-html.js";
 
 // Types
 interface Env {
@@ -1102,6 +1108,352 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           }],
         };
       }
+    );
+
+    // ============ Study MCP App Tools ============
+
+    const studyResourceUri = "ui://study/mcp-app.html";
+
+    // Helper to compute interval previews for rating buttons
+    const computeIntervalPreviews = (card: {
+      queue: number;
+      ease_factor: number;
+      interval: number;
+      learning_step: number;
+    }) => {
+      // Simplified SM-2 previews
+      const formatInterval = (days: number): string => {
+        if (days < 1) {
+          const mins = Math.round(days * 24 * 60);
+          return mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`;
+        }
+        return days < 30 ? `${Math.round(days)}d` : `${Math.round(days / 30)}mo`;
+      };
+
+      const isNew = card.queue === 0;
+      const isLearning = card.queue === 1 || card.queue === 3;
+
+      if (isNew || isLearning) {
+        return {
+          0: { intervalText: '1m', queue: 1 },
+          1: { intervalText: '6m', queue: 1 },
+          2: { intervalText: '10m', queue: 1 },
+          3: { intervalText: '4d', queue: 2 },
+        };
+      }
+
+      // Review card
+      const ease = card.ease_factor;
+      const interval = card.interval || 1;
+      return {
+        0: { intervalText: '10m', queue: 3 },
+        1: { intervalText: formatInterval(interval * 1.2), queue: 2 },
+        2: { intervalText: formatInterval(interval * ease), queue: 2 },
+        3: { intervalText: formatInterval(interval * ease * 1.3), queue: 2 },
+      };
+    };
+
+    // Study tool - opens interactive flashcard UI
+    registerAppTool(
+      this.server,
+      "study",
+      {
+        title: "Study Flashcards",
+        description: "Open an interactive flashcard study session for a deck. Use list_decks first to get deck IDs.",
+        inputSchema: z.object({
+          deck_id: z.string().describe("The deck ID to study"),
+        }),
+        _meta: {
+          ui: { resourceUri: studyResourceUri },
+        },
+      },
+      async ({ deck_id }) => {
+        // Verify deck exists and belongs to user
+        const deck = await this.env.DB
+          .prepare('SELECT id, name, description FROM decks WHERE id = ? AND user_id = ?')
+          .bind(deck_id, userId)
+          .first<{ id: string; name: string; description: string | null }>();
+
+        if (!deck) {
+          return {
+            content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
+            isError: true,
+          };
+        }
+
+        // Get due cards with note data
+        const cardsResult = await this.env.DB
+          .prepare(`
+            SELECT
+              c.id, c.card_type, c.queue, c.ease_factor, c.interval, c.learning_step,
+              n.id as note_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts
+            FROM cards c
+            JOIN notes n ON c.note_id = n.id
+            WHERE n.deck_id = ?
+              AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+            ORDER BY
+              CASE WHEN c.queue IN (1, 3) THEN 0 ELSE 1 END,
+              c.due_timestamp ASC NULLS LAST,
+              c.next_review_at ASC NULLS LAST
+            LIMIT 50
+          `)
+          .bind(deck_id)
+          .all();
+
+        const cards = cardsResult.results.map((row: Record<string, unknown>) => ({
+          id: row.id as string,
+          card_type: row.card_type as string,
+          queue: row.queue as number,
+          ease_factor: row.ease_factor as number,
+          interval: row.interval as number,
+          learning_step: row.learning_step as number,
+          note: {
+            id: row.note_id as string,
+            hanzi: row.hanzi as string,
+            pinyin: row.pinyin as string,
+            english: row.english as string,
+            audio_url: row.audio_url as string | null,
+            fun_facts: row.fun_facts as string | null,
+          },
+        }));
+
+        // Get queue counts
+        const countsResult = await this.env.DB
+          .prepare(`
+            SELECT
+              SUM(CASE WHEN c.queue = 0 AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as new_count,
+              SUM(CASE WHEN c.queue IN (1, 3) AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as learning_count,
+              SUM(CASE WHEN c.queue = 2 AND c.next_review_at <= datetime('now') THEN 1 ELSE 0 END) as review_count
+            FROM cards c
+            JOIN notes n ON c.note_id = n.id
+            WHERE n.deck_id = ?
+          `)
+          .bind(deck_id)
+          .first<{ new_count: number; learning_count: number; review_count: number }>();
+
+        const counts = {
+          new: countsResult?.new_count || 0,
+          learning: countsResult?.learning_count || 0,
+          review: countsResult?.review_count || 0,
+        };
+
+        // Compute interval previews for first card
+        const intervalPreviews = cards.length > 0
+          ? computeIntervalPreviews(cards[0])
+          : { 0: { intervalText: '', queue: 0 }, 1: { intervalText: '', queue: 0 }, 2: { intervalText: '', queue: 0 }, 3: { intervalText: '', queue: 0 } };
+
+        const result = {
+          deck: { id: deck.id, name: deck.name },
+          cards,
+          counts,
+          intervalPreviews,
+        };
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Opening study session for "${deck.name}" with ${cards.length} cards due.`,
+          }],
+          structuredContent: result,
+        };
+      }
+    );
+
+    // Submit review tool - called by the UI to record reviews
+    // Hidden from model (app-only visibility)
+    registerAppTool(
+      this.server,
+      "submit_review",
+      {
+        title: "Submit Review",
+        description: "Submit a card review rating (called by study UI)",
+        inputSchema: z.object({
+          card_id: z.string().describe("The card ID"),
+          rating: z.number().min(0).max(3).describe("Rating: 0=again, 1=hard, 2=good, 3=easy"),
+          time_spent_ms: z.number().optional().describe("Time spent in milliseconds"),
+          user_answer: z.string().optional().describe("User's typed answer"),
+        }),
+        _meta: {
+          ui: {
+            resourceUri: studyResourceUri,
+            visibility: ["app"], // Only callable by the UI, not the model
+          },
+        },
+      },
+      async ({ card_id, rating, time_spent_ms, user_answer }) => {
+        // Get card with note to verify ownership
+        const card = await this.env.DB
+          .prepare(`
+            SELECT c.*, n.deck_id, d.user_id
+            FROM cards c
+            JOIN notes n ON c.note_id = n.id
+            JOIN decks d ON n.deck_id = d.id
+            WHERE c.id = ? AND d.user_id = ?
+          `)
+          .bind(card_id, userId)
+          .first<{
+            id: string;
+            note_id: string;
+            deck_id: string;
+            queue: number;
+            ease_factor: number;
+            interval: number;
+            repetitions: number;
+            learning_step: number;
+          }>();
+
+        if (!card) {
+          return {
+            content: [{ type: "text" as const, text: `Card not found: ${card_id}` }],
+            isError: true,
+          };
+        }
+
+        // Simple SM-2 implementation
+        let newQueue = card.queue;
+        let newEase = card.ease_factor;
+        let newInterval = card.interval;
+        let newReps = card.repetitions;
+        let newLearningStep = card.learning_step;
+        let nextReviewAt: Date;
+
+        const isNew = card.queue === 0;
+        const isLearning = card.queue === 1 || card.queue === 3;
+
+        if (isNew || isLearning) {
+          // Learning/new card logic
+          if (rating === 0) {
+            // Again - restart learning
+            newQueue = 1;
+            newLearningStep = 0;
+            nextReviewAt = new Date(Date.now() + 60 * 1000); // 1 min
+          } else if (rating === 3) {
+            // Easy - graduate immediately
+            newQueue = 2;
+            newInterval = 4;
+            newReps = 1;
+            nextReviewAt = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
+          } else {
+            // Hard/Good - advance learning step
+            newLearningStep = Math.min(newLearningStep + 1, 2);
+            if (newLearningStep >= 2) {
+              // Graduate to review
+              newQueue = 2;
+              newInterval = 1;
+              newReps = 1;
+              nextReviewAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            } else {
+              newQueue = 1;
+              const stepMinutes = [1, 10][newLearningStep] || 10;
+              nextReviewAt = new Date(Date.now() + stepMinutes * 60 * 1000);
+            }
+          }
+        } else {
+          // Review card logic
+          if (rating === 0) {
+            // Again - relearn
+            newQueue = 3;
+            newLearningStep = 0;
+            newEase = Math.max(1.3, newEase - 0.2);
+            nextReviewAt = new Date(Date.now() + 10 * 60 * 1000);
+          } else {
+            // Hard/Good/Easy
+            const multipliers = { 1: 1.2, 2: newEase, 3: newEase * 1.3 };
+            const easeAdjust = { 1: -0.15, 2: 0, 3: 0.15 };
+
+            newInterval = Math.max(1, Math.round(newInterval * multipliers[rating as 1 | 2 | 3]));
+            newEase = Math.max(1.3, Math.min(3.0, newEase + easeAdjust[rating as 1 | 2 | 3]));
+            newReps++;
+            newQueue = 2;
+            nextReviewAt = new Date(Date.now() + newInterval * 24 * 60 * 60 * 1000);
+          }
+        }
+
+        // Update card
+        await this.env.DB
+          .prepare(`
+            UPDATE cards SET
+              queue = ?,
+              ease_factor = ?,
+              interval = ?,
+              repetitions = ?,
+              learning_step = ?,
+              next_review_at = ?,
+              due_timestamp = NULL
+            WHERE id = ?
+          `)
+          .bind(
+            newQueue,
+            newEase,
+            newInterval,
+            newReps,
+            newLearningStep,
+            nextReviewAt.toISOString(),
+            card_id
+          )
+          .run();
+
+        // Record review event
+        const reviewId = generateId();
+        await this.env.DB
+          .prepare(`
+            INSERT INTO review_events (id, card_id, user_id, rating, time_spent_ms, user_answer, reviewed_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+          `)
+          .bind(reviewId, card_id, userId, rating, time_spent_ms || null, user_answer || null)
+          .run();
+
+        // Get updated queue counts
+        const countsResult = await this.env.DB
+          .prepare(`
+            SELECT
+              SUM(CASE WHEN c.queue = 0 AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as new_count,
+              SUM(CASE WHEN c.queue IN (1, 3) AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) THEN 1 ELSE 0 END) as learning_count,
+              SUM(CASE WHEN c.queue = 2 AND c.next_review_at <= datetime('now') THEN 1 ELSE 0 END) as review_count
+            FROM cards c
+            JOIN notes n ON c.note_id = n.id
+            WHERE n.deck_id = ?
+          `)
+          .bind(card.deck_id)
+          .first<{ new_count: number; learning_count: number; review_count: number }>();
+
+        const counts = {
+          new: countsResult?.new_count || 0,
+          learning: countsResult?.learning_count || 0,
+          review: countsResult?.review_count || 0,
+        };
+
+        // Compute interval previews for next potential card (using updated state pattern)
+        const intervalPreviews = computeIntervalPreviews({
+          queue: newQueue,
+          ease_factor: newEase,
+          interval: newInterval,
+          learning_step: newLearningStep,
+        });
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Review recorded`,
+          }],
+          structuredContent: { counts, intervalPreviews },
+        };
+      }
+    );
+
+    // Register the study app HTML resource
+    registerAppResource(
+      this.server,
+      studyResourceUri,
+      studyResourceUri,
+      { mimeType: RESOURCE_MIME_TYPE },
+      async () => ({
+        contents: [{
+          uri: studyResourceUri,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: STUDY_APP_HTML,
+        }],
+      })
     );
   }
 }

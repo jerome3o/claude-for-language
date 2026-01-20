@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Study Flashcards</title>
+</head>
+<body>
+  <div id="app">
+    <div id="loading" class="loading">
+      <div class="loading-spinner"></div>
+      <p>Loading flashcards...</p>
+    </div>
+
+    <div id="error" class="error" style="display: none;">
+      <div class="error-icon">⚠️</div>
+      <p id="error-message"></p>
+    </div>
+
+    <div id="study-container" style="display: none;">
+      <!-- Queue counts header -->
+      <div id="queue-counts" class="queue-counts">
+        <span id="count-new" class="count count-new">0</span>
+        <span class="count-separator">+</span>
+        <span id="count-learning" class="count count-learning">0</span>
+        <span class="count-separator">+</span>
+        <span id="count-review" class="count count-review">0</span>
+      </div>
+
+      <!-- Card display -->
+      <div id="card" class="card">
+        <div id="card-front" class="card-face card-front">
+          <p id="card-prompt" class="card-prompt"></p>
+          <div id="card-content" class="card-content"></div>
+
+          <!-- Typing input for typing cards -->
+          <div id="typing-area" class="typing-area" style="display: none;">
+            <input type="text" id="type-input" class="type-input" placeholder="Type in Chinese..." />
+          </div>
+
+          <!-- Audio button for audio cards -->
+          <button id="play-audio-btn" class="btn btn-secondary" style="display: none;">
+            🔊 Play Audio
+          </button>
+        </div>
+
+        <div id="card-back" class="card-face card-back" style="display: none;">
+          <!-- Answer diff for typing cards -->
+          <div id="answer-diff" class="answer-diff" style="display: none;"></div>
+
+          <!-- Standard answer display -->
+          <div id="answer-display" class="answer-display">
+            <div id="answer-hanzi" class="hanzi"></div>
+            <div id="answer-pinyin" class="pinyin"></div>
+            <div id="answer-english" class="english"></div>
+            <div id="answer-fun-facts" class="fun-facts" style="display: none;"></div>
+          </div>
+
+          <!-- Audio playback on back -->
+          <button id="play-audio-back-btn" class="btn btn-secondary btn-sm">
+            🔊 Play Audio
+          </button>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div id="actions" class="actions">
+        <button id="show-answer-btn" class="btn btn-primary">Show Answer</button>
+        <button id="check-answer-btn" class="btn btn-primary" style="display: none;">Check Answer</button>
+
+        <!-- Rating buttons (shown after flip) -->
+        <div id="rating-buttons" class="rating-buttons" style="display: none;">
+          <p class="rating-prompt">How well did you know this?</p>
+          <div class="rating-row">
+            <button class="rating-btn again" data-rating="0">
+              <span class="rating-label">Again</span>
+              <span id="interval-0" class="rating-interval"></span>
+            </button>
+            <button class="rating-btn hard" data-rating="1">
+              <span class="rating-label">Hard</span>
+              <span id="interval-1" class="rating-interval"></span>
+            </button>
+            <button class="rating-btn good" data-rating="2">
+              <span class="rating-label">Good</span>
+              <span id="interval-2" class="rating-interval"></span>
+            </button>
+            <button class="rating-btn easy" data-rating="3">
+              <span class="rating-label">Easy</span>
+              <span id="interval-3" class="rating-interval"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session complete -->
+    <div id="complete" class="complete" style="display: none;">
+      <div class="complete-icon">🎉</div>
+      <h2>Session Complete!</h2>
+      <p id="complete-stats"></p>
+    </div>
+  </div>
+
+  <script type="module" src="./mcp-app.ts"></script>
+</body>
+</html>

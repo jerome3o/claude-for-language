@@ -434,6 +434,22 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_note_history` | Get review history and Q&A for a note |
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
+| `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
+
+### Study Tool (MCP App)
+
+The `study` tool is special - it renders an interactive flashcard UI directly in Claude.ai or other MCP hosts that support MCP Apps. Usage:
+
+1. Call `list_decks` to get available deck IDs
+2. Call `study(deck_id: "...")` to open the study interface
+3. The UI displays cards, handles flipping, and rating
+4. Audio is played via browser speech synthesis (Chinese TTS)
+5. Reviews are submitted automatically via the `submit_review` tool (hidden from model)
+
+The UI bundle is built with Vite and embedded in the worker. To rebuild:
+```bash
+cd mcp-server && npm run build:ui
+```
 
 ### Notes on MCP Usage
 - When `add_note` is called, the MCP server automatically calls the main API to generate TTS audio
