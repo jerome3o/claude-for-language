@@ -639,6 +639,21 @@ export function StudyPage() {
   const intervalPreviews = offlineNextCard.intervalPreviews;
   const isLoading = studyStarted ? offlineNextCard.isLoading : offlineQueueCounts.isLoading;
 
+  // Debug logging for study state transitions
+  useEffect(() => {
+    if (studyStarted) {
+      console.log('[StudyPage] State:', {
+        studyStarted,
+        isLoading,
+        hasCurrentCard: !!currentCard,
+        currentCardId: currentCard?.id,
+        counts,
+        hasMoreNewCards,
+        wouldShowCompletion: !isLoading && !currentCard,
+      });
+    }
+  }, [studyStarted, isLoading, currentCard, counts, hasMoreNewCards]);
+
   const handleStartStudy = async () => {
     setStudyStarted(true);
     setRecentNotes([]);

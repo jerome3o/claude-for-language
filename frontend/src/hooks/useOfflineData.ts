@@ -327,11 +327,27 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     note: note as Note,
   } : null;
 
+  // Consider "loading" if:
+  // 1. Due cards haven't loaded yet (initial load)
+  // 2. We have a card selected but note hasn't loaded yet (transitioning between cards)
+  // This prevents the "All Done!" screen from flashing during card transitions
+  const isTransitioning = nextCard !== null && !dataIsConsistent;
+  const isLoading = allDueCards === undefined || isTransitioning;
+
+  if (isTransitioning) {
+    console.log('[useOfflineNextCard] Transitioning - card selected but note not ready', {
+      nextCardId: nextCard?.id,
+      nextCardNoteId: nextCard?.note_id,
+      noteId: note?.id,
+      dataIsConsistent,
+    });
+  }
+
   return {
     card: cardWithNote,
     counts: counts || { new: 0, learning: 0, review: 0 },
     intervalPreviews,
-    isLoading: allDueCards === undefined,
+    isLoading,
     refetch: () => queryClient.invalidateQueries({ queryKey: ['offlineDueCards'] }),
   };
 }
