@@ -6,6 +6,8 @@ import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextp
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import './mcp-app.css';
 
+console.log('[Study App] Script loaded');
+
 // Types matching the server response
 interface Note {
   id: string;
@@ -317,32 +319,50 @@ async function submitRating(rating: number) {
 }
 
 // Initialize the app
+console.log('[Study App] Creating App instance...');
 const app = new App({ name: 'Study Flashcards', version: '1.0.0' });
+console.log('[Study App] App instance created');
 
 // Handle tool input (deck_id argument)
 app.ontoolinput = (params) => {
+  console.log('[Study App] ontoolinput called with:', JSON.stringify(params));
   const args = params.arguments as { deck_id?: string } | undefined;
   if (args?.deck_id) {
+    console.log('[Study App] Setting loading text for deck_id:', args.deck_id);
     elements.loading.querySelector('p')!.textContent = 'Loading flashcards...';
   }
 };
 
+// Handle tool input partial (streaming)
+app.ontoolinputpartial = (params) => {
+  console.log('[Study App] ontoolinputpartial called with:', JSON.stringify(params));
+};
+
 // Handle tool result (cards data)
 app.ontoolresult = (result: CallToolResult) => {
+  console.log('[Study App] ontoolresult called');
+  console.log('[Study App] result.isError:', result.isError);
+  console.log('[Study App] result.content:', JSON.stringify(result.content));
+  console.log('[Study App] result.structuredContent:', JSON.stringify(result.structuredContent));
+
   elements.loading.style.display = 'none';
 
   if (result.isError) {
     const errorText = result.content?.[0]?.type === 'text'
       ? (result.content[0] as { type: 'text'; text: string }).text
       : 'Failed to load cards';
+    console.log('[Study App] Error from tool:', errorText);
     showError(errorText);
     return;
   }
 
   try {
     const data = result.structuredContent as unknown as StudyData;
+    console.log('[Study App] Parsed data:', data);
+    console.log('[Study App] Cards count:', data?.cards?.length);
 
     if (!data.cards || data.cards.length === 0) {
+      console.log('[Study App] No cards in data');
       showError('No cards due for review in this deck!');
       return;
     }
@@ -351,16 +371,20 @@ app.ontoolresult = (result: CallToolResult) => {
     currentCardIndex = 0;
     cardsStudied = 0;
 
+    console.log('[Study App] Updating queue counts:', data.counts);
     updateQueueCounts(data.counts);
     elements.studyContainer.style.display = 'block';
+    console.log('[Study App] Showing first card');
     showCardFront();
   } catch (err) {
+    console.error('[Study App] Error parsing data:', err);
     showError('Failed to parse card data');
   }
 };
 
 // Handle host context changes (theme)
 app.onhostcontextchanged = (ctx) => {
+  console.log('[Study App] onhostcontextchanged called:', JSON.stringify(ctx));
   if (ctx.theme) {
     applyDocumentTheme(ctx.theme);
   }
@@ -374,7 +398,7 @@ app.onhostcontextchanged = (ctx) => {
 };
 
 app.onerror = (err) => {
-  console.error('[Study App] Error:', err);
+  console.error('[Study App] onerror called:', err);
   showError('An error occurred. Please try again.');
 };
 
@@ -418,10 +442,17 @@ if ('speechSynthesis' in window) {
 }
 
 // Connect to host
+console.log('[Study App] Calling app.connect()...');
 app.connect().then(() => {
+  console.log('[Study App] app.connect() resolved successfully');
   const ctx = app.getHostContext();
+  console.log('[Study App] Initial host context:', JSON.stringify(ctx));
   if (ctx) {
     if (ctx.theme) applyDocumentTheme(ctx.theme);
     if (ctx.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
   }
+}).catch((err) => {
+  console.error('[Study App] app.connect() failed:', err);
 });
+
+console.log('[Study App] Script initialization complete');
