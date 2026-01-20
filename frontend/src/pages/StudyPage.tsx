@@ -770,7 +770,36 @@ export function StudyPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recentNotes, setRecentNotes] = useState<string[]>([]);
   const [studyStarted, setStudyStarted] = useState(false);
-  const [bonusNewCards, setBonusNewCards] = useState(0);
+
+  // Bonus new cards - persisted in localStorage, resets daily
+  const getTodayKey = () => `bonusNewCards_${new Date().toISOString().slice(0, 10)}`;
+  const getStoredBonus = (): number => {
+    try {
+      const stored = localStorage.getItem(getTodayKey());
+      return stored ? parseInt(stored, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const [bonusNewCards, setBonusNewCards] = useState(getStoredBonus);
+
+  // Persist bonus to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      // Clean up old keys (from previous days)
+      const todayKey = getTodayKey();
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith('bonusNewCards_') && key !== todayKey) {
+          localStorage.removeItem(key);
+        }
+      }
+      // Save current bonus
+      localStorage.setItem(todayKey, String(bonusNewCards));
+    } catch {
+      // localStorage might be unavailable
+    }
+  }, [bonusNewCards]);
 
   // All data comes from offline/local-first hooks
   const { decks, triggerSync } = useOfflineDecks();
@@ -813,7 +842,7 @@ export function StudyPage() {
     setStudyStarted(false);
     setSessionId(null);
     setRecentNotes([]);
-    setBonusNewCards(0);
+    // Note: bonusNewCards persists across sessions and resets at end of day
     queryClient.invalidateQueries({ queryKey: ['stats'] });
   };
 
