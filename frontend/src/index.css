@@ -415,7 +415,7 @@ a:hover {
 html:has(.study-page-fullscreen),
 html:has(.study-page-fullscreen) body {
   overflow: hidden;
-  height: 100%;
+  height: 100dvh; /* Dynamic viewport height - shrinks when keyboard opens */
 }
 
 /* Hide header when in fullscreen study mode */
@@ -425,7 +425,10 @@ html:has(.study-page-fullscreen) .header {
 
 .study-page-fullscreen {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100dvh; /* Dynamic viewport height - shrinks when keyboard opens */
   background-color: var(--color-surface);
   display: flex;
   flex-direction: column;
