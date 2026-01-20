@@ -199,6 +199,7 @@ export function useNoteAudio() {
   const play = useCallback((audioUrl: string | null, text: string, apiBase: string, cacheBuster?: string) => {
     // Increment play ID to invalidate any pending callbacks from previous plays
     const currentPlayId = ++playIdRef.current;
+    console.log('[useNoteAudio] play() called', { audioUrl, text, cacheBuster, playId: currentPlayId });
 
     // Stop any current playback
     cleanupAudio();
@@ -208,20 +209,24 @@ export function useNoteAudio() {
       // Add cache buster to force reload after audio is regenerated
       const cacheParam = cacheBuster ? `?v=${encodeURIComponent(cacheBuster)}` : '';
       const fullUrl = `${apiBase}/api/audio/${audioUrl}${cacheParam}`;
+      console.log('[useNoteAudio] Creating audio element', { fullUrl, playId: currentPlayId });
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 
       audio.onplay = () => {
+        console.log('[useNoteAudio] onplay fired', { playId: currentPlayId, currentRef: playIdRef.current });
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(true);
         }
       };
       audio.onended = () => {
+        console.log('[useNoteAudio] onended fired', { playId: currentPlayId });
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(false);
         }
       };
       audio.onerror = () => {
+        console.log('[useNoteAudio] onerror fired', { playId: currentPlayId });
         // Only fallback if this is still the current play request
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(false);
@@ -229,7 +234,8 @@ export function useNoteAudio() {
         }
       };
 
-      audio.play().catch(() => {
+      audio.play().catch((err) => {
+        console.log('[useNoteAudio] play() promise rejected', { playId: currentPlayId, err });
         // Only fallback if this is still the current play request
         if (playIdRef.current === currentPlayId) {
           speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
@@ -237,6 +243,7 @@ export function useNoteAudio() {
       });
     } else {
       // No stored audio, use browser TTS
+      console.log('[useNoteAudio] No audio URL, using browser TTS');
       speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
     }
   }, [cleanupAudio]);

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, upgradeNoteAudio, upgradeAllDeckAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, upgradeNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, Card, CardQueue, NoteWithCards } from '../types';
@@ -798,9 +798,11 @@ function NoteCard({
   };
 
   const handleUpgradeAudio = async () => {
+    console.log('[NoteCard] handleUpgradeAudio called for', note.hanzi);
     setIsUpgrading(true);
     try {
       await upgradeNoteAudio(note.id);
+      console.log('[NoteCard] upgrade complete, calling onAudioGenerated');
       onAudioGenerated();
     } catch (error) {
       console.error('Failed to upgrade audio:', error);
@@ -1041,20 +1043,24 @@ export function DeckDetailPage() {
   };
 
   const upgradeAllToMiniMax = async () => {
-    if (!deckQuery.data || !id) return;
+    if (!deckQuery.data) return;
 
+    // Process sequentially with progress (same pattern as generateAllMissingAudio)
     setIsUpgradingAllAudio(true);
-    try {
-      await upgradeAllDeckAudio(id);
-      // Refresh after a short delay to allow background processing to start
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['deck', id] });
-      }, 2000);
-    } catch (error) {
-      console.error('Failed to upgrade audio:', error);
-    } finally {
-      setIsUpgradingAllAudio(false);
+    setAudioGenerationProgress({ done: 0, total: notesToUpgrade.length });
+
+    for (let i = 0; i < notesToUpgrade.length; i++) {
+      try {
+        console.log(`[DeckDetailPage] Upgrading ${i + 1}/${notesToUpgrade.length}: ${notesToUpgrade[i].hanzi}`);
+        await upgradeNoteAudio(notesToUpgrade[i].id);
+        setAudioGenerationProgress({ done: i + 1, total: notesToUpgrade.length });
+      } catch (error) {
+        console.error(`Failed to upgrade audio for ${notesToUpgrade[i].hanzi}:`, error);
+      }
     }
+
+    setIsUpgradingAllAudio(false);
+    queryClient.invalidateQueries({ queryKey: ['deck', id] });
   };
 
   // Count notes that can be upgraded (have audio but from GTTS)
@@ -1113,7 +1119,7 @@ export function DeckDetailPage() {
                 title="Upgrade all GTTS audio to MiniMax (higher quality, slower playback)"
               >
                 {isUpgradingAllAudio
-                  ? 'Upgrading...'
+                  ? `Upgrading (${audioGenerationProgress.done}/${audioGenerationProgress.total})`
                   : `Upgrade to HD (${notesToUpgrade.length})`}
               </button>
             )}
