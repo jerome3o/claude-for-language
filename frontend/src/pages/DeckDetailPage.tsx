@@ -1005,8 +1005,8 @@ export function DeckDetailPage() {
       <div className="container">
         {/* Header */}
         <div className="mb-4">
-          <Link to="/decks" className="text-light">
-            &larr; Back to Decks
+          <Link to="/" className="text-light">
+            &larr; Back
           </Link>
           <h1 className="mt-1">{deck.name}</h1>
           {deck.description && <p className="text-light mt-1">{deck.description}</p>}
