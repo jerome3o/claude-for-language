@@ -1,6 +1,9 @@
 // Card types
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
 
+// Audio provider types
+export type AudioProvider = 'minimax' | 'gtts';
+
 // Rating values (SM-2)
 export type Rating = 0 | 1 | 2 | 3; // 0=again, 1=hard, 2=good, 3=easy
 
@@ -75,6 +78,7 @@ export interface Note {
   pinyin: string;
   english: string;
   audio_url: string | null;
+  audio_provider: AudioProvider | null;
   fun_facts: string | null;
   created_at: string;
   updated_at: string;

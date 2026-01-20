@@ -4,6 +4,7 @@ export interface Env {
   AUDIO_BUCKET: R2Bucket;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
+  MINIMAX_API_KEY: string;
   ENVIRONMENT: string;
   // Auth secrets
   GOOGLE_CLIENT_ID: string;
@@ -12,6 +13,9 @@ export interface Env {
   ADMIN_EMAIL: string;
   NTFY_TOPIC: string;
 }
+
+// Audio provider types
+export type AudioProvider = 'minimax' | 'gtts';
 
 // Card types
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
@@ -108,6 +112,7 @@ export interface Note {
   pinyin: string;
   english: string;
   audio_url: string | null;
+  audio_provider: AudioProvider | null;
   fun_facts: string | null;
   created_at: string;
   updated_at: string;

@@ -10,7 +10,7 @@ import {
   parseLearningSteps,
 } from './services/anki-scheduler';
 import { generateDeck, suggestCards, askAboutNote } from './services/ai';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -619,9 +619,9 @@ app.post('/api/decks/import', async (c) => {
           }
 
           // Generate TTS audio (don't await, let it run in parallel)
-          generateTTS(c.env, noteData.hanzi, note.id).then(async (audioKey) => {
-            if (audioKey) {
-              await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+          generateTTS(c.env, noteData.hanzi, note.id).then(async (result) => {
+            if (result) {
+              await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
             }
           }).catch((err) => {
             console.error('[Import] TTS failed for', noteData.hanzi, err);
@@ -683,11 +683,11 @@ app.post('/api/decks/:deckId/notes', async (c) => {
 
   // Generate TTS audio in background (don't await to keep response fast)
   c.executionCtx.waitUntil(
-    generateTTS(c.env, hanzi, note.id).then(async (audioKey) => {
-      console.log('[API] TTS generation result for note', note.id, ':', audioKey);
-      if (audioKey) {
-        await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
-        console.log('[API] Updated note with audioUrl:', audioKey);
+    generateTTS(c.env, hanzi, note.id).then(async (result) => {
+      console.log('[API] TTS generation result for note', note.id, ':', result);
+      if (result) {
+        await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
+        console.log('[API] Updated note with audioUrl:', result.audioKey, 'provider:', result.provider);
       }
     }).catch((err) => {
       console.error('[API] TTS generation failed for note', note.id, ':', err);
@@ -810,9 +810,9 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
   }
 
   try {
-    const audioKey = await generateTTS(c.env, note.hanzi, note.id);
-    if (audioKey) {
-      await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
+    const result = await generateTTS(c.env, note.hanzi, note.id);
+    if (result) {
+      await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
     } else {
@@ -822,6 +822,108 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
     console.error('TTS generation error:', error);
     return c.json({ error: 'Failed to generate audio' }, 500);
   }
+});
+
+// Upgrade a single note's audio to MiniMax
+app.post('/api/notes/:id/upgrade-audio', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  if (!c.env.MINIMAX_API_KEY) {
+    return c.json({ error: 'MiniMax TTS is not configured' }, 500);
+  }
+
+  try {
+    // Delete old audio if exists
+    if (note.audio_url) {
+      try {
+        await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
+      } catch (err) {
+        console.error('[Upgrade Audio] Failed to delete old audio:', err);
+      }
+    }
+
+    // Generate new audio with MiniMax
+    const audioKey = await generateMiniMaxTTS(c.env, note.hanzi, note.id);
+    if (audioKey) {
+      await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey, audioProvider: 'minimax' });
+      const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
+      return c.json(updatedNote);
+    } else {
+      return c.json({ error: 'Failed to generate MiniMax audio' }, 500);
+    }
+  } catch (error) {
+    console.error('MiniMax TTS generation error:', error);
+    return c.json({ error: 'Failed to generate audio' }, 500);
+  }
+});
+
+// Upgrade all GTTS notes in a deck to MiniMax
+app.post('/api/decks/:id/upgrade-all-audio', async (c) => {
+  const userId = c.get('user').id;
+  const deckId = c.req.param('id');
+
+  const deck = await db.getDeckWithNotes(c.env.DB, deckId, userId);
+  if (!deck) {
+    return c.json({ error: 'Deck not found' }, 404);
+  }
+
+  if (!c.env.MINIMAX_API_KEY) {
+    return c.json({ error: 'MiniMax TTS is not configured' }, 500);
+  }
+
+  // Find all notes with gtts or null audio_provider
+  const notesToUpgrade = deck.notes.filter(note =>
+    note.audio_url && (!note.audio_provider || note.audio_provider === 'gtts')
+  );
+
+  if (notesToUpgrade.length === 0) {
+    return c.json({ upgraded: 0, message: 'No notes to upgrade' });
+  }
+
+  // Process upgrades in background
+  let upgraded = 0;
+  const errors: string[] = [];
+
+  c.executionCtx.waitUntil((async () => {
+    for (const note of notesToUpgrade) {
+      try {
+        // Delete old audio
+        if (note.audio_url) {
+          try {
+            await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
+          } catch (err) {
+            console.error('[Upgrade All] Failed to delete old audio for', note.hanzi, err);
+          }
+        }
+
+        // Generate new audio with MiniMax
+        const audioKey = await generateMiniMaxTTS(c.env, note.hanzi, note.id);
+        if (audioKey) {
+          await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey, audioProvider: 'minimax' });
+          upgraded++;
+          console.log('[Upgrade All] Upgraded', note.hanzi, 'to MiniMax');
+        } else {
+          errors.push(`Failed to generate audio for ${note.hanzi}`);
+        }
+      } catch (err) {
+        console.error('[Upgrade All] Failed to upgrade', note.hanzi, err);
+        errors.push(`Error upgrading ${note.hanzi}: ${err}`);
+      }
+    }
+    console.log(`[Upgrade All] Completed: ${upgraded}/${notesToUpgrade.length} upgraded`);
+  })());
+
+  // Return immediately with count of notes being processed
+  return c.json({
+    upgrading: notesToUpgrade.length,
+    message: `Upgrading ${notesToUpgrade.length} notes to MiniMax audio in background. Refresh to see progress.`,
+  });
 });
 
 // ============ Cards ============
@@ -1241,11 +1343,11 @@ app.post('/api/ai/generate-deck', async (c) => {
     const notesWithAudio = await Promise.all(
       notes.map(async (note) => {
         console.log('[API] Generating TTS for AI note:', note.id, note.hanzi);
-        const audioKey = await generateTTS(c.env, note.hanzi, note.id);
-        console.log('[API] TTS result for AI note', note.id, ':', audioKey);
-        if (audioKey) {
-          const updated = await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey });
-          console.log('[API] Updated AI note with audioUrl:', audioKey);
+        const result = await generateTTS(c.env, note.hanzi, note.id);
+        console.log('[API] TTS result for AI note', note.id, ':', result);
+        if (result) {
+          const updated = await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
+          console.log('[API] Updated AI note with audioUrl:', result.audioKey, 'provider:', result.provider);
           return updated || note;
         }
         return note;

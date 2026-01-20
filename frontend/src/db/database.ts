@@ -71,6 +71,7 @@ export interface LocalNote {
   pinyin: string;
   english: string;
   audio_url: string | null;
+  audio_provider: 'minimax' | 'gtts' | null;
   fun_facts: string | null;
   created_at: string;
   updated_at: string;

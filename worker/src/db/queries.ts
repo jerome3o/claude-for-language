@@ -503,6 +503,7 @@ export async function updateNote(
     pinyin?: string;
     english?: string;
     audioUrl?: string;
+    audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
   },
   updates?: {
@@ -510,6 +511,7 @@ export async function updateNote(
     pinyin?: string;
     english?: string;
     audioUrl?: string;
+    audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
   }
 ): Promise<Note | null> {
@@ -520,6 +522,7 @@ export async function updateNote(
     pinyin?: string;
     english?: string;
     audioUrl?: string;
+    audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
   };
 
@@ -554,6 +557,10 @@ export async function updateNote(
   if (actualUpdates.audioUrl !== undefined) {
     fields.push('audio_url = ?');
     values.push(actualUpdates.audioUrl);
+  }
+  if (actualUpdates.audioProvider !== undefined) {
+    fields.push('audio_provider = ?');
+    values.push(actualUpdates.audioProvider);
   }
   if (actualUpdates.funFacts !== undefined) {
     fields.push('fun_facts = ?');
@@ -677,6 +684,7 @@ export async function getDueCards(
       pinyin: row.pinyin as string,
       english: row.english as string,
       audio_url: row.audio_url as string | null,
+      audio_provider: (row.audio_provider as 'minimax' | 'gtts' | null) || null,
       fun_facts: row.fun_facts as string | null,
       created_at: '',
       updated_at: '',
@@ -850,6 +858,7 @@ export async function getSessionWithReviews(
         pinyin: row.pinyin as string,
         english: row.english as string,
         audio_url: row.audio_url as string | null,
+        audio_provider: (row.audio_provider as 'minimax' | 'gtts' | null) || null,
         fun_facts: row.fun_facts as string | null,
         created_at: '',
         updated_at: '',
@@ -1320,6 +1329,7 @@ function mapCardWithNote(row: Record<string, unknown>): CardWithNote {
       pinyin: row.pinyin as string,
       english: row.english as string,
       audio_url: row.audio_url as string | null,
+      audio_provider: (row.audio_provider as 'minimax' | 'gtts' | null) || null,
       fun_facts: row.fun_facts as string | null,
       created_at: '',
       updated_at: '',

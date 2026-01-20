@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, upgradeNoteAudio, upgradeAllDeckAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, Card, CardQueue, NoteWithCards } from '../types';
@@ -783,6 +783,7 @@ function NoteCard({
 }) {
   const { isPlaying, play } = useNoteAudio();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   const handleGenerateAudio = async () => {
     setIsGenerating(true);
@@ -795,6 +796,21 @@ function NoteCard({
       setIsGenerating(false);
     }
   };
+
+  const handleUpgradeAudio = async () => {
+    setIsUpgrading(true);
+    try {
+      await upgradeNoteAudio(note.id);
+      onAudioGenerated();
+    } catch (error) {
+      console.error('Failed to upgrade audio:', error);
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
+
+  // Check if note can be upgraded (has audio but from GTTS or no provider specified)
+  const canUpgrade = note.audio_url && (!note.audio_provider || note.audio_provider === 'gtts');
 
   // Get learning status for all cards
   const learningStatus = getNoteLearningStatus(note.cards || []);
@@ -810,14 +826,48 @@ function NoteCard({
       <div className="note-card-content">
         <div className="flex items-center gap-2">
           {note.audio_url ? (
-            <button
-              className="btn btn-sm btn-secondary"
-              onClick={() => play(note.audio_url || null, note.hanzi, API_BASE)}
-              disabled={isPlaying}
-              style={{ padding: '0.25rem 0.5rem', minWidth: 'auto' }}
-            >
-              {isPlaying ? '...' : '▶'}
-            </button>
+            <>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => play(note.audio_url || null, note.hanzi, API_BASE)}
+                disabled={isPlaying}
+                style={{ padding: '0.25rem 0.5rem', minWidth: 'auto' }}
+              >
+                {isPlaying ? '...' : '▶'}
+              </button>
+              {canUpgrade && (
+                <button
+                  className="btn btn-sm"
+                  onClick={handleUpgradeAudio}
+                  disabled={isUpgrading}
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    minWidth: 'auto',
+                    fontSize: '0.65rem',
+                    background: '#f59e0b',
+                    color: 'white',
+                    border: 'none',
+                  }}
+                  title="Upgrade to MiniMax (higher quality)"
+                >
+                  {isUpgrading ? '...' : '⬆'}
+                </button>
+              )}
+              {note.audio_provider === 'minimax' && (
+                <span
+                  style={{
+                    fontSize: '0.6rem',
+                    padding: '0.1rem 0.3rem',
+                    background: '#10b981',
+                    color: 'white',
+                    borderRadius: '3px',
+                  }}
+                  title="MiniMax HD audio"
+                >
+                  HD
+                </span>
+              )}
+            </>
           ) : (
             <button
               className="btn btn-sm btn-primary"
@@ -920,6 +970,7 @@ export function DeckDetailPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [isGeneratingAllAudio, setIsGeneratingAllAudio] = useState(false);
   const [audioGenerationProgress, setAudioGenerationProgress] = useState({ done: 0, total: 0 });
+  const [isUpgradingAllAudio, setIsUpgradingAllAudio] = useState(false);
 
   const deckQuery = useQuery({
     queryKey: ['deck', id],
@@ -989,6 +1040,28 @@ export function DeckDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['deck', id] });
   };
 
+  const upgradeAllToMiniMax = async () => {
+    if (!deckQuery.data || !id) return;
+
+    setIsUpgradingAllAudio(true);
+    try {
+      await upgradeAllDeckAudio(id);
+      // Refresh after a short delay to allow background processing to start
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['deck', id] });
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to upgrade audio:', error);
+    } finally {
+      setIsUpgradingAllAudio(false);
+    }
+  };
+
+  // Count notes that can be upgraded (have audio but from GTTS)
+  const notesToUpgrade = deckQuery.data?.notes.filter(
+    note => note.audio_url && (!note.audio_provider || note.audio_provider === 'gtts')
+  ) || [];
+
   if (deckQuery.isLoading) {
     return <Loading />;
   }
@@ -1025,6 +1098,23 @@ export function DeckDetailPage() {
                 {isGeneratingAllAudio
                   ? `Generating Audio (${audioGenerationProgress.done}/${audioGenerationProgress.total})`
                   : `Generate All Audio (${deck.notes.filter(n => !n.audio_url).length})`}
+              </button>
+            )}
+            {notesToUpgrade.length > 0 && (
+              <button
+                className="btn"
+                onClick={upgradeAllToMiniMax}
+                disabled={isUpgradingAllAudio}
+                style={{
+                  background: '#f59e0b',
+                  color: 'white',
+                  border: 'none',
+                }}
+                title="Upgrade all GTTS audio to MiniMax (higher quality, slower playback)"
+              >
+                {isUpgradingAllAudio
+                  ? 'Upgrading...'
+                  : `Upgrade to HD (${notesToUpgrade.length})`}
               </button>
             )}
             <button

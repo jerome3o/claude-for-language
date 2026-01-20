@@ -231,6 +231,18 @@ export async function generateNoteAudio(noteId: string): Promise<Note> {
   });
 }
 
+export async function upgradeNoteAudio(noteId: string): Promise<Note> {
+  return fetchJSON<Note>(`/notes/${noteId}/upgrade-audio`, {
+    method: 'POST',
+  });
+}
+
+export async function upgradeAllDeckAudio(deckId: string): Promise<{ upgrading: number; message: string }> {
+  return fetchJSON<{ upgrading: number; message: string }>(`/decks/${deckId}/upgrade-all-audio`, {
+    method: 'POST',
+  });
+}
+
 export async function deleteNote(id: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/notes/${id}`, { method: 'DELETE' });
 }
