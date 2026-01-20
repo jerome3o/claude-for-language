@@ -213,12 +213,8 @@ export function useNoteAudio() {
       const audio = new Audio(fullUrl);
       audioRef.current = audio;
 
-      // Track if audio actually started playing - don't fallback to TTS if it did
-      let hasStartedPlaying = false;
-
       audio.onplay = () => {
         console.log('[useNoteAudio] onplay fired', { playId: currentPlayId, currentRef: playIdRef.current });
-        hasStartedPlaying = true;
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(true);
         }
@@ -229,20 +225,20 @@ export function useNoteAudio() {
           setIsPlaying(false);
         }
       };
-      audio.onerror = () => {
-        console.log('[useNoteAudio] onerror fired', { playId: currentPlayId, hasStartedPlaying });
-        // Only fallback if audio never started playing
-        if (playIdRef.current === currentPlayId && !hasStartedPlaying) {
+      audio.onerror = (e) => {
+        console.log('[useNoteAudio] onerror fired', { playId: currentPlayId, error: e });
+        if (playIdRef.current === currentPlayId) {
           setIsPlaying(false);
-          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
+          // Don't fallback to TTS - let the user know the audio failed
+          // The real fix is to ensure MiniMax audio is valid
         }
       };
 
       audio.play().catch((err) => {
-        console.log('[useNoteAudio] play() promise rejected', { playId: currentPlayId, hasStartedPlaying, err });
-        // Only fallback if audio never started playing
-        if (playIdRef.current === currentPlayId && !hasStartedPlaying) {
-          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
+        console.log('[useNoteAudio] play() promise rejected', { playId: currentPlayId, err });
+        if (playIdRef.current === currentPlayId) {
+          // Don't fallback to TTS for now - we need to fix the MiniMax audio format
+          setIsPlaying(false);
         }
       });
     } else {
