@@ -485,6 +485,7 @@ html:has(.study-page-fullscreen) .header {
   padding: 1rem;
   overflow-y: auto;
   overscroll-behavior: contain;
+  min-height: 0; /* Allow flex shrinking */
 }
 
 .study-card-main {
@@ -503,6 +504,36 @@ html:has(.study-page-fullscreen) .header {
 .study-card-actions {
   flex-shrink: 0;
   padding-top: 1rem;
+}
+
+/* Typing card footer - fixed at bottom, moves above keyboard via JS */
+.study-typing-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.75rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  z-index: 210;
+  /* Transition for smooth keyboard animation */
+  transition: transform 0.1s ease-out;
+}
+
+.study-typing-footer .form-input {
+  width: 100%;
+  font-size: 1rem;
+  text-align: center;
+  margin-bottom: 0.75rem;
+  /* Prevent iOS zoom on focus */
+  font-size: 16px;
+}
+
+.study-typing-footer .btn {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.125rem;
 }
 
 /* Answer diff (Anki-style character comparison) */
