@@ -54,6 +54,7 @@ import {
   getSharedDecks,
   getChatContext,
   buildFlashcardPrompt,
+  buildResponseOptionsPrompt,
 } from './services/conversations';
 import {
   createTutorReviewRequest,
@@ -1655,6 +1656,73 @@ app.post('/api/conversations/:id/generate-flashcard', async (c) => {
   } catch (error) {
     console.error('Generate flashcard error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate flashcard';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Generate response options from conversation (help me respond feature)
+app.post('/api/conversations/:id/generate-response-options', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    // Get chat context
+    const chatContext = await getChatContext(c.env.DB, convId, userId);
+    if (!chatContext || chatContext.trim() === '') {
+      return c.json({ error: 'No messages found to generate response options from' }, 400);
+    }
+
+    // Build prompt and call AI
+    const prompt = buildResponseOptionsPrompt(chatContext);
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': c.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to generate response options');
+    }
+
+    const data = await response.json() as {
+      content: Array<{ type: string; text?: string }>;
+    };
+
+    const textContent = data.content.find((c) => c.type === 'text');
+    if (!textContent || !textContent.text) {
+      throw new Error('No response from AI');
+    }
+
+    // Parse the JSON array response
+    const jsonMatch = textContent.text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error('Invalid AI response format');
+    }
+
+    const options = JSON.parse(jsonMatch[0]) as Array<{
+      hanzi: string;
+      pinyin: string;
+      english: string;
+      fun_facts?: string;
+    }>;
+
+    return c.json({ options });
+  } catch (error) {
+    console.error('Generate response options error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to generate response options';
     return c.json({ error: message }, 500);
   }
 });

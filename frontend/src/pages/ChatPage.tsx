@@ -6,7 +6,10 @@ import {
   getMessages,
   sendMessage,
   generateFlashcardFromChat,
+  generateResponseOptions,
   createNote,
+  createDeck,
+  getDecks,
 } from '../api/client';
 import {
   MessageWithSender,
@@ -35,6 +38,18 @@ export function ChatPage() {
   } | null>(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Response options (help me respond) state
+  const [isGeneratingOptions, setIsGeneratingOptions] = useState(false);
+  const [responseOptions, setResponseOptions] = useState<Array<{
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    fun_facts?: string;
+  }> | null>(null);
+  const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
+  const [showResponseOptionsModal, setShowResponseOptionsModal] = useState(false);
+  const [isSavingOptions, setIsSavingOptions] = useState(false);
 
   // Reset state when conversation changes
   useEffect(() => {
@@ -143,6 +158,62 @@ export function ChatPage() {
       alert('Failed to save flashcard');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleGenerateResponseOptions = async () => {
+    if (!convId) return;
+    setIsGeneratingOptions(true);
+    setResponseOptions(null);
+    setSelectedOptions(new Set());
+    try {
+      const result = await generateResponseOptions(convId);
+      setResponseOptions(result.options);
+      // Select all options by default
+      setSelectedOptions(new Set(result.options.map((_, i) => i)));
+      setShowResponseOptionsModal(true);
+    } catch (error) {
+      console.error('Failed to generate response options:', error);
+      alert('Failed to generate response options. Make sure the conversation has messages.');
+    } finally {
+      setIsGeneratingOptions(false);
+    }
+  };
+
+  const toggleOptionSelection = (index: number) => {
+    setSelectedOptions(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveResponseOptions = async (deckId: string) => {
+    if (!responseOptions || selectedOptions.size === 0) return;
+    setIsSavingOptions(true);
+    try {
+      const selectedCards = responseOptions.filter((_, i) => selectedOptions.has(i));
+      for (const card of selectedCards) {
+        await createNote(deckId, {
+          hanzi: card.hanzi,
+          pinyin: card.pinyin,
+          english: card.english,
+          fun_facts: card.fun_facts,
+        });
+      }
+      setShowResponseOptionsModal(false);
+      setResponseOptions(null);
+      setSelectedOptions(new Set());
+      alert(`${selectedCards.length} flashcard(s) saved!`);
+    } catch (error) {
+      console.error('Failed to save flashcards:', error);
+      alert('Failed to save flashcards');
+    } finally {
+      setIsSavingOptions(false);
     }
   };
 
@@ -255,6 +326,15 @@ export function ChatPage() {
 
       {/* Input */}
       <form className="chat-input-form" onSubmit={handleSend}>
+        <button
+          type="button"
+          className="btn btn-secondary chat-help-btn"
+          onClick={handleGenerateResponseOptions}
+          disabled={isGeneratingOptions || messages.length === 0}
+          title="Help me respond"
+        >
+          {isGeneratingOptions ? '...' : '?'}
+        </button>
         <input
           type="text"
           value={newMessage}
@@ -290,6 +370,49 @@ export function ChatPage() {
             />
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowSaveModal(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Response Options Modal */}
+      {showResponseOptionsModal && responseOptions && (
+        <div className="modal-overlay" onClick={() => setShowResponseOptionsModal(false)}>
+          <div className="modal response-options-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Response Options</h3>
+            <p className="modal-subtitle">Select the responses you'd like to save as flashcards:</p>
+            <div className="response-options-list">
+              {responseOptions.map((option, index) => (
+                <div
+                  key={index}
+                  className={`response-option-card ${selectedOptions.has(index) ? 'selected' : ''}`}
+                  onClick={() => toggleOptionSelection(index)}
+                >
+                  <div className="option-checkbox">
+                    {selectedOptions.has(index) ? '✓' : ''}
+                  </div>
+                  <div className="option-content">
+                    <div className="option-hanzi">{option.hanzi}</div>
+                    <div className="option-pinyin">{option.pinyin}</div>
+                    <div className="option-english">{option.english}</div>
+                    {option.fun_facts && (
+                      <div className="option-funfacts">{option.fun_facts}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {selectedOptions.size > 0 && (
+              <DeckSelectorWithCreate
+                onSelect={(deckId) => handleSaveResponseOptions(deckId)}
+                isSaving={isSavingOptions}
+                selectedCount={selectedOptions.size}
+              />
+            )}
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowResponseOptionsModal(false)}>
                 Cancel
               </button>
             </div>
@@ -339,6 +462,100 @@ function DeckSelector({
             {deck.name}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// Deck selector with create new deck option
+function DeckSelectorWithCreate({
+  onSelect,
+  isSaving,
+  selectedCount,
+}: {
+  onSelect: (deckId: string) => void;
+  isSaving: boolean;
+  selectedCount: number;
+}) {
+  const [showNewDeckInput, setShowNewDeckInput] = useState(false);
+  const [newDeckName, setNewDeckName] = useState('');
+  const [isCreatingDeck, setIsCreatingDeck] = useState(false);
+
+  const decksQuery = useQuery({
+    queryKey: ['decks'],
+    queryFn: () => getDecks(),
+  });
+
+  const handleCreateAndSelect = async () => {
+    if (!newDeckName.trim()) return;
+    setIsCreatingDeck(true);
+    try {
+      const newDeck = await createDeck(newDeckName.trim());
+      // Refresh decks list
+      decksQuery.refetch();
+      onSelect(newDeck.id);
+    } catch (error) {
+      console.error('Failed to create deck:', error);
+      alert('Failed to create deck');
+      setIsCreatingDeck(false);
+    }
+  };
+
+  if (decksQuery.isLoading) {
+    return <Loading message="Loading decks..." />;
+  }
+
+  const decks = decksQuery.data || [];
+
+  return (
+    <div className="deck-selector">
+      <label>Save {selectedCount} card{selectedCount !== 1 ? 's' : ''} to:</label>
+      <div className="deck-options">
+        {decks.map((deck) => (
+          <button
+            key={deck.id}
+            className="deck-option"
+            onClick={() => onSelect(deck.id)}
+            disabled={isSaving || isCreatingDeck}
+          >
+            {deck.name}
+          </button>
+        ))}
+        {!showNewDeckInput ? (
+          <button
+            className="deck-option deck-option-new"
+            onClick={() => setShowNewDeckInput(true)}
+            disabled={isSaving || isCreatingDeck}
+          >
+            + Create new deck
+          </button>
+        ) : (
+          <div className="new-deck-input-row">
+            <input
+              type="text"
+              value={newDeckName}
+              onChange={(e) => setNewDeckName(e.target.value)}
+              placeholder="Deck name..."
+              className="new-deck-input"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newDeckName.trim()) {
+                  handleCreateAndSelect();
+                } else if (e.key === 'Escape') {
+                  setShowNewDeckInput(false);
+                  setNewDeckName('');
+                }
+              }}
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleCreateAndSelect}
+              disabled={!newDeckName.trim() || isCreatingDeck}
+            >
+              {isCreatingDeck ? '...' : 'Create & Save'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -458,3 +458,40 @@ Respond with ONLY a JSON object in this exact format:
   "fun_facts": "Used to refer to the Chinese writing system"
 }`;
 }
+
+/**
+ * Build prompt for generating response options from chat context
+ */
+export function buildResponseOptionsPrompt(chatContext: string): string {
+  return `You are helping a Chinese language student figure out what to say in a conversation with their tutor.
+Based on this conversation, generate 3-5 different response options that the student could say next.
+
+Each response should be:
+- In Chinese (with pinyin and English translation)
+- Appropriate to the conversation context
+- At varying difficulty levels (some simpler, some more advanced)
+- Natural and conversational
+
+Conversation:
+${chatContext}
+
+Generate response options as flashcards the student can study. Each option should be something the student might want to say in response to the latest message(s).
+
+IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).
+
+Respond with ONLY a JSON array in this exact format:
+[
+  {
+    "hanzi": "我明白了",
+    "pinyin": "wǒ míngbái le",
+    "english": "I understand",
+    "fun_facts": "A common way to show comprehension"
+  },
+  {
+    "hanzi": "可以再说一遍吗？",
+    "pinyin": "kěyǐ zài shuō yī biàn ma?",
+    "english": "Can you say that again?",
+    "fun_facts": "Useful when you need something repeated"
+  }
+]`;
+}
