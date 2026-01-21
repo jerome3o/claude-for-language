@@ -1125,7 +1125,7 @@ export function StudyPage() {
     // Number of bonus cards to add each time the user clicks "Study More"
     const BONUS_NEW_CARDS_INCREMENT = 10;
 
-    console.log('[StudyPage] All Done screen - hasMoreNewCards:', hasMoreNewCards, 'bonusNewCards:', bonusNewCards);
+    console.log('[StudyPage] All Done screen - hasMoreNewCards:', hasMoreNewCards, 'bonusNewCards:', bonusNewCards, 'counts:', counts);
 
     const handleStudyMoreNewCards = () => {
       console.log('[StudyPage] Study More button clicked - adding', BONUS_NEW_CARDS_INCREMENT, 'bonus new cards');
