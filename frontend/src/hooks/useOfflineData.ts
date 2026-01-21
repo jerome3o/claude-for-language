@@ -104,15 +104,15 @@ export function useOfflineDueCards(deckId?: string) {
 }
 
 // Hook to get queue counts
-export function useOfflineQueueCounts(deckId?: string, ignoreDailyLimit = false) {
+export function useOfflineQueueCounts(deckId?: string, bonusNewCards = 0) {
   const counts = useLiveQuery(
     async () => {
-      console.log(`[useOfflineQueueCounts] Querying counts for deckId: ${deckId}, ignoreDailyLimit: ${ignoreDailyLimit}`);
-      const result = await getQueueCounts(deckId, ignoreDailyLimit);
+      console.log(`[useOfflineQueueCounts] Querying counts for deckId: ${deckId}, bonusNewCards: ${bonusNewCards}`);
+      const result = await getQueueCounts(deckId, bonusNewCards);
       console.log(`[useOfflineQueueCounts] Result for deckId ${deckId}:`, result);
       return result;
     },
-    [deckId, ignoreDailyLimit]
+    [deckId, bonusNewCards]
   );
 
   return {
@@ -134,11 +134,15 @@ export function usePendingReviewsCount() {
   return count || 0;
 }
 
-// Hook to check if there are more new cards beyond the daily limit
-export function useHasMoreNewCards(deckId?: string) {
+// Hook to check if there are more new cards beyond the daily limit (+ current bonus)
+export function useHasMoreNewCards(deckId?: string, currentBonus = 0) {
   const result = useLiveQuery(
-    () => checkHasMoreNewCards(deckId),
-    [deckId]
+    async () => {
+      const hasMore = await checkHasMoreNewCards(deckId, currentBonus);
+      console.log(`[useHasMoreNewCards] deckId: ${deckId}, currentBonus: ${currentBonus}, hasMore: ${hasMore}`);
+      return hasMore;
+    },
+    [deckId, currentBonus]
   );
 
   return result ?? false;
@@ -148,19 +152,19 @@ export function useHasMoreNewCards(deckId?: string) {
 let currentSelectedCardId: string | null = null;
 
 // Hook to get the next card to study (offline-first)
-export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [], ignoreDailyLimit = false) {
+export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [], bonusNewCards = 0) {
   const queryClient = useQueryClient();
 
   // Get all due cards
   const allDueCards = useLiveQuery(
-    () => getDueCards(deckId, ignoreDailyLimit),
-    [deckId, ignoreDailyLimit]
+    () => getDueCards(deckId, bonusNewCards),
+    [deckId, bonusNewCards]
   );
 
   // Get queue counts
   const counts = useLiveQuery(
-    () => getQueueCounts(deckId, ignoreDailyLimit),
-    [deckId, ignoreDailyLimit]
+    () => getQueueCounts(deckId, bonusNewCards),
+    [deckId, bonusNewCards]
   );
 
   // Filter out excluded notes and pick the next card

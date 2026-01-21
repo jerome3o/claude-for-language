@@ -110,7 +110,7 @@ function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activ
 
 // Deck row with its own queue counts (uses hook for reactive updates)
 function DeckStudyRow({ deck, isSelected }: { deck: { id: string; name: string }; isSelected?: boolean }) {
-  const counts = useOfflineQueueCounts(deck.id, false);
+  const counts = useOfflineQueueCounts(deck.id);
   const totalDue = counts.counts.new + counts.counts.learning + counts.counts.review;
 
   return (
@@ -956,18 +956,55 @@ export function StudyPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recentNotes, setRecentNotes] = useState<string[]>([]);
   const [studyStarted, setStudyStarted] = useState(false);
-  const [ignoreDailyLimit, setIgnoreDailyLimit] = useState(false);
+
+  // Bonus new cards - persisted in localStorage per deck, resets daily
+  const getTodayKey = (forDeckId?: string) =>
+    `bonusNewCards_${forDeckId || 'all'}_${new Date().toISOString().slice(0, 10)}`;
+
+  const getStoredBonus = (forDeckId?: string): number => {
+    try {
+      const stored = localStorage.getItem(getTodayKey(forDeckId));
+      return stored ? parseInt(stored, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const [bonusNewCards, setBonusNewCards] = useState(() => getStoredBonus(deckId));
+
+  // Re-read bonus when deckId changes
+  useEffect(() => {
+    setBonusNewCards(getStoredBonus(deckId));
+  }, [deckId]);
+
+  // Persist bonus to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      // Clean up old keys (from previous days)
+      const todayDate = new Date().toISOString().slice(0, 10);
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key?.startsWith('bonusNewCards_') && !key.endsWith(todayDate)) {
+          localStorage.removeItem(key);
+        }
+      }
+      // Save current bonus for this deck
+      localStorage.setItem(getTodayKey(deckId), String(bonusNewCards));
+    } catch {
+      // localStorage might be unavailable
+    }
+  }, [bonusNewCards, deckId]);
 
   // All data comes from offline/local-first hooks
   const { decks, triggerSync } = useOfflineDecks();
   const [isSyncing, setIsSyncing] = useState(false);
-  const offlineQueueCounts = useOfflineQueueCounts(deckId, ignoreDailyLimit);
+  const offlineQueueCounts = useOfflineQueueCounts(deckId, bonusNewCards);
   const offlineNextCard = useOfflineNextCard(
     studyStarted ? deckId : undefined,
     recentNotes.slice(-5),
-    ignoreDailyLimit
+    bonusNewCards
   );
-  const hasMoreNewCards = useHasMoreNewCards(deckId);
+  const hasMoreNewCards = useHasMoreNewCards(deckId, bonusNewCards);
 
   // Derive state from hooks
   const counts = offlineQueueCounts.counts;
@@ -999,7 +1036,7 @@ export function StudyPage() {
     setStudyStarted(false);
     setSessionId(null);
     setRecentNotes([]);
-    setIgnoreDailyLimit(false);
+    // Note: bonusNewCards persists across sessions and resets at end of day
     queryClient.invalidateQueries({ queryKey: ['stats'] });
   };
 
@@ -1085,9 +1122,15 @@ export function StudyPage() {
 
   // Study complete
   if (!isLoading && !currentCard) {
+    // Number of bonus cards to add each time the user clicks "Study More"
+    const BONUS_NEW_CARDS_INCREMENT = 10;
+
+    console.log('[StudyPage] All Done screen - hasMoreNewCards:', hasMoreNewCards, 'bonusNewCards:', bonusNewCards);
+
     const handleStudyMoreNewCards = () => {
-      // Setting ignoreDailyLimit will reactively show more cards via hooks
-      setIgnoreDailyLimit(true);
+      console.log('[StudyPage] Study More button clicked - adding', BONUS_NEW_CARDS_INCREMENT, 'bonus new cards');
+      // Add more new cards to today's limit
+      setBonusNewCards(prev => prev + BONUS_NEW_CARDS_INCREMENT);
       setRecentNotes([]);
     };
 
@@ -1099,17 +1142,21 @@ export function StudyPage() {
             <h1 className="mt-2">All Done!</h1>
             <p className="text-light mt-2">
               {hasMoreNewCards
-                ? "You've finished your daily limit. Want to study more new cards?"
+                ? `You've finished your daily limit${bonusNewCards > 0 ? ` (+${bonusNewCards} bonus)` : ''}. Want to study more?`
                 : "No more cards due right now."}
             </p>
             <div className="flex flex-col gap-3 items-center mt-4">
-              {hasMoreNewCards && (
+              {hasMoreNewCards ? (
                 <button
                   className="btn btn-primary btn-lg"
                   onClick={handleStudyMoreNewCards}
                 >
-                  Study More New Cards
+                  Study {BONUS_NEW_CARDS_INCREMENT} More New Cards
                 </button>
+              ) : (
+                <p className="text-light" style={{ fontSize: '0.75rem' }}>
+                  (No additional new cards available)
+                </p>
               )}
               <div className="flex gap-2 justify-center">
                 <button
