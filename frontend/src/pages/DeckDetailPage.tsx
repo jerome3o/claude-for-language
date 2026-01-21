@@ -359,179 +359,241 @@ function DeckDebugModal({
   const [debugData, setDebugData] = useState<DeckDebugData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedSection, setExpandedSection] = useState<string | null>('summary');
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadDebugData() {
-      setLoading(true);
-      try {
-        const now = Date.now();
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        const endOfTodayIso = today.toISOString();
+  // Reset all cards to NEW queue
+  const resetAllToNew = async () => {
+    if (!confirm('Reset ALL cards in this deck to NEW? This will erase all progress and let you start fresh.')) {
+      return;
+    }
+    setIsResetting(true);
+    setResetMessage(null);
+    try {
+      const cards = await db.cards.where('deck_id').equals(deckId).toArray();
+      for (const card of cards) {
+        await db.cards.update(card.id, {
+          queue: CardQueue.NEW,
+          learning_step: 0,
+          ease_factor: 2.5,
+          interval: 0,
+          repetitions: 0,
+          next_review_at: null,
+          due_timestamp: null,
+          updated_at: new Date().toISOString(),
+        });
+      }
+      setResetMessage(`✓ Reset ${cards.length} cards to NEW queue`);
+      // Reload debug data
+      loadDebugData();
+    } catch (error) {
+      console.error('Failed to reset cards:', error);
+      setResetMessage('✗ Failed to reset cards');
+    }
+    setIsResetting(false);
+  };
 
-        // Load deck
-        const deck = await db.decks.get(deckId);
-        if (!deck) {
-          setDebugData(null);
-          setLoading(false);
-          return;
-        }
+  // Make all REVIEW cards due now
+  const makeAllDueNow = async () => {
+    if (!confirm('Make all REVIEW cards due NOW? This will let you study them immediately.')) {
+      return;
+    }
+    setIsResetting(true);
+    setResetMessage(null);
+    try {
+      const cards = await db.cards.where('deck_id').equals(deckId).toArray();
+      const reviewCards = cards.filter(c => c.queue === CardQueue.REVIEW);
+      const now = new Date();
+      now.setHours(0, 0, 0, 0); // Start of today
+      for (const card of reviewCards) {
+        await db.cards.update(card.id, {
+          next_review_at: now.toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      setResetMessage(`✓ Made ${reviewCards.length} review cards due now`);
+      // Reload debug data
+      loadDebugData();
+    } catch (error) {
+      console.error('Failed to update cards:', error);
+      setResetMessage('✗ Failed to update cards');
+    }
+    setIsResetting(false);
+  };
 
-        // Load all cards for this deck
-        const cards = await db.cards.where('deck_id').equals(deckId).toArray();
+  // Load debug data function (extracted to allow reloading)
+  const loadDebugData = async () => {
+    setLoading(true);
+    try {
+      const now = Date.now();
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      const endOfTodayIso = today.toISOString();
 
-        // Load all notes for this deck
-        const notes = await db.notes.where('deck_id').equals(deckId).toArray();
-        const noteMap = new Map(notes.map(n => [n.id, n]));
+      // Load deck
+      const deck = await db.decks.get(deckId);
+      if (!deck) {
+        setDebugData(null);
+        setLoading(false);
+        return;
+      }
 
-        // Get new cards studied today
-        const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
-        const remainingNewCards = Math.max(0, deck.new_cards_per_day - newCardsStudiedToday);
+      // Load all cards for this deck
+      const cards = await db.cards.where('deck_id').equals(deckId).toArray();
 
-        // Build debug info for each card
-        const cardDebugInfos: CardDebugInfo[] = [];
-        const issues: string[] = [];
+      // Load all notes for this deck
+      const notes = await db.notes.where('deck_id').equals(deckId).toArray();
+      const noteMap = new Map(notes.map(n => [n.id, n]));
 
-        // Track new cards counted so far (for daily limit)
-        let newCardsCounted = 0;
+      // Get new cards studied today
+      const newCardsStudiedTodayCount = await getNewCardsStudiedToday(deckId);
+      const remainingNewCards = Math.max(0, deck.new_cards_per_day - newCardsStudiedTodayCount);
 
-        for (const card of cards) {
-          const note = noteMap.get(card.note_id);
+      // Build debug info for each card
+      const cardDebugInfos: CardDebugInfo[] = [];
+      const issues: string[] = [];
 
-          // Get review events for this card
-          const reviews = await db.reviewEvents
-            .where('card_id')
-            .equals(card.id)
-            .sortBy('reviewed_at');
+      // Track new cards counted so far (for daily limit)
+      let newCardsCounted = 0;
 
-          const lastReview = reviews.length > 0 ? reviews[reviews.length - 1] : null;
+      for (const card of cards) {
+        const note = noteMap.get(card.note_id);
 
-          // Determine if card is due and why
-          let isDue = false;
-          let dueReason = '';
-          let notDueReason: string | null = null;
+        // Get review events for this card
+        const reviews = await db.reviewEvents
+          .where('card_id')
+          .equals(card.id)
+          .sortBy('reviewed_at');
 
-          if (card.queue === CardQueue.NEW) {
-            if (newCardsCounted < remainingNewCards) {
-              isDue = true;
-              dueReason = `NEW card (${newCardsCounted + 1}/${remainingNewCards} remaining today)`;
-              newCardsCounted++;
+        const lastReview = reviews.length > 0 ? reviews[reviews.length - 1] : null;
+
+        // Determine if card is due and why
+        let isDue = false;
+        let dueReason = '';
+        let notDueReason: string | null = null;
+
+        if (card.queue === CardQueue.NEW) {
+          if (newCardsCounted < remainingNewCards) {
+            isDue = true;
+            dueReason = `NEW card (${newCardsCounted + 1}/${remainingNewCards} remaining today)`;
+            newCardsCounted++;
+          } else {
+            isDue = false;
+            notDueReason = `Daily new card limit reached (${deck.new_cards_per_day}/day, ${newCardsStudiedTodayCount} studied today)`;
+          }
+        } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+          if (!card.due_timestamp || card.due_timestamp <= now) {
+            isDue = true;
+            const queueName = card.queue === CardQueue.LEARNING ? 'LEARNING' : 'RELEARNING';
+            if (card.due_timestamp) {
+              const agoMs = now - card.due_timestamp;
+              const agoStr = agoMs < 60000
+                ? `${Math.round(agoMs / 1000)}s ago`
+                : `${Math.round(agoMs / 60000)}m ago`;
+              dueReason = `${queueName} - due ${agoStr}`;
             } else {
-              isDue = false;
-              notDueReason = `Daily new card limit reached (${deck.new_cards_per_day}/day, ${newCardsStudiedToday} studied today)`;
-            }
-          } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-            if (!card.due_timestamp || card.due_timestamp <= now) {
-              isDue = true;
-              const queueName = card.queue === CardQueue.LEARNING ? 'LEARNING' : 'RELEARNING';
-              if (card.due_timestamp) {
-                const agoMs = now - card.due_timestamp;
-                const agoStr = agoMs < 60000
-                  ? `${Math.round(agoMs / 1000)}s ago`
-                  : `${Math.round(agoMs / 60000)}m ago`;
-                dueReason = `${queueName} - due ${agoStr}`;
-              } else {
-                dueReason = `${queueName} - no due timestamp set`;
-              }
-            } else {
-              isDue = false;
-              const inMs = card.due_timestamp - now;
-              const inStr = inMs < 60000
-                ? `${Math.round(inMs / 1000)}s`
-                : `${Math.round(inMs / 60000)}m`;
-              notDueReason = `${card.queue === CardQueue.LEARNING ? 'LEARNING' : 'RELEARNING'} - due in ${inStr}`;
-            }
-          } else if (card.queue === CardQueue.REVIEW) {
-            if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
-              isDue = true;
-              if (card.next_review_at) {
-                const reviewDate = new Date(card.next_review_at);
-                const diffDays = Math.floor((now - reviewDate.getTime()) / (1000 * 60 * 60 * 24));
-                if (diffDays > 0) {
-                  dueReason = `REVIEW - ${diffDays}d overdue`;
-                } else {
-                  dueReason = `REVIEW - due today`;
-                }
-              } else {
-                dueReason = `REVIEW - no next_review_at set`;
-              }
-            } else {
-              isDue = false;
-              const reviewDate = new Date(card.next_review_at);
-              const diffMs = reviewDate.getTime() - now;
-              const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-              notDueReason = `REVIEW - due in ${diffDays}d (${card.next_review_at.slice(0, 10)})`;
+              dueReason = `${queueName} - no due timestamp set`;
             }
           } else {
-            notDueReason = `Unknown queue: ${card.queue}`;
+            isDue = false;
+            const inMs = card.due_timestamp - now;
+            const inStr = inMs < 60000
+              ? `${Math.round(inMs / 1000)}s`
+              : `${Math.round(inMs / 60000)}m`;
+            notDueReason = `${card.queue === CardQueue.LEARNING ? 'LEARNING' : 'RELEARNING'} - due in ${inStr}`;
           }
-
-          // Check for potential issues
-          if (!note) {
-            issues.push(`Card ${card.id.slice(0, 8)} has no matching note (note_id: ${card.note_id})`);
+        } else if (card.queue === CardQueue.REVIEW) {
+          if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
+            isDue = true;
+            if (card.next_review_at) {
+              const reviewDate = new Date(card.next_review_at);
+              const diffDays = Math.floor((now - reviewDate.getTime()) / (1000 * 60 * 60 * 24));
+              if (diffDays > 0) {
+                dueReason = `REVIEW - ${diffDays}d overdue`;
+              } else {
+                dueReason = `REVIEW - due today`;
+              }
+            } else {
+              dueReason = `REVIEW - no next_review_at set`;
+            }
+          } else {
+            isDue = false;
+            const reviewDate = new Date(card.next_review_at);
+            const diffMs = reviewDate.getTime() - now;
+            const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+            notDueReason = `REVIEW - due in ${diffDays}d (${card.next_review_at.slice(0, 10)})`;
           }
-
-          if (card.queue === CardQueue.REVIEW && card.interval === 0) {
-            issues.push(`Card ${card.id.slice(0, 8)} is in REVIEW queue but has interval=0`);
-          }
-
-          if (card.queue === CardQueue.NEW && card.repetitions > 0) {
-            issues.push(`Card ${card.id.slice(0, 8)} is in NEW queue but has ${card.repetitions} repetitions`);
-          }
-
-          cardDebugInfos.push({
-            card,
-            note: note ? { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english } : null,
-            reviewCount: reviews.length,
-            lastReview,
-            isDue,
-            dueReason,
-            notDueReason,
-          });
+        } else {
+          notDueReason = `Unknown queue: ${card.queue}`;
         }
 
-        // Check for notes without cards
-        for (const note of notes) {
-          const noteCards = cards.filter(c => c.note_id === note.id);
-          if (noteCards.length === 0) {
-            issues.push(`Note "${note.hanzi}" has no cards`);
-          } else if (noteCards.length < 3) {
-            issues.push(`Note "${note.hanzi}" only has ${noteCards.length}/3 cards`);
-          }
+        // Check for potential issues
+        if (!note) {
+          issues.push(`Card ${card.id.slice(0, 8)} has no matching note (note_id: ${card.note_id})`);
         }
 
-        // Group by queue
-        const queues = {
-          new: cardDebugInfos.filter(c => c.card.queue === CardQueue.NEW),
-          learning: cardDebugInfos.filter(c => c.card.queue === CardQueue.LEARNING),
-          relearning: cardDebugInfos.filter(c => c.card.queue === CardQueue.RELEARNING),
-          review: cardDebugInfos.filter(c => c.card.queue === CardQueue.REVIEW && c.isDue),
-          reviewNotDue: cardDebugInfos.filter(c => c.card.queue === CardQueue.REVIEW && !c.isDue),
-        };
+        if (card.queue === CardQueue.REVIEW && card.interval === 0) {
+          issues.push(`Card ${card.id.slice(0, 8)} is in REVIEW queue but has interval=0`);
+        }
 
-        // Group by card type
-        const byCardType = {
-          hanzi_to_meaning: cardDebugInfos.filter(c => c.card.card_type === 'hanzi_to_meaning'),
-          meaning_to_hanzi: cardDebugInfos.filter(c => c.card.card_type === 'meaning_to_hanzi'),
-          audio_to_hanzi: cardDebugInfos.filter(c => c.card.card_type === 'audio_to_hanzi'),
-        };
+        if (card.queue === CardQueue.NEW && card.repetitions > 0) {
+          issues.push(`Card ${card.id.slice(0, 8)} is in NEW queue but has ${card.repetitions} repetitions`);
+        }
 
-        setDebugData({
-          deck,
-          cards: cardDebugInfos,
-          newCardsStudiedToday,
-          remainingNewCards,
-          queues,
-          byCardType,
-          issues,
+        cardDebugInfos.push({
+          card,
+          note: note ? { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english } : null,
+          reviewCount: reviews.length,
+          lastReview,
+          isDue,
+          dueReason,
+          notDueReason,
         });
-      } catch (error) {
-        console.error('Failed to load debug data:', error);
-        setDebugData(null);
       }
-      setLoading(false);
-    }
 
+      // Check for notes without cards
+      for (const note of notes) {
+        const noteCards = cards.filter(c => c.note_id === note.id);
+        if (noteCards.length === 0) {
+          issues.push(`Note "${note.hanzi}" has no cards`);
+        } else if (noteCards.length < 3) {
+          issues.push(`Note "${note.hanzi}" only has ${noteCards.length}/3 cards`);
+        }
+      }
+
+      // Group by queue
+      const queues = {
+        new: cardDebugInfos.filter(c => c.card.queue === CardQueue.NEW),
+        learning: cardDebugInfos.filter(c => c.card.queue === CardQueue.LEARNING),
+        relearning: cardDebugInfos.filter(c => c.card.queue === CardQueue.RELEARNING),
+        review: cardDebugInfos.filter(c => c.card.queue === CardQueue.REVIEW && c.isDue),
+        reviewNotDue: cardDebugInfos.filter(c => c.card.queue === CardQueue.REVIEW && !c.isDue),
+      };
+
+      // Group by card type
+      const byCardType = {
+        hanzi_to_meaning: cardDebugInfos.filter(c => c.card.card_type === 'hanzi_to_meaning'),
+        meaning_to_hanzi: cardDebugInfos.filter(c => c.card.card_type === 'meaning_to_hanzi'),
+        audio_to_hanzi: cardDebugInfos.filter(c => c.card.card_type === 'audio_to_hanzi'),
+      };
+
+      setDebugData({
+        deck,
+        cards: cardDebugInfos,
+        newCardsStudiedToday: newCardsStudiedTodayCount,
+        remainingNewCards,
+        queues,
+        byCardType,
+        issues,
+      });
+    } catch (error) {
+      console.error('Failed to load debug data:', error);
+      setDebugData(null);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
     loadDebugData();
   }, [deckId]);
 
@@ -860,6 +922,78 @@ function DeckDebugModal({
                     <div style={{ fontWeight: 600 }}>Audio → Hanzi</div>
                     <div>{debugData.byCardType.audio_to_hanzi.filter(c => c.isDue).length} / {debugData.byCardType.audio_to_hanzi.length}</div>
                   </div>
+                </div>
+              </div>
+
+              {/* Upcoming Reviews Timeline */}
+              {debugData.queues.reviewNotDue.length > 0 && (
+                <div style={{ marginTop: '1rem', borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem' }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Upcoming Reviews Timeline</h4>
+                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                    {(() => {
+                      // Group by next_review_at date
+                      const byDate = new Map<string, CardDebugInfo[]>();
+                      for (const card of debugData.queues.reviewNotDue) {
+                        const date = card.card.next_review_at?.slice(0, 10) || 'Unknown';
+                        if (!byDate.has(date)) byDate.set(date, []);
+                        byDate.get(date)!.push(card);
+                      }
+                      const sortedDates = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+                      return sortedDates.slice(0, 7).map(([date, cards]) => {
+                        const dueDate = new Date(date);
+                        const now = new Date();
+                        const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                        return (
+                          <div key={date} style={{ padding: '0.25rem 0', borderBottom: '1px solid #f3f4f6' }}>
+                            <strong>{date}</strong> ({diffDays}d): {cards.length} card{cards.length !== 1 ? 's' : ''} -
+                            <span style={{ color: '#9ca3af' }}>
+                              {' '}{cards.slice(0, 3).map(c => c.note?.hanzi || '?').join(', ')}
+                              {cards.length > 3 ? ` +${cards.length - 3} more` : ''}
+                            </span>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Repair Actions */}
+              <div style={{ marginTop: '1rem', borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Repair Actions</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {resetMessage && (
+                    <div style={{
+                      padding: '0.5rem',
+                      backgroundColor: resetMessage.startsWith('✓') ? '#dcfce7' : '#fee2e2',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                    }}>
+                      {resetMessage}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button
+                      className="btn btn-sm"
+                      onClick={makeAllDueNow}
+                      disabled={isResetting || debugData.queues.reviewNotDue.length === 0}
+                      style={{ backgroundColor: '#f59e0b', color: 'white', border: 'none' }}
+                    >
+                      {isResetting ? 'Working...' : `Make ${debugData.queues.reviewNotDue.length} Review Cards Due Now`}
+                    </button>
+                    <button
+                      className="btn btn-sm btn-error"
+                      onClick={resetAllToNew}
+                      disabled={isResetting}
+                    >
+                      {isResetting ? 'Working...' : 'Reset ALL to NEW (Start Fresh)'}
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '0.6875rem', color: '#9ca3af', margin: 0 }}>
+                    <strong>Make Due Now:</strong> Keeps your progress but lets you study REVIEW cards immediately.
+                    <br />
+                    <strong>Reset to NEW:</strong> Erases all progress - cards go back to the NEW queue.
+                  </p>
                 </div>
               </div>
 
