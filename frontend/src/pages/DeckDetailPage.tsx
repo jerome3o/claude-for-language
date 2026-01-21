@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, upgradeNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
-import { Note, Deck, Card, CardQueue, NoteWithCards } from '../types';
+import { Note, Deck, Card, CardQueue, NoteWithCards, CardType } from '../types';
+import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent } from '../db/database';
 
 const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -305,6 +306,580 @@ function NoteHistoryModal({
             </div>
           </div>
         )}
+
+        <div className="modal-actions" style={{ marginTop: '1rem' }}>
+          <button className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ Debug Modal Types ============
+
+interface CardDebugInfo {
+  card: LocalCard;
+  note: { hanzi: string; pinyin: string; english: string } | null;
+  reviewCount: number;
+  lastReview: LocalReviewEvent | null;
+  isDue: boolean;
+  dueReason: string;
+  notDueReason: string | null;
+}
+
+interface DeckDebugData {
+  deck: LocalDeck | null;
+  cards: CardDebugInfo[];
+  newCardsStudiedToday: number;
+  remainingNewCards: number;
+  queues: {
+    new: CardDebugInfo[];
+    learning: CardDebugInfo[];
+    relearning: CardDebugInfo[];
+    review: CardDebugInfo[];
+    reviewNotDue: CardDebugInfo[];
+  };
+  byCardType: {
+    hanzi_to_meaning: CardDebugInfo[];
+    meaning_to_hanzi: CardDebugInfo[];
+    audio_to_hanzi: CardDebugInfo[];
+  };
+  issues: string[];
+}
+
+function DeckDebugModal({
+  deckId,
+  onClose,
+}: {
+  deckId: string;
+  onClose: () => void;
+}) {
+  const [debugData, setDebugData] = useState<DeckDebugData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expandedSection, setExpandedSection] = useState<string | null>('summary');
+
+  useEffect(() => {
+    async function loadDebugData() {
+      setLoading(true);
+      try {
+        const now = Date.now();
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        const endOfTodayIso = today.toISOString();
+
+        // Load deck
+        const deck = await db.decks.get(deckId);
+        if (!deck) {
+          setDebugData(null);
+          setLoading(false);
+          return;
+        }
+
+        // Load all cards for this deck
+        const cards = await db.cards.where('deck_id').equals(deckId).toArray();
+
+        // Load all notes for this deck
+        const notes = await db.notes.where('deck_id').equals(deckId).toArray();
+        const noteMap = new Map(notes.map(n => [n.id, n]));
+
+        // Get new cards studied today
+        const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
+        const remainingNewCards = Math.max(0, deck.new_cards_per_day - newCardsStudiedToday);
+
+        // Build debug info for each card
+        const cardDebugInfos: CardDebugInfo[] = [];
+        const issues: string[] = [];
+
+        // Track new cards counted so far (for daily limit)
+        let newCardsCounted = 0;
+
+        for (const card of cards) {
+          const note = noteMap.get(card.note_id);
+
+          // Get review events for this card
+          const reviews = await db.reviewEvents
+            .where('card_id')
+            .equals(card.id)
+            .sortBy('reviewed_at');
+
+          const lastReview = reviews.length > 0 ? reviews[reviews.length - 1] : null;
+
+          // Determine if card is due and why
+          let isDue = false;
+          let dueReason = '';
+          let notDueReason: string | null = null;
+
+          if (card.queue === CardQueue.NEW) {
+            if (newCardsCounted < remainingNewCards) {
+              isDue = true;
+              dueReason = `NEW card (${newCardsCounted + 1}/${remainingNewCards} remaining today)`;
+              newCardsCounted++;
+            } else {
+              isDue = false;
+              notDueReason = `Daily new card limit reached (${deck.new_cards_per_day}/day, ${newCardsStudiedToday} studied today)`;
+            }
+          } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+            if (!card.due_timestamp || card.due_timestamp <= now) {
+              isDue = true;
+              const queueName = card.queue === CardQueue.LEARNING ? 'LEARNING' : 'RELEARNING';
+              if (card.due_timestamp) {
+                const agoMs = now - card.due_timestamp;
+                const agoStr = agoMs < 60000
+                  ? `${Math.round(agoMs / 1000)}s ago`
+                  : `${Math.round(agoMs / 60000)}m ago`;
+                dueReason = `${queueName} - due ${agoStr}`;
+              } else {
+                dueReason = `${queueName} - no due timestamp set`;
+              }
+            } else {
+              isDue = false;
+              const inMs = card.due_timestamp - now;
+              const inStr = inMs < 60000
+                ? `${Math.round(inMs / 1000)}s`
+                : `${Math.round(inMs / 60000)}m`;
+              notDueReason = `${card.queue === CardQueue.LEARNING ? 'LEARNING' : 'RELEARNING'} - due in ${inStr}`;
+            }
+          } else if (card.queue === CardQueue.REVIEW) {
+            if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
+              isDue = true;
+              if (card.next_review_at) {
+                const reviewDate = new Date(card.next_review_at);
+                const diffDays = Math.floor((now - reviewDate.getTime()) / (1000 * 60 * 60 * 24));
+                if (diffDays > 0) {
+                  dueReason = `REVIEW - ${diffDays}d overdue`;
+                } else {
+                  dueReason = `REVIEW - due today`;
+                }
+              } else {
+                dueReason = `REVIEW - no next_review_at set`;
+              }
+            } else {
+              isDue = false;
+              const reviewDate = new Date(card.next_review_at);
+              const diffMs = reviewDate.getTime() - now;
+              const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+              notDueReason = `REVIEW - due in ${diffDays}d (${card.next_review_at.slice(0, 10)})`;
+            }
+          } else {
+            notDueReason = `Unknown queue: ${card.queue}`;
+          }
+
+          // Check for potential issues
+          if (!note) {
+            issues.push(`Card ${card.id.slice(0, 8)} has no matching note (note_id: ${card.note_id})`);
+          }
+
+          if (card.queue === CardQueue.REVIEW && card.interval === 0) {
+            issues.push(`Card ${card.id.slice(0, 8)} is in REVIEW queue but has interval=0`);
+          }
+
+          if (card.queue === CardQueue.NEW && card.repetitions > 0) {
+            issues.push(`Card ${card.id.slice(0, 8)} is in NEW queue but has ${card.repetitions} repetitions`);
+          }
+
+          cardDebugInfos.push({
+            card,
+            note: note ? { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english } : null,
+            reviewCount: reviews.length,
+            lastReview,
+            isDue,
+            dueReason,
+            notDueReason,
+          });
+        }
+
+        // Check for notes without cards
+        for (const note of notes) {
+          const noteCards = cards.filter(c => c.note_id === note.id);
+          if (noteCards.length === 0) {
+            issues.push(`Note "${note.hanzi}" has no cards`);
+          } else if (noteCards.length < 3) {
+            issues.push(`Note "${note.hanzi}" only has ${noteCards.length}/3 cards`);
+          }
+        }
+
+        // Group by queue
+        const queues = {
+          new: cardDebugInfos.filter(c => c.card.queue === CardQueue.NEW),
+          learning: cardDebugInfos.filter(c => c.card.queue === CardQueue.LEARNING),
+          relearning: cardDebugInfos.filter(c => c.card.queue === CardQueue.RELEARNING),
+          review: cardDebugInfos.filter(c => c.card.queue === CardQueue.REVIEW && c.isDue),
+          reviewNotDue: cardDebugInfos.filter(c => c.card.queue === CardQueue.REVIEW && !c.isDue),
+        };
+
+        // Group by card type
+        const byCardType = {
+          hanzi_to_meaning: cardDebugInfos.filter(c => c.card.card_type === 'hanzi_to_meaning'),
+          meaning_to_hanzi: cardDebugInfos.filter(c => c.card.card_type === 'meaning_to_hanzi'),
+          audio_to_hanzi: cardDebugInfos.filter(c => c.card.card_type === 'audio_to_hanzi'),
+        };
+
+        setDebugData({
+          deck,
+          cards: cardDebugInfos,
+          newCardsStudiedToday,
+          remainingNewCards,
+          queues,
+          byCardType,
+          issues,
+        });
+      } catch (error) {
+        console.error('Failed to load debug data:', error);
+        setDebugData(null);
+      }
+      setLoading(false);
+    }
+
+    loadDebugData();
+  }, [deckId]);
+
+  const toggleSection = (section: string) => {
+    setExpandedSection(expandedSection === section ? null : section);
+  };
+
+  const renderQueueLabel = (queue: CardQueue) => {
+    const colors: Record<number, string> = {
+      [CardQueue.NEW]: '#3b82f6',
+      [CardQueue.LEARNING]: '#ef4444',
+      [CardQueue.REVIEW]: '#22c55e',
+      [CardQueue.RELEARNING]: '#ef4444',
+    };
+    const names: Record<number, string> = {
+      [CardQueue.NEW]: 'NEW',
+      [CardQueue.LEARNING]: 'LEARNING',
+      [CardQueue.REVIEW]: 'REVIEW',
+      [CardQueue.RELEARNING]: 'RELEARNING',
+    };
+    return (
+      <span style={{
+        display: 'inline-block',
+        padding: '0.125rem 0.375rem',
+        borderRadius: '4px',
+        backgroundColor: colors[queue],
+        color: 'white',
+        fontSize: '0.6875rem',
+        fontWeight: 600,
+      }}>
+        {names[queue]}
+      </span>
+    );
+  };
+
+  const renderCardRow = (info: CardDebugInfo) => {
+    const cardTypeShort: Record<CardType, string> = {
+      hanzi_to_meaning: 'H→M',
+      meaning_to_hanzi: 'M→H',
+      audio_to_hanzi: 'A→H',
+    };
+
+    return (
+      <div
+        key={info.card.id}
+        style={{
+          padding: '0.5rem',
+          backgroundColor: info.isDue ? '#f0fdf4' : '#fef2f2',
+          borderRadius: '4px',
+          marginBottom: '0.25rem',
+          fontSize: '0.75rem',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span className="hanzi" style={{ fontWeight: 600 }}>{info.note?.hanzi || '???'}</span>
+            <span style={{ color: '#6b7280', fontSize: '0.6875rem' }}>{cardTypeShort[info.card.card_type]}</span>
+            {renderQueueLabel(info.card.queue)}
+          </div>
+          <span style={{
+            color: info.isDue ? '#16a34a' : '#dc2626',
+            fontWeight: 500,
+          }}>
+            {info.isDue ? '✓ Due' : '✗ Not Due'}
+          </span>
+        </div>
+        <div style={{ color: '#6b7280', fontSize: '0.6875rem' }}>
+          {info.isDue ? info.dueReason : info.notDueReason}
+        </div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: '0.25rem',
+          marginTop: '0.25rem',
+          fontSize: '0.625rem',
+          color: '#9ca3af',
+        }}>
+          <span>Step: {info.card.learning_step}</span>
+          <span>Ease: {(info.card.ease_factor * 100).toFixed(0)}%</span>
+          <span>Int: {info.card.interval}d</span>
+          <span>Reps: {info.card.repetitions}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const SectionHeader = ({ title, count, color, isOpen, onClick }: {
+    title: string;
+    count: number;
+    color: string;
+    isOpen: boolean;
+    onClick: () => void;
+  }) => (
+    <button
+      onClick={onClick}
+      style={{
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '0.5rem',
+        background: 'none',
+        border: '1px solid #e5e7eb',
+        borderRadius: '4px',
+        cursor: 'pointer',
+        marginBottom: '0.25rem',
+      }}
+    >
+      <span style={{ fontWeight: 500 }}>
+        {isOpen ? '▼' : '▶'} {title}
+      </span>
+      <span style={{
+        backgroundColor: color,
+        color: 'white',
+        padding: '0.125rem 0.5rem',
+        borderRadius: '999px',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+      }}>
+        {count}
+      </span>
+    </button>
+  );
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px', maxHeight: '80vh' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Deck Debug View</h2>
+          <button className="modal-close" onClick={onClose}>
+            &times;
+          </button>
+        </div>
+
+        <div style={{ overflowY: 'auto', maxHeight: 'calc(80vh - 120px)', padding: '0 1rem 1rem' }}>
+          {loading && <Loading />}
+
+          {!loading && !debugData && (
+            <ErrorMessage message="Failed to load deck data from IndexedDB" />
+          )}
+
+          {!loading && debugData && (
+            <>
+              {/* Issues Alert */}
+              {debugData.issues.length > 0 && (
+                <div style={{
+                  backgroundColor: '#fef3c7',
+                  border: '1px solid #f59e0b',
+                  borderRadius: '6px',
+                  padding: '0.75rem',
+                  marginBottom: '1rem',
+                }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', color: '#b45309', fontSize: '0.875rem' }}>
+                    ⚠️ Potential Issues ({debugData.issues.length})
+                  </h4>
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.75rem', color: '#92400e' }}>
+                    {debugData.issues.map((issue, i) => (
+                      <li key={i}>{issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Summary */}
+              <SectionHeader
+                title="Summary"
+                count={debugData.cards.filter(c => c.isDue).length}
+                color="#22c55e"
+                isOpen={expandedSection === 'summary'}
+                onClick={() => toggleSection('summary')}
+              />
+              {expandedSection === 'summary' && (
+                <div style={{ padding: '0.75rem', backgroundColor: '#f9fafb', borderRadius: '6px', marginBottom: '0.5rem', fontSize: '0.8125rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                    <div><strong>Total Cards:</strong> {debugData.cards.length}</div>
+                    <div><strong>Due Now:</strong> {debugData.cards.filter(c => c.isDue).length}</div>
+                    <div><strong>New Cards/Day:</strong> {debugData.deck?.new_cards_per_day}</div>
+                    <div><strong>Studied Today:</strong> {debugData.newCardsStudiedToday}</div>
+                    <div><strong>Remaining New:</strong> {debugData.remainingNewCards}</div>
+                    <div><strong>Learning Steps:</strong> {debugData.deck?.learning_steps || '1 10'}</div>
+                  </div>
+
+                  <div style={{ marginTop: '0.75rem', padding: '0.5rem', backgroundColor: '#e0f2fe', borderRadius: '4px', fontSize: '0.75rem' }}>
+                    <strong>How Due Cards Are Calculated:</strong>
+                    <ul style={{ margin: '0.25rem 0 0 0', paddingLeft: '1rem' }}>
+                      <li><strong>NEW:</strong> Limited by daily limit ({debugData.deck?.new_cards_per_day}/day)</li>
+                      <li><strong>LEARNING/RELEARNING:</strong> Due when due_timestamp ≤ now</li>
+                      <li><strong>REVIEW:</strong> Due when next_review_at ≤ end of today</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {/* NEW Queue */}
+              <SectionHeader
+                title="NEW Queue"
+                count={debugData.queues.new.length}
+                color="#3b82f6"
+                isOpen={expandedSection === 'new'}
+                onClick={() => toggleSection('new')}
+              />
+              {expandedSection === 'new' && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  {debugData.queues.new.length === 0 ? (
+                    <p style={{ color: '#6b7280', fontStyle: 'italic', fontSize: '0.75rem', padding: '0.5rem' }}>No cards in NEW queue</p>
+                  ) : (
+                    <>
+                      <div style={{ padding: '0.5rem', backgroundColor: '#dbeafe', borderRadius: '4px', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
+                        <strong>NEW cards explained:</strong> Never been reviewed. Limited by daily limit.
+                        <br />
+                        Due: {debugData.queues.new.filter(c => c.isDue).length} / Not due (limit): {debugData.queues.new.filter(c => !c.isDue).length}
+                      </div>
+                      {debugData.queues.new.map(renderCardRow)}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* LEARNING Queue */}
+              <SectionHeader
+                title="LEARNING Queue"
+                count={debugData.queues.learning.length}
+                color="#f97316"
+                isOpen={expandedSection === 'learning'}
+                onClick={() => toggleSection('learning')}
+              />
+              {expandedSection === 'learning' && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  {debugData.queues.learning.length === 0 ? (
+                    <p style={{ color: '#6b7280', fontStyle: 'italic', fontSize: '0.75rem', padding: '0.5rem' }}>No cards in LEARNING queue</p>
+                  ) : (
+                    <>
+                      <div style={{ padding: '0.5rem', backgroundColor: '#ffedd5', borderRadius: '4px', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
+                        <strong>LEARNING cards explained:</strong> Going through learning steps (e.g., 1m → 10m → graduate).
+                        <br />
+                        Due now: {debugData.queues.learning.filter(c => c.isDue).length} / Waiting: {debugData.queues.learning.filter(c => !c.isDue).length}
+                      </div>
+                      {debugData.queues.learning.map(renderCardRow)}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* RELEARNING Queue */}
+              <SectionHeader
+                title="RELEARNING Queue"
+                count={debugData.queues.relearning.length}
+                color="#ef4444"
+                isOpen={expandedSection === 'relearning'}
+                onClick={() => toggleSection('relearning')}
+              />
+              {expandedSection === 'relearning' && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  {debugData.queues.relearning.length === 0 ? (
+                    <p style={{ color: '#6b7280', fontStyle: 'italic', fontSize: '0.75rem', padding: '0.5rem' }}>No cards in RELEARNING queue</p>
+                  ) : (
+                    <>
+                      <div style={{ padding: '0.5rem', backgroundColor: '#fee2e2', borderRadius: '4px', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
+                        <strong>RELEARNING cards explained:</strong> Previously graduated cards that got "Again" - going through relearning steps.
+                      </div>
+                      {debugData.queues.relearning.map(renderCardRow)}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* REVIEW Queue (Due) */}
+              <SectionHeader
+                title="REVIEW Queue (Due Today)"
+                count={debugData.queues.review.length}
+                color="#22c55e"
+                isOpen={expandedSection === 'review'}
+                onClick={() => toggleSection('review')}
+              />
+              {expandedSection === 'review' && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  {debugData.queues.review.length === 0 ? (
+                    <p style={{ color: '#6b7280', fontStyle: 'italic', fontSize: '0.75rem', padding: '0.5rem' }}>No review cards due today</p>
+                  ) : (
+                    <>
+                      <div style={{ padding: '0.5rem', backgroundColor: '#dcfce7', borderRadius: '4px', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
+                        <strong>REVIEW cards explained:</strong> Graduated cards with spaced intervals. Due when next_review_at ≤ today.
+                      </div>
+                      {debugData.queues.review.map(renderCardRow)}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* REVIEW Queue (Not Due) */}
+              <SectionHeader
+                title="REVIEW Queue (Future)"
+                count={debugData.queues.reviewNotDue.length}
+                color="#9ca3af"
+                isOpen={expandedSection === 'reviewFuture'}
+                onClick={() => toggleSection('reviewFuture')}
+              />
+              {expandedSection === 'reviewFuture' && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  {debugData.queues.reviewNotDue.length === 0 ? (
+                    <p style={{ color: '#6b7280', fontStyle: 'italic', fontSize: '0.75rem', padding: '0.5rem' }}>No review cards scheduled for future</p>
+                  ) : (
+                    <>
+                      <div style={{ padding: '0.5rem', backgroundColor: '#f3f4f6', borderRadius: '4px', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
+                        <strong>Future reviews:</strong> These cards are scheduled but not due until their next_review_at date.
+                      </div>
+                      {debugData.queues.reviewNotDue.map(renderCardRow)}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* By Card Type */}
+              <div style={{ marginTop: '1rem', borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>By Card Type</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', fontSize: '0.75rem' }}>
+                  <div style={{ padding: '0.5rem', backgroundColor: '#f9fafb', borderRadius: '4px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600 }}>Hanzi → Meaning</div>
+                    <div>{debugData.byCardType.hanzi_to_meaning.filter(c => c.isDue).length} / {debugData.byCardType.hanzi_to_meaning.length}</div>
+                  </div>
+                  <div style={{ padding: '0.5rem', backgroundColor: '#f9fafb', borderRadius: '4px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600 }}>Meaning → Hanzi</div>
+                    <div>{debugData.byCardType.meaning_to_hanzi.filter(c => c.isDue).length} / {debugData.byCardType.meaning_to_hanzi.length}</div>
+                  </div>
+                  <div style={{ padding: '0.5rem', backgroundColor: '#f9fafb', borderRadius: '4px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600 }}>Audio → Hanzi</div>
+                    <div>{debugData.byCardType.audio_to_hanzi.filter(c => c.isDue).length} / {debugData.byCardType.audio_to_hanzi.length}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Raw Deck Settings */}
+              <div style={{ marginTop: '1rem', borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Deck Settings (from IndexedDB)</h4>
+                <pre style={{
+                  backgroundColor: '#f3f4f6',
+                  padding: '0.5rem',
+                  borderRadius: '4px',
+                  fontSize: '0.625rem',
+                  overflow: 'auto',
+                  maxHeight: '150px',
+                }}>
+                  {JSON.stringify(debugData.deck, null, 2)}
+                </pre>
+              </div>
+            </>
+          )}
+        </div>
 
         <div className="modal-actions" style={{ marginTop: '1rem' }}>
           <button className="btn btn-secondary" onClick={onClose}>
@@ -968,6 +1543,7 @@ export function DeckDetailPage() {
   const [historyNote, setHistoryNote] = useState<NoteWithCards | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [isGeneratingAllAudio, setIsGeneratingAllAudio] = useState(false);
   const [audioGenerationProgress, setAudioGenerationProgress] = useState({ done: 0, total: 0 });
   const [isUpgradingAllAudio, setIsUpgradingAllAudio] = useState(false);
@@ -1125,6 +1701,13 @@ export function DeckDetailPage() {
               onClick={() => setShowSettings(true)}
             >
               Settings
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowDebug(true)}
+              title="Debug deck scheduling"
+            >
+              🔍 Debug
             </button>
             <button
               className="btn btn-secondary"
@@ -1287,6 +1870,14 @@ export function DeckDetailPage() {
             onSave={() => {
               queryClient.invalidateQueries({ queryKey: ['deck', id] });
             }}
+          />
+        )}
+
+        {/* Deck Debug Modal */}
+        {showDebug && id && (
+          <DeckDebugModal
+            deckId={id}
+            onClose={() => setShowDebug(false)}
           />
         )}
       </div>
