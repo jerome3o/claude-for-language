@@ -571,6 +571,18 @@ export async function generateFlashcardFromChat(
   );
 }
 
+export async function generateResponseOptions(
+  conversationId: string
+): Promise<{ options: GeneratedFlashcard[] }> {
+  return fetchJSON<{ options: GeneratedFlashcard[] }>(
+    `/conversations/${conversationId}/generate-response-options`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }
+  );
+}
+
 // ============ Deck Sharing ============
 
 export async function shareDeck(
