@@ -180,8 +180,16 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     });
 
     if (allDueCards && allDueCards.length > 0) {
-      // Filter out cards from excluded notes
-      const availableCards = allDueCards.filter(card => !excludeNoteIds.includes(card.note_id));
+      // Filter out cards from excluded notes, BUT always include LEARNING/RELEARNING cards
+      // because they need to be shown when due (that's the whole point of the learning loop)
+      const availableCards = allDueCards.filter(card => {
+        // Learning cards should always be shown when due - don't exclude them
+        if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+          return true;
+        }
+        // For NEW/REVIEW cards, exclude recently-studied notes for variety
+        return !excludeNoteIds.includes(card.note_id);
+      });
       console.log('[useOfflineNextCard] Available cards after filtering:', availableCards.length);
 
       if (availableCards.length > 0) {
@@ -278,8 +286,9 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
         .toArray();
     }
 
-    // Filter out excluded notes
-    delayedLearningCards = delayedLearningCards.filter(c => !excludeNoteIds.includes(c.note_id));
+    // Note: We intentionally do NOT filter delayed learning cards by excludeNoteIds.
+    // Learning cards must be shown when due - that's the core of spaced repetition.
+    // The excludeNoteIds filter is only for NEW/REVIEW cards to provide variety.
 
     if (delayedLearningCards.length > 0) {
       // Return the one with the shortest delay
