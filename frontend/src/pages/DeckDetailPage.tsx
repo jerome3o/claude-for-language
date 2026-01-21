@@ -323,6 +323,7 @@ interface CardDebugInfo {
   card: LocalCard;
   note: { hanzi: string; pinyin: string; english: string } | null;
   reviewCount: number;
+  reviews: LocalReviewEvent[];
   lastReview: LocalReviewEvent | null;
   isDue: boolean;
   dueReason: string;
@@ -544,6 +545,7 @@ function DeckDebugModal({
           card,
           note: note ? { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english } : null,
           reviewCount: reviews.length,
+          reviews,
           lastReview,
           isDue,
           dueReason,
@@ -676,6 +678,50 @@ function DeckDebugModal({
           <span>Int: {info.card.interval}d</span>
           <span>Reps: {info.card.repetitions}</span>
         </div>
+        {/* Review history - show actual ratings */}
+        {info.reviewCount > 0 && (
+          <div style={{
+            marginTop: '0.25rem',
+            paddingTop: '0.25rem',
+            borderTop: '1px dashed #e5e7eb',
+            fontSize: '0.625rem',
+            color: '#6b7280',
+          }}>
+            <span>Reviews ({info.reviewCount}): </span>
+            <span style={{ display: 'inline-flex', gap: '0.125rem', flexWrap: 'wrap' }}>
+              {info.reviews.map((review, idx) => {
+                const ratingColors: Record<number, string> = {
+                  0: '#ef4444', // Again - red
+                  1: '#f97316', // Hard - orange
+                  2: '#22c55e', // Good - green
+                  3: '#3b82f6', // Easy - blue
+                };
+                const ratingLabels: Record<number, string> = {
+                  0: 'A', 1: 'H', 2: 'G', 3: 'E'
+                };
+                const date = new Date(review.reviewed_at);
+                const timeStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                return (
+                  <span
+                    key={review.id || idx}
+                    title={`${['Again', 'Hard', 'Good', 'Easy'][review.rating]} on ${timeStr}`}
+                    style={{
+                      display: 'inline-block',
+                      padding: '0 0.2rem',
+                      borderRadius: '2px',
+                      backgroundColor: ratingColors[review.rating],
+                      color: 'white',
+                      fontWeight: 600,
+                      fontSize: '0.5625rem',
+                    }}
+                  >
+                    {ratingLabels[review.rating]}
+                  </span>
+                );
+              })}
+            </span>
+          </div>
+        )}
       </div>
     );
   };
