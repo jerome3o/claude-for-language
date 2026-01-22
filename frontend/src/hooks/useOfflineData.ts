@@ -10,6 +10,7 @@ import {
   hasMoreNewCards as checkHasMoreNewCards,
   createLocalReviewEvent,
   storePendingRecording,
+  incrementNewCardsStudiedToday,
 } from '../db/database';
 import { scheduleCard, deckSettingsFromDb, DeckSettings, DEFAULT_DECK_SETTINGS, getIntervalPreview } from '../services/anki-scheduler';
 import { syncService } from '../services/sync';
@@ -402,6 +403,13 @@ export function useSubmitReviewOffline() {
       const card = await db.cards.get(cardId);
       if (!card) {
         throw new Error('Card not found');
+      }
+
+      // If this card was NEW, increment the daily counter BEFORE updating the card
+      // This ensures the counter stays in sync with actual new cards studied
+      const wasNewCard = card.queue === CardQueue.NEW;
+      if (wasNewCard) {
+        await incrementNewCardsStudiedToday(card.deck_id);
       }
 
       // Get deck settings

@@ -117,6 +117,14 @@ export interface LocalStudySession {
   _synced: boolean;
 }
 
+// Daily stats for tracking new cards studied (incremental counter)
+export interface DailyStats {
+  id: string; // Composite key: `${date}:${deckId}` e.g. "2026-01-22:deck-abc"
+  date: string; // YYYY-MM-DD
+  deck_id: string;
+  new_cards_studied: number;
+}
+
 // Dexie database class
 export class ChineseLearningDB extends Dexie {
   // Core tables
@@ -132,6 +140,9 @@ export class ChineseLearningDB extends Dexie {
   cardCheckpoints!: Table<LocalCardCheckpoint, string>;
   pendingRecordings!: Table<PendingRecording, string>;
   eventSyncMeta!: Table<EventSyncMeta, string>;
+
+  // Performance optimization tables
+  dailyStats!: Table<DailyStats, string>;
 
   constructor() {
     super('ChineseLearningDB');
@@ -176,6 +187,21 @@ export class ChineseLearningDB extends Dexie {
       pendingRecordings: 'id, uploaded',
       eventSyncMeta: 'id',
     });
+
+    // Version 4: Add dailyStats table for fast new card counting
+    this.version(4).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+    });
   }
 }
 
@@ -207,13 +233,27 @@ export async function getCardsByDeckId(deckId: string): Promise<LocalCard[]> {
 // ============ Daily Limit Tracking ============
 
 /**
- * Count new cards studied today (for daily limit enforcement).
- * Uses reviewEvents to find cards that were NEW when first reviewed today.
+ * Get the daily stats ID for a given date and deck.
  */
-export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+function getDailyStatsId(date: string, deckId: string): string {
+  return `${date}:${deckId}`;
+}
 
-  // Get all review events from today
+/**
+ * Get the current date string in YYYY-MM-DD format.
+ */
+function getTodayString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * SLOW: Compute new cards studied today by scanning review events.
+ * This is O(n) where n = cards reviewed today. Only used for initialization.
+ */
+async function _computeNewCardsStudiedTodaySlow(deckId: string): Promise<number> {
+  const today = getTodayString();
+
+  // Get all review events from today for this deck's cards
   const todayEvents = await db.reviewEvents
     .filter(e => e.reviewed_at.startsWith(today))
     .toArray();
@@ -231,7 +271,7 @@ export async function getNewCardsStudiedToday(deckId?: string): Promise<number> 
 
   // For each card, check if it was NEW before today's first review
   // A card was NEW if it had no reviews before today
-  const uniqueNewCards = new Set<string>();
+  let count = 0;
 
   for (const [cardId] of cardFirstReview) {
     // Check if card had any reviews before today
@@ -243,18 +283,98 @@ export async function getNewCardsStudiedToday(deckId?: string): Promise<number> 
 
     if (priorReviews === 0) {
       // This was a NEW card - check deck filter
-      if (deckId) {
-        const card = await db.cards.get(cardId);
-        if (card && card.deck_id === deckId) {
-          uniqueNewCards.add(cardId);
-        }
-      } else {
-        uniqueNewCards.add(cardId);
+      const card = await db.cards.get(cardId);
+      if (card && card.deck_id === deckId) {
+        count++;
       }
     }
   }
 
-  return uniqueNewCards.size;
+  return count;
+}
+
+/**
+ * Initialize the daily stats counter for a deck if it doesn't exist.
+ * This runs the slow computation once and caches the result.
+ */
+async function initializeDailyStatsIfNeeded(deckId: string): Promise<number> {
+  const today = getTodayString();
+  const id = getDailyStatsId(today, deckId);
+
+  const existing = await db.dailyStats.get(id);
+  if (existing) {
+    return existing.new_cards_studied;
+  }
+
+  // First access today - compute from review events (slow, but only once per day per deck)
+  console.log(`[dailyStats] Initializing counter for deck ${deckId} on ${today}`);
+  const count = await _computeNewCardsStudiedTodaySlow(deckId);
+
+  await db.dailyStats.put({
+    id,
+    date: today,
+    deck_id: deckId,
+    new_cards_studied: count,
+  });
+
+  console.log(`[dailyStats] Initialized: deck ${deckId} = ${count} new cards studied today`);
+  return count;
+}
+
+/**
+ * FAST: Get new cards studied today using the incremental counter.
+ * O(1) lookup after initialization.
+ */
+export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
+  if (!deckId) {
+    // "All Decks" mode - sum up all decks
+    const allDecks = await db.decks.toArray();
+    let total = 0;
+    for (const deck of allDecks) {
+      total += await initializeDailyStatsIfNeeded(deck.id);
+    }
+    return total;
+  }
+
+  return initializeDailyStatsIfNeeded(deckId);
+}
+
+/**
+ * Increment the new cards studied counter for a deck.
+ * Called when a NEW card is reviewed for the first time.
+ */
+export async function incrementNewCardsStudiedToday(deckId: string): Promise<void> {
+  const today = getTodayString();
+  const id = getDailyStatsId(today, deckId);
+
+  // Ensure the counter exists
+  await initializeDailyStatsIfNeeded(deckId);
+
+  // Increment atomically
+  await db.dailyStats.where('id').equals(id).modify(stat => {
+    stat.new_cards_studied++;
+  });
+
+  console.log(`[dailyStats] Incremented counter for deck ${deckId}`);
+}
+
+/**
+ * Clean up old daily stats (older than 7 days).
+ * Can be called periodically to prevent unbounded growth.
+ */
+export async function cleanupOldDailyStats(): Promise<void> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const oldStats = await db.dailyStats
+    .filter(stat => stat.date < cutoffStr)
+    .toArray();
+
+  if (oldStats.length > 0) {
+    await db.dailyStats.bulkDelete(oldStats.map(s => s.id));
+    console.log(`[dailyStats] Cleaned up ${oldStats.length} old entries`);
+  }
 }
 
 // ============ Due Cards ============
