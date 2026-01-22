@@ -31,14 +31,12 @@ import {
   ComputedCardState,
   DEFAULT_DECK_SETTINGS,
 } from '@shared/scheduler';
+import { API_BASE } from '../api/client';
 
 // Generate unique IDs for events
 function generateEventId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
-
-// API base URL
-const API_BASE = '';
 
 /**
  * Record a review event locally and update card state.
