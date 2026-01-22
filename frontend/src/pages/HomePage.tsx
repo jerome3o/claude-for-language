@@ -19,16 +19,31 @@ function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
   );
 }
 
-function DeckCard({ deck, onAddMore }: { deck: Deck; onAddMore: (deckId: string) => void }) {
+function DeckCard({ deck }: { deck: Deck }) {
   const navigate = useNavigate();
   const statsQuery = useQuery({
     queryKey: ['deckStats', deck.id],
     queryFn: () => getDeckStats(deck.id),
   });
 
+  // Track bonus for this specific deck
+  const getTodayKey = () =>
+    `bonusNewCards_${deck.id}_${new Date().toISOString().slice(0, 10)}`;
+
+  const getStoredBonus = (): number => {
+    try {
+      const stored = localStorage.getItem(getTodayKey());
+      return stored ? parseInt(stored, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const [bonus, setBonus] = useState(() => getStoredBonus());
+
   // Get offline queue counts for this specific deck
-  const { counts: offlineCounts } = useOfflineQueueCounts(deck.id);
-  const hasMoreNewCards = useHasMoreNewCards(deck.id);
+  const { counts: offlineCounts } = useOfflineQueueCounts(deck.id, bonus);
+  const hasMoreNewCards = useHasMoreNewCards(deck.id, bonus);
 
   const stats = statsQuery.data;
   const totalDue = offlineCounts.new + offlineCounts.learning + offlineCounts.review;
@@ -39,7 +54,10 @@ function DeckCard({ deck, onAddMore }: { deck: Deck; onAddMore: (deckId: string)
   };
 
   const handleAddMore = () => {
-    onAddMore(deck.id);
+    const currentBonus = parseInt(localStorage.getItem(getTodayKey()) || '0', 10);
+    const newBonus = currentBonus + 10;
+    localStorage.setItem(getTodayKey(), String(newBonus));
+    setBonus(newBonus);
   };
 
   return (
@@ -106,18 +124,33 @@ export function HomePage() {
   // Pass API decks to detect mismatch with IndexedDB and auto-sync
   const { isSyncing } = useOfflineDecks(decksQuery.data);
 
+  // Track bonus new cards - read from localStorage, update state to trigger re-render
+  const getTodayKey = (forDeckId?: string) =>
+    `bonusNewCards_${forDeckId || 'all'}_${new Date().toISOString().slice(0, 10)}`;
+
+  const getStoredBonus = (forDeckId?: string): number => {
+    try {
+      const stored = localStorage.getItem(getTodayKey(forDeckId));
+      return stored ? parseInt(stored, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const [bonusAll, setBonusAll] = useState(() => getStoredBonus());
+
   // Get total queue counts across all decks for the "Study All" button
-  const { counts: totalCounts } = useOfflineQueueCounts();
-  const hasMoreNewCardsAll = useHasMoreNewCards();
+  const { counts: totalCounts } = useOfflineQueueCounts(undefined, bonusAll);
+  const hasMoreNewCardsAll = useHasMoreNewCards(undefined, bonusAll);
   const totalDue = totalCounts.new + totalCounts.learning + totalCounts.review;
 
-  // Handle "+10 More" button click - navigate to study with bonus
-  const handleAddMore = (deckId?: string) => {
-    const todayKey = `bonusNewCards_${deckId || 'all'}_${new Date().toISOString().slice(0, 10)}`;
+  // Handle "+10 More" button click for "All Decks" - add bonus cards and update state
+  const handleAddMoreAll = () => {
+    const todayKey = getTodayKey();
     const currentBonus = parseInt(localStorage.getItem(todayKey) || '0', 10);
-    localStorage.setItem(todayKey, String(currentBonus + 10));
-    const url = deckId ? `/study?deck=${deckId}&autostart=true` : '/study?autostart=true';
-    navigate(url);
+    const newBonus = currentBonus + 10;
+    localStorage.setItem(todayKey, String(newBonus));
+    setBonusAll(newBonus);
   };
 
   const handleStudyAll = () => {
@@ -158,7 +191,7 @@ export function HomePage() {
               <QueueCountsBadge counts={totalCounts} />
             </button>
           ) : hasMoreNewCardsAll ? (
-            <button onClick={() => handleAddMore()} className="btn btn-secondary btn-lg btn-block">
+            <button onClick={handleAddMoreAll} className="btn btn-secondary btn-lg btn-block">
               +10 More New Cards
             </button>
           ) : (
@@ -218,7 +251,7 @@ export function HomePage() {
             <>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 {decks.map((deck) => (
-                  <DeckCard key={deck.id} deck={deck} onAddMore={handleAddMore} />
+                  <DeckCard key={deck.id} deck={deck} />
                 ))}
               </div>
 

@@ -1,5 +1,5 @@
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import {
   askAboutNote,
@@ -9,7 +9,7 @@ import {
   getMyRelationships,
   createTutorReviewRequest,
 } from '../api/client';
-import { Loading, EmptyState } from '../components/Loading';
+import { Loading } from '../components/Loading';
 import {
   CardWithNote,
   Rating,
@@ -24,7 +24,6 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  useOfflineDecks,
   useOfflineNextCard,
   useOfflineQueueCounts,
   useSubmitReviewOffline,
@@ -105,27 +104,6 @@ function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activ
       <span className="count-separator">+</span>
       <span className={`count-review ${isReviewActive ? 'count-active' : ''}`} title="Review cards">{counts.review}</span>
     </div>
-  );
-}
-
-// Deck row with its own queue counts (uses hook for reactive updates)
-function DeckStudyRow({ deck, isSelected }: { deck: { id: string; name: string }; isSelected?: boolean }) {
-  const counts = useOfflineQueueCounts(deck.id);
-  const totalDue = counts.counts.new + counts.counts.learning + counts.counts.review;
-
-  return (
-    <Link
-      to={`/study?deck=${deck.id}`}
-      className="deck-card"
-      style={isSelected ? { backgroundColor: '#e0e7ff', borderColor: '#6366f1' } : undefined}
-    >
-      <div className="deck-card-title">{deck.name}</div>
-      {totalDue > 0 && (
-        <div className="deck-card-stats">
-          <QueueCountsHeader counts={counts.counts} />
-        </div>
-      )}
-    </Link>
   );
 }
 
@@ -950,6 +928,7 @@ function StudyCard({
 export function StudyPage() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { isOnline } = useNetwork();
 
   const deckId = searchParams.get('deck') || undefined;
@@ -997,8 +976,6 @@ export function StudyPage() {
   }, [bonusNewCards, deckId]);
 
   // All data comes from offline/local-first hooks
-  const { decks, triggerSync } = useOfflineDecks();
-  const [isSyncing, setIsSyncing] = useState(false);
   const offlineQueueCounts = useOfflineQueueCounts(deckId, bonusNewCards);
   const offlineNextCard = useOfflineNextCard(
     studyStarted ? deckId : undefined,
@@ -1013,18 +990,6 @@ export function StudyPage() {
   const intervalPreviews = offlineNextCard.intervalPreviews;
   const isLoading = studyStarted ? offlineNextCard.isLoading : offlineQueueCounts.isLoading;
 
-
-  const handleStartStudy = async () => {
-    setStudyStarted(true);
-    setRecentNotes([]);
-
-    // Best-effort session creation (non-blocking)
-    if (isOnline) {
-      startSession(deckId)
-        .then(session => setSessionId(session.id))
-        .catch(() => {});
-    }
-  };
 
   // Auto-start session creation when autostart param is present
   useEffect(() => {
@@ -1046,88 +1011,22 @@ export function StudyPage() {
     setStudyStarted(false);
     setSessionId(null);
     setRecentNotes([]);
-    // Note: bonusNewCards persists across sessions and resets at end of day
     queryClient.invalidateQueries({ queryKey: ['stats'] });
+    // Navigate back to home
+    navigate('/');
   };
 
-  // Show deck selection if study hasn't started
-  if (!studyStarted) {
-    if (isLoading) {
-      return <Loading />;
+  // If study hasn't started (no autostart), redirect to home
+  // The home page now handles deck selection and study initiation
+  useEffect(() => {
+    if (!studyStarted && !autostart) {
+      navigate('/');
     }
+  }, [studyStarted, autostart, navigate]);
 
-    const totalDue = counts.new + counts.learning + counts.review;
-
-    return (
-      <div className="page">
-        <div className="container">
-          <h1 className="mb-4">Study</h1>
-
-          {/* Deck Selection - always visible */}
-          <div className="card mb-4">
-            <h2 className="mb-3">Select a Deck</h2>
-            <div className="flex flex-col gap-2">
-              <Link
-                to="/study"
-                className="deck-card"
-                style={!deckId ? { backgroundColor: '#e0e7ff', borderColor: '#6366f1' } : undefined}
-              >
-                <div className="deck-card-title">All Decks</div>
-                <div className="deck-card-stats">
-                  <QueueCountsHeader counts={counts} />
-                </div>
-              </Link>
-              {decks.map((deck) => (
-                <DeckStudyRow key={deck.id} deck={deck} isSelected={deckId === deck.id} />
-              ))}
-            </div>
-          </div>
-
-          {/* Start Study */}
-          {totalDue === 0 ? (
-            <EmptyState
-              icon="🎉"
-              title="No cards due!"
-              description="You're all caught up. Check back later or add more cards."
-              action={
-                <div className="flex gap-2 justify-center">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={async () => {
-                      setIsSyncing(true);
-                      await triggerSync();
-                      setIsSyncing(false);
-                    }}
-                    disabled={isSyncing}
-                  >
-                    {isSyncing ? 'Syncing...' : 'Refresh'}
-                  </button>
-                  <Link to="/" className="btn btn-primary">
-                    View Decks
-                  </Link>
-                </div>
-              }
-            />
-          ) : (
-            <div className="card text-center">
-              <QueueCountsHeader counts={counts} />
-              <h2 className="mt-3 mb-2">{totalDue} cards to study</h2>
-              <p className="text-light mb-4">
-                {deckId
-                  ? `From "${decks.find((d) => d.id === deckId)?.name || 'this deck'}"`
-                  : 'From all decks'}
-              </p>
-              <button
-                className="btn btn-primary btn-lg"
-                onClick={handleStartStudy}
-              >
-                Start Studying
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+  // Show loading while redirecting or loading data
+  if (!studyStarted) {
+    return <Loading />;
   }
 
   // Study complete
@@ -1168,20 +1067,12 @@ export function StudyPage() {
                   (No additional new cards available)
                 </p>
               )}
-              <div className="flex gap-2 justify-center">
-                <button
-                  className={hasMoreNewCards ? "btn btn-secondary" : "btn btn-primary"}
-                  onClick={() => {
-                    handleEndSession();
-                    queryClient.invalidateQueries({ queryKey: ['stats'] });
-                  }}
-                >
-                  Back to Decks
-                </button>
-                <Link to="/" className="btn btn-secondary">
-                  Home
-                </Link>
-              </div>
+              <button
+                className={hasMoreNewCards ? "btn btn-secondary" : "btn btn-primary"}
+                onClick={handleEndSession}
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>

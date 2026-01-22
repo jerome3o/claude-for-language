@@ -41,8 +41,8 @@ export function SessionReviewPage() {
     <div className="page">
       <div className="container">
         <div className="mb-4">
-          <Link to="/study" className="text-light">
-            &larr; Back to Study
+          <Link to="/" className="text-light">
+            &larr; Back to Home
           </Link>
           <h1 className="mt-1">Session Review</h1>
           <p className="text-light">
