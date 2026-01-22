@@ -248,7 +248,8 @@ function getTodayString(): string {
 
 /**
  * SLOW: Compute new cards studied today by scanning review events.
- * This is O(n) where n = cards reviewed today. Only used for initialization.
+ * This is O(n) where n = cards reviewed today. Used as fallback when counter not cached.
+ * This is READ-ONLY and safe to call from useLiveQuery contexts.
  */
 async function _computeNewCardsStudiedTodaySlow(deckId: string): Promise<number> {
   const today = getTodayString();
@@ -294,10 +295,11 @@ async function _computeNewCardsStudiedTodaySlow(deckId: string): Promise<number>
 }
 
 /**
- * Initialize the daily stats counter for a deck if it doesn't exist.
- * This runs the slow computation once and caches the result.
+ * Get new cards studied today - READ-ONLY version safe for useLiveQuery.
+ * Uses cached counter if available, falls back to slow computation.
+ * Does NOT write to the database.
  */
-async function initializeDailyStatsIfNeeded(deckId: string): Promise<number> {
+async function _getNewCardsStudiedTodayReadOnly(deckId: string): Promise<number> {
   const today = getTodayString();
   const id = getDailyStatsId(today, deckId);
 
@@ -306,24 +308,14 @@ async function initializeDailyStatsIfNeeded(deckId: string): Promise<number> {
     return existing.new_cards_studied;
   }
 
-  // First access today - compute from review events (slow, but only once per day per deck)
-  console.log(`[dailyStats] Initializing counter for deck ${deckId} on ${today}`);
-  const count = await _computeNewCardsStudiedTodaySlow(deckId);
-
-  await db.dailyStats.put({
-    id,
-    date: today,
-    deck_id: deckId,
-    new_cards_studied: count,
-  });
-
-  console.log(`[dailyStats] Initialized: deck ${deckId} = ${count} new cards studied today`);
-  return count;
+  // No cached counter - fall back to slow computation (but don't cache here)
+  // Caching will happen when incrementNewCardsStudiedToday is called
+  return _computeNewCardsStudiedTodaySlow(deckId);
 }
 
 /**
- * FAST: Get new cards studied today using the incremental counter.
- * O(1) lookup after initialization.
+ * Get new cards studied today.
+ * READ-ONLY - safe to call from useLiveQuery contexts.
  */
 export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
   if (!deckId) {
@@ -331,29 +323,40 @@ export async function getNewCardsStudiedToday(deckId?: string): Promise<number> 
     const allDecks = await db.decks.toArray();
     let total = 0;
     for (const deck of allDecks) {
-      total += await initializeDailyStatsIfNeeded(deck.id);
+      total += await _getNewCardsStudiedTodayReadOnly(deck.id);
     }
     return total;
   }
 
-  return initializeDailyStatsIfNeeded(deckId);
+  return _getNewCardsStudiedTodayReadOnly(deckId);
 }
 
 /**
  * Increment the new cards studied counter for a deck.
  * Called when a NEW card is reviewed for the first time.
+ * This WRITES to the database - only call outside of useLiveQuery contexts.
  */
 export async function incrementNewCardsStudiedToday(deckId: string): Promise<void> {
   const today = getTodayString();
   const id = getDailyStatsId(today, deckId);
 
-  // Ensure the counter exists
-  await initializeDailyStatsIfNeeded(deckId);
-
-  // Increment atomically
-  await db.dailyStats.where('id').equals(id).modify(stat => {
-    stat.new_cards_studied++;
-  });
+  const existing = await db.dailyStats.get(id);
+  if (existing) {
+    // Counter exists - increment it
+    await db.dailyStats.update(id, {
+      new_cards_studied: existing.new_cards_studied + 1,
+    });
+  } else {
+    // Counter doesn't exist - compute current count and add 1
+    const currentCount = await _computeNewCardsStudiedTodaySlow(deckId);
+    await db.dailyStats.put({
+      id,
+      date: today,
+      deck_id: deckId,
+      new_cards_studied: currentCount + 1,
+    });
+    console.log(`[dailyStats] Initialized counter for deck ${deckId} at ${currentCount + 1}`);
+  }
 
   console.log(`[dailyStats] Incremented counter for deck ${deckId}`);
 }
