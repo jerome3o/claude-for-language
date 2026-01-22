@@ -15,6 +15,7 @@ beforeEach(async () => {
   await db.cardCheckpoints.clear();
   await db.pendingRecordings.clear();
   await db.eventSyncMeta.clear();
+  await db.dailyStats.clear();
 });
 
 // Clean up after each test
