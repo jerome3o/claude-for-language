@@ -1,4 +1,5 @@
 import { db } from '../db/database';
+import { API_BASE } from '../api/client';
 
 const MAX_CACHE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_CACHE_SIZE = 500; // Max number of cached audio files
@@ -70,7 +71,7 @@ export async function getAudioWithCache(audioUrl: string): Promise<Blob | null> 
 
   // Fetch from network
   try {
-    const response = await fetch(`/api/audio/${audioUrl}`);
+    const response = await fetch(`${API_BASE}/api/audio/${audioUrl}`);
     if (!response.ok) {
       return null;
     }
