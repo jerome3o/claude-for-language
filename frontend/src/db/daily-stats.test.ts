@@ -81,7 +81,7 @@ describe('Daily Stats', () => {
       expect(count).toBe(0);
     });
 
-    it('initializes counter from review events on first call', async () => {
+    it('computes count from review events when no cache exists', async () => {
       // Create cards and review events from today
       const card1 = await createTestCard('card-1', deckId);
       const card2 = await createTestCard('card-2', deckId);
@@ -91,15 +91,15 @@ describe('Daily Stats', () => {
       await createReviewEvent(card1.id, today);
       await createReviewEvent(card2.id, today);
 
-      // First call should compute from events and cache
+      // Should compute from events (read-only, no caching)
       const count = await getNewCardsStudiedToday(deckId);
       expect(count).toBe(2);
 
-      // Verify it was cached in dailyStats
+      // Note: getNewCardsStudiedToday is read-only and does NOT cache
+      // Caching happens via incrementNewCardsStudiedToday when cards are reviewed
       const todayStr = today.toISOString().slice(0, 10);
       const cached = await db.dailyStats.get(`${todayStr}:${deckId}`);
-      expect(cached).toBeDefined();
-      expect(cached?.new_cards_studied).toBe(2);
+      expect(cached).toBeUndefined(); // No caching on read
     });
 
     it('returns cached value on subsequent calls', async () => {
