@@ -953,9 +953,10 @@ export function StudyPage() {
   const { isOnline } = useNetwork();
 
   const deckId = searchParams.get('deck') || undefined;
+  const autostart = searchParams.get('autostart') === 'true';
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recentNotes, setRecentNotes] = useState<string[]>([]);
-  const [studyStarted, setStudyStarted] = useState(false);
+  const [studyStarted, setStudyStarted] = useState(autostart);
 
   // Bonus new cards - persisted in localStorage per deck, resets daily
   const getTodayKey = (forDeckId?: string) =>
@@ -1024,6 +1025,15 @@ export function StudyPage() {
         .catch(() => {});
     }
   };
+
+  // Auto-start session creation when autostart param is present
+  useEffect(() => {
+    if (autostart && studyStarted && !sessionId && isOnline) {
+      startSession(deckId)
+        .then(session => setSessionId(session.id))
+        .catch(() => {});
+    }
+  }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
   const handleCardComplete = () => {
     // Update recent notes - hook reactively provides next card

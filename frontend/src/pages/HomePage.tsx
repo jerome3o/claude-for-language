@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { getOverviewStats, getDecks, createDeck, getDeckStats } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Deck, QueueCounts } from '../types';
-import { useOfflineQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
+import { useOfflineQueueCounts, useOfflineDecks, useHasMoreNewCards } from '../hooks/useOfflineData';
 
 // Queue counts display component
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -19,7 +19,8 @@ function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
   );
 }
 
-function DeckCard({ deck }: { deck: Deck }) {
+function DeckCard({ deck, onAddMore }: { deck: Deck; onAddMore: (deckId: string) => void }) {
+  const navigate = useNavigate();
   const statsQuery = useQuery({
     queryKey: ['deckStats', deck.id],
     queryFn: () => getDeckStats(deck.id),
@@ -27,9 +28,19 @@ function DeckCard({ deck }: { deck: Deck }) {
 
   // Get offline queue counts for this specific deck
   const { counts: offlineCounts } = useOfflineQueueCounts(deck.id);
+  const hasMoreNewCards = useHasMoreNewCards(deck.id);
 
   const stats = statsQuery.data;
   const totalDue = offlineCounts.new + offlineCounts.learning + offlineCounts.review;
+
+  const handleStudy = () => {
+    // Navigate directly to study with autostart
+    navigate(`/study?deck=${deck.id}&autostart=true`);
+  };
+
+  const handleAddMore = () => {
+    onAddMore(deck.id);
+  };
 
   return (
     <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -51,13 +62,25 @@ function DeckCard({ deck }: { deck: Deck }) {
       {/* Study button with offline queue counts */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #e5e7eb' }}>
         <QueueCountsBadge counts={offlineCounts} />
-        <Link
-          to={`/study?deck=${deck.id}`}
-          className="btn btn-primary btn-sm"
-          style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
-        >
-          Study {totalDue > 0 ? `(${totalDue})` : ''}
-        </Link>
+        {totalDue > 0 ? (
+          <button
+            onClick={handleStudy}
+            className="btn btn-primary btn-sm"
+            style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+          >
+            Study ({totalDue})
+          </button>
+        ) : hasMoreNewCards ? (
+          <button
+            onClick={handleAddMore}
+            className="btn btn-secondary btn-sm"
+            style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+          >
+            +10 More
+          </button>
+        ) : (
+          <span className="text-light" style={{ fontSize: '0.75rem' }}>All done</span>
+        )}
       </div>
     </div>
   );
@@ -83,6 +106,24 @@ export function HomePage() {
   // Pass API decks to detect mismatch with IndexedDB and auto-sync
   const { isSyncing } = useOfflineDecks(decksQuery.data);
 
+  // Get total queue counts across all decks for the "Study All" button
+  const { counts: totalCounts } = useOfflineQueueCounts();
+  const hasMoreNewCardsAll = useHasMoreNewCards();
+  const totalDue = totalCounts.new + totalCounts.learning + totalCounts.review;
+
+  // Handle "+10 More" button click - navigate to study with bonus
+  const handleAddMore = (deckId?: string) => {
+    const todayKey = `bonusNewCards_${deckId || 'all'}_${new Date().toISOString().slice(0, 10)}`;
+    const currentBonus = parseInt(localStorage.getItem(todayKey) || '0', 10);
+    localStorage.setItem(todayKey, String(currentBonus + 10));
+    const url = deckId ? `/study?deck=${deckId}&autostart=true` : '/study?autostart=true';
+    navigate(url);
+  };
+
+  const handleStudyAll = () => {
+    navigate('/study?autostart=true');
+  };
+
   const createMutation = useMutation({
     mutationFn: () => createDeck(name, description || undefined),
     onSuccess: (deck) => {
@@ -102,7 +143,6 @@ export function HomePage() {
     return <ErrorMessage message="Failed to load statistics" />;
   }
 
-  const stats = statsQuery.data;
   const decks = decksQuery.data || [];
 
   return (
@@ -110,16 +150,21 @@ export function HomePage() {
       <div className="container">
         <h1 className="mb-4">Welcome to 汉语学习</h1>
 
-        {/* Study Button */}
+        {/* Study All Button */}
         <div className="card mb-4">
-          {(stats?.cards_due_today || 0) > 0 ? (
-            <Link to="/study" className="btn btn-primary btn-lg btn-block">
-              Study Now ({stats?.cards_due_today} due)
-            </Link>
+          {totalDue > 0 ? (
+            <button onClick={handleStudyAll} className="btn btn-primary btn-lg btn-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
+              <span>Study All</span>
+              <QueueCountsBadge counts={totalCounts} />
+            </button>
+          ) : hasMoreNewCardsAll ? (
+            <button onClick={() => handleAddMore()} className="btn btn-secondary btn-lg btn-block">
+              +10 More New Cards
+            </button>
           ) : (
-            <Link to="/study" className="btn btn-secondary btn-lg btn-block">
-              Study (no cards due)
-            </Link>
+            <div className="text-center text-light" style={{ padding: '0.5rem' }}>
+              All caught up!
+            </div>
           )}
         </div>
 
@@ -173,7 +218,7 @@ export function HomePage() {
             <>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 {decks.map((deck) => (
-                  <DeckCard key={deck.id} deck={deck} />
+                  <DeckCard key={deck.id} deck={deck} onAddMore={handleAddMore} />
                 ))}
               </div>
 
