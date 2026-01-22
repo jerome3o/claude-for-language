@@ -151,6 +151,11 @@ export function useHasMoreNewCards(deckId?: string, currentBonus = 0) {
 // Track the currently selected card to prevent flickering from random re-selection
 let currentSelectedCardId: string | null = null;
 
+// Clear the cached card ID (call this after submitting a review)
+export function clearCurrentSelectedCard(): void {
+  currentSelectedCardId = null;
+}
+
 // Hook to get the next card to study (offline-first)
 export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [], bonusNewCards = 0) {
   const queryClient = useQueryClient();
@@ -433,6 +438,10 @@ export function useSubmitReviewOffline() {
         due_timestamp: result.due_timestamp,
         updated_at: reviewedAt,
       });
+
+      // Clear the cached card selection to force picking a new card
+      // This prevents the same card from being shown again before Dexie's live query updates
+      currentSelectedCardId = null;
 
       // Create review event for event-sourced architecture
       await createLocalReviewEvent({
