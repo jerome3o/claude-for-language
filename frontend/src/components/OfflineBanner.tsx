@@ -3,7 +3,7 @@ import { useNetwork } from '../contexts/NetworkContext';
 import './OfflineBanner.css';
 
 export function OfflineBanner() {
-  const { isOnline, isSyncing, pendingReviewsCount, triggerSync } = useNetwork();
+  const { isOnline, isSyncing, syncProgress, pendingReviewsCount, triggerSync } = useNetwork();
   const [showSyncedMessage, setShowSyncedMessage] = useState(false);
   const wasSyncing = useRef(false);
 
@@ -28,12 +28,21 @@ export function OfflineBanner() {
     );
   }
 
-  // Syncing - small badge with spinner
+  // Syncing - small badge with spinner and progress info
   if (isSyncing) {
+    let progressText = 'Syncing';
+    if (syncProgress) {
+      if (syncProgress.current && syncProgress.total) {
+        progressText = `${syncProgress.message} (${syncProgress.current}/${syncProgress.total})`;
+      } else {
+        progressText = syncProgress.message;
+      }
+    }
+
     return (
       <div className="sync-badge sync-badge-syncing">
         <span className="sync-badge-spinner"></span>
-        <span>Syncing</span>
+        <span>{progressText}</span>
       </div>
     );
   }

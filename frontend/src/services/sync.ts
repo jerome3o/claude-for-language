@@ -14,6 +14,14 @@ import { syncReviewEvents, downloadReviewEvents, fixAllCardStates } from './revi
 
 const API_PATH = `${API_BASE}/api`;
 
+// Progress tracking for sync operations
+export interface SyncProgress {
+  phase: 'starting' | 'events-up' | 'events-down' | 'decks' | 'notes' | 'cards' | 'cleanup' | 'done';
+  message: string;
+  current?: number;
+  total?: number;
+}
+
 // Extended type for deck with notes and cards (from API)
 interface NoteWithCards extends Note {
   cards: Card[];
@@ -64,15 +72,29 @@ class SyncService {
   private pendingFullSync = false;
   private syncPromise: Promise<void> | null = null;
   private syncListeners: Set<(syncing: boolean) => void> = new Set();
+  private progressListeners: Set<(progress: SyncProgress | null) => void> = new Set();
+  private currentProgress: SyncProgress | null = null;
 
   addSyncListener(listener: (syncing: boolean) => void) {
     this.syncListeners.add(listener);
     return () => this.syncListeners.delete(listener);
   }
 
+  addProgressListener(listener: (progress: SyncProgress | null) => void) {
+    this.progressListeners.add(listener);
+    // Immediately notify with current progress
+    listener(this.currentProgress);
+    return () => this.progressListeners.delete(listener);
+  }
+
   private notifySyncListeners(syncing: boolean) {
     this.isSyncing = syncing;
     this.syncListeners.forEach(listener => listener(syncing));
+  }
+
+  private notifyProgress(progress: SyncProgress | null) {
+    this.currentProgress = progress;
+    this.progressListeners.forEach(listener => listener(progress));
   }
 
   /**
@@ -106,8 +128,10 @@ class SyncService {
 
     try {
       await this.syncPromise;
+      this.notifyProgress({ phase: 'done', message: 'Sync complete' });
     } catch (err) {
       console.error('[Sync] Full sync failed:', err);
+      this.notifyProgress(null);
       throw err;
     } finally {
       this.syncPromise = null;
@@ -121,6 +145,8 @@ class SyncService {
   }
 
   private async _doFullSync(): Promise<void> {
+    this.notifyProgress({ phase: 'decks', message: 'Fetching deck list...' });
+
     // Fetch all decks
     const decksResponse = await fetch(`${API_PATH}/decks`, {
       headers: getAuthHeaders(),
@@ -131,19 +157,27 @@ class SyncService {
     }
 
     const decks: Deck[] = await decksResponse.json();
+    this.notifyProgress({ phase: 'decks', message: `Loading ${decks.length} decks...`, current: 0, total: decks.length });
 
     // Fetch full data for each deck (includes notes AND cards)
-    const deckPromises = decks.map(async (deck) => {
+    const fullDecks: DeckWithNotesAndCards[] = [];
+    for (let i = 0; i < decks.length; i++) {
+      const deck = decks[i];
+      this.notifyProgress({
+        phase: 'decks',
+        message: `Loading deck: ${deck.name}`,
+        current: i + 1,
+        total: decks.length
+      });
+
       const deckResponse = await fetch(`${API_PATH}/decks/${deck.id}`, {
         headers: getAuthHeaders(),
       });
       if (!deckResponse.ok) {
         throw new Error(`Failed to fetch deck ${deck.id}`);
       }
-      return deckResponse.json() as Promise<DeckWithNotesAndCards>;
-    });
-
-    const fullDecks = await Promise.all(deckPromises);
+      fullDecks.push(await deckResponse.json() as DeckWithNotesAndCards);
+    }
 
     // Extract notes and cards from deck responses
     const allNotes: Note[] = [];
@@ -161,6 +195,11 @@ class SyncService {
         }
       }
     }
+
+    this.notifyProgress({
+      phase: 'notes',
+      message: `Saving ${allNotes.length} notes, ${allCards.length} cards...`
+    });
 
     // Sync data while preserving local card scheduling state
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
@@ -218,12 +257,14 @@ class SyncService {
     }
 
     this.notifySyncListeners(true);
+    this.notifyProgress({ phase: 'starting', message: 'Checking for updates...' });
     this.syncPromise = this._doIncrementalSync(syncMeta.last_incremental_sync);
 
     try {
       await this.syncPromise;
     } catch (err) {
       console.error('[Sync] Incremental sync failed:', err);
+      this.notifyProgress(null);
       throw err;
     } finally {
       this.syncPromise = null;
@@ -232,6 +273,7 @@ class SyncService {
   }
 
   private async _doIncrementalSync(since: number): Promise<void> {
+    this.notifyProgress({ phase: 'decks', message: 'Fetching changes...' });
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
     });
@@ -342,12 +384,21 @@ class SyncService {
     const token = getAuthToken();
 
     // Upload unsynced events
+    this.notifyProgress({ phase: 'events-up', message: 'Uploading reviews...' });
     const uploadResult = await syncReviewEvents(token);
+    if (uploadResult.synced > 0) {
+      this.notifyProgress({ phase: 'events-up', message: `Uploaded ${uploadResult.synced} reviews` });
+    }
 
     // Download new events from server
+    this.notifyProgress({ phase: 'events-down', message: 'Downloading reviews...' });
     const downloadResult = await downloadReviewEvents(token);
+    if (downloadResult.downloaded > 0) {
+      this.notifyProgress({ phase: 'events-down', message: `Downloaded ${downloadResult.downloaded} reviews` });
+    }
 
     // Clean up old uploaded recordings
+    this.notifyProgress({ phase: 'cleanup', message: 'Cleaning up...' });
     await cleanupUploadedRecordings();
 
     return {
@@ -366,14 +417,19 @@ class SyncService {
 
     try {
       if (navigator.onLine) {
+        this.notifyProgress({ phase: 'starting', message: 'Starting sync...' });
+
         // Sync review events (event-sourced architecture)
         await this.syncEvents();
 
         // Sync deck/note/card data
         await this.incrementalSync();
+
+        this.notifyProgress({ phase: 'done', message: 'Sync complete' });
       }
     } catch (error) {
       console.error('[Sync] Background sync failed:', error);
+      this.notifyProgress(null);
     }
   }
 

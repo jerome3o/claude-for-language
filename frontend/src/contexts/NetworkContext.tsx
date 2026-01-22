@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { syncService } from '../services/sync';
+import { syncService, SyncProgress } from '../services/sync';
 import { usePendingReviewsCount, initializeOfflineData } from '../hooks/useOfflineData';
 
 interface NetworkContextType {
   isOnline: boolean;
   isSyncing: boolean;
+  syncProgress: SyncProgress | null;
   pendingReviewsCount: number;
   lastSyncTime: Date | null;
   triggerSync: () => Promise<void>;
@@ -16,6 +17,7 @@ const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 export function NetworkProvider({ children }: { children: ReactNode }) {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -44,15 +46,22 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
   // Listen to sync service events
   useEffect(() => {
-    const unsubscribe = syncService.addSyncListener((syncing) => {
+    const unsubscribeSyncing = syncService.addSyncListener((syncing) => {
       setIsSyncing(syncing);
       if (!syncing) {
         setLastSyncTime(new Date());
+        // Clear progress shortly after sync completes
+        setTimeout(() => setSyncProgress(null), 1500);
       }
     });
 
+    const unsubscribeProgress = syncService.addProgressListener((progress) => {
+      setSyncProgress(progress);
+    });
+
     return () => {
-      unsubscribe();
+      unsubscribeSyncing();
+      unsubscribeProgress();
     };
   }, []);
 
@@ -84,6 +93,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       value={{
         isOnline,
         isSyncing,
+        syncProgress,
         pendingReviewsCount,
         lastSyncTime,
         triggerSync,
