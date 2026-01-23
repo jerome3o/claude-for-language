@@ -8,7 +8,8 @@ import {
   clearAllData,
   cleanupUploadedRecordings,
 } from '../db/database';
-import { Deck, Note, Card } from '../types';
+import { Deck, Note, Card, CardType } from '../types';
+import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, getAuthToken } from '../api/client';
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates } from './review-events';
 
@@ -31,11 +32,21 @@ interface DeckWithNotesAndCards extends Deck {
   notes: NoteWithCards[];
 }
 
+// Card data from sync endpoint - only identity/structure fields, NO scheduling state!
+// Scheduling state is computed from review events, not synced from server.
+interface SyncCard {
+  id: string;
+  note_id: string;
+  card_type: CardType;
+  created_at: string;
+  updated_at: string;
+}
+
 // API response types for sync endpoint
 interface SyncChangesResponse {
   decks: Deck[];
   notes: Note[];
-  cards: Card[];
+  cards: SyncCard[];  // Note: SyncCard, not Card - no scheduling fields
   deleted: {
     deck_ids: string[];
     note_ids: string[];
@@ -59,11 +70,28 @@ function noteToLocal(note: Note): LocalNote {
   };
 }
 
-function cardToLocal(card: Card, deckId: string): LocalCard {
+function cardToLocal(card: Card | SyncCard, deckId: string): LocalCard {
+  // Get default NEW scheduling state
+  // Card scheduling is computed from review events, not synced from server.
+  // New cards start with default state, then fixCardState() recomputes from events.
+  const defaultState = initialCardState(DEFAULT_DECK_SETTINGS);
+
   return {
-    ...card,
+    id: card.id,
+    note_id: card.note_id,
     deck_id: deckId,
+    card_type: card.card_type,
+    created_at: card.created_at,
+    updated_at: card.updated_at,
     _synced_at: Date.now(),
+    // Default NEW scheduling state (will be recomputed from events if any exist)
+    queue: defaultState.queue,
+    learning_step: defaultState.learning_step,
+    ease_factor: defaultState.ease_factor,
+    interval: defaultState.interval,
+    repetitions: defaultState.repetitions,
+    next_review_at: defaultState.next_review_at,
+    due_timestamp: defaultState.due_timestamp,
   };
 }
 
@@ -323,7 +351,7 @@ class SyncService {
 
         if (newCards.length > 0) {
           // Need to get deck_id for each card from notes
-          const cardsByNote = new Map<string, Card[]>();
+          const cardsByNote = new Map<string, SyncCard[]>();
           for (const card of newCards) {
             const existing = cardsByNote.get(card.note_id) || [];
             existing.push(card);

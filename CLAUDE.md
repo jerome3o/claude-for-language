@@ -135,6 +135,44 @@ Uses Anthropic Claude API for several features:
 
 4. **Graceful degradation for other features**: Features that require internet (AI generation, Ask Claude, TTS generation) should fail gracefully with clear user feedback - not crash or hang.
 
+### Event-Sourcing Architecture (CRITICAL)
+
+**Review events are the SINGLE SOURCE OF TRUTH for card scheduling state.**
+
+#### Core Principles
+
+1. **Events are append-only**: Review events can only be added, never modified or deleted. Each event has a unique ID for deduplication.
+
+2. **Card state is derived, not stored**: The `queue`, `interval`, `ease_factor`, `repetitions`, etc. on cards are COMPUTED from the review event history. The stored values are just a cache for performance.
+
+3. **Both client and server compute state independently**:
+   - Client computes card state from local events
+   - Server computes card state from server events
+   - They should arrive at the same state given the same events
+
+4. **Sync exchanges events, not state**:
+   - Upload: Client sends unsynced events to server
+   - Download: Server sends events client doesn't have
+   - After sync, both sides recompute card state from merged events
+
+5. **Idempotent event sync**: Events are deduplicated by ID. Syncing the same event twice is safe - it's skipped if already exists.
+
+6. **Checkpoints for performance**: `card_checkpoints` table stores computed state at a point in time. This avoids replaying all events from the beginning. Checkpoints are ALWAYS re-derivable from events.
+
+#### What This Means in Practice
+
+- **Never trust card state from sync**: When downloading cards from server, ignore the scheduling fields. Either:
+  - Initialize as NEW and download events to compute real state, OR
+  - Download events first, then compute state from events
+
+- **Never store card state directly**: When a review happens, create an event and compute new state from events. Don't just update the card directly.
+
+- **State mismatches indicate bugs**: If computed state differs from stored state, the computed state is correct. Use `fixAllCardStates()` to repair.
+
+#### Future: State Override Events
+
+For manual state adjustments (e.g., admin resetting a card), we may add a `set_card_state` event type that explicitly sets state. This maintains the event-sourced model while allowing overrides.
+
 ### What Works Offline
 - Viewing decks and notes (from local cache)
 - **All study functionality** - card display, rating, queue management, daily limits

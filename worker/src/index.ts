@@ -2231,8 +2231,11 @@ app.get('/api/sync/changes', async (c) => {
   }
 
   // Get updated cards (across all user's notes)
+  // IMPORTANT: Only select identity/structure fields, NOT scheduling fields!
+  // Card scheduling state is computed from review events, not synced from server.
+  // This prevents stale server state from overwriting correct local state.
   const cardsResult = await c.env.DB.prepare(`
-    SELECT c.* FROM cards c
+    SELECT c.id, c.note_id, c.card_type, c.created_at, c.updated_at FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? AND c.updated_at > ?
