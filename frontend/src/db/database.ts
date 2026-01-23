@@ -10,8 +10,8 @@ export interface LocalReviewEvent {
   time_spent_ms: number | null;
   user_answer: string | null;
   reviewed_at: string;
-  // Sync metadata
-  _synced: boolean;
+  // Sync metadata (0 = unsynced, 1 = synced)
+  _synced: number;
   _created_at: string;
 }
 
@@ -114,7 +114,7 @@ export interface LocalStudySession {
   started_at: string;
   completed_at: string | null;
   cards_studied: number;
-  _synced: boolean;
+  _synced: number;
 }
 
 // Daily stats for tracking new cards studied (incremental counter)
@@ -652,7 +652,7 @@ export async function markReviewEventsSynced(eventIds: string[]): Promise<void> 
   await db.reviewEvents
     .where('id')
     .anyOf(eventIds)
-    .modify({ _synced: true });
+    .modify({ _synced: 1 });
 }
 
 // ============ Checkpoint Functions ============

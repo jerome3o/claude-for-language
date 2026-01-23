@@ -64,7 +64,7 @@ async function createReviewEvent(cardId: string, reviewedAt: Date) {
     time_spent_ms: 1000,
     user_answer: null,
     reviewed_at: reviewedAt.toISOString(),
-    _synced: false,
+    _synced: 0,
   });
 }
 

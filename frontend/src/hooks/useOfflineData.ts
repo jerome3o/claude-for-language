@@ -459,7 +459,7 @@ export function useSubmitReviewOffline() {
         time_spent_ms: timeSpentMs || null,
         user_answer: userAnswer || null,
         reviewed_at: reviewedAt,
-        _synced: false,
+        _synced: 0,
       });
 
       // Store recording blob separately (will be uploaded during sync)

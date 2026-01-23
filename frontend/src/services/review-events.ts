@@ -103,7 +103,7 @@ export async function recordReviewEvent(
     time_spent_ms: options.timeSpentMs ?? null,
     user_answer: options.userAnswer ?? null,
     reviewed_at: now,
-    _synced: false,
+    _synced: 0,
   };
 
   // Store the event
@@ -306,7 +306,7 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
           reviewed_at: serverEvent.reviewed_at,
           time_spent_ms: serverEvent.time_spent_ms,
           user_answer: serverEvent.user_answer,
-          _synced: true, // Already on server
+          _synced: 1, // Already on server
         });
         downloaded++;
         affectedCardIds.add(serverEvent.card_id);
