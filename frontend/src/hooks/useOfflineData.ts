@@ -208,7 +208,8 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
   );
 
   // Filter out excluded notes and pick the next card
-  // Priority: Learning due NOW > Current card (if still valid) > Mix(New, Review) proportionally > Learning with delay
+  // Priority: Current card (if still valid) > Learning due NOW > Mix(New, Review) proportionally > Learning with delay
+  // Note: Current card check is FIRST to prevent switching mid-review when learning cards become due
   const nextCard = useLiveQuery(async () => {
     const now = Date.now();
     console.log('[useOfflineNextCard] Card selection running', {
@@ -233,7 +234,23 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
       console.log('[useOfflineNextCard] Available cards after filtering:', availableCards.length);
 
       if (availableCards.length > 0) {
-        // 1. Learning/relearning cards due NOW always have priority (they have timers)
+        // 1. If we have a currently selected card and it's still available, keep it
+        // This prevents card switching mid-review (e.g., when a learning card becomes due)
+        if (currentSelectedCardId) {
+          const currentCard = availableCards.find(c => c.id === currentSelectedCardId);
+          if (currentCard) {
+            console.log('[useOfflineNextCard] Keeping current card:', {
+              cardId: currentCard.id,
+              noteId: currentCard.note_id,
+            });
+            return currentCard;
+          }
+          // Current card no longer available, clear it
+          console.log('[useOfflineNextCard] Current card no longer available, will select new');
+          currentSelectedCardId = null;
+        }
+
+        // 2. Learning/relearning cards due NOW have priority (they have timers)
         // Use weighted random: more overdue cards have higher chance, but not deterministic
         const learningDue = availableCards.filter(c =>
           (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
@@ -249,22 +266,6 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
             totalDue: learningDue.length,
           });
           return selected;
-        }
-
-        // 2. If we have a currently selected card and it's still available, keep it
-        // This prevents flickering from random re-selection on each render
-        if (currentSelectedCardId) {
-          const currentCard = availableCards.find(c => c.id === currentSelectedCardId);
-          if (currentCard) {
-            console.log('[useOfflineNextCard] Keeping current card:', {
-              cardId: currentCard.id,
-              noteId: currentCard.note_id,
-            });
-            return currentCard;
-          }
-          // Current card no longer available, clear it
-          console.log('[useOfflineNextCard] Current card no longer available, will select new');
-          currentSelectedCardId = null;
         }
 
         // 3. Mix new and review cards proportionally (Anki "Mix with reviews" mode)
