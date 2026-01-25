@@ -16,6 +16,40 @@ import { scheduleCard, deckSettingsFromDb, DeckSettings, DEFAULT_DECK_SETTINGS, 
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview } from '../types';
 
+// Helper: Pick a random element from an array
+function pickRandom<T>(arr: T[]): T | null {
+  if (arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Helper: Weighted random selection for learning cards
+// Cards that are more overdue get higher weight, but there's still randomness
+function pickWeightedLearningCard(cards: LocalCard[], now: number): LocalCard | null {
+  if (cards.length === 0) return null;
+  if (cards.length === 1) return cards[0];
+
+  // Calculate weights: base weight of 1, plus bonus for how overdue (in minutes)
+  // A card 10 minutes overdue has ~11x the weight of one just now due
+  const weights = cards.map(card => {
+    const overdueMs = Math.max(0, now - (card.due_timestamp || now));
+    const overdueMinutes = overdueMs / 60000;
+    return 1 + overdueMinutes;
+  });
+
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  let random = Math.random() * totalWeight;
+
+  for (let i = 0; i < cards.length; i++) {
+    random -= weights[i];
+    if (random <= 0) {
+      return cards[i];
+    }
+  }
+
+  // Fallback (shouldn't happen)
+  return cards[cards.length - 1];
+}
+
 // Hook to get all decks from IndexedDB with background sync
 // Pass apiDecks to detect mismatches and auto-fix via full sync
 export function useOfflineDecks(apiDecks?: { id: string }[]) {
@@ -174,7 +208,8 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
   );
 
   // Filter out excluded notes and pick the next card
-  // Priority: Learning due NOW > Current card (if still valid) > Mix(New, Review) proportionally > Learning with delay
+  // Priority: Current card (if still valid) > Learning due NOW > Mix(New, Review) proportionally > Learning with delay
+  // Note: Current card check is FIRST to prevent switching mid-review when learning cards become due
   const nextCard = useLiveQuery(async () => {
     const now = Date.now();
     console.log('[useOfflineNextCard] Card selection running', {
@@ -199,24 +234,8 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
       console.log('[useOfflineNextCard] Available cards after filtering:', availableCards.length);
 
       if (availableCards.length > 0) {
-        // 1. Learning/relearning cards due NOW always have priority (they have timers)
-        const learningDue = availableCards.filter(c =>
-          (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-          c.due_timestamp && c.due_timestamp <= now
-        );
-        if (learningDue.length > 0) {
-          learningDue.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-          currentSelectedCardId = learningDue[0].id;
-          console.log('[useOfflineNextCard] Selected LEARNING card (due now):', {
-            cardId: learningDue[0].id,
-            queue: learningDue[0].queue,
-            noteId: learningDue[0].note_id,
-          });
-          return learningDue[0];
-        }
-
-        // 2. If we have a currently selected card and it's still available, keep it
-        // This prevents flickering from random re-selection on each render
+        // 1. If we have a currently selected card and it's still available, keep it
+        // This prevents card switching mid-review (e.g., when a learning card becomes due)
         if (currentSelectedCardId) {
           const currentCard = availableCards.find(c => c.id === currentSelectedCardId);
           if (currentCard) {
@@ -231,6 +250,24 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
           currentSelectedCardId = null;
         }
 
+        // 2. Learning/relearning cards due NOW have priority (they have timers)
+        // Use weighted random: more overdue cards have higher chance, but not deterministic
+        const learningDue = availableCards.filter(c =>
+          (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+          c.due_timestamp && c.due_timestamp <= now
+        );
+        if (learningDue.length > 0) {
+          const selected = pickWeightedLearningCard(learningDue, now)!;
+          currentSelectedCardId = selected.id;
+          console.log('[useOfflineNextCard] Selected LEARNING card (weighted random):', {
+            cardId: selected.id,
+            queue: selected.queue,
+            noteId: selected.note_id,
+            totalDue: learningDue.length,
+          });
+          return selected;
+        }
+
         // 3. Mix new and review cards proportionally (Anki "Mix with reviews" mode)
         const newCards = availableCards.filter(c => c.queue === CardQueue.NEW);
         const reviewCards = availableCards.filter(c => c.queue === CardQueue.REVIEW);
@@ -238,6 +275,7 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
 
         if (totalMixable > 0) {
           // Proportional selection: probability based on queue sizes
+          // Then random selection within the chosen queue
           const newProbability = newCards.length / totalMixable;
           const random = Math.random();
           console.log('[useOfflineNextCard] Proportional selection:', {
@@ -250,22 +288,24 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
 
           let selectedCard: LocalCard | null = null;
           if (random < newProbability && newCards.length > 0) {
-            selectedCard = newCards[0];
-            console.log('[useOfflineNextCard] Selected NEW card:', {
-              cardId: selectedCard.id,
-              noteId: selectedCard.note_id,
+            selectedCard = pickRandom(newCards);
+            console.log('[useOfflineNextCard] Selected NEW card (random):', {
+              cardId: selectedCard?.id,
+              noteId: selectedCard?.note_id,
+              totalNew: newCards.length,
             });
           } else if (reviewCards.length > 0) {
-            selectedCard = reviewCards[0];
-            console.log('[useOfflineNextCard] Selected REVIEW card:', {
-              cardId: selectedCard.id,
-              noteId: selectedCard.note_id,
+            selectedCard = pickRandom(reviewCards);
+            console.log('[useOfflineNextCard] Selected REVIEW card (random):', {
+              cardId: selectedCard?.id,
+              noteId: selectedCard?.note_id,
+              totalReview: reviewCards.length,
             });
           } else if (newCards.length > 0) {
-            selectedCard = newCards[0];
-            console.log('[useOfflineNextCard] Fallback to NEW card:', {
-              cardId: selectedCard.id,
-              noteId: selectedCard.note_id,
+            selectedCard = pickRandom(newCards);
+            console.log('[useOfflineNextCard] Fallback to NEW card (random):', {
+              cardId: selectedCard?.id,
+              noteId: selectedCard?.note_id,
             });
           }
 
@@ -297,15 +337,17 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     // The excludeNoteIds filter is only for NEW/REVIEW cards to provide variety.
 
     if (delayedLearningCards.length > 0) {
-      // Return the one with the shortest delay
-      delayedLearningCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-      currentSelectedCardId = delayedLearningCards[0].id;
-      console.log('[useOfflineNextCard] Selected DELAYED LEARNING card:', {
-        cardId: delayedLearningCards[0].id,
-        noteId: delayedLearningCards[0].note_id,
-        dueTimestamp: delayedLearningCards[0].due_timestamp,
+      // Random selection from delayed learning cards
+      // (They'll all become due soon anyway, so randomize for variety)
+      const selected = pickRandom(delayedLearningCards)!;
+      currentSelectedCardId = selected.id;
+      console.log('[useOfflineNextCard] Selected DELAYED LEARNING card (random):', {
+        cardId: selected.id,
+        noteId: selected.note_id,
+        dueTimestamp: selected.due_timestamp,
+        totalDelayed: delayedLearningCards.length,
       });
-      return delayedLearningCards[0];
+      return selected;
     }
 
     console.log('[useOfflineNextCard] No card selected');
