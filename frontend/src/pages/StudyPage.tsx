@@ -341,11 +341,34 @@ function StudyCard({
     }
   };
 
+  // Render context box if note has conversation context
+  const renderContext = () => {
+    if (!card.note.context) return null;
+    return (
+      <div
+        className="mb-3 text-light"
+        style={{
+          fontSize: '0.75rem',
+          maxHeight: '80px',
+          overflowY: 'auto',
+          padding: '0.5rem',
+          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+          borderRadius: '4px',
+          whiteSpace: 'pre-wrap',
+          textAlign: 'left',
+        }}
+      >
+        {card.note.context}
+      </div>
+    );
+  };
+
   const renderFront = () => {
     switch (card.card_type) {
       case 'hanzi_to_meaning':
         return (
           <div className="text-center">
+            {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
             <div className="hanzi hanzi-large">{card.note.hanzi}</div>
           </div>
@@ -354,6 +377,7 @@ function StudyCard({
       case 'meaning_to_hanzi':
         return (
           <div className="text-center">
+            {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
             <div style={{ fontSize: '1.5rem', fontWeight: 500 }}>{card.note.english}</div>
           </div>
@@ -362,6 +386,7 @@ function StudyCard({
       case 'audio_to_hanzi':
         return (
           <div className="text-center">
+            {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
             <button
               className="btn btn-secondary mb-3"

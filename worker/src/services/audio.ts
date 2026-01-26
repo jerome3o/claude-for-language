@@ -91,8 +91,8 @@ export async function generateMiniMaxTTS(
         text: text,
         stream: false,
         voice_setting: {
-          voice_id: 'female-tianmei',
-          speed: 0.8, // Slower for learning
+          voice_id: 'female-yujie',
+          speed: 0.5, // Slower for learning
         },
         audio_setting: {
           format: 'mp3',
@@ -259,6 +259,129 @@ export async function generateTTS(
   const googleKey = await generateGoogleTTS(env, text, noteId);
   if (googleKey) {
     return { audioKey: googleKey, provider: 'gtts' };
+  }
+
+  return null;
+}
+
+export interface ConversationTTSOptions {
+  voiceId?: string;
+  speed?: number;
+}
+
+export interface ConversationTTSResult {
+  audioBase64: string;
+  contentType: string;
+  provider: AudioProvider;
+}
+
+/**
+ * Generate TTS audio for conversation messages (no storage, returns base64)
+ * Supports configurable voice settings per conversation
+ */
+export async function generateConversationTTS(
+  env: Env,
+  text: string,
+  options: ConversationTTSOptions = {}
+): Promise<ConversationTTSResult | null> {
+  const voiceId = options.voiceId || 'female-yujie';
+  const speed = options.speed || 0.5;
+
+  // Try MiniMax first
+  if (env.MINIMAX_API_KEY) {
+    try {
+      const response = await fetch('https://api.minimax.io/v1/t2a_v2', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.MINIMAX_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'speech-02-hd',
+          text: text,
+          stream: false,
+          voice_setting: {
+            voice_id: voiceId,
+            speed: speed,
+          },
+          audio_setting: {
+            format: 'mp3',
+            sample_rate: 32000,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as {
+          data?: { audio?: string };
+          base_resp?: { status_code: number; status_msg: string };
+        };
+
+        const audioData = data.data?.audio;
+        if (audioData) {
+          // Detect encoding: hex only uses 0-9a-fA-F, base64 uses more chars
+          const isLikelyHex = /^[0-9a-fA-F]+$/.test(audioData.slice(0, 100));
+
+          let audioBase64: string;
+          if (isLikelyHex) {
+            // Convert hex to base64
+            const bytes = new Uint8Array(audioData.length / 2);
+            for (let i = 0; i < audioData.length; i += 2) {
+              bytes[i / 2] = parseInt(audioData.substr(i, 2), 16);
+            }
+            audioBase64 = btoa(String.fromCharCode(...bytes));
+          } else {
+            audioBase64 = audioData;
+          }
+
+          return {
+            audioBase64,
+            contentType: 'audio/mpeg',
+            provider: 'minimax',
+          };
+        }
+      }
+    } catch (error) {
+      console.error('[TTS] MiniMax conversation TTS failed:', error);
+    }
+  }
+
+  // Fall back to Google TTS
+  if (env.GOOGLE_TTS_API_KEY) {
+    try {
+      const response = await fetch(
+        `https://texttospeech.googleapis.com/v1/text:synthesize?key=${env.GOOGLE_TTS_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            input: { text },
+            voice: {
+              languageCode: 'cmn-CN',
+              name: 'cmn-CN-Wavenet-C',
+              ssmlGender: 'FEMALE',
+            },
+            audioConfig: {
+              audioEncoding: 'MP3',
+              speakingRate: speed,
+            },
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json() as { audioContent: string };
+        return {
+          audioBase64: data.audioContent,
+          contentType: 'audio/mpeg',
+          provider: 'gtts',
+        };
+      }
+    } catch (error) {
+      console.error('[TTS] Google conversation TTS failed:', error);
+    }
   }
 
   return null;

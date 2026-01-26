@@ -14,6 +14,7 @@ import {
   getOtherUserInRelationship,
   getMyRoleInRelationship,
   Deck,
+  isClaudeUser,
 } from '../types';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,6 +29,9 @@ export function ConnectionDetailPage() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showNewConvModal, setShowNewConvModal] = useState(false);
   const [newConvTitle, setNewConvTitle] = useState('');
+  const [newConvScenario, setNewConvScenario] = useState('');
+  const [newConvUserRole, setNewConvUserRole] = useState('');
+  const [newConvAIRole, setNewConvAIRole] = useState('');
 
   const relationshipQuery = useQuery({
     queryKey: ['relationship', relId],
@@ -54,11 +58,15 @@ export function ConnectionDetailPage() {
   });
 
   const createConvMutation = useMutation({
-    mutationFn: ({ title }: { title?: string }) => createConversation(relId!, title),
+    mutationFn: (options: { title?: string; scenario?: string; user_role?: string; ai_role?: string }) =>
+      createConversation(relId!, options),
     onSuccess: (conv) => {
       queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
       setShowNewConvModal(false);
       setNewConvTitle('');
+      setNewConvScenario('');
+      setNewConvUserRole('');
+      setNewConvAIRole('');
       navigate(`/connections/${relId}/chat/${conv.id}`);
     },
   });
@@ -84,7 +92,12 @@ export function ConnectionDetailPage() {
 
   const handleCreateConversation = (e: React.FormEvent) => {
     e.preventDefault();
-    createConvMutation.mutate({ title: newConvTitle.trim() || undefined });
+    createConvMutation.mutate({
+      title: newConvTitle.trim() || undefined,
+      scenario: newConvScenario.trim() || undefined,
+      user_role: newConvUserRole.trim() || undefined,
+      ai_role: newConvAIRole.trim() || undefined,
+    });
   };
 
   if (relationshipQuery.isLoading) {
@@ -99,6 +112,7 @@ export function ConnectionDetailPage() {
   const otherUser = getOtherUserInRelationship(relationship, user!.id);
   const myRole = getMyRoleInRelationship(relationship, user!.id);
   const iAmTutor = myRole === 'tutor';
+  const isClaudeRelationship = isClaudeUser(otherUser.id);
 
   const conversations = conversationsQuery.data || [];
   const sharedDecks = sharedDecksQuery.data || [];
@@ -254,7 +268,7 @@ export function ConnectionDetailPage() {
       {showNewConvModal && (
         <div className="modal-overlay" onClick={() => setShowNewConvModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>New Conversation</h3>
+            <h3>{isClaudeRelationship ? 'New Practice Conversation' : 'New Conversation'}</h3>
             <form onSubmit={handleCreateConversation}>
               <div className="form-group">
                 <label htmlFor="conv-title">Title (optional)</label>
@@ -263,9 +277,44 @@ export function ConnectionDetailPage() {
                   type="text"
                   value={newConvTitle}
                   onChange={(e) => setNewConvTitle(e.target.value)}
-                  placeholder="e.g., Homework Help"
+                  placeholder={isClaudeRelationship ? 'e.g., Restaurant Practice' : 'e.g., Homework Help'}
                 />
               </div>
+              {isClaudeRelationship && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="conv-scenario">Scenario (optional)</label>
+                    <textarea
+                      id="conv-scenario"
+                      value={newConvScenario}
+                      onChange={(e) => setNewConvScenario(e.target.value)}
+                      placeholder="Describe the situation, e.g., 'You are ordering food at a Chinese restaurant. The waiter only speaks Mandarin.'"
+                      rows={3}
+                    />
+                    <small className="form-hint">This helps Claude understand the context for the conversation.</small>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="conv-user-role">Your role (optional)</label>
+                    <input
+                      id="conv-user-role"
+                      type="text"
+                      value={newConvUserRole}
+                      onChange={(e) => setNewConvUserRole(e.target.value)}
+                      placeholder="e.g., A tourist visiting Beijing"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="conv-ai-role">Claude's role (optional)</label>
+                    <input
+                      id="conv-ai-role"
+                      type="text"
+                      value={newConvAIRole}
+                      onChange={(e) => setNewConvAIRole(e.target.value)}
+                      placeholder="e.g., A friendly restaurant waiter"
+                    />
+                  </div>
+                </>
+              )}
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowNewConvModal(false)}>
                   Cancel

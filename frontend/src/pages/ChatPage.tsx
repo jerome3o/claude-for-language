@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getRelationship,
   getMessages,
@@ -10,10 +10,21 @@ import {
   createNote,
   createDeck,
   getDecks,
+  getAIResponse,
+  generateConversationTTS,
+  checkMessage,
+  uploadMessageRecording,
+  updateConversationVoiceSettings,
+  getConversations,
 } from '../api/client';
 import {
   MessageWithSender,
   getOtherUserInRelationship,
+  isClaudeUser,
+  Conversation,
+  MINIMAX_VOICES,
+  GeneratedNoteWithContext,
+  CheckMessageResponse,
 } from '../types';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,6 +36,7 @@ export function ChatPage() {
   const { relId, convId } = useParams<{ relId: string; convId: string }>();
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
 
   const [newMessages, setNewMessages] = useState<MessageWithSender[]>([]);
   const [lastTimestamp, setLastTimestamp] = useState<string | null>(null);
@@ -35,26 +47,52 @@ export function ChatPage() {
     pinyin: string;
     english: string;
     fun_facts?: string;
+    context?: string;
   } | null>(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Response options (help me respond) state
+  // Response options (I don't know) state
   const [isGeneratingOptions, setIsGeneratingOptions] = useState(false);
-  const [responseOptions, setResponseOptions] = useState<Array<{
-    hanzi: string;
-    pinyin: string;
-    english: string;
-    fun_facts?: string;
-  }> | null>(null);
+  const [responseOptions, setResponseOptions] = useState<GeneratedNoteWithContext[] | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
   const [showResponseOptionsModal, setShowResponseOptionsModal] = useState(false);
   const [isSavingOptions, setIsSavingOptions] = useState(false);
+
+  // AI conversation state
+  const [isWaitingForAI, setIsWaitingForAI] = useState(false);
+  const [playingAudioMessageId, setPlayingAudioMessageId] = useState<string | null>(null);
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+
+  // Message checking state
+  const [checkingMessageId, setCheckingMessageId] = useState<string | null>(null);
+  const [checkResults, setCheckResults] = useState<Map<string, CheckMessageResponse>>(new Map());
+  const [showCheckResultModal, setShowCheckResultModal] = useState(false);
+  const [currentCheckResult, setCurrentCheckResult] = useState<{
+    messageId: string;
+    result: CheckMessageResponse;
+  } | null>(null);
+
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [recordingChunks, setRecordingChunks] = useState<Blob[]>([]);
+  const [recordingForMessageId, setRecordingForMessageId] = useState<string | null>(null);
+
+  // Voice settings state
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
 
   // Reset state when conversation changes
   useEffect(() => {
     setNewMessages([]);
     setLastTimestamp(null);
+    setCheckResults(new Map());
+    // Stop any playing audio
+    if (audioElement) {
+      audioElement.pause();
+      setAudioElement(null);
+      setPlayingAudioMessageId(null);
+    }
   }, [convId]);
 
   const relationshipQuery = useQuery({
@@ -62,6 +100,16 @@ export function ChatPage() {
     queryFn: () => getRelationship(relId!),
     enabled: !!relId,
   });
+
+  // Get conversation details
+  const conversationsQuery = useQuery({
+    queryKey: ['conversations', relId],
+    queryFn: () => getConversations(relId!),
+    enabled: !!relId,
+  });
+
+  const conversation = conversationsQuery.data?.find(c => c.id === convId);
+  const isAIConversation = conversation?.is_ai_conversation ?? false;
 
   // Initial messages load
   const initialMessagesQuery = useQuery({
@@ -111,17 +159,151 @@ export function ChatPage() {
 
   const sendMutation = useMutation({
     mutationFn: (content: string) => sendMessage(convId!, content),
-    onSuccess: (newMsg) => {
+    onSuccess: async (newMsg) => {
       setNewMessages(prev => [...prev, newMsg]);
       setLastTimestamp(newMsg.created_at);
       setNewMessage('');
+
+      // If AI conversation, auto-trigger AI response
+      if (isAIConversation) {
+        setIsWaitingForAI(true);
+        try {
+          const response = await getAIResponse(convId!);
+          setNewMessages(prev => [...prev, response.message]);
+          setLastTimestamp(response.message.created_at);
+
+          // Play audio if available
+          if (response.audio_base64 && response.audio_content_type) {
+            playBase64Audio(response.audio_base64, response.audio_content_type, response.message.id);
+          }
+        } catch (error) {
+          console.error('Failed to get AI response:', error);
+        } finally {
+          setIsWaitingForAI(false);
+        }
+      }
     },
   });
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || sendMutation.isPending) return;
+    if (!newMessage.trim() || sendMutation.isPending || isWaitingForAI) return;
     sendMutation.mutate(newMessage.trim());
+  };
+
+  // Audio playback functions
+  const playBase64Audio = (base64: string, contentType: string, messageId: string) => {
+    // Stop any currently playing audio
+    if (audioElement) {
+      audioElement.pause();
+    }
+
+    const audio = new Audio(`data:${contentType};base64,${base64}`);
+    setAudioElement(audio);
+    setPlayingAudioMessageId(messageId);
+
+    audio.onended = () => {
+      setPlayingAudioMessageId(null);
+      setAudioElement(null);
+    };
+
+    audio.onerror = () => {
+      setPlayingAudioMessageId(null);
+      setAudioElement(null);
+    };
+
+    audio.play();
+  };
+
+  const handlePlayMessageAudio = async (msg: MessageWithSender) => {
+    if (playingAudioMessageId === msg.id) {
+      // Stop playing
+      if (audioElement) {
+        audioElement.pause();
+        setAudioElement(null);
+        setPlayingAudioMessageId(null);
+      }
+      return;
+    }
+
+    setPlayingAudioMessageId(msg.id);
+    try {
+      const result = await generateConversationTTS(
+        convId!,
+        msg.content,
+        conversation?.voice_id || undefined,
+        conversation?.voice_speed || undefined
+      );
+      playBase64Audio(result.audio_base64, result.content_type, msg.id);
+    } catch (error) {
+      console.error('Failed to generate TTS:', error);
+      setPlayingAudioMessageId(null);
+    }
+  };
+
+  // Message checking
+  const handleCheckMessage = async (msg: MessageWithSender) => {
+    if (checkingMessageId) return;
+
+    setCheckingMessageId(msg.id);
+    try {
+      const result = await checkMessage(msg.id);
+      setCheckResults(prev => new Map(prev).set(msg.id, result));
+
+      if (result.status === 'needs_improvement' && result.corrections) {
+        setCurrentCheckResult({ messageId: msg.id, result });
+        setShowCheckResultModal(true);
+      }
+    } catch (error) {
+      console.error('Failed to check message:', error);
+    } finally {
+      setCheckingMessageId(null);
+    }
+  };
+
+  // Recording functions
+  const startRecording = async (messageId: string) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        setRecordingChunks([]);
+        stream.getTracks().forEach(track => track.stop());
+
+        // Upload recording
+        try {
+          await uploadMessageRecording(messageId, blob);
+        } catch (error) {
+          console.error('Failed to upload recording:', error);
+        }
+      };
+
+      setMediaRecorder(recorder);
+      setRecordingChunks(chunks);
+      setRecordingForMessageId(messageId);
+      setIsRecording(true);
+      recorder.start();
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setMediaRecorder(null);
+      setRecordingForMessageId(null);
+    }
   };
 
   const handleGenerateFlashcard = async () => {
@@ -149,6 +331,7 @@ export function ChatPage() {
         pinyin: generatedCard.pinyin,
         english: generatedCard.english,
         fun_facts: generatedCard.fun_facts,
+        context: generatedCard.context,
       });
       setShowSaveModal(false);
       setGeneratedCard(null);
@@ -161,7 +344,8 @@ export function ChatPage() {
     }
   };
 
-  const handleGenerateResponseOptions = async () => {
+  // "I don't know" - generate response options
+  const handleIDontKnow = async () => {
     if (!convId) return;
     setIsGeneratingOptions(true);
     setResponseOptions(null);
@@ -203,6 +387,7 @@ export function ChatPage() {
           pinyin: card.pinyin,
           english: card.english,
           fun_facts: card.fun_facts,
+          context: card.context,
         });
       }
       setShowResponseOptionsModal(false);
@@ -214,6 +399,51 @@ export function ChatPage() {
       alert('Failed to save flashcards');
     } finally {
       setIsSavingOptions(false);
+    }
+  };
+
+  // Save check result corrections as flashcards
+  const handleSaveCorrections = async (deckId: string) => {
+    if (!currentCheckResult?.result.corrections) return;
+    setIsSaving(true);
+    try {
+      for (const correction of currentCheckResult.result.corrections) {
+        await createNote(deckId, {
+          hanzi: correction.hanzi,
+          pinyin: correction.pinyin,
+          english: correction.english,
+          fun_facts: correction.fun_facts,
+        });
+      }
+      setShowCheckResultModal(false);
+      setCurrentCheckResult(null);
+      alert(`${currentCheckResult.result.corrections.length} correction(s) saved as flashcards!`);
+    } catch (error) {
+      console.error('Failed to save corrections:', error);
+      alert('Failed to save corrections');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Voice settings handlers
+  const handleVoiceChange = async (voiceId: string) => {
+    if (!convId) return;
+    try {
+      await updateConversationVoiceSettings(convId, voiceId, undefined);
+      queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
+    } catch (error) {
+      console.error('Failed to update voice:', error);
+    }
+  };
+
+  const handleSpeedChange = async (speed: number) => {
+    if (!convId) return;
+    try {
+      await updateConversationVoiceSettings(convId, undefined, speed);
+      queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
+    } catch (error) {
+      console.error('Failed to update speed:', error);
     }
   };
 
@@ -260,6 +490,11 @@ export function ChatPage() {
     }
   }
 
+  // Check if message content looks like Chinese
+  const looksLikeChinese = (text: string) => {
+    return /[\u4e00-\u9fff]/.test(text);
+  };
+
   return (
     <div className="chat-page">
       {/* Header */}
@@ -273,22 +508,45 @@ export function ChatPage() {
               {(otherUser.name || otherUser.email || '?')[0].toUpperCase()}
             </div>
           )}
-          <span className="chat-header-name">{otherUser.name || 'Unknown'}</span>
+          <span className="chat-header-name">
+            {otherUser.name || 'Unknown'}
+            {isAIConversation && <span className="ai-badge">AI</span>}
+          </span>
         </div>
-        <button
-          className="btn btn-sm btn-secondary"
-          onClick={handleGenerateFlashcard}
-          disabled={isGenerating || messages.length === 0}
-        >
-          {isGenerating ? '...' : '+ Card'}
-        </button>
+        <div className="chat-header-actions">
+          {isAIConversation && (
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={() => setShowVoiceSettings(true)}
+              title="Voice settings"
+            >
+              🔊
+            </button>
+          )}
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={handleGenerateFlashcard}
+            disabled={isGenerating || messages.length === 0}
+          >
+            {isGenerating ? '...' : '+ Card'}
+          </button>
+        </div>
       </div>
+
+      {/* Scenario info for AI conversations */}
+      {isAIConversation && conversation?.scenario && (
+        <div className="chat-scenario-banner">
+          <strong>Scenario:</strong> {conversation.scenario}
+          {conversation.user_role && <span> | You: {conversation.user_role}</span>}
+          {conversation.ai_role && <span> | AI: {conversation.ai_role}</span>}
+        </div>
+      )}
 
       {/* Messages */}
       <div className="chat-messages">
         {messages.length === 0 ? (
           <div className="chat-empty">
-            <p>Start the conversation!</p>
+            <p>{isAIConversation ? 'Start practicing Chinese!' : 'Start the conversation!'}</p>
           </div>
         ) : (
           messagesByDate.map((group, i) => (
@@ -298,6 +556,12 @@ export function ChatPage() {
               </div>
               {group.messages.map((msg) => {
                 const isMe = msg.sender_id === user!.id;
+                const isAI = isClaudeUser(msg.sender_id);
+                const checkResult = checkResults.get(msg.id);
+                const isPlaying = playingAudioMessageId === msg.id;
+                const isChecking = checkingMessageId === msg.id;
+                const hasChineseContent = looksLikeChinese(msg.content);
+
                 return (
                   <div key={msg.id} className={`chat-message ${isMe ? 'sent' : 'received'}`}>
                     {!isMe && (
@@ -306,20 +570,85 @@ export function ChatPage() {
                           <img src={msg.sender.picture_url} alt="" />
                         ) : (
                           <div className="placeholder">
-                            {(msg.sender.name || '?')[0].toUpperCase()}
+                            {isAI ? '🤖' : (msg.sender.name || '?')[0].toUpperCase()}
                           </div>
                         )}
                       </div>
                     )}
                     <div className="chat-message-content">
-                      <div className="chat-bubble">{msg.content}</div>
-                      <span className="chat-time">{formatTime(msg.created_at)}</span>
+                      <div className="chat-bubble">
+                        {msg.content}
+                        {/* Check status indicator */}
+                        {isMe && checkResult && (
+                          <span className={`check-status ${checkResult.status}`}>
+                            {checkResult.status === 'correct' ? '✓' : '⚠'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="chat-message-meta">
+                        <span className="chat-time">{formatTime(msg.created_at)}</span>
+                        {/* Message actions */}
+                        <div className="chat-message-actions">
+                          {/* Play audio button (for Chinese content) */}
+                          {hasChineseContent && (
+                            <button
+                              className={`msg-action-btn ${isPlaying ? 'playing' : ''}`}
+                              onClick={() => handlePlayMessageAudio(msg)}
+                              title="Play audio"
+                            >
+                              {isPlaying ? '⏹' : '🔊'}
+                            </button>
+                          )}
+                          {/* Check button (for user's own messages) */}
+                          {isMe && hasChineseContent && !checkResult && (
+                            <button
+                              className="msg-action-btn"
+                              onClick={() => handleCheckMessage(msg)}
+                              disabled={isChecking}
+                              title="Check my Chinese"
+                            >
+                              {isChecking ? '...' : '✓?'}
+                            </button>
+                          )}
+                          {/* View check result (if has corrections) */}
+                          {isMe && checkResult?.status === 'needs_improvement' && (
+                            <button
+                              className="msg-action-btn"
+                              onClick={() => {
+                                setCurrentCheckResult({ messageId: msg.id, result: checkResult });
+                                setShowCheckResultModal(true);
+                              }}
+                              title="View corrections"
+                            >
+                              📝
+                            </button>
+                          )}
+                          {/* Recording indicator */}
+                          {msg.recording_url && (
+                            <span className="has-recording" title="Has recording">🎤</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           ))
+        )}
+        {isWaitingForAI && (
+          <div className="chat-message received">
+            <div className="chat-message-avatar">
+              <div className="placeholder">🤖</div>
+            </div>
+            <div className="chat-message-content">
+              <div className="chat-bubble typing">
+                <span className="dot"></span>
+                <span className="dot"></span>
+                <span className="dot"></span>
+              </div>
+            </div>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -329,25 +658,25 @@ export function ChatPage() {
         <button
           type="button"
           className="btn btn-secondary chat-help-btn"
-          onClick={handleGenerateResponseOptions}
+          onClick={handleIDontKnow}
           disabled={isGeneratingOptions || messages.length === 0}
-          title="Help me respond"
+          title="I don't know what to say"
         >
-          {isGeneratingOptions ? '...' : '?'}
+          {isGeneratingOptions ? '...' : '❓'}
         </button>
         <input
           type="text"
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Type a message..."
+          placeholder={isAIConversation ? "Type in Chinese..." : "Type a message..."}
           className="chat-input"
         />
         <button
           type="submit"
           className="btn btn-primary chat-send"
-          disabled={!newMessage.trim() || sendMutation.isPending}
+          disabled={!newMessage.trim() || sendMutation.isPending || isWaitingForAI}
         >
-          Send
+          {isWaitingForAI ? '...' : 'Send'}
         </button>
       </form>
 
@@ -377,11 +706,11 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* Response Options Modal */}
+      {/* Response Options Modal (I don't know) */}
       {showResponseOptionsModal && responseOptions && (
         <div className="modal-overlay" onClick={() => setShowResponseOptionsModal(false)}>
           <div className="modal response-options-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Response Options</h3>
+            <h3>What could I say?</h3>
             <p className="modal-subtitle">Select the responses you'd like to save as flashcards:</p>
             <div className="response-options-list">
               {responseOptions.map((option, index) => (
@@ -400,6 +729,11 @@ export function ChatPage() {
                     {option.fun_facts && (
                       <div className="option-funfacts">{option.fun_facts}</div>
                     )}
+                    {option.context && (
+                      <div className="option-context">
+                        <small>Context: {option.context}</small>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -414,6 +748,80 @@ export function ChatPage() {
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowResponseOptionsModal(false)}>
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Check Result Modal */}
+      {showCheckResultModal && currentCheckResult && (
+        <div className="modal-overlay" onClick={() => setShowCheckResultModal(false)}>
+          <div className="modal check-result-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Check Result</h3>
+            <div className="check-feedback">
+              <p>{currentCheckResult.result.feedback}</p>
+            </div>
+            {currentCheckResult.result.corrections && currentCheckResult.result.corrections.length > 0 && (
+              <>
+                <h4>Suggested Corrections</h4>
+                <div className="corrections-list">
+                  {currentCheckResult.result.corrections.map((correction, index) => (
+                    <div key={index} className="correction-card">
+                      <div className="correction-hanzi">{correction.hanzi}</div>
+                      <div className="correction-pinyin">{correction.pinyin}</div>
+                      <div className="correction-english">{correction.english}</div>
+                      {correction.fun_facts && (
+                        <div className="correction-funfacts">{correction.fun_facts}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <DeckSelector
+                  onSelect={(deckId) => handleSaveCorrections(deckId)}
+                  isSaving={isSaving}
+                />
+              </>
+            )}
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowCheckResultModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Voice Settings Modal */}
+      {showVoiceSettings && (
+        <div className="modal-overlay" onClick={() => setShowVoiceSettings(false)}>
+          <div className="modal voice-settings-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Voice Settings</h3>
+            <div className="voice-setting-group">
+              <label>Voice:</label>
+              <select
+                value={conversation?.voice_id || 'female-yujie'}
+                onChange={(e) => handleVoiceChange(e.target.value)}
+              >
+                {MINIMAX_VOICES.map((voice) => (
+                  <option key={voice.id} value={voice.id}>{voice.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="voice-setting-group">
+              <label>Speed: {conversation?.voice_speed || 0.5}x</label>
+              <input
+                type="range"
+                min="0.3"
+                max="1.0"
+                step="0.1"
+                value={conversation?.voice_speed || 0.5}
+                onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-primary" onClick={() => setShowVoiceSettings(false)}>
+                Done
               </button>
             </div>
           </div>

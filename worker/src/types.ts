@@ -114,6 +114,7 @@ export interface Note {
   audio_url: string | null;
   audio_provider: AudioProvider | null;
   fun_facts: string | null;
+  context: string | null;  // Conversation context shown on card front
   created_at: string;
   updated_at: string;
 }
@@ -172,6 +173,7 @@ export interface CreateNoteRequest {
   pinyin: string;
   english: string;
   fun_facts?: string;
+  context?: string;  // Conversation context to show on card front
 }
 
 export interface UpdateNoteRequest {
@@ -297,6 +299,13 @@ export interface Conversation {
   title: string | null;
   created_at: string;
   last_message_at: string | null;
+  // AI conversation fields
+  scenario: string | null;
+  user_role: string | null;
+  ai_role: string | null;
+  is_ai_conversation: boolean;
+  voice_id: string | null;
+  voice_speed: number | null;
 }
 
 export interface ConversationWithLastMessage extends Conversation {
@@ -304,12 +313,18 @@ export interface ConversationWithLastMessage extends Conversation {
   other_user: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 }
 
+export type MessageCheckStatus = 'correct' | 'needs_improvement';
+
 export interface Message {
   id: string;
   conversation_id: string;
   sender_id: string;
   content: string;
   created_at: string;
+  // Check status for user messages
+  check_status: MessageCheckStatus | null;
+  check_feedback: string | null;
+  recording_url: string | null;
 }
 
 export interface MessageWithSender extends Message {
@@ -337,6 +352,12 @@ export interface CreateRelationshipRequest {
 
 export interface CreateConversationRequest {
   title?: string;
+  // AI conversation fields (optional for regular conversations)
+  scenario?: string;
+  user_role?: string;
+  ai_role?: string;
+  voice_id?: string;
+  voice_speed?: number;
 }
 
 export interface SendMessageRequest {
@@ -422,4 +443,57 @@ export interface CreateTutorReviewRequest {
 
 export interface RespondToTutorReviewRequest {
   response: string;
+}
+
+// ============ AI Conversation Types ============
+
+export const CLAUDE_AI_USER_ID = 'claude-ai';
+
+export interface CreateAIConversationRequest {
+  title?: string;
+  scenario: string;
+  user_role: string;
+  ai_role: string;
+  voice_id?: string;
+  voice_speed?: number;
+}
+
+export interface AIRespondRequest {
+  // Optional: override voice settings for this response
+  voice_id?: string;
+  voice_speed?: number;
+}
+
+export interface AIRespondResponse {
+  message: MessageWithSender;
+  audio_base64: string | null;
+  audio_content_type: string | null;
+}
+
+export interface ConversationTTSRequest {
+  text: string;
+  voice_id?: string;
+  voice_speed?: number;
+}
+
+export interface ConversationTTSResponse {
+  audio_base64: string;
+  content_type: string;
+  provider: 'minimax' | 'gtts';
+}
+
+export interface CheckMessageResponse {
+  status: MessageCheckStatus;
+  feedback: string;
+  corrections: GeneratedNote[] | null;  // Suggested flashcards for corrections
+}
+
+export interface UpdateConversationVoiceRequest {
+  voice_id?: string;
+  voice_speed?: number;
+}
+
+// Generated note with context for conversation-based flashcards
+export interface GeneratedNoteWithContext extends GeneratedNote {
+  context?: string;
 }

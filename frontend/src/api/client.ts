@@ -28,6 +28,10 @@ import {
   MyDailyProgress,
   TutorReviewRequestWithDetails,
   TutorReviewRequestStatus,
+  AIRespondResponse,
+  ConversationTTSResponse,
+  CheckMessageResponse,
+  GeneratedNoteWithContext,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -209,7 +213,7 @@ export async function getNote(id: string): Promise<NoteWithCards> {
 
 export async function createNote(
   deckId: string,
-  data: { hanzi: string; pinyin: string; english: string; fun_facts?: string }
+  data: { hanzi: string; pinyin: string; english: string; fun_facts?: string; context?: string }
 ): Promise<NoteWithCards> {
   return fetchJSON<NoteWithCards>(`/decks/${deckId}/notes`, {
     method: 'POST',
@@ -514,13 +518,22 @@ export async function getConversations(relationshipId: string): Promise<Conversa
   return fetchJSON<ConversationWithLastMessage[]>(`/relationships/${relationshipId}/conversations`);
 }
 
+export interface CreateConversationOptions {
+  title?: string;
+  scenario?: string;
+  user_role?: string;
+  ai_role?: string;
+  voice_id?: string;
+  voice_speed?: number;
+}
+
 export async function createConversation(
   relationshipId: string,
-  title?: string
+  options?: CreateConversationOptions
 ): Promise<Conversation> {
   return fetchJSON<Conversation>(`/relationships/${relationshipId}/conversations`, {
     method: 'POST',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(options || {}),
   });
 }
 
@@ -573,14 +586,85 @@ export async function generateFlashcardFromChat(
 
 export async function generateResponseOptions(
   conversationId: string
-): Promise<{ options: GeneratedFlashcard[] }> {
-  return fetchJSON<{ options: GeneratedFlashcard[] }>(
+): Promise<{ options: GeneratedNoteWithContext[] }> {
+  return fetchJSON<{ options: GeneratedNoteWithContext[] }>(
     `/conversations/${conversationId}/generate-response-options`,
     {
       method: 'POST',
       body: JSON.stringify({}),
     }
   );
+}
+
+// ============ AI Conversation ============
+
+export async function getAIResponse(conversationId: string): Promise<AIRespondResponse> {
+  return fetchJSON<AIRespondResponse>(`/conversations/${conversationId}/ai-respond`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function generateConversationTTS(
+  conversationId: string,
+  text: string,
+  voiceId?: string,
+  voiceSpeed?: number
+): Promise<ConversationTTSResponse> {
+  return fetchJSON<ConversationTTSResponse>(`/conversations/${conversationId}/tts`, {
+    method: 'POST',
+    body: JSON.stringify({ text, voice_id: voiceId, voice_speed: voiceSpeed }),
+  });
+}
+
+export async function checkMessage(messageId: string): Promise<CheckMessageResponse> {
+  return fetchJSON<CheckMessageResponse>(`/messages/${messageId}/check`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function uploadMessageRecording(
+  messageId: string,
+  audioBlob: Blob
+): Promise<{ recording_url: string }> {
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/messages/${messageId}/recording`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      ...headers,
+      'Content-Type': 'audio/webm',
+    },
+    body: audioBlob,
+  });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function updateConversationVoiceSettings(
+  conversationId: string,
+  voiceId?: string,
+  voiceSpeed?: number
+): Promise<Conversation> {
+  return fetchJSON<Conversation>(`/conversations/${conversationId}/voice-settings`, {
+    method: 'PATCH',
+    body: JSON.stringify({ voice_id: voiceId, voice_speed: voiceSpeed }),
+  });
 }
 
 // ============ Deck Sharing ============
