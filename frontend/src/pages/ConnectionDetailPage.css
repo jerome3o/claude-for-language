@@ -226,12 +226,32 @@
   font-size: 0.875rem;
 }
 
-.modal input[type="text"] {
+.modal input[type="text"],
+.modal textarea {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--border-color, #e5e5e5);
   border-radius: 0.5rem;
   font-size: 1rem;
+  font-family: inherit;
+}
+
+.modal textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.modal input[type="text"]:focus,
+.modal textarea:focus {
+  outline: none;
+  border-color: var(--primary-color, #3b82f6);
+}
+
+.form-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
 }
 
 .modal-actions {

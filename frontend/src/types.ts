@@ -80,6 +80,7 @@ export interface Note {
   audio_url: string | null;
   audio_provider: AudioProvider | null;
   fun_facts: string | null;
+  context: string | null;  // Conversation context shown on card front
   created_at: string;
   updated_at: string;
 }
@@ -216,7 +217,16 @@ export interface Conversation {
   title: string | null;
   created_at: string;
   last_message_at: string | null;
+  // AI conversation fields
+  scenario: string | null;
+  user_role: string | null;
+  ai_role: string | null;
+  is_ai_conversation: boolean;
+  voice_id: string | null;
+  voice_speed: number | null;
 }
+
+export type MessageCheckStatus = 'correct' | 'needs_improvement';
 
 export interface Message {
   id: string;
@@ -224,6 +234,10 @@ export interface Message {
   sender_id: string;
   content: string;
   created_at: string;
+  // Check status for user messages
+  check_status: MessageCheckStatus | null;
+  check_feedback: string | null;
+  recording_url: string | null;
 }
 
 export interface MessageWithSender extends Message {
@@ -423,4 +437,49 @@ export interface TutorReviewRequestWithDetails extends TutorReviewRequest {
     id: string;
     name: string;
   };
+}
+
+// ============ AI Conversation Types ============
+
+export const CLAUDE_AI_USER_ID = 'claude-ai';
+
+// Available MiniMax voices
+export const MINIMAX_VOICES = [
+  { id: 'female-yujie', name: 'Yu Jie (Female, Mature)' },
+  { id: 'female-tianmei', name: 'Tian Mei (Female, Sweet)' },
+  { id: 'male-qingsong', name: 'Qing Song (Male)' },
+  { id: 'male-dongfang', name: 'Dong Fang (Male, Mature)' },
+] as const;
+
+export interface AIRespondResponse {
+  message: MessageWithSender;
+  audio_base64: string | null;
+  audio_content_type: string | null;
+}
+
+export interface ConversationTTSResponse {
+  audio_base64: string;
+  content_type: string;
+  provider: 'minimax' | 'gtts';
+}
+
+export interface CheckMessageResponse {
+  status: MessageCheckStatus;
+  feedback: string;
+  corrections: GeneratedNoteWithContext[] | null;
+}
+
+// Generated note with context for conversation-based flashcards
+export interface GeneratedNoteWithContext extends GeneratedNote {
+  context?: string;
+}
+
+// Helper to check if a conversation is with Claude AI
+export function isClaudeConversation(conversation: Conversation): boolean {
+  return conversation.is_ai_conversation;
+}
+
+// Helper to check if a user is Claude AI
+export function isClaudeUser(userId: string): boolean {
+  return userId === CLAUDE_AI_USER_ID;
 }

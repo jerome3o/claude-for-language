@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, Rating, User, CardQueue } from './types';
+import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -9,8 +9,8 @@ import {
   DEFAULT_DECK_SETTINGS,
   parseLearningSteps,
 } from './services/anki-scheduler';
-import { generateDeck, suggestCards, askAboutNote } from './services/ai';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS } from './services/audio';
+import { generateDeck, suggestCards, askAboutNote, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions } from './services/ai';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS, generateConversationTTS } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -43,6 +43,7 @@ import {
   getMyDailyProgress,
   getMyDayCards,
   getMyCardReviews,
+  ensureClaudeRelationship,
 } from './services/relationships';
 import {
   getConversations,
@@ -172,6 +173,13 @@ app.get('/api/auth/callback', async (c) => {
     if (isNewUser && c.env.NTFY_TOPIC) {
       c.executionCtx.waitUntil(notifyNewUser(c.env.NTFY_TOPIC, user));
     }
+
+    // Ensure user has a Claude AI tutor relationship (in background)
+    c.executionCtx.waitUntil(
+      ensureClaudeRelationship(c.env.DB, user.id).catch(err => {
+        console.error('[Auth Callback] Failed to create Claude relationship:', err);
+      })
+    );
 
     // Create session
     const session = await createSession(c.env.DB, user.id);
@@ -1547,10 +1555,10 @@ app.get('/api/relationships/:relId/conversations', async (c) => {
 app.post('/api/relationships/:relId/conversations', async (c) => {
   const userId = c.get('user').id;
   const relId = c.req.param('relId');
-  const { title } = await c.req.json<{ title?: string }>();
+  const body = await c.req.json<CreateConversationRequest>();
 
   try {
-    const conversation = await createConversation(c.env.DB, relId, userId, title);
+    const conversation = await createConversation(c.env.DB, relId, userId, body);
     return c.json(conversation, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create conversation';
@@ -1660,7 +1668,8 @@ app.post('/api/conversations/:id/generate-flashcard', async (c) => {
   }
 });
 
-// Generate response options from conversation (help me respond feature)
+// Generate response options from conversation (help me respond / "I don't know" feature)
+// Now includes conversation context in the generated cards
 app.post('/api/conversations/:id/generate-response-options', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
@@ -1676,53 +1685,260 @@ app.post('/api/conversations/:id/generate-response-options', async (c) => {
       return c.json({ error: 'No messages found to generate response options from' }, 400);
     }
 
-    // Build prompt and call AI
-    const prompt = buildResponseOptionsPrompt(chatContext);
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': c.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to generate response options');
-    }
-
-    const data = await response.json() as {
-      content: Array<{ type: string; text?: string }>;
-    };
-
-    const textContent = data.content.find((c) => c.type === 'text');
-    if (!textContent || !textContent.text) {
-      throw new Error('No response from AI');
-    }
-
-    // Parse the JSON array response
-    const jsonMatch = textContent.text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      throw new Error('Invalid AI response format');
-    }
-
-    const options = JSON.parse(jsonMatch[0]) as Array<{
-      hanzi: string;
-      pinyin: string;
-      english: string;
-      fun_facts?: string;
-    }>;
+    // Use the new function that includes context
+    const options = await generateIDontKnowOptions(c.env.ANTHROPIC_API_KEY, chatContext);
 
     return c.json({ options });
   } catch (error) {
     console.error('Generate response options error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate response options';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// AI responds in conversation (Claude tutor)
+app.post('/api/conversations/:id/ai-respond', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    // Get conversation details
+    const conv = await getConversationById(c.env.DB, convId, userId);
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    if (!conv.is_ai_conversation) {
+      return c.json({ error: 'This is not an AI conversation' }, 400);
+    }
+
+    // Get chat context
+    const chatContext = await getChatContext(c.env.DB, convId, userId);
+    if (!chatContext || chatContext.trim() === '') {
+      return c.json({ error: 'No messages found' }, 400);
+    }
+
+    // Get the latest user message
+    const { messages } = await getMessages(c.env.DB, convId, userId);
+    const latestUserMessage = messages.filter(m => m.sender_id !== CLAUDE_AI_USER_ID).pop();
+    if (!latestUserMessage) {
+      return c.json({ error: 'No user message found' }, 400);
+    }
+
+    // Generate AI response
+    const aiResponse = await generateAIConversationResponse(
+      c.env.ANTHROPIC_API_KEY,
+      conv,
+      chatContext,
+      latestUserMessage.content
+    );
+
+    // Save AI message
+    const aiMessage = await sendMessage(c.env.DB, convId, CLAUDE_AI_USER_ID, aiResponse);
+
+    // Generate TTS audio
+    let audioBase64: string | null = null;
+    let audioContentType: string | null = null;
+
+    const ttsResult = await generateConversationTTS(c.env, aiResponse, {
+      voiceId: conv.voice_id || 'female-yujie',
+      speed: conv.voice_speed || 0.5,
+    });
+
+    if (ttsResult) {
+      audioBase64 = ttsResult.audioBase64;
+      audioContentType = ttsResult.contentType;
+    }
+
+    const response: AIRespondResponse = {
+      message: aiMessage,
+      audio_base64: audioBase64,
+      audio_content_type: audioContentType,
+    };
+
+    return c.json(response);
+  } catch (error) {
+    console.error('AI respond error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to get AI response';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Generate TTS for conversation messages (on-demand, not stored)
+app.post('/api/conversations/:id/tts', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const { text, voice_id, voice_speed } = await c.req.json<ConversationTTSRequest>();
+
+  if (!text) {
+    return c.json({ error: 'Text is required' }, 400);
+  }
+
+  try {
+    // Verify access to conversation
+    const conv = await getConversationById(c.env.DB, convId, userId);
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    // Generate TTS
+    const ttsResult = await generateConversationTTS(c.env, text, {
+      voiceId: voice_id || conv.voice_id || 'female-yujie',
+      speed: voice_speed || conv.voice_speed || 0.5,
+    });
+
+    if (!ttsResult) {
+      return c.json({ error: 'Failed to generate audio' }, 500);
+    }
+
+    const response: ConversationTTSResponse = {
+      audio_base64: ttsResult.audioBase64,
+      content_type: ttsResult.contentType,
+      provider: ttsResult.provider,
+    };
+
+    return c.json(response);
+  } catch (error) {
+    console.error('TTS error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to generate TTS';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Check user's message for correctness
+app.post('/api/messages/:id/check', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    // Get the message
+    const message = await c.env.DB
+      .prepare('SELECT * FROM messages WHERE id = ?')
+      .bind(msgId)
+      .first<{ id: string; conversation_id: string; sender_id: string; content: string }>();
+
+    if (!message) {
+      return c.json({ error: 'Message not found' }, 404);
+    }
+
+    // Verify user owns this message
+    if (message.sender_id !== userId) {
+      return c.json({ error: 'Can only check your own messages' }, 403);
+    }
+
+    // Get conversation context
+    const chatContext = await getChatContext(c.env.DB, message.conversation_id, userId);
+
+    // Check the message
+    const result = await checkUserMessage(
+      c.env.ANTHROPIC_API_KEY,
+      message.content,
+      chatContext
+    );
+
+    // Update message with check status
+    await c.env.DB
+      .prepare('UPDATE messages SET check_status = ?, check_feedback = ? WHERE id = ?')
+      .bind(result.status, result.feedback, msgId)
+      .run();
+
+    return c.json(result);
+  } catch (error) {
+    console.error('Check message error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to check message';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Upload recording for a message
+app.post('/api/messages/:id/recording', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+
+  try {
+    // Get the message
+    const message = await c.env.DB
+      .prepare('SELECT * FROM messages WHERE id = ? AND sender_id = ?')
+      .bind(msgId, userId)
+      .first<{ id: string; conversation_id: string }>();
+
+    if (!message) {
+      return c.json({ error: 'Message not found or not owned by user' }, 404);
+    }
+
+    // Get the audio data from request body
+    const body = await c.req.arrayBuffer();
+    if (!body || body.byteLength === 0) {
+      return c.json({ error: 'No audio data provided' }, 400);
+    }
+
+    // Store the recording
+    const key = `recordings/messages/${msgId}.webm`;
+    await storeAudio(c.env.AUDIO_BUCKET, key, body, 'audio/webm');
+
+    // Update message with recording URL
+    await c.env.DB
+      .prepare('UPDATE messages SET recording_url = ? WHERE id = ?')
+      .bind(key, msgId)
+      .run();
+
+    return c.json({ recording_url: key });
+  } catch (error) {
+    console.error('Upload recording error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to upload recording';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Update conversation voice settings
+app.patch('/api/conversations/:id/voice-settings', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const { voice_id, voice_speed } = await c.req.json<{ voice_id?: string; voice_speed?: number }>();
+
+  try {
+    // Verify access to conversation
+    const conv = await getConversationById(c.env.DB, convId, userId);
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    // Update voice settings
+    const updates: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (voice_id !== undefined) {
+      updates.push('voice_id = ?');
+      params.push(voice_id);
+    }
+    if (voice_speed !== undefined) {
+      updates.push('voice_speed = ?');
+      params.push(voice_speed);
+    }
+
+    if (updates.length === 0) {
+      return c.json({ error: 'No updates provided' }, 400);
+    }
+
+    params.push(convId);
+    await c.env.DB
+      .prepare(`UPDATE conversations SET ${updates.join(', ')} WHERE id = ?`)
+      .bind(...params)
+      .run();
+
+    const updated = await getConversationById(c.env.DB, convId, userId);
+    return c.json(updated);
+  } catch (error) {
+    console.error('Update voice settings error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update voice settings';
     return c.json({ error: message }, 500);
   }
 });

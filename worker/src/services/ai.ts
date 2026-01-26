@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { GeneratedDeck, GeneratedNote, Note } from '../types';
+import { GeneratedDeck, GeneratedNote, GeneratedNoteWithContext, Note, Conversation, CheckMessageResponse, MessageCheckStatus } from '../types';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -213,4 +213,195 @@ export async function askAboutNote(
   }
 
   return textContent.text;
+}
+
+// ============ AI Conversation Functions ============
+
+const AI_CONVERSATION_SYSTEM_PROMPT = `You are a Chinese language conversation partner helping a student practice Chinese.
+
+CRITICAL RULES:
+1. ALWAYS respond ONLY in Chinese characters (汉字). Never use English or pinyin in your responses.
+2. Keep responses conversational and natural - this is a practice conversation, not a lesson.
+3. Stay in character based on the scenario and your assigned role.
+4. Adjust your language complexity based on how the student is responding.
+5. Ask follow-up questions to keep the conversation flowing.
+6. Be encouraging but stay in character.
+
+Remember: Your response should be 100% Chinese characters. No English, no pinyin, no parenthetical translations.`;
+
+/**
+ * Generate Claude's response in an AI conversation
+ */
+export async function generateAIConversationResponse(
+  apiKey: string,
+  conversation: Conversation,
+  chatHistory: string,
+  latestUserMessage: string
+): Promise<string> {
+  const client = new Anthropic({ apiKey });
+
+  let scenarioContext = '';
+  if (conversation.scenario) {
+    scenarioContext = `Scenario: ${conversation.scenario}\n`;
+  }
+  if (conversation.ai_role) {
+    scenarioContext += `Your role: ${conversation.ai_role}\n`;
+  }
+  if (conversation.user_role) {
+    scenarioContext += `The student's role: ${conversation.user_role}\n`;
+  }
+
+  const userPrompt = `${scenarioContext}
+Conversation history:
+${chatHistory}
+
+The student just said: "${latestUserMessage}"
+
+Respond naturally in Chinese, staying in character. Remember: respond ONLY in Chinese characters.`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 500,
+    messages: [
+      { role: 'user', content: userPrompt }
+    ],
+    system: AI_CONVERSATION_SYSTEM_PROMPT,
+  });
+
+  const textContent = response.content.find(c => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('No text content in AI response');
+  }
+
+  return textContent.text;
+}
+
+const CHECK_MESSAGE_SYSTEM_PROMPT = `You are a Chinese language teacher evaluating a student's message.
+
+Your task:
+1. Determine if the student's Chinese message is grammatically correct and natural.
+2. If there are issues, explain them briefly and suggest corrections.
+3. Generate flashcard suggestions for any corrections.
+
+Respond with JSON in this exact format:
+{
+  "status": "correct" or "needs_improvement",
+  "feedback": "Brief feedback in English explaining any issues or confirming correctness",
+  "corrections": [  // Only include if status is "needs_improvement"
+    {
+      "hanzi": "Corrected Chinese",
+      "pinyin": "pinyin with tone marks",
+      "english": "English meaning",
+      "fun_facts": "Brief explanation of the correction"
+    }
+  ]
+}
+
+IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).
+If the message is correct, set corrections to null.`;
+
+/**
+ * Check if a user's Chinese message is correct
+ */
+export async function checkUserMessage(
+  apiKey: string,
+  userMessage: string,
+  chatContext: string
+): Promise<CheckMessageResponse> {
+  const client = new Anthropic({ apiKey });
+
+  const userPrompt = `Conversation context:
+${chatContext}
+
+The student wrote: "${userMessage}"
+
+Evaluate this message. Is it grammatically correct and natural Chinese for this conversation context?`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1000,
+    messages: [
+      { role: 'user', content: userPrompt }
+    ],
+    system: CHECK_MESSAGE_SYSTEM_PROMPT,
+  });
+
+  const textContent = response.content.find(c => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('No text content in AI response');
+  }
+
+  const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Could not find JSON in AI response');
+  }
+
+  const result = JSON.parse(jsonMatch[0]) as CheckMessageResponse;
+  return result;
+}
+
+const I_DONT_KNOW_SYSTEM_PROMPT = `You are a Chinese language teacher helping a student who doesn't know what to say next in a conversation.
+
+Based on the conversation context, generate 3-5 different options for what the student could say next.
+Each option should:
+1. Be appropriate for the conversation
+2. Vary in difficulty (some simpler, some more advanced)
+3. Include the conversation context for reference
+
+Respond with JSON in this exact format:
+{
+  "options": [
+    {
+      "hanzi": "Chinese characters",
+      "pinyin": "pinyin with tone marks",
+      "english": "English meaning",
+      "fun_facts": "Brief note about when to use this phrase",
+      "context": "The conversation context that led to this suggestion"
+    }
+  ]
+}
+
+IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).`;
+
+/**
+ * Generate "I don't know" response options with conversation context
+ */
+export async function generateIDontKnowOptions(
+  apiKey: string,
+  chatContext: string
+): Promise<GeneratedNoteWithContext[]> {
+  const client = new Anthropic({ apiKey });
+
+  const userPrompt = `Conversation so far:
+${chatContext}
+
+The student doesn't know what to say next. Generate 3-5 options they could say, with varying difficulty levels.
+Include the relevant conversation context with each option.`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 2000,
+    messages: [
+      { role: 'user', content: userPrompt }
+    ],
+    system: I_DONT_KNOW_SYSTEM_PROMPT,
+  });
+
+  const textContent = response.content.find(c => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('No text content in AI response');
+  }
+
+  const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Could not find JSON in AI response');
+  }
+
+  const result = JSON.parse(jsonMatch[0]) as { options: GeneratedNoteWithContext[] };
+
+  if (!result.options || !Array.isArray(result.options)) {
+    throw new Error('Invalid options structure from AI');
+  }
+
+  return result.options;
 }

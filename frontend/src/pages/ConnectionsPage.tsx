@@ -11,6 +11,7 @@ import {
   TutorRelationshipWithUsers,
   RelationshipRole,
   getOtherUserInRelationship,
+  isClaudeUser,
 } from '../types';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
@@ -77,9 +78,14 @@ export function ConnectionsPage() {
 
   const renderUserInfo = (rel: TutorRelationshipWithUsers) => {
     const otherUser = getOtherUserInRelationship(rel, user!.id);
+    const isClaude = isClaudeUser(otherUser.id);
     return (
       <div className="connection-user">
-        {otherUser.picture_url ? (
+        {isClaude ? (
+          <div className="connection-avatar connection-avatar-ai">
+            🤖
+          </div>
+        ) : otherUser.picture_url ? (
           <img src={otherUser.picture_url} alt="" className="connection-avatar" />
         ) : (
           <div className="connection-avatar connection-avatar-placeholder">
@@ -87,8 +93,13 @@ export function ConnectionsPage() {
           </div>
         )}
         <div className="connection-user-info">
-          <span className="connection-name">{otherUser.name || 'Unknown'}</span>
-          <span className="connection-email">{otherUser.email}</span>
+          <span className="connection-name">
+            {otherUser.name || 'Unknown'}
+            {isClaude && <span className="connection-ai-badge">AI</span>}
+          </span>
+          <span className="connection-email">
+            {isClaude ? 'Practice Chinese conversations' : otherUser.email}
+          </span>
         </div>
       </div>
     );

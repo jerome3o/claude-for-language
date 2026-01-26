@@ -5,6 +5,7 @@ import {
   RelationshipRole,
   User,
   StudentProgress,
+  CLAUDE_AI_USER_ID,
 } from '../types';
 
 function generateId(): string {
@@ -260,6 +261,48 @@ export function getMyRole(rel: TutorRelationship, myId: string): RelationshipRol
   const iAmRequester = rel.requester_id === myId;
   if (iAmRequester) return rel.requester_role;
   return rel.requester_role === 'tutor' ? 'student' : 'tutor';
+}
+
+/**
+ * Ensure the user has a relationship with Claude AI tutor.
+ * Creates one if it doesn't exist (auto-accepted).
+ * Returns the relationship ID.
+ */
+export async function ensureClaudeRelationship(
+  db: D1Database,
+  userId: string
+): Promise<string> {
+  // Don't create a relationship for Claude with itself
+  if (userId === CLAUDE_AI_USER_ID) {
+    throw new Error('Cannot create Claude relationship for Claude');
+  }
+
+  // Check if relationship already exists
+  const existing = await db
+    .prepare(`
+      SELECT id FROM tutor_relationships
+      WHERE ((requester_id = ? AND recipient_id = ?) OR (requester_id = ? AND recipient_id = ?))
+      AND status != 'removed'
+    `)
+    .bind(userId, CLAUDE_AI_USER_ID, CLAUDE_AI_USER_ID, userId)
+    .first<{ id: string }>();
+
+  if (existing) {
+    return existing.id;
+  }
+
+  // Create new relationship with Claude as tutor, auto-accepted
+  const id = generateId();
+  await db
+    .prepare(`
+      INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status, accepted_at)
+      VALUES (?, ?, ?, 'student', 'active', datetime('now'))
+    `)
+    .bind(id, userId, CLAUDE_AI_USER_ID)
+    .run();
+
+  console.log('[Relationships] Created Claude relationship for user:', userId);
+  return id;
 }
 
 // ============ Daily Progress Types ============

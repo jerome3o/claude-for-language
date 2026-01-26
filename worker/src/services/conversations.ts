@@ -9,6 +9,8 @@ import {
   Deck,
   Note,
   GeneratedNote,
+  CreateConversationRequest,
+  CLAUDE_AI_USER_ID,
 } from '../types';
 import { verifyRelationshipAccess, getOtherUserId, getMyRole } from './relationships';
 import { generateId, CARD_TYPES } from './cards';
@@ -63,6 +65,12 @@ export async function getConversations(
     title: conv.title,
     created_at: conv.created_at,
     last_message_at: conv.last_message_at,
+    scenario: conv.scenario,
+    user_role: conv.user_role,
+    ai_role: conv.ai_role,
+    is_ai_conversation: !!conv.is_ai_conversation,
+    voice_id: conv.voice_id,
+    voice_speed: conv.voice_speed,
     other_user: otherUser,
     last_message: conv.last_content ? {
       id: '', // Not needed for display
@@ -70,6 +78,9 @@ export async function getConversations(
       sender_id: conv.last_sender_id!,
       content: conv.last_content,
       created_at: conv.last_created_at!,
+      check_status: null,
+      check_feedback: null,
+      recording_url: null,
     } : undefined,
   }));
 }
@@ -81,18 +92,32 @@ export async function createConversation(
   db: D1Database,
   relationshipId: string,
   userId: string,
-  title?: string
+  options?: CreateConversationRequest
 ): Promise<Conversation> {
   // Verify access to relationship
-  await verifyRelationshipAccess(db, relationshipId, userId);
+  const rel = await verifyRelationshipAccess(db, relationshipId, userId);
+
+  // Check if this is an AI conversation (with Claude)
+  const otherUserId = getOtherUserId(rel, userId);
+  const isAiConversation = otherUserId === CLAUDE_AI_USER_ID;
 
   const id = generateId();
   await db
     .prepare(`
-      INSERT INTO conversations (id, relationship_id, title)
-      VALUES (?, ?, ?)
+      INSERT INTO conversations (id, relationship_id, title, scenario, user_role, ai_role, is_ai_conversation, voice_id, voice_speed)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
-    .bind(id, relationshipId, title || null)
+    .bind(
+      id,
+      relationshipId,
+      options?.title || null,
+      options?.scenario || null,
+      options?.user_role || null,
+      options?.ai_role || null,
+      isAiConversation ? 1 : 0,
+      options?.voice_id || 'female-yujie',
+      options?.voice_speed || 0.5
+    )
     .run();
 
   const conversation = await db
@@ -146,7 +171,9 @@ export async function getMessages(
   }
 
   let query = `
-    SELECT m.*, u.id as u_id, u.name as u_name, u.picture_url as u_picture
+    SELECT m.id, m.conversation_id, m.sender_id, m.content, m.created_at,
+           m.check_status, m.check_feedback, m.recording_url,
+           u.id as u_id, u.name as u_name, u.picture_url as u_picture
     FROM messages m
     JOIN users u ON m.sender_id = u.id
     WHERE m.conversation_id = ?
@@ -166,6 +193,9 @@ export async function getMessages(
     sender_id: string;
     content: string;
     created_at: string;
+    check_status: string | null;
+    check_feedback: string | null;
+    recording_url: string | null;
     u_id: string;
     u_name: string | null;
     u_picture: string | null;
@@ -177,6 +207,9 @@ export async function getMessages(
     sender_id: row.sender_id,
     content: row.content,
     created_at: row.created_at,
+    check_status: row.check_status as Message['check_status'],
+    check_feedback: row.check_feedback,
+    recording_url: row.recording_url,
     sender: {
       id: row.u_id,
       name: row.u_name,
@@ -233,6 +266,9 @@ export async function sendMessage(
     sender_id: userId,
     content,
     created_at: now,
+    check_status: null,
+    check_feedback: null,
+    recording_url: null,
     sender: sender || { id: userId, name: null, picture_url: null },
   };
 }
