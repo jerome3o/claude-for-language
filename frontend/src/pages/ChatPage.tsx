@@ -13,7 +13,6 @@ import {
   getAIResponse,
   generateConversationTTS,
   checkMessage,
-  uploadMessageRecording,
   updateConversationVoiceSettings,
   getConversations,
 } from '../api/client';
@@ -21,7 +20,6 @@ import {
   MessageWithSender,
   getOtherUserInRelationship,
   isClaudeUser,
-  Conversation,
   MINIMAX_VOICES,
   GeneratedNoteWithContext,
   CheckMessageResponse,
@@ -72,12 +70,6 @@ export function ChatPage() {
     messageId: string;
     result: CheckMessageResponse;
   } | null>(null);
-
-  // Recording state
-  const [isRecording, setIsRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [recordingChunks, setRecordingChunks] = useState<Blob[]>([]);
-  const [recordingForMessageId, setRecordingForMessageId] = useState<string | null>(null);
 
   // Voice settings state
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
@@ -258,51 +250,6 @@ export function ChatPage() {
       console.error('Failed to check message:', error);
     } finally {
       setCheckingMessageId(null);
-    }
-  };
-
-  // Recording functions
-  const startRecording = async (messageId: string) => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks: Blob[] = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunks.push(e.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        setRecordingChunks([]);
-        stream.getTracks().forEach(track => track.stop());
-
-        // Upload recording
-        try {
-          await uploadMessageRecording(messageId, blob);
-        } catch (error) {
-          console.error('Failed to upload recording:', error);
-        }
-      };
-
-      setMediaRecorder(recorder);
-      setRecordingChunks(chunks);
-      setRecordingForMessageId(messageId);
-      setIsRecording(true);
-      recorder.start();
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorder && isRecording) {
-      mediaRecorder.stop();
-      setIsRecording(false);
-      setMediaRecorder(null);
-      setRecordingForMessageId(null);
     }
   };
 
