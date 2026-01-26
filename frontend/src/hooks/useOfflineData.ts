@@ -337,6 +337,18 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     // The excludeNoteIds filter is only for NEW/REVIEW cards to provide variety.
 
     if (delayedLearningCards.length > 0) {
+      // Check if current card is in the delayed learning cards - keep it to prevent rapid switching
+      if (currentSelectedCardId) {
+        const currentCard = delayedLearningCards.find(c => c.id === currentSelectedCardId);
+        if (currentCard) {
+          console.log('[useOfflineNextCard] Keeping current DELAYED LEARNING card:', {
+            cardId: currentCard.id,
+            noteId: currentCard.note_id,
+          });
+          return currentCard;
+        }
+      }
+
       // Random selection from delayed learning cards
       // (They'll all become due soon anyway, so randomize for variety)
       const selected = pickRandom(delayedLearningCards)!;
