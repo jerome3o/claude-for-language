@@ -319,7 +319,10 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
 
     // 4. If nothing immediately due, check for learning cards with delays.
     // Serve them immediately so the user doesn't have to wait.
-    console.log('[useOfflineNextCard] Checking for delayed learning cards...');
+    console.log('[useOfflineNextCard] Checking for delayed learning cards...', {
+      currentSelectedCardId,
+      timestamp: new Date().toISOString(),
+    });
     let delayedLearningCards: LocalCard[];
     if (deckId) {
       delayedLearningCards = await db.cards
@@ -344,20 +347,32 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
           console.log('[useOfflineNextCard] Keeping current DELAYED LEARNING card:', {
             cardId: currentCard.id,
             noteId: currentCard.note_id,
+            currentSelectedCardId,
           });
           return currentCard;
         }
+        console.log('[useOfflineNextCard] Current card not found in delayed learning cards:', {
+          currentSelectedCardId,
+          delayedCardIds: delayedLearningCards.map(c => c.id).slice(0, 5),
+        });
       }
 
-      // Random selection from delayed learning cards
-      // (They'll all become due soon anyway, so randomize for variety)
-      const selected = pickRandom(delayedLearningCards)!;
+      // IMPORTANT: Use deterministic selection (sort by due_timestamp, then by id for stability)
+      // Random selection causes race conditions when multiple useLiveQuery calls run in parallel
+      const sorted = [...delayedLearningCards].sort((a, b) => {
+        // Sort by due_timestamp (soonest first), then by id for stability
+        const timestampDiff = (a.due_timestamp || 0) - (b.due_timestamp || 0);
+        if (timestampDiff !== 0) return timestampDiff;
+        return a.id.localeCompare(b.id);
+      });
+      const selected = sorted[0];
       currentSelectedCardId = selected.id;
-      console.log('[useOfflineNextCard] Selected DELAYED LEARNING card (random):', {
+      console.log('[useOfflineNextCard] Selected DELAYED LEARNING card (deterministic - soonest due):', {
         cardId: selected.id,
         noteId: selected.note_id,
         dueTimestamp: selected.due_timestamp,
         totalDelayed: delayedLearningCards.length,
+        currentSelectedCardId,
       });
       return selected;
     }
