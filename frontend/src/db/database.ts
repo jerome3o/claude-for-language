@@ -73,6 +73,7 @@ export interface LocalNote {
   audio_url: string | null;
   audio_provider: 'minimax' | 'gtts' | null;
   fun_facts: string | null;
+  context: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;
