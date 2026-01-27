@@ -404,12 +404,50 @@ a:hover {
 
 .flex { display: flex; }
 .flex-col { flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
 .items-center { align-items: center; }
 .justify-center { justify-content: center; }
 .justify-between { justify-content: space-between; }
 .gap-1 { gap: 0.5rem; }
 .gap-2 { gap: 1rem; }
 .gap-3 { gap: 1.5rem; }
+
+/* Deck action buttons - grid layout for mobile */
+.deck-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.deck-actions .btn {
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Primary action (Study button) spans full width on mobile */
+.deck-actions .btn-primary {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 640px) {
+  .deck-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .deck-actions .btn {
+    font-size: 0.875rem;
+    padding: 0.625rem 1rem;
+  }
+
+  .deck-actions .btn-primary {
+    grid-column: auto;
+  }
+}
 
 /* Fullscreen study page */
 html:has(.study-page-fullscreen),
