@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { SentenceBreakdown as SentenceBreakdownType } from '../types';
 
 interface SentenceBreakdownProps {
@@ -12,7 +12,13 @@ interface SentenceBreakdownProps {
  */
 export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps) {
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlayingAll, setIsPlayingAll] = useState(false);
   const totalChunks = breakdown.chunks.length;
+
+  // Ref to track if we should continue playing all
+  const playAllRef = useRef(false);
+  const currentPlayIdRef = useRef(0);
 
   const goToPrevious = useCallback(() => {
     setCurrentChunkIndex((prev) => Math.max(0, prev - 1));
@@ -27,6 +33,97 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
   }, []);
 
   const currentChunk = breakdown.chunks[currentChunkIndex];
+
+  // Stop any ongoing speech synthesis
+  const stopSpeech = useCallback(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    playAllRef.current = false;
+    currentPlayIdRef.current++;
+    setIsPlaying(false);
+    setIsPlayingAll(false);
+  }, []);
+
+  // Speak a single chunk's hanzi
+  const speakChunk = useCallback((text: string, onEnd?: () => void) => {
+    if (!('speechSynthesis' in window)) return;
+
+    const playId = ++currentPlayIdRef.current;
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 0.8;
+
+    // Try to find a Chinese voice
+    const voices = window.speechSynthesis.getVoices();
+    const chineseVoice = voices.find(
+      (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
+    );
+    if (chineseVoice) {
+      utterance.voice = chineseVoice;
+    }
+
+    utterance.onstart = () => {
+      if (currentPlayIdRef.current === playId) {
+        setIsPlaying(true);
+      }
+    };
+
+    utterance.onend = () => {
+      if (currentPlayIdRef.current === playId) {
+        setIsPlaying(false);
+        onEnd?.();
+      }
+    };
+
+    utterance.onerror = () => {
+      if (currentPlayIdRef.current === playId) {
+        setIsPlaying(false);
+        onEnd?.();
+      }
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  // Play the current chunk
+  const playCurrentChunk = useCallback(() => {
+    speakChunk(currentChunk.hanzi);
+  }, [speakChunk, currentChunk.hanzi]);
+
+  // Play all chunks in sequence with auto-advance
+  const playAll = useCallback(() => {
+    playAllRef.current = true;
+    setIsPlayingAll(true);
+    setCurrentChunkIndex(0);
+
+    const playChunkAtIndex = (index: number) => {
+      if (!playAllRef.current || index >= totalChunks) {
+        playAllRef.current = false;
+        setIsPlayingAll(false);
+        return;
+      }
+
+      setCurrentChunkIndex(index);
+      speakChunk(breakdown.chunks[index].hanzi, () => {
+        // Small delay between chunks for natural pacing
+        setTimeout(() => {
+          playChunkAtIndex(index + 1);
+        }, 300);
+      });
+    };
+
+    playChunkAtIndex(0);
+  }, [speakChunk, breakdown.chunks, totalChunks]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopSpeech();
+    };
+  }, [stopSpeech]);
 
   // Render chunks with highlighting for hanzi/pinyin (built from chunks)
   const renderChunksHighlight = (
@@ -105,12 +202,39 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
         </div>
       </div>
 
+      {/* Audio controls */}
+      <div className="sentence-audio-controls">
+        {isPlayingAll ? (
+          <button
+            className="btn btn-secondary"
+            onClick={stopSpeech}
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            className="btn btn-secondary"
+            onClick={playAll}
+            disabled={isPlaying}
+          >
+            Play All
+          </button>
+        )}
+        <button
+          className="btn btn-secondary"
+          onClick={playCurrentChunk}
+          disabled={isPlaying || isPlayingAll}
+        >
+          Play "{currentChunk.hanzi}"
+        </button>
+      </div>
+
       {/* Navigation controls - placed above explainer for stable button position */}
       <div className="sentence-navigation">
         <button
           className="btn btn-secondary"
           onClick={goToPrevious}
-          disabled={currentChunkIndex === 0}
+          disabled={currentChunkIndex === 0 || isPlayingAll}
         >
           Previous
         </button>
@@ -121,8 +245,9 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
             <button
               key={idx}
               className={`sentence-chunk-dot ${idx === currentChunkIndex ? 'active' : ''}`}
-              onClick={() => goToChunk(idx)}
+              onClick={() => !isPlayingAll && goToChunk(idx)}
               aria-label={`Go to chunk ${idx + 1}`}
+              disabled={isPlayingAll}
             />
           ))}
         </div>
@@ -130,7 +255,7 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
         <button
           className="btn btn-secondary"
           onClick={goToNext}
-          disabled={currentChunkIndex === totalChunks - 1}
+          disabled={currentChunkIndex === totalChunks - 1 || isPlayingAll}
         >
           Next
         </button>
