@@ -1842,7 +1842,7 @@ export function DeckDetailPage() {
           </Link>
           <h1 className="mt-1">{deck.name}</h1>
           {deck.description && <p className="text-light mt-1">{deck.description}</p>}
-          <div className="flex gap-2 mt-3 flex-wrap">
+          <div className="deck-actions mt-3">
             {stats && stats.cards_due > 0 && (
               <Link to={`/study?deck=${id}&autostart=true`} className="btn btn-primary">
                 Study ({stats.cards_due} due)
