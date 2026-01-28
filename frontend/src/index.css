@@ -1521,3 +1521,17 @@ textarea {
   color: var(--color-error);
   text-align: center;
 }
+
+/* Audio controls */
+.sentence-audio-controls {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.sentence-audio-controls .btn {
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+}
