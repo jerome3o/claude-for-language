@@ -33,5 +33,16 @@ ENVIRONMENT = "production"
 [dev]
 port = 8787
 
+# Queue for background image generation
+# Create with: `wrangler queues create image-generation-queue`
+[[queues.producers]]
+queue = "image-generation-queue"
+binding = "IMAGE_QUEUE"
+
+[[queues.consumers]]
+queue = "image-generation-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+
 # Frontend is deployed separately to Cloudflare Pages
 # See .github/workflows/deploy.yml

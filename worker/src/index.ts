@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel } from './types';
+import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -1546,10 +1546,26 @@ app.post('/api/readers/generate', async (c) => {
 
           console.log('[Readers] Pages added:', pages.length);
 
-          // Note: Images are generated on-demand when viewing pages to avoid timeout
-          // Mark as ready
-          await db.updateReaderStatus(c.env.DB, pendingReader.id, 'ready');
-          console.log('[Readers] Reader ready:', pendingReader.id);
+          // Queue image generation for each page
+          if (c.env.GEMINI_API_KEY && c.env.IMAGE_QUEUE) {
+            const pagesWithPrompts = pages.filter(p => p.image_prompt);
+            console.log('[Readers] Queueing', pagesWithPrompts.length, 'images for generation');
+
+            for (const page of pagesWithPrompts) {
+              await c.env.IMAGE_QUEUE.send({
+                readerId: pendingReader.id,
+                pageId: page.id,
+                imagePrompt: page.image_prompt!,
+                totalPages: pagesWithPrompts.length,
+              });
+            }
+            // Reader stays in 'generating' status until all images are done
+            console.log('[Readers] Image generation queued, reader still generating:', pendingReader.id);
+          } else {
+            // No image generation configured, mark as ready immediately
+            await db.updateReaderStatus(c.env.DB, pendingReader.id, 'ready');
+            console.log('[Readers] Reader ready (no image generation):', pendingReader.id);
+          }
         } catch (err) {
           console.error('[Readers] Background generation failed:', err);
           // Mark as failed
@@ -2814,4 +2830,55 @@ app.get('*', async (c) => {
   return c.text('API server running. Frontend served separately in development.', 200);
 });
 
-export default app;
+// Export worker with fetch and queue handlers
+export default {
+  fetch: app.fetch,
+
+  // Queue handler for background image generation
+  async queue(batch: MessageBatch<ImageGenerationMessage>, env: Env): Promise<void> {
+    for (const message of batch.messages) {
+      const { readerId, pageId, imagePrompt } = message.body;
+      console.log('[Queue] Processing image for page:', pageId, 'reader:', readerId);
+
+      try {
+        // Generate the image
+        const imageUrl = await generatePageImage(
+          env.GEMINI_API_KEY,
+          imagePrompt,
+          pageId,
+          env.AUDIO_BUCKET
+        );
+
+        if (imageUrl) {
+          // Update the page with the image URL
+          await db.updateReaderPageImage(env.DB, pageId, imageUrl);
+          console.log('[Queue] Image generated for page:', pageId);
+        } else {
+          console.error('[Queue] Image generation returned null for page:', pageId);
+        }
+
+        // Check if all images are done for this reader
+        const reader = await db.getGradedReaderById(env.DB, readerId);
+        if (reader) {
+          const pagesWithImages = reader.pages.filter(p => p.image_url).length;
+          const pagesNeedingImages = reader.pages.filter(p => p.image_prompt).length;
+
+          console.log('[Queue] Progress for reader', readerId, ':', pagesWithImages, '/', pagesNeedingImages);
+
+          if (pagesWithImages >= pagesNeedingImages) {
+            // All images done, mark reader as ready
+            await db.updateReaderStatus(env.DB, readerId, 'ready');
+            console.log('[Queue] Reader ready:', readerId);
+          }
+        }
+
+        // Acknowledge the message
+        message.ack();
+      } catch (err) {
+        console.error('[Queue] Image generation failed for page:', pageId, err);
+        // Retry the message (will be retried up to 100 times)
+        message.retry();
+      }
+    }
+  },
+};
