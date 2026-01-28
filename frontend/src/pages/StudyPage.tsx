@@ -21,6 +21,8 @@ import {
   IntervalPreview,
   TutorRelationshipWithUsers,
   getOtherUserInRelationship,
+  MINIMAX_VOICES,
+  DEFAULT_MINIMAX_VOICE,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -188,6 +190,7 @@ function StudyCard({
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
   const [audioSpeed, setAudioSpeed] = useState(0.5);
   const [audioProvider, setAudioProvider] = useState<'minimax' | 'gtts' | ''>('');
+  const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
 
   // Get deck info for debug modal
   const deckInfo = useLiveQuery(
@@ -591,6 +594,22 @@ function StudyCard({
                       <option value="gtts">Google TTS</option>
                     </select>
                   </div>
+                  {audioProvider !== 'gtts' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <label style={{ minWidth: '50px' }}>Voice:</label>
+                      <select
+                        value={selectedVoice}
+                        onChange={(e) => setSelectedVoice(e.target.value)}
+                        style={{ flex: 1, padding: '0.25rem' }}
+                      >
+                        {MINIMAX_VOICES.map((voice) => (
+                          <option key={voice.id} value={voice.id}>
+                            {voice.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={async () => {
@@ -599,6 +618,10 @@ function StudyCard({
                         const options: GenerateAudioOptions = { speed: audioSpeed };
                         if (audioProvider) {
                           options.provider = audioProvider;
+                        }
+                        // Only pass voiceId for MiniMax provider
+                        if (audioProvider !== 'gtts' && selectedVoice) {
+                          options.voiceId = selectedVoice;
                         }
                         const updatedNote = await generateNoteAudio(card.note.id, options);
                         // Trigger audio playback with the NEW audio URL and cache buster

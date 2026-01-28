@@ -467,13 +467,40 @@ export interface TutorReviewRequestWithDetails extends TutorReviewRequest {
 
 export const CLAUDE_AI_USER_ID = 'claude-ai';
 
-// Available MiniMax voices
+// Available MiniMax voices for Chinese TTS
+// Default is a male voice as requested
 export const MINIMAX_VOICES = [
-  { id: 'female-yujie', name: 'Yu Jie (Female, Mature)' },
-  { id: 'female-tianmei', name: 'Tian Mei (Female, Sweet)' },
-  { id: 'male-qingsong', name: 'Qing Song (Male)' },
-  { id: 'male-dongfang', name: 'Dong Fang (Male, Mature)' },
+  // Male voices
+  { id: 'Chinese (Mandarin)_Gentleman', name: 'Gentleman (Male, Formal)' },
+  { id: 'Chinese (Mandarin)_Male_Announcer', name: 'Male Announcer' },
+  { id: 'Chinese (Mandarin)_Southern_Young_Man', name: 'Southern Young Man' },
+  { id: 'Chinese (Mandarin)_Gentle_Youth', name: 'Gentle Youth (Male)' },
+  { id: 'Chinese (Mandarin)_Straightforward_Boy', name: 'Straightforward Boy' },
+  { id: 'Chinese (Mandarin)_Pure-hearted_Boy', name: 'Pure-hearted Boy' },
+  { id: 'Chinese (Mandarin)_Unrestrained_Young_Man', name: 'Unrestrained Young Man' },
+  { id: 'Chinese (Mandarin)_Sincere_Adult', name: 'Sincere Adult (Male)' },
+  { id: 'Chinese (Mandarin)_Humorous_Elder', name: 'Humorous Elder (Male)' },
+  { id: 'Chinese (Mandarin)_Kind-hearted_Elder', name: 'Kind-hearted Elder (Male)' },
+  { id: 'Chinese (Mandarin)_Gentle_Senior', name: 'Gentle Senior (Male)' },
+  // Female voices
+  { id: 'Chinese (Mandarin)_Mature_Woman', name: 'Mature Woman' },
+  { id: 'Chinese (Mandarin)_Sweet_Lady', name: 'Sweet Lady' },
+  { id: 'Chinese (Mandarin)_Wise_Women', name: 'Wise Woman' },
+  { id: 'Chinese (Mandarin)_Warm_Bestie', name: 'Warm Bestie (Female)' },
+  { id: 'Chinese (Mandarin)_Warm_Girl', name: 'Warm Girl' },
+  { id: 'Chinese (Mandarin)_Crisp_Girl', name: 'Crisp Girl' },
+  { id: 'Chinese (Mandarin)_Soft_Girl', name: 'Soft Girl' },
+  { id: 'Chinese (Mandarin)_IntellectualGirl', name: 'Intellectual Girl' },
+  { id: 'Chinese (Mandarin)_Cute_Spirit', name: 'Cute Spirit (Female)' },
+  { id: 'Chinese (Mandarin)_Lyrical_Voice', name: 'Lyrical Voice (Female)' },
+  { id: 'Chinese (Mandarin)_Kind-hearted_Antie', name: 'Kind-hearted Auntie' },
+  { id: 'Chinese (Mandarin)_HK_Flight_Attendant', name: 'HK Flight Attendant (Female)' },
+  { id: 'Chinese (Mandarin)_News_Anchor', name: 'News Anchor' },
+  { id: 'Chinese (Mandarin)_Radio_Host', name: 'Radio Host' },
 ] as const;
+
+// Default voice ID - male voice for TTS generation
+export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Gentleman';
 
 export interface AIRespondResponse {
   message: MessageWithSender;

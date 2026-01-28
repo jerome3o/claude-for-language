@@ -239,6 +239,7 @@ export async function updateNote(
 export interface GenerateAudioOptions {
   speed?: number; // 0.3 - 1.5, default 0.5 for MiniMax, 0.9 for Google
   provider?: 'minimax' | 'gtts'; // Prefer a specific provider
+  voiceId?: string; // MiniMax voice ID (only used when provider is minimax)
 }
 
 export async function generateNoteAudio(noteId: string, options?: GenerateAudioOptions): Promise<Note> {
