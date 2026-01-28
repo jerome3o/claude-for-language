@@ -2,6 +2,7 @@
 export interface Env {
   DB: D1Database;
   AUDIO_BUCKET: R2Bucket;
+  IMAGE_QUEUE: Queue<ImageGenerationMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
@@ -15,6 +16,14 @@ export interface Env {
   NTFY_TOPIC: string;
   // Email
   SENDGRID_API_KEY: string;
+}
+
+// Queue message types
+export interface ImageGenerationMessage {
+  readerId: string;
+  pageId: string;
+  imagePrompt: string;
+  totalPages: number;
 }
 
 // Audio provider types

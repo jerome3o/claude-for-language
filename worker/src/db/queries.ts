@@ -1652,6 +1652,34 @@ export async function getGradedReader(
 }
 
 /**
+ * Get a reader by ID (for internal use, e.g., queue handler)
+ */
+export async function getGradedReaderById(
+  db: D1Database,
+  readerId: string
+): Promise<GradedReaderWithPages | null> {
+  const reader = await db.prepare(`
+    SELECT * FROM graded_readers
+    WHERE id = ?
+  `).bind(readerId).first<GradedReader & { source_deck_ids: string; vocabulary_used: string }>();
+
+  if (!reader) return null;
+
+  const pagesResult = await db.prepare(`
+    SELECT * FROM reader_pages
+    WHERE reader_id = ?
+    ORDER BY page_number ASC
+  `).bind(readerId).all<ReaderPage>();
+
+  return {
+    ...reader,
+    source_deck_ids: JSON.parse(reader.source_deck_ids) as string[],
+    vocabulary_used: JSON.parse(reader.vocabulary_used) as VocabularyItem[],
+    pages: pagesResult.results,
+  };
+}
+
+/**
  * Update a reader page's image URL
  */
 export async function updateReaderPageImage(
