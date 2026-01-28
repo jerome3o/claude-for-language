@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getGradedReader, getReaderImageUrl, analyzeSentence } from '../api/client';
+import { getGradedReader, getReaderImageUrl, analyzeSentence, generateReaderPageImage } from '../api/client';
 import { Loading } from '../components/Loading';
 import { ReaderPage as ReaderPageType, SentenceBreakdown, DifficultyLevel } from '../types';
 import './ReaderPage.css';
@@ -107,17 +107,48 @@ function SentenceAnalysisModal({
 
 function PageView({
   page,
+  readerId,
   showTranslation,
   onToggleTranslation,
   onAnalyzeSentence,
 }: {
   page: ReaderPageType;
+  readerId: string;
   showTranslation: boolean;
   onToggleTranslation: () => void;
   onAnalyzeSentence: (sentence: string) => void;
 }) {
-  const imageUrl = page.image_url ? getReaderImageUrl(page.image_url) : null;
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
+
+  // Use the page's image_url or the generated one
+  const imageKey = page.image_url || generatedImageUrl;
+  const imageUrl = imageKey ? getReaderImageUrl(imageKey) : null;
+
+  // Trigger on-demand image generation if no image exists
+  useEffect(() => {
+    if (!page.image_url && !generatedImageUrl && !imageLoading && page.image_prompt) {
+      setImageLoading(true);
+      generateReaderPageImage(readerId, page.id)
+        .then((result) => {
+          setGeneratedImageUrl(result.image_url);
+          setImageLoading(false);
+        })
+        .catch((err) => {
+          console.error('Failed to generate image:', err);
+          setImageLoading(false);
+          setImageError(true);
+        });
+    }
+  }, [page.id, page.image_url, page.image_prompt, readerId, generatedImageUrl, imageLoading]);
+
+  // Reset state when page changes
+  useEffect(() => {
+    setGeneratedImageUrl(null);
+    setImageLoading(false);
+    setImageError(false);
+  }, [page.id]);
 
   // Split sentences for individual analysis
   const sentences = page.content_chinese
@@ -137,7 +168,7 @@ function PageView({
           />
         </div>
       ) : (
-        // Placeholder when no image or image failed to load
+        // Placeholder when no image, loading, or failed
         <div
           className="reader-image-container"
           style={{
@@ -150,10 +181,19 @@ function PageView({
           }}
         >
           <div style={{ textAlign: 'center', color: '#9ca3af' }}>
-            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📖</div>
-            <div style={{ fontSize: '0.75rem' }}>
-              {page.image_prompt ? 'Image not available' : 'No illustration'}
-            </div>
+            {imageLoading ? (
+              <>
+                <span className="spinner" style={{ width: '32px', height: '32px', marginBottom: '0.5rem' }} />
+                <div style={{ fontSize: '0.75rem' }}>Generating illustration...</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📖</div>
+                <div style={{ fontSize: '0.75rem' }}>
+                  {page.image_prompt ? 'Image not available' : 'No illustration'}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -305,6 +345,7 @@ export function ReaderPage() {
       <div className="reader-content">
         <PageView
           page={page}
+          readerId={reader.id}
           showTranslation={showTranslation}
           onToggleTranslation={() => setShowTranslation(!showTranslation)}
           onAnalyzeSentence={handleAnalyzeSentence}

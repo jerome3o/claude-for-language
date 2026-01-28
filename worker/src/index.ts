@@ -1546,29 +1546,7 @@ app.post('/api/readers/generate', async (c) => {
 
           console.log('[Readers] Pages added:', pages.length);
 
-          // Generate images for each page
-          if (c.env.GEMINI_API_KEY) {
-            await Promise.all(
-              pages.map(async (page) => {
-                try {
-                  const imageUrl = await generatePageImage(
-                    c.env.GEMINI_API_KEY,
-                    page.image_prompt || '',
-                    page.id,
-                    c.env.AUDIO_BUCKET
-                  );
-
-                  if (imageUrl) {
-                    await db.updateReaderPageImage(c.env.DB, page.id, imageUrl);
-                    console.log('[Readers] Image generated for page:', page.id);
-                  }
-                } catch (err) {
-                  console.error('[Readers] Failed to generate image for page:', page.id, err);
-                }
-              })
-            );
-          }
-
+          // Note: Images are generated on-demand when viewing pages to avoid timeout
           // Mark as ready
           await db.updateReaderStatus(c.env.DB, pendingReader.id, 'ready');
           console.log('[Readers] Reader ready:', pendingReader.id);
@@ -1614,6 +1592,69 @@ app.delete('/api/readers/:id', async (c) => {
   await db.deleteGradedReader(c.env.DB, readerId, userId);
 
   return c.json({ success: true });
+});
+
+// Generate image for a reader page on-demand
+app.post('/api/readers/:readerId/pages/:pageId/generate-image', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('readerId');
+  const pageId = c.req.param('pageId');
+
+  if (!c.env.GEMINI_API_KEY) {
+    return c.json({ error: 'Image generation is not configured' }, 500);
+  }
+
+  // Get the reader to verify ownership
+  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
+  if (!reader) {
+    return c.json({ error: 'Reader not found' }, 404);
+  }
+
+  // Find the page
+  const page = reader.pages.find(p => p.id === pageId);
+  if (!page) {
+    return c.json({ error: 'Page not found' }, 404);
+  }
+
+  // If image already exists, return it
+  if (page.image_url) {
+    return c.json({ image_url: page.image_url });
+  }
+
+  // Check if image already exists in R2 (race condition protection)
+  const possibleKey = `reader-images/${pageId}.png`;
+  const existingImage = await c.env.AUDIO_BUCKET.head(possibleKey);
+  if (existingImage) {
+    // Update database and return
+    await db.updateReaderPageImage(c.env.DB, pageId, possibleKey);
+    return c.json({ image_url: possibleKey });
+  }
+
+  // Generate the image
+  if (!page.image_prompt) {
+    return c.json({ error: 'No image prompt for this page' }, 400);
+  }
+
+  try {
+    console.log('[Image] On-demand generation for page:', pageId);
+    const imageUrl = await generatePageImage(
+      c.env.GEMINI_API_KEY,
+      page.image_prompt,
+      pageId,
+      c.env.AUDIO_BUCKET
+    );
+
+    if (imageUrl) {
+      await db.updateReaderPageImage(c.env.DB, pageId, imageUrl);
+      console.log('[Image] On-demand image generated for page:', pageId);
+      return c.json({ image_url: imageUrl });
+    } else {
+      return c.json({ error: 'Failed to generate image' }, 500);
+    }
+  } catch (err) {
+    console.error('[Image] On-demand generation failed:', err);
+    return c.json({ error: 'Image generation failed' }, 500);
+  }
 });
 
 // ============ Relationships (Tutor-Student) ============

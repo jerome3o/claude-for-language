@@ -94,40 +94,42 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
           </p>
         )}
       </div>
-      {!isGenerating && (
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginTop: '0.75rem',
-          paddingTop: '0.75rem',
-          borderTop: '1px solid #e5e7eb'
-        }}>
-          {isFailed ? (
-            <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>
-              Unable to generate
-            </span>
-          ) : (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleClick}
-              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
-            >
-              Read
-            </button>
-          )}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: '0.75rem',
+        paddingTop: '0.75rem',
+        borderTop: '1px solid #e5e7eb'
+      }}>
+        {isGenerating ? (
+          <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>
+            Generating...
+          </span>
+        ) : isFailed ? (
+          <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>
+            Unable to generate
+          </span>
+        ) : (
           <button
-            className="btn btn-secondary btn-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', color: '#dc2626' }}
+            className="btn btn-primary btn-sm"
+            onClick={handleClick}
+            style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
           >
-            Delete
+            Read
           </button>
-        </div>
-      )}
+        )}
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', color: '#dc2626' }}
+        >
+          {isGenerating ? 'Cancel' : 'Delete'}
+        </button>
+      </div>
     </div>
   );
 }

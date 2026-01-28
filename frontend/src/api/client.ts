@@ -833,6 +833,15 @@ export async function deleteGradedReader(id: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/readers/${id}`, { method: 'DELETE' });
 }
 
+export async function generateReaderPageImage(
+  readerId: string,
+  pageId: string
+): Promise<{ image_url: string }> {
+  return fetchJSON<{ image_url: string }>(`/readers/${readerId}/pages/${pageId}/generate-image`, {
+    method: 'POST',
+  });
+}
+
 export function getReaderImageUrl(imageKey: string): string {
   return `${API_PATH}/audio/${imageKey}`;
 }
