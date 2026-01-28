@@ -491,6 +491,9 @@ export interface SentenceChunk {
   hanzi: string;
   pinyin: string;
   english: string;
+  // Indices into the full English sentence for highlighting (0-based, end is exclusive)
+  englishStart: number;
+  englishEnd: number;
   // Optional grammar/usage note for this chunk
   note?: string;
 }

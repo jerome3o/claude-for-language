@@ -17,6 +17,13 @@ CRITICAL RULES for creating chunks:
 6. The concatenation of all chunk hanzi should equal the full hanzi
 7. The concatenation of all chunk pinyin should equal the full pinyin (with spaces)
 
+IMPORTANT - English indices:
+- The "english" field in the main response should be a NATURAL English sentence
+- Each chunk must include "englishStart" and "englishEnd" indices (0-based, end exclusive) pointing to the corresponding part of the full English sentence
+- These indices allow highlighting within the natural English sentence
+- The indices may be OUT OF ORDER because Chinese and English grammar differ (e.g., Chinese puts time before verb, English might put it after)
+- The substring english.slice(englishStart, englishEnd) should match the chunk's english field
+
 Pinyin rules:
 - ALWAYS use tone marks (ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ), NEVER tone numbers
 - Separate words with spaces, but keep multi-syllable words together (e.g., "zhège" not "zhè ge")
@@ -35,19 +42,21 @@ Respond with JSON in this exact format:
   "inputLanguage": "chinese" or "english",
   "hanzi": "full Chinese sentence",
   "pinyin": "full pinyin with tone marks",
-  "english": "full English translation",
+  "english": "full natural English translation",
   "chunks": [
     {
       "hanzi": "Chinese for this chunk",
       "pinyin": "pinyin for this chunk",
-      "english": "English meaning of this chunk",
+      "english": "the exact substring from the full English that corresponds to this chunk",
+      "englishStart": 0,
+      "englishEnd": 5,
       "note": "optional grammar/usage note"
     }
   ],
   "grammarNotes": "optional overall grammar notes about the sentence structure"
 }
 
-Example for "我想买这个" (I want to buy this):
+Example for "我想买这个" with english "I want to buy this":
 {
   "originalInput": "我想买这个",
   "inputLanguage": "chinese",
@@ -55,12 +64,14 @@ Example for "我想买这个" (I want to buy this):
   "pinyin": "wǒ xiǎng mǎi zhège",
   "english": "I want to buy this",
   "chunks": [
-    { "hanzi": "我", "pinyin": "wǒ", "english": "I" },
-    { "hanzi": "想", "pinyin": "xiǎng", "english": "want to", "note": "expresses desire/intention" },
-    { "hanzi": "买", "pinyin": "mǎi", "english": "buy" },
-    { "hanzi": "这个", "pinyin": "zhège", "english": "this", "note": "demonstrative pronoun + measure word" }
+    { "hanzi": "我", "pinyin": "wǒ", "english": "I", "englishStart": 0, "englishEnd": 1 },
+    { "hanzi": "想", "pinyin": "xiǎng", "english": "want to", "englishStart": 2, "englishEnd": 9, "note": "expresses desire/intention" },
+    { "hanzi": "买", "pinyin": "mǎi", "english": "buy", "englishStart": 10, "englishEnd": 13 },
+    { "hanzi": "这个", "pinyin": "zhège", "english": "this", "englishStart": 14, "englishEnd": 18, "note": "demonstrative pronoun + measure word" }
   ]
-}`;
+}
+
+Note how englishStart/englishEnd point to exact positions in "I want to buy this" (length 18).`;
 
 /**
  * Detect if the input is Chinese or English
@@ -110,10 +121,17 @@ export async function analyzeSentence(
     throw new Error('Invalid sentence breakdown structure from AI');
   }
 
-  // Validate chunks
+  // Validate chunks and ensure indices exist
   for (const chunk of result.chunks) {
     if (!chunk.hanzi || !chunk.pinyin || !chunk.english) {
       throw new Error('Invalid chunk structure from AI: each chunk must have hanzi, pinyin, and english');
+    }
+    // Ensure English indices are present (default to 0,0 if missing for backwards compatibility)
+    if (typeof chunk.englishStart !== 'number') {
+      chunk.englishStart = 0;
+    }
+    if (typeof chunk.englishEnd !== 'number') {
+      chunk.englishEnd = chunk.english.length;
     }
   }
 
