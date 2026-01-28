@@ -28,14 +28,13 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
 
   const currentChunk = breakdown.chunks[currentChunkIndex];
 
-  // Render chunks with highlighting for the current chunk
+  // Render chunks with highlighting for hanzi/pinyin (built from chunks)
   const renderChunksHighlight = (
     chunks: SentenceBreakdownType['chunks'],
-    field: 'hanzi' | 'pinyin' | 'english',
+    field: 'hanzi' | 'pinyin',
     currentIndex: number
   ) => {
-    // Add space between chunks for pinyin and english
-    const addSpace = field === 'pinyin' || field === 'english';
+    const addSpace = field === 'pinyin';
 
     return (
       <span className="sentence-text-chunks">
@@ -49,6 +48,29 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
             {addSpace && idx < chunks.length - 1 ? ' ' : ''}
           </span>
         ))}
+      </span>
+    );
+  };
+
+  // Render English with index-based highlighting (preserves natural sentence)
+  const renderEnglishHighlight = (
+    fullEnglish: string,
+    chunks: SentenceBreakdownType['chunks'],
+    currentIndex: number
+  ) => {
+    const currentChunkData = chunks[currentIndex];
+    const { englishStart, englishEnd } = currentChunkData;
+
+    // Build the English sentence with the current chunk highlighted
+    const before = fullEnglish.slice(0, englishStart);
+    const highlighted = fullEnglish.slice(englishStart, englishEnd);
+    const after = fullEnglish.slice(englishEnd);
+
+    return (
+      <span className="sentence-text-english">
+        {before}
+        <span className="sentence-chunk-active">{highlighted}</span>
+        {after}
       </span>
     );
   };
@@ -77,31 +99,13 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
           {renderChunksHighlight(breakdown.chunks, 'pinyin', currentChunkIndex)}
         </div>
 
-        {/* English row */}
+        {/* English row - uses index-based highlighting to preserve natural sentence */}
         <div className="sentence-row sentence-row-english">
-          {renderChunksHighlight(breakdown.chunks, 'english', currentChunkIndex)}
+          {renderEnglishHighlight(breakdown.english, breakdown.chunks, currentChunkIndex)}
         </div>
       </div>
 
-      {/* Current chunk detail */}
-      <div className="sentence-chunk-detail">
-        <div className="sentence-chunk-detail-header">
-          <span className="sentence-chunk-counter">
-            {currentChunkIndex + 1} / {totalChunks}
-          </span>
-        </div>
-
-        <div className="sentence-chunk-content">
-          <div className="sentence-chunk-hanzi">{currentChunk.hanzi}</div>
-          <div className="sentence-chunk-pinyin">{currentChunk.pinyin}</div>
-          <div className="sentence-chunk-english">{currentChunk.english}</div>
-          {currentChunk.note && (
-            <div className="sentence-chunk-note">{currentChunk.note}</div>
-          )}
-        </div>
-      </div>
-
-      {/* Navigation controls */}
+      {/* Navigation controls - placed above explainer for stable button position */}
       <div className="sentence-navigation">
         <button
           className="btn btn-secondary"
@@ -130,6 +134,24 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
         >
           Next
         </button>
+      </div>
+
+      {/* Current chunk detail */}
+      <div className="sentence-chunk-detail">
+        <div className="sentence-chunk-detail-header">
+          <span className="sentence-chunk-counter">
+            {currentChunkIndex + 1} / {totalChunks}
+          </span>
+        </div>
+
+        <div className="sentence-chunk-content">
+          <div className="sentence-chunk-hanzi">{currentChunk.hanzi}</div>
+          <div className="sentence-chunk-pinyin">{currentChunk.pinyin}</div>
+          <div className="sentence-chunk-english">{currentChunk.english}</div>
+          {currentChunk.note && (
+            <div className="sentence-chunk-note">{currentChunk.note}</div>
+          )}
+        </div>
       </div>
 
       {/* Grammar notes if present */}
