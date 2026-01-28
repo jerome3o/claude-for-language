@@ -178,6 +178,7 @@ function StudyCard({
   const [flagMessage, setFlagMessage] = useState('');
   const [isFlagging, setIsFlagging] = useState(false);
   const flagMessageRef = useRef<HTMLTextAreaElement>(null);
+  const flagModalOpenedAtRef = useRef<number>(0);
 
   // Fetch tutors for flag feature
   const { data: relationships } = useQuery({
@@ -271,6 +272,8 @@ function StudyCard({
 
     // If flag is checked, show modal to select tutor and write message
     if (flagForTutor && tutors.length > 0 && isOnline) {
+      // Record when modal opens to prevent ghost clicks on mobile from immediately closing it
+      flagModalOpenedAtRef.current = Date.now();
       setShowFlagModal(true);
       // Auto-select first tutor if only one
       if (tutors.length === 1) {
@@ -718,11 +721,21 @@ function StudyCard({
     );
   };
 
+  const handleOverlayClick = () => {
+    // Prevent ghost clicks on mobile from immediately closing the modal
+    // If the modal was opened less than 300ms ago, ignore the click
+    const timeSinceOpen = Date.now() - flagModalOpenedAtRef.current;
+    if (timeSinceOpen < 300) {
+      return;
+    }
+    handleFlagCancel();
+  };
+
   const renderFlagModal = () => {
     if (!showFlagModal) return null;
 
     return (
-      <div className="modal-overlay" onClick={handleFlagCancel}>
+      <div className="modal-overlay" onClick={handleOverlayClick}>
         <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
           <div className="modal-header">
             <div className="modal-title">Flag for Tutor Review</div>
