@@ -29,32 +29,28 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
   const currentChunk = breakdown.chunks[currentChunkIndex];
 
   // Render chunks with highlighting for the current chunk
-  const renderSimpleHighlight = (
-    fullText: string,
+  const renderChunksHighlight = (
     chunks: SentenceBreakdownType['chunks'],
     field: 'hanzi' | 'pinyin' | 'english',
     currentIndex: number
   ) => {
-    // For Chinese, build from chunks (more reliable)
-    if (field === 'hanzi' || field === 'pinyin') {
-      return (
-        <span className="sentence-text-chunks">
-          {chunks.map((chunk, idx) => (
-            <span
-              key={idx}
-              className={`sentence-text-segment sentence-chunk ${idx === currentIndex ? 'sentence-chunk-active' : ''}`}
-              onClick={() => goToChunk(idx)}
-            >
-              {chunk[field]}
-              {field === 'pinyin' && idx < chunks.length - 1 ? ' ' : ''}
-            </span>
-          ))}
-        </span>
-      );
-    }
+    // Add space between chunks for pinyin and english
+    const addSpace = field === 'pinyin' || field === 'english';
 
-    // For English, show the full translation with current chunk highlighted below
-    return <span className="sentence-text-full">{fullText}</span>;
+    return (
+      <span className="sentence-text-chunks">
+        {chunks.map((chunk, idx) => (
+          <span
+            key={idx}
+            className={`sentence-text-segment sentence-chunk ${idx === currentIndex ? 'sentence-chunk-active' : ''}`}
+            onClick={() => goToChunk(idx)}
+          >
+            {chunk[field]}
+            {addSpace && idx < chunks.length - 1 ? ' ' : ''}
+          </span>
+        ))}
+      </span>
+    );
   };
 
   return (
@@ -73,17 +69,17 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
       <div className="sentence-full-display">
         {/* Hanzi row */}
         <div className="sentence-row sentence-row-hanzi">
-          {renderSimpleHighlight(breakdown.hanzi, breakdown.chunks, 'hanzi', currentChunkIndex)}
+          {renderChunksHighlight(breakdown.chunks, 'hanzi', currentChunkIndex)}
         </div>
 
         {/* Pinyin row */}
         <div className="sentence-row sentence-row-pinyin">
-          {renderSimpleHighlight(breakdown.pinyin, breakdown.chunks, 'pinyin', currentChunkIndex)}
+          {renderChunksHighlight(breakdown.chunks, 'pinyin', currentChunkIndex)}
         </div>
 
         {/* English row */}
         <div className="sentence-row sentence-row-english">
-          {breakdown.english}
+          {renderChunksHighlight(breakdown.chunks, 'english', currentChunkIndex)}
         </div>
       </div>
 
