@@ -237,12 +237,15 @@ export function HomePage() {
               title="No decks yet"
               description="Create your first deck or use AI to generate one"
               action={
-                <div className="flex gap-2 justify-center">
+                <div className="flex gap-2 justify-center flex-wrap">
                   <button className="btn btn-primary" onClick={() => setShowModal(true)}>
                     Create Deck
                   </button>
                   <Link to="/generate" className="btn btn-secondary">
                     Generate
+                  </Link>
+                  <Link to="/analyze" className="btn btn-secondary">
+                    Analyze
                   </Link>
                 </div>
               }
@@ -256,12 +259,15 @@ export function HomePage() {
               </div>
 
               {/* Action buttons at bottom of deck list */}
-              <div className="flex gap-2 justify-center" style={{ paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
+              <div className="flex gap-2 justify-center flex-wrap" style={{ paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
                 <button className="btn btn-primary" onClick={() => setShowModal(true)}>
                   New Deck
                 </button>
                 <Link to="/generate" className="btn btn-secondary">
                   Generate
+                </Link>
+                <Link to="/analyze" className="btn btn-secondary">
+                  Analyze
                 </Link>
               </div>
             </>

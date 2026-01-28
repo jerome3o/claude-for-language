@@ -32,6 +32,7 @@ import {
   ConversationTTSResponse,
   CheckMessageResponse,
   GeneratedNoteWithContext,
+  SentenceBreakdown,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -777,5 +778,14 @@ export async function respondToTutorReviewRequest(
 export async function archiveTutorReviewRequest(requestId: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/tutor-review-requests/${requestId}/archive`, {
     method: 'POST',
+  });
+}
+
+// ============ Sentence Analysis (Learning Subtitles) ============
+
+export async function analyzeSentence(sentence: string): Promise<SentenceBreakdown> {
+  return fetchJSON<SentenceBreakdown>('/sentence/analyze', {
+    method: 'POST',
+    body: JSON.stringify({ sentence }),
   });
 }

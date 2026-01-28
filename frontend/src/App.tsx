@@ -11,6 +11,7 @@ import { DeckDetailPage } from './pages/DeckDetailPage';
 import { StudyPage } from './pages/StudyPage';
 import { SessionReviewPage } from './pages/SessionReviewPage';
 import { GeneratePage } from './pages/GeneratePage';
+import { SentenceAnalysisPage } from './pages/SentenceAnalysisPage';
 import { AdminPage } from './pages/AdminPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
 import { ConnectionDetailPage } from './pages/ConnectionDetailPage';
@@ -93,6 +94,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <GeneratePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/analyze"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <SentenceAnalysisPage />
           </ProtectedRoute>
         }
       />

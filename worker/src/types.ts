@@ -497,3 +497,38 @@ export interface UpdateConversationVoiceRequest {
 export interface GeneratedNoteWithContext extends GeneratedNote {
   context?: string;
 }
+
+// ============ Sentence Breakdown (Learning Subtitles) ============
+
+// A chunk represents an aligned segment across hanzi, pinyin, and english
+export interface SentenceChunk {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  // Optional grammar/usage note for this chunk
+  note?: string;
+}
+
+// The full breakdown of a sentence
+export interface SentenceBreakdown {
+  // Original input from user
+  originalInput: string;
+  // What language was the input
+  inputLanguage: 'chinese' | 'english';
+  // Full sentence in each form
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  // Aligned chunks for stepping through
+  chunks: SentenceChunk[];
+  // Optional overall notes about the sentence
+  grammarNotes?: string;
+}
+
+// Request to analyze a sentence
+export interface AnalyzeSentenceRequest {
+  sentence: string;
+}
+
+// Response from the API
+export interface AnalyzeSentenceResponse extends SentenceBreakdown {}
