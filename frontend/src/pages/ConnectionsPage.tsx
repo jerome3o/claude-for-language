@@ -6,10 +6,12 @@ import {
   createRelationship,
   acceptRelationship,
   removeRelationship,
+  cancelInvitation,
 } from '../api/client';
 import {
   TutorRelationshipWithUsers,
   RelationshipRole,
+  PendingInvitationWithInviter,
   getOtherUserInRelationship,
   isClaudeUser,
 } from '../types';
@@ -24,6 +26,7 @@ export function ConnectionsPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<RelationshipRole>('tutor');
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
 
   const relationshipsQuery = useQuery({
     queryKey: ['relationships'],
@@ -33,11 +36,16 @@ export function ConnectionsPage() {
   const createMutation = useMutation({
     mutationFn: ({ email, role }: { email: string; role: RelationshipRole }) =>
       createRelationship(email, role),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['relationships'] });
       setShowInviteForm(false);
       setInviteEmail('');
       setInviteError(null);
+      // Show success message for invitations to non-users
+      if (result.type === 'invitation') {
+        setInviteSuccess(`Invitation sent to ${result.data.recipient_email}`);
+        setTimeout(() => setInviteSuccess(null), 5000);
+      }
     },
     onError: (error: Error) => {
       setInviteError(error.message);
@@ -53,6 +61,13 @@ export function ConnectionsPage() {
 
   const removeMutation = useMutation({
     mutationFn: removeRelationship,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['relationships'] });
+    },
+  });
+
+  const cancelInvitationMutation = useMutation({
+    mutationFn: cancelInvitation,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['relationships'] });
     },
@@ -74,7 +89,24 @@ export function ConnectionsPage() {
   }
 
   const relationships = relationshipsQuery.data!;
-  const { tutors, students, pending_incoming, pending_outgoing } = relationships;
+  const { tutors, students, pending_incoming, pending_outgoing, pending_invitations } = relationships;
+
+  // Helper to render a pending invitation (for non-users)
+  const renderInvitationInfo = (inv: PendingInvitationWithInviter) => {
+    return (
+      <div className="connection-user">
+        <div className="connection-avatar connection-avatar-placeholder">
+          {inv.recipient_email[0].toUpperCase()}
+        </div>
+        <div className="connection-user-info">
+          <span className="connection-name">{inv.recipient_email}</span>
+          <span className="connection-email">
+            Not signed up yet
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   const renderUserInfo = (rel: TutorRelationshipWithUsers) => {
     const otherUser = getOtherUserInRelationship(rel, user!.id);
@@ -133,6 +165,13 @@ export function ConnectionsPage() {
             {showInviteForm ? 'Cancel' : '+ Invite'}
           </button>
         </div>
+
+        {/* Success message for sent invitations */}
+        {inviteSuccess && (
+          <div className="card mb-4 invite-success">
+            <p className="text-success">{inviteSuccess}</p>
+          </div>
+        )}
 
         {/* Invite Form */}
         {showInviteForm && (
@@ -253,6 +292,37 @@ export function ConnectionsPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Pending Invitations (to non-users) */}
+        {pending_invitations && pending_invitations.length > 0 && (
+          <div className="connections-section">
+            <h2>Pending Invitations</h2>
+            <p className="section-subtitle">Waiting for these people to sign up</p>
+            <div className="connections-list">
+              {pending_invitations.map((inv) => (
+                <div key={inv.id} className="connection-card pending invitation">
+                  {renderInvitationInfo(inv)}
+                  <p className="connection-description">
+                    Invited as your {inv.inviter_role === 'tutor' ? 'student' : 'tutor'}
+                  </p>
+                  <div className="connection-actions">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        if (confirm('Cancel this invitation?')) {
+                          cancelInvitationMutation.mutate(inv.id);
+                        }
+                      }}
+                      disabled={cancelInvitationMutation.isPending}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

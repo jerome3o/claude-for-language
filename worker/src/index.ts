@@ -46,8 +46,10 @@ import {
   getMyCardReviews,
   ensureClaudeRelationship,
   getOtherUserId,
+  cancelPendingInvitation,
+  processPendingInvitations,
 } from './services/relationships';
-import { sendNewMessageNotification } from './services/email';
+import { sendNewMessageNotification, sendInvitationEmail } from './services/email';
 import {
   getConversations,
   createConversation,
@@ -175,6 +177,19 @@ app.get('/api/auth/callback', async (c) => {
     // Send notification for new users (in background)
     if (isNewUser && c.env.NTFY_TOPIC) {
       c.executionCtx.waitUntil(notifyNewUser(c.env.NTFY_TOPIC, user));
+    }
+
+    // Process pending invitations for new users (auto-connect with inviters)
+    if (isNewUser) {
+      c.executionCtx.waitUntil(
+        processPendingInvitations(c.env.DB, user).then(count => {
+          if (count > 0) {
+            console.log(`[Auth Callback] Created ${count} relationship(s) from pending invitations for user ${user.id}`);
+          }
+        }).catch(err => {
+          console.error('[Auth Callback] Failed to process pending invitations:', err);
+        })
+      );
     }
 
     // Ensure user has a Claude AI tutor relationship (in background)
@@ -1448,9 +1463,10 @@ app.get('/api/relationships', async (c) => {
   return c.json(relationships);
 });
 
-// Create a new relationship request
+// Create a new relationship request (or pending invitation for non-users)
 app.post('/api/relationships', async (c) => {
-  const userId = c.get('user').id;
+  const user = c.get('user');
+  const userId = user.id;
   const { recipient_email, role } = await c.req.json<CreateRelationshipRequest>();
 
   if (!recipient_email || !role) {
@@ -1462,8 +1478,28 @@ app.post('/api/relationships', async (c) => {
   }
 
   try {
-    const relationship = await createRelationship(c.env.DB, userId, recipient_email, role);
-    return c.json(relationship, 201);
+    const result = await createRelationship(c.env.DB, userId, recipient_email, role);
+
+    // If it's a pending invitation (non-user), send an email
+    if (result.type === 'invitation') {
+      // Send invitation email in background
+      if (c.env.SENDGRID_API_KEY) {
+        c.executionCtx.waitUntil(
+          sendInvitationEmail(c.env.SENDGRID_API_KEY, {
+            recipientEmail: recipient_email,
+            inviterName: user.name,
+            inviterEmail: user.email,
+            inviterRole: role,
+          }).catch(err => {
+            console.error('[Relationships] Failed to send invitation email:', err);
+          })
+        );
+      }
+      return c.json(result, 201);
+    }
+
+    // Regular relationship
+    return c.json(result, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create relationship';
     return c.json({ error: message }, 400);
@@ -1512,6 +1548,20 @@ app.delete('/api/relationships/:id', async (c) => {
     return c.json({ success: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to remove relationship';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Cancel a pending invitation (for non-users)
+app.delete('/api/invitations/:id', async (c) => {
+  const userId = c.get('user').id;
+  const invitationId = c.req.param('id');
+
+  try {
+    await cancelPendingInvitation(c.env.DB, invitationId, userId);
+    return c.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to cancel invitation';
     return c.json({ error: message }, 400);
   }
 });

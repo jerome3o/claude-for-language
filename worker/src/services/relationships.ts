@@ -6,6 +6,8 @@ import {
   User,
   StudentProgress,
   CLAUDE_AI_USER_ID,
+  PendingInvitation,
+  PendingInvitationWithInviter,
 } from '../types';
 
 function generateId(): string {
@@ -36,15 +38,22 @@ async function getUserSummary(
     .first<UserSummary>();
 }
 
+// Result type for createRelationship - can be either a relationship or pending invitation
+export type CreateRelationshipResult =
+  | { type: 'relationship'; data: TutorRelationshipWithUsers }
+  | { type: 'invitation'; data: PendingInvitationWithInviter };
+
 export async function createRelationship(
   db: D1Database,
   requesterId: string,
   recipientEmail: string,
   requesterRole: RelationshipRole
-): Promise<TutorRelationshipWithUsers> {
+): Promise<CreateRelationshipResult> {
   const recipient = await getUserByEmail(db, recipientEmail);
+
+  // If recipient doesn't exist, create a pending invitation
   if (!recipient) {
-    throw new Error('User not found with that email');
+    return createPendingInvitation(db, requesterId, recipientEmail, requesterRole);
   }
 
   if (recipient.id === requesterId) {
@@ -73,7 +82,169 @@ export async function createRelationship(
     .bind(id, requesterId, recipient.id, requesterRole)
     .run();
 
-  return getRelationshipById(db, id) as Promise<TutorRelationshipWithUsers>;
+  const relationship = await getRelationshipById(db, id) as TutorRelationshipWithUsers;
+  return { type: 'relationship', data: relationship };
+}
+
+// Create a pending invitation for a non-user
+async function createPendingInvitation(
+  db: D1Database,
+  inviterId: string,
+  recipientEmail: string,
+  inviterRole: RelationshipRole
+): Promise<CreateRelationshipResult> {
+  // Check for existing pending invitation (same inviter + email)
+  const existing = await db
+    .prepare(`
+      SELECT * FROM pending_invitations
+      WHERE inviter_id = ? AND recipient_email = ? AND status = 'pending'
+      AND expires_at > datetime('now')
+    `)
+    .bind(inviterId, recipientEmail)
+    .first<PendingInvitation>();
+
+  if (existing) {
+    // Return existing invitation (idempotent)
+    const inviter = await getUserSummary(db, inviterId);
+    if (!inviter) throw new Error('Inviter not found');
+    return {
+      type: 'invitation',
+      data: { ...existing, inviter },
+    };
+  }
+
+  // Check if there's already a relationship (recipient signed up after invitation)
+  // by checking if the recipient_email now belongs to a user
+  const possibleUser = await getUserByEmail(db, recipientEmail);
+  if (possibleUser) {
+    // User exists now, create a regular relationship instead
+    const relResult = await createRelationship(db, inviterId, recipientEmail, inviterRole);
+    return relResult;
+  }
+
+  // Create new pending invitation (expires in 30 days)
+  const id = generateId();
+  await db
+    .prepare(`
+      INSERT INTO pending_invitations (id, inviter_id, recipient_email, inviter_role, status, expires_at)
+      VALUES (?, ?, ?, ?, 'pending', datetime('now', '+30 days'))
+    `)
+    .bind(id, inviterId, recipientEmail, inviterRole)
+    .run();
+
+  const invitation = await db
+    .prepare('SELECT * FROM pending_invitations WHERE id = ?')
+    .bind(id)
+    .first<PendingInvitation>();
+
+  if (!invitation) throw new Error('Failed to create invitation');
+
+  const inviter = await getUserSummary(db, inviterId);
+  if (!inviter) throw new Error('Inviter not found');
+
+  return {
+    type: 'invitation',
+    data: { ...invitation, inviter },
+  };
+}
+
+// Get a pending invitation by ID
+export async function getPendingInvitationById(
+  db: D1Database,
+  invitationId: string
+): Promise<PendingInvitationWithInviter | null> {
+  const invitation = await db
+    .prepare('SELECT * FROM pending_invitations WHERE id = ?')
+    .bind(invitationId)
+    .first<PendingInvitation>();
+
+  if (!invitation) return null;
+
+  const inviter = await getUserSummary(db, invitation.inviter_id);
+  if (!inviter) return null;
+
+  return { ...invitation, inviter };
+}
+
+// Cancel a pending invitation
+export async function cancelPendingInvitation(
+  db: D1Database,
+  invitationId: string,
+  userId: string
+): Promise<void> {
+  const invitation = await db
+    .prepare('SELECT * FROM pending_invitations WHERE id = ?')
+    .bind(invitationId)
+    .first<PendingInvitation>();
+
+  if (!invitation) {
+    throw new Error('Invitation not found');
+  }
+
+  if (invitation.inviter_id !== userId) {
+    throw new Error('Not authorized to cancel this invitation');
+  }
+
+  if (invitation.status !== 'pending') {
+    throw new Error('Invitation is not pending');
+  }
+
+  await db
+    .prepare(`UPDATE pending_invitations SET status = 'cancelled' WHERE id = ?`)
+    .bind(invitationId)
+    .run();
+}
+
+// Process pending invitations when a new user signs up
+// This creates active relationships for all pending invitations to this email
+export async function processPendingInvitations(
+  db: D1Database,
+  newUser: User
+): Promise<number> {
+  if (!newUser.email) return 0;
+
+  // Find all pending, non-expired invitations for this email
+  const invitations = await db
+    .prepare(`
+      SELECT * FROM pending_invitations
+      WHERE recipient_email = ? AND status = 'pending'
+      AND expires_at > datetime('now')
+    `)
+    .bind(newUser.email)
+    .all<PendingInvitation>();
+
+  let connectionsCreated = 0;
+
+  for (const invitation of invitations.results) {
+    try {
+      // Create the relationship with status 'active' (auto-accepted)
+      const id = generateId();
+      await db
+        .prepare(`
+          INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status, accepted_at)
+          VALUES (?, ?, ?, ?, 'active', datetime('now'))
+        `)
+        .bind(id, invitation.inviter_id, newUser.id, invitation.inviter_role)
+        .run();
+
+      // Mark invitation as accepted
+      await db
+        .prepare(`
+          UPDATE pending_invitations
+          SET status = 'accepted', accepted_at = datetime('now')
+          WHERE id = ?
+        `)
+        .bind(invitation.id)
+        .run();
+
+      connectionsCreated++;
+      console.log(`[PendingInvitations] Created relationship from invitation ${invitation.id} for user ${newUser.id}`);
+    } catch (error) {
+      console.error(`[PendingInvitations] Failed to process invitation ${invitation.id}:`, error);
+    }
+  }
+
+  return connectionsCreated;
 }
 
 export async function getRelationshipById(
@@ -167,11 +338,32 @@ export async function getMyRelationships(
     }
   }
 
+  // Get pending invitations (invitations to non-users)
+  const invitationsResult = await db
+    .prepare(`
+      SELECT * FROM pending_invitations
+      WHERE inviter_id = ? AND status = 'pending'
+      AND expires_at > datetime('now')
+      ORDER BY created_at DESC
+    `)
+    .bind(userId)
+    .all<PendingInvitation>();
+
+  const pendingInvitations: PendingInvitationWithInviter[] = [];
+  const inviter = await getUserSummary(db, userId);
+
+  if (inviter) {
+    for (const inv of invitationsResult.results) {
+      pendingInvitations.push({ ...inv, inviter });
+    }
+  }
+
   return {
     tutors,
     students,
     pending_incoming: pendingIncoming,
     pending_outgoing: pendingOutgoing,
+    pending_invitations: pendingInvitations,
   };
 }
 

@@ -33,6 +33,7 @@ import {
   CheckMessageResponse,
   GeneratedNoteWithContext,
   SentenceBreakdown,
+  CreateRelationshipResult,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -494,11 +495,15 @@ export async function getMyRelationships(): Promise<MyRelationships> {
 export async function createRelationship(
   recipientEmail: string,
   role: RelationshipRole
-): Promise<TutorRelationshipWithUsers> {
-  return fetchJSON<TutorRelationshipWithUsers>('/relationships', {
+): Promise<CreateRelationshipResult> {
+  return fetchJSON<CreateRelationshipResult>('/relationships', {
     method: 'POST',
     body: JSON.stringify({ recipient_email: recipientEmail, role }),
   });
+}
+
+export async function cancelInvitation(id: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/invitations/${id}`, { method: 'DELETE' });
 }
 
 export async function getRelationship(id: string): Promise<TutorRelationshipWithUsers> {
