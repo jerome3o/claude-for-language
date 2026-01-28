@@ -146,6 +146,7 @@ function PageView({
             alignItems: 'center',
             justifyContent: 'center',
             minHeight: '200px',
+            aspectRatio: '4 / 3',
           }}
         >
           <div style={{ textAlign: 'center', color: '#9ca3af' }}>
@@ -157,35 +158,38 @@ function PageView({
         </div>
       )}
 
-      {/* Chinese text */}
-      <div className="reader-chinese-text">
-        {sentences.map((sentence, index) => (
-          <span
-            key={index}
-            onClick={() => onAnalyzeSentence(sentence)}
-            className="reader-sentence"
-          >
-            {sentence}
-          </span>
-        ))}
-      </div>
+      {/* Text content wrapper for desktop grid layout */}
+      <div className="reader-text-content">
+        {/* Chinese text */}
+        <div className="reader-chinese-text">
+          {sentences.map((sentence, index) => (
+            <span
+              key={index}
+              onClick={() => onAnalyzeSentence(sentence)}
+              className="reader-sentence"
+            >
+              {sentence}
+            </span>
+          ))}
+        </div>
 
-      {/* Pinyin (always visible) */}
-      <div className="reader-pinyin">
-        {page.content_pinyin}
-      </div>
+        {/* Pinyin (always visible) */}
+        <div className="reader-pinyin">
+          {page.content_pinyin}
+        </div>
 
-      {/* Translation reveal button / translation */}
-      <div
-        onClick={onToggleTranslation}
-        className={`reader-translation-box ${showTranslation ? 'visible' : 'hidden'}`}
-      >
-        {showTranslation ? page.content_english : 'Tap to reveal translation'}
-      </div>
+        {/* Translation reveal button / translation */}
+        <div
+          onClick={onToggleTranslation}
+          className={`reader-translation-box ${showTranslation ? 'visible' : 'hidden'}`}
+        >
+          {showTranslation ? page.content_english : 'Tap to reveal translation'}
+        </div>
 
-      <p className="reader-hint">
-        Tap any sentence to analyze it word by word
-      </p>
+        <p className="reader-hint">
+          Tap any sentence to analyze it word by word
+        </p>
+      </div>
     </div>
   );
 }

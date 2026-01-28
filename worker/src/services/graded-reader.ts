@@ -108,7 +108,7 @@ Respond with valid JSON.`;
 }
 
 /**
- * Generate an illustration for a reader page using Gemini 2.0 Flash
+ * Generate an illustration for a reader page using Google Nano Banana (Gemini 2.5 Flash Image)
  */
 export async function generatePageImage(
   geminiKey: string,
@@ -125,9 +125,11 @@ export async function generatePageImage(
   }
 
   try {
-    // Use Gemini 2.0 Flash for image generation
+    // Use Nano Banana (Gemini 2.5 Flash Image) for image generation
+    const fullPrompt = `A warm, friendly children's book illustration in a gentle watercolor style. ${imagePrompt}. Soft warm colors, simple clear composition, friendly and inviting atmosphere, no text or words in the image, suitable for a Chinese language learning book for children.`;
+
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: {
@@ -135,30 +137,20 @@ export async function generatePageImage(
         },
         body: JSON.stringify({
           contents: [{
-            parts: [{
-              text: `Create a warm, friendly children's book illustration in a gentle watercolor style. The scene: ${imagePrompt}.
-
-Style requirements:
-- Soft, warm colors
-- Simple, clear composition
-- Friendly and inviting atmosphere
-- No text or words in the image
-- Suitable for a Chinese language learning book`
-            }]
+            parts: [{ text: fullPrompt }]
           }],
           generationConfig: {
-            responseModalities: ['image', 'text'],
-            responseMimeType: 'image/png'
+            responseModalities: ['IMAGE'],
           }
         }),
       }
     );
 
-    console.log('[Image] Gemini response status:', response.status);
+    console.log('[Image] Nano Banana response status:', response.status);
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('[Image] Gemini error:', error);
+      console.error('[Image] Nano Banana error:', error);
       return null;
     }
 
@@ -166,11 +158,11 @@ Style requirements:
       candidates?: Array<{
         content?: {
           parts?: Array<{
-            inlineData?: {
-              mimeType: string;
-              data: string;
-            };
             text?: string;
+            inline_data?: {
+              mime_type?: string;
+              data?: string;
+            };
           }>;
         };
       }>;
@@ -178,26 +170,28 @@ Style requirements:
 
     // Find the image part in the response
     const imagePart = data.candidates?.[0]?.content?.parts?.find(
-      part => part.inlineData?.mimeType?.startsWith('image/')
+      part => part.inline_data?.data
     );
+    const imageData = imagePart?.inline_data?.data;
 
-    if (!imagePart?.inlineData?.data) {
+    if (!imageData) {
       console.error('[Image] No image data in response');
-      // Log what we did get
       console.log('[Image] Response structure:', JSON.stringify(data).slice(0, 500));
       return null;
     }
 
-    console.log('[Image] Got image data, storing in R2...');
+    const mimeType = imagePart?.inline_data?.mime_type || 'image/png';
+    const extension = mimeType === 'image/jpeg' ? 'jpg' : 'png';
+    console.log('[Image] Got image data, mime type:', mimeType, 'storing in R2...');
 
     // Decode base64 image
-    const imageBytes = Uint8Array.from(atob(imagePart.inlineData.data), c => c.charCodeAt(0));
+    const imageBytes = Uint8Array.from(atob(imageData), c => c.charCodeAt(0));
 
     // Store in R2
-    const key = `reader-images/${pageId}.png`;
+    const key = `reader-images/${pageId}.${extension}`;
     await bucket.put(key, imageBytes.buffer as ArrayBuffer, {
       httpMetadata: {
-        contentType: 'image/png',
+        contentType: mimeType,
       },
     });
 
