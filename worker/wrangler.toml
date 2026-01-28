@@ -33,6 +33,18 @@ ENVIRONMENT = "production"
 [dev]
 port = 8787
 
+# Queue for background story generation
+# Create with: `wrangler queues create story-generation-queue`
+[[queues.producers]]
+queue = "story-generation-queue"
+binding = "STORY_QUEUE"
+
+[[queues.consumers]]
+queue = "story-generation-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 2
+
 # Queue for background image generation
 # Create with: `wrangler queues create image-generation-queue`
 [[queues.producers]]

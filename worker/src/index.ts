@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage } from './types';
+import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -1516,65 +1516,15 @@ app.post('/api/readers/generate', async (c) => {
 
     console.log('[Readers] Pending reader created:', pendingReader.id);
 
-    // Generate story and images in background
-    c.executionCtx.waitUntil(
-      (async () => {
-        try {
-          // Generate the story
-          const story = await generateStory(
-            c.env.ANTHROPIC_API_KEY,
-            vocabulary,
-            topic,
-            difficulty as DifficultyLevel
-          );
+    // Queue story generation (runs in background with 15 min timeout)
+    await c.env.STORY_QUEUE.send({
+      readerId: pendingReader.id,
+      vocabulary,
+      topic,
+      difficulty: difficulty as DifficultyLevel,
+    });
 
-          console.log('[Readers] Story generated:', story.title_english, 'with', story.pages.length, 'pages');
-
-          // Update reader title now that we have the real title
-          await c.env.DB.prepare(`
-            UPDATE graded_readers SET title_chinese = ?, title_english = ? WHERE id = ?
-          `).bind(story.title_chinese, story.title_english, pendingReader.id).run();
-
-          // Add pages to the reader
-          const pages = await db.addReaderPages(c.env.DB, pendingReader.id, story.pages.map(page => ({
-            content_chinese: page.content_chinese,
-            content_pinyin: page.content_pinyin,
-            content_english: page.content_english,
-            image_url: null,
-            image_prompt: page.image_prompt,
-          })));
-
-          console.log('[Readers] Pages added:', pages.length);
-
-          // Queue image generation for each page
-          if (c.env.GEMINI_API_KEY && c.env.IMAGE_QUEUE) {
-            const pagesWithPrompts = pages.filter(p => p.image_prompt);
-            console.log('[Readers] Queueing', pagesWithPrompts.length, 'images for generation');
-
-            // Use sendBatch to send all messages atomically (avoids timeout mid-loop)
-            const messages = pagesWithPrompts.map(page => ({
-              body: {
-                readerId: pendingReader.id,
-                pageId: page.id,
-                imagePrompt: page.image_prompt!,
-                totalPages: pagesWithPrompts.length,
-              }
-            }));
-            await c.env.IMAGE_QUEUE.sendBatch(messages);
-            // Reader stays in 'generating' status until all images are done
-            console.log('[Readers] Image generation queued, reader still generating:', pendingReader.id);
-          } else {
-            // No image generation configured, mark as ready immediately
-            await db.updateReaderStatus(c.env.DB, pendingReader.id, 'ready');
-            console.log('[Readers] Reader ready (no image generation):', pendingReader.id);
-          }
-        } catch (err) {
-          console.error('[Readers] Background generation failed:', err);
-          // Mark as failed
-          await db.updateReaderStatus(c.env.DB, pendingReader.id, 'failed');
-        }
-      })()
-    );
+    console.log('[Readers] Story generation queued:', pendingReader.id);
 
     // Return immediately with the pending reader
     return c.json(pendingReader, 201);
@@ -2836,50 +2786,123 @@ app.get('*', async (c) => {
 export default {
   fetch: app.fetch,
 
-  // Queue handler for background image generation
-  async queue(batch: MessageBatch<ImageGenerationMessage>, env: Env): Promise<void> {
-    for (const message of batch.messages) {
-      const { readerId, pageId, imagePrompt } = message.body;
-      console.log('[Queue] Processing image for page:', pageId, 'reader:', readerId);
+  // Queue handler for background processing (story and image generation)
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage>, env: Env): Promise<void> {
+    const queueName = batch.queue;
+    console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
-      try {
-        // Generate the image
-        const imageUrl = await generatePageImage(
-          env.GEMINI_API_KEY,
-          imagePrompt,
-          pageId,
-          env.AUDIO_BUCKET
-        );
+    if (queueName === 'story-generation-queue') {
+      // Handle story generation
+      for (const message of batch.messages) {
+        const { readerId, vocabulary, topic, difficulty } = message.body as StoryGenerationMessage;
+        console.log('[Queue] Processing story generation for reader:', readerId);
 
-        if (imageUrl) {
-          // Update the page with the image URL
-          await db.updateReaderPageImage(env.DB, pageId, imageUrl);
-          console.log('[Queue] Image generated for page:', pageId);
-        } else {
-          console.error('[Queue] Image generation returned null for page:', pageId);
-        }
+        try {
+          // Generate the story using Claude with tool use
+          const story = await generateStory(
+            env.ANTHROPIC_API_KEY,
+            vocabulary,
+            topic,
+            difficulty
+          );
 
-        // Check if all images are done for this reader
-        const reader = await db.getGradedReaderById(env.DB, readerId);
-        if (reader) {
-          const pagesWithImages = reader.pages.filter(p => p.image_url).length;
-          const pagesNeedingImages = reader.pages.filter(p => p.image_prompt).length;
+          console.log('[Queue] Story generated:', story.title_english, 'with', story.pages.length, 'pages');
 
-          console.log('[Queue] Progress for reader', readerId, ':', pagesWithImages, '/', pagesNeedingImages);
+          // Update reader title now that we have the real title
+          await env.DB.prepare(`
+            UPDATE graded_readers SET title_chinese = ?, title_english = ? WHERE id = ?
+          `).bind(story.title_chinese, story.title_english, readerId).run();
 
-          if (pagesWithImages >= pagesNeedingImages) {
-            // All images done, mark reader as ready
+          // Add pages to the reader
+          const pages = await db.addReaderPages(env.DB, readerId, story.pages.map(page => ({
+            content_chinese: page.content_chinese,
+            content_pinyin: page.content_pinyin,
+            content_english: page.content_english,
+            image_url: null,
+            image_prompt: page.image_prompt,
+          })));
+
+          console.log('[Queue] Pages added:', pages.length);
+
+          // Queue image generation for each page
+          if (env.GEMINI_API_KEY && env.IMAGE_QUEUE) {
+            const pagesWithPrompts = pages.filter(p => p.image_prompt);
+            console.log('[Queue] Queueing', pagesWithPrompts.length, 'images for generation');
+
+            const imageMessages = pagesWithPrompts.map(page => ({
+              body: {
+                readerId: readerId,
+                pageId: page.id,
+                imagePrompt: page.image_prompt!,
+                totalPages: pagesWithPrompts.length,
+              }
+            }));
+            await env.IMAGE_QUEUE.sendBatch(imageMessages);
+            console.log('[Queue] Image generation queued for reader:', readerId);
+          } else {
+            // No image generation configured, mark as ready immediately
             await db.updateReaderStatus(env.DB, readerId, 'ready');
-            console.log('[Queue] Reader ready:', readerId);
+            console.log('[Queue] Reader ready (no image generation):', readerId);
           }
-        }
 
-        // Acknowledge the message
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] Story generation failed for reader:', readerId, err);
+          // Mark as failed and don't retry (story generation is expensive)
+          await db.updateReaderStatus(env.DB, readerId, 'failed');
+          message.ack(); // Don't retry, mark as failed instead
+        }
+      }
+    } else if (queueName === 'image-generation-queue') {
+      // Handle image generation
+      for (const message of batch.messages) {
+        const { readerId, pageId, imagePrompt } = message.body as ImageGenerationMessage;
+        console.log('[Queue] Processing image for page:', pageId, 'reader:', readerId);
+
+        try {
+          // Generate the image
+          const imageUrl = await generatePageImage(
+            env.GEMINI_API_KEY,
+            imagePrompt,
+            pageId,
+            env.AUDIO_BUCKET
+          );
+
+          if (imageUrl) {
+            // Update the page with the image URL
+            await db.updateReaderPageImage(env.DB, pageId, imageUrl);
+            console.log('[Queue] Image generated for page:', pageId);
+          } else {
+            console.error('[Queue] Image generation returned null for page:', pageId);
+          }
+
+          // Check if all images are done for this reader
+          const reader = await db.getGradedReaderById(env.DB, readerId);
+          if (reader) {
+            const pagesWithImages = reader.pages.filter(p => p.image_url).length;
+            const pagesNeedingImages = reader.pages.filter(p => p.image_prompt).length;
+
+            console.log('[Queue] Progress for reader', readerId, ':', pagesWithImages, '/', pagesNeedingImages);
+
+            if (pagesWithImages >= pagesNeedingImages) {
+              // All images done, mark reader as ready
+              await db.updateReaderStatus(env.DB, readerId, 'ready');
+              console.log('[Queue] Reader ready:', readerId);
+            }
+          }
+
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] Image generation failed for page:', pageId, err);
+          // Retry the message
+          message.retry();
+        }
+      }
+    } else {
+      console.error('[Queue] Unknown queue:', queueName);
+      // Ack all messages to avoid infinite retries
+      for (const message of batch.messages) {
         message.ack();
-      } catch (err) {
-        console.error('[Queue] Image generation failed for page:', pageId, err);
-        // Retry the message (will be retried up to 100 times)
-        message.retry();
       }
     }
   },

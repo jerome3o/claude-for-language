@@ -34,30 +34,75 @@ IMAGE PROMPTS:
 - Do NOT include any text or words in the image description
 - Style should be: realistic illustration suitable for adult readers
 
-Respond with JSON in this exact format:
-{
-  "title_chinese": "Chinese title",
-  "title_english": "English title",
-  "characters": {
-    "character_name": "Detailed physical description: age, hair color/style, typical clothing, distinguishing features"
-  },
-  "locations": {
-    "location_name": "Detailed description: setting type, atmosphere, key visual elements, lighting"
-  },
-  "pages": [
-    {
-      "content_chinese": "Chinese text for this page",
-      "content_pinyin": "Pinyin with tone marks",
-      "content_english": "English translation",
-      "characters_in_scene": ["character_name"],
-      "location": "location_name",
-      "image_prompt": "Detailed scene description referencing characters by name, their actions, expressions, composition, mood"
-    }
-  ]
-}`;
+Use the create_story tool to return the story.`;
+
+// Tool definition for structured output
+const CREATE_STORY_TOOL: Anthropic.Tool = {
+  name: 'create_story',
+  description: 'Create a graded reader story with characters, locations, and pages',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      title_chinese: {
+        type: 'string',
+        description: 'The story title in Chinese characters'
+      },
+      title_english: {
+        type: 'string',
+        description: 'The story title in English'
+      },
+      characters: {
+        type: 'object',
+        description: 'Map of character names to their physical descriptions (age, hair, clothing, features)',
+        additionalProperties: { type: 'string' }
+      },
+      locations: {
+        type: 'object',
+        description: 'Map of location names to their descriptions (setting, atmosphere, visual elements)',
+        additionalProperties: { type: 'string' }
+      },
+      pages: {
+        type: 'array',
+        description: 'The story pages (4-6 pages)',
+        items: {
+          type: 'object',
+          properties: {
+            content_chinese: {
+              type: 'string',
+              description: 'The Chinese text for this page'
+            },
+            content_pinyin: {
+              type: 'string',
+              description: 'Pinyin with tone marks (e.g., nǐ hǎo)'
+            },
+            content_english: {
+              type: 'string',
+              description: 'English translation'
+            },
+            characters_in_scene: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Names of characters appearing in this scene'
+            },
+            location: {
+              type: 'string',
+              description: 'Name of the location for this scene'
+            },
+            image_prompt: {
+              type: 'string',
+              description: 'Detailed scene description for image generation'
+            }
+          },
+          required: ['content_chinese', 'content_pinyin', 'content_english', 'image_prompt']
+        }
+      }
+    },
+    required: ['title_chinese', 'title_english', 'characters', 'locations', 'pages']
+  }
+};
 
 /**
- * Generate a graded reader story using Claude
+ * Generate a graded reader story using Claude with tool use for structured output
  */
 export async function generateStory(
   apiKey: string,
@@ -88,7 +133,7 @@ Remember:
 - Each page needs an image_prompt for illustration
 - Use proper pinyin with tone marks
 
-Respond with valid JSON.`;
+Use the create_story tool to return your story.`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -97,19 +142,17 @@ Respond with valid JSON.`;
       { role: 'user', content: userPrompt }
     ],
     system: STORY_SYSTEM_PROMPT,
+    tools: [CREATE_STORY_TOOL],
+    tool_choice: { type: 'tool', name: 'create_story' },
   });
 
-  const textContent = response.content.find(c => c.type === 'text');
-  if (!textContent || textContent.type !== 'text') {
-    throw new Error('No text content in AI response');
+  // Find the tool use block
+  const toolUse = response.content.find(c => c.type === 'tool_use');
+  if (!toolUse || toolUse.type !== 'tool_use') {
+    throw new Error('No tool use in AI response');
   }
 
-  const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('Could not find JSON in AI response');
-  }
-
-  const result = JSON.parse(jsonMatch[0]) as GeneratedStory;
+  const result = toolUse.input as GeneratedStory;
 
   // Validate structure
   if (!result.title_chinese || !result.title_english || !result.pages || !Array.isArray(result.pages)) {
