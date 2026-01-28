@@ -1551,14 +1551,16 @@ app.post('/api/readers/generate', async (c) => {
             const pagesWithPrompts = pages.filter(p => p.image_prompt);
             console.log('[Readers] Queueing', pagesWithPrompts.length, 'images for generation');
 
-            for (const page of pagesWithPrompts) {
-              await c.env.IMAGE_QUEUE.send({
+            // Use sendBatch to send all messages atomically (avoids timeout mid-loop)
+            const messages = pagesWithPrompts.map(page => ({
+              body: {
                 readerId: pendingReader.id,
                 pageId: page.id,
                 imagePrompt: page.image_prompt!,
                 totalPages: pagesWithPrompts.length,
-              });
-            }
+              }
+            }));
+            await c.env.IMAGE_QUEUE.sendBatch(messages);
             // Reader stays in 'generating' status until all images are done
             console.log('[Readers] Image generation queued, reader still generating:', pendingReader.id);
           } else {
