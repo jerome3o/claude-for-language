@@ -10,6 +10,7 @@ import {
   parseLearningSteps,
 } from './services/anki-scheduler';
 import { generateDeck, suggestCards, askAboutNote, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions } from './services/ai';
+import { analyzeSentence } from './services/sentence';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS, generateConversationTTS } from './services/audio';
 import {
   getGoogleAuthUrl,
@@ -1396,6 +1397,28 @@ app.post('/api/ai/suggest-cards', async (c) => {
   } catch (error) {
     console.error('AI suggestion error:', error);
     return c.json({ error: 'Failed to generate suggestions' }, 500);
+  }
+});
+
+// ============ Sentence Analysis (Learning Subtitles) ============
+
+app.post('/api/sentence/analyze', async (c) => {
+  const { sentence } = await c.req.json<{ sentence: string }>();
+
+  if (!sentence || typeof sentence !== 'string' || !sentence.trim()) {
+    return c.json({ error: 'sentence is required' }, 400);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI analysis is not configured' }, 500);
+  }
+
+  try {
+    const breakdown = await analyzeSentence(c.env.ANTHROPIC_API_KEY, sentence.trim());
+    return c.json(breakdown);
+  } catch (error) {
+    console.error('Sentence analysis error:', error);
+    return c.json({ error: 'Failed to analyze sentence' }, 500);
   }
 });
 
