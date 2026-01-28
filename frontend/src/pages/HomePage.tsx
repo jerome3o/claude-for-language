@@ -1,8 +1,8 @@
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { getOverviewStats, getDecks, createDeck, getDeckStats } from '../api/client';
-import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
+import { getDecks, createDeck, getDeckStats } from '../api/client';
+import { Loading, EmptyState } from '../components/Loading';
 import { Deck, QueueCounts } from '../types';
 import { useOfflineQueueCounts, useOfflineDecks, useHasMoreNewCards } from '../hooks/useOfflineData';
 
@@ -21,9 +21,12 @@ function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
 
 function DeckCard({ deck }: { deck: Deck }) {
   const navigate = useNavigate();
+  // Stats are optional - don't block on this, queue counts work offline
   const statsQuery = useQuery({
     queryKey: ['deckStats', deck.id],
     queryFn: () => getDeckStats(deck.id),
+    retry: false,
+    staleTime: 60000, // Cache for 1 minute
   });
 
   // Track bonus for this specific deck
@@ -111,18 +114,29 @@ export function HomePage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
-  const statsQuery = useQuery({
-    queryKey: ['stats', 'overview'],
-    queryFn: getOverviewStats,
-  });
+  // OFFLINE-FIRST: Use IndexedDB as primary data source
+  // This renders immediately with cached data, even when offline
+  const { decks: offlineDecks, isLoading: offlineLoading, isSyncing, triggerSync } = useOfflineDecks();
 
+  // Background API calls - these refresh data when online but don't block rendering
   const decksQuery = useQuery({
     queryKey: ['decks'],
     queryFn: getDecks,
+    // Don't show loading/error states - offline data is primary
+    staleTime: 30000,
+    retry: false,
   });
 
-  // Pass API decks to detect mismatch with IndexedDB and auto-sync
-  const { isSyncing } = useOfflineDecks(decksQuery.data);
+  // Trigger sync when API returns data (to update IndexedDB if needed)
+  React.useEffect(() => {
+    if (decksQuery.data && navigator.onLine) {
+      // If API returned decks, trigger sync to ensure IndexedDB is up to date
+      triggerSync();
+    }
+  }, [decksQuery.data, triggerSync]);
+
+  // Use offline decks as the source of truth
+  const decks = offlineDecks;
 
   // Track bonus new cards - read from localStorage, update state to trigger re-render
   const getTodayKey = (forDeckId?: string) =>
@@ -168,15 +182,14 @@ export function HomePage() {
     },
   });
 
-  if (statsQuery.isLoading || decksQuery.isLoading) {
+  // OFFLINE-FIRST: Only show loading on initial load when IndexedDB hasn't loaded yet
+  // This is a brief moment on first app launch - after that, cached data renders instantly
+  if (offlineLoading) {
     return <Loading />;
   }
 
-  if (statsQuery.error) {
-    return <ErrorMessage message="Failed to load statistics" />;
-  }
-
-  const decks = decksQuery.data || [];
+  // No error state needed - we use cached offline data as primary source
+  // If offline and no cached data, show empty state (user can still navigate)
 
   return (
     <div className="page">
