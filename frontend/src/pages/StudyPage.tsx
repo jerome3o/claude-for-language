@@ -640,9 +640,9 @@ function StudyCard({
                         if (audioProvider) {
                           options.provider = audioProvider;
                         }
-                        await generateNoteAudio(card.note.id, options);
-                        // Trigger audio playback with cache buster
-                        playAudio(card.note.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
+                        const updatedNote = await generateNoteAudio(card.note.id, options);
+                        // Trigger audio playback with the NEW audio URL and cache buster
+                        playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
                       } catch (error) {
                         console.error('Failed to regenerate audio:', error);
                       } finally {
