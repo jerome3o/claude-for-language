@@ -159,8 +159,8 @@ export async function generatePageImage(
         content?: {
           parts?: Array<{
             text?: string;
-            inline_data?: {
-              mime_type?: string;
+            inlineData?: {
+              mimeType?: string;
               data?: string;
             };
           }>;
@@ -168,11 +168,11 @@ export async function generatePageImage(
       }>;
     };
 
-    // Find the image part in the response
+    // Find the image part in the response (note: API uses camelCase)
     const imagePart = data.candidates?.[0]?.content?.parts?.find(
-      part => part.inline_data?.data
+      part => part.inlineData?.data
     );
-    const imageData = imagePart?.inline_data?.data;
+    const imageData = imagePart?.inlineData?.data;
 
     if (!imageData) {
       console.error('[Image] No image data in response');
@@ -180,7 +180,7 @@ export async function generatePageImage(
       return null;
     }
 
-    const mimeType = imagePart?.inline_data?.mime_type || 'image/png';
+    const mimeType = imagePart?.inlineData?.mimeType || 'image/png';
     const extension = mimeType === 'image/jpeg' ? 'jpg' : 'png';
     console.log('[Image] Got image data, mime type:', mimeType, 'storing in R2...');
 
