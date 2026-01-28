@@ -70,6 +70,7 @@ jobs:
           echo "${{ secrets.ANTHROPIC_API_KEY }}" | npx wrangler secret put ANTHROPIC_API_KEY
           echo "${{ secrets.GOOGLE_TTS_API_KEY }}" | npx wrangler secret put GOOGLE_TTS_API_KEY
           echo "${{ secrets.MINIMAX_API_KEY }}" | npx wrangler secret put MINIMAX_API_KEY
+          echo "${{ secrets.GEMINI_API_KEY }}" | npx wrangler secret put GEMINI_API_KEY
           echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID
           echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET
           echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET

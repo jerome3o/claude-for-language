@@ -34,6 +34,9 @@ import {
   GeneratedNoteWithContext,
   SentenceBreakdown,
   CreateRelationshipResult,
+  GradedReader,
+  GradedReaderWithPages,
+  DifficultyLevel,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -799,4 +802,37 @@ export async function analyzeSentence(sentence: string): Promise<SentenceBreakdo
     method: 'POST',
     body: JSON.stringify({ sentence }),
   });
+}
+
+// ============ Graded Readers ============
+
+export async function getGradedReaders(): Promise<GradedReader[]> {
+  return fetchJSON<GradedReader[]>('/readers');
+}
+
+export async function getGradedReader(id: string): Promise<GradedReaderWithPages> {
+  return fetchJSON<GradedReaderWithPages>(`/readers/${id}`);
+}
+
+export async function generateGradedReader(
+  deckIds: string[],
+  topic?: string,
+  difficulty?: DifficultyLevel
+): Promise<GradedReaderWithPages> {
+  return fetchJSON<GradedReaderWithPages>('/readers/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      deck_ids: deckIds,
+      topic,
+      difficulty,
+    }),
+  });
+}
+
+export async function deleteGradedReader(id: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/readers/${id}`, { method: 'DELETE' });
+}
+
+export function getReaderImageUrl(imageKey: string): string {
+  return `${API_PATH}/audio/${imageKey}`;
 }

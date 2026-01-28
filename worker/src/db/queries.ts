@@ -11,6 +11,11 @@ import {
   CardQueue,
   QueueCounts,
   Rating,
+  GradedReader,
+  ReaderPage,
+  GradedReaderWithPages,
+  VocabularyItem,
+  DifficultyLevel,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -1501,4 +1506,213 @@ export async function updateDeckSettings(
     .run();
 
   return getDeckById(db, deckId, userId);
+}
+
+// ============ Graded Readers ============
+
+/**
+ * Create a graded reader with pages
+ */
+export async function createGradedReader(
+  db: D1Database,
+  userId: string,
+  data: {
+    title_chinese: string;
+    title_english: string;
+    difficulty_level: DifficultyLevel;
+    topic: string | null;
+    source_deck_ids: string[];
+    vocabulary_used: VocabularyItem[];
+    pages: Array<{
+      content_chinese: string;
+      content_pinyin: string;
+      content_english: string;
+      image_url: string | null;
+      image_prompt: string | null;
+    }>;
+  }
+): Promise<GradedReaderWithPages> {
+  const readerId = generateId();
+
+  // Create the reader
+  await db.prepare(`
+    INSERT INTO graded_readers (
+      id, user_id, title_chinese, title_english, difficulty_level,
+      topic, source_deck_ids, vocabulary_used
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    readerId,
+    userId,
+    data.title_chinese,
+    data.title_english,
+    data.difficulty_level,
+    data.topic,
+    JSON.stringify(data.source_deck_ids),
+    JSON.stringify(data.vocabulary_used)
+  ).run();
+
+  // Create pages
+  const pages: ReaderPage[] = [];
+  for (let i = 0; i < data.pages.length; i++) {
+    const page = data.pages[i];
+    const pageId = generateId();
+
+    await db.prepare(`
+      INSERT INTO reader_pages (
+        id, reader_id, page_number, content_chinese, content_pinyin,
+        content_english, image_url, image_prompt
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      pageId,
+      readerId,
+      i + 1,
+      page.content_chinese,
+      page.content_pinyin,
+      page.content_english,
+      page.image_url,
+      page.image_prompt
+    ).run();
+
+    pages.push({
+      id: pageId,
+      reader_id: readerId,
+      page_number: i + 1,
+      content_chinese: page.content_chinese,
+      content_pinyin: page.content_pinyin,
+      content_english: page.content_english,
+      image_url: page.image_url,
+      image_prompt: page.image_prompt,
+    });
+  }
+
+  const reader = await db.prepare('SELECT * FROM graded_readers WHERE id = ?')
+    .bind(readerId)
+    .first<GradedReader & { source_deck_ids: string; vocabulary_used: string }>();
+
+  if (!reader) throw new Error('Failed to create graded reader');
+
+  return {
+    ...reader,
+    source_deck_ids: JSON.parse(reader.source_deck_ids) as string[],
+    vocabulary_used: JSON.parse(reader.vocabulary_used) as VocabularyItem[],
+    pages,
+  };
+}
+
+/**
+ * Get all graded readers for a user
+ */
+export async function getGradedReaders(
+  db: D1Database,
+  userId: string
+): Promise<GradedReader[]> {
+  const result = await db.prepare(`
+    SELECT * FROM graded_readers
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+  `).bind(userId).all<GradedReader & { source_deck_ids: string; vocabulary_used: string }>();
+
+  return result.results.map(r => ({
+    ...r,
+    source_deck_ids: JSON.parse(r.source_deck_ids) as string[],
+    vocabulary_used: JSON.parse(r.vocabulary_used) as VocabularyItem[],
+  }));
+}
+
+/**
+ * Get a graded reader with all its pages
+ */
+export async function getGradedReader(
+  db: D1Database,
+  readerId: string,
+  userId: string
+): Promise<GradedReaderWithPages | null> {
+  const reader = await db.prepare(`
+    SELECT * FROM graded_readers
+    WHERE id = ? AND user_id = ?
+  `).bind(readerId, userId).first<GradedReader & { source_deck_ids: string; vocabulary_used: string }>();
+
+  if (!reader) return null;
+
+  const pagesResult = await db.prepare(`
+    SELECT * FROM reader_pages
+    WHERE reader_id = ?
+    ORDER BY page_number ASC
+  `).bind(readerId).all<ReaderPage>();
+
+  return {
+    ...reader,
+    source_deck_ids: JSON.parse(reader.source_deck_ids) as string[],
+    vocabulary_used: JSON.parse(reader.vocabulary_used) as VocabularyItem[],
+    pages: pagesResult.results,
+  };
+}
+
+/**
+ * Update a reader page's image URL
+ */
+export async function updateReaderPageImage(
+  db: D1Database,
+  pageId: string,
+  imageUrl: string
+): Promise<void> {
+  await db.prepare(`
+    UPDATE reader_pages SET image_url = ? WHERE id = ?
+  `).bind(imageUrl, pageId).run();
+}
+
+/**
+ * Delete a graded reader and all its pages
+ */
+export async function deleteGradedReader(
+  db: D1Database,
+  readerId: string,
+  userId: string
+): Promise<boolean> {
+  // Verify ownership
+  const reader = await db.prepare(`
+    SELECT id FROM graded_readers WHERE id = ? AND user_id = ?
+  `).bind(readerId, userId).first();
+
+  if (!reader) return false;
+
+  // Delete pages first (foreign key constraint)
+  await db.prepare('DELETE FROM reader_pages WHERE reader_id = ?')
+    .bind(readerId)
+    .run();
+
+  // Delete reader
+  await db.prepare('DELETE FROM graded_readers WHERE id = ?')
+    .bind(readerId)
+    .run();
+
+  return true;
+}
+
+/**
+ * Get learned vocabulary from decks (cards with interval > 1 day)
+ */
+export async function getLearnedVocabulary(
+  db: D1Database,
+  userId: string,
+  deckIds: string[]
+): Promise<VocabularyItem[]> {
+  if (deckIds.length === 0) return [];
+
+  const placeholders = deckIds.map(() => '?').join(',');
+
+  const result = await db.prepare(`
+    SELECT DISTINCT n.hanzi, n.pinyin, n.english
+    FROM notes n
+    JOIN decks d ON n.deck_id = d.id
+    JOIN cards c ON c.note_id = n.id
+    WHERE d.user_id = ?
+    AND d.id IN (${placeholders})
+    AND c.interval >= 1
+    GROUP BY n.id
+  `).bind(userId, ...deckIds).all<{ hanzi: string; pinyin: string; english: string }>();
+
+  return result.results;
 }

@@ -34,6 +34,7 @@ export function Header() {
         <div className="header-right">
           <nav className="header-nav">
             <Link to="/">Home</Link>
+            <Link to="/readers">Readers</Link>
             <Link to="/progress">Progress</Link>
             <Link to="/connections">Connections</Link>
             <Link to="/tutor-reviews">Reviews</Link>
