@@ -1534,13 +1534,13 @@ export async function createGradedReader(
 ): Promise<GradedReaderWithPages> {
   const readerId = generateId();
 
-  // Create the reader
+  // Create the reader with status='ready' (since pages are provided)
   await db.prepare(`
     INSERT INTO graded_readers (
       id, user_id, title_chinese, title_english, difficulty_level,
-      topic, source_deck_ids, vocabulary_used
+      topic, source_deck_ids, vocabulary_used, status
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     readerId,
     userId,
@@ -1549,7 +1549,8 @@ export async function createGradedReader(
     data.difficulty_level,
     data.topic,
     JSON.stringify(data.source_deck_ids),
-    JSON.stringify(data.vocabulary_used)
+    JSON.stringify(data.vocabulary_used),
+    'ready'
   ).run();
 
   // Create pages
@@ -1661,6 +1662,120 @@ export async function updateReaderPageImage(
   await db.prepare(`
     UPDATE reader_pages SET image_url = ? WHERE id = ?
   `).bind(imageUrl, pageId).run();
+}
+
+/**
+ * Create a pending reader (status='generating', no pages yet)
+ */
+export async function createPendingReader(
+  db: D1Database,
+  userId: string,
+  data: {
+    title_chinese: string;
+    title_english: string;
+    difficulty_level: DifficultyLevel;
+    topic: string | null;
+    source_deck_ids: string[];
+    vocabulary_used: VocabularyItem[];
+  }
+): Promise<GradedReader> {
+  const readerId = generateId();
+
+  await db.prepare(`
+    INSERT INTO graded_readers (
+      id, user_id, title_chinese, title_english, difficulty_level,
+      topic, source_deck_ids, vocabulary_used, status
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    readerId,
+    userId,
+    data.title_chinese,
+    data.title_english,
+    data.difficulty_level,
+    data.topic,
+    JSON.stringify(data.source_deck_ids),
+    JSON.stringify(data.vocabulary_used),
+    'generating'
+  ).run();
+
+  return {
+    id: readerId,
+    user_id: userId,
+    title_chinese: data.title_chinese,
+    title_english: data.title_english,
+    difficulty_level: data.difficulty_level,
+    topic: data.topic,
+    source_deck_ids: data.source_deck_ids,
+    vocabulary_used: data.vocabulary_used,
+    status: 'generating',
+    created_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Add pages to an existing reader
+ */
+export async function addReaderPages(
+  db: D1Database,
+  readerId: string,
+  pages: Array<{
+    content_chinese: string;
+    content_pinyin: string;
+    content_english: string;
+    image_url: string | null;
+    image_prompt: string | null;
+  }>
+): Promise<ReaderPage[]> {
+  const createdPages: ReaderPage[] = [];
+
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const pageId = generateId();
+
+    await db.prepare(`
+      INSERT INTO reader_pages (
+        id, reader_id, page_number, content_chinese, content_pinyin,
+        content_english, image_url, image_prompt
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      pageId,
+      readerId,
+      i + 1,
+      page.content_chinese,
+      page.content_pinyin,
+      page.content_english,
+      page.image_url,
+      page.image_prompt
+    ).run();
+
+    createdPages.push({
+      id: pageId,
+      reader_id: readerId,
+      page_number: i + 1,
+      content_chinese: page.content_chinese,
+      content_pinyin: page.content_pinyin,
+      content_english: page.content_english,
+      image_url: page.image_url,
+      image_prompt: page.image_prompt,
+    });
+  }
+
+  return createdPages;
+}
+
+/**
+ * Update reader status
+ */
+export async function updateReaderStatus(
+  db: D1Database,
+  readerId: string,
+  status: 'generating' | 'ready' | 'failed'
+): Promise<void> {
+  await db.prepare(`
+    UPDATE graded_readers SET status = ? WHERE id = ?
+  `).bind(status, readerId).run();
 }
 
 /**

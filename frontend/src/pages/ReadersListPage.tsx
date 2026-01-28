@@ -14,6 +14,8 @@ const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; lab
 function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () => void }) {
   const navigate = useNavigate();
   const difficultyStyle = DIFFICULTY_COLORS[reader.difficulty_level];
+  const isGenerating = reader.status === 'generating';
+  const isFailed = reader.status === 'failed';
 
   // Format date nicely
   const formatDate = (dateStr: string) => {
@@ -25,14 +27,38 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
     });
   };
 
+  const handleClick = () => {
+    if (!isGenerating && !isFailed) {
+      navigate(`/readers/${reader.id}`);
+    }
+  };
+
   return (
-    <div className="card" style={{ padding: '1rem' }}>
+    <div
+      className="card"
+      style={{
+        padding: '1rem',
+        opacity: isGenerating ? 0.8 : 1,
+        position: 'relative',
+      }}
+    >
       <div
-        onClick={() => navigate(`/readers/${reader.id}`)}
-        style={{ cursor: 'pointer' }}
+        onClick={handleClick}
+        style={{ cursor: isGenerating || isFailed ? 'default' : 'pointer' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-          <h3 style={{ fontSize: '1.25rem', margin: 0 }}>{reader.title_chinese}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <h3 style={{ fontSize: '1.25rem', margin: 0 }}>
+              {isGenerating ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span className="spinner" style={{ width: '18px', height: '18px' }} />
+                  {reader.title_chinese}
+                </span>
+              ) : (
+                reader.title_chinese
+              )}
+            </h3>
+          </div>
           <span
             style={{
               padding: '0.125rem 0.5rem',
@@ -54,36 +80,54 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
             Topic: {reader.topic}
           </p>
         )}
-        <p style={{ color: '#9ca3af', margin: 0, fontSize: '0.75rem' }}>
-          {reader.vocabulary_used.length} vocabulary items &middot; {formatDate(reader.created_at)}
-        </p>
+        {isGenerating ? (
+          <p style={{ color: '#3b82f6', margin: 0, fontSize: '0.75rem', fontStyle: 'italic' }}>
+            Generating story and illustrations...
+          </p>
+        ) : isFailed ? (
+          <p style={{ color: '#dc2626', margin: 0, fontSize: '0.75rem' }}>
+            Generation failed
+          </p>
+        ) : (
+          <p style={{ color: '#9ca3af', margin: 0, fontSize: '0.75rem' }}>
+            {reader.vocabulary_used.length} vocabulary items &middot; {formatDate(reader.created_at)}
+          </p>
+        )}
       </div>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginTop: '0.75rem',
-        paddingTop: '0.75rem',
-        borderTop: '1px solid #e5e7eb'
-      }}>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => navigate(`/readers/${reader.id}`)}
-          style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
-        >
-          Read
-        </button>
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', color: '#dc2626' }}
-        >
-          Delete
-        </button>
-      </div>
+      {!isGenerating && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginTop: '0.75rem',
+          paddingTop: '0.75rem',
+          borderTop: '1px solid #e5e7eb'
+        }}>
+          {isFailed ? (
+            <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>
+              Unable to generate
+            </span>
+          ) : (
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleClick}
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              Read
+            </button>
+          )}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', color: '#dc2626' }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -94,6 +138,12 @@ export function ReadersListPage() {
   const readersQuery = useQuery({
     queryKey: ['readers'],
     queryFn: getGradedReaders,
+    // Poll every 3 seconds if there are any generating readers
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const hasGenerating = data?.some((r: GradedReader) => r.status === 'generating');
+      return hasGenerating ? 3000 : false;
+    },
   });
 
   const deleteMutation = useMutation({
@@ -104,7 +154,10 @@ export function ReadersListPage() {
   });
 
   const handleDelete = (reader: GradedReader) => {
-    if (window.confirm(`Delete "${reader.title_english}"? This cannot be undone.`)) {
+    const message = reader.status === 'generating'
+      ? `Cancel generation of "${reader.title_english}"?`
+      : `Delete "${reader.title_english}"? This cannot be undone.`;
+    if (window.confirm(message)) {
       deleteMutation.mutate(reader.id);
     }
   };

@@ -1477,7 +1477,7 @@ app.get('/api/readers/:id', async (c) => {
   return c.json(reader);
 });
 
-// Generate a new graded reader
+// Generate a new graded reader (async - returns immediately with status='generating')
 app.post('/api/readers/generate', async (c) => {
   const userId = c.get('user').id;
   const { deck_ids, topic, difficulty = 'beginner' } = await c.req.json<GenerateReaderRequest>();
@@ -1502,63 +1502,86 @@ app.post('/api/readers/generate', async (c) => {
       }, 400);
     }
 
-    console.log('[Readers] Generating story with', vocabulary.length, 'vocabulary items');
+    console.log('[Readers] Creating pending reader with', vocabulary.length, 'vocabulary items');
 
-    // Generate the story
-    const story = await generateStory(
-      c.env.ANTHROPIC_API_KEY,
-      vocabulary,
-      topic,
-      difficulty as DifficultyLevel
-    );
-
-    console.log('[Readers] Story generated:', story.title_english, 'with', story.pages.length, 'pages');
-
-    // Create the reader and pages in the database
-    const reader = await db.createGradedReader(c.env.DB, userId, {
-      title_chinese: story.title_chinese,
-      title_english: story.title_english,
+    // Create a pending reader immediately with status='generating'
+    const pendingReader = await db.createPendingReader(c.env.DB, userId, {
+      title_chinese: '生成中...',
+      title_english: topic ? `Story about: ${topic}` : 'Generating story...',
       difficulty_level: difficulty as DifficultyLevel,
       topic: topic || null,
       source_deck_ids: deck_ids,
       vocabulary_used: vocabulary,
-      pages: story.pages.map(page => ({
-        content_chinese: page.content_chinese,
-        content_pinyin: page.content_pinyin,
-        content_english: page.content_english,
-        image_url: null,
-        image_prompt: page.image_prompt,
-      })),
     });
 
-    console.log('[Readers] Reader created:', reader.id);
+    console.log('[Readers] Pending reader created:', pendingReader.id);
 
-    // Generate images for each page in background
-    if (c.env.GEMINI_API_KEY) {
-      c.executionCtx.waitUntil(
-        Promise.all(
-          reader.pages.map(async (page) => {
-            try {
-              const imageUrl = await generatePageImage(
-                c.env.GEMINI_API_KEY,
-                page.image_prompt || '',
-                page.id,
-                c.env.AUDIO_BUCKET
-              );
+    // Generate story and images in background
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          // Generate the story
+          const story = await generateStory(
+            c.env.ANTHROPIC_API_KEY,
+            vocabulary,
+            topic,
+            difficulty as DifficultyLevel
+          );
 
-              if (imageUrl) {
-                await db.updateReaderPageImage(c.env.DB, page.id, imageUrl);
-                console.log('[Readers] Image generated for page:', page.id);
-              }
-            } catch (err) {
-              console.error('[Readers] Failed to generate image for page:', page.id, err);
-            }
-          })
-        )
-      );
-    }
+          console.log('[Readers] Story generated:', story.title_english, 'with', story.pages.length, 'pages');
 
-    return c.json(reader, 201);
+          // Update reader title now that we have the real title
+          await c.env.DB.prepare(`
+            UPDATE graded_readers SET title_chinese = ?, title_english = ? WHERE id = ?
+          `).bind(story.title_chinese, story.title_english, pendingReader.id).run();
+
+          // Add pages to the reader
+          const pages = await db.addReaderPages(c.env.DB, pendingReader.id, story.pages.map(page => ({
+            content_chinese: page.content_chinese,
+            content_pinyin: page.content_pinyin,
+            content_english: page.content_english,
+            image_url: null,
+            image_prompt: page.image_prompt,
+          })));
+
+          console.log('[Readers] Pages added:', pages.length);
+
+          // Generate images for each page
+          if (c.env.GEMINI_API_KEY) {
+            await Promise.all(
+              pages.map(async (page) => {
+                try {
+                  const imageUrl = await generatePageImage(
+                    c.env.GEMINI_API_KEY,
+                    page.image_prompt || '',
+                    page.id,
+                    c.env.AUDIO_BUCKET
+                  );
+
+                  if (imageUrl) {
+                    await db.updateReaderPageImage(c.env.DB, page.id, imageUrl);
+                    console.log('[Readers] Image generated for page:', page.id);
+                  }
+                } catch (err) {
+                  console.error('[Readers] Failed to generate image for page:', page.id, err);
+                }
+              })
+            );
+          }
+
+          // Mark as ready
+          await db.updateReaderStatus(c.env.DB, pendingReader.id, 'ready');
+          console.log('[Readers] Reader ready:', pendingReader.id);
+        } catch (err) {
+          console.error('[Readers] Background generation failed:', err);
+          // Mark as failed
+          await db.updateReaderStatus(c.env.DB, pendingReader.id, 'failed');
+        }
+      })()
+    );
+
+    // Return immediately with the pending reader
+    return c.json(pendingReader, 201);
   } catch (error) {
     console.error('Graded reader generation error:', error);
     return c.json({ error: 'Failed to generate graded reader' }, 500);
