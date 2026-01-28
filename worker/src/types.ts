@@ -3,6 +3,7 @@ export interface Env {
   DB: D1Database;
   AUDIO_BUCKET: R2Bucket;
   IMAGE_QUEUE: Queue<ImageGenerationMessage>;
+  STORY_QUEUE: Queue<StoryGenerationMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
@@ -19,6 +20,13 @@ export interface Env {
 }
 
 // Queue message types
+export interface StoryGenerationMessage {
+  readerId: string;
+  vocabulary: VocabularyItem[];
+  topic?: string;
+  difficulty: DifficultyLevel;
+}
+
 export interface ImageGenerationMessage {
   readerId: string;
   pageId: string;
