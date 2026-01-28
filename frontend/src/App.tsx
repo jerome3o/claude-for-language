@@ -24,6 +24,9 @@ import { MyDayDetailPage } from './pages/MyDayDetailPage';
 import { MyCardReviewDetailPage } from './pages/MyCardReviewDetailPage';
 import { TutorReviewInboxPage } from './pages/TutorReviewInboxPage';
 import { TutorReviewDetailPage } from './pages/TutorReviewDetailPage';
+import { ReadersListPage } from './pages/ReadersListPage';
+import { GenerateReaderPage } from './pages/GenerateReaderPage';
+import { ReaderPage } from './pages/ReaderPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -210,6 +213,32 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <TutorReviewDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/readers"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ReadersListPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/readers/generate"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <GenerateReaderPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/readers/:id"
+        element={
+          <ProtectedRoute>
+            <ReaderPage />
           </ProtectedRoute>
         }
       />

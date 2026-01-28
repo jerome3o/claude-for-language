@@ -5,6 +5,7 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
+  GEMINI_API_KEY: string;
   ENVIRONMENT: string;
   // Auth secrets
   GOOGLE_CLIENT_ID: string;
@@ -556,3 +557,57 @@ export interface AnalyzeSentenceRequest {
 
 // Response from the API
 export interface AnalyzeSentenceResponse extends SentenceBreakdown {}
+
+// ============ Graded Readers ============
+
+export type DifficultyLevel = 'beginner' | 'elementary' | 'intermediate' | 'advanced';
+
+export interface VocabularyItem {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+}
+
+export interface GradedReader {
+  id: string;
+  user_id: string;
+  title_chinese: string;
+  title_english: string;
+  difficulty_level: DifficultyLevel;
+  topic: string | null;
+  source_deck_ids: string[];
+  vocabulary_used: VocabularyItem[];
+  created_at: string;
+}
+
+export interface ReaderPage {
+  id: string;
+  reader_id: string;
+  page_number: number;
+  content_chinese: string;
+  content_pinyin: string;
+  content_english: string;
+  image_url: string | null;
+  image_prompt: string | null;
+}
+
+export interface GradedReaderWithPages extends GradedReader {
+  pages: ReaderPage[];
+}
+
+export interface GenerateReaderRequest {
+  deck_ids: string[];
+  topic?: string;
+  difficulty?: DifficultyLevel;
+}
+
+export interface GeneratedStory {
+  title_chinese: string;
+  title_english: string;
+  pages: Array<{
+    content_chinese: string;
+    content_pinyin: string;
+    content_english: string;
+    image_prompt: string;
+  }>;
+}

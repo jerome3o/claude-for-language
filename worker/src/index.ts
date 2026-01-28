@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse } from './types';
+import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -11,6 +11,7 @@ import {
 } from './services/anki-scheduler';
 import { generateDeck, suggestCards, askAboutNote, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions } from './services/ai';
 import { analyzeSentence } from './services/sentence';
+import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS, generateConversationTTS } from './services/audio';
 import {
   getGoogleAuthUrl,
@@ -1452,6 +1453,144 @@ app.post('/api/sentence/analyze', async (c) => {
     console.error('Sentence analysis error:', error);
     return c.json({ error: 'Failed to analyze sentence' }, 500);
   }
+});
+
+// ============ Graded Readers ============
+
+// List all graded readers for the user
+app.get('/api/readers', async (c) => {
+  const userId = c.get('user').id;
+  const readers = await db.getGradedReaders(c.env.DB, userId);
+  return c.json(readers);
+});
+
+// Get a specific graded reader with pages
+app.get('/api/readers/:id', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+
+  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
+  if (!reader) {
+    return c.json({ error: 'Reader not found' }, 404);
+  }
+
+  return c.json(reader);
+});
+
+// Generate a new graded reader
+app.post('/api/readers/generate', async (c) => {
+  const userId = c.get('user').id;
+  const { deck_ids, topic, difficulty = 'beginner' } = await c.req.json<GenerateReaderRequest>();
+
+  if (!deck_ids || !Array.isArray(deck_ids) || deck_ids.length === 0) {
+    return c.json({ error: 'deck_ids is required and must be a non-empty array' }, 400);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI generation is not configured' }, 500);
+  }
+
+  try {
+    // Get learned vocabulary from the specified decks
+    const vocabulary = await db.getLearnedVocabulary(c.env.DB, userId, deck_ids);
+
+    if (vocabulary.length < 5) {
+      return c.json({
+        error: 'Not enough learned vocabulary. Please study more cards first.',
+        vocabulary_count: vocabulary.length,
+        minimum_required: 5
+      }, 400);
+    }
+
+    console.log('[Readers] Generating story with', vocabulary.length, 'vocabulary items');
+
+    // Generate the story
+    const story = await generateStory(
+      c.env.ANTHROPIC_API_KEY,
+      vocabulary,
+      topic,
+      difficulty as DifficultyLevel
+    );
+
+    console.log('[Readers] Story generated:', story.title_english, 'with', story.pages.length, 'pages');
+
+    // Create the reader and pages in the database
+    const reader = await db.createGradedReader(c.env.DB, userId, {
+      title_chinese: story.title_chinese,
+      title_english: story.title_english,
+      difficulty_level: difficulty as DifficultyLevel,
+      topic: topic || null,
+      source_deck_ids: deck_ids,
+      vocabulary_used: vocabulary,
+      pages: story.pages.map(page => ({
+        content_chinese: page.content_chinese,
+        content_pinyin: page.content_pinyin,
+        content_english: page.content_english,
+        image_url: null,
+        image_prompt: page.image_prompt,
+      })),
+    });
+
+    console.log('[Readers] Reader created:', reader.id);
+
+    // Generate images for each page in background
+    if (c.env.GEMINI_API_KEY) {
+      c.executionCtx.waitUntil(
+        Promise.all(
+          reader.pages.map(async (page) => {
+            try {
+              const imageUrl = await generatePageImage(
+                c.env.GEMINI_API_KEY,
+                page.image_prompt || '',
+                page.id,
+                c.env.AUDIO_BUCKET
+              );
+
+              if (imageUrl) {
+                await db.updateReaderPageImage(c.env.DB, page.id, imageUrl);
+                console.log('[Readers] Image generated for page:', page.id);
+              }
+            } catch (err) {
+              console.error('[Readers] Failed to generate image for page:', page.id, err);
+            }
+          })
+        )
+      );
+    }
+
+    return c.json(reader, 201);
+  } catch (error) {
+    console.error('Graded reader generation error:', error);
+    return c.json({ error: 'Failed to generate graded reader' }, 500);
+  }
+});
+
+// Delete a graded reader
+app.delete('/api/readers/:id', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+
+  // Get the reader first to find image files to delete
+  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
+  if (!reader) {
+    return c.json({ error: 'Reader not found' }, 404);
+  }
+
+  // Delete images from R2
+  for (const page of reader.pages) {
+    if (page.image_url) {
+      try {
+        await c.env.AUDIO_BUCKET.delete(page.image_url);
+      } catch (err) {
+        console.error('Failed to delete image:', page.image_url, err);
+      }
+    }
+  }
+
+  // Delete from database
+  await db.deleteGradedReader(c.env.DB, readerId, userId);
+
+  return c.json({ success: true });
 });
 
 // ============ Relationships (Tutor-Student) ============
