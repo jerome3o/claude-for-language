@@ -12,6 +12,8 @@ export interface Env {
   SESSION_SECRET: string;
   ADMIN_EMAIL: string;
   NTFY_TOPIC: string;
+  // Email
+  SENDGRID_API_KEY: string;
 }
 
 // Audio provider types

@@ -45,7 +45,9 @@ import {
   getMyDayCards,
   getMyCardReviews,
   ensureClaudeRelationship,
+  getOtherUserId,
 } from './services/relationships';
+import { sendNewMessageNotification } from './services/email';
 import {
   getConversations,
   createConversation,
@@ -1631,6 +1633,36 @@ app.post('/api/conversations/:id/messages', async (c) => {
 
   try {
     const message = await sendMessage(c.env.DB, convId, userId, content);
+
+    // Send email notification to the other user (non-blocking)
+    if (c.env.SENDGRID_API_KEY) {
+      const conv = await getConversationById(c.env.DB, convId, userId);
+      if (conv) {
+        const relationship = await getRelationshipById(c.env.DB, conv.relationship_id);
+        if (relationship) {
+          const otherUserId = getOtherUserId(relationship, userId);
+          const otherUser =
+            relationship.requester.id === otherUserId
+              ? relationship.requester
+              : relationship.recipient;
+
+          if (otherUser.email) {
+            // Fire and forget - don't block the response
+            sendNewMessageNotification(c.env.SENDGRID_API_KEY, {
+              recipientEmail: otherUser.email,
+              recipientName: otherUser.name,
+              senderName: message.sender.name,
+              messagePreview: content,
+              conversationId: convId,
+              relationshipId: conv.relationship_id,
+            }).catch((err) => {
+              console.error('Failed to send email notification:', err);
+            });
+          }
+        }
+      }
+    }
+
     return c.json(message, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send message';
