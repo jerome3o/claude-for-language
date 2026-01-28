@@ -160,3 +160,88 @@ Chinese Learning App`;
     htmlContent,
   });
 }
+
+/**
+ * Send an invitation email to someone who isn't on the app yet
+ */
+export async function sendInvitationEmail(
+  apiKey: string,
+  params: {
+    recipientEmail: string;
+    inviterName: string | null;
+    inviterEmail: string | null;
+    inviterRole: 'tutor' | 'student';
+  }
+): Promise<boolean> {
+  const { recipientEmail, inviterName, inviterEmail, inviterRole } = params;
+
+  const displayName = inviterName || inviterEmail || 'Someone';
+  const roleDescription = inviterRole === 'tutor'
+    ? 'wants to be your Chinese tutor'
+    : 'wants you to be their Chinese tutor';
+
+  const subject = `${displayName} invited you to learn Chinese together`;
+
+  const textContent = `Hi there,
+
+${displayName} ${roleDescription} on Chinese Learning App!
+
+Chinese Learning App is a spaced repetition flashcard app designed to help you learn Chinese effectively. Features include:
+- AI-generated vocabulary decks
+- Spaced repetition for optimal memory retention
+- Tutor-student connections for guided learning
+
+Sign up to connect with ${displayName}:
+${APP_BASE_URL}
+
+---
+Chinese Learning App`;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { color: #2563eb; margin-bottom: 20px; }
+    .invite-box { background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+    .invite-text { font-size: 18px; color: #1f2937; margin-bottom: 8px; }
+    .role-text { color: #4b5563; }
+    .features { margin: 20px 0; padding-left: 20px; }
+    .features li { margin: 8px 0; }
+    .button { display: inline-block; background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 500; }
+    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 class="header">You're Invited!</h2>
+    <div class="invite-box">
+      <p class="invite-text"><strong>${displayName}</strong></p>
+      <p class="role-text">${roleDescription}</p>
+    </div>
+    <p>Chinese Learning App is a spaced repetition flashcard app designed to help you learn Chinese effectively.</p>
+    <ul class="features">
+      <li>AI-generated vocabulary decks</li>
+      <li>Spaced repetition for optimal memory retention</li>
+      <li>Tutor-student connections for guided learning</li>
+    </ul>
+    <div style="text-align: center;">
+      <a href="${APP_BASE_URL}" class="button">Sign Up Now</a>
+    </div>
+    <div class="footer">
+      <p>Chinese Learning App</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return sendEmail(apiKey, {
+    to: recipientEmail,
+    subject,
+    textContent,
+    htmlContent,
+  });
+}

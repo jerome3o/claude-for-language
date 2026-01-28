@@ -374,12 +374,31 @@ export interface GenerateFlashcardRequest {
   message_ids?: string[]; // Optional: specific messages to use as context
 }
 
+// Pending invitations for non-users
+export type PendingInvitationStatus = 'pending' | 'accepted' | 'expired' | 'cancelled';
+
+export interface PendingInvitation {
+  id: string;
+  inviter_id: string;
+  recipient_email: string;
+  inviter_role: RelationshipRole;
+  status: PendingInvitationStatus;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+}
+
+export interface PendingInvitationWithInviter extends PendingInvitation {
+  inviter: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+}
+
 // Response types
 export interface MyRelationships {
   tutors: TutorRelationshipWithUsers[];
   students: TutorRelationshipWithUsers[];
   pending_incoming: TutorRelationshipWithUsers[];
   pending_outgoing: TutorRelationshipWithUsers[];
+  pending_invitations: PendingInvitationWithInviter[];
 }
 
 export interface StudentProgress {
