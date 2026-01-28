@@ -231,9 +231,15 @@ export async function updateNote(
   });
 }
 
-export async function generateNoteAudio(noteId: string): Promise<Note> {
+export interface GenerateAudioOptions {
+  speed?: number; // 0.3 - 1.5, default 0.5 for MiniMax, 0.9 for Google
+  provider?: 'minimax' | 'gtts'; // Prefer a specific provider
+}
+
+export async function generateNoteAudio(noteId: string, options?: GenerateAudioOptions): Promise<Note> {
   return fetchJSON<Note>(`/notes/${noteId}/generate-audio`, {
     method: 'POST',
+    body: options ? JSON.stringify(options) : undefined,
   });
 }
 

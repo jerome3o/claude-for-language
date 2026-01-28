@@ -8,6 +8,8 @@ import {
   NoteQuestion,
   getMyRelationships,
   createTutorReviewRequest,
+  generateNoteAudio,
+  GenerateAudioOptions,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import {
@@ -29,7 +31,8 @@ import {
   useSubmitReviewOffline,
   useHasMoreNewCards,
 } from '../hooks/useOfflineData';
-import { getCardReviewEvents, LocalReviewEvent } from '../db/database';
+import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
+import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 
 // Character diff component for typed answers (Anki-style)
@@ -170,6 +173,15 @@ function StudyCard({
   // Debug modal state
   const [showDebug, setShowDebug] = useState(false);
   const [reviewHistory, setReviewHistory] = useState<LocalReviewEvent[]>([]);
+  const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
+  const [audioSpeed, setAudioSpeed] = useState(0.5);
+  const [audioProvider, setAudioProvider] = useState<'minimax' | 'gtts' | ''>('');
+
+  // Get deck info for debug modal
+  const deckInfo = useLiveQuery(
+    () => card.note.deck_id ? db.decks.get(card.note.deck_id) : undefined,
+    [card.note.deck_id]
+  );
 
   // Flag for tutor review state
   const [flagForTutor, setFlagForTutor] = useState(false);
@@ -498,6 +510,7 @@ function StudyCard({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem' }}>
                 <div><strong>Card ID:</strong> {card.id.slice(0, 8)}...</div>
                 <div><strong>Type:</strong> {card.card_type}</div>
+                <div style={{ gridColumn: '1 / -1' }}><strong>Deck:</strong> {deckInfo?.name || 'Loading...'}</div>
                 <div><strong>Queue:</strong> <span style={{
                   color: card.queue === 0 ? '#3b82f6' : card.queue === 2 ? '#22c55e' : '#ef4444',
                   fontWeight: 600
@@ -512,6 +525,7 @@ function StudyCard({
                     ? formatTime(card.next_review_at)
                     : 'N/A'
                 }</div>
+                <div><strong>Audio:</strong> {card.note.audio_provider || 'none'}</div>
               </div>
             </div>
 
@@ -536,7 +550,7 @@ function StudyCard({
             )}
 
             {/* Review History */}
-            <div>
+            <div style={{ marginBottom: '1rem' }}>
               <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>
                 Review History ({reviewHistory.length} reviews)
               </h4>
@@ -583,6 +597,63 @@ function StudyCard({
                 </div>
               )}
             </div>
+
+            {/* Regenerate Audio */}
+            {isOnline && (
+              <div style={{ padding: '0.75rem', backgroundColor: '#e0f2fe', borderRadius: '6px' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Regenerate Audio</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label style={{ minWidth: '50px' }}>Speed:</label>
+                    <input
+                      type="range"
+                      min="0.3"
+                      max="1.2"
+                      step="0.1"
+                      value={audioSpeed}
+                      onChange={(e) => setAudioSpeed(parseFloat(e.target.value))}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ minWidth: '35px', textAlign: 'right' }}>{audioSpeed.toFixed(1)}x</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label style={{ minWidth: '50px' }}>Provider:</label>
+                    <select
+                      value={audioProvider}
+                      onChange={(e) => setAudioProvider(e.target.value as 'minimax' | 'gtts' | '')}
+                      style={{ flex: 1, padding: '0.25rem' }}
+                    >
+                      <option value="">Auto (MiniMax first)</option>
+                      <option value="minimax">MiniMax</option>
+                      <option value="gtts">Google TTS</option>
+                    </select>
+                  </div>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={async () => {
+                      setIsRegeneratingAudio(true);
+                      try {
+                        const options: GenerateAudioOptions = { speed: audioSpeed };
+                        if (audioProvider) {
+                          options.provider = audioProvider;
+                        }
+                        await generateNoteAudio(card.note.id, options);
+                        // Trigger audio playback with cache buster
+                        playAudio(card.note.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
+                      } catch (error) {
+                        console.error('Failed to regenerate audio:', error);
+                      } finally {
+                        setIsRegeneratingAudio(false);
+                      }
+                    }}
+                    disabled={isRegeneratingAudio}
+                    style={{ marginTop: '0.25rem' }}
+                  >
+                    {isRegeneratingAudio ? 'Regenerating...' : 'Regenerate Audio'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

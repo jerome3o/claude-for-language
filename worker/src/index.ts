@@ -823,12 +823,27 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
     return c.json({ error: 'Note not found' }, 404);
   }
 
-  if (!c.env.GOOGLE_TTS_API_KEY) {
+  if (!c.env.GOOGLE_TTS_API_KEY && !c.env.MINIMAX_API_KEY) {
     return c.json({ error: 'TTS is not configured' }, 500);
   }
 
+  // Parse optional body for TTS options
+  let speed: number | undefined;
+  let preferProvider: 'minimax' | 'gtts' | undefined;
   try {
-    const result = await generateTTS(c.env, note.hanzi, note.id);
+    const body = await c.req.json() as { speed?: number; provider?: string } | null;
+    if (body?.speed !== undefined) {
+      speed = Math.max(0.3, Math.min(1.5, body.speed));
+    }
+    if (body?.provider === 'minimax' || body?.provider === 'gtts') {
+      preferProvider = body.provider;
+    }
+  } catch {
+    // No body or invalid JSON - use defaults
+  }
+
+  try {
+    const result = await generateTTS(c.env, note.hanzi, note.id, { speed, preferProvider });
     if (result) {
       await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
