@@ -616,10 +616,14 @@ export interface GenerateReaderRequest {
 export interface GeneratedStory {
   title_chinese: string;
   title_english: string;
+  characters: Record<string, string>;  // name -> description
+  locations: Record<string, string>;   // name -> description
   pages: Array<{
     content_chinese: string;
     content_pinyin: string;
     content_english: string;
+    characters_in_scene: string[];     // character names in this scene
+    location: string;                   // location name for this scene
     image_prompt: string;
   }>;
 }
