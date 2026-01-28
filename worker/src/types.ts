@@ -568,6 +568,8 @@ export interface VocabularyItem {
   english: string;
 }
 
+export type ReaderStatus = 'generating' | 'ready' | 'failed';
+
 export interface GradedReader {
   id: string;
   user_id: string;
@@ -577,6 +579,7 @@ export interface GradedReader {
   topic: string | null;
   source_deck_ids: string[];
   vocabulary_used: VocabularyItem[];
+  status: ReaderStatus;
   created_at: string;
 }
 

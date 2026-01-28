@@ -1,11 +1,13 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import './Header.css';
 
 export function Header() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -25,6 +27,38 @@ export function Header() {
     await logout();
   };
 
+  const handleMenuItemClick = (path: string) => {
+    setShowUserMenu(false);
+    navigate(path);
+  };
+
+  const handleClearCache = useCallback(async () => {
+    setIsClearing(true);
+    try {
+      // Unregister service workers
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          await registration.unregister();
+        }
+      }
+
+      // Clear all caches
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        for (const cacheName of cacheNames) {
+          await caches.delete(cacheName);
+        }
+      }
+
+      // Reload the page
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to clear cache:', err);
+      setIsClearing(false);
+    }
+  }, []);
+
   return (
     <header className="header">
       <div className="container header-content">
@@ -34,11 +68,7 @@ export function Header() {
         <div className="header-right">
           <nav className="header-nav">
             <Link to="/">Home</Link>
-            <Link to="/readers">Readers</Link>
-            <Link to="/progress">Progress</Link>
             <Link to="/connections">Connections</Link>
-            <Link to="/tutor-reviews">Reviews</Link>
-            {user?.is_admin && <Link to="/admin">Admin</Link>}
           </nav>
         {user && (
           <div className="header-user" ref={menuRef}>
@@ -66,7 +96,44 @@ export function Header() {
                   <span className="user-menu-email">{user.email}</span>
                 </div>
                 <div className="user-menu-divider" />
-                <button className="user-menu-item" onClick={handleLogout}>
+                <button
+                  className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/readers')}
+                >
+                  📚 Readers
+                </button>
+                <button
+                  className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/progress')}
+                >
+                  📊 Progress
+                </button>
+                <button
+                  className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/tutor-reviews')}
+                >
+                  ✍️ Reviews
+                </button>
+                {user.is_admin && (
+                  <>
+                    <div className="user-menu-divider" />
+                    <button
+                      className="user-menu-item"
+                      onClick={() => handleMenuItemClick('/admin')}
+                    >
+                      ⚙️ Admin
+                    </button>
+                    <button
+                      className="user-menu-item"
+                      onClick={handleClearCache}
+                      disabled={isClearing}
+                    >
+                      {isClearing ? '🔄 Clearing...' : '🗑️ Clear Cache & Refresh'}
+                    </button>
+                  </>
+                )}
+                <div className="user-menu-divider" />
+                <button className="user-menu-item user-menu-item-danger" onClick={handleLogout}>
                   Sign out
                 </button>
               </div>

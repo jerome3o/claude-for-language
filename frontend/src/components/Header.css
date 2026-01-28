@@ -96,3 +96,16 @@
 .user-menu-item:hover {
   background-color: var(--color-background);
 }
+
+.user-menu-item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.user-menu-item-danger {
+  color: #dc2626;
+}
+
+.user-menu-item-danger:hover {
+  background-color: #fef2f2;
+}

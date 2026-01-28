@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getGradedReader, getReaderImageUrl, analyzeSentence } from '../api/client';
 import { Loading } from '../components/Loading';
 import { ReaderPage as ReaderPageType, SentenceBreakdown, DifficultyLevel } from '../types';
+import './ReaderPage.css';
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; label: string }> = {
   beginner: { bg: '#dcfce7', text: '#166534', label: 'Beginner' },
@@ -116,6 +117,7 @@ function PageView({
   onAnalyzeSentence: (sentence: string) => void;
 }) {
   const imageUrl = page.image_url ? getReaderImageUrl(page.image_url) : null;
+  const [imageError, setImageError] = useState(false);
 
   // Split sentences for individual analysis
   const sentences = page.content_chinese
@@ -123,68 +125,45 @@ function PageView({
     .filter((s) => s.trim());
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '1rem',
-        minHeight: '100%',
-      }}
-    >
+    <div className="reader-page-view">
       {/* Image */}
-      {imageUrl && (
-        <div
-          style={{
-            width: '100%',
-            maxWidth: '400px',
-            marginBottom: '1.5rem',
-            borderRadius: '12px',
-            overflow: 'hidden',
-            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-          }}
-        >
+      {imageUrl && !imageError ? (
+        <div className="reader-image-container">
           <img
             src={imageUrl}
             alt="Story illustration"
-            style={{
-              width: '100%',
-              height: 'auto',
-              display: 'block',
-            }}
-            onError={(e) => {
-              // Hide broken images
-              e.currentTarget.style.display = 'none';
-            }}
+            className="reader-image"
+            onError={() => setImageError(true)}
           />
+        </div>
+      ) : (
+        // Placeholder when no image or image failed to load
+        <div
+          className="reader-image-container"
+          style={{
+            backgroundColor: '#f3f4f6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '200px',
+          }}
+        >
+          <div style={{ textAlign: 'center', color: '#9ca3af' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📖</div>
+            <div style={{ fontSize: '0.75rem' }}>
+              {page.image_prompt ? 'Image not available' : 'No illustration'}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Chinese text */}
-      <div
-        style={{
-          fontSize: '1.5rem',
-          lineHeight: 1.8,
-          textAlign: 'center',
-          marginBottom: '1rem',
-          maxWidth: '500px',
-        }}
-      >
+      <div className="reader-chinese-text">
         {sentences.map((sentence, index) => (
           <span
             key={index}
             onClick={() => onAnalyzeSentence(sentence)}
-            style={{
-              cursor: 'pointer',
-              borderBottom: '2px dashed transparent',
-              transition: 'border-color 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderBottomColor = '#3b82f6';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderBottomColor = 'transparent';
-            }}
+            className="reader-sentence"
           >
             {sentence}
           </span>
@@ -192,49 +171,19 @@ function PageView({
       </div>
 
       {/* Pinyin (always visible) */}
-      <div
-        style={{
-          color: '#3b82f6',
-          fontSize: '1rem',
-          textAlign: 'center',
-          marginBottom: '1rem',
-          maxWidth: '500px',
-        }}
-      >
+      <div className="reader-pinyin">
         {page.content_pinyin}
       </div>
 
       {/* Translation reveal button / translation */}
       <div
         onClick={onToggleTranslation}
-        style={{
-          padding: '1rem',
-          borderRadius: '8px',
-          backgroundColor: showTranslation ? '#f0fdf4' : '#f9fafb',
-          border: '1px solid',
-          borderColor: showTranslation ? '#86efac' : '#e5e7eb',
-          cursor: 'pointer',
-          textAlign: 'center',
-          maxWidth: '500px',
-          width: '100%',
-          transition: 'all 0.2s',
-        }}
+        className={`reader-translation-box ${showTranslation ? 'visible' : 'hidden'}`}
       >
-        {showTranslation ? (
-          <div style={{ color: '#166534' }}>{page.content_english}</div>
-        ) : (
-          <div style={{ color: '#9ca3af' }}>Tap to reveal translation</div>
-        )}
+        {showTranslation ? page.content_english : 'Tap to reveal translation'}
       </div>
 
-      <p
-        style={{
-          fontSize: '0.75rem',
-          color: '#9ca3af',
-          marginTop: '1rem',
-          textAlign: 'center',
-        }}
-      >
+      <p className="reader-hint">
         Tap any sentence to analyze it word by word
       </p>
     </div>
@@ -310,53 +259,28 @@ export function ReaderPage() {
   const difficultyStyle = DIFFICULTY_COLORS[reader.difficulty_level];
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        backgroundColor: '#fafafa',
-      }}
-    >
+    <div className="reader-page">
       {/* Header */}
-      <header
-        style={{
-          padding: '0.75rem 1rem',
-          backgroundColor: 'white',
-          borderBottom: '1px solid #e5e7eb',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
+      <header className="reader-header">
         <button
           onClick={() => navigate('/readers')}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '0.5rem',
-            fontSize: '1.25rem',
-          }}
+          className="reader-back-btn"
         >
           &larr;
         </button>
 
-        <div style={{ textAlign: 'center', flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: '1rem' }}>{reader.title_chinese}</div>
-          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+        <div className="reader-title-section">
+          <div className="reader-title">{reader.title_chinese}</div>
+          <div className="reader-page-indicator">
             Page {currentPage + 1} of {reader.pages.length}
           </div>
         </div>
 
         <span
+          className="reader-difficulty-badge"
           style={{
-            padding: '0.125rem 0.5rem',
-            borderRadius: '1rem',
-            fontSize: '0.6875rem',
             backgroundColor: difficultyStyle.bg,
             color: difficultyStyle.text,
-            fontWeight: 500,
           }}
         >
           {difficultyStyle.label}
@@ -364,19 +288,17 @@ export function ReaderPage() {
       </header>
 
       {/* Progress bar */}
-      <div style={{ height: '3px', backgroundColor: '#e5e7eb' }}>
+      <div className="reader-progress-bar">
         <div
+          className="reader-progress-fill"
           style={{
-            height: '100%',
             width: `${((currentPage + 1) / reader.pages.length) * 100}%`,
-            backgroundColor: '#3b82f6',
-            transition: 'width 0.3s',
           }}
         />
       </div>
 
       {/* Page content */}
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div className="reader-content">
         <PageView
           page={page}
           showTranslation={showTranslation}
@@ -386,42 +308,26 @@ export function ReaderPage() {
       </div>
 
       {/* Navigation footer */}
-      <footer
-        style={{
-          padding: '1rem',
-          backgroundColor: 'white',
-          borderTop: '1px solid #e5e7eb',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '1rem',
-        }}
-      >
+      <footer className="reader-footer">
         <button
-          className="btn btn-secondary"
+          className="btn btn-secondary reader-nav-btn"
           onClick={goToPrevPage}
           disabled={currentPage === 0}
-          style={{
-            flex: 1,
-            opacity: currentPage === 0 ? 0.5 : 1,
-          }}
         >
           Previous
         </button>
 
         {currentPage === reader.pages.length - 1 ? (
           <button
-            className="btn btn-primary"
+            className="btn btn-primary reader-nav-btn"
             onClick={() => navigate('/readers')}
-            style={{ flex: 1 }}
           >
             Finish
           </button>
         ) : (
           <button
-            className="btn btn-primary"
+            className="btn btn-primary reader-nav-btn"
             onClick={goToNextPage}
-            style={{ flex: 1 }}
           >
             Next
           </button>

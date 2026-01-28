@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getDecks, generateGradedReader } from '../api/client';
 import { Loading } from '../components/Loading';
@@ -14,6 +14,7 @@ const DIFFICULTY_OPTIONS: { value: DifficultyLevel; label: string; description: 
 
 export function GenerateReaderPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [selectedDeckIds, setSelectedDeckIds] = useState<string[]>([]);
   const [topic, setTopic] = useState('');
@@ -26,8 +27,11 @@ export function GenerateReaderPage() {
 
   const generateMutation = useMutation({
     mutationFn: () => generateGradedReader(selectedDeckIds, topic || undefined, difficulty),
-    onSuccess: (reader) => {
-      navigate(`/readers/${reader.id}`);
+    onSuccess: () => {
+      // Invalidate readers query to show the new generating reader
+      queryClient.invalidateQueries({ queryKey: ['readers'] });
+      // Navigate immediately to readers list
+      navigate('/readers');
     },
   });
 
