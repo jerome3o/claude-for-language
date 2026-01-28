@@ -116,12 +116,43 @@ body:has(.reader-page) #root {
   align-items: center;
 }
 
+.reader-chinese-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  max-width: 500px;
+  width: 100%;
+}
+
 .reader-chinese-text {
   font-size: 1.5rem;
   line-height: 1.8;
   text-align: center;
-  margin-bottom: 1rem;
-  max-width: 500px;
+  flex: 1;
+}
+
+.reader-audio-btn {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  transition: background-color 0.15s;
+}
+
+.reader-audio-btn:hover {
+  background: #e5e7eb;
+}
+
+.reader-audio-btn:active {
+  background: #d1d5db;
 }
 
 .reader-sentence {
@@ -135,12 +166,30 @@ body:has(.reader-page) #root {
   border-bottom-color: #3b82f6;
 }
 
-.reader-pinyin {
+.reader-pinyin-box {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  max-width: 500px;
+  width: 100%;
+  transition: all 0.2s;
+  border: 1px solid;
+  margin-bottom: 0.75rem;
+}
+
+.reader-pinyin-box.hidden {
+  background-color: #f9fafb;
+  border-color: #e5e7eb;
+  color: #9ca3af;
+}
+
+.reader-pinyin-box.visible {
+  background-color: #eff6ff;
+  border-color: #93c5fd;
   color: #3b82f6;
   font-size: 1rem;
-  text-align: center;
-  margin-bottom: 1rem;
-  max-width: 500px;
+  line-height: 1.6;
 }
 
 .reader-translation-box {
@@ -164,13 +213,6 @@ body:has(.reader-page) #root {
   background-color: #f0fdf4;
   border-color: #86efac;
   color: #166534;
-}
-
-.reader-hint {
-  font-size: 0.75rem;
-  color: #9ca3af;
-  margin-top: 1rem;
-  text-align: center;
 }
 
 .reader-footer {
@@ -256,19 +298,33 @@ body:has(.reader-page) #root {
     padding-top: 0.5rem;
   }
 
+  .reader-chinese-section {
+    max-width: none;
+    margin-bottom: 0;
+  }
+
   .reader-chinese-text {
     font-size: 2rem;
     line-height: 2;
     text-align: left;
-    margin-bottom: 0;
-    max-width: none;
   }
 
-  .reader-pinyin {
-    font-size: 1.25rem;
-    text-align: left;
-    margin-bottom: 0;
+  .reader-audio-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 1.5rem;
+  }
+
+  .reader-pinyin-box {
     max-width: none;
+    text-align: left;
+    font-size: 1.125rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+  }
+
+  .reader-pinyin-box.visible {
+    font-size: 1.25rem;
     line-height: 1.8;
   }
 
@@ -277,12 +333,6 @@ body:has(.reader-page) #root {
     text-align: left;
     font-size: 1.125rem;
     padding: 1.25rem;
-  }
-
-  .reader-hint {
-    text-align: left;
-    margin-top: 0.5rem;
-    font-size: 0.8125rem;
   }
 
   .reader-footer {
@@ -314,7 +364,7 @@ body:has(.reader-page) #root {
     font-size: 2.25rem;
   }
 
-  .reader-pinyin {
+  .reader-pinyin-box.visible {
     font-size: 1.375rem;
   }
 }

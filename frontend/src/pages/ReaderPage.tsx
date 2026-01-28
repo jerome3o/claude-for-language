@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getGradedReader, getReaderImageUrl, analyzeSentence, generateReaderPageImage } from '../api/client';
 import { Loading } from '../components/Loading';
-import { ReaderPage as ReaderPageType, SentenceBreakdown, DifficultyLevel } from '../types';
+import { SentenceBreakdown } from '../components/SentenceBreakdown';
+import { ReaderPage as ReaderPageType, SentenceBreakdown as SentenceBreakdownType, DifficultyLevel } from '../types';
 import './ReaderPage.css';
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; label: string }> = {
@@ -18,88 +19,31 @@ function SentenceAnalysisModal({
   isLoading,
   onClose,
 }: {
-  breakdown: SentenceBreakdown | null;
+  breakdown: SentenceBreakdownType | null;
   isLoading: boolean;
   onClose: () => void;
 }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-        <div className="modal-header">
-          <h2 className="modal-title">Sentence Analysis</h2>
-          <button className="modal-close" onClick={onClose}>
-            &times;
-          </button>
-        </div>
-
-        <div style={{ padding: '1rem' }}>
-          {isLoading ? (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <span className="spinner" style={{ width: '30px', height: '30px' }} />
-              <p className="text-light mt-2">Analyzing...</p>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        {isLoading ? (
+          <div style={{ textAlign: 'center', padding: '3rem' }}>
+            <span className="spinner" style={{ width: '30px', height: '30px' }} />
+            <p className="text-light mt-2">Analyzing...</p>
+          </div>
+        ) : breakdown ? (
+          <SentenceBreakdown breakdown={breakdown} onClose={onClose} />
+        ) : (
+          <div style={{ padding: '1rem' }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Analysis Failed</h2>
+              <button className="modal-close" onClick={onClose}>
+                &times;
+              </button>
             </div>
-          ) : breakdown ? (
-            <div>
-              {/* Full sentence */}
-              <div style={{ marginBottom: '1.5rem' }}>
-                <div style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>
-                  {breakdown.hanzi}
-                </div>
-                <div style={{ color: '#3b82f6', marginBottom: '0.25rem' }}>
-                  {breakdown.pinyin}
-                </div>
-                <div style={{ color: '#6b7280' }}>{breakdown.english}</div>
-              </div>
-
-              {/* Chunks */}
-              <h4 style={{ marginBottom: '0.75rem' }}>Word by Word</h4>
-              <div className="flex flex-col gap-2">
-                {breakdown.chunks.map((chunk, index) => (
-                  <div
-                    key={index}
-                    style={{
-                      padding: '0.75rem',
-                      background: '#f9fafb',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
-                      <span style={{ fontSize: '1.25rem' }}>{chunk.hanzi}</span>
-                      <span style={{ color: '#3b82f6', fontSize: '0.875rem' }}>
-                        {chunk.pinyin}
-                      </span>
-                    </div>
-                    <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>
-                      {chunk.english}
-                    </div>
-                    {chunk.note && (
-                      <div style={{ color: '#9ca3af', fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                        {chunk.note}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Grammar notes */}
-              {breakdown.grammarNotes && (
-                <div
-                  style={{
-                    marginTop: '1rem',
-                    padding: '0.75rem',
-                    background: '#eff6ff',
-                    borderRadius: '8px',
-                    fontSize: '0.875rem',
-                  }}
-                >
-                  <strong>Grammar Notes:</strong> {breakdown.grammarNotes}
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-light">Failed to analyze sentence.</p>
-          )}
-        </div>
+            <p className="text-light">Failed to analyze sentence. Please try again.</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -108,19 +52,24 @@ function SentenceAnalysisModal({
 function PageView({
   page,
   readerId,
+  showPinyin,
   showTranslation,
+  onTogglePinyin,
   onToggleTranslation,
   onAnalyzeSentence,
 }: {
   page: ReaderPageType;
   readerId: string;
+  showPinyin: boolean;
   showTranslation: boolean;
+  onTogglePinyin: () => void;
   onToggleTranslation: () => void;
   onAnalyzeSentence: (sentence: string) => void;
 }) {
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   // Use the page's image_url or the generated one
   const imageKey = page.image_url || generatedImageUrl;
@@ -149,6 +98,43 @@ function PageView({
     setImageLoading(false);
     setImageError(false);
   }, [page.id]);
+
+  // Play Chinese audio using browser TTS
+  const playAudio = useCallback(() => {
+    if (!('speechSynthesis' in window) || isPlaying) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(page.content_chinese);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 0.8;
+
+    // Try to find a Chinese voice
+    const voices = window.speechSynthesis.getVoices();
+    const chineseVoice = voices.find(
+      (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
+    );
+    if (chineseVoice) {
+      utterance.voice = chineseVoice;
+    }
+
+    utterance.onstart = () => setIsPlaying(true);
+    utterance.onend = () => setIsPlaying(false);
+    utterance.onerror = () => setIsPlaying(false);
+
+    window.speechSynthesis.speak(utterance);
+  }, [page.content_chinese, isPlaying]);
+
+  const stopAudio = useCallback(() => {
+    window.speechSynthesis.cancel();
+    setIsPlaying(false);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
 
   // Split sentences for individual analysis
   const sentences = page.content_chinese
@@ -200,22 +186,34 @@ function PageView({
 
       {/* Text content wrapper for desktop grid layout */}
       <div className="reader-text-content">
-        {/* Chinese text */}
-        <div className="reader-chinese-text">
-          {sentences.map((sentence, index) => (
-            <span
-              key={index}
-              onClick={() => onAnalyzeSentence(sentence)}
-              className="reader-sentence"
-            >
-              {sentence}
-            </span>
-          ))}
+        {/* Chinese text with play button */}
+        <div className="reader-chinese-section">
+          <div className="reader-chinese-text">
+            {sentences.map((sentence, index) => (
+              <span
+                key={index}
+                onClick={() => onAnalyzeSentence(sentence)}
+                className="reader-sentence"
+              >
+                {sentence}
+              </span>
+            ))}
+          </div>
+          <button
+            className="reader-audio-btn"
+            onClick={isPlaying ? stopAudio : playAudio}
+            aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
+          >
+            {isPlaying ? '⏹' : '🔊'}
+          </button>
         </div>
 
-        {/* Pinyin (always visible) */}
-        <div className="reader-pinyin">
-          {page.content_pinyin}
+        {/* Pinyin (tap to reveal) */}
+        <div
+          onClick={onTogglePinyin}
+          className={`reader-pinyin-box ${showPinyin ? 'visible' : 'hidden'}`}
+        >
+          {showPinyin ? page.content_pinyin : 'Tap to reveal pinyin'}
         </div>
 
         {/* Translation reveal button / translation */}
@@ -225,10 +223,6 @@ function PageView({
         >
           {showTranslation ? page.content_english : 'Tap to reveal translation'}
         </div>
-
-        <p className="reader-hint">
-          Tap any sentence to analyze it word by word
-        </p>
       </div>
     </div>
   );
@@ -239,10 +233,11 @@ export function ReaderPage() {
   const navigate = useNavigate();
 
   const [currentPage, setCurrentPage] = useState(0);
+  const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [analysisModal, setAnalysisModal] = useState<{
     sentence: string;
-    breakdown: SentenceBreakdown | null;
+    breakdown: SentenceBreakdownType | null;
     isLoading: boolean;
   } | null>(null);
 
@@ -266,6 +261,7 @@ export function ReaderPage() {
   const goToNextPage = () => {
     if (readerQuery.data && currentPage < readerQuery.data.pages.length - 1) {
       setCurrentPage((p) => p + 1);
+      setShowPinyin(false);
       setShowTranslation(false);
     }
   };
@@ -273,6 +269,7 @@ export function ReaderPage() {
   const goToPrevPage = () => {
     if (currentPage > 0) {
       setCurrentPage((p) => p - 1);
+      setShowPinyin(false);
       setShowTranslation(false);
     }
   };
@@ -346,7 +343,9 @@ export function ReaderPage() {
         <PageView
           page={page}
           readerId={reader.id}
+          showPinyin={showPinyin}
           showTranslation={showTranslation}
+          onTogglePinyin={() => setShowPinyin(!showPinyin)}
           onToggleTranslation={() => setShowTranslation(!showTranslation)}
           onAnalyzeSentence={handleAnalyzeSentence}
         />

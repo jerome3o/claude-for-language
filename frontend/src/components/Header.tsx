@@ -104,6 +104,12 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/analyze')}
+                >
+                  🔍 Sentence Analysis
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/progress')}
                 >
                   📊 Progress
