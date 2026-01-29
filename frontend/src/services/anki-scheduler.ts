@@ -91,8 +91,14 @@ export function deckSettingsFromDb(deck: {
 
 /**
  * Format interval for display
+ * @param minutes - interval in minutes
+ * @param useLessThan - if true, show "<10m" style for short intervals (like Anki)
  */
-export function formatInterval(minutes: number): string {
+export function formatInterval(minutes: number, useLessThan: boolean = false): string {
+  // For learning cards, Anki shows "<10m" style
+  if (useLessThan && minutes < 10) {
+    return '<10m';
+  }
   if (minutes < 60) {
     return `${minutes}m`;
   }
@@ -202,6 +208,9 @@ export function scheduleNewOrLearningCard(
 
 /**
  * Calculate the next scheduling state for a REVIEW card
+ *
+ * Key improvement: Ensures minimum separation between Hard/Good/Easy intervals
+ * to avoid the situation where rounding causes identical intervals.
  */
 export function scheduleReviewCard(
   rating: Rating,
@@ -238,19 +247,47 @@ export function scheduleReviewCard(
     case 1: // Hard - interval * hard_multiplier, ease -15%
       easeFactor = clampEase(easeFactor - 0.15);
       interval = applyModifier(Math.round(currentInterval * settings.hard_multiplier));
+      // Hard should be at least current interval + 1 day
+      if (interval <= currentInterval) {
+        interval = currentInterval + 1;
+      }
       repetitions += 1;
       break;
 
-    case 2: // Good - interval * easeFactor
+    case 2: { // Good - interval * easeFactor
+      // Calculate what Hard would be
+      const hardInterval = Math.max(
+        applyModifier(Math.round(currentInterval * settings.hard_multiplier)),
+        currentInterval + 1
+      );
       interval = applyModifier(Math.round(currentInterval * easeFactor));
+      // Good should be at least Hard + 1 day
+      if (interval <= hardInterval) {
+        interval = hardInterval + 1;
+      }
       repetitions += 1;
       break;
+    }
 
-    case 3: // Easy - interval * easeFactor * easy_bonus, ease +15%
+    case 3: { // Easy - interval * easeFactor * easy_bonus, ease +15%
       easeFactor = clampEase(easeFactor + 0.15);
+      // Calculate what Good would be (before ease bonus)
+      const hardInterval = Math.max(
+        applyModifier(Math.round(currentInterval * settings.hard_multiplier)),
+        currentInterval + 1
+      );
+      const goodInterval = Math.max(
+        applyModifier(Math.round(currentInterval * currentEaseFactor)), // use original ease
+        hardInterval + 1
+      );
       interval = applyModifier(Math.round(currentInterval * easeFactor * settings.easy_bonus));
+      // Easy should be at least Good + 1 day
+      if (interval <= goodInterval) {
+        interval = goodInterval + 1;
+      }
       repetitions += 1;
       break;
+    }
 
     default:
       throw new Error(`Invalid rating: ${rating}`);
@@ -372,6 +409,11 @@ export function scheduleCard(
 
 /**
  * Get interval preview for display on rating buttons
+ *
+ * Key improvements over basic SM-2:
+ * 1. "Again" shows "<10m" like Anki for friendlier UX
+ * 2. Ensures minimum gap between Hard/Good/Easy to avoid identical intervals
+ * 3. Hard interval accounts for current interval more reasonably
  */
 export function getIntervalPreview(
   rating: Rating,
@@ -387,13 +429,13 @@ export function getIntervalPreview(
     const learningSteps = settings.learning_steps;
 
     switch (rating) {
-      case 0: // Again
-        return { intervalText: `${learningSteps[0]}m`, queue: CardQueue.LEARNING };
+      case 0: // Again - show <10m like Anki
+        return { intervalText: '<10m', queue: CardQueue.LEARNING };
       case 1: // Hard
         const hardDelay = currentStep < learningSteps.length
           ? Math.round((learningSteps[currentStep] + (learningSteps[Math.min(currentStep + 1, learningSteps.length - 1)])) / 2)
           : learningSteps[learningSteps.length - 1];
-        return { intervalText: `${hardDelay}m`, queue: CardQueue.LEARNING };
+        return { intervalText: formatInterval(hardDelay, true), queue: CardQueue.LEARNING };
       case 2: // Good
         const nextStep = currentStep + 1;
         if (nextStep >= learningSteps.length) {
@@ -405,20 +447,42 @@ export function getIntervalPreview(
     }
   }
 
-  // For review cards
+  // For review cards - compute intervals with proper spacing
   if (currentQueue === CardQueue.REVIEW) {
     const applyModifier = (days: number) => Math.max(1, Math.round(days * settings.interval_modifier));
+
+    // Calculate raw intervals
+    const hardIntervalRaw = currentInterval * settings.hard_multiplier;
+    const goodIntervalRaw = currentInterval * currentEaseFactor;
+    const easyIntervalRaw = currentInterval * currentEaseFactor * settings.easy_bonus;
+
+    // Apply modifier and round
+    let hardInterval = applyModifier(Math.round(hardIntervalRaw));
+    let goodInterval = applyModifier(Math.round(goodIntervalRaw));
+    let easyInterval = applyModifier(Math.round(easyIntervalRaw));
+
+    // Ensure minimum separation between intervals (like Anki)
+    // Hard should be at least current interval (or 1 day more if same)
+    if (hardInterval <= currentInterval) {
+      hardInterval = currentInterval + 1;
+    }
+    // Good should be at least 1 day more than Hard
+    if (goodInterval <= hardInterval) {
+      goodInterval = hardInterval + 1;
+    }
+    // Easy should be at least 1 day more than Good
+    if (easyInterval <= goodInterval) {
+      easyInterval = goodInterval + 1;
+    }
+
     switch (rating) {
-      case 0: // Again
-        return { intervalText: `${settings.relearning_steps[0]}m`, queue: CardQueue.RELEARNING };
+      case 0: // Again - show <10m like Anki
+        return { intervalText: '<10m', queue: CardQueue.RELEARNING };
       case 1: // Hard
-        const hardInterval = applyModifier(Math.round(currentInterval * settings.hard_multiplier));
         return { intervalText: formatInterval(hardInterval * 1440), queue: CardQueue.REVIEW };
       case 2: // Good
-        const goodInterval = applyModifier(Math.round(currentInterval * currentEaseFactor));
         return { intervalText: formatInterval(goodInterval * 1440), queue: CardQueue.REVIEW };
       case 3: // Easy
-        const easyInterval = applyModifier(Math.round(currentInterval * currentEaseFactor * settings.easy_bonus));
         return { intervalText: formatInterval(easyInterval * 1440), queue: CardQueue.REVIEW };
     }
   }
@@ -428,11 +492,11 @@ export function getIntervalPreview(
     const relearningSteps = settings.relearning_steps;
 
     switch (rating) {
-      case 0: // Again
-        return { intervalText: `${relearningSteps[0]}m`, queue: CardQueue.RELEARNING };
+      case 0: // Again - show <10m like Anki
+        return { intervalText: '<10m', queue: CardQueue.RELEARNING };
       case 1: // Hard
         const hardDelay = relearningSteps[Math.min(currentStep, relearningSteps.length - 1)];
-        return { intervalText: `${hardDelay}m`, queue: CardQueue.RELEARNING };
+        return { intervalText: formatInterval(hardDelay, true), queue: CardQueue.RELEARNING };
       case 2: // Good
       case 3: // Easy
         const nextStep = currentStep + 1;
