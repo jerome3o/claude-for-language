@@ -1,0 +1,7 @@
+# Test results
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Node modules (handled by root)
+node_modules/

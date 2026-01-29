@@ -32,6 +32,7 @@ import {
 } from './services/auth';
 import { notifyNewUser } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
+import testAuth from './routes/test-auth';
 import {
   createRelationship,
   getMyRelationships,
@@ -283,6 +284,9 @@ app.get('/api/auth/me', async (c) => {
     is_admin: !!user.is_admin,
   });
 });
+
+// E2E test auth routes (only enabled when E2E_TEST_MODE=true)
+app.route('/api/test', testAuth);
 
 // Apply auth middleware to all /api/* routes except auth routes
 app.use('/api/*', authMiddleware);

@@ -17,6 +17,8 @@ export interface Env {
   NTFY_TOPIC: string;
   // Email
   SENDGRID_API_KEY: string;
+  // E2E testing - enables test auth endpoints (NEVER set in production)
+  E2E_TEST_MODE?: string;
 }
 
 // Queue message types
