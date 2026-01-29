@@ -103,9 +103,7 @@ const defaultFsrs = fsrs(generatorParameters({
   maximum_interval: DEFAULT_DECK_SETTINGS.maximum_interval,
   enable_fuzz: DEFAULT_DECK_SETTINGS.enable_fuzz,
   w: FSRS_DEFAULT_W,
-  enable_short_term: false,     // Let FSRS control all scheduling
-  learning_steps: [],           // No fixed learning steps
-  relearning_steps: [],         // No fixed relearning steps
+  enable_short_term: true,      // Enable learning phase for new cards (Anki-like behavior)
 }));
 
 // ============ Rating Conversion ============
@@ -195,9 +193,7 @@ function createFsrs(settings: DeckSettings) {
     maximum_interval: settings.maximum_interval,
     enable_fuzz: settings.enable_fuzz,
     w: [...settings.w],
-    enable_short_term: false,
-    learning_steps: [],
-    relearning_steps: [],
+    enable_short_term: true, // Enable learning phase for new cards
   }));
 }
 
