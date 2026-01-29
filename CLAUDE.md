@@ -36,11 +36,17 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── worker/                 # Cloudflare Worker (API backend)
 │   ├── src/
 │   │   ├── index.ts       # Main entry point, routes
-│   │   ├── services/      # Business logic (SM-2, AI, TTS)
+│   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS)
 │   │   ├── db/            # Database queries and migrations
 │   │   └── types.ts       # TypeScript types
 │   ├── wrangler.toml      # Cloudflare Worker config
 │   └── package.json
+│
+├── shared/                # Shared code between worker and frontend
+│   └── scheduler/         # FSRS spaced repetition algorithm
+│       ├── compute-state.ts    # Core FSRS logic, state computation from events
+│       ├── compute-state.test.ts # Tests for scheduler
+│       └── index.ts       # Re-exports
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
@@ -80,14 +86,42 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 - **Deck**: Collection of Notes (and their generated Cards)
 - **ReviewEvent**: Individual card review (rating, time, audio recording). Card state is computed from review history.
 
-### Spaced Repetition (SM-2 Algorithm)
-Each card tracks:
-- `ease_factor`: Difficulty multiplier (starts at 2.5)
-- `interval`: Days until next review
-- `repetitions`: Successful review count
+### Spaced Repetition (FSRS Algorithm)
+
+The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm based on the DSR (Difficulty, Stability, Retrievability) memory model. It's more efficient than SM-2, requiring ~20-30% fewer reviews for the same retention.
+
+#### Card State Fields (FSRS)
+- `stability`: Memory stability in days (how long until recall probability drops to 90%)
+- `difficulty`: Card difficulty (1-10 scale, lower = easier)
+- `lapses`: Times the card was forgotten (Again pressed while in Review state)
+- `reps`: Total successful reviews
+- `queue`: Current state - NEW (0), LEARNING (1), REVIEW (2), RELEARNING (3)
 - `next_review_at`: When to show card next
 
-Ratings: `again` (0), `hard` (1), `good` (2), `easy` (3)
+#### Legacy Fields (backward compatibility)
+- `ease_factor`: Approximated from stability for display
+- `interval`: Same as scheduled_days
+- `repetitions`: Same as reps
+
+#### Ratings
+- `again` (0): Forgot the card → short interval, +1 lapse if in Review
+- `hard` (1): Difficult recall → shorter interval
+- `good` (2): Normal recall → standard interval
+- `easy` (3): Easy recall → longer interval, skips learning phase for new cards
+
+#### New Card Intervals (with short-term scheduling)
+| Rating | Interval | Next State |
+|--------|----------|------------|
+| Again  | ~1 min   | Learning   |
+| Hard   | ~6 min   | Learning   |
+| Good   | ~10 min  | Learning   |
+| Easy   | ~2 days  | Review (skips learning) |
+
+#### Key Implementation Files
+- `shared/scheduler/compute-state.ts` - Core FSRS algorithm using `ts-fsrs` library
+- `shared/scheduler/index.ts` - Re-exports types and functions
+- `frontend/src/services/anki-scheduler.ts` - Frontend wrapper
+- `worker/src/services/anki-scheduler.ts` - Worker wrapper
 
 ### Database Tables
 - `users` - User accounts
@@ -143,7 +177,7 @@ Uses Anthropic Claude API for several features:
 
 1. **Events are append-only**: Review events can only be added, never modified or deleted. Each event has a unique ID for deduplication.
 
-2. **Card state is derived, not stored**: The `queue`, `interval`, `ease_factor`, `repetitions`, etc. on cards are COMPUTED from the review event history. The stored values are just a cache for performance.
+2. **Card state is derived, not stored**: The `queue`, `stability`, `difficulty`, `lapses`, etc. on cards are COMPUTED from the review event history using FSRS. The stored values are just a cache for performance.
 
 3. **Both client and server compute state independently**:
    - Client computes card state from local events
@@ -234,7 +268,7 @@ Each note has a **History** button showing:
   - Time spent
   - User's typed answer
   - Audio recording (if recorded)
-- **Current card stats**: interval, ease factor, repetitions
+- **Current card stats**: stability, difficulty, lapses, interval
 - **Questions asked** to Claude with answers
 
 ### AI Integration
@@ -305,13 +339,33 @@ cd worker && npx wrangler d1 migrations apply chinese-learning-db --local
 
 **Production**: Migrations are applied automatically by CI on push to main (see Deployment section).
 
-### Testing Locally
+### Running Tests
+```bash
+# Run all tests (includes FSRS scheduler tests)
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run type checking
+npm run typecheck
+```
+
+Key test files:
+- `shared/scheduler/compute-state.test.ts` - FSRS algorithm tests
+- `frontend/src/services/sync.test.ts` - Sync service tests
+- `frontend/src/db/daily-stats.test.ts` - Daily stats tests
+
+### Running Dev Servers
 ```bash
 # The worker uses wrangler for local D1/R2
 npm run dev:worker
 
 # Frontend proxies API calls to worker
 npm run dev:frontend
+
+# Run both together
+npm run dev
 ```
 
 ### Environment Variables / Secrets
