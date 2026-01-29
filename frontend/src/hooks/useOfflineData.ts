@@ -220,7 +220,23 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
       timestamp: new Date().toISOString(),
     });
 
-    if (allDueCards && allDueCards.length > 0) {
+    // IMPORTANT: Don't proceed if allDueCards hasn't loaded yet.
+    // This prevents race conditions where an older query execution with undefined allDueCards
+    // finishes after a newer one and incorrectly clears currentSelectedCardId.
+    if (allDueCards === undefined) {
+      console.log('[useOfflineNextCard] allDueCards not loaded yet, returning current card or null');
+      // Return the current card if we have one cached, otherwise null
+      // Don't modify currentSelectedCardId - let the next execution with real data handle it
+      if (currentSelectedCardId) {
+        const currentCard = await db.cards.get(currentSelectedCardId);
+        if (currentCard) {
+          return currentCard;
+        }
+      }
+      return null;
+    }
+
+    if (allDueCards.length > 0) {
       // Filter out cards from excluded notes, BUT always include LEARNING/RELEARNING cards
       // because they need to be shown when due (that's the whole point of the learning loop)
       const availableCards = allDueCards.filter(card => {
