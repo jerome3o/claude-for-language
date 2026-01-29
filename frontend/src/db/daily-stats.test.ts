@@ -17,6 +17,10 @@ async function createTestDeck(id: string, name = 'Test Deck') {
     name,
     description: null,
     new_cards_per_day: 20,
+    // FSRS settings
+    request_retention: 0.9,
+    fsrs_weights: null,
+    // Legacy SM-2 settings
     learning_steps: '1 10',
     graduating_interval: 1,
     easy_interval: 4,
@@ -41,6 +45,11 @@ async function createTestCard(id: string, deckId: string, queue: CardQueue = Car
     deck_id: deckId,
     card_type: 'hanzi_to_meaning',
     queue,
+    // FSRS fields
+    stability: 0,
+    difficulty: 0,
+    lapses: 0,
+    // Legacy fields
     learning_step: 0,
     ease_factor: 2.5,
     interval: 0,

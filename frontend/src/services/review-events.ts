@@ -81,6 +81,14 @@ export async function recordReviewEvent(
           event_count: checkpoint.event_count,
           state: {
             queue: checkpoint.queue,
+            // FSRS fields
+            stability: checkpoint.stability || checkpoint.interval || 0,
+            difficulty: checkpoint.difficulty || 5,
+            scheduled_days: checkpoint.interval,
+            reps: checkpoint.repetitions,
+            lapses: checkpoint.lapses || 0,
+            last_reviewed_at: checkpoint.checkpoint_at, // Use checkpoint time as last review
+            // Legacy fields
             learning_step: checkpoint.learning_step,
             ease_factor: checkpoint.ease_factor,
             interval: checkpoint.interval,
@@ -118,6 +126,11 @@ export async function recordReviewEvent(
   // Update the card with new state (for immediate UI feedback)
   await db.cards.update(cardId, {
     queue: newState.queue,
+    // FSRS fields
+    stability: newState.stability,
+    difficulty: newState.difficulty,
+    lapses: newState.lapses,
+    // Legacy fields
     learning_step: newState.learning_step,
     ease_factor: newState.ease_factor,
     interval: newState.interval,
@@ -135,6 +148,11 @@ export async function recordReviewEvent(
       checkpoint_at: now,
       event_count: totalEvents,
       queue: newState.queue,
+      // FSRS fields
+      stability: newState.stability,
+      difficulty: newState.difficulty,
+      lapses: newState.lapses,
+      // Legacy fields
       learning_step: newState.learning_step,
       ease_factor: newState.ease_factor,
       interval: newState.interval,
@@ -363,6 +381,14 @@ export async function verifyCardState(cardId: string): Promise<{
 
   const stored: ComputedCardState = {
     queue: card.queue,
+    // FSRS fields
+    stability: card.stability || card.interval || 0,
+    difficulty: card.difficulty || 5,
+    scheduled_days: card.interval,
+    reps: card.repetitions,
+    lapses: card.lapses || 0,
+    last_reviewed_at: null, // Not stored in card, only in computed state
+    // Legacy fields
     learning_step: card.learning_step,
     ease_factor: card.ease_factor,
     interval: card.interval,
@@ -371,13 +397,13 @@ export async function verifyCardState(cardId: string): Promise<{
     due_timestamp: card.due_timestamp,
   };
 
-  // Compare key fields
+  // Compare key fields (focus on FSRS fields)
   const matches =
     stored.queue === computed.queue &&
-    stored.learning_step === computed.learning_step &&
-    Math.abs(stored.ease_factor - computed.ease_factor) < 0.001 &&
-    stored.interval === computed.interval &&
-    stored.repetitions === computed.repetitions;
+    Math.abs(stored.stability - computed.stability) < 0.1 &&
+    Math.abs(stored.difficulty - computed.difficulty) < 0.1 &&
+    stored.reps === computed.reps &&
+    stored.lapses === computed.lapses;
 
   return { matches, stored, computed };
 }
@@ -390,6 +416,11 @@ export async function fixCardState(cardId: string): Promise<ComputedCardState> {
 
   await db.cards.update(cardId, {
     queue: computed.queue,
+    // FSRS fields
+    stability: computed.stability,
+    difficulty: computed.difficulty,
+    lapses: computed.lapses,
+    // Legacy fields
     learning_step: computed.learning_step,
     ease_factor: computed.ease_factor,
     interval: computed.interval,

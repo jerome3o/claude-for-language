@@ -1072,6 +1072,10 @@ app.post('/api/study/review', async (c) => {
       repetitions: number;
       next_review_at: string | null;
       due_timestamp: number | null;
+      // FSRS fields
+      stability?: number;
+      difficulty?: number;
+      lapses?: number;
     };
   }>();
 
@@ -1111,9 +1115,13 @@ app.post('/api/study/review', async (c) => {
       repetitions: offline_result.repetitions,
       next_review_at: offline_result.next_review_at ? new Date(offline_result.next_review_at) : null,
       due_timestamp: offline_result.due_timestamp,
+      // FSRS fields
+      stability: offline_result.stability || card.stability || 0,
+      difficulty: offline_result.difficulty || card.difficulty || 5,
+      lapses: offline_result.lapses || card.lapses || 0,
     };
   } else {
-    // Calculate new scheduling values using Anki algorithm
+    // Calculate new scheduling values using FSRS algorithm
     result = scheduleCard(
       rating,
       card.queue,
@@ -1121,7 +1129,10 @@ app.post('/api/study/review', async (c) => {
       card.ease_factor,
       card.interval,
       card.repetitions,
-      settings
+      settings,
+      card.stability,
+      card.difficulty,
+      card.lapses
     );
   }
 

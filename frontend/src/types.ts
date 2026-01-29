@@ -4,7 +4,7 @@ export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi
 // Audio provider types
 export type AudioProvider = 'minimax' | 'gtts';
 
-// Rating values (SM-2)
+// Rating values (maps to FSRS 1-4 internally)
 export type Rating = 0 | 1 | 2 | 3; // 0=again, 1=hard, 2=good, 3=easy
 
 // Card queue values (Anki-style)
@@ -57,6 +57,10 @@ export interface Deck {
   name: string;
   description: string | null;
   new_cards_per_day: number;
+  // FSRS settings
+  request_retention: number;    // Target retention (0.7-0.97), default 0.9
+  fsrs_weights: string | null;  // JSON array of 21 weights, null = use defaults
+  // Legacy SM-2 settings (kept for backward compatibility, not used by FSRS)
   learning_steps: string;  // Space-separated minutes, e.g., "1 10"
   graduating_interval: number;  // Days
   easy_interval: number;  // Days
@@ -89,6 +93,11 @@ export interface Card {
   id: string;
   note_id: string;
   card_type: CardType;
+  // FSRS fields
+  stability: number;            // Memory stability (days until R drops to 90%)
+  difficulty: number;           // Card difficulty (1-10)
+  lapses: number;               // Times forgotten (Again count)
+  // Legacy SM-2 fields (kept for backward compatibility)
   ease_factor: number;
   interval: number;
   repetitions: number;
