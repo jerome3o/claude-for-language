@@ -208,6 +208,9 @@ function applyLearningReview(
 
 /**
  * Apply review to REVIEW card.
+ *
+ * Key improvement: Ensures minimum separation between Hard/Good/Easy intervals
+ * to avoid the situation where rounding causes identical intervals.
  */
 function applyReviewReview(
   state: ComputedCardState,
@@ -238,19 +241,47 @@ function applyReviewReview(
     case 1: // Hard - interval * hard_multiplier, ease -15%
       easeFactor = clampEase(easeFactor - 0.15, settings);
       interval = applyModifier(Math.round(state.interval * settings.hard_multiplier));
+      // Hard should be at least current interval + 1 day
+      if (interval <= state.interval) {
+        interval = state.interval + 1;
+      }
       repetitions += 1;
       break;
 
-    case 2: // Good - interval * easeFactor
+    case 2: { // Good - interval * easeFactor
+      // Calculate what Hard would be
+      const hardInterval = Math.max(
+        applyModifier(Math.round(state.interval * settings.hard_multiplier)),
+        state.interval + 1
+      );
       interval = applyModifier(Math.round(state.interval * easeFactor));
+      // Good should be at least Hard + 1 day
+      if (interval <= hardInterval) {
+        interval = hardInterval + 1;
+      }
       repetitions += 1;
       break;
+    }
 
-    case 3: // Easy - interval * easeFactor * easy_bonus, ease +15%
+    case 3: { // Easy - interval * easeFactor * easy_bonus, ease +15%
       easeFactor = clampEase(easeFactor + 0.15, settings);
+      // Calculate what Good would be (before ease bonus)
+      const hardInterval = Math.max(
+        applyModifier(Math.round(state.interval * settings.hard_multiplier)),
+        state.interval + 1
+      );
+      const goodInterval = Math.max(
+        applyModifier(Math.round(state.interval * state.ease_factor)), // use original ease
+        hardInterval + 1
+      );
       interval = applyModifier(Math.round(state.interval * easeFactor * settings.easy_bonus));
+      // Easy should be at least Good + 1 day
+      if (interval <= goodInterval) {
+        interval = goodInterval + 1;
+      }
       repetitions += 1;
       break;
+    }
 
     default:
       throw new Error(`Invalid rating: ${rating}`);
@@ -459,8 +490,14 @@ export function deckSettingsFromDb(deck: {
 
 /**
  * Format interval for display.
+ * @param minutes - interval in minutes
+ * @param useLessThan - if true, show "<10m" style for short intervals (like Anki)
  */
-export function formatInterval(minutes: number): string {
+export function formatInterval(minutes: number, useLessThan: boolean = false): string {
+  // For learning cards, Anki shows "<10m" style
+  if (useLessThan && minutes < 10) {
+    return '<10m';
+  }
   if (minutes < 60) {
     return `${minutes}m`;
   }

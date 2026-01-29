@@ -250,6 +250,50 @@ describe('applyReview - REVIEW cards', () => {
 
     expect(state.ease_factor).toBeLessThanOrEqual(settings.maximum_ease);
   });
+
+  it('ensures minimum separation between Hard/Good/Easy intervals', () => {
+    // Test with short interval where rounding could cause identical intervals
+    const shortIntervalState: ComputedCardState = {
+      queue: CardQueue.REVIEW,
+      learning_step: 0,
+      ease_factor: 2.5,
+      interval: 1, // 1 day - small enough that rounding could cause issues
+      repetitions: 1,
+      next_review_at: baseTime,
+      due_timestamp: null,
+    };
+
+    const hardState = applyReview(shortIntervalState, 1, settings, baseTime);
+    const goodState = applyReview(shortIntervalState, 2, settings, baseTime);
+    const easyState = applyReview(shortIntervalState, 3, settings, baseTime);
+
+    // Each rating should give a strictly larger interval than the previous
+    expect(hardState.interval).toBeGreaterThan(shortIntervalState.interval);
+    expect(goodState.interval).toBeGreaterThan(hardState.interval);
+    expect(easyState.interval).toBeGreaterThan(goodState.interval);
+  });
+
+  it('ensures minimum separation even with very small intervals', () => {
+    // Test with graduating_interval (1 day) which is the minimum
+    const justGraduatedState: ComputedCardState = {
+      queue: CardQueue.REVIEW,
+      learning_step: 0,
+      ease_factor: 2.5,
+      interval: 1, // Just graduated
+      repetitions: 1,
+      next_review_at: baseTime,
+      due_timestamp: null,
+    };
+
+    const hardInterval = applyReview(justGraduatedState, 1, settings, baseTime).interval;
+    const goodInterval = applyReview(justGraduatedState, 2, settings, baseTime).interval;
+    const easyInterval = applyReview(justGraduatedState, 3, settings, baseTime).interval;
+
+    // All intervals should be at least 1 day more than the previous
+    expect(hardInterval).toBeGreaterThanOrEqual(2); // at least current + 1
+    expect(goodInterval).toBeGreaterThanOrEqual(hardInterval + 1);
+    expect(easyInterval).toBeGreaterThanOrEqual(goodInterval + 1);
+  });
 });
 
 describe('applyReview - RELEARNING cards', () => {
