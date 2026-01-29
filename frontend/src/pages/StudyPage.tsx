@@ -624,6 +624,14 @@ function StudyCard({
                           options.voiceId = selectedVoice;
                         }
                         const updatedNote = await generateNoteAudio(card.note.id, options);
+
+                        // Update local IndexedDB note so future plays use the new audio
+                        await db.notes.update(card.note.id, {
+                          audio_url: updatedNote.audio_url,
+                          audio_provider: updatedNote.audio_provider,
+                          updated_at: updatedNote.updated_at,
+                        });
+
                         // Trigger audio playback with the NEW audio URL and cache buster
                         playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
                       } catch (error) {
