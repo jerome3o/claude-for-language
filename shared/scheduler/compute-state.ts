@@ -80,9 +80,9 @@ export interface CardCheckpoint {
   state: ComputedCardState;
 }
 
-// Default FSRS parameters
+// Default FSRS parameters (customized)
 const FSRS_DEFAULT_W = [
-  0.212, 1.2931, 2.3065, 8.2956,  // w0-w3: initial stability for each grade
+  0.212, 1.2931, 2.3065, 2.0,     // w0-w3: initial stability for each grade (w3 reduced from 8.3 to 2 days for Easy)
   6.4133, 0.8334, 3.0194, 0.001,  // w4-w7: difficulty parameters
   1.8722, 0.1666, 0.796, 1.4835,  // w8-w11: stability parameters
   0.0614, 0.2629, 1.6483, 0.6014, // w12-w15: more stability params
