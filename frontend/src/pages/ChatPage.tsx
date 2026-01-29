@@ -124,7 +124,14 @@ export function ChatPage() {
     try {
       const result = await getMessages(convId, lastTimestamp);
       if (result.messages.length > 0) {
-        setNewMessages(prev => [...prev, ...result.messages]);
+        // Deduplicate: only add messages not already in state
+        // This prevents duplicates when polls race with sendMutation
+        setNewMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const uniqueNew = result.messages.filter(m => !existingIds.has(m.id));
+          if (uniqueNew.length === 0) return prev; // No change, avoid re-render
+          return [...prev, ...uniqueNew];
+        });
         setLastTimestamp(result.latest_timestamp);
       }
     } catch (error) {
@@ -138,11 +145,21 @@ export function ChatPage() {
     return () => clearInterval(interval);
   }, [convId, lastTimestamp, pollMessages]);
 
-  // Combine initial messages with new messages from polling
-  const messages = [
+  // Combine initial messages with new messages from polling, deduplicated by ID
+  // Deduplication is necessary because:
+  // 1. In-flight polls may return messages that were just sent (race condition)
+  // 2. For AI conversations, polling may fetch AI response before getAIResponse returns
+  // 3. initialMessagesQuery refetches (staleTime: 0) may overlap with newMessages
+  const allMessages = [
     ...(initialMessagesQuery.data?.messages || []),
     ...newMessages,
   ];
+  const seenIds = new Set<string>();
+  const messages = allMessages.filter(msg => {
+    if (seenIds.has(msg.id)) return false;
+    seenIds.add(msg.id);
+    return true;
+  });
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -152,7 +169,11 @@ export function ChatPage() {
   const sendMutation = useMutation({
     mutationFn: (content: string) => sendMessage(convId!, content),
     onSuccess: async (newMsg) => {
-      setNewMessages(prev => [...prev, newMsg]);
+      // Add user's message, deduplicating in case poll already added it
+      setNewMessages(prev => {
+        if (prev.some(m => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
       setLastTimestamp(newMsg.created_at);
       setNewMessage('');
 
@@ -161,7 +182,11 @@ export function ChatPage() {
         setIsWaitingForAI(true);
         try {
           const response = await getAIResponse(convId!);
-          setNewMessages(prev => [...prev, response.message]);
+          // Add AI's message, deduplicating in case poll already added it
+          setNewMessages(prev => {
+            if (prev.some(m => m.id === response.message.id)) return prev;
+            return [...prev, response.message];
+          });
           setLastTimestamp(response.message.created_at);
 
           // Play audio if available
