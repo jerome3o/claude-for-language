@@ -50,26 +50,29 @@ describe('initialCardState', () => {
 });
 
 describe('applyReview - New Card First Review', () => {
-  it('moves NEW card to REVIEW on first Again (no lapse for first review)', () => {
+  it('moves NEW card to LEARNING on first Again (short-term scheduling)', () => {
     const state = initialCardState();
     const now = new Date().toISOString();
     const newState = applyReview(state, 0, DEFAULT_DECK_SETTINGS, now);
 
-    expect(newState.queue).toBe(CardQueue.REVIEW); // FSRS moves to Review
+    // With short-term scheduling enabled, new cards go to Learning first
+    expect(newState.queue).toBe(CardQueue.LEARNING);
     expect(newState.stability).toBeGreaterThan(0);
     expect(newState.difficulty).toBeGreaterThan(0);
     // In FSRS, first review (even Again) is NOT a lapse - card was never learned yet
-    // Lapses only count when a REVIEW card gets Again
     expect(newState.lapses).toBe(0);
     expect(newState.next_review_at).not.toBeNull();
+    // Learning step should be short (minutes, not days)
+    expect(newState.interval).toBe(0); // scheduled_days is 0 for learning
   });
 
-  it('moves NEW card to REVIEW on first Good', () => {
+  it('moves NEW card to LEARNING on first Good (short-term scheduling)', () => {
     const state = initialCardState();
     const now = new Date().toISOString();
     const newState = applyReview(state, 2, DEFAULT_DECK_SETTINGS, now);
 
-    expect(newState.queue).toBe(CardQueue.REVIEW);
+    // Good on a new card goes to Learning (not Review) with short-term enabled
+    expect(newState.queue).toBe(CardQueue.LEARNING);
     expect(newState.stability).toBeGreaterThan(0);
     expect(newState.difficulty).toBeGreaterThan(0);
     expect(newState.reps).toBe(1);
@@ -105,12 +108,13 @@ describe('applyReview - Review Card', () => {
     const state = initialCardState();
     const now = new Date();
 
-    // First review
-    let currentState = applyReview(state, 2, DEFAULT_DECK_SETTINGS, now.toISOString());
+    // Use Easy to skip learning phase and go directly to Review
+    let currentState = applyReview(state, 3, DEFAULT_DECK_SETTINGS, now.toISOString());
+    expect(currentState.queue).toBe(CardQueue.REVIEW);
     const stabilityAfterFirst = currentState.stability;
 
     // Second review after interval
-    const reviewTime = addDays(now, Math.max(1, Math.floor(stabilityAfterFirst)));
+    const reviewTime = addDays(now, Math.max(1, Math.ceil(stabilityAfterFirst)));
     currentState = applyReview(currentState, 2, DEFAULT_DECK_SETTINGS, reviewTime.toISOString());
 
     expect(currentState.stability).toBeGreaterThan(stabilityAfterFirst);
@@ -121,12 +125,13 @@ describe('applyReview - Review Card', () => {
     const state = initialCardState();
     const now = new Date();
 
-    // First review (Good)
-    let currentState = applyReview(state, 2, DEFAULT_DECK_SETTINGS, now.toISOString());
+    // Use Easy to skip learning and go to Review
+    let currentState = applyReview(state, 3, DEFAULT_DECK_SETTINGS, now.toISOString());
+    expect(currentState.queue).toBe(CardQueue.REVIEW);
     const stabilityBeforeLapse = currentState.stability;
     expect(currentState.lapses).toBe(0);
 
-    // Lapse (Again)
+    // Lapse (Again) - only counts as lapse when card is in Review state
     const reviewTime = addDays(now, 1);
     currentState = applyReview(currentState, 0, DEFAULT_DECK_SETTINGS, reviewTime.toISOString());
 
@@ -183,12 +188,14 @@ describe('computeCardState', () => {
   it('handles multiple lapses correctly', () => {
     const cardId = 'test-card-1';
     const now = new Date();
+    // Use Easy first to skip learning and get to Review state
+    // Then lapses count when Again is pressed in Review state
     const events = [
-      createEvent(cardId, 2, now.toISOString()),
-      createEvent(cardId, 0, addDays(now, 1).toISOString()),  // Lapse 1
-      createEvent(cardId, 2, addDays(now, 2).toISOString()),
-      createEvent(cardId, 0, addDays(now, 3).toISOString()),  // Lapse 2
-      createEvent(cardId, 2, addDays(now, 4).toISOString()),
+      createEvent(cardId, 3, now.toISOString()),              // Easy -> goes to Review
+      createEvent(cardId, 0, addDays(now, 8).toISOString()),  // Lapse 1 (from Review)
+      createEvent(cardId, 3, addDays(now, 9).toISOString()),  // Easy -> back to Review
+      createEvent(cardId, 0, addDays(now, 17).toISOString()), // Lapse 2 (from Review)
+      createEvent(cardId, 2, addDays(now, 18).toISOString()), // Good
     ];
 
     const state = computeCardState(events);
@@ -311,6 +318,41 @@ describe('getIntervalPreviews', () => {
     expect(easyDays).toBeGreaterThan(goodDays);
     expect(goodDays).toBeGreaterThan(hardDays);
     expect(hardDays).toBeGreaterThanOrEqual(againDays);
+  });
+
+  it('NEW card intervals use short-term scheduling (learning steps)', () => {
+    const state = initialCardState();
+    const previews = getIntervalPreviews(state, DEFAULT_DECK_SETTINGS, new Date('2024-01-01T12:00:00Z'));
+
+    // With short-term scheduling enabled:
+    // - Again, Hard, Good go to Learning state with short intervals (minutes)
+    // - Easy skips learning and goes directly to Review with ~8 day interval
+
+    const againDays = previews[0].intervalDays;
+    const hardDays = previews[1].intervalDays;
+    const goodDays = previews[2].intervalDays;
+    const easyDays = previews[3].intervalDays;
+
+    console.log('NEW card intervals:');
+    console.log('  Again:', previews[0].intervalText, `(${againDays.toFixed(4)} days)`);
+    console.log('  Hard:', previews[1].intervalText, `(${hardDays.toFixed(4)} days)`);
+    console.log('  Good:', previews[2].intervalText, `(${goodDays.toFixed(4)} days)`);
+    console.log('  Easy:', previews[3].intervalText, `(${easyDays.toFixed(4)} days)`);
+
+    // Again/Hard/Good should be very short (minutes) - Learning state
+    expect(againDays).toBeLessThan(0.01); // ~1 minute = 0.0007 days
+    expect(hardDays).toBeLessThan(0.01);   // ~6 minutes
+    expect(goodDays).toBeLessThan(0.01);   // ~10 minutes
+
+    // Again should go to Learning state
+    expect(previews[0].nextState).toBe(CardQueue.LEARNING);
+    expect(previews[1].nextState).toBe(CardQueue.LEARNING);
+    expect(previews[2].nextState).toBe(CardQueue.LEARNING);
+
+    // Easy should skip learning and go to Review with ~8 day interval
+    expect(easyDays).toBeGreaterThan(5);
+    expect(easyDays).toBeLessThan(15);
+    expect(previews[3].nextState).toBe(CardQueue.REVIEW);
   });
 });
 
