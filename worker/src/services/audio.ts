@@ -239,9 +239,13 @@ export async function generateGoogleTTS(
   }
 }
 
+// Default MiniMax voice ID - male voice
+export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Gentleman';
+
 export interface TTSOptions {
   speed?: number; // 0.3 - 1.0, default 0.5 for MiniMax, 0.9 for Google
   preferProvider?: AudioProvider; // Prefer a specific provider
+  voiceId?: string; // MiniMax voice ID (only used when provider is minimax)
 }
 
 /**
@@ -296,8 +300,9 @@ async function generateMiniMaxTTSWithOptions(
   options: TTSOptions
 ): Promise<string | null> {
   const speed = options.speed ?? 0.5;
+  const voiceId = options.voiceId ?? DEFAULT_MINIMAX_VOICE;
 
-  console.log('[TTS] generateMiniMaxTTSWithOptions called:', { text, noteId, speed, hasApiKey: !!env.MINIMAX_API_KEY });
+  console.log('[TTS] generateMiniMaxTTSWithOptions called:', { text, noteId, speed, voiceId, hasApiKey: !!env.MINIMAX_API_KEY });
 
   if (!env.MINIMAX_API_KEY) {
     console.log('[TTS] MiniMax API key not configured');
@@ -305,7 +310,7 @@ async function generateMiniMaxTTSWithOptions(
   }
 
   try {
-    console.log('[TTS] Calling MiniMax TTS API with speed:', speed);
+    console.log('[TTS] Calling MiniMax TTS API with speed:', speed, 'voice:', voiceId);
     const response = await fetch('https://api.minimax.io/v1/t2a_v2', {
       method: 'POST',
       headers: {
@@ -317,7 +322,7 @@ async function generateMiniMaxTTSWithOptions(
         text: text,
         stream: false,
         voice_setting: {
-          voice_id: 'female-yujie',
+          voice_id: voiceId,
           speed: speed,
         },
         audio_setting: {
