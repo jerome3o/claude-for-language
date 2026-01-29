@@ -84,7 +84,11 @@ function cardToLocal(card: Card | SyncCard, deckId: string): LocalCard {
     created_at: card.created_at,
     updated_at: card.updated_at,
     _synced_at: Date.now(),
-    // Default NEW scheduling state (will be recomputed from events if any exist)
+    // FSRS fields
+    stability: defaultState.stability,
+    difficulty: defaultState.difficulty,
+    lapses: defaultState.lapses,
+    // Legacy fields (will be recomputed from events if any exist)
     queue: defaultState.queue,
     learning_step: defaultState.learning_step,
     ease_factor: defaultState.ease_factor,

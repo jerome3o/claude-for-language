@@ -20,6 +20,11 @@ export interface LocalCardCheckpoint {
   checkpoint_at: string;
   event_count: number;
   queue: CardQueue;
+  // FSRS fields
+  stability: number;
+  difficulty: number;
+  lapses: number;
+  // Legacy fields (kept for compatibility)
   learning_step: number;
   ease_factor: number;
   interval: number;
@@ -49,6 +54,10 @@ export interface LocalDeck {
   name: string;
   description: string | null;
   new_cards_per_day: number;
+  // FSRS settings
+  request_retention: number;    // Target retention (0.7-0.97), default 0.9
+  fsrs_weights: string | null;  // JSON array of 21 weights, null = use defaults
+  // Legacy SM-2 settings (kept for compatibility)
   learning_steps: string;
   graduating_interval: number;
   easy_interval: number;
@@ -85,6 +94,11 @@ export interface LocalCard {
   deck_id: string; // Denormalized for efficient queries
   card_type: CardType;
   queue: CardQueue;
+  // FSRS fields
+  stability: number;
+  difficulty: number;
+  lapses: number;
+  // Legacy SM-2 fields (kept for compatibility)
   learning_step: number;
   ease_factor: number;
   interval: number;
@@ -202,6 +216,48 @@ export class ChineseLearningDB extends Dexie {
       pendingRecordings: 'id, uploaded',
       eventSyncMeta: 'id',
       dailyStats: 'id, date, deck_id, [date+deck_id]',
+    });
+
+    // Version 5: Add FSRS fields to cards and decks
+    // Cards get: stability, difficulty, lapses
+    // Decks get: request_retention, fsrs_weights
+    this.version(5).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+    }).upgrade(async tx => {
+      // Migrate cards: add FSRS defaults
+      await tx.table('cards').toCollection().modify(card => {
+        // Set stability based on current interval (rough approximation)
+        card.stability = card.interval > 0 ? card.interval : 0;
+        // Set default difficulty (5 = middle of 1-10 scale)
+        card.difficulty = card.difficulty || 5;
+        // Initialize lapses to 0
+        card.lapses = card.lapses || 0;
+      });
+
+      // Migrate decks: add FSRS defaults
+      await tx.table('decks').toCollection().modify(deck => {
+        deck.request_retention = deck.request_retention || 0.9;
+        deck.fsrs_weights = deck.fsrs_weights || null;
+      });
+
+      // Migrate checkpoints: add FSRS defaults
+      await tx.table('cardCheckpoints').toCollection().modify(checkpoint => {
+        checkpoint.stability = checkpoint.stability || checkpoint.interval || 0;
+        checkpoint.difficulty = checkpoint.difficulty || 5;
+        checkpoint.lapses = checkpoint.lapses || 0;
+      });
+
+      console.log('[DB] Migrated to version 5 (FSRS)');
     });
   }
 }

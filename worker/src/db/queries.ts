@@ -20,6 +20,9 @@ import {
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 
+// Default for new cards per day (not part of FSRS scheduling)
+const DEFAULT_NEW_CARDS_PER_DAY = 30;
+
 // ============ Review Events (Event-Sourced Architecture) ============
 
 export interface ReviewEvent {
@@ -673,6 +676,11 @@ export async function getDueCards(
     id: row.id as string,
     note_id: row.note_id as string,
     card_type: row.card_type as Card['card_type'],
+    // FSRS fields
+    stability: (row.stability as number) || 0,
+    difficulty: (row.difficulty as number) || 5,
+    lapses: (row.lapses as number) || 0,
+    // Legacy fields
     ease_factor: (row.ease_factor as number) || 2.5,
     interval: (row.interval as number) || 0,
     repetitions: (row.repetitions as number) || 0,
@@ -848,6 +856,11 @@ export async function getSessionWithReviews(
       id: row.card_id as string,
       note_id: row.note_id as string,
       card_type: row.card_type as Card['card_type'],
+      // FSRS fields
+      stability: (row.stability as number) || 0,
+      difficulty: (row.difficulty as number) || 5,
+      lapses: (row.lapses as number) || 0,
+      // Legacy fields
       ease_factor: (row.ease_factor as number) || 2.5,
       interval: (row.interval as number) || 0,
       repetitions: (row.repetitions as number) || 0,
@@ -1172,7 +1185,7 @@ export async function getQueueCounts(
   ]);
 
   // Get deck settings for new card limit
-  let newCardsPerDay = DEFAULT_DECK_SETTINGS.new_cards_per_day;
+  let newCardsPerDay = DEFAULT_NEW_CARDS_PER_DAY;
   if (deckId) {
     const deck = await getDeckById(db, deckId, userId);
     if (deck) {
@@ -1279,7 +1292,7 @@ export async function getNextStudyCard(
   const studiedToday = dailyResult?.studied || 0;
 
   // Get new card limit
-  let newCardsPerDay = DEFAULT_DECK_SETTINGS.new_cards_per_day;
+  let newCardsPerDay = DEFAULT_NEW_CARDS_PER_DAY;
   if (deckId) {
     const deck = await getDeckById(db, deckId, userId);
     if (deck) {
@@ -1320,6 +1333,11 @@ function mapCardWithNote(row: Record<string, unknown>): CardWithNote {
     id: row.id as string,
     note_id: row.note_id as string,
     card_type: row.card_type as Card['card_type'],
+    // FSRS fields
+    stability: (row.stability as number) || 0,
+    difficulty: (row.difficulty as number) || 5,
+    lapses: (row.lapses as number) || 0,
+    // Legacy fields
     ease_factor: (row.ease_factor as number) || 2.5,
     interval: (row.interval as number) || 0,
     repetitions: (row.repetitions as number) || 0,
@@ -1397,7 +1415,7 @@ export async function updateCardSchedule(
 }
 
 /**
- * Get deck settings for scheduling
+ * Get deck settings for scheduling (FSRS)
  */
 export async function getDeckSettings(
   db: D1Database,
@@ -1407,18 +1425,21 @@ export async function getDeckSettings(
   const deck = await getDeckById(db, deckId, userId);
   if (!deck) return null;
 
+  // Parse FSRS weights if custom, otherwise use defaults
+  let weights = DEFAULT_DECK_SETTINGS.w;
+  if (deck.fsrs_weights) {
+    try {
+      weights = JSON.parse(deck.fsrs_weights);
+    } catch {
+      // Use defaults if parsing fails
+    }
+  }
+
   return {
-    new_cards_per_day: deck.new_cards_per_day,
-    learning_steps: parseLearningSteps(deck.learning_steps),
-    graduating_interval: deck.graduating_interval,
-    easy_interval: deck.easy_interval,
-    relearning_steps: parseLearningSteps(deck.relearning_steps),
-    starting_ease: deck.starting_ease / 100,
-    minimum_ease: deck.minimum_ease / 100,
-    maximum_ease: deck.maximum_ease / 100,
-    interval_modifier: deck.interval_modifier / 100,
-    hard_multiplier: deck.hard_multiplier / 100,
-    easy_bonus: deck.easy_bonus / 100,
+    request_retention: deck.request_retention || 0.9,
+    maximum_interval: 36500,  // Default max ~100 years
+    enable_fuzz: true,
+    w: weights,
   };
 }
 

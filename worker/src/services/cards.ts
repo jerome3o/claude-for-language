@@ -24,6 +24,11 @@ export function createCardsForNote(noteId: string): Omit<Card, 'created_at' | 'u
     id: generateId(),
     note_id: noteId,
     card_type: cardType,
+    // FSRS fields (defaults for new cards)
+    stability: 0,
+    difficulty: 0,  // Will be set on first review
+    lapses: 0,
+    // Legacy fields (for backward compatibility)
     ease_factor: 2.5,
     interval: 0,
     repetitions: 0,

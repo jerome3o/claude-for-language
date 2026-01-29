@@ -10,5 +10,8 @@
       "import": "./scheduler/index.ts",
       "require": "./scheduler/index.ts"
     }
+  },
+  "dependencies": {
+    "ts-fsrs": "^5.2.3"
   }
 }
