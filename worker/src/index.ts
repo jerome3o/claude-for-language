@@ -1424,7 +1424,8 @@ app.post('/api/ai/generate-deck', async (c) => {
     return c.json({ deck, notes: notesWithAudio }, 201);
   } catch (error) {
     console.error('AI generation error:', error);
-    return c.json({ error: 'Failed to generate deck' }, 500);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to generate deck';
+    return c.json({ error: errorMessage }, 500);
   }
 });
 

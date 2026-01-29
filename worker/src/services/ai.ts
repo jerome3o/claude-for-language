@@ -71,19 +71,37 @@ Respond with JSON in this exact format:
   // Extract JSON from response
   const textContent = response.content.find(c => c.type === 'text');
   if (!textContent || textContent.type !== 'text') {
+    console.error('[AI] No text content in response:', JSON.stringify(response.content));
     throw new Error('No text content in AI response');
   }
 
+  console.log('[AI] Raw response length:', textContent.text.length);
+  console.log('[AI] Response preview:', textContent.text.substring(0, 500));
+
   const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
+    console.error('[AI] Could not find JSON in response:', textContent.text);
     throw new Error('Could not find JSON in AI response');
   }
 
-  const result = JSON.parse(jsonMatch[0]) as GeneratedDeck;
+  let result: GeneratedDeck;
+  try {
+    result = JSON.parse(jsonMatch[0]) as GeneratedDeck;
+  } catch (parseError) {
+    console.error('[AI] JSON parse error:', parseError, 'JSON string:', jsonMatch[0].substring(0, 500));
+    throw new Error('Failed to parse AI response as JSON');
+  }
+
+  console.log('[AI] Parsed deck:', result.deck_name, 'with', result.notes?.length ?? 0, 'notes');
 
   // Validate the structure
   if (!result.deck_name || !result.notes || !Array.isArray(result.notes)) {
     throw new Error('Invalid deck structure from AI');
+  }
+
+  // Validate that we actually got some notes
+  if (result.notes.length === 0) {
+    throw new Error('AI returned no vocabulary items. Please try a different prompt.');
   }
 
   return result;

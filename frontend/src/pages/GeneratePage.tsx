@@ -150,7 +150,7 @@ export function GeneratePage() {
                   color: '#b91c1c',
                 }}
               >
-                Failed to generate deck. Please try again.
+                {generateMutation.error.message || 'Failed to generate deck. Please try again.'}
               </div>
             )}
 
