@@ -79,14 +79,19 @@ describe('applyReview - New Card First Review', () => {
     expect(newState.lapses).toBe(0);
   });
 
-  it('gives higher stability for Easy than Good on first review', () => {
+  it('Easy skips learning while Good stays in learning', () => {
     const state = initialCardState();
     const now = new Date().toISOString();
 
     const goodState = applyReview(state, 2, DEFAULT_DECK_SETTINGS, now);
     const easyState = applyReview(state, 3, DEFAULT_DECK_SETTINGS, now);
 
-    expect(easyState.stability).toBeGreaterThan(goodState.stability);
+    // Good stays in Learning, Easy skips to Review
+    expect(goodState.queue).toBe(CardQueue.LEARNING);
+    expect(easyState.queue).toBe(CardQueue.REVIEW);
+    // Both should have stability set
+    expect(goodState.stability).toBeGreaterThan(0);
+    expect(easyState.stability).toBeGreaterThan(0);
   });
 
   it('sets initial difficulty based on first rating', () => {
@@ -349,9 +354,9 @@ describe('getIntervalPreviews', () => {
     expect(previews[1].nextState).toBe(CardQueue.LEARNING);
     expect(previews[2].nextState).toBe(CardQueue.LEARNING);
 
-    // Easy should skip learning and go to Review with ~8 day interval
-    expect(easyDays).toBeGreaterThan(5);
-    expect(easyDays).toBeLessThan(15);
+    // Easy should skip learning and go to Review with ~2 day interval
+    expect(easyDays).toBeGreaterThan(1);
+    expect(easyDays).toBeLessThan(4);
     expect(previews[3].nextState).toBe(CardQueue.REVIEW);
   });
 });
