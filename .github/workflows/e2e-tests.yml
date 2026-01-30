@@ -38,16 +38,16 @@ jobs:
       - name: Create worker dev vars
         run: |
           cat > .dev.vars << 'EOF'
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_TTS_API_KEY=${{ secrets.GOOGLE_TTS_API_KEY }}
-          MINIMAX_API_KEY=${{ secrets.MINIMAX_API_KEY }}
-          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_CLIENT_ID=test-client-id
-          GOOGLE_CLIENT_SECRET=test-client-secret
-          SESSION_SECRET=test-session-secret
-          ADMIN_EMAIL=admin@test.e2e
-          E2E_TEST_MODE=true
-          EOF
+ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+GOOGLE_TTS_API_KEY=${{ secrets.GOOGLE_TTS_API_KEY }}
+MINIMAX_API_KEY=${{ secrets.MINIMAX_API_KEY }}
+GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+GOOGLE_CLIENT_ID=test-client-id
+GOOGLE_CLIENT_SECRET=test-client-secret
+SESSION_SECRET=test-session-secret
+ADMIN_EMAIL=admin@test.e2e
+E2E_TEST_MODE=true
+EOF
         working-directory: worker
 
       - name: Run E2E tests

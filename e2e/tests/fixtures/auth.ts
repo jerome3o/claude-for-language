@@ -26,6 +26,12 @@ export const test = base.extend<AuthFixtures>({
     const email = `e2e-${timestamp}@test.e2e`;
     const name = `E2E Test User ${timestamp}`;
 
+    // First check that the worker is running and test mode is enabled
+    const healthResponse = await request.get('http://localhost:8787/api/health');
+    if (!healthResponse.ok()) {
+      throw new Error(`Worker not running: ${healthResponse.status()}`);
+    }
+
     // Call the test auth API to create user and get session
     const response = await request.post('http://localhost:8787/api/test/auth', {
       data: { email, name },
@@ -33,7 +39,10 @@ export const test = base.extend<AuthFixtures>({
 
     if (!response.ok()) {
       const text = await response.text();
-      throw new Error(`Failed to create test user: ${response.status()} ${text}`);
+      throw new Error(
+        `Failed to create test user: ${response.status()} ${text}\n` +
+          'Make sure E2E_TEST_MODE=true is set in worker/.dev.vars'
+      );
     }
 
     const data = await response.json();
@@ -61,9 +70,10 @@ export const test = base.extend<AuthFixtures>({
     // Reload to pick up the session
     await page.reload();
 
-    // Wait for auth to complete
-    await page.waitForFunction(() => {
-      return !document.body.textContent?.includes('Loading...');
+    // Wait for auth to complete - look for the authenticated home page heading
+    // This ensures we're actually logged in, not just past the loading state
+    await page.waitForSelector('h1:has-text("Welcome to 汉语学习")', {
+      timeout: 30000,
     });
 
     await use(page);
