@@ -646,3 +646,58 @@ export interface GeneratedStory {
     image_prompt: string;
   }>;
 }
+
+// ============ Shared Deck Progress (Tutor View) ============
+
+// Tutor-friendly mastery levels (no FSRS jargon)
+export type MasteryLevel = 'new' | 'learning' | 'familiar' | 'mastered';
+
+export interface SharedDeckProgress {
+  // Deck info
+  deck_name: string;
+  shared_at: string;
+  student: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+
+  // Completion stats
+  completion: {
+    total_cards: number;
+    cards_seen: number;
+    cards_mastered: number;
+    percent_seen: number;
+    percent_mastered: number;
+  };
+
+  // Breakdown by card type
+  card_type_breakdown: {
+    hanzi_to_meaning: CardTypeStats;
+    meaning_to_hanzi: CardTypeStats;
+    audio_to_hanzi: CardTypeStats;
+  };
+
+  // Top 10 words the student is struggling with
+  struggling_words: StrugglingWord[];
+
+  // Recent activity
+  activity: {
+    last_studied_at: string | null;
+    total_study_time_ms: number;
+    reviews_last_7_days: number;
+  };
+}
+
+export interface CardTypeStats {
+  total: number;
+  new: number;
+  learning: number;
+  familiar: number;
+  mastered: number;
+}
+
+export interface StrugglingWord {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  lapses: number;
+  avg_rating: number;
+  last_reviewed_at: string | null;
+}

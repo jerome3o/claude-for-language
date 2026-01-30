@@ -160,6 +160,26 @@
   border-radius: 0.5rem;
 }
 
+.shared-deck-item.clickable {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.shared-deck-item.clickable:hover {
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.shared-deck-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
 .shared-deck-name {
   font-weight: 500;
 }
@@ -167,6 +187,11 @@
 .shared-deck-date {
   font-size: 0.75rem;
   color: var(--text-light, #666);
+}
+
+.shared-deck-arrow {
+  color: var(--text-lighter, #999);
+  margin-left: 0.5rem;
 }
 
 /* Danger Zone */

@@ -73,6 +73,7 @@ import {
   archiveTutorReviewRequest,
   getPendingReviewRequestCount,
 } from './services/tutor-review-requests';
+import { getSharedDeckProgress } from './services/shared-deck-progress';
 import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, GenerateFlashcardRequest, CreateTutorReviewRequest, RespondToTutorReviewRequest, TutorReviewRequestStatus } from './types';
 
 // Extend Hono context to include user
@@ -2284,6 +2285,21 @@ app.get('/api/relationships/:relId/shared-decks', async (c) => {
     return c.json(sharedDecks);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get shared decks';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get progress for a specific shared deck (tutor view)
+app.get('/api/relationships/:relId/shared-decks/:sharedDeckId/progress', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+  const sharedDeckId = c.req.param('sharedDeckId');
+
+  try {
+    const progress = await getSharedDeckProgress(c.env.DB, relId, sharedDeckId, userId);
+    return c.json(progress);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get shared deck progress';
     return c.json({ error: message }, 400);
   }
 });
