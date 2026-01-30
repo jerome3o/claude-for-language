@@ -1,6 +1,17 @@
 import { test as base, expect, Page, APIRequestContext } from '@playwright/test';
 
 /**
+ * Extended Page type with test helpers
+ */
+export interface AuthenticatedPage extends Page {
+  /**
+   * Navigate to a path while preserving authentication.
+   * Use this instead of page.goto() for authenticated navigation.
+   */
+  gotoAuthenticated: (path: string) => Promise<void>;
+}
+
+/**
  * Auth fixture for E2E tests.
  *
  * Provides a logged-in test user by calling the test auth API.
@@ -16,7 +27,7 @@ export interface TestUser {
 
 interface AuthFixtures {
   testUser: TestUser;
-  authenticatedPage: Page;
+  authenticatedPage: AuthenticatedPage;
 }
 
 export const test = base.extend<AuthFixtures>({
@@ -59,16 +70,9 @@ export const test = base.extend<AuthFixtures>({
 
   // Provide a page that's already logged in
   authenticatedPage: async ({ page, testUser }, use) => {
-    // Navigate to the app first (to ensure localStorage works)
-    await page.goto('/');
-
-    // Set the session token in localStorage (mimicking the OAuth flow)
-    await page.evaluate((token: string) => {
-      localStorage.setItem('session_token', token);
-    }, testUser.sessionToken);
-
-    // Reload to pick up the session
-    await page.reload();
+    // Navigate with session token in URL (mimicking OAuth callback redirect)
+    // This is how the real auth flow works - token is passed via URL query param
+    await page.goto(`/?session_token=${testUser.sessionToken}`);
 
     // Wait for auth to complete - look for the authenticated home page heading
     // This ensures we're actually logged in, not just past the loading state
@@ -76,7 +80,16 @@ export const test = base.extend<AuthFixtures>({
       timeout: 30000,
     });
 
-    await use(page);
+    // Add helper method for authenticated navigation
+    // This is needed because localStorage doesn't persist across page.goto in Playwright
+    const authenticatedPage = page as AuthenticatedPage;
+    authenticatedPage.gotoAuthenticated = async (path: string) => {
+      // Include session token in URL to maintain authentication
+      const separator = path.includes('?') ? '&' : '?';
+      await page.goto(`${path}${separator}session_token=${testUser.sessionToken}`);
+    };
+
+    await use(authenticatedPage);
   },
 });
 

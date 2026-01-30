@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { syncService, SyncProgress } from '../services/sync';
 import { usePendingReviewsCount, initializeOfflineData } from '../hooks/useOfflineData';
+import { useAuth } from './AuthContext';
 
 interface NetworkContextType {
   isOnline: boolean;
@@ -15,6 +16,7 @@ interface NetworkContextType {
 const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 
 export function NetworkProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
@@ -65,8 +67,20 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Initialize offline data on mount
+  // Initialize offline data once auth is complete
+  // Wait for auth to finish loading to ensure session token is set before making API calls
   useEffect(() => {
+    // Don't initialize until auth has completed loading
+    if (authLoading) {
+      return;
+    }
+
+    // Only sync if user is authenticated
+    if (!isAuthenticated) {
+      setIsInitialized(true); // Mark as initialized even if not authenticated
+      return;
+    }
+
     initializeOfflineData()
       .then(() => {
         setIsInitialized(true);
@@ -76,7 +90,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
         console.error('Failed to initialize offline data:', error);
         setIsInitialized(true); // Still mark as initialized so app can work
       });
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   const triggerSync = useCallback(async () => {
     if (!navigator.onLine || isSyncing) return;
