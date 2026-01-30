@@ -1,0 +1,402 @@
+/* Mobile-first styles for Shared Deck Progress Page */
+
+/* Header */
+.sdp-header {
+  margin-bottom: 1.5rem;
+}
+
+.sdp-header .back-link {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: var(--primary-color, #3b82f6);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.sdp-header .back-link:hover {
+  text-decoration: underline;
+}
+
+.sdp-deck-info h1 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.sdp-student-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sdp-student-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.sdp-student-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.sdp-student-name {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+/* Section */
+.sdp-section {
+  margin-bottom: 2rem;
+}
+
+.sdp-section h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-light, #666);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Completion Card */
+.completion-card {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.completion-bar-container {
+  margin-bottom: 1rem;
+}
+
+.completion-bar {
+  height: 12px;
+  background: var(--bg-light, #f5f5f5);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+}
+
+.completion-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.completion-fill.mastered {
+  background: #22c55e;
+}
+
+.completion-fill.seen {
+  background: #3b82f6;
+}
+
+.completion-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6875rem;
+  color: var(--text-lighter, #999);
+  margin-top: 0.25rem;
+}
+
+.completion-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.completion-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.completion-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-color, #333);
+}
+
+.completion-value.mastered {
+  color: #22c55e;
+}
+
+.completion-label {
+  font-size: 0.6875rem;
+  color: var(--text-light, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Card Type Breakdown */
+.card-type-breakdown {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.card-type-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.75rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.legend-item::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-item.mastered::before {
+  background: #22c55e;
+}
+
+.legend-item.familiar::before {
+  background: #3b82f6;
+}
+
+.legend-item.learning::before {
+  background: #f97316;
+}
+
+.legend-item.new::before {
+  background: #e5e5e5;
+}
+
+.card-type-row {
+  margin-bottom: 0.75rem;
+}
+
+.card-type-row:last-child {
+  margin-bottom: 0;
+}
+
+.card-type-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  margin-bottom: 0.375rem;
+}
+
+.card-type-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.card-type-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-light, #f5f5f5);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+}
+
+.bar-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.bar-segment.mastered {
+  background: #22c55e;
+}
+
+.bar-segment.familiar {
+  background: #3b82f6;
+}
+
+.bar-segment.learning {
+  background: #f97316;
+}
+
+.bar-segment.new {
+  background: #e5e5e5;
+}
+
+.card-type-counts {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  min-width: 100px;
+}
+
+.count-item {
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.count-item.mastered {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+}
+
+.count-item.familiar {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+}
+
+.count-item.learning {
+  background: rgba(249, 115, 22, 0.1);
+  color: #ea580c;
+}
+
+.count-item.new {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-light, #666);
+}
+
+/* Struggling Words */
+.struggling-words-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.struggling-word-item {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 0.875rem 1rem;
+}
+
+.word-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.word-hanzi {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.word-pinyin {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+.word-english {
+  font-size: 0.8125rem;
+  color: var(--text-light, #666);
+  margin-bottom: 0.375rem;
+}
+
+.word-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.word-lapses {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.word-stats .stat-separator {
+  color: var(--text-lighter, #999);
+}
+
+.word-rating {
+  color: var(--text-light, #666);
+}
+
+/* Activity Card */
+.activity-card {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.activity-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color, #e5e5e5);
+}
+
+.activity-row:last-child {
+  border-bottom: none;
+}
+
+.activity-label {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+}
+
+.activity-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* Desktop styles */
+@media (min-width: 640px) {
+  .sdp-deck-info h1 {
+    font-size: 1.5rem;
+  }
+
+  .sdp-student-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .completion-card {
+    padding: 1.5rem;
+  }
+
+  .completion-bar {
+    height: 16px;
+    border-radius: 8px;
+  }
+
+  .completion-value {
+    font-size: 1.5rem;
+  }
+
+  .card-type-breakdown {
+    padding: 1.5rem;
+  }
+
+  .card-type-label {
+    font-size: 0.9375rem;
+  }
+
+  .card-type-counts {
+    min-width: 120px;
+  }
+
+  .struggling-word-item {
+    padding: 1rem 1.25rem;
+  }
+
+  .word-hanzi {
+    font-size: 1.25rem;
+  }
+
+  .activity-card {
+    padding: 1.25rem;
+  }
+}

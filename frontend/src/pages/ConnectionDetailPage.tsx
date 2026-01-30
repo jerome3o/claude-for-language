@@ -236,12 +236,28 @@ export function ConnectionDetailPage() {
           ) : (
             <div className="shared-decks-list">
               {sharedDecks.map((sd) => (
-                <div key={sd.id} className="shared-deck-item">
-                  <span className="shared-deck-name">{sd.source_deck_name}</span>
-                  <span className="shared-deck-date">
-                    Shared {formatDate(sd.shared_at)}
-                  </span>
-                </div>
+                iAmTutor ? (
+                  <Link
+                    key={sd.id}
+                    to={`/connections/${relId}/shared-decks/${sd.id}/progress`}
+                    className="shared-deck-item clickable"
+                  >
+                    <div className="shared-deck-info">
+                      <span className="shared-deck-name">{sd.source_deck_name}</span>
+                      <span className="shared-deck-date">
+                        Shared {formatDate(sd.shared_at)}
+                      </span>
+                    </div>
+                    <span className="shared-deck-arrow">→</span>
+                  </Link>
+                ) : (
+                  <div key={sd.id} className="shared-deck-item">
+                    <span className="shared-deck-name">{sd.source_deck_name}</span>
+                    <span className="shared-deck-date">
+                      Shared {formatDate(sd.shared_at)}
+                    </span>
+                  </div>
+                )
               ))}
             </div>
           )}

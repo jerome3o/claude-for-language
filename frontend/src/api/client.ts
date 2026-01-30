@@ -21,6 +21,7 @@ import {
   Conversation,
   MessageWithSender,
   SharedDeckWithDetails,
+  SharedDeckProgress,
   StudentProgress,
   DailyActivitySummary,
   DayCardsDetail,
@@ -697,6 +698,15 @@ export async function shareDeck(
 
 export async function getSharedDecks(relationshipId: string): Promise<SharedDeckWithDetails[]> {
   return fetchJSON<SharedDeckWithDetails[]>(`/relationships/${relationshipId}/shared-decks`);
+}
+
+export async function getSharedDeckProgress(
+  relationshipId: string,
+  sharedDeckId: string
+): Promise<SharedDeckProgress> {
+  return fetchJSON<SharedDeckProgress>(
+    `/relationships/${relationshipId}/shared-decks/${sharedDeckId}/progress`
+  );
 }
 
 // ============ Student Progress (Enhanced) ============

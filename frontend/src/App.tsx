@@ -17,6 +17,7 @@ import { ConnectionsPage } from './pages/ConnectionsPage';
 import { ConnectionDetailPage } from './pages/ConnectionDetailPage';
 import { ChatPage } from './pages/ChatPage';
 import { StudentProgressPage } from './pages/StudentProgressPage';
+import { SharedDeckProgressPage } from './pages/SharedDeckProgressPage';
 import { DayDetailPage } from './pages/DayDetailPage';
 import { CardReviewDetailPage } from './pages/CardReviewDetailPage';
 import { MyProgressPage } from './pages/MyProgressPage';
@@ -195,6 +196,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <CardReviewDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId/shared-decks/:sharedDeckId/progress"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <SharedDeckProgressPage />
           </ProtectedRoute>
         }
       />
