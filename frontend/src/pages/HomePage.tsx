@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { getDecks, createDeck, getDeckStats } from '../api/client';
@@ -114,11 +114,7 @@ export function HomePage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
-  // OFFLINE-FIRST: Use IndexedDB as primary data source
-  // This renders immediately with cached data, even when offline
-  const { decks: offlineDecks, isLoading: offlineLoading, isSyncing, triggerSync } = useOfflineDecks();
-
-  // Background API calls - these refresh data when online but don't block rendering
+  // Background API calls - fetches decks from server when online
   const decksQuery = useQuery({
     queryKey: ['decks'],
     queryFn: getDecks,
@@ -127,13 +123,10 @@ export function HomePage() {
     retry: false,
   });
 
-  // Trigger sync when API returns data (to update IndexedDB if needed)
-  React.useEffect(() => {
-    if (decksQuery.data && navigator.onLine) {
-      // If API returned decks, trigger sync to ensure IndexedDB is up to date
-      triggerSync();
-    }
-  }, [decksQuery.data, triggerSync]);
+  // OFFLINE-FIRST: Use IndexedDB as primary data source
+  // Pass API decks to enable mismatch detection - if API has decks not in IndexedDB,
+  // it automatically triggers a full sync (fixes MCP-created decks not appearing)
+  const { decks: offlineDecks, isLoading: offlineLoading, isSyncing } = useOfflineDecks(decksQuery.data);
 
   // Use offline decks as the source of truth
   const decks = offlineDecks;
