@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, upgradeNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, upgradeNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
-import { Note, Deck, Card, CardQueue, NoteWithCards, CardType } from '../types';
+import { Note, Deck, Card, CardQueue, NoteWithCards, CardType, getOtherUserInRelationship } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent } from '../db/database';
 
 const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
@@ -1735,6 +1736,7 @@ export function DeckDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteWithCards | null>(null);
@@ -1745,6 +1747,7 @@ export function DeckDetailPage() {
   const [isGeneratingAllAudio, setIsGeneratingAllAudio] = useState(false);
   const [audioGenerationProgress, setAudioGenerationProgress] = useState({ done: 0, total: 0 });
   const [isUpgradingAllAudio, setIsUpgradingAllAudio] = useState(false);
+  const [showShareTutorModal, setShowShareTutorModal] = useState(false);
 
   const deckQuery = useQuery({
     queryKey: ['deck', id],
@@ -1756,6 +1759,37 @@ export function DeckDetailPage() {
     queryKey: ['deckStats', id],
     queryFn: () => getDeckStats(id!),
     enabled: !!id,
+  });
+
+  // Fetch which tutors this deck is shared with
+  const tutorSharesQuery = useQuery({
+    queryKey: ['deckTutorShares', id],
+    queryFn: () => getDeckTutorShares(id!),
+    enabled: !!id,
+  });
+
+  // Fetch user's relationships to find available tutors
+  const relationshipsQuery = useQuery({
+    queryKey: ['relationships'],
+    queryFn: getMyRelationships,
+    enabled: showShareTutorModal,
+  });
+
+  // Mutation to share deck with a tutor
+  const shareTutorMutation = useMutation({
+    mutationFn: (relationshipId: string) => studentShareDeck(relationshipId, id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deckTutorShares', id] });
+      setShowShareTutorModal(false);
+    },
+  });
+
+  // Mutation to unshare deck from a tutor
+  const unshareTutorMutation = useMutation({
+    mutationFn: (relationshipId: string) => unshareStudentDeck(relationshipId, id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deckTutorShares', id] });
+    },
   });
 
   const createNoteMutation = useMutation({
@@ -1896,6 +1930,12 @@ export function DeckDetailPage() {
             )}
             <button
               className="btn btn-secondary"
+              onClick={() => setShowShareTutorModal(true)}
+            >
+              Share with Tutor
+            </button>
+            <button
+              className="btn btn-secondary"
               onClick={() => setShowSettings(true)}
             >
               Settings
@@ -1915,6 +1955,83 @@ export function DeckDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* Tutor Shares */}
+        {tutorSharesQuery.data && tutorSharesQuery.data.length > 0 && (
+          <div className="card mb-4" style={{ padding: '1rem' }}>
+            <h3 style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+              Shared with Tutors ({tutorSharesQuery.data.length})
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {tutorSharesQuery.data.map((share) => (
+                <div
+                  key={share.relationship_id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.5rem',
+                    backgroundColor: 'var(--bg-elevated)',
+                    borderRadius: '6px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {share.tutor.picture_url ? (
+                      <img
+                        src={share.tutor.picture_url}
+                        alt=""
+                        style={{ width: '28px', height: '28px', borderRadius: '50%' }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          backgroundColor: 'var(--color-primary)',
+                          color: 'white',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {(share.tutor.name || share.tutor.email || '?')[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>
+                        {share.tutor.name || 'Unknown'}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                        Shared {new Date(share.shared_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => {
+                      if (confirm(`Stop sharing this deck with ${share.tutor.name || share.tutor.email}?`)) {
+                        unshareTutorMutation.mutate(share.relationship_id);
+                      }
+                    }}
+                    disabled={unshareTutorMutation.isPending}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-light)',
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    Unshare
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Stats */}
         {stats && (
@@ -2077,6 +2194,119 @@ export function DeckDetailPage() {
             deckId={id}
             onClose={() => setShowDebug(false)}
           />
+        )}
+
+        {/* Share with Tutor Modal */}
+        {showShareTutorModal && (
+          <div className="modal-overlay" onClick={() => setShowShareTutorModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Share with Tutor</h2>
+                <button className="modal-close" onClick={() => setShowShareTutorModal(false)}>
+                  &times;
+                </button>
+              </div>
+              <p className="text-light" style={{ marginBottom: '1rem', fontSize: '0.875rem' }}>
+                Share this deck with a tutor so they can view your study progress.
+              </p>
+              {relationshipsQuery.isLoading ? (
+                <Loading message="Loading tutors..." />
+              ) : !relationshipsQuery.data || relationshipsQuery.data.tutors.length === 0 ? (
+                <EmptyState
+                  icon="👨‍🏫"
+                  title="No tutors connected"
+                  description="Connect with a tutor first to share decks"
+                  action={
+                    <Link to="/connections" className="btn btn-primary">
+                      Find Tutors
+                    </Link>
+                  }
+                />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {relationshipsQuery.data.tutors.map((rel) => {
+                    const tutor = user ? getOtherUserInRelationship(rel, user.id) : null;
+                    const alreadyShared = tutorSharesQuery.data?.some(
+                      (share) => share.relationship_id === rel.id
+                    );
+
+                    if (!tutor) return null;
+
+                    return (
+                      <button
+                        key={rel.id}
+                        className="btn"
+                        onClick={() => shareTutorMutation.mutate(rel.id)}
+                        disabled={shareTutorMutation.isPending || alreadyShared}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.75rem',
+                          padding: '0.75rem',
+                          backgroundColor: alreadyShared ? 'var(--bg-elevated)' : 'white',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '8px',
+                          cursor: alreadyShared ? 'default' : 'pointer',
+                          opacity: alreadyShared ? 0.6 : 1,
+                          textAlign: 'left',
+                          width: '100%',
+                        }}
+                      >
+                        {tutor.picture_url ? (
+                          <img
+                            src={tutor.picture_url}
+                            alt=""
+                            style={{ width: '36px', height: '36px', borderRadius: '50%' }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: '36px',
+                              height: '36px',
+                              borderRadius: '50%',
+                              backgroundColor: 'var(--color-primary)',
+                              color: 'white',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {(tutor.name || tutor.email || '?')[0].toUpperCase()}
+                          </div>
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 500 }}>{tutor.name || 'Unknown'}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                            {tutor.email}
+                          </div>
+                        </div>
+                        {alreadyShared && (
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--success)',
+                              fontWeight: 500,
+                            }}
+                          >
+                            Shared
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="modal-actions" style={{ marginTop: '1rem' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowShareTutorModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

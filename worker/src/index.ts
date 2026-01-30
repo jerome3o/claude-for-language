@@ -60,6 +60,10 @@ import {
   sendMessage,
   shareDeck,
   getSharedDecks,
+  studentShareDeck,
+  getStudentSharedDecks,
+  unshareStudentDeck,
+  getDeckTutorShares,
   getChatContext,
   buildFlashcardPrompt,
   buildResponseOptionsPrompt,
@@ -73,8 +77,8 @@ import {
   archiveTutorReviewRequest,
   getPendingReviewRequestCount,
 } from './services/tutor-review-requests';
-import { getSharedDeckProgress } from './services/shared-deck-progress';
-import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, GenerateFlashcardRequest, CreateTutorReviewRequest, RespondToTutorReviewRequest, TutorReviewRequestStatus } from './types';
+import { getSharedDeckProgress, getStudentSharedDeckProgress } from './services/shared-deck-progress';
+import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, CreateTutorReviewRequest, RespondToTutorReviewRequest, TutorReviewRequestStatus } from './types';
 
 // Extend Hono context to include user
 declare module 'hono' {
@@ -2300,6 +2304,85 @@ app.get('/api/relationships/:relId/shared-decks/:sharedDeckId/progress', async (
     return c.json(progress);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get shared deck progress';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// ============ Student Deck Sharing (student shares deck with tutor) ============
+
+// Student shares their deck with tutor (grants view access, no copy)
+app.post('/api/relationships/:relId/student-share-deck', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+  const { deck_id } = await c.req.json<StudentShareDeckRequest>();
+
+  if (!deck_id) {
+    return c.json({ error: 'deck_id is required' }, 400);
+  }
+
+  try {
+    const shared = await studentShareDeck(c.env.DB, relId, userId, deck_id);
+    return c.json(shared, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to share deck';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get student-shared decks for a relationship
+app.get('/api/relationships/:relId/student-shared-decks', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+
+  try {
+    const sharedDecks = await getStudentSharedDecks(c.env.DB, relId, userId);
+    return c.json(sharedDecks);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get student shared decks';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Unshare a student deck
+app.delete('/api/relationships/:relId/student-shared-decks/:deckId', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+  const deckId = c.req.param('deckId');
+
+  try {
+    await unshareStudentDeck(c.env.DB, relId, userId, deckId);
+    return c.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to unshare deck';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get progress for a student-shared deck (tutor view)
+app.get('/api/relationships/:relId/student-shared-decks/:studentSharedDeckId/progress', async (c) => {
+  const userId = c.get('user').id;
+  const relId = c.req.param('relId');
+  const studentSharedDeckId = c.req.param('studentSharedDeckId');
+
+  try {
+    const progress = await getStudentSharedDeckProgress(c.env.DB, relId, studentSharedDeckId, userId);
+    return c.json(progress);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get student shared deck progress';
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Get which tutors a deck has been shared with (for DeckDetailPage)
+app.get('/api/decks/:deckId/tutor-shares', async (c) => {
+  const userId = c.get('user').id;
+  const deckId = c.req.param('deckId');
+
+  try {
+    const shares = await getDeckTutorShares(c.env.DB, deckId, userId);
+    return c.json(shares);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get deck tutor shares';
     return c.json({ error: message }, 400);
   }
 });

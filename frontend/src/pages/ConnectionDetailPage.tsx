@@ -6,6 +6,7 @@ import {
   getConversations,
   createConversation,
   getSharedDecks,
+  getStudentSharedDecks,
   shareDeck,
   removeRelationship,
   getDecks,
@@ -48,6 +49,13 @@ export function ConnectionDetailPage() {
   const sharedDecksQuery = useQuery({
     queryKey: ['sharedDecks', relId],
     queryFn: () => getSharedDecks(relId!),
+    enabled: !!relId,
+  });
+
+  // Student-shared decks (decks the student shared with the tutor)
+  const studentSharedDecksQuery = useQuery({
+    queryKey: ['studentSharedDecks', relId],
+    queryFn: () => getStudentSharedDecks(relId!),
     enabled: !!relId,
   });
 
@@ -116,6 +124,7 @@ export function ConnectionDetailPage() {
 
   const conversations = conversationsQuery.data || [];
   const sharedDecks = sharedDecksQuery.data || [];
+  const studentSharedDecks = studentSharedDecksQuery.data || [];
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -217,9 +226,9 @@ export function ConnectionDetailPage() {
           )}
         </div>
 
-        {/* Shared Decks */}
+        {/* Shared Decks (Tutor -> Student) */}
         <div className="detail-section">
-          <h2>Shared Decks</h2>
+          <h2>{iAmTutor ? 'Decks You Shared' : 'Shared Decks'}</h2>
           {sharedDecksQuery.isLoading ? (
             <Loading message="Loading shared decks..." />
           ) : sharedDecks.length === 0 ? (
@@ -262,6 +271,53 @@ export function ConnectionDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Student Shared Decks (Student -> Tutor) */}
+        {(studentSharedDecks.length > 0 || iAmTutor) && (
+          <div className="detail-section">
+            <h2>{iAmTutor ? 'Student\'s Shared Decks' : 'Decks You Shared'}</h2>
+            {studentSharedDecksQuery.isLoading ? (
+              <Loading message="Loading student shared decks..." />
+            ) : studentSharedDecks.length === 0 ? (
+              <EmptyState
+                icon="📖"
+                title={iAmTutor ? 'No decks shared by student' : 'No decks shared'}
+                description={iAmTutor
+                  ? 'Your student hasn\'t shared any of their decks yet'
+                  : 'Share your decks from the deck detail page'}
+              />
+            ) : (
+              <div className="shared-decks-list">
+                {studentSharedDecks.map((sd) => (
+                  iAmTutor ? (
+                    <Link
+                      key={sd.id}
+                      to={`/connections/${relId}/student-shared-decks/${sd.id}/progress`}
+                      className="shared-deck-item clickable"
+                    >
+                      <div className="shared-deck-info">
+                        <span className="shared-deck-name">{sd.deck_name}</span>
+                        <span className="shared-deck-meta">
+                          {sd.note_count} notes • Shared {formatDate(sd.shared_at)}
+                        </span>
+                      </div>
+                      <span className="shared-deck-arrow">→</span>
+                    </Link>
+                  ) : (
+                    <div key={sd.id} className="shared-deck-item">
+                      <div className="shared-deck-info">
+                        <span className="shared-deck-name">{sd.deck_name}</span>
+                        <span className="shared-deck-meta">
+                          {sd.note_count} notes • Shared {formatDate(sd.shared_at)}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Remove Connection */}
         <div className="detail-section danger-zone">

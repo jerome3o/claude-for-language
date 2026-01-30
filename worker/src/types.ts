@@ -701,3 +701,31 @@ export interface StrugglingWord {
   avg_rating: number;
   last_reviewed_at: string | null;
 }
+
+// ============ Student Shared Decks ============
+// Different from tutor->student sharing: this grants view access to student's existing deck
+
+export interface StudentSharedDeck {
+  id: string;
+  relationship_id: string;
+  deck_id: string;
+  shared_at: string;
+}
+
+export interface StudentSharedDeckWithDetails extends StudentSharedDeck {
+  deck_name: string;
+  deck_description: string | null;
+  note_count: number;
+}
+
+export interface StudentShareDeckRequest {
+  deck_id: string;
+}
+
+// For the deck detail page: shows which tutors a deck has been shared with
+export interface DeckTutorShare {
+  relationship_id: string;
+  shared_deck_id: string;
+  shared_at: string;
+  tutor: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+}

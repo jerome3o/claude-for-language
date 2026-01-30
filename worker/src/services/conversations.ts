@@ -5,6 +5,8 @@ import {
   MessageWithSender,
   SharedDeck,
   SharedDeckWithDetails,
+  StudentSharedDeckWithDetails,
+  DeckTutorShare,
   User,
   Deck,
   Note,
@@ -420,6 +422,199 @@ export async function getSharedDecks(
     ...row,
     source_deck_name: row.source_deck_name || '(deleted)',
     target_deck_name: row.target_deck_name || '(deleted)',
+  }));
+}
+
+// ============ Student Deck Sharing ============
+// Different from tutor->student sharing: this grants view access to student's existing deck (no copy)
+
+/**
+ * Student shares their deck with tutor for progress viewing
+ * Unlike tutor sharing, this does NOT create a copy - it just grants view access
+ */
+export async function studentShareDeck(
+  db: D1Database,
+  relationshipId: string,
+  studentId: string,
+  deckId: string
+): Promise<StudentSharedDeckWithDetails> {
+  // Verify relationship and that user is the student
+  const rel = await verifyRelationshipAccess(db, relationshipId, studentId);
+  const myRole = getMyRole(rel, studentId);
+
+  if (myRole !== 'student') {
+    throw new Error('Only students can share their decks with tutors');
+  }
+
+  // Verify the deck belongs to the student
+  const deck = await db
+    .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
+    .bind(deckId, studentId)
+    .first<Deck>();
+
+  if (!deck) {
+    throw new Error('Deck not found or does not belong to you');
+  }
+
+  // Check if already shared
+  const existing = await db
+    .prepare('SELECT id FROM student_shared_decks WHERE relationship_id = ? AND deck_id = ?')
+    .bind(relationshipId, deckId)
+    .first();
+
+  if (existing) {
+    throw new Error('Deck is already shared with this tutor');
+  }
+
+  // Get note count
+  const noteCountResult = await db
+    .prepare('SELECT COUNT(*) as count FROM notes WHERE deck_id = ?')
+    .bind(deckId)
+    .first<{ count: number }>();
+
+  // Create the share record
+  const shareId = generateId();
+  await db
+    .prepare(`
+      INSERT INTO student_shared_decks (id, relationship_id, deck_id)
+      VALUES (?, ?, ?)
+    `)
+    .bind(shareId, relationshipId, deckId)
+    .run();
+
+  return {
+    id: shareId,
+    relationship_id: relationshipId,
+    deck_id: deckId,
+    shared_at: new Date().toISOString(),
+    deck_name: deck.name,
+    deck_description: deck.description,
+    note_count: noteCountResult?.count || 0,
+  };
+}
+
+/**
+ * Get student-shared decks for a relationship
+ */
+export async function getStudentSharedDecks(
+  db: D1Database,
+  relationshipId: string,
+  userId: string
+): Promise<StudentSharedDeckWithDetails[]> {
+  // Verify access
+  await verifyRelationshipAccess(db, relationshipId, userId);
+
+  const result = await db
+    .prepare(`
+      SELECT ssd.*,
+        d.name as deck_name,
+        d.description as deck_description,
+        (SELECT COUNT(*) FROM notes WHERE deck_id = d.id) as note_count
+      FROM student_shared_decks ssd
+      LEFT JOIN decks d ON ssd.deck_id = d.id
+      WHERE ssd.relationship_id = ?
+      ORDER BY ssd.shared_at DESC
+    `)
+    .bind(relationshipId)
+    .all<StudentSharedDeckWithDetails>();
+
+  return result.results.filter(row => row.deck_name !== null); // Filter out deleted decks
+}
+
+/**
+ * Remove a student deck share
+ */
+export async function unshareStudentDeck(
+  db: D1Database,
+  relationshipId: string,
+  studentId: string,
+  deckId: string
+): Promise<void> {
+  // Verify relationship and that user is the student
+  const rel = await verifyRelationshipAccess(db, relationshipId, studentId);
+  const myRole = getMyRole(rel, studentId);
+
+  if (myRole !== 'student') {
+    throw new Error('Only students can unshare their decks');
+  }
+
+  // Verify the deck belongs to the student
+  const deck = await db
+    .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
+    .bind(deckId, studentId)
+    .first();
+
+  if (!deck) {
+    throw new Error('Deck not found or does not belong to you');
+  }
+
+  await db
+    .prepare('DELETE FROM student_shared_decks WHERE relationship_id = ? AND deck_id = ?')
+    .bind(relationshipId, deckId)
+    .run();
+}
+
+/**
+ * Get which tutors a student's deck has been shared with
+ * Used on the DeckDetailPage to show sharing status
+ */
+export async function getDeckTutorShares(
+  db: D1Database,
+  deckId: string,
+  studentId: string
+): Promise<DeckTutorShare[]> {
+  // Verify the deck belongs to the student
+  const deck = await db
+    .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
+    .bind(deckId, studentId)
+    .first();
+
+  if (!deck) {
+    throw new Error('Deck not found or does not belong to you');
+  }
+
+  const result = await db
+    .prepare(`
+      SELECT
+        ssd.id as shared_deck_id,
+        ssd.relationship_id,
+        ssd.shared_at,
+        u.id as tutor_id,
+        u.email as tutor_email,
+        u.name as tutor_name,
+        u.picture_url as tutor_picture_url
+      FROM student_shared_decks ssd
+      JOIN tutor_relationships tr ON ssd.relationship_id = tr.id
+      JOIN users u ON (
+        CASE
+          WHEN tr.requester_id = ? THEN tr.recipient_id
+          ELSE tr.requester_id
+        END = u.id
+      )
+      WHERE ssd.deck_id = ?
+      ORDER BY ssd.shared_at DESC
+    `)
+    .bind(studentId, deckId)
+    .all<{
+      shared_deck_id: string;
+      relationship_id: string;
+      shared_at: string;
+      tutor_id: string;
+      tutor_email: string;
+      tutor_name: string | null;
+      tutor_picture_url: string | null;
+    }>();
+
+  return result.results.map(row => ({
+    relationship_id: row.relationship_id,
+    shared_deck_id: row.shared_deck_id,
+    shared_at: row.shared_at,
+    tutor: {
+      id: row.tutor_id,
+      email: row.tutor_email,
+      name: row.tutor_name,
+      picture_url: row.tutor_picture_url,
+    },
   }));
 }
 
