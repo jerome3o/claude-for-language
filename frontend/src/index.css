@@ -131,6 +131,11 @@ a:hover {
   cursor: not-allowed;
 }
 
+.btn.playing {
+  background-color: var(--color-primary);
+  color: white;
+}
+
 .btn-primary {
   background-color: var(--color-primary);
   color: white;

@@ -367,11 +367,11 @@ function StudyCard({
             {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
             <button
-              className="btn btn-secondary mb-3"
+              className={`btn btn-secondary mb-3${isPlaying ? ' playing' : ''}`}
               onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
               disabled={isPlaying}
             >
-              {isPlaying ? 'Playing...' : 'Play Audio'}
+              Play Audio
             </button>
           </div>
         );
@@ -733,11 +733,11 @@ function StudyCard({
       <div className="flex flex-col gap-2 mb-3">
         <div className="flex gap-1 justify-center flex-wrap">
           <button
-            className="btn btn-secondary btn-sm"
+            className={`btn btn-secondary btn-sm${isPlaying ? ' playing' : ''}`}
             onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
             disabled={isPlaying}
           >
-            {isPlaying ? 'Playing...' : 'Play Audio'}
+            Play Audio
           </button>
           {audioBlob && (
             <button
