@@ -1,6 +1,6 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getSharedDeckProgress, getRelationship } from '../api/client';
+import { getSharedDeckProgress, getStudentSharedDeckProgress, getRelationship } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -132,11 +132,17 @@ function StrugglingWordItem({ word }: StrugglingWordItemProps) {
 }
 
 export function SharedDeckProgressPage() {
-  const { relId, sharedDeckId } = useParams<{
+  const { relId, sharedDeckId, studentSharedDeckId } = useParams<{
     relId: string;
-    sharedDeckId: string;
+    sharedDeckId?: string;
+    studentSharedDeckId?: string;
   }>();
   const { user } = useAuth();
+  const location = useLocation();
+
+  // Determine if this is a student-shared deck based on the URL
+  const isStudentSharedDeck = location.pathname.includes('/student-shared-decks/');
+  const deckId = studentSharedDeckId || sharedDeckId;
 
   const relationshipQuery = useQuery({
     queryKey: ['relationship', relId],
@@ -145,9 +151,12 @@ export function SharedDeckProgressPage() {
   });
 
   const progressQuery = useQuery({
-    queryKey: ['sharedDeckProgress', relId, sharedDeckId],
-    queryFn: () => getSharedDeckProgress(relId!, sharedDeckId!),
-    enabled: !!relId && !!sharedDeckId,
+    queryKey: [isStudentSharedDeck ? 'studentSharedDeckProgress' : 'sharedDeckProgress', relId, deckId],
+    queryFn: () =>
+      isStudentSharedDeck
+        ? getStudentSharedDeckProgress(relId!, deckId!)
+        : getSharedDeckProgress(relId!, deckId!),
+    enabled: !!relId && !!deckId,
   });
 
   if (relationshipQuery.isLoading || progressQuery.isLoading) {

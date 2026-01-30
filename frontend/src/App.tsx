@@ -209,6 +209,15 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/connections/:relId/student-shared-decks/:studentSharedDeckId/progress"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <SharedDeckProgressPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/tutor-reviews"
         element={
           <ProtectedRoute>

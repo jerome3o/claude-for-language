@@ -189,6 +189,11 @@
   color: var(--text-light, #666);
 }
 
+.shared-deck-meta {
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
 .shared-deck-arrow {
   color: var(--text-lighter, #999);
   margin-left: 0.5rem;

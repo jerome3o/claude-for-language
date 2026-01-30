@@ -22,6 +22,8 @@ import {
   MessageWithSender,
   SharedDeckWithDetails,
   SharedDeckProgress,
+  StudentSharedDeckWithDetails,
+  DeckTutorShare,
   StudentProgress,
   DailyActivitySummary,
   DayCardsDetail,
@@ -707,6 +709,44 @@ export async function getSharedDeckProgress(
   return fetchJSON<SharedDeckProgress>(
     `/relationships/${relationshipId}/shared-decks/${sharedDeckId}/progress`
   );
+}
+
+// ============ Student Deck Sharing (student shares deck with tutor) ============
+
+export async function studentShareDeck(
+  relationshipId: string,
+  deckId: string
+): Promise<StudentSharedDeckWithDetails> {
+  return fetchJSON<StudentSharedDeckWithDetails>(`/relationships/${relationshipId}/student-share-deck`, {
+    method: 'POST',
+    body: JSON.stringify({ deck_id: deckId }),
+  });
+}
+
+export async function getStudentSharedDecks(relationshipId: string): Promise<StudentSharedDeckWithDetails[]> {
+  return fetchJSON<StudentSharedDeckWithDetails[]>(`/relationships/${relationshipId}/student-shared-decks`);
+}
+
+export async function unshareStudentDeck(
+  relationshipId: string,
+  deckId: string
+): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/relationships/${relationshipId}/student-shared-decks/${deckId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getStudentSharedDeckProgress(
+  relationshipId: string,
+  studentSharedDeckId: string
+): Promise<SharedDeckProgress> {
+  return fetchJSON<SharedDeckProgress>(
+    `/relationships/${relationshipId}/student-shared-decks/${studentSharedDeckId}/progress`
+  );
+}
+
+export async function getDeckTutorShares(deckId: string): Promise<DeckTutorShare[]> {
+  return fetchJSON<DeckTutorShare[]>(`/decks/${deckId}/tutor-shares`);
 }
 
 // ============ Student Progress (Enhanced) ============
