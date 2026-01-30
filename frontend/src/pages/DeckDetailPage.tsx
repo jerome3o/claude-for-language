@@ -1107,7 +1107,7 @@ function DeckSettingsModal({
       // Update deck name and description
       await updateDeck(deck.id, { name, description: description || undefined });
       // Update SRS settings
-      await updateDeckSettings(deck.id, {
+      const updatedDeck = await updateDeckSettings(deck.id, {
         new_cards_per_day: parseInt(newCardsPerDay, 10) || 20,
         learning_steps: learningSteps,
         graduating_interval: parseInt(graduatingInterval, 10) || 1,
@@ -1119,6 +1119,24 @@ function DeckSettingsModal({
         interval_modifier: Math.round(parseFloat(intervalModifier) * 100) || 100,
         hard_multiplier: Math.round(parseFloat(hardMultiplier) * 100) || 120,
         easy_bonus: Math.round(parseFloat(easyBonus) * 100) || 130,
+      });
+
+      // Also update IndexedDB so offline queue counts reflect the new settings
+      await db.decks.update(deck.id, {
+        name,
+        description: description || null,
+        new_cards_per_day: updatedDeck.new_cards_per_day,
+        learning_steps: updatedDeck.learning_steps,
+        graduating_interval: updatedDeck.graduating_interval,
+        easy_interval: updatedDeck.easy_interval,
+        relearning_steps: updatedDeck.relearning_steps,
+        starting_ease: updatedDeck.starting_ease,
+        minimum_ease: updatedDeck.minimum_ease,
+        maximum_ease: updatedDeck.maximum_ease,
+        interval_modifier: updatedDeck.interval_modifier,
+        hard_multiplier: updatedDeck.hard_multiplier,
+        easy_bonus: updatedDeck.easy_bonus,
+        updated_at: updatedDeck.updated_at,
       });
     },
     onSuccess: () => {
