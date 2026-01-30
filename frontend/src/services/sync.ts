@@ -7,6 +7,7 @@ import {
   getSyncMeta,
   clearAllData,
   cleanupUploadedRecordings,
+  resetSyncTimestamps,
 } from '../db/database';
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
@@ -467,9 +468,21 @@ class SyncService {
 
   /**
    * Force a fresh sync - clears local data and does full sync
+   * WARNING: This deletes all local data including unsynced review events!
    */
   async forceFreshSync(): Promise<void> {
     await clearAllData();
+    await this.fullSync();
+  }
+
+  /**
+   * Force a full resync without losing local data.
+   * Resets sync timestamps so the next sync fetches all data from server,
+   * but preserves local review events and other data.
+   */
+  async forceFullResync(): Promise<void> {
+    console.log('[SyncService] Forcing full resync (preserving local data)...');
+    await resetSyncTimestamps();
     await this.fullSync();
   }
 

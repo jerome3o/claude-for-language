@@ -555,6 +555,15 @@ export async function clearAllData(): Promise<void> {
   });
 }
 
+/**
+ * Reset sync timestamps to force a full sync on next sync.
+ * This does NOT delete any local data - just resets the "last synced at" timestamps
+ * so that the next sync will be a full sync that fetches all data from server.
+ */
+export async function resetSyncTimestamps(): Promise<void> {
+  await db.syncMeta.clear();
+}
+
 // ============ Queue Counts ============
 
 /**

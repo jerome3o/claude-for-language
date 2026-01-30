@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { syncService } from '../services/sync';
 import './Header.css';
 
 export function Header() {
@@ -8,6 +9,7 @@ export function Header() {
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -31,6 +33,18 @@ export function Header() {
     setShowUserMenu(false);
     navigate(path);
   };
+
+  const handleForceSync = useCallback(async () => {
+    setIsSyncing(true);
+    setShowUserMenu(false);
+    try {
+      await syncService.forceFullResync();
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to force sync:', err);
+      setIsSyncing(false);
+    }
+  }, []);
 
   const handleClearCache = useCallback(async () => {
     setIsClearing(true);
@@ -120,9 +134,16 @@ export function Header() {
                 >
                   ✍️ Reviews
                 </button>
+                <div className="user-menu-divider" />
+                <button
+                  className="user-menu-item"
+                  onClick={handleForceSync}
+                  disabled={isSyncing}
+                >
+                  {isSyncing ? '🔄 Syncing...' : '🔄 Force Full Sync'}
+                </button>
                 {user.is_admin && (
                   <>
-                    <div className="user-menu-divider" />
                     <button
                       className="user-menu-item"
                       onClick={() => handleMenuItemClick('/admin')}
