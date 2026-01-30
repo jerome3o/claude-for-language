@@ -2745,24 +2745,38 @@ app.post('/api/reviews', async (c) => {
     }
   }
 
-  // Verify all cards belong to this user
+  // Verify which cards belong to this user
   const cardIds = [...new Set(events.map(e => e.card_id))];
   const verificationPromises = cardIds.map(cardId =>
     db.getCardById(c.env.DB, cardId, userId)
   );
   const cards = await Promise.all(verificationPromises);
 
-  if (cards.some(card => !card)) {
-    return c.json({ error: 'One or more cards not found or not owned by user' }, 404);
+  // Build set of valid card IDs (cards that exist and belong to user)
+  const validCardIds = new Set<string>();
+  cardIds.forEach((cardId, index) => {
+    if (cards[index]) {
+      validCardIds.add(cardId);
+    }
+  });
+
+  // Filter events to only include valid cards, skip orphaned events
+  const validEvents = events.filter(e => validCardIds.has(e.card_id));
+  const skippedOrphans = events.length - validEvents.length;
+
+  if (skippedOrphans > 0) {
+    console.log(`[API reviews] Skipping ${skippedOrphans} events for deleted/missing cards`);
   }
 
   // Create events with user_id added
-  const eventsWithUser = events.map(e => ({
+  const eventsWithUser = validEvents.map(e => ({
     ...e,
     user_id: userId,
   }));
 
-  const result = await db.createReviewEventsBatch(c.env.DB, eventsWithUser);
+  const result = eventsWithUser.length > 0
+    ? await db.createReviewEventsBatch(c.env.DB, eventsWithUser)
+    : { created: 0, skipped: 0 };
 
   // Update sync metadata with the latest event timestamp
   if (events.length > 0) {
@@ -2772,7 +2786,11 @@ app.post('/api/reviews', async (c) => {
     await db.updateSyncMetadata(c.env.DB, userId, latestEvent.reviewed_at);
   }
 
-  return c.json(result);
+  // Return result including skipped orphans so client can mark all events as synced
+  return c.json({
+    ...result,
+    skipped_orphans: skippedOrphans,
+  });
 });
 
 // Get review events since a timestamp (for sync)
