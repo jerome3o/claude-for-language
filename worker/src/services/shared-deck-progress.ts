@@ -7,6 +7,12 @@ import {
   CardType,
 } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from './relationships';
+import {
+  computeCardState,
+  DEFAULT_DECK_SETTINGS,
+  type ReviewEvent,
+  type ComputedCardState,
+} from '@chinese-learning/shared/scheduler';
 
 type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 
@@ -68,6 +74,62 @@ function getMasteryLevel(
   } else {
     return 'mastered';
   }
+}
+
+/**
+ * Compute card states from review events for accurate progress calculation.
+ * This is needed because the cards table may have stale cached state.
+ */
+async function computeCardStatesFromEvents(
+  db: D1Database,
+  cardIds: string[],
+  userId: string
+): Promise<Map<string, ComputedCardState>> {
+  const cardStates = new Map<string, ComputedCardState>();
+
+  if (cardIds.length === 0) {
+    return cardStates;
+  }
+
+  // Fetch all review events for these cards in one query
+  const placeholders = cardIds.map(() => '?').join(',');
+  const eventsResult = await db.prepare(`
+    SELECT id, card_id, rating, reviewed_at
+    FROM review_events
+    WHERE card_id IN (${placeholders})
+    AND user_id = ?
+    ORDER BY reviewed_at ASC
+  `).bind(...cardIds, userId).all<{
+    id: string;
+    card_id: string;
+    rating: number;
+    reviewed_at: string;
+  }>();
+
+  // Group events by card_id
+  const eventsByCard = new Map<string, ReviewEvent[]>();
+  for (const cardId of cardIds) {
+    eventsByCard.set(cardId, []);
+  }
+  for (const event of (eventsResult.results || [])) {
+    const events = eventsByCard.get(event.card_id);
+    if (events) {
+      events.push({
+        id: event.id,
+        card_id: event.card_id,
+        rating: event.rating as 0 | 1 | 2 | 3,
+        reviewed_at: event.reviewed_at,
+      });
+    }
+  }
+
+  // Compute state for each card
+  for (const [cardId, events] of eventsByCard) {
+    const state = computeCardState(events, DEFAULT_DECK_SETTINGS);
+    cardStates.set(cardId, state);
+  }
+
+  return cardStates;
 }
 
 /**
@@ -427,14 +489,11 @@ export async function getStudentSharedDeckProgress(
     throw new Error('Student not found');
   }
 
-  // Get all cards for this deck with their state
+  // Get all cards for this deck (basic info only - state computed from events)
   const cardsResult = await db.prepare(`
     SELECT
       c.id,
       c.card_type,
-      c.queue,
-      c.stability,
-      c.lapses,
       n.hanzi,
       n.pinyin,
       n.english
@@ -444,15 +503,16 @@ export async function getStudentSharedDeckProgress(
   `).bind(deckId).all<{
     id: string;
     card_type: CardType;
-    queue: number;
-    stability: number;
-    lapses: number;
     hanzi: string;
     pinyin: string;
     english: string;
   }>();
 
   const cards = cardsResult.results || [];
+
+  // Compute card states from review events (more accurate than cached card state)
+  const cardIds = cards.map(c => c.id);
+  const computedStates = await computeCardStatesFromEvents(db, cardIds, studentId);
 
   // Calculate completion stats
   const totalCards = cards.length;
@@ -476,7 +536,13 @@ export async function getStudentSharedDeckProgress(
   }> = new Map();
 
   for (const card of cards) {
-    const mastery = getMasteryLevel(card.queue as CardQueue, card.stability);
+    // Use computed state from events instead of cached card state
+    const state = computedStates.get(card.id);
+    const queue = state?.queue ?? CardQueue.NEW;
+    const stability = state?.stability ?? 0;
+    const lapses = state?.lapses ?? 0;
+
+    const mastery = getMasteryLevel(queue, stability);
 
     // Count seen and mastered
     if (mastery !== 'new') {
@@ -497,123 +563,59 @@ export async function getStudentSharedDeckProgress(
     const key = card.hanzi;
     const existing = noteData.get(key);
     if (existing) {
-      existing.totalLapses += card.lapses;
+      existing.totalLapses += lapses;
       existing.cardCount++;
     } else {
       noteData.set(key, {
         hanzi: card.hanzi,
         pinyin: card.pinyin,
         english: card.english,
-        totalLapses: card.lapses,
+        totalLapses: lapses,
         cardCount: 1,
       });
     }
   }
 
-  // Get struggling words (same logic as tutor-shared decks)
-  const struggleCardsResult = await db.prepare(`
-    SELECT
-      c.id as card_id,
-      n.hanzi,
-      n.pinyin,
-      n.english,
-      c.lapses,
-      c.queue,
-      (
-        SELECT AVG(re.rating)
-        FROM review_events re
-        WHERE re.card_id = c.id
-        AND re.user_id = ?
-        ORDER BY re.reviewed_at DESC
-        LIMIT 5
-      ) as avg_rating,
-      (
-        SELECT MAX(re.reviewed_at)
-        FROM review_events re
-        WHERE re.card_id = c.id
-        AND re.user_id = ?
-      ) as last_reviewed_at
-    FROM cards c
-    JOIN notes n ON c.note_id = n.id
-    WHERE n.deck_id = ?
-    AND (
-      c.lapses >= 3
-      OR c.queue = ?
-    )
-    ORDER BY c.lapses DESC, c.queue DESC
-  `).bind(studentId, studentId, deckId, CardQueue.RELEARNING).all<{
-    card_id: string;
-    hanzi: string;
-    pinyin: string;
-    english: string;
-    lapses: number;
-    queue: number;
-    avg_rating: number | null;
-    last_reviewed_at: string | null;
-  }>();
-
-  // Also get cards with low average ratings
-  const lowRatingCardsResult = await db.prepare(`
-    SELECT DISTINCT
-      n.hanzi,
-      n.pinyin,
-      n.english,
-      c.lapses,
-      (
-        SELECT AVG(re.rating)
-        FROM review_events re
-        WHERE re.card_id = c.id
-        AND re.user_id = ?
-        ORDER BY re.reviewed_at DESC
-        LIMIT 5
-      ) as avg_rating,
-      (
-        SELECT MAX(re.reviewed_at)
-        FROM review_events re
-        WHERE re.card_id = c.id
-        AND re.user_id = ?
-      ) as last_reviewed_at
-    FROM cards c
-    JOIN notes n ON c.note_id = n.id
-    WHERE n.deck_id = ?
-    GROUP BY n.hanzi
-    HAVING avg_rating IS NOT NULL AND avg_rating < 1.5
-    ORDER BY avg_rating ASC, c.lapses DESC
-    LIMIT 20
-  `).bind(studentId, studentId, deckId).all<{
-    hanzi: string;
-    pinyin: string;
-    english: string;
-    lapses: number;
-    avg_rating: number;
-    last_reviewed_at: string | null;
-  }>();
-
-  // Combine and deduplicate struggling words by hanzi
+  // Get struggling words using computed state
+  // Cards with 3+ lapses or in relearning queue, or low avg rating
   const strugglingMap = new Map<string, StrugglingWord>();
 
-  for (const card of (struggleCardsResult.results || [])) {
-    if (!strugglingMap.has(card.hanzi)) {
-      strugglingMap.set(card.hanzi, {
-        hanzi: card.hanzi,
-        pinyin: card.pinyin,
-        english: card.english,
-        lapses: card.lapses,
-        avg_rating: card.avg_rating ?? 0,
-        last_reviewed_at: card.last_reviewed_at,
-      });
-    }
-  }
+  // Identify struggling cards from computed state
+  for (const card of cards) {
+    const state = computedStates.get(card.id);
+    const lapses = state?.lapses ?? 0;
+    const queue = state?.queue ?? CardQueue.NEW;
 
-  for (const card of (lowRatingCardsResult.results || [])) {
-    if (!strugglingMap.has(card.hanzi)) {
+    // Skip cards that haven't been studied
+    if (queue === CardQueue.NEW) {
+      continue;
+    }
+
+    // Get avg rating from review events for this card
+    const ratingResult = await db.prepare(`
+      SELECT AVG(rating) as avg_rating, MAX(reviewed_at) as last_reviewed_at
+      FROM (
+        SELECT rating, reviewed_at FROM review_events
+        WHERE card_id = ? AND user_id = ?
+        ORDER BY reviewed_at DESC
+        LIMIT 5
+      )
+    `).bind(card.id, studentId).first<{ avg_rating: number | null; last_reviewed_at: string | null }>();
+
+    const avgRating = ratingResult?.avg_rating ?? 2;
+    const lastReviewedAt = ratingResult?.last_reviewed_at ?? null;
+
+    // Card is struggling if: 3+ lapses, in relearning queue, or low avg rating
+    const isStruggling = lapses >= 3 || queue === CardQueue.RELEARNING || avgRating < 1.5;
+
+    if (isStruggling && !strugglingMap.has(card.hanzi)) {
       strugglingMap.set(card.hanzi, {
         hanzi: card.hanzi,
         pinyin: card.pinyin,
         english: card.english,
-        lapses: card.lapses,
-        avg_rating: card.avg_rating,
-        last_reviewed_at: card.last_reviewed_at,
+        lapses: lapses,
+        avg_rating: avgRating,
+        last_reviewed_at: lastReviewedAt,
       });
     }
   }
