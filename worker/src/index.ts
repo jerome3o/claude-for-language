@@ -77,7 +77,7 @@ import {
   archiveTutorReviewRequest,
   getPendingReviewRequestCount,
 } from './services/tutor-review-requests';
-import { getSharedDeckProgress, getStudentSharedDeckProgress } from './services/shared-deck-progress';
+import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress } from './services/shared-deck-progress';
 import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, CreateTutorReviewRequest, RespondToTutorReviewRequest, TutorReviewRequestStatus } from './types';
 
 // Extend Hono context to include user
@@ -691,6 +691,20 @@ app.post('/api/decks/import', async (c) => {
     total: totalNotes,
     message: `Importing ${totalNotes} notes in background. Refresh the deck to see progress.`,
   }, 201);
+});
+
+// Get progress for a user's own deck
+app.get('/api/decks/:deckId/progress', async (c) => {
+  const userId = c.get('user').id;
+  const deckId = c.req.param('deckId');
+
+  try {
+    const progress = await getOwnDeckProgress(c.env.DB, deckId, userId);
+    return c.json(progress);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to get deck progress';
+    return c.json({ error: message }, 400);
+  }
 });
 
 // ============ Notes ============

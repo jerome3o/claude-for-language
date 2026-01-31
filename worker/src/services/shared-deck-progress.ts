@@ -1,5 +1,6 @@
 import {
   SharedDeckProgress,
+  DeckProgress,
   CardTypeStats,
   StrugglingWord,
   CardQueue,
@@ -647,6 +648,236 @@ export async function getStudentSharedDeckProgress(
     deck_name: deck.name,
     shared_at: studentSharedDeck.shared_at,
     student,
+    completion: {
+      total_cards: totalCards,
+      cards_seen: cardsSeen,
+      cards_mastered: cardsMastered,
+      percent_seen: totalCards > 0 ? Math.round((cardsSeen / totalCards) * 100) : 0,
+      percent_mastered: totalCards > 0 ? Math.round((cardsMastered / totalCards) * 100) : 0,
+    },
+    card_type_breakdown: cardTypeBreakdown,
+    struggling_words: strugglingWords,
+    activity: {
+      last_studied_at: activityResult?.last_studied_at || null,
+      total_study_time_ms: activityResult?.total_study_time_ms || 0,
+      reviews_last_7_days: activityResult?.reviews_last_7_days || 0,
+    },
+  };
+}
+
+/**
+ * Get detailed progress for a user's own deck.
+ * This is for students viewing their own deck progress.
+ */
+export async function getOwnDeckProgress(
+  db: D1Database,
+  deckId: string,
+  userId: string
+): Promise<DeckProgress> {
+  // Verify the deck belongs to this user
+  const deck = await db
+    .prepare('SELECT id, name FROM decks WHERE id = ? AND user_id = ?')
+    .bind(deckId, userId)
+    .first<{ id: string; name: string }>();
+
+  if (!deck) {
+    throw new Error('Deck not found');
+  }
+
+  // Get all cards for this deck with their state
+  const cardsResult = await db.prepare(`
+    SELECT
+      c.id,
+      c.card_type,
+      c.queue,
+      c.stability,
+      c.lapses,
+      n.hanzi,
+      n.pinyin,
+      n.english
+    FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    WHERE n.deck_id = ?
+  `).bind(deckId).all<{
+    id: string;
+    card_type: CardType;
+    queue: number;
+    stability: number;
+    lapses: number;
+    hanzi: string;
+    pinyin: string;
+    english: string;
+  }>();
+
+  const cards = cardsResult.results || [];
+
+  // Calculate completion stats
+  const totalCards = cards.length;
+  let cardsSeen = 0;
+  let cardsMastered = 0;
+
+  // Initialize card type breakdown
+  const cardTypeBreakdown: DeckProgress['card_type_breakdown'] = {
+    hanzi_to_meaning: { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0 },
+    meaning_to_hanzi: { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0 },
+    audio_to_hanzi: { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0 },
+  };
+
+  for (const card of cards) {
+    const mastery = getMasteryLevel(card.queue as CardQueue, card.stability);
+
+    // Count seen and mastered
+    if (mastery !== 'new') {
+      cardsSeen++;
+    }
+    if (mastery === 'mastered') {
+      cardsMastered++;
+    }
+
+    // Update card type breakdown
+    const typeStats = cardTypeBreakdown[card.card_type as keyof typeof cardTypeBreakdown];
+    if (typeStats) {
+      typeStats.total++;
+      typeStats[mastery]++;
+    }
+  }
+
+  // Get struggling words (same logic as shared decks)
+  const struggleCardsResult = await db.prepare(`
+    SELECT
+      c.id as card_id,
+      n.hanzi,
+      n.pinyin,
+      n.english,
+      c.lapses,
+      c.queue,
+      (
+        SELECT AVG(re.rating)
+        FROM review_events re
+        WHERE re.card_id = c.id
+        AND re.user_id = ?
+        ORDER BY re.reviewed_at DESC
+        LIMIT 5
+      ) as avg_rating,
+      (
+        SELECT MAX(re.reviewed_at)
+        FROM review_events re
+        WHERE re.card_id = c.id
+        AND re.user_id = ?
+      ) as last_reviewed_at
+    FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    WHERE n.deck_id = ?
+    AND (
+      c.lapses >= 3
+      OR c.queue = ?
+    )
+    ORDER BY c.lapses DESC, c.queue DESC
+  `).bind(userId, userId, deckId, CardQueue.RELEARNING).all<{
+    card_id: string;
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    lapses: number;
+    queue: number;
+    avg_rating: number | null;
+    last_reviewed_at: string | null;
+  }>();
+
+  // Also get cards with low average ratings
+  const lowRatingCardsResult = await db.prepare(`
+    SELECT DISTINCT
+      n.hanzi,
+      n.pinyin,
+      n.english,
+      c.lapses,
+      (
+        SELECT AVG(re.rating)
+        FROM review_events re
+        WHERE re.card_id = c.id
+        AND re.user_id = ?
+        ORDER BY re.reviewed_at DESC
+        LIMIT 5
+      ) as avg_rating,
+      (
+        SELECT MAX(re.reviewed_at)
+        FROM review_events re
+        WHERE re.card_id = c.id
+        AND re.user_id = ?
+      ) as last_reviewed_at
+    FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    WHERE n.deck_id = ?
+    GROUP BY n.hanzi
+    HAVING avg_rating IS NOT NULL AND avg_rating < 1.5
+    ORDER BY avg_rating ASC, c.lapses DESC
+    LIMIT 20
+  `).bind(userId, userId, deckId).all<{
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    lapses: number;
+    avg_rating: number;
+    last_reviewed_at: string | null;
+  }>();
+
+  // Combine and deduplicate struggling words by hanzi
+  const strugglingMap = new Map<string, StrugglingWord>();
+
+  for (const card of (struggleCardsResult.results || [])) {
+    if (!strugglingMap.has(card.hanzi)) {
+      strugglingMap.set(card.hanzi, {
+        hanzi: card.hanzi,
+        pinyin: card.pinyin,
+        english: card.english,
+        lapses: card.lapses,
+        avg_rating: card.avg_rating ?? 0,
+        last_reviewed_at: card.last_reviewed_at,
+      });
+    }
+  }
+
+  for (const card of (lowRatingCardsResult.results || [])) {
+    if (!strugglingMap.has(card.hanzi)) {
+      strugglingMap.set(card.hanzi, {
+        hanzi: card.hanzi,
+        pinyin: card.pinyin,
+        english: card.english,
+        lapses: card.lapses,
+        avg_rating: card.avg_rating,
+        last_reviewed_at: card.last_reviewed_at,
+      });
+    }
+  }
+
+  // Sort by lapses (desc) then avg_rating (asc)
+  const strugglingWords = Array.from(strugglingMap.values())
+    .sort((a, b) => {
+      if (b.lapses !== a.lapses) return b.lapses - a.lapses;
+      return a.avg_rating - b.avg_rating;
+    })
+    .slice(0, 10);
+
+  // Get activity stats
+  const activityResult = await db.prepare(`
+    SELECT
+      MAX(re.reviewed_at) as last_studied_at,
+      SUM(re.time_spent_ms) as total_study_time_ms,
+      SUM(CASE WHEN re.reviewed_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as reviews_last_7_days
+    FROM review_events re
+    JOIN cards c ON re.card_id = c.id
+    JOIN notes n ON c.note_id = n.id
+    WHERE n.deck_id = ?
+    AND re.user_id = ?
+  `).bind(deckId, userId).first<{
+    last_studied_at: string | null;
+    total_study_time_ms: number | null;
+    reviews_last_7_days: number;
+  }>();
+
+  return {
+    deck_name: deck.name,
+    deck_id: deckId,
     completion: {
       total_cards: totalCards,
       cards_seen: cardsSeen,

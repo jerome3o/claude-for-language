@@ -22,6 +22,7 @@ import {
   MessageWithSender,
   SharedDeckWithDetails,
   SharedDeckProgress,
+  DeckProgress,
   StudentSharedDeckWithDetails,
   DeckTutorShare,
   StudentProgress,
@@ -747,6 +748,11 @@ export async function getStudentSharedDeckProgress(
 
 export async function getDeckTutorShares(deckId: string): Promise<DeckTutorShare[]> {
   return fetchJSON<DeckTutorShare[]>(`/decks/${deckId}/tutor-shares`);
+}
+
+// Get progress for user's own deck
+export async function getDeckProgress(deckId: string): Promise<DeckProgress> {
+  return fetchJSON<DeckProgress>(`/decks/${deckId}/progress`);
 }
 
 // ============ Student Progress (Enhanced) ============
