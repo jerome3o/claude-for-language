@@ -265,6 +265,35 @@
   color: var(--text-light, #666);
 }
 
+/* Rating Dots Legend */
+.rating-dots-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-light, #666);
+}
+
+.rating-dots-legend .legend-label {
+  margin-right: 0.25rem;
+}
+
+.rating-dots-legend .legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.rating-dots-legend .legend-text {
+  margin-right: 0.5rem;
+}
+
+.rating-dots-legend .legend-text:last-child {
+  margin-right: 0;
+}
+
 /* Notes Progress List (compact view) */
 .notes-progress-list {
   background: white;

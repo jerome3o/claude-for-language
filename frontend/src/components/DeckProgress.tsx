@@ -98,9 +98,11 @@ interface RatingDotsProps {
 
 function RatingDots({ ratings }: RatingDotsProps) {
   if (ratings.length === 0) return null;
+  // Reverse so oldest is on left, most recent on right
+  const reversed = [...ratings].reverse();
   return (
     <span className="rating-dots">
-      {ratings.map((r, i) => (
+      {reversed.map((r, i) => (
         <span
           key={i}
           className="rating-dot"
@@ -240,11 +242,24 @@ export function NotesProgressSection({ notes }: NotesProgressSectionProps) {
           description="Add some vocabulary to get started."
         />
       ) : (
-        <div className="notes-progress-list">
-          {notes.map((note) => (
-            <NoteProgressItem key={note.hanzi} note={note} />
-          ))}
-        </div>
+        <>
+          <div className="rating-dots-legend">
+            <span className="legend-label">Reviews:</span>
+            <span className="legend-dot" style={{ backgroundColor: '#ef4444' }} />
+            <span className="legend-text">Again</span>
+            <span className="legend-dot" style={{ backgroundColor: '#f97316' }} />
+            <span className="legend-text">Hard</span>
+            <span className="legend-dot" style={{ backgroundColor: '#22c55e' }} />
+            <span className="legend-text">Good</span>
+            <span className="legend-dot" style={{ backgroundColor: '#3b82f6' }} />
+            <span className="legend-text">Easy</span>
+          </div>
+          <div className="notes-progress-list">
+            {notes.map((note) => (
+              <NoteProgressItem key={note.hanzi} note={note} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
