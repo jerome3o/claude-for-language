@@ -641,8 +641,8 @@ export interface SharedDeckProgress {
     audio_to_hanzi: CardTypeProgressStats;
   };
 
-  // Top 10 words the student is struggling with
-  struggling_words: StrugglingWord[];
+  // All notes with mastery info
+  notes: NoteProgress[];
 
   // Recent activity
   activity: {
@@ -660,13 +660,12 @@ export interface CardTypeProgressStats {
   mastered: number;
 }
 
-export interface StrugglingWord {
+export interface NoteProgress {
   hanzi: string;
   pinyin: string;
   english: string;
-  lapses: number;
-  avg_rating: number;
-  last_reviewed_at: string | null;
+  mastery_percent: number;  // 0-100, based on average stability
+  recent_ratings: number[]; // Last N review ratings (0-3), newest first
 }
 
 // Progress view for a user's own deck (not shared)
@@ -690,8 +689,8 @@ export interface DeckProgress {
     audio_to_hanzi: CardTypeProgressStats;
   };
 
-  // Top 10 words the user is struggling with
-  struggling_words: StrugglingWord[];
+  // All notes with mastery info
+  notes: NoteProgress[];
 
   // Recent activity
   activity: {

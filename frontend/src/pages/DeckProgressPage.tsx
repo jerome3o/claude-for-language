@@ -5,7 +5,7 @@ import { Loading, ErrorMessage } from '../components/Loading';
 import {
   CompletionSection,
   CardTypeBreakdownSection,
-  StrugglingWordsSection,
+  NotesProgressSection,
   ActivitySection,
 } from '../components/DeckProgress';
 import { DeckProgress } from '../types';
@@ -50,7 +50,7 @@ export function DeckProgressPage() {
 
         <CompletionSection completion={progress.completion} />
         <CardTypeBreakdownSection breakdown={progress.card_type_breakdown} />
-        <StrugglingWordsSection words={progress.struggling_words} />
+        <NotesProgressSection notes={progress.notes} />
         <ActivitySection activity={progress.activity} />
       </div>
     </div>

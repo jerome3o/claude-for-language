@@ -265,61 +265,64 @@
   color: var(--text-light, #666);
 }
 
-/* Struggling Words */
-.struggling-words-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.struggling-word-item {
+/* Notes Progress List (compact view) */
+.notes-progress-list {
   background: white;
   border: 1px solid var(--border-color, #e5e5e5);
   border-radius: 0.75rem;
-  padding: 0.875rem 1rem;
+  overflow: hidden;
 }
 
-.word-main {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
-}
-
-.word-hanzi {
-  font-size: 1.125rem;
-  font-weight: 600;
-}
-
-.word-pinyin {
-  font-size: 0.875rem;
-  color: var(--text-light, #666);
-}
-
-.word-english {
-  font-size: 0.8125rem;
-  color: var(--text-light, #666);
-  margin-bottom: 0.375rem;
-}
-
-.word-stats {
+.note-progress-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-color, #e5e5e5);
+  font-size: 0.8125rem;
+}
+
+.note-progress-item:last-child {
+  border-bottom: none;
+}
+
+.note-hanzi {
+  font-weight: 600;
+  font-size: 1rem;
+  min-width: 2.5rem;
+}
+
+.note-pinyin {
+  color: var(--text-light, #666);
+  min-width: 4rem;
   font-size: 0.75rem;
 }
 
-.word-lapses {
-  color: #ef4444;
-  font-weight: 500;
-}
-
-.word-stats .stat-separator {
-  color: var(--text-lighter, #999);
-}
-
-.word-rating {
+.note-english {
+  flex: 1;
   color: var(--text-light, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rating-dots {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.rating-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.note-mastery {
+  font-weight: 600;
+  min-width: 2.5rem;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 /* Activity Card */
@@ -388,12 +391,24 @@
     min-width: 120px;
   }
 
-  .struggling-word-item {
-    padding: 1rem 1.25rem;
+  .note-progress-item {
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
   }
 
-  .word-hanzi {
-    font-size: 1.25rem;
+  .note-hanzi {
+    font-size: 1.125rem;
+    min-width: 3rem;
+  }
+
+  .note-pinyin {
+    min-width: 5rem;
+    font-size: 0.8125rem;
+  }
+
+  .rating-dot {
+    width: 8px;
+    height: 8px;
   }
 
   .activity-card {

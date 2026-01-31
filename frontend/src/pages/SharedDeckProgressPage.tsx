@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   CompletionSection,
   CardTypeBreakdownSection,
-  StrugglingWordsSection,
+  NotesProgressSection,
   ActivitySection,
 } from '../components/DeckProgress';
 import {
@@ -101,7 +101,7 @@ export function SharedDeckProgressPage() {
 
         <CompletionSection completion={progress.completion} />
         <CardTypeBreakdownSection breakdown={progress.card_type_breakdown} />
-        <StrugglingWordsSection words={progress.struggling_words} />
+        <NotesProgressSection notes={progress.notes} />
         <ActivitySection activity={progress.activity} />
       </div>
     </div>

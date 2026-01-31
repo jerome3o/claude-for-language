@@ -1,4 +1,4 @@
-import { CardTypeProgressStats, StrugglingWord } from '../types';
+import { CardTypeProgressStats, NoteProgress } from '../types';
 import { EmptyState } from './Loading';
 
 // Utility functions
@@ -27,13 +27,6 @@ export function formatDate(dateStr: string | null): string {
     return `${diffDays} days ago`;
   }
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-export function formatRating(rating: number): string {
-  if (rating < 1) return 'Struggling';
-  if (rating < 1.5) return 'Difficult';
-  if (rating < 2.5) return 'Okay';
-  return 'Good';
 }
 
 // Shared Components
@@ -96,29 +89,41 @@ export function CardTypeProgressBar({ label, stats }: CardTypeProgressBarProps) 
   );
 }
 
-interface StrugglingWordItemProps {
-  word: StrugglingWord;
+// Rating dot colors (0=again, 1=hard, 2=good, 3=easy)
+const RATING_COLORS = ['#ef4444', '#f97316', '#22c55e', '#3b82f6'];
+
+interface RatingDotsProps {
+  ratings: number[];
 }
 
-export function StrugglingWordItem({ word }: StrugglingWordItemProps) {
+function RatingDots({ ratings }: RatingDotsProps) {
+  if (ratings.length === 0) return null;
   return (
-    <div className="struggling-word-item">
-      <div className="word-main">
-        <span className="word-hanzi">{word.hanzi}</span>
-        <span className="word-pinyin">{word.pinyin}</span>
-      </div>
-      <div className="word-english">{word.english}</div>
-      <div className="word-stats">
-        <span className="word-lapses">
-          {word.lapses} {word.lapses === 1 ? 'lapse' : 'lapses'}
-        </span>
-        {word.avg_rating > 0 && (
-          <>
-            <span className="stat-separator">·</span>
-            <span className="word-rating">{formatRating(word.avg_rating)}</span>
-          </>
-        )}
-      </div>
+    <span className="rating-dots">
+      {ratings.map((r, i) => (
+        <span
+          key={i}
+          className="rating-dot"
+          style={{ backgroundColor: RATING_COLORS[r] || '#9ca3af' }}
+          title={['Again', 'Hard', 'Good', 'Easy'][r] || 'Unknown'}
+        />
+      ))}
+    </span>
+  );
+}
+
+interface NoteProgressItemProps {
+  note: NoteProgress;
+}
+
+function NoteProgressItem({ note }: NoteProgressItemProps) {
+  return (
+    <div className="note-progress-item">
+      <span className="note-hanzi">{note.hanzi}</span>
+      <span className="note-pinyin">{note.pinyin}</span>
+      <span className="note-english">{note.english}</span>
+      <RatingDots ratings={note.recent_ratings} />
+      <span className="note-mastery">{note.mastery_percent}%</span>
     </div>
   );
 }
@@ -219,25 +224,25 @@ export function CardTypeBreakdownSection({ breakdown }: CardTypeBreakdownSection
   );
 }
 
-// Struggling words section
-interface StrugglingWordsSectionProps {
-  words: StrugglingWord[];
+// Notes progress section
+interface NotesProgressSectionProps {
+  notes: NoteProgress[];
 }
 
-export function StrugglingWordsSection({ words }: StrugglingWordsSectionProps) {
+export function NotesProgressSection({ notes }: NotesProgressSectionProps) {
   return (
     <div className="sdp-section">
-      <h2>Words Needing Practice</h2>
-      {words.length === 0 ? (
+      <h2>All Words</h2>
+      {notes.length === 0 ? (
         <EmptyState
-          icon="🎉"
-          title="No struggling words"
-          description="Great job! No words need extra attention right now."
+          icon="📚"
+          title="No words yet"
+          description="Add some vocabulary to get started."
         />
       ) : (
-        <div className="struggling-words-list">
-          {words.map((word) => (
-            <StrugglingWordItem key={word.hanzi} word={word} />
+        <div className="notes-progress-list">
+          {notes.map((note) => (
+            <NoteProgressItem key={note.hanzi} note={note} />
           ))}
         </div>
       )}
