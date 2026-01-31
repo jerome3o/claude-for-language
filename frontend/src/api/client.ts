@@ -240,7 +240,7 @@ export async function updateNote(
 }
 
 export interface GenerateAudioOptions {
-  speed?: number; // 0.3 - 1.5, default 0.5 for MiniMax, 0.9 for Google
+  speed?: number; // 0.3 - 1.5, default 0.8 for MiniMax, 0.9 for Google
   provider?: 'minimax' | 'gtts'; // Prefer a specific provider
   voiceId?: string; // MiniMax voice ID (only used when provider is minimax)
 }
@@ -252,15 +252,16 @@ export async function generateNoteAudio(noteId: string, options?: GenerateAudioO
   });
 }
 
-export async function upgradeNoteAudio(noteId: string): Promise<Note> {
-  return fetchJSON<Note>(`/notes/${noteId}/upgrade-audio`, {
+export async function regenerateNoteAudio(noteId: string): Promise<Note> {
+  return fetchJSON<Note>(`/notes/${noteId}/regenerate-audio`, {
     method: 'POST',
   });
 }
 
-export async function upgradeAllDeckAudio(deckId: string): Promise<{ upgrading: number; message: string }> {
-  return fetchJSON<{ upgrading: number; message: string }>(`/decks/${deckId}/upgrade-all-audio`, {
+export async function regenerateAllDeckAudio(deckId: string, noteIds?: string[]): Promise<{ regenerating: number; message: string }> {
+  return fetchJSON<{ regenerating: number; message: string }>(`/decks/${deckId}/regenerate-all-audio`, {
     method: 'POST',
+    body: noteIds ? JSON.stringify({ noteIds }) : undefined,
   });
 }
 

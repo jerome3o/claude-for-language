@@ -117,8 +117,8 @@ export async function createConversation(
       options?.user_role || null,
       options?.ai_role || null,
       isAiConversation ? 1 : 0,
-      options?.voice_id || 'female-yujie',
-      options?.voice_speed || 0.5
+      options?.voice_id || 'Chinese (Mandarin)_Gentleman',
+      options?.voice_speed || 0.8
     )
     .run();
 

@@ -889,8 +889,8 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
   }
 });
 
-// Upgrade a single note's audio to MiniMax
-app.post('/api/notes/:id/upgrade-audio', async (c) => {
+// Regenerate a single note's audio with MiniMax
+app.post('/api/notes/:id/regenerate-audio', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
 
@@ -909,7 +909,7 @@ app.post('/api/notes/:id/upgrade-audio', async (c) => {
       try {
         await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
       } catch (err) {
-        console.error('[Upgrade Audio] Failed to delete old audio:', err);
+        console.error('[Regenerate Audio] Failed to delete old audio:', err);
       }
     }
 
@@ -928,8 +928,8 @@ app.post('/api/notes/:id/upgrade-audio', async (c) => {
   }
 });
 
-// Upgrade all GTTS notes in a deck to MiniMax
-app.post('/api/decks/:id/upgrade-all-audio', async (c) => {
+// Regenerate all audio in a deck with MiniMax
+app.post('/api/decks/:id/regenerate-all-audio', async (c) => {
   const userId = c.get('user').id;
   const deckId = c.req.param('id');
 
@@ -942,28 +942,45 @@ app.post('/api/decks/:id/upgrade-all-audio', async (c) => {
     return c.json({ error: 'MiniMax TTS is not configured' }, 500);
   }
 
-  // Find all notes with gtts or null audio_provider
-  const notesToUpgrade = deck.notes.filter(note =>
-    note.audio_url && (!note.audio_provider || note.audio_provider === 'gtts')
-  );
-
-  if (notesToUpgrade.length === 0) {
-    return c.json({ upgraded: 0, message: 'No notes to upgrade' });
+  // Get optional note IDs from request body for selective regeneration
+  let body: { noteIds?: string[] } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // No body, regenerate all eligible notes
   }
 
-  // Process upgrades in background
-  let upgraded = 0;
+  // Find notes to regenerate
+  let notesToRegenerate = deck.notes;
+
+  if (body.noteIds && body.noteIds.length > 0) {
+    // Regenerate only selected notes
+    const selectedIds = new Set(body.noteIds);
+    notesToRegenerate = deck.notes.filter(note => selectedIds.has(note.id));
+  } else {
+    // Regenerate notes with gtts or null audio_provider (legacy behavior)
+    notesToRegenerate = deck.notes.filter(note =>
+      note.audio_url && (!note.audio_provider || note.audio_provider === 'gtts')
+    );
+  }
+
+  if (notesToRegenerate.length === 0) {
+    return c.json({ regenerating: 0, message: 'No notes to regenerate' });
+  }
+
+  // Process regeneration in background
+  let regenerated = 0;
   const errors: string[] = [];
 
   c.executionCtx.waitUntil((async () => {
-    for (const note of notesToUpgrade) {
+    for (const note of notesToRegenerate) {
       try {
         // Delete old audio
         if (note.audio_url) {
           try {
             await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
           } catch (err) {
-            console.error('[Upgrade All] Failed to delete old audio for', note.hanzi, err);
+            console.error('[Regenerate All] Failed to delete old audio for', note.hanzi, err);
           }
         }
 
@@ -971,23 +988,23 @@ app.post('/api/decks/:id/upgrade-all-audio', async (c) => {
         const audioKey = await generateMiniMaxTTS(c.env, note.hanzi, note.id);
         if (audioKey) {
           await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey, audioProvider: 'minimax' });
-          upgraded++;
-          console.log('[Upgrade All] Upgraded', note.hanzi, 'to MiniMax');
+          regenerated++;
+          console.log('[Regenerate All] Regenerated', note.hanzi, 'with MiniMax');
         } else {
           errors.push(`Failed to generate audio for ${note.hanzi}`);
         }
       } catch (err) {
-        console.error('[Upgrade All] Failed to upgrade', note.hanzi, err);
-        errors.push(`Error upgrading ${note.hanzi}: ${err}`);
+        console.error('[Regenerate All] Failed to regenerate', note.hanzi, err);
+        errors.push(`Error regenerating ${note.hanzi}: ${err}`);
       }
     }
-    console.log(`[Upgrade All] Completed: ${upgraded}/${notesToUpgrade.length} upgraded`);
+    console.log(`[Regenerate All] Completed: ${regenerated}/${notesToRegenerate.length} regenerated`);
   })());
 
   // Return immediately with count of notes being processed
   return c.json({
-    upgrading: notesToUpgrade.length,
-    message: `Upgrading ${notesToUpgrade.length} notes to MiniMax audio in background. Refresh to see progress.`,
+    regenerating: notesToRegenerate.length,
+    message: `Regenerating ${notesToRegenerate.length} notes with MiniMax audio in background. Refresh to see progress.`,
   });
 });
 

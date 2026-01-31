@@ -64,7 +64,7 @@ export function getRecordingKey(reviewId: string): string {
 
 /**
  * Generate TTS audio using MiniMax AI API
- * Uses speech-02-hd model with 0.8x speed for better learning
+ * Uses speech-02-hd model with 0.8x speed (slightly slower for learning)
  */
 export async function generateMiniMaxTTS(
   env: Env,
@@ -91,8 +91,8 @@ export async function generateMiniMaxTTS(
         text: text,
         stream: false,
         voice_setting: {
-          voice_id: 'female-yujie',
-          speed: 0.5, // Slower for learning
+          voice_id: DEFAULT_MINIMAX_VOICE,
+          speed: 0.8, // Slightly slower for learning
         },
         audio_setting: {
           format: 'mp3',
@@ -243,7 +243,7 @@ export async function generateGoogleTTS(
 export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Gentleman';
 
 export interface TTSOptions {
-  speed?: number; // 0.3 - 1.0, default 0.5 for MiniMax, 0.9 for Google
+  speed?: number; // 0.3 - 1.0, default 0.8 for MiniMax, 0.9 for Google
   preferProvider?: AudioProvider; // Prefer a specific provider
   voiceId?: string; // MiniMax voice ID (only used when provider is minimax)
 }
@@ -299,7 +299,7 @@ async function generateMiniMaxTTSWithOptions(
   noteId: string,
   options: TTSOptions
 ): Promise<string | null> {
-  const speed = options.speed ?? 0.5;
+  const speed = options.speed ?? 0.8;
   const voiceId = options.voiceId ?? DEFAULT_MINIMAX_VOICE;
 
   console.log('[TTS] generateMiniMaxTTSWithOptions called:', { text, noteId, speed, voiceId, hasApiKey: !!env.MINIMAX_API_KEY });
@@ -472,8 +472,8 @@ export async function generateConversationTTS(
   text: string,
   options: ConversationTTSOptions = {}
 ): Promise<ConversationTTSResult | null> {
-  const voiceId = options.voiceId || 'female-yujie';
-  const speed = options.speed || 0.5;
+  const voiceId = options.voiceId || DEFAULT_MINIMAX_VOICE;
+  const speed = options.speed || 0.8;
 
   // Try MiniMax first
   if (env.MINIMAX_API_KEY) {
