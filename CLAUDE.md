@@ -244,20 +244,26 @@ For manual state adjustments (e.g., admin resetting a card), we may add a `set_c
 ### Study Flow (Offline-First)
 **Study works 100% offline** - no loading spinners between cards, instant transitions.
 
+For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md).
+
+**Card Priority:**
+1. Learning cards due NOW (highest priority - active timers)
+2. Mix of new + review cards (proportional selection)
+3. Learning cards on cooldown but due today (shown immediately when nothing else available)
+
+**Session Flow:**
 1. User selects a deck (or "All Decks") and starts a study session
-2. Cards are shown based on spaced repetition schedule (due cards first)
-3. Daily new card limits are enforced locally (configurable per deck)
-4. Three card types test different skills:
+2. Three card types test different skills:
    - **Hanzi → Meaning**: See characters, speak aloud, reveal answer
    - **Meaning → Hanzi**: See English, type characters, check answer
    - **Audio → Hanzi**: Hear audio, type characters, check answer
-5. On answer reveal:
+3. On answer reveal:
    - Play TTS audio (if cached)
    - **Ask Claude** about the word (requires internet, fails gracefully)
    - Rate difficulty (Again/Hard/Good/Easy)
-6. Reviews are saved locally and synced to server in background
-7. "Study More" button appears when daily limit reached (bypasses limit)
-8. Session ends when all due cards reviewed
+4. Reviews are saved locally and synced to server in background
+5. Session ends when all learning cards graduate (due tomorrow+) and no new/review cards remain
+6. "Study More" button appears to add 10 bonus new cards beyond daily limit
 
 ### Deck Management
 - Create/edit/delete decks
