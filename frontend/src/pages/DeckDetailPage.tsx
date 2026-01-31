@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, upgradeNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
+import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, Card, CardQueue, NoteWithCards, CardType, getOtherUserInRelationship } from '../types';
@@ -1548,16 +1548,22 @@ function NoteCard({
   onDelete,
   onHistory,
   onAudioGenerated,
+  isSelected,
+  onToggleSelect,
+  showSelect,
 }: {
   note: NoteWithCards;
   onEdit: () => void;
   onDelete: () => void;
   onHistory: () => void;
   onAudioGenerated: () => void;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+  showSelect?: boolean;
 }) {
   const { isPlaying, play } = useNoteAudio();
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isUpgrading, setIsUpgrading] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   const handleGenerateAudio = async () => {
     setIsGenerating(true);
@@ -1571,20 +1577,20 @@ function NoteCard({
     }
   };
 
-  const handleUpgradeAudio = async () => {
-    setIsUpgrading(true);
+  const handleRegenerateAudio = async () => {
+    setIsRegenerating(true);
     try {
-      await upgradeNoteAudio(note.id);
+      await regenerateNoteAudio(note.id);
       onAudioGenerated();
     } catch (error) {
-      console.error('Failed to upgrade audio:', error);
+      console.error('Failed to regenerate audio:', error);
     } finally {
-      setIsUpgrading(false);
+      setIsRegenerating(false);
     }
   };
 
-  // Check if note can be upgraded (has audio but from GTTS or no provider specified)
-  const canUpgrade = note.audio_url && (!note.audio_provider || note.audio_provider === 'gtts');
+  // Check if note can be regenerated (has audio)
+  const canRegenerate = !!note.audio_url;
 
   // Get learning status for all cards
   const learningStatus = getNoteLearningStatus(note.cards || []);
@@ -1599,6 +1605,14 @@ function NoteCard({
     <div className="note-card">
       <div className="note-card-content">
         <div className="flex items-center gap-2">
+          {showSelect && (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggleSelect}
+              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+            />
+          )}
           {note.audio_url ? (
             <>
               <button
@@ -1609,22 +1623,22 @@ function NoteCard({
               >
                 {isPlaying ? '...' : '▶'}
               </button>
-              {canUpgrade && (
+              {canRegenerate && !showSelect && (
                 <button
                   className="btn btn-sm"
-                  onClick={handleUpgradeAudio}
-                  disabled={isUpgrading}
+                  onClick={handleRegenerateAudio}
+                  disabled={isRegenerating}
                   style={{
                     padding: '0.25rem 0.5rem',
                     minWidth: 'auto',
                     fontSize: '0.65rem',
-                    background: '#f59e0b',
+                    background: '#3b82f6',
                     color: 'white',
                     border: 'none',
                   }}
-                  title="Upgrade to MiniMax (higher quality)"
+                  title="Regenerate audio with current settings"
                 >
-                  {isUpgrading ? '...' : '⬆'}
+                  {isRegenerating ? '...' : '🔄'}
                 </button>
               )}
               {note.audio_provider === 'minimax' && (
@@ -1746,8 +1760,10 @@ export function DeckDetailPage() {
   const [showDebug, setShowDebug] = useState(false);
   const [isGeneratingAllAudio, setIsGeneratingAllAudio] = useState(false);
   const [audioGenerationProgress, setAudioGenerationProgress] = useState({ done: 0, total: 0 });
-  const [isUpgradingAllAudio, setIsUpgradingAllAudio] = useState(false);
+  const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
   const [showShareTutorModal, setShowShareTutorModal] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
 
   const deckQuery = useQuery({
     queryKey: ['deck', id],
@@ -1848,30 +1864,54 @@ export function DeckDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['deck', id] });
   };
 
-  const upgradeAllToMiniMax = async () => {
-    if (!deckQuery.data) return;
+  const regenerateSelectedAudio = async () => {
+    if (!deckQuery.data || selectedNotes.size === 0) return;
 
-    // Process sequentially with progress (same pattern as generateAllMissingAudio)
-    setIsUpgradingAllAudio(true);
-    setAudioGenerationProgress({ done: 0, total: notesToUpgrade.length });
+    const notesToRegenerate = deckQuery.data.notes.filter(n => selectedNotes.has(n.id));
 
-    for (let i = 0; i < notesToUpgrade.length; i++) {
+    // Process sequentially with progress
+    setIsRegeneratingAudio(true);
+    setAudioGenerationProgress({ done: 0, total: notesToRegenerate.length });
+
+    for (let i = 0; i < notesToRegenerate.length; i++) {
       try {
-        await upgradeNoteAudio(notesToUpgrade[i].id);
-        setAudioGenerationProgress({ done: i + 1, total: notesToUpgrade.length });
+        await regenerateNoteAudio(notesToRegenerate[i].id);
+        setAudioGenerationProgress({ done: i + 1, total: notesToRegenerate.length });
       } catch (error) {
-        console.error(`Failed to upgrade audio for ${notesToUpgrade[i].hanzi}:`, error);
+        console.error(`Failed to regenerate audio for ${notesToRegenerate[i].hanzi}:`, error);
       }
     }
 
-    setIsUpgradingAllAudio(false);
+    setIsRegeneratingAudio(false);
+    setSelectMode(false);
+    setSelectedNotes(new Set());
     queryClient.invalidateQueries({ queryKey: ['deck', id] });
   };
 
-  // Count notes that can be upgraded (have audio but from GTTS)
-  const notesToUpgrade = deckQuery.data?.notes.filter(
-    note => note.audio_url && (!note.audio_provider || note.audio_provider === 'gtts')
-  ) || [];
+  const toggleNoteSelection = (noteId: string) => {
+    setSelectedNotes(prev => {
+      const next = new Set(prev);
+      if (next.has(noteId)) {
+        next.delete(noteId);
+      } else {
+        next.add(noteId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllNotes = () => {
+    if (!deckQuery.data) return;
+    const allWithAudio = deckQuery.data.notes.filter(n => n.audio_url).map(n => n.id);
+    setSelectedNotes(new Set(allWithAudio));
+  };
+
+  const deselectAllNotes = () => {
+    setSelectedNotes(new Set());
+  };
+
+  // Count notes that have audio (can be regenerated)
+  const notesWithAudio = deckQuery.data?.notes.filter(note => note.audio_url) || [];
 
   if (deckQuery.isLoading) {
     return <Loading />;
@@ -1911,21 +1951,18 @@ export function DeckDetailPage() {
                   : `Generate All Audio (${deck.notes.filter(n => !n.audio_url).length})`}
               </button>
             )}
-            {notesToUpgrade.length > 0 && (
+            {notesWithAudio.length > 0 && !selectMode && (
               <button
                 className="btn"
-                onClick={upgradeAllToMiniMax}
-                disabled={isUpgradingAllAudio}
+                onClick={() => setSelectMode(true)}
                 style={{
-                  background: '#f59e0b',
+                  background: '#3b82f6',
                   color: 'white',
                   border: 'none',
                 }}
-                title="Upgrade all GTTS audio to MiniMax (higher quality, slower playback)"
+                title="Select notes to regenerate audio"
               >
-                {isUpgradingAllAudio
-                  ? `Upgrading (${audioGenerationProgress.done}/${audioGenerationProgress.total})`
-                  : `Upgrade to HD (${notesToUpgrade.length})`}
+                Regenerate Audio
               </button>
             )}
             <button
@@ -2051,6 +2088,70 @@ export function DeckDetailPage() {
           </div>
         )}
 
+        {/* Select Mode Toolbar */}
+        {selectMode && (
+          <div
+            className="card mb-4"
+            style={{
+              padding: '0.75rem 1rem',
+              background: '#eff6ff',
+              border: '1px solid #3b82f6',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontWeight: 500 }}>
+                {selectedNotes.size} selected
+              </span>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={selectAllNotes}
+                style={{ padding: '0.25rem 0.5rem' }}
+              >
+                Select All ({notesWithAudio.length})
+              </button>
+              {selectedNotes.size > 0 && (
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={deselectAllNotes}
+                  style={{ padding: '0.25rem 0.5rem' }}
+                >
+                  Deselect All
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                className="btn btn-sm"
+                onClick={regenerateSelectedAudio}
+                disabled={selectedNotes.size === 0 || isRegeneratingAudio}
+                style={{
+                  background: selectedNotes.size === 0 ? '#9ca3af' : '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                }}
+              >
+                {isRegeneratingAudio
+                  ? `Regenerating (${audioGenerationProgress.done}/${audioGenerationProgress.total})`
+                  : `Regenerate ${selectedNotes.size > 0 ? `(${selectedNotes.size})` : ''}`}
+              </button>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => {
+                  setSelectMode(false);
+                  setSelectedNotes(new Set());
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Notes */}
         <div className="card">
           <div className="flex justify-between items-center mb-3">
@@ -2087,6 +2188,9 @@ export function DeckDetailPage() {
                   onAudioGenerated={() => {
                     queryClient.invalidateQueries({ queryKey: ['deck', id] });
                   }}
+                  showSelect={selectMode && !!note.audio_url}
+                  isSelected={selectedNotes.has(note.id)}
+                  onToggleSelect={() => toggleNoteSelection(note.id)}
                 />
               ))}
             </div>

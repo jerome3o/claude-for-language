@@ -772,7 +772,7 @@ export function ChatPage() {
             <div className="voice-setting-group">
               <label>Voice:</label>
               <select
-                value={conversation?.voice_id || 'female-yujie'}
+                value={conversation?.voice_id || 'Chinese (Mandarin)_Gentleman'}
                 onChange={(e) => handleVoiceChange(e.target.value)}
               >
                 {MINIMAX_VOICES.map((voice) => (
@@ -781,13 +781,13 @@ export function ChatPage() {
               </select>
             </div>
             <div className="voice-setting-group">
-              <label>Speed: {conversation?.voice_speed || 0.5}x</label>
+              <label>Speed: {conversation?.voice_speed || 0.8}x</label>
               <input
                 type="range"
                 min="0.3"
                 max="1.0"
                 step="0.1"
-                value={conversation?.voice_speed || 0.5}
+                value={conversation?.voice_speed || 0.8}
                 onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
               />
             </div>
