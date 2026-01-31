@@ -433,9 +433,9 @@
 
 .note-progress-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.5rem;
-  padding: 0.625rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border-color, #e5e5e5);
   font-size: 0.8125rem;
 }
@@ -446,8 +446,8 @@
 
 .note-info {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
+  align-items: baseline;
+  gap: 0.375rem;
   min-width: 0;
   flex: 1;
 }
@@ -455,11 +455,13 @@
 .note-hanzi {
   font-weight: 600;
   font-size: 1rem;
+  flex-shrink: 0;
 }
 
 .note-pinyin {
   color: var(--text-light, #666);
   font-size: 0.75rem;
+  flex-shrink: 0;
 }
 
 .note-english {
@@ -472,36 +474,37 @@
 
 .note-ratings-container {
   flex-shrink: 0;
-  min-width: 80px;
 }
 
 .note-ratings-grid {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .rating-row {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: 2px;
+  height: 7px;
 }
 
 .rating-row-label {
-  font-size: 0.625rem;
+  font-size: 0.5rem;
   color: var(--text-lighter, #999);
-  min-width: 1.75rem;
+  min-width: 1.25rem;
+  line-height: 1;
 }
 
 .rating-dots {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   flex-shrink: 0;
 }
 
 .rating-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
 }
 
@@ -515,7 +518,6 @@
   min-width: 2.5rem;
   text-align: right;
   flex-shrink: 0;
-  align-self: center;
 }
 
 /* Activity Card */
@@ -585,14 +587,10 @@
   }
 
   .note-progress-item {
-    padding: 0.75rem 1rem;
-    flex-direction: row;
-    align-items: center;
+    padding: 0.5rem 1rem;
   }
 
   .note-info {
-    flex-direction: row;
-    align-items: baseline;
     gap: 0.5rem;
   }
 
@@ -600,28 +598,23 @@
     font-size: 1.125rem;
   }
 
-  .note-pinyin {
-    font-size: 0.8125rem;
-    min-width: auto;
-  }
-
+  .note-pinyin,
   .note-english {
     font-size: 0.8125rem;
-    flex: 1;
   }
 
-  .note-ratings-container {
-    min-width: 100px;
-  }
-
-  .rating-dot {
-    width: 8px;
+  .rating-row {
     height: 8px;
   }
 
+  .rating-dot {
+    width: 6px;
+    height: 6px;
+  }
+
   .rating-row-label {
-    font-size: 0.6875rem;
-    min-width: 2rem;
+    font-size: 0.5625rem;
+    min-width: 1.5rem;
   }
 
   .activity-card {
