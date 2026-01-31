@@ -1940,6 +1940,9 @@ export function DeckDetailPage() {
                 Study ({stats.cards_due} due)
               </Link>
             )}
+            <Link to={`/decks/${id}/progress`} className="btn btn-secondary">
+              View Progress
+            </Link>
             {deck.notes.filter(n => !n.audio_url).length > 0 && (
               <button
                 className="btn btn-secondary"

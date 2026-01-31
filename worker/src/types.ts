@@ -702,6 +702,38 @@ export interface StrugglingWord {
   last_reviewed_at: string | null;
 }
 
+// Progress view for a user's own deck (not shared)
+export interface DeckProgress {
+  deck_name: string;
+  deck_id: string;
+
+  // Completion stats
+  completion: {
+    total_cards: number;
+    cards_seen: number;
+    cards_mastered: number;
+    percent_seen: number;
+    percent_mastered: number;
+  };
+
+  // Breakdown by card type
+  card_type_breakdown: {
+    hanzi_to_meaning: CardTypeStats;
+    meaning_to_hanzi: CardTypeStats;
+    audio_to_hanzi: CardTypeStats;
+  };
+
+  // Top 10 words the user is struggling with
+  struggling_words: StrugglingWord[];
+
+  // Recent activity
+  activity: {
+    last_studied_at: string | null;
+    total_study_time_ms: number;
+    reviews_last_7_days: number;
+  };
+}
+
 // ============ Student Shared Decks ============
 // Different from tutor->student sharing: this grants view access to student's existing deck
 

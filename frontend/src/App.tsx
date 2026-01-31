@@ -8,6 +8,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { HomePage } from './pages/HomePage';
 import { SplashPage } from './pages/SplashPage';
 import { DeckDetailPage } from './pages/DeckDetailPage';
+import { DeckProgressPage } from './pages/DeckProgressPage';
 import { StudyPage } from './pages/StudyPage';
 import { SessionReviewPage } from './pages/SessionReviewPage';
 import { GeneratePage } from './pages/GeneratePage';
@@ -71,6 +72,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <DeckDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/decks/:deckId/progress"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <DeckProgressPage />
           </ProtectedRoute>
         }
       />
