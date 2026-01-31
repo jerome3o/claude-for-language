@@ -174,11 +174,8 @@ function StudyCard({
 
   const [flipped, setFlipped] = useState(false);
   const [userAnswer, setUserAnswer] = useState('');
-  const [startTime, setStartTime] = useState(Date.now());
+  const [startTime] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Track card version to detect when the same card is re-shown after rating
-  const lastUpdatedAtRef = useRef(card.updated_at);
 
   // Ask Claude state
   const [showAskClaude, setShowAskClaude] = useState(false);
@@ -207,27 +204,6 @@ function StudyCard({
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio } = useNoteAudio();
-
-  // Reset state when the same card is returned with a new updated_at (after rating)
-  // This replaces using key={card.id + card.updated_at} which caused full remounts
-  useEffect(() => {
-    if (card.updated_at !== lastUpdatedAtRef.current) {
-      console.log('[StudyCard] Card updated, resetting state', {
-        cardId: card.id,
-        oldUpdatedAt: lastUpdatedAtRef.current,
-        newUpdatedAt: card.updated_at,
-      });
-      lastUpdatedAtRef.current = card.updated_at;
-      setFlipped(false);
-      setUserAnswer('');
-      setStartTime(Date.now());
-      setShowAskClaude(false);
-      setQuestion('');
-      setConversation([]);
-      setFlagForTutor(false);
-      clearRecording();
-    }
-  }, [card.updated_at, card.id, clearRecording]);
 
   // Track which card we've played audio for to prevent re-triggering
   const playedAudioForRef = useRef<string | null>(null);
@@ -1262,7 +1238,7 @@ export function StudyPage() {
         <Loading />
       ) : currentCard && intervalPreviews ? (
         <StudyCard
-          key={currentCard.id}
+          key={`${currentCard.id}-${currentCard.updated_at}`}
           card={currentCard}
           intervalPreviews={intervalPreviews}
           sessionId={sessionId}
