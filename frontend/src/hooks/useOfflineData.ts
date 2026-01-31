@@ -356,22 +356,8 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     // The excludeNoteIds filter is only for NEW/REVIEW cards to provide variety.
 
     if (delayedLearningCards.length > 0) {
-      // Check if current card is in the delayed learning cards - keep it to prevent rapid switching
-      if (currentSelectedCardId) {
-        const currentCard = delayedLearningCards.find(c => c.id === currentSelectedCardId);
-        if (currentCard) {
-          console.log('[useOfflineNextCard] Keeping current DELAYED LEARNING card:', {
-            cardId: currentCard.id,
-            noteId: currentCard.note_id,
-            currentSelectedCardId,
-          });
-          return currentCard;
-        }
-        console.log('[useOfflineNextCard] Current card not found in delayed learning cards:', {
-          currentSelectedCardId,
-          delayedCardIds: delayedLearningCards.map(c => c.id).slice(0, 5),
-        });
-      }
+      const now = Date.now();
+      const gracePeriodMs = 5000; // 5 seconds - cards due within this window are considered "due now"
 
       // IMPORTANT: Use deterministic selection (sort by due_timestamp, then by id for stability)
       // Random selection causes race conditions when multiple useLiveQuery calls run in parallel
@@ -381,7 +367,44 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
         if (timestampDiff !== 0) return timestampDiff;
         return a.id.localeCompare(b.id);
       });
-      const selected = sorted[0];
+      const soonestCard = sorted[0];
+
+      // Check if ANY card is due now (within grace period)
+      // If ALL delayed learning cards are on cooldown, return null to show "All Done" screen
+      if (soonestCard.due_timestamp && soonestCard.due_timestamp > now + gracePeriodMs) {
+        console.log('[useOfflineNextCard] All learning cards on cooldown, showing All Done:', {
+          soonestDue: soonestCard.due_timestamp,
+          now,
+          waitTimeMs: soonestCard.due_timestamp - now,
+          totalDelayed: delayedLearningCards.length,
+        });
+        currentSelectedCardId = null;
+        return null;
+      }
+
+      // At least one card is due (or nearly due) - find which ones
+      const dueNow = sorted.filter(c => !c.due_timestamp || c.due_timestamp <= now + gracePeriodMs);
+
+      // Check if current card is one of the due delayed learning cards - keep it to prevent rapid switching
+      if (currentSelectedCardId) {
+        const currentCard = dueNow.find(c => c.id === currentSelectedCardId);
+        if (currentCard) {
+          console.log('[useOfflineNextCard] Keeping current DELAYED LEARNING card:', {
+            cardId: currentCard.id,
+            noteId: currentCard.note_id,
+            dueTimestamp: currentCard.due_timestamp,
+            currentSelectedCardId,
+          });
+          return currentCard;
+        }
+        console.log('[useOfflineNextCard] Current card not due or not found:', {
+          currentSelectedCardId,
+          dueCardIds: dueNow.map(c => c.id).slice(0, 5),
+        });
+      }
+
+      // Select the soonest due card
+      const selected = dueNow[0] || soonestCard;
       currentSelectedCardId = selected.id;
       console.log('[useOfflineNextCard] Selected DELAYED LEARNING card (deterministic - soonest due):', {
         cardId: selected.id,
