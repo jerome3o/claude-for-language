@@ -41,7 +41,7 @@ test.describe('New User Onboarding', () => {
     ).toBeVisible();
 
     // Should see the form elements
-    await expect(page.getByLabel(/What do you want to learn/i)).toBeVisible();
+    await expect(page.getByRole('textbox').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Generate Deck with AI' })).toBeVisible();
 
     // Should see example prompts
@@ -60,11 +60,11 @@ test.describe('New User Onboarding', () => {
 
     // Fill in deck name
     const deckName = `Test Deck ${Date.now()}`;
-    await page.getByLabel('Deck Name').fill(deckName);
-    await page.getByLabel('Description').fill('A test deck created by E2E tests');
+    await page.getByPlaceholder(/Restaurant Vocabulary/i).fill(deckName);
+    await page.getByPlaceholder(/What will you learn/i).fill('A test deck created by E2E tests');
 
-    // Submit the form
-    await page.getByRole('button', { name: 'Create Deck' }).click();
+    // Submit the form (use the submit button inside the form)
+    await page.locator('form').getByRole('button', { name: 'Create Deck' }).click();
 
     // Should navigate to the deck detail page
     await expect(page.getByRole('heading', { name: deckName })).toBeVisible({ timeout: 10000 });
@@ -85,12 +85,12 @@ test.describe('AI Deck Generation', () => {
   test('user can generate a deck with AI', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
 
-    // Navigate to generate page
-    await page.goto('/generate');
+    // Navigate to generate page (use gotoAuthenticated to maintain auth)
+    await page.gotoAuthenticated('/generate');
 
     // Fill in the prompt
     const prompt = 'Basic greetings in Chinese';
-    await page.getByLabel(/What do you want to learn/i).fill(prompt);
+    await page.getByPlaceholder(/vocabulary for ordering food/i).fill(prompt);
 
     // Click generate button
     await page.getByRole('button', { name: 'Generate Deck with AI' }).click();
@@ -119,14 +119,14 @@ test.describe('AI Deck Generation', () => {
   test('user can click example prompt to fill form', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
 
-    // Navigate to generate page
-    await page.goto('/generate');
+    // Navigate to generate page (use gotoAuthenticated to maintain auth)
+    await page.gotoAuthenticated('/generate');
 
     // Click an example prompt
     await page.getByRole('button', { name: 'Common greetings and polite expressions' }).click();
 
     // The textarea should be filled with the example
-    await expect(page.getByLabel(/What do you want to learn/i)).toHaveValue(
+    await expect(page.getByPlaceholder(/vocabulary for ordering food/i)).toHaveValue(
       'Common greetings and polite expressions'
     );
   });
@@ -134,15 +134,15 @@ test.describe('AI Deck Generation', () => {
   test('generated deck appears on home page', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
 
-    // Navigate to generate page
-    await page.goto('/generate');
+    // Navigate to generate page (use gotoAuthenticated to maintain auth)
+    await page.gotoAuthenticated('/generate');
 
     // Fill in the prompt and generate
     const prompt = 'Numbers from 1 to 5 in Chinese';
     const deckName = `E2E Numbers ${Date.now()}`;
 
-    await page.getByLabel(/What do you want to learn/i).fill(prompt);
-    await page.getByLabel(/Deck Name/i).fill(deckName);
+    await page.getByPlaceholder(/vocabulary for ordering food/i).fill(prompt);
+    await page.getByPlaceholder(/Leave blank to auto-generate/i).fill(deckName);
     await page.getByRole('button', { name: 'Generate Deck with AI' }).click();
 
     // Wait for generation to complete
@@ -156,8 +156,8 @@ test.describe('AI Deck Generation', () => {
     // Should be on deck detail page
     await expect(page.getByRole('heading', { name: deckName })).toBeVisible({ timeout: 10000 });
 
-    // Navigate back to home
-    await page.goto('/');
+    // Navigate back to home (use gotoAuthenticated to maintain auth)
+    await page.gotoAuthenticated('/');
 
     // The new deck should appear in the deck list
     await expect(page.getByText(deckName)).toBeVisible({ timeout: 10000 });

@@ -69,8 +69,15 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── ARCHITECTURE.md   # Technical architecture
 │   └── SETUP.md          # Setup and deployment guide
 │
+├── e2e/                   # End-to-end tests (Playwright)
+│   ├── tests/
+│   │   ├── fixtures/     # Test fixtures (auth, etc.)
+│   │   └── *.spec.ts     # Test files
+│   └── playwright.config.ts
+│
 ├── .github/workflows/     # GitHub Actions
-│   └── deploy.yml        # Auto-deploy all services on push to main
+│   ├── deploy.yml        # Auto-deploy all services on push to main
+│   └── e2e-tests.yml     # E2E tests on PRs and main
 │
 └── package.json          # Root package.json (workspaces)
 ```
@@ -326,8 +333,9 @@ AI assistants can manage vocabulary via MCP (see MCP Server section below).
 3. Add API routes to `worker/src/routes/`
 4. Add frontend components/pages as needed
 5. **Test on mobile viewport before committing**
-6. Update this CLAUDE.md if the change affects project structure
-7. Update docs/SPEC.md if adding new features
+6. **Add tests**: E2E tests for user-facing features, unit tests for business logic
+7. Update this CLAUDE.md if the change affects project structure
+8. Update docs/SPEC.md if adding new features
 
 ### Database Migrations
 Migrations are in `worker/src/db/migrations/`. Run order is determined by filename prefix (001_, 002_, etc.).
@@ -340,8 +348,10 @@ cd worker && npx wrangler d1 migrations apply chinese-learning-db --local
 **Production**: Migrations are applied automatically by CI on push to main (see Deployment section).
 
 ### Running Tests
+
+#### Unit Tests
 ```bash
-# Run all tests (includes FSRS scheduler tests)
+# Run all unit tests (includes FSRS scheduler tests)
 npm test
 
 # Run tests in watch mode
@@ -351,10 +361,42 @@ npm run test:watch
 npm run typecheck
 ```
 
-Key test files:
+Key unit test files:
 - `shared/scheduler/compute-state.test.ts` - FSRS algorithm tests
 - `frontend/src/services/sync.test.ts` - Sync service tests
 - `frontend/src/db/daily-stats.test.ts` - Daily stats tests
+
+#### E2E Tests (Playwright)
+E2E tests run a headless browser against the full app to test user flows.
+
+```bash
+# Run E2E tests (starts worker and frontend automatically)
+npm run test:e2e
+
+# Run E2E tests with UI (for debugging)
+npm run test:e2e:ui
+```
+
+Key E2E test files:
+- `e2e/tests/onboarding.spec.ts` - New user onboarding and deck generation
+- `e2e/tests/fixtures/auth.ts` - Test authentication fixture
+
+**E2E Test Auth**: Tests use a special `/api/test/auth` endpoint that bypasses OAuth. This only works when `E2E_TEST_MODE=true` is set in `worker/.dev.vars`.
+
+### When to Write Tests
+
+**Write E2E tests for:**
+- New user-facing features (pages, flows, interactions)
+- Critical paths (onboarding, study flow, deck creation)
+- Features involving multiple components working together
+- Bug fixes for issues that could be caught by E2E tests
+
+**Write unit tests for:**
+- Pure functions and algorithms (FSRS scheduler, etc.)
+- Service logic with complex business rules
+- Data transformations and validations
+
+**CI enforces both**: PRs must pass both unit tests and E2E tests before merging.
 
 ### Running Dev Servers
 ```bash
