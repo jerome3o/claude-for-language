@@ -903,3 +903,16 @@ export async function generateReaderPageImage(
 export function getReaderImageUrl(imageKey: string): string {
   return `${API_PATH}/audio/${imageKey}`;
 }
+
+// ============ Card State Management ============
+
+export async function recomputeCardStates(): Promise<{
+  total_cards: number;
+  updated: number;
+  errors: number;
+}> {
+  return fetchJSON<{ total_cards: number; updated: number; errors: number }>(
+    '/cards/recompute-states',
+    { method: 'POST' }
+  );
+}

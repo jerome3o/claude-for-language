@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { syncService } from '../services/sync';
+import { recomputeCardStates } from '../api/client';
 import './Header.css';
 
 export function Header() {
@@ -10,6 +11,7 @@ export function Header() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRecomputing, setIsRecomputing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -43,6 +45,21 @@ export function Header() {
     } catch (err) {
       console.error('Failed to force sync:', err);
       setIsSyncing(false);
+    }
+  }, []);
+
+  const handleRecomputeStates = useCallback(async () => {
+    setIsRecomputing(true);
+    setShowUserMenu(false);
+    try {
+      const result = await recomputeCardStates();
+      console.log('Recomputed card states:', result);
+      alert(`Updated ${result.updated} cards (${result.errors} errors)`);
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to recompute card states:', err);
+      alert('Failed to recompute card states. Check console for details.');
+      setIsRecomputing(false);
     }
   }, []);
 
@@ -141,6 +158,13 @@ export function Header() {
                   disabled={isSyncing}
                 >
                   {isSyncing ? '🔄 Syncing...' : '🔄 Force Full Sync'}
+                </button>
+                <button
+                  className="user-menu-item"
+                  onClick={handleRecomputeStates}
+                  disabled={isRecomputing}
+                >
+                  {isRecomputing ? '🔧 Recomputing...' : '🔧 Fix Card States'}
                 </button>
                 {user.is_admin && (
                   <>
