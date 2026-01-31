@@ -665,7 +665,11 @@ export interface NoteProgress {
   pinyin: string;
   english: string;
   mastery_percent: number;  // 0-100, based on average stability
-  recent_ratings: number[]; // Last N review ratings (0-3), newest first
+  recent_ratings: {         // Last N review ratings (0-3) per card type, newest first
+    hanzi_to_meaning: number[];
+    meaning_to_hanzi: number[];
+    audio_to_hanzi: number[];
+  };
 }
 
 // Progress view for a user's own deck (not shared)

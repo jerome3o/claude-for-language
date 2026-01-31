@@ -113,10 +113,11 @@ async function buildNotesProgress(
     }
   }
 
-  // Get recent review ratings for all cards in this deck
+  // Get recent review ratings for all cards in this deck, grouped by card type
   const recentRatingsResult = await db.prepare(`
     SELECT
       n.hanzi,
+      c.card_type,
       re.rating
     FROM review_events re
     JOIN cards c ON re.card_id = c.id
@@ -126,17 +127,30 @@ async function buildNotesProgress(
     ORDER BY re.reviewed_at DESC
   `).bind(deckId, userId).all<{
     hanzi: string;
+    card_type: CardType;
     rating: number;
   }>();
 
-  // Group ratings by note (hanzi), keeping last 8 ratings
-  const ratingsByNote = new Map<string, number[]>();
+  // Group ratings by note (hanzi) and card type, keeping last 8 ratings per type
+  const ratingsByNote = new Map<string, {
+    hanzi_to_meaning: number[];
+    meaning_to_hanzi: number[];
+    audio_to_hanzi: number[];
+  }>();
   for (const row of (recentRatingsResult.results || [])) {
-    const ratings = ratingsByNote.get(row.hanzi) || [];
-    if (ratings.length < 8) {
-      ratings.push(row.rating);
+    let noteRatings = ratingsByNote.get(row.hanzi);
+    if (!noteRatings) {
+      noteRatings = {
+        hanzi_to_meaning: [],
+        meaning_to_hanzi: [],
+        audio_to_hanzi: [],
+      };
+      ratingsByNote.set(row.hanzi, noteRatings);
     }
-    ratingsByNote.set(row.hanzi, ratings);
+    const typeRatings = noteRatings[row.card_type as keyof typeof noteRatings];
+    if (typeRatings && typeRatings.length < 8) {
+      typeRatings.push(row.rating);
+    }
   }
 
   // Build final notes array with mastery percent
@@ -144,7 +158,11 @@ async function buildNotesProgress(
   const notes: NoteProgress[] = Array.from(noteMap.values()).map(note => {
     const avgStability = note.cardCount > 0 ? note.totalStability / note.cardCount : 0;
     const masteryPercent = Math.min(100, Math.round((avgStability / 30) * 100));
-    const recentRatings = ratingsByNote.get(note.hanzi) || [];
+    const recentRatings = ratingsByNote.get(note.hanzi) || {
+      hanzi_to_meaning: [],
+      meaning_to_hanzi: [],
+      audio_to_hanzi: [],
+    };
 
     return {
       hanzi: note.hanzi,
@@ -585,13 +603,12 @@ export async function getOwnDeckProgress(
     }
   }
 
-  // Get recent review ratings for all cards in this deck
+  // Get recent review ratings for all cards in this deck, grouped by card type
   const recentRatingsResult = await db.prepare(`
     SELECT
-      c.id as card_id,
       n.hanzi,
-      re.rating,
-      re.reviewed_at
+      c.card_type,
+      re.rating
     FROM review_events re
     JOIN cards c ON re.card_id = c.id
     JOIN notes n ON c.note_id = n.id
@@ -599,20 +616,31 @@ export async function getOwnDeckProgress(
     AND re.user_id = ?
     ORDER BY re.reviewed_at DESC
   `).bind(deckId, userId).all<{
-    card_id: string;
     hanzi: string;
+    card_type: CardType;
     rating: number;
-    reviewed_at: string;
   }>();
 
-  // Group ratings by note (hanzi), keeping last 8 ratings
-  const ratingsByNote = new Map<string, number[]>();
+  // Group ratings by note (hanzi) and card type, keeping last 8 ratings per type
+  const ratingsByNote = new Map<string, {
+    hanzi_to_meaning: number[];
+    meaning_to_hanzi: number[];
+    audio_to_hanzi: number[];
+  }>();
   for (const row of (recentRatingsResult.results || [])) {
-    const ratings = ratingsByNote.get(row.hanzi) || [];
-    if (ratings.length < 8) {
-      ratings.push(row.rating);
+    let noteRatings = ratingsByNote.get(row.hanzi);
+    if (!noteRatings) {
+      noteRatings = {
+        hanzi_to_meaning: [],
+        meaning_to_hanzi: [],
+        audio_to_hanzi: [],
+      };
+      ratingsByNote.set(row.hanzi, noteRatings);
     }
-    ratingsByNote.set(row.hanzi, ratings);
+    const typeRatings = noteRatings[row.card_type as keyof typeof noteRatings];
+    if (typeRatings && typeRatings.length < 8) {
+      typeRatings.push(row.rating);
+    }
   }
 
   // Build final notes array with mastery percent
@@ -620,7 +648,11 @@ export async function getOwnDeckProgress(
   const notes: NoteProgress[] = Array.from(noteMap.values()).map(note => {
     const avgStability = note.cardCount > 0 ? note.totalStability / note.cardCount : 0;
     const masteryPercent = Math.min(100, Math.round((avgStability / 30) * 100));
-    const recentRatings = ratingsByNote.get(note.hanzi) || [];
+    const recentRatings = ratingsByNote.get(note.hanzi) || {
+      hanzi_to_meaning: [],
+      meaning_to_hanzi: [],
+      audio_to_hanzi: [],
+    };
 
     return {
       hanzi: note.hanzi,

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { CardTypeProgressStats, NoteProgress } from '../types';
 import { EmptyState } from './Loading';
 
@@ -114,17 +115,45 @@ function RatingDots({ ratings }: RatingDotsProps) {
   );
 }
 
+// Card type labels for the dots rows
+const CARD_TYPE_LABELS = {
+  hanzi_to_meaning: '字→义',
+  meaning_to_hanzi: '义→字',
+  audio_to_hanzi: '听→字',
+};
+
 interface NoteProgressItemProps {
   note: NoteProgress;
 }
 
 function NoteProgressItem({ note }: NoteProgressItemProps) {
+  const { recent_ratings } = note;
+  const hasAnyRatings =
+    recent_ratings.hanzi_to_meaning.length > 0 ||
+    recent_ratings.meaning_to_hanzi.length > 0 ||
+    recent_ratings.audio_to_hanzi.length > 0;
+
   return (
     <div className="note-progress-item">
-      <span className="note-hanzi">{note.hanzi}</span>
-      <span className="note-pinyin">{note.pinyin}</span>
-      <span className="note-english">{note.english}</span>
-      <RatingDots ratings={note.recent_ratings} />
+      <div className="note-info">
+        <span className="note-hanzi">{note.hanzi}</span>
+        <span className="note-pinyin">{note.pinyin}</span>
+        <span className="note-english">{note.english}</span>
+      </div>
+      <div className="note-ratings-container">
+        {hasAnyRatings ? (
+          <div className="note-ratings-grid">
+            {(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const).map((type) => (
+              <div key={type} className="rating-row">
+                <span className="rating-row-label">{CARD_TYPE_LABELS[type]}</span>
+                <RatingDots ratings={recent_ratings[type]} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span className="no-reviews">—</span>
+        )}
+      </div>
       <span className="note-mastery">{note.mastery_percent}%</span>
     </div>
   );
@@ -232,6 +261,8 @@ interface NotesProgressSectionProps {
 }
 
 export function NotesProgressSection({ notes }: NotesProgressSectionProps) {
+  const [showHelp, setShowHelp] = useState(false);
+
   return (
     <div className="sdp-section">
       <h2>All Words</h2>
@@ -253,7 +284,48 @@ export function NotesProgressSection({ notes }: NotesProgressSectionProps) {
             <span className="legend-text">Good</span>
             <span className="legend-dot" style={{ backgroundColor: '#3b82f6' }} />
             <span className="legend-text">Easy</span>
+            <button
+              className="legend-help-btn"
+              onClick={() => setShowHelp(true)}
+              aria-label="Show help"
+            >
+              ?
+            </button>
           </div>
+          {showHelp && (
+            <div className="help-modal-overlay" onClick={() => setShowHelp(false)}>
+              <div className="help-modal" onClick={(e) => e.stopPropagation()}>
+                <button className="help-modal-close" onClick={() => setShowHelp(false)}>×</button>
+                <h3>Understanding Review Dots</h3>
+                <p>Each word has three rows of colored dots showing your review history for different card types:</p>
+                <div className="help-card-types">
+                  <div><strong>字→义</strong> — See characters, recall meaning</div>
+                  <div><strong>义→字</strong> — See meaning, type characters</div>
+                  <div><strong>听→字</strong> — Hear audio, type characters</div>
+                </div>
+                <p>Each dot represents one review. Dots go from oldest (left) to newest (right):</p>
+                <div className="help-colors">
+                  <div><span className="help-dot" style={{ backgroundColor: '#ef4444' }} /> <strong>Again</strong> — Forgot the word</div>
+                  <div><span className="help-dot" style={{ backgroundColor: '#f97316' }} /> <strong>Hard</strong> — Difficult recall</div>
+                  <div><span className="help-dot" style={{ backgroundColor: '#22c55e' }} /> <strong>Good</strong> — Normal recall</div>
+                  <div><span className="help-dot" style={{ backgroundColor: '#3b82f6' }} /> <strong>Easy</strong> — Easy recall</div>
+                </div>
+                <p className="help-example-title">Example:</p>
+                <div className="help-example">
+                  <div className="help-example-row">
+                    <span className="rating-row-label">字→义</span>
+                    <span className="rating-dots">
+                      <span className="rating-dot" style={{ backgroundColor: '#ef4444' }} />
+                      <span className="rating-dot" style={{ backgroundColor: '#f97316' }} />
+                      <span className="rating-dot" style={{ backgroundColor: '#22c55e' }} />
+                      <span className="rating-dot" style={{ backgroundColor: '#22c55e' }} />
+                    </span>
+                  </div>
+                </div>
+                <p className="help-example-desc">This shows 4 reviews: started with "Again", then "Hard", then two "Good" — improving over time!</p>
+              </div>
+            </div>
+          )}
           <div className="notes-progress-list">
             {notes.map((note) => (
               <NoteProgressItem key={note.hanzi} note={note} />

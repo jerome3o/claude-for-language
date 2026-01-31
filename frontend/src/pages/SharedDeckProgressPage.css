@@ -294,7 +294,136 @@
   margin-right: 0;
 }
 
-/* Notes Progress List (compact view) */
+.legend-help-btn {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color, #ccc);
+  background: white;
+  color: var(--text-light, #666);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.legend-help-btn:hover {
+  background: var(--bg-light, #f5f5f5);
+}
+
+/* Help Modal */
+.help-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.help-modal {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  max-width: 400px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.help-modal h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  padding-right: 1.5rem;
+}
+
+.help-modal p {
+  font-size: 0.875rem;
+  color: var(--text-light, #666);
+  margin: 0.5rem 0;
+  line-height: 1.4;
+}
+
+.help-modal-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--text-light, #666);
+}
+
+.help-card-types {
+  background: var(--bg-light, #f5f5f5);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  font-size: 0.8125rem;
+  margin: 0.75rem 0;
+}
+
+.help-card-types div {
+  margin-bottom: 0.25rem;
+}
+
+.help-card-types div:last-child {
+  margin-bottom: 0;
+}
+
+.help-colors {
+  margin: 0.75rem 0;
+  font-size: 0.8125rem;
+}
+
+.help-colors div {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.help-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.help-example-title {
+  font-weight: 600;
+  color: var(--text-color, #333) !important;
+  margin-top: 1rem !important;
+}
+
+.help-example {
+  background: var(--bg-light, #f5f5f5);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.help-example-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.help-example-desc {
+  font-size: 0.8125rem !important;
+  font-style: italic;
+}
+
+/* Notes Progress List (with card type rows) */
 .notes-progress-list {
   background: white;
   border: 1px solid var(--border-color, #e5e5e5);
@@ -304,9 +433,9 @@
 
 .note-progress-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.625rem 0.75rem;
   border-bottom: 1px solid var(--border-color, #e5e5e5);
   font-size: 0.8125rem;
 }
@@ -315,24 +444,53 @@
   border-bottom: none;
 }
 
+.note-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1;
+}
+
 .note-hanzi {
   font-weight: 600;
   font-size: 1rem;
-  min-width: 2.5rem;
 }
 
 .note-pinyin {
   color: var(--text-light, #666);
-  min-width: 4rem;
   font-size: 0.75rem;
 }
 
 .note-english {
-  flex: 1;
   color: var(--text-light, #666);
+  font-size: 0.75rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.note-ratings-container {
+  flex-shrink: 0;
+  min-width: 80px;
+}
+
+.note-ratings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rating-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.rating-row-label {
+  font-size: 0.625rem;
+  color: var(--text-lighter, #999);
+  min-width: 1.75rem;
 }
 
 .rating-dots {
@@ -347,11 +505,17 @@
   border-radius: 50%;
 }
 
+.no-reviews {
+  color: var(--text-lighter, #999);
+  font-size: 0.75rem;
+}
+
 .note-mastery {
   font-weight: 600;
   min-width: 2.5rem;
   text-align: right;
   flex-shrink: 0;
+  align-self: center;
 }
 
 /* Activity Card */
@@ -421,23 +585,43 @@
   }
 
   .note-progress-item {
-    padding: 0.625rem 1rem;
-    font-size: 0.875rem;
+    padding: 0.75rem 1rem;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .note-info {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.5rem;
   }
 
   .note-hanzi {
     font-size: 1.125rem;
-    min-width: 3rem;
   }
 
   .note-pinyin {
-    min-width: 5rem;
     font-size: 0.8125rem;
+    min-width: auto;
+  }
+
+  .note-english {
+    font-size: 0.8125rem;
+    flex: 1;
+  }
+
+  .note-ratings-container {
+    min-width: 100px;
   }
 
   .rating-dot {
     width: 8px;
     height: 8px;
+  }
+
+  .rating-row-label {
+    font-size: 0.6875rem;
+    min-width: 2rem;
   }
 
   .activity-card {

@@ -162,7 +162,7 @@ Uses Anthropic Claude API for several features:
 - Always use **tone marks** (nǐ hǎo), NOT tone numbers (ni3 hao3)
 - Use proper Unicode: ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ
 
-## Offline-First Architecture (CRITICAL)
+## Offline-First Architecture
 
 **Study mode MUST work fully offline.** This is a core requirement - users study on the subway, on planes, and in areas with poor connectivity.
 
@@ -176,7 +176,7 @@ Uses Anthropic Claude API for several features:
 
 4. **Graceful degradation for other features**: Features that require internet (AI generation, Ask Claude, TTS generation) should fail gracefully with clear user feedback - not crash or hang.
 
-### Event-Sourcing Architecture (CRITICAL)
+### Event-Sourcing Architecture
 
 **Review events are the SINGLE SOURCE OF TRUTH for card scheduling state.**
 
@@ -294,7 +294,7 @@ AI assistants can manage vocabulary via MCP (see MCP Server section below).
 
 ## Development Guidelines
 
-### Mobile-First Design (IMPORTANT)
+### Mobile-First Design
 
 **This app is primarily used on mobile devices.** All UI work must prioritize mobile experience.
 
