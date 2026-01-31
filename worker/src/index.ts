@@ -79,6 +79,11 @@ import {
 } from './services/tutor-review-requests';
 import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress } from './services/shared-deck-progress';
 import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, CreateTutorReviewRequest, RespondToTutorReviewRequest, TutorReviewRequestStatus } from './types';
+import {
+  computeCardState,
+  DEFAULT_DECK_SETTINGS as FSRS_DEFAULT_SETTINGS,
+  type ReviewEvent as SchedulerReviewEvent,
+} from '../../shared/scheduler';
 
 // Extend Hono context to include user
 declare module 'hono' {
@@ -2817,6 +2822,65 @@ app.post('/api/reviews', async (c) => {
     await db.updateSyncMetadata(c.env.DB, userId, latestEvent.reviewed_at);
   }
 
+  // Recompute card state for all affected cards
+  // This ensures the cards table reflects the latest state after sync
+  if (result.created > 0) {
+    const affectedCardIds = [...new Set(validEvents.map(e => e.card_id))];
+    console.log(`[API reviews] Recomputing state for ${affectedCardIds.length} cards`);
+
+    for (const cardId of affectedCardIds) {
+      try {
+        // Get all review events for this card
+        const cardEvents = await db.getCardReviewEvents(c.env.DB, cardId, userId);
+
+        // Convert to scheduler format
+        const schedulerEvents: SchedulerReviewEvent[] = cardEvents.map(e => ({
+          id: e.id,
+          card_id: e.card_id,
+          rating: e.rating as 0 | 1 | 2 | 3,
+          reviewed_at: e.reviewed_at,
+        }));
+
+        // Compute new state from all events
+        const newState = computeCardState(schedulerEvents, FSRS_DEFAULT_SETTINGS);
+
+        // Update the card with the computed state
+        await c.env.DB.prepare(`
+          UPDATE cards SET
+            queue = ?,
+            stability = ?,
+            difficulty = ?,
+            scheduled_days = ?,
+            reps = ?,
+            lapses = ?,
+            ease_factor = ?,
+            interval = ?,
+            repetitions = ?,
+            next_review_at = ?,
+            due_timestamp = ?,
+            updated_at = datetime('now')
+          WHERE id = ?
+        `).bind(
+          newState.queue,
+          newState.stability,
+          newState.difficulty,
+          newState.scheduled_days,
+          newState.reps,
+          newState.lapses,
+          newState.ease_factor,
+          newState.interval,
+          newState.repetitions,
+          newState.next_review_at,
+          newState.due_timestamp,
+          cardId
+        ).run();
+      } catch (err) {
+        console.error(`[API reviews] Failed to recompute state for card ${cardId}:`, err);
+        // Continue with other cards even if one fails
+      }
+    }
+  }
+
   // Return result including skipped orphans so client can mark all events as synced
   return c.json({
     ...result,
@@ -2861,6 +2925,89 @@ app.get('/api/cards/:id/events', async (c) => {
   const events = await db.getCardReviewEvents(c.env.DB, cardId, userId);
 
   return c.json({ events });
+});
+
+// Recompute all card states from review events (for fixing stale card data)
+app.post('/api/cards/recompute-states', async (c) => {
+  const userId = c.get('user').id;
+
+  // Get all cards belonging to this user that have review events
+  const cardsWithEvents = await c.env.DB.prepare(`
+    SELECT DISTINCT c.id
+    FROM cards c
+    JOIN notes n ON c.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ?
+    AND EXISTS (SELECT 1 FROM review_events re WHERE re.card_id = c.id AND re.user_id = ?)
+  `).bind(userId, userId).all<{ id: string }>();
+
+  const cardIds = cardsWithEvents.results.map(c => c.id);
+  console.log(`[API recompute-states] Recomputing state for ${cardIds.length} cards for user ${userId}`);
+
+  let updated = 0;
+  let errors = 0;
+
+  for (const cardId of cardIds) {
+    try {
+      // Get all review events for this card
+      const cardEvents = await db.getCardReviewEvents(c.env.DB, cardId, userId);
+
+      if (cardEvents.length === 0) continue;
+
+      // Convert to scheduler format
+      const schedulerEvents: SchedulerReviewEvent[] = cardEvents.map(e => ({
+        id: e.id,
+        card_id: e.card_id,
+        rating: e.rating as 0 | 1 | 2 | 3,
+        reviewed_at: e.reviewed_at,
+      }));
+
+      // Compute new state from all events
+      const newState = computeCardState(schedulerEvents, FSRS_DEFAULT_SETTINGS);
+
+      // Update the card with the computed state
+      await c.env.DB.prepare(`
+        UPDATE cards SET
+          queue = ?,
+          stability = ?,
+          difficulty = ?,
+          scheduled_days = ?,
+          reps = ?,
+          lapses = ?,
+          ease_factor = ?,
+          interval = ?,
+          repetitions = ?,
+          next_review_at = ?,
+          due_timestamp = ?,
+          updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(
+        newState.queue,
+        newState.stability,
+        newState.difficulty,
+        newState.scheduled_days,
+        newState.reps,
+        newState.lapses,
+        newState.ease_factor,
+        newState.interval,
+        newState.repetitions,
+        newState.next_review_at,
+        newState.due_timestamp,
+        cardId
+      ).run();
+
+      updated++;
+    } catch (err) {
+      console.error(`[API recompute-states] Failed to recompute state for card ${cardId}:`, err);
+      errors++;
+    }
+  }
+
+  return c.json({
+    total_cards: cardIds.length,
+    updated,
+    errors,
+  });
 });
 
 // ============ Sync (for offline PWA) ============
