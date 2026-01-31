@@ -356,63 +356,53 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
     // The excludeNoteIds filter is only for NEW/REVIEW cards to provide variety.
 
     if (delayedLearningCards.length > 0) {
-      const now = Date.now();
-      const gracePeriodMs = 5000; // 5 seconds - cards due within this window are considered "due now"
+      // Check if any learning cards are due TODAY (same calendar day)
+      // Cards due today should be shown even if on cooldown - user wants to complete in one sitting
+      // Cards due tomorrow or later have "graduated" - session is complete
+      const now = new Date();
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
 
-      // IMPORTANT: Use deterministic selection (sort by due_timestamp, then by id for stability)
-      // Random selection causes race conditions when multiple useLiveQuery calls run in parallel
-      const sorted = [...delayedLearningCards].sort((a, b) => {
-        // Sort by due_timestamp (soonest first), then by id for stability
-        const timestampDiff = (a.due_timestamp || 0) - (b.due_timestamp || 0);
-        if (timestampDiff !== 0) return timestampDiff;
-        return a.id.localeCompare(b.id);
-      });
-      const soonestCard = sorted[0];
+      const dueToday = delayedLearningCards.filter(c =>
+        !c.due_timestamp || c.due_timestamp <= endOfToday
+      );
 
-      // Check if ANY card is due now (within grace period)
-      // If ALL delayed learning cards are on cooldown, return null to show "All Done" screen
-      if (soonestCard.due_timestamp && soonestCard.due_timestamp > now + gracePeriodMs) {
-        console.log('[useOfflineNextCard] All learning cards on cooldown, showing All Done:', {
-          soonestDue: soonestCard.due_timestamp,
-          now,
-          waitTimeMs: soonestCard.due_timestamp - now,
+      if (dueToday.length === 0) {
+        // All learning cards have graduated (due tomorrow or later)
+        console.log('[useOfflineNextCard] All learning cards graduated (due tomorrow+), session complete:', {
           totalDelayed: delayedLearningCards.length,
+          soonestDue: delayedLearningCards[0]?.due_timestamp,
         });
         currentSelectedCardId = null;
         return null;
       }
 
-      // At least one card is due (or nearly due) - find which ones
-      const dueNow = sorted.filter(c => !c.due_timestamp || c.due_timestamp <= now + gracePeriodMs);
+      // IMPORTANT: Use deterministic selection (sort by due_timestamp, then by id for stability)
+      // Random selection causes race conditions when multiple useLiveQuery calls run in parallel
+      const sorted = [...dueToday].sort((a, b) => {
+        // Sort by due_timestamp (soonest first), then by id for stability
+        const timestampDiff = (a.due_timestamp || 0) - (b.due_timestamp || 0);
+        if (timestampDiff !== 0) return timestampDiff;
+        return a.id.localeCompare(b.id);
+      });
 
-      // Check if current card is one of the due delayed learning cards - keep it to prevent rapid switching
-      if (currentSelectedCardId) {
-        const currentCard = dueNow.find(c => c.id === currentSelectedCardId);
-        if (currentCard) {
-          console.log('[useOfflineNextCard] Keeping current DELAYED LEARNING card:', {
-            cardId: currentCard.id,
-            noteId: currentCard.note_id,
-            dueTimestamp: currentCard.due_timestamp,
-            currentSelectedCardId,
-          });
-          return currentCard;
-        }
-        console.log('[useOfflineNextCard] Current card not due or not found:', {
-          currentSelectedCardId,
-          dueCardIds: dueNow.map(c => c.id).slice(0, 5),
+      // Don't keep the current card if it was just rated - we want to cycle through cards
+      // The card's updated_at will be newer than when we first selected it
+      // Instead, always pick the soonest due card to ensure fair rotation
+      const selected = sorted[0];
+
+      // Only update currentSelectedCardId if it's a different card
+      // This provides stability while still allowing rotation after rating
+      if (currentSelectedCardId !== selected.id) {
+        console.log('[useOfflineNextCard] Selected LEARNING card due today:', {
+          cardId: selected.id,
+          noteId: selected.note_id,
+          dueTimestamp: selected.due_timestamp,
+          totalDueToday: dueToday.length,
+          previousCardId: currentSelectedCardId,
         });
+        currentSelectedCardId = selected.id;
       }
 
-      // Select the soonest due card
-      const selected = dueNow[0] || soonestCard;
-      currentSelectedCardId = selected.id;
-      console.log('[useOfflineNextCard] Selected DELAYED LEARNING card (deterministic - soonest due):', {
-        cardId: selected.id,
-        noteId: selected.note_id,
-        dueTimestamp: selected.due_timestamp,
-        totalDelayed: delayedLearningCards.length,
-        currentSelectedCardId,
-      });
       return selected;
     }
 

@@ -1238,7 +1238,7 @@ export function StudyPage() {
         <Loading />
       ) : currentCard && intervalPreviews ? (
         <StudyCard
-          key={currentCard.id}
+          key={`${currentCard.id}-${currentCard.updated_at}`}
           card={currentCard}
           intervalPreviews={intervalPreviews}
           sessionId={sessionId}
