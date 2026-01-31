@@ -2845,13 +2845,13 @@ app.post('/api/reviews', async (c) => {
         const newState = computeCardState(schedulerEvents, FSRS_DEFAULT_SETTINGS);
 
         // Update the card with the computed state
+        // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
+        // but not all FSRS columns (scheduled_days, reps). Map accordingly.
         await c.env.DB.prepare(`
           UPDATE cards SET
             queue = ?,
             stability = ?,
             difficulty = ?,
-            scheduled_days = ?,
-            reps = ?,
             lapses = ?,
             ease_factor = ?,
             interval = ?,
@@ -2864,12 +2864,10 @@ app.post('/api/reviews', async (c) => {
           newState.queue,
           newState.stability,
           newState.difficulty,
-          newState.scheduled_days,
-          newState.reps,
           newState.lapses,
           newState.ease_factor,
-          newState.interval,
-          newState.repetitions,
+          newState.interval,        // same as scheduled_days
+          newState.repetitions,     // same as reps
           newState.next_review_at,
           newState.due_timestamp,
           cardId
@@ -2966,13 +2964,13 @@ app.post('/api/cards/recompute-states', async (c) => {
       const newState = computeCardState(schedulerEvents, FSRS_DEFAULT_SETTINGS);
 
       // Update the card with the computed state
+      // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
+      // but not all FSRS columns (scheduled_days, reps). Map accordingly.
       await c.env.DB.prepare(`
         UPDATE cards SET
           queue = ?,
           stability = ?,
           difficulty = ?,
-          scheduled_days = ?,
-          reps = ?,
           lapses = ?,
           ease_factor = ?,
           interval = ?,
@@ -2985,12 +2983,10 @@ app.post('/api/cards/recompute-states', async (c) => {
         newState.queue,
         newState.stability,
         newState.difficulty,
-        newState.scheduled_days,
-        newState.reps,
         newState.lapses,
         newState.ease_factor,
-        newState.interval,
-        newState.repetitions,
+        newState.interval,        // same as scheduled_days
+        newState.repetitions,     // same as reps
         newState.next_review_at,
         newState.due_timestamp,
         cardId
