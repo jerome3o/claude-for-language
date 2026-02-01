@@ -514,6 +514,17 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     loadQueue();
   }, [loadQueue]);
 
+  // Update the current note (e.g., after regenerating audio)
+  const updateCurrentNote = useCallback((updatedNote: Partial<Note>) => {
+    setCurrentCardState(prev => {
+      if (!prev.note) return prev;
+      return {
+        ...prev,
+        note: { ...prev.note, ...updatedNote },
+      };
+    });
+  }, []);
+
   return {
     // State
     isLoading,
@@ -527,5 +538,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     rateCard,
     reloadQueue,
     selectNextCard,
+    updateCurrentNote,
   };
 }

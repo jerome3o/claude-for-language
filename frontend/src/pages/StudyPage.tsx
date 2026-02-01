@@ -23,6 +23,7 @@ import {
   getOtherUserInRelationship,
   MINIMAX_VOICES,
   DEFAULT_MINIMAX_VOICE,
+  Note,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -160,6 +161,7 @@ function StudyCard({
   onRate,
   onEnd,
   onShowFlagModal,
+  onUpdateNote,
 }: {
   card: CardWithNote;
   intervalPreviews: Record<Rating, IntervalPreview>;
@@ -169,6 +171,7 @@ function StudyCard({
   onRate: (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => void;
   onEnd: () => void;
   onShowFlagModal: (data: FlagModalData) => void;
+  onUpdateNote: (updatedNote: Partial<Note>) => void;
 }) {
   const { isOnline } = useNetwork();
 
@@ -626,6 +629,13 @@ function StudyCard({
                           updated_at: updatedNote.updated_at,
                         });
 
+                        // Update the note in React state so Play Audio button uses new URL
+                        onUpdateNote({
+                          audio_url: updatedNote.audio_url,
+                          audio_provider: updatedNote.audio_provider,
+                          updated_at: updatedNote.updated_at,
+                        });
+
                         // Trigger audio playback with the NEW audio URL and cache buster
                         playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
                       } catch (error) {
@@ -985,6 +995,7 @@ export function StudyPage() {
     isRating,
     rateCard,
     reloadQueue,
+    updateCurrentNote,
   } = useStudySession({
     deckId,
     bonusNewCards,
@@ -1235,6 +1246,7 @@ export function StudyPage() {
           onRate={handleRateCard}
           onEnd={handleEndSession}
           onShowFlagModal={handleShowFlagModal}
+          onUpdateNote={updateCurrentNote}
         />
       ) : null}
 
