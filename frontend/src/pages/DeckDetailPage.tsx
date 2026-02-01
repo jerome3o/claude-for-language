@@ -1452,6 +1452,7 @@ interface NoteFormData {
   pinyin: string;
   english: string;
   fun_facts: string;
+  context: string;
 }
 
 function NoteForm({
@@ -1469,12 +1470,13 @@ function NoteForm({
   const [pinyin, setPinyin] = useState(initial?.pinyin || '');
   const [english, setEnglish] = useState(initial?.english || '');
   const [funFacts, setFunFacts] = useState(initial?.fun_facts || '');
+  const [context, setContext] = useState(initial?.context || '');
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ hanzi, pinyin, english, fun_facts: funFacts });
+        onSubmit({ hanzi, pinyin, english, fun_facts: funFacts, context });
       }}
     >
       <div className="grid grid-cols-2">
@@ -1523,6 +1525,16 @@ function NoteForm({
           value={funFacts}
           onChange={(e) => setFunFacts(e.target.value)}
           placeholder="Cultural context, usage notes, memory aids..."
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Context (optional)</label>
+        <textarea
+          className="form-textarea"
+          value={context}
+          onChange={(e) => setContext(e.target.value)}
+          placeholder="Conversation context shown on the card front..."
         />
       </div>
 
@@ -1677,6 +1689,11 @@ function NoteCard({
         {note.fun_facts && (
           <p className="text-light mt-1" style={{ fontSize: '0.875rem' }}>
             {note.fun_facts}
+          </p>
+        )}
+        {note.context && (
+          <p className="text-light mt-1" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>
+            Context: {note.context}
           </p>
         )}
 
@@ -2235,6 +2252,7 @@ export function DeckDetailPage() {
                   pinyin: editingNote.pinyin,
                   english: editingNote.english,
                   fun_facts: editingNote.fun_facts || '',
+                  context: editingNote.context || '',
                 }}
                 onSubmit={(data) =>
                   updateNoteMutation.mutate({ noteId: editingNote.id, data })
