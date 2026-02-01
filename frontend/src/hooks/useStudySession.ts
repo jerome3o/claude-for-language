@@ -93,10 +93,78 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
   );
 }
 
+// Synchronously select the next card from a queue (pure function)
+function selectNextCardFromQueue(
+  queue: LocalCard[],
+  recentNoteIds: string[]
+): LocalCard | null {
+  const now = Date.now();
+
+  if (queue.length === 0) {
+    return null;
+  }
+
+  // Filter out recently studied notes (except learning cards)
+  const availableCards = queue.filter(card => {
+    if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+      return true;
+    }
+    return !recentNoteIds.includes(card.note_id);
+  });
+
+  const cardsToChooseFrom = availableCards.length > 0 ? availableCards : queue;
+
+  // Priority 1: Learning cards due NOW
+  const learningDue = cardsToChooseFrom.filter(c =>
+    (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+    c.due_timestamp && c.due_timestamp <= now
+  );
+
+  if (learningDue.length > 0) {
+    return pickWeightedLearningCard(learningDue, now);
+  }
+
+  // Priority 2: Mix new and review cards proportionally
+  const newCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.NEW);
+  const reviewCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.REVIEW);
+  const totalMixable = newCards.length + reviewCards.length;
+
+  if (totalMixable > 0) {
+    const newProbability = newCards.length / totalMixable;
+    const random = Math.random();
+
+    if (random < newProbability && newCards.length > 0) {
+      return pickRandom(newCards);
+    } else if (reviewCards.length > 0) {
+      return pickRandom(reviewCards);
+    } else if (newCards.length > 0) {
+      return pickRandom(newCards);
+    }
+  }
+
+  // Priority 3: Any learning card (even if not due yet)
+  const anyLearning = cardsToChooseFrom.filter(c =>
+    c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING
+  );
+  if (anyLearning.length > 0) {
+    anyLearning.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+    return anyLearning[0];
+  }
+
+  return null;
+}
+
 interface UseStudySessionOptions {
   deckId?: string;
   bonusNewCards?: number;
   enabled?: boolean;
+}
+
+// Combined state for current card to ensure atomic updates
+interface CurrentCardState {
+  card: LocalCard | null;
+  note: Note | null;
+  deck: Deck | null;
 }
 
 export function useStudySession(options: UseStudySessionOptions = {}) {
@@ -104,9 +172,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Local queue state
   const [queue, setQueue] = useState<LocalCard[]>([]);
-  const [currentCard, setCurrentCard] = useState<LocalCard | null>(null);
-  const [currentNote, setCurrentNote] = useState<Note | null>(null);
-  const [currentDeck, setCurrentDeck] = useState<Deck | null>(null);
+  const [currentCardState, setCurrentCardState] = useState<CurrentCardState>({
+    card: null,
+    note: null,
+    deck: null,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
@@ -162,10 +232,10 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     }
   }, [deckId, bonusNewCards, enabled, loadQueue]);
 
-  // Select the next card from the queue
+  // Select the next card from the queue (async version for fallback cases)
   const selectNextCard = useCallback(async () => {
     const now = Date.now();
-    console.log('[useStudySession] Selecting next card', {
+    console.log('[useStudySession] Selecting next card (async)', {
       queueLength: queue.length,
       recentNoteIds: recentNoteIds.length
     });
@@ -199,86 +269,26 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
           const selected = dueToday[0];
 
           // Load note and deck
-          const note = await db.notes.get(selected.note_id);
-          const deck = await db.decks.get(selected.deck_id);
+          const [note, deck] = await Promise.all([
+            db.notes.get(selected.note_id),
+            db.decks.get(selected.deck_id),
+          ]);
 
           if (note) {
             console.log('[useStudySession] Selected delayed learning card:', selected.id);
-            setCurrentCard(selected);
-            setCurrentNote(note);
-            setCurrentDeck(deck || null);
+            setCurrentCardState({ card: selected, note, deck: deck || null });
             return;
           }
         }
       }
 
       console.log('[useStudySession] No cards available');
-      setCurrentCard(null);
-      setCurrentNote(null);
-      setCurrentDeck(null);
+      setCurrentCardState({ card: null, note: null, deck: null });
       return;
     }
 
-    // Filter out recently studied notes (except learning cards)
-    const availableCards = queue.filter(card => {
-      if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-        return true;
-      }
-      return !recentNoteIds.includes(card.note_id);
-    });
-
-    if (availableCards.length === 0) {
-      // All cards are from recent notes, just pick from full queue
-      console.log('[useStudySession] All cards from recent notes, using full queue');
-    }
-
-    const cardsToChooseFrom = availableCards.length > 0 ? availableCards : queue;
-
-    // Priority 1: Learning cards due NOW
-    const learningDue = cardsToChooseFrom.filter(c =>
-      (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-      c.due_timestamp && c.due_timestamp <= now
-    );
-
-    let selected: LocalCard | null = null;
-
-    if (learningDue.length > 0) {
-      selected = pickWeightedLearningCard(learningDue, now);
-      console.log('[useStudySession] Selected learning card:', selected?.id);
-    } else {
-      // Priority 2: Mix new and review cards proportionally
-      const newCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.NEW);
-      const reviewCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.REVIEW);
-      const totalMixable = newCards.length + reviewCards.length;
-
-      if (totalMixable > 0) {
-        const newProbability = newCards.length / totalMixable;
-        const random = Math.random();
-
-        if (random < newProbability && newCards.length > 0) {
-          selected = pickRandom(newCards);
-          console.log('[useStudySession] Selected new card:', selected?.id);
-        } else if (reviewCards.length > 0) {
-          selected = pickRandom(reviewCards);
-          console.log('[useStudySession] Selected review card:', selected?.id);
-        } else if (newCards.length > 0) {
-          selected = pickRandom(newCards);
-          console.log('[useStudySession] Fallback to new card:', selected?.id);
-        }
-      }
-    }
-
-    if (!selected) {
-      // Priority 3: Any learning card (even if not due yet)
-      const anyLearning = cardsToChooseFrom.filter(c =>
-        c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING
-      );
-      if (anyLearning.length > 0) {
-        anyLearning.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-        selected = anyLearning[0];
-        console.log('[useStudySession] Selected waiting learning card:', selected?.id);
-      }
-    }
+    // Use the pure selection function
+    const selected = selectNextCardFromQueue(queue, recentNoteIds);
 
     if (selected) {
       // Load note and deck
@@ -288,25 +298,22 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       ]);
 
       if (note) {
-        setCurrentCard(selected);
-        setCurrentNote(note);
-        setCurrentDeck(deck || null);
+        console.log('[useStudySession] Selected card:', selected.id, 'queue:', selected.queue);
+        setCurrentCardState({ card: selected, note, deck: deck || null });
         return;
       }
     }
 
     console.log('[useStudySession] No card selected');
-    setCurrentCard(null);
-    setCurrentNote(null);
-    setCurrentDeck(null);
+    setCurrentCardState({ card: null, note: null, deck: null });
   }, [queue, recentNoteIds, deckId]);
 
   // Select first card when queue loads
   useEffect(() => {
-    if (!isLoading && queue.length > 0 && !currentCard) {
+    if (!isLoading && queue.length > 0 && !currentCardState.card) {
       selectNextCard();
     }
-  }, [isLoading, queue.length, currentCard, selectNextCard]);
+  }, [isLoading, queue.length, currentCardState.card, selectNextCard]);
 
   // Submit review mutation
   const reviewMutation = useMutation({
@@ -399,15 +406,15 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Rate the current card and transition to next
   const rateCard = useCallback(async (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
+    const currentCard = currentCardState.card;
+    const currentDeck = currentCardState.deck;
+
     if (!currentCard) return;
 
     const cardId = currentCard.id;
     const noteId = currentCard.note_id;
 
     console.log('[useStudySession] Rating card', { cardId, rating });
-
-    // Update recent notes
-    setRecentNoteIds(prev => [...prev.slice(-4), noteId]);
 
     // Get deck settings for calculating new state
     const settings = currentDeck ? deckSettingsFromDb(currentDeck) : DEFAULT_DECK_SETTINGS;
@@ -423,30 +430,50 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       settings
     );
 
-    // Update local queue immediately (optimistic update)
-    setQueue(prevQueue => {
-      const newQueue = prevQueue.filter(c => c.id !== cardId);
+    // Build the new queue
+    let newQueue = queue.filter(c => c.id !== cardId);
 
-      // If card is still in learning, add it back with updated state
-      if (result.queue === CardQueue.LEARNING || result.queue === CardQueue.RELEARNING) {
-        const updatedCard: LocalCard = {
-          ...currentCard,
-          queue: result.queue,
-          learning_step: result.learning_step,
-          ease_factor: result.ease_factor,
-          interval: result.interval,
-          repetitions: result.repetitions,
-          due_timestamp: result.due_timestamp,
-        };
-        newQueue.push(updatedCard);
-      }
+    // If card is still in learning, add it back with updated state
+    if (result.queue === CardQueue.LEARNING || result.queue === CardQueue.RELEARNING) {
+      const updatedCard: LocalCard = {
+        ...currentCard,
+        queue: result.queue,
+        learning_step: result.learning_step,
+        ease_factor: result.ease_factor,
+        interval: result.interval,
+        repetitions: result.repetitions,
+        due_timestamp: result.due_timestamp,
+      };
+      newQueue.push(updatedCard);
+    }
 
-      return newQueue;
-    });
+    // Update recent notes for variety filtering
+    const newRecentNoteIds = [...recentNoteIds.slice(-4), noteId];
 
-    // Clear current card to trigger next selection
-    setCurrentCard(null);
-    setCurrentNote(null);
+    // Select the next card synchronously from the new queue
+    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds);
+
+    console.log('[useStudySession] Next card selected:', nextCard?.id, 'from queue of', newQueue.length);
+
+    if (nextCard) {
+      // Load note and deck for the next card, then update all state atomically
+      const [note, deck] = await Promise.all([
+        db.notes.get(nextCard.note_id),
+        db.decks.get(nextCard.deck_id),
+      ]);
+
+      // Update ALL state at once to prevent intermediate renders
+      setQueue(newQueue);
+      setRecentNoteIds(newRecentNoteIds);
+      setCurrentCardState({ card: nextCard, note: note || null, deck: deck || null });
+    } else {
+      // No card from queue - update queue state first, then check for delayed cards
+      setQueue(newQueue);
+      setRecentNoteIds(newRecentNoteIds);
+
+      // Check for delayed learning cards (cards on cooldown)
+      await selectNextCard();
+    }
 
     // Submit review in background (don't await)
     reviewMutation.mutate({
@@ -456,14 +483,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       userAnswer,
       recordingBlob,
     });
-
-    // Select next card
-    // Small delay to let state update
-    setTimeout(() => selectNextCard(), 0);
-  }, [currentCard, currentDeck, reviewMutation, selectNextCard]);
+  }, [currentCardState, queue, recentNoteIds, reviewMutation, selectNextCard]);
 
   // Calculate current state
   const counts = calculateQueueCounts(queue);
+  const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
 
   const intervalPreviews: Record<Rating, IntervalPreview> | null =
     currentCard && currentDeck ? {
