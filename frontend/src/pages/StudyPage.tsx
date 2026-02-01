@@ -1,4 +1,4 @@
-import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import {
@@ -27,12 +27,7 @@ import {
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  useOfflineNextCard,
-  useOfflineQueueCounts,
-  useSubmitReviewOffline,
-  useHasMoreNewCards,
-} from '../hooks/useOfflineData';
+import { useStudySession } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
@@ -149,24 +144,29 @@ interface FlagModalData {
   hanzi: string;
   pinyin: string;
   english: string;
+  // Rating data to submit when modal closes
+  rating: Rating;
+  timeSpentMs: number;
+  userAnswer?: string;
+  recordingBlob?: Blob;
 }
 
 function StudyCard({
   card,
   intervalPreviews,
-  sessionId,
   counts,
   tutors,
-  onComplete,
+  isRating,
+  onRate,
   onEnd,
   onShowFlagModal,
 }: {
   card: CardWithNote;
   intervalPreviews: Record<Rating, IntervalPreview>;
-  sessionId: string | null;
   counts: QueueCounts;
   tutors: TutorRelationshipWithUsers[];
-  onComplete: () => void;
+  isRating: boolean;
+  onRate: (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => void;
   onEnd: () => void;
   onShowFlagModal: (data: FlagModalData) => void;
 }) {
@@ -207,9 +207,6 @@ function StudyCard({
 
   // Track which card we've played audio for to prevent re-triggering
   const playedAudioForRef = useRef<string | null>(null);
-
-  // Review submission (always uses offline/local-first approach)
-  const reviewMutation = useSubmitReviewOffline();
 
   const cardInfo = CARD_TYPE_INFO[card.card_type];
   const isTypingCard = cardInfo.action === 'type';
@@ -270,16 +267,8 @@ function StudyCard({
     }
   };
 
-  const handleRate = async (rating: Rating) => {
+  const handleRate = (rating: Rating) => {
     const timeSpent = Date.now() - startTime;
-    await reviewMutation.mutateAsync({
-      cardId: card.id,
-      rating,
-      timeSpentMs: timeSpent,
-      userAnswer: userAnswer || undefined,
-      sessionId: sessionId || undefined,
-      recordingBlob: audioBlob || undefined, // Recording will be uploaded after sync
-    });
 
     // If flag is checked, show modal in parent (survives card transition)
     if (flagForTutor && tutors.length > 0 && isOnline) {
@@ -289,12 +278,17 @@ function StudyCard({
         hanzi: card.note.hanzi,
         pinyin: card.note.pinyin,
         english: card.note.english,
+        rating,
+        timeSpentMs: timeSpent,
+        userAnswer: userAnswer || undefined,
+        recordingBlob: audioBlob || undefined,
       });
-      // Don't call onComplete - the parent will handle it when modal closes
+      // The flag modal will call onRate when it closes
       return;
     }
 
-    onComplete();
+    // Call parent's rate function - handles both state update and DB write
+    onRate(rating, timeSpent, userAnswer || undefined, audioBlob || undefined);
   };
 
   const handleAskClaude = async () => {
@@ -899,7 +893,7 @@ function StudyCard({
                 <RatingButtons
                   intervalPreviews={intervalPreviews}
                   onRate={handleRate}
-                  disabled={reviewMutation.isPending}
+                  disabled={isRating}
                 />
               </div>
             </>
@@ -918,7 +912,6 @@ function StudyCard({
 
 export function StudyPage() {
   const [searchParams] = useSearchParams();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { isOnline } = useNetwork();
   const { user } = useAuth();
@@ -926,7 +919,6 @@ export function StudyPage() {
   const deckId = searchParams.get('deck') || undefined;
   const autostart = searchParams.get('autostart') === 'true';
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [recentNotes, setRecentNotes] = useState<string[]>([]);
   const [studyStarted, setStudyStarted] = useState(autostart);
 
   // Flag modal state (lifted here to survive card transitions)
@@ -983,20 +975,21 @@ export function StudyPage() {
     }
   }, [bonusNewCards, deckId]);
 
-  // All data comes from offline/local-first hooks
-  const offlineQueueCounts = useOfflineQueueCounts(deckId, bonusNewCards);
-  const offlineNextCard = useOfflineNextCard(
-    studyStarted ? deckId : undefined,
-    recentNotes.slice(-5),
-    bonusNewCards
-  );
-  const hasMoreNewCards = useHasMoreNewCards(deckId, bonusNewCards);
-
-  // Derive state from hooks
-  const counts = offlineQueueCounts.counts;
-  const currentCard = studyStarted ? offlineNextCard.card : null;
-  const intervalPreviews = offlineNextCard.intervalPreviews;
-  const isLoading = studyStarted ? offlineNextCard.isLoading : offlineQueueCounts.isLoading;
+  // Use the new study session hook
+  const {
+    isLoading,
+    currentCard,
+    counts,
+    intervalPreviews,
+    hasMoreNewCards,
+    isRating,
+    rateCard,
+    reloadQueue,
+  } = useStudySession({
+    deckId,
+    bonusNewCards,
+    enabled: studyStarted,
+  });
 
 
   // Auto-start session creation when autostart param is present
@@ -1008,11 +1001,9 @@ export function StudyPage() {
     }
   }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
-  const handleCardComplete = () => {
-    // Update recent notes - hook reactively provides next card
-    if (currentCard) {
-      setRecentNotes(prev => [...prev.slice(-4), currentCard.note_id]);
-    }
+  // Handle rating a card (called from StudyCard or after flag modal)
+  const handleRateCard = (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
+    rateCard(rating, timeSpentMs, userAnswer, recordingBlob);
   };
 
   // Flag modal handlers
@@ -1036,36 +1027,32 @@ export function StudyPage() {
         card_id: flagModalData.cardId,
         message: flagMessage.trim(),
       });
-
-      // Reset flag state and complete the card
-      setFlagModalData(null);
-      setSelectedTutor(null);
-      setFlagMessage('');
-      handleCardComplete();
     } catch (error) {
       console.error('Failed to create flag:', error);
-      // Still complete the card even if flag fails
+    } finally {
+      // Rate the card regardless of flag success
+      handleRateCard(flagModalData.rating, flagModalData.timeSpentMs, flagModalData.userAnswer, flagModalData.recordingBlob);
+      // Reset flag state
       setFlagModalData(null);
       setSelectedTutor(null);
       setFlagMessage('');
-      handleCardComplete();
-    } finally {
       setIsFlagging(false);
     }
   };
 
   const handleFlagCancel = () => {
+    // Still rate the card when canceling
+    if (flagModalData) {
+      handleRateCard(flagModalData.rating, flagModalData.timeSpentMs, flagModalData.userAnswer, flagModalData.recordingBlob);
+    }
     setFlagModalData(null);
     setSelectedTutor(null);
     setFlagMessage('');
-    handleCardComplete();
   };
 
   const handleEndSession = () => {
     setStudyStarted(false);
     setSessionId(null);
-    setRecentNotes([]);
-    queryClient.invalidateQueries({ queryKey: ['stats'] });
     // Navigate back to home
     navigate('/');
   };
@@ -1092,9 +1079,10 @@ export function StudyPage() {
 
     const handleStudyMoreNewCards = () => {
       console.log('[StudyPage] Study More button clicked - adding', BONUS_NEW_CARDS_INCREMENT, 'bonus new cards');
-      // Add more new cards to today's limit
+      // Add more new cards to today's limit and reload the queue
       setBonusNewCards(prev => prev + BONUS_NEW_CARDS_INCREMENT);
-      setRecentNotes([]);
+      // Note: reloadQueue will be called when bonusNewCards changes via useEffect in the hook
+      reloadQueue();
     };
 
     return (
@@ -1241,10 +1229,10 @@ export function StudyPage() {
           key={currentCard.id}
           card={currentCard}
           intervalPreviews={intervalPreviews}
-          sessionId={sessionId}
           counts={counts}
           tutors={tutors}
-          onComplete={handleCardComplete}
+          isRating={isRating}
+          onRate={handleRateCard}
           onEnd={handleEndSession}
           onShowFlagModal={handleShowFlagModal}
         />
