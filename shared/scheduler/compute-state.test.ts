@@ -421,3 +421,183 @@ describe('FSRS Properties', () => {
     expect(easyCard.difficulty).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('Interval Preview Ordering (Bug Investigation)', () => {
+  it('interval previews for a mature review card show correct ordering', () => {
+    // Build up a mature card through multiple reviews
+    let state = initialCardState();
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    // Do several reviews to build up stability
+    for (let i = 0; i < 10; i++) {
+      const reviewDate = addDays(now, i * 7); // 7 days apart
+      state = applyReview(state, 2, DEFAULT_DECK_SETTINGS, reviewDate.toISOString()); // Good rating
+    }
+
+    console.log('Mature card state:');
+    console.log('  Queue:', state.queue, '(REVIEW=2)');
+    console.log('  Stability:', state.stability.toFixed(2));
+    console.log('  Difficulty:', state.difficulty.toFixed(2));
+    console.log('  Interval:', state.interval);
+    console.log('  Reps:', state.reps);
+
+    // Get interval previews with correct state
+    const reviewTime = addDays(now, 70);
+    const previews = getIntervalPreviews(state, DEFAULT_DECK_SETTINGS, reviewTime);
+
+    console.log('\nInterval previews:');
+    console.log('  Again:', previews[0].intervalText, '(' + previews[0].intervalDays.toFixed(2) + 'd)');
+    console.log('  Hard:', previews[1].intervalText, '(' + previews[1].intervalDays.toFixed(2) + 'd)');
+    console.log('  Good:', previews[2].intervalText, '(' + previews[2].intervalDays.toFixed(2) + 'd)');
+    console.log('  Easy:', previews[3].intervalText, '(' + previews[3].intervalDays.toFixed(2) + 'd)');
+
+    // Verify ordering: Again < Hard < Good < Easy (or at least not wildly reversed)
+    const againDays = previews[0].intervalDays;
+    const hardDays = previews[1].intervalDays;
+    const goodDays = previews[2].intervalDays;
+    const easyDays = previews[3].intervalDays;
+
+    // Again should always be shortest (goes to relearning)
+    expect(againDays).toBeLessThan(hardDays);
+    // Good should be less than or equal to Easy
+    expect(goodDays).toBeLessThanOrEqual(easyDays);
+  });
+
+  it('shows impact of wrong stability/difficulty on interval previews', () => {
+    // Build a mature card
+    let state = initialCardState();
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    for (let i = 0; i < 10; i++) {
+      const reviewDate = addDays(now, i * 7);
+      state = applyReview(state, 2, DEFAULT_DECK_SETTINGS, reviewDate.toISOString());
+    }
+
+    // Create a buggy state where stability is wrong (using interval instead)
+    const buggyState = {
+      ...state,
+      stability: state.interval || 1, // BUG: using interval instead of stability
+      difficulty: 5, // BUG: using default instead of actual
+    };
+
+    const reviewTime = addDays(now, 70);
+    const correctPreviews = getIntervalPreviews(state, DEFAULT_DECK_SETTINGS, reviewTime);
+    const buggyPreviews = getIntervalPreviews(buggyState, DEFAULT_DECK_SETTINGS, reviewTime);
+
+    console.log('\n=== COMPARISON: Correct vs Buggy ===');
+    console.log('Correct stability:', state.stability.toFixed(2), '| Buggy stability:', buggyState.stability);
+    console.log('Correct difficulty:', state.difficulty.toFixed(2), '| Buggy difficulty:', buggyState.difficulty);
+    console.log('\nCorrect previews:');
+    console.log('  Again:', correctPreviews[0].intervalText);
+    console.log('  Hard:', correctPreviews[1].intervalText);
+    console.log('  Good:', correctPreviews[2].intervalText);
+    console.log('  Easy:', correctPreviews[3].intervalText);
+    console.log('\nBuggy previews:');
+    console.log('  Again:', buggyPreviews[0].intervalText);
+    console.log('  Hard:', buggyPreviews[1].intervalText);
+    console.log('  Good:', buggyPreviews[2].intervalText);
+    console.log('  Easy:', buggyPreviews[3].intervalText);
+
+    // The buggy state may have different ordering
+    const buggyHardDays = buggyPreviews[1].intervalDays;
+    const buggyGoodDays = buggyPreviews[2].intervalDays;
+    const buggyEasyDays = buggyPreviews[3].intervalDays;
+
+    // Log if the buggy state produces reversed ordering
+    if (buggyHardDays > buggyGoodDays || buggyGoodDays > buggyEasyDays) {
+      console.log('\nBUG CONFIRMED: Buggy state produces reversed interval ordering!');
+      console.log('  Hard > Good?', buggyHardDays > buggyGoodDays);
+      console.log('  Good > Easy?', buggyGoodDays > buggyEasyDays);
+    }
+
+    // The test should show that correct state has proper ordering
+    const correctGoodDays = correctPreviews[2].intervalDays;
+    const correctEasyDays = correctPreviews[3].intervalDays;
+
+    expect(correctGoodDays).toBeLessThanOrEqual(correctEasyDays);
+  });
+
+  it('investigates Hard > Easy > Good scenario from screenshot', () => {
+    // The screenshot shows: Again=10m, Hard=1.3w (~9d), Good=6d, Easy=1w (7d)
+    // This is unusual: Hard > Easy > Good
+    // Let's try to reproduce this scenario
+
+    // Create various states and see what produces this pattern
+    console.log('\n=== INVESTIGATING SCREENSHOT SCENARIO ===');
+    console.log('Target: Hard=~9d, Good=6d, Easy=~7d');
+
+    // Scenario 1: Card with low stability and high difficulty (just graduated)
+    const justGraduated = {
+      queue: CardQueue.REVIEW,
+      stability: 3, // Low stability
+      difficulty: 7, // High difficulty
+      scheduled_days: 3,
+      reps: 1,
+      lapses: 0,
+      next_review_at: null,
+      due_timestamp: null,
+      last_reviewed_at: null,
+      ease_factor: 2.5,
+      interval: 3,
+      repetitions: 1,
+      learning_step: 0,
+    };
+
+    const now = new Date('2024-01-01T12:00:00Z');
+    const previews1 = getIntervalPreviews(justGraduated, DEFAULT_DECK_SETTINGS, now);
+    console.log('\nScenario 1: Just graduated (stab=3, diff=7)');
+    console.log('  Again:', previews1[0].intervalText, '(' + previews1[0].intervalDays.toFixed(1) + 'd)');
+    console.log('  Hard:', previews1[1].intervalText, '(' + previews1[1].intervalDays.toFixed(1) + 'd)');
+    console.log('  Good:', previews1[2].intervalText, '(' + previews1[2].intervalDays.toFixed(1) + 'd)');
+    console.log('  Easy:', previews1[3].intervalText, '(' + previews1[3].intervalDays.toFixed(1) + 'd)');
+
+    // Scenario 2: Try with fuzz factor by using different time
+    console.log('\nScenario 2: Same state, different review times (fuzz testing)');
+    for (let i = 0; i < 5; i++) {
+      const reviewTime = new Date(now.getTime() + i * 60000); // 1 minute apart
+      const previewsFuzz = getIntervalPreviews(justGraduated, DEFAULT_DECK_SETTINGS, reviewTime);
+      console.log(`  Time +${i}min: Hard=${previewsFuzz[1].intervalText}, Good=${previewsFuzz[2].intervalText}, Easy=${previewsFuzz[3].intervalText}`);
+    }
+
+    // Scenario 3: Higher stability, moderate difficulty
+    const moderateCard = {
+      ...justGraduated,
+      stability: 5,
+      difficulty: 5,
+    };
+    const previews3 = getIntervalPreviews(moderateCard, DEFAULT_DECK_SETTINGS, now);
+    console.log('\nScenario 3: Moderate card (stab=5, diff=5)');
+    console.log('  Hard:', previews3[1].intervalText, '(' + previews3[1].intervalDays.toFixed(1) + 'd)');
+    console.log('  Good:', previews3[2].intervalText, '(' + previews3[2].intervalDays.toFixed(1) + 'd)');
+    console.log('  Easy:', previews3[3].intervalText, '(' + previews3[3].intervalDays.toFixed(1) + 'd)');
+
+    // Scenario 4: High stability, low difficulty (well-established card)
+    const matureCard = {
+      ...justGraduated,
+      stability: 30,
+      difficulty: 3,
+      interval: 30,
+    };
+    const previews4 = getIntervalPreviews(matureCard, DEFAULT_DECK_SETTINGS, now);
+    console.log('\nScenario 4: Mature card (stab=30, diff=3)');
+    console.log('  Hard:', previews4[1].intervalText, '(' + previews4[1].intervalDays.toFixed(1) + 'd)');
+    console.log('  Good:', previews4[2].intervalText, '(' + previews4[2].intervalDays.toFixed(1) + 'd)');
+    console.log('  Easy:', previews4[3].intervalText, '(' + previews4[3].intervalDays.toFixed(1) + 'd)');
+
+    // Check if any scenario produces reversed ordering
+    const checkReversed = (previews: { intervalDays: number }[]) => {
+      const hard = previews[1].intervalDays;
+      const good = previews[2].intervalDays;
+      const easy = previews[3].intervalDays;
+      return hard > good || good > easy;
+    };
+
+    console.log('\n=== REVERSED ORDERING CHECK ===');
+    console.log('Scenario 1 reversed?', checkReversed(previews1));
+    console.log('Scenario 3 reversed?', checkReversed(previews3));
+    console.log('Scenario 4 reversed?', checkReversed(previews4));
+
+    // This test is primarily for investigation, always passes
+    expect(true).toBe(true);
+  });
+});

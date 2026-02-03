@@ -89,7 +89,10 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
     card.ease_factor,
     card.interval,
     card.repetitions,
-    settings
+    settings,
+    card.stability,  // Pass FSRS stability
+    card.difficulty, // Pass FSRS difficulty
+    card.lapses      // Pass FSRS lapses
   );
 }
 
