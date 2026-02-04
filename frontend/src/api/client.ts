@@ -303,11 +303,12 @@ export interface NoteQuestion {
 export async function askAboutNote(
   noteId: string,
   question: string,
-  context?: { userAnswer?: string; correctAnswer?: string; cardType?: string }
+  context?: { userAnswer?: string; correctAnswer?: string; cardType?: string },
+  conversationHistory?: { question: string; answer: string }[]
 ): Promise<NoteQuestion> {
   return fetchJSON<NoteQuestion>(`/notes/${noteId}/ask`, {
     method: 'POST',
-    body: JSON.stringify({ question, context }),
+    body: JSON.stringify({ question, context, conversationHistory }),
   });
 }
 
