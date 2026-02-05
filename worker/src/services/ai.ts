@@ -163,6 +163,11 @@ export interface AskContext {
   cardType?: string;
 }
 
+export interface ConversationMessage {
+  question: string;
+  answer: string;
+}
+
 /**
  * Answer a question about a vocabulary note
  */
@@ -170,11 +175,13 @@ export async function askAboutNote(
   apiKey: string,
   note: Note,
   question: string,
-  askContext?: AskContext
+  askContext?: AskContext,
+  conversationHistory?: ConversationMessage[]
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
 
-  let contextParts = [
+  // Build the vocabulary context that will be included in the first message
+  let vocabContextParts = [
     `The user is studying this vocabulary:`,
     `- Chinese: ${note.hanzi}`,
     `- Pinyin: ${note.pinyin}`,
@@ -182,28 +189,62 @@ export async function askAboutNote(
   ];
 
   if (note.fun_facts) {
-    contextParts.push(`- Notes: ${note.fun_facts}`);
+    vocabContextParts.push(`- Notes: ${note.fun_facts}`);
   }
 
   // Add user's answer context if provided
   if (askContext?.userAnswer) {
-    contextParts.push('');
-    contextParts.push(`The user was asked to write the Chinese characters.`);
-    contextParts.push(`User's answer: ${askContext.userAnswer}`);
-    contextParts.push(`Correct answer: ${askContext.correctAnswer || note.hanzi}`);
+    vocabContextParts.push('');
+    vocabContextParts.push(`The user was asked to write the Chinese characters.`);
+    vocabContextParts.push(`User's answer: ${askContext.userAnswer}`);
+    vocabContextParts.push(`Correct answer: ${askContext.correctAnswer || note.hanzi}`);
   }
 
-  contextParts.push('');
-  contextParts.push(`User's question: ${question}`);
+  const vocabContext = vocabContextParts.join('\n');
 
-  const context = contextParts.join('\n');
+  // Build messages array with conversation history
+  const messages: { role: 'user' | 'assistant'; content: string }[] = [];
+
+  if (conversationHistory && conversationHistory.length > 0) {
+    // First message includes vocab context
+    messages.push({
+      role: 'user',
+      content: `${vocabContext}\n\nUser's question: ${conversationHistory[0].question}`
+    });
+    messages.push({
+      role: 'assistant',
+      content: conversationHistory[0].answer
+    });
+
+    // Add remaining conversation history
+    for (let i = 1; i < conversationHistory.length; i++) {
+      messages.push({
+        role: 'user',
+        content: conversationHistory[i].question
+      });
+      messages.push({
+        role: 'assistant',
+        content: conversationHistory[i].answer
+      });
+    }
+
+    // Add current question
+    messages.push({
+      role: 'user',
+      content: question
+    });
+  } else {
+    // No history - just include vocab context with the question
+    messages.push({
+      role: 'user',
+      content: `${vocabContext}\n\nUser's question: ${question}`
+    });
+  }
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1000,
-    messages: [
-      { role: 'user', content: context }
-    ],
+    messages,
     system: ASK_SYSTEM_PROMPT,
   });
 

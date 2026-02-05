@@ -306,7 +306,13 @@ function StudyCard({
         cardType: card.card_type,
       } : undefined;
 
-      const response = await askAboutNote(card.note.id, question.trim(), context);
+      // Pass conversation history for multi-turn context
+      const history = conversation.map(qa => ({
+        question: qa.question,
+        answer: qa.answer,
+      }));
+
+      const response = await askAboutNote(card.note.id, question.trim(), context, history);
       setConversation((prev) => [...prev, response]);
       setQuestion('');
     } catch (error) {
