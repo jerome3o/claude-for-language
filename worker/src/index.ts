@@ -9,7 +9,7 @@ import {
   DEFAULT_DECK_SETTINGS,
   parseLearningSteps,
 } from './services/anki-scheduler';
-import { generateDeck, suggestCards, askAboutNote, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions } from './services/ai';
+import { generateDeck, suggestCards, askAboutNote, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS, generateConversationTTS } from './services/audio';
@@ -2207,6 +2207,74 @@ app.post('/api/messages/:id/check', async (c) => {
     console.error('Check message error:', error);
     const message = error instanceof Error ? error.message : 'Failed to check message';
     return c.json({ error: message }, 500);
+  }
+});
+
+// Discuss a message with Claude (with flashcard creation tool)
+app.post('/api/messages/:id/discuss', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+  const { question, conversationHistory } = await c.req.json<{
+    question: string;
+    conversationHistory?: { role: 'user' | 'assistant'; content: string }[];
+  }>();
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  if (!question || !question.trim()) {
+    return c.json({ error: 'Question is required' }, 400);
+  }
+
+  try {
+    // Get the message
+    const message = await c.env.DB
+      .prepare('SELECT * FROM messages WHERE id = ?')
+      .bind(msgId)
+      .first<{ id: string; conversation_id: string; sender_id: string; content: string }>();
+
+    if (!message) {
+      return c.json({ error: 'Message not found' }, 404);
+    }
+
+    // Verify user has access to this conversation
+    const conv = await c.env.DB
+      .prepare('SELECT * FROM conversations WHERE id = ?')
+      .bind(message.conversation_id)
+      .first<{ id: string; relationship_id: string }>();
+
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    // Verify relationship access
+    const rel = await c.env.DB
+      .prepare('SELECT * FROM tutor_relationships WHERE id = ? AND status = ? AND (requester_id = ? OR recipient_id = ?)')
+      .bind(conv.relationship_id, 'active', userId, userId)
+      .first();
+
+    if (!rel) {
+      return c.json({ error: 'Access denied' }, 403);
+    }
+
+    // Get chat context (surrounding messages)
+    const chatContext = await getChatContext(c.env.DB, message.conversation_id, userId);
+
+    // Call AI discussion
+    const result = await discussMessage(
+      c.env.ANTHROPIC_API_KEY,
+      message.content,
+      question.trim(),
+      chatContext,
+      conversationHistory
+    );
+
+    return c.json(result);
+  } catch (error) {
+    console.error('Discuss message error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to discuss message';
+    return c.json({ error: errMsg }, 500);
   }
 });
 

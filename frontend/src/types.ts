@@ -534,6 +534,12 @@ export interface GeneratedNoteWithContext extends GeneratedNote {
   context?: string;
 }
 
+// Message discussion response (discuss with Claude about a message)
+export interface DiscussMessageResponse {
+  response: string;
+  flashcards: GeneratedNote[] | null;
+}
+
 // Helper to check if a conversation is with Claude AI
 export function isClaudeConversation(conversation: Conversation): boolean {
   return conversation.is_ai_conversation;
