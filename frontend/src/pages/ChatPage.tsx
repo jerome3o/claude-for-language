@@ -25,6 +25,7 @@ import {
   CheckMessageResponse,
 } from '../types';
 import { Loading, ErrorMessage } from '../components/Loading';
+import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
 import { useAuth } from '../contexts/AuthContext';
 import './ChatPage.css';
 
@@ -70,6 +71,9 @@ export function ChatPage() {
     messageId: string;
     result: CheckMessageResponse;
   } | null>(null);
+
+  // Message discussion state
+  const [discussingMessage, setDiscussingMessage] = useState<MessageWithSender | null>(null);
 
   // Voice settings state
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
@@ -599,6 +603,14 @@ export function ChatPage() {
                           {msg.recording_url && (
                             <span className="has-recording" title="Has recording">🎤</span>
                           )}
+                          {/* Discuss with Claude button */}
+                          <button
+                            className="msg-action-btn"
+                            onClick={() => setDiscussingMessage(msg)}
+                            title="Discuss with Claude"
+                          >
+                            💬
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -762,6 +774,14 @@ export function ChatPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Message Discussion Modal */}
+      {discussingMessage && (
+        <MessageDiscussionModal
+          message={discussingMessage}
+          onClose={() => setDiscussingMessage(null)}
+        />
       )}
 
       {/* Voice Settings Modal */}

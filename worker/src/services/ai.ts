@@ -446,3 +446,127 @@ Include the relevant conversation context with each option.`;
 
   return result.options;
 }
+
+// ============ Message Discussion with Flashcard Tool ============
+
+const DISCUSS_MESSAGE_SYSTEM_PROMPT = `You are a helpful Chinese language tutor. The user is looking at a specific message from a conversation and wants to discuss it with you.
+
+Help the user understand the message. You can:
+- Explain vocabulary, grammar patterns, and sentence structures
+- Provide cultural context and usage notes
+- Give related vocabulary or phrases
+- Explain pronunciation tips
+- Create flashcards when the user asks or when it would be helpful
+
+Use examples with both Chinese characters and pinyin (with tone marks) when relevant.
+Keep your responses concise and focused on language learning.
+
+When you identify vocabulary or phrases worth learning, proactively suggest creating flashcards. Use the create_flashcards tool to create them.`;
+
+const CREATE_FLASHCARDS_TOOL = {
+  name: 'create_flashcards',
+  description: 'Create flashcards for Chinese vocabulary or phrases that the user should learn. Use this when the user asks to create flashcards, or when you identify vocabulary worth learning from the discussion. Each flashcard should have Chinese characters, pinyin with tone marks, English translation, and optional notes.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      flashcards: {
+        type: 'array',
+        description: 'Array of flashcards to create',
+        items: {
+          type: 'object',
+          properties: {
+            hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
+            pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use proper tone marks, NOT tone numbers. Put spaces between words, not syllables.' },
+            english: { type: 'string', description: 'Clear, concise English translation' },
+            fun_facts: { type: 'string', description: 'Optional cultural context, usage notes, memory aids, or grammar tips' },
+          },
+          required: ['hanzi', 'pinyin', 'english'],
+        },
+      },
+    },
+    required: ['flashcards'],
+  },
+};
+
+export interface DiscussMessageHistory {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface DiscussMessageResponse {
+  response: string;
+  flashcards: GeneratedNote[] | null;
+}
+
+/**
+ * Discuss a chat message with Claude, with flashcard creation tool
+ */
+export async function discussMessage(
+  apiKey: string,
+  messageContent: string,
+  question: string,
+  chatContext: string,
+  conversationHistory?: DiscussMessageHistory[]
+): Promise<DiscussMessageResponse> {
+  const client = new Anthropic({ apiKey });
+
+  const contextPreamble = `The user is looking at this message from a conversation:\n\n"${messageContent}"\n\nConversation context:\n${chatContext}\n\n`;
+
+  // Build messages array
+  const messages: { role: 'user' | 'assistant'; content: string }[] = [];
+
+  if (conversationHistory && conversationHistory.length > 0) {
+    // First message includes context
+    messages.push({
+      role: 'user',
+      content: `${contextPreamble}User's question: ${conversationHistory[0].content}`
+    });
+
+    // Add remaining history
+    for (let i = 1; i < conversationHistory.length; i++) {
+      messages.push({
+        role: conversationHistory[i].role,
+        content: conversationHistory[i].content,
+      });
+    }
+
+    // Add current question
+    messages.push({
+      role: 'user',
+      content: question,
+    });
+  } else {
+    messages.push({
+      role: 'user',
+      content: `${contextPreamble}User's question: ${question}`
+    });
+  }
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 2000,
+    messages,
+    system: DISCUSS_MESSAGE_SYSTEM_PROMPT,
+    tools: [CREATE_FLASHCARDS_TOOL as any],
+  });
+
+  // Parse response - extract text and any tool use
+  let textParts: string[] = [];
+  let flashcards: GeneratedNote[] | null = null;
+
+  for (const block of response.content) {
+    if (block.type === 'text') {
+      textParts.push(block.text);
+    } else if (block.type === 'tool_use' && block.name === 'create_flashcards') {
+      const input = block.input as { flashcards: GeneratedNote[] };
+      if (input.flashcards && Array.isArray(input.flashcards)) {
+        flashcards = input.flashcards;
+      }
+    }
+  }
+
+  return {
+    response: textParts.join('\n'),
+    flashcards,
+  };
+}

@@ -678,6 +678,20 @@ export async function uploadMessageRecording(
   return response.json();
 }
 
+export async function discussMessage(
+  messageId: string,
+  question: string,
+  conversationHistory?: { role: 'user' | 'assistant'; content: string }[]
+): Promise<{ response: string; flashcards: GeneratedNote[] | null }> {
+  return fetchJSON<{ response: string; flashcards: GeneratedNote[] | null }>(
+    `/messages/${messageId}/discuss`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ question, conversationHistory }),
+    }
+  );
+}
+
 export async function updateConversationVoiceSettings(
   conversationId: string,
   voiceId?: string,
