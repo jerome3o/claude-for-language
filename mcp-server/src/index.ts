@@ -129,9 +129,14 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "get_deck",
-      "Get a deck with all its notes",
-      { deck_id: z.string().describe("The deck ID") },
-      async ({ deck_id }) => {
+      "Get a deck with all its notes. Use the 'fields' parameter to request only specific note fields (e.g. ['hanzi', 'english']) to reduce response size for large decks.",
+      {
+        deck_id: z.string().describe("The deck ID"),
+        fields: z.array(z.enum(['hanzi', 'pinyin', 'english', 'audio_url', 'fun_facts', 'created_at', 'updated_at', 'context']))
+          .optional()
+          .describe("Which note fields to include in the response. If not specified, all fields are returned. The note 'id' and 'deck_id' are always included."),
+      },
+      async ({ deck_id, fields }) => {
         const deck = await this.env.DB
           .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
           .bind(deck_id, userId)
@@ -149,10 +154,25 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .bind(deck_id)
           .all<Note>();
 
+        let filteredNotes = notes.results;
+        if (fields && fields.length > 0) {
+          const alwaysInclude = ['id', 'deck_id'];
+          const allowedKeys = new Set([...alwaysInclude, ...fields]);
+          filteredNotes = notes.results.map(note => {
+            const filtered: Record<string, unknown> = {};
+            for (const key of allowedKeys) {
+              if (key in note) {
+                filtered[key] = (note as unknown as Record<string, unknown>)[key];
+              }
+            }
+            return filtered as unknown as Note;
+          });
+        }
+
         return {
           content: [{
             type: "text" as const,
-            text: JSON.stringify({ ...deck, notes: notes.results }, null, 2),
+            text: JSON.stringify({ ...deck, notes: filteredNotes }, null, 2),
           }],
         };
       }
