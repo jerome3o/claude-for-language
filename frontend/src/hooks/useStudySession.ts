@@ -467,12 +467,112 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       setRecentNoteIds(newRecentNoteIds);
       setCurrentCardState({ card: nextCard, note: note || null, deck: deck || null });
     } else {
-      // No card from queue - update queue state first, then check for delayed cards
+      // No card from queue - need to check IndexedDB for delayed learning cards.
+      // But first, we must update IndexedDB with the current card's new state,
+      // otherwise the query will find this card still in its old LEARNING state.
+      const reviewedAt = new Date().toISOString();
+      await db.cards.update(cardId, {
+        queue: result.queue,
+        learning_step: result.learning_step,
+        ease_factor: result.ease_factor,
+        interval: result.interval,
+        repetitions: result.repetitions,
+        next_review_at: result.next_review_at?.toISOString() || null,
+        due_timestamp: result.due_timestamp,
+        updated_at: reviewedAt,
+      });
+
+      // Now check for delayed learning cards with correct DB state
+      let delayedLearningCards: LocalCard[];
+      if (deckId) {
+        delayedLearningCards = await db.cards
+          .where('deck_id').equals(deckId)
+          .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
+          .toArray();
+      } else {
+        delayedLearningCards = await db.cards
+          .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
+          .toArray();
+      }
+
+      if (delayedLearningCards.length > 0) {
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const dueToday = delayedLearningCards.filter(c =>
+          !c.due_timestamp || c.due_timestamp <= endOfToday.getTime()
+        );
+
+        if (dueToday.length > 0) {
+          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          const selected = dueToday[0];
+
+          const [note, deck] = await Promise.all([
+            db.notes.get(selected.note_id),
+            db.decks.get(selected.deck_id),
+          ]);
+
+          if (note) {
+            console.log('[useStudySession] Selected delayed learning card:', selected.id);
+            setQueue(newQueue);
+            setRecentNoteIds(newRecentNoteIds);
+            setCurrentCardState({ card: selected, note, deck: deck || null });
+
+            // Submit review event in background (card already updated above)
+            createLocalReviewEvent({
+              id: crypto.randomUUID(),
+              card_id: cardId,
+              rating,
+              time_spent_ms: timeSpentMs || null,
+              user_answer: userAnswer || null,
+              reviewed_at: reviewedAt,
+              _synced: 0,
+            }).then(() => {
+              if (recordingBlob) {
+                storePendingRecording({
+                  id: crypto.randomUUID(),
+                  blob: recordingBlob,
+                  uploaded: false,
+                  created_at: reviewedAt,
+                });
+              }
+              if (navigator.onLine) {
+                syncService.syncEvents().catch(console.error);
+              }
+            });
+            return;
+          }
+        }
+      }
+
+      // No delayed learning cards - session is truly done
+      console.log('[useStudySession] No cards available - session complete');
       setQueue(newQueue);
       setRecentNoteIds(newRecentNoteIds);
+      setCurrentCardState({ card: null, note: null, deck: null });
 
-      // Check for delayed learning cards (cards on cooldown)
-      await selectNextCard();
+      // Submit review event (card already updated in DB above)
+      createLocalReviewEvent({
+        id: crypto.randomUUID(),
+        card_id: cardId,
+        rating,
+        time_spent_ms: timeSpentMs || null,
+        user_answer: userAnswer || null,
+        reviewed_at: reviewedAt,
+        _synced: 0,
+      }).then(() => {
+        if (recordingBlob) {
+          storePendingRecording({
+            id: crypto.randomUUID(),
+            blob: recordingBlob,
+            uploaded: false,
+            created_at: reviewedAt,
+          });
+        }
+        if (navigator.onLine) {
+          syncService.syncEvents().catch(console.error);
+        }
+      });
+      return;
     }
 
     // Submit review in background (don't await)
