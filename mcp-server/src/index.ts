@@ -697,6 +697,97 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       }
     );
 
+    this.server.tool(
+      "move_notes",
+      "Move one or more notes to a different deck. Cards keep all their SRS state, review history, and scheduling. Useful for reorganizing decks.",
+      {
+        note_ids: z.array(z.string()).describe("Array of note IDs to move"),
+        target_deck_id: z.string().describe("The destination deck ID"),
+      },
+      async ({ note_ids, target_deck_id }) => {
+        // Verify target deck exists and belongs to user
+        const targetDeck = await this.env.DB
+          .prepare('SELECT id, name FROM decks WHERE id = ? AND user_id = ?')
+          .bind(target_deck_id, userId)
+          .first<{ id: string; name: string }>();
+
+        if (!targetDeck) {
+          return {
+            content: [{ type: "text" as const, text: `Target deck not found: ${target_deck_id}` }],
+            isError: true,
+          };
+        }
+
+        const results: { hanzi: string; pinyin: string; from_deck: string; success: boolean; error?: string }[] = [];
+        const affectedDeckIds = new Set<string>();
+        affectedDeckIds.add(target_deck_id);
+
+        for (const noteId of note_ids) {
+          // Verify note exists and belongs to user
+          const note = await this.env.DB
+            .prepare(`
+              SELECT n.*, d.name as deck_name FROM notes n
+              JOIN decks d ON n.deck_id = d.id
+              WHERE n.id = ? AND d.user_id = ?
+            `)
+            .bind(noteId, userId)
+            .first<Note & { deck_name: string }>();
+
+          if (!note) {
+            results.push({ hanzi: '?', pinyin: '?', from_deck: '?', success: false, error: `Note not found: ${noteId}` });
+            continue;
+          }
+
+          // Skip if already in target deck
+          if (note.deck_id === target_deck_id) {
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, from_deck: note.deck_name, success: true, error: 'Already in target deck' });
+            continue;
+          }
+
+          try {
+            affectedDeckIds.add(note.deck_id);
+
+            // Move the note — cards, review events, etc. all stay linked via note_id/card_id
+            await this.env.DB
+              .prepare("UPDATE notes SET deck_id = ?, updated_at = datetime('now') WHERE id = ?")
+              .bind(target_deck_id, noteId)
+              .run();
+
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, from_deck: note.deck_name, success: true });
+          } catch (e) {
+            console.error(`Failed to move note ${noteId}:`, e);
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, from_deck: note.deck_name, success: false, error: String(e) });
+          }
+        }
+
+        // Update timestamps on all affected decks so sync picks up changes
+        for (const deckId of affectedDeckIds) {
+          await this.env.DB
+            .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
+            .bind(deckId)
+            .run();
+        }
+
+        const moved = results.filter(r => r.success && !r.error);
+        const skipped = results.filter(r => r.success && r.error);
+        const failed = results.filter(r => !r.success);
+
+        const lines = [
+          `Moved ${moved.length}/${note_ids.length} notes to "${targetDeck.name}":`,
+          ...moved.map(r => `  - ${r.hanzi} (${r.pinyin}) from "${r.from_deck}"`),
+          ...(skipped.length > 0 ? [`Skipped ${skipped.length}: ${skipped.map(r => `${r.hanzi} (${r.error})`).join(', ')}`] : []),
+          ...(failed.length > 0 ? [`Failed ${failed.length}: ${failed.map(r => `${r.hanzi || r.error}`).join(', ')}`] : []),
+        ];
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join('\n'),
+          }],
+        };
+      }
+    );
+
     // ============ Card Configuration Tools ============
 
     this.server.tool(
