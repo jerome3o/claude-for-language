@@ -191,7 +191,7 @@ function StudyCard({
   const [showDebug, setShowDebug] = useState(false);
   const [reviewHistory, setReviewHistory] = useState<LocalReviewEvent[]>([]);
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
-  const [audioSpeed, setAudioSpeed] = useState(0.5);
+  const [audioSpeed, setAudioSpeed] = useState(0.8);
   const [audioProvider, setAudioProvider] = useState<'minimax' | 'gtts' | ''>('');
   const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
 
