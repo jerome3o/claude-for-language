@@ -409,10 +409,25 @@ export async function verifyCardState(cardId: string): Promise<{
 }
 
 /**
- * Fix card state by recomputing from events
+ * Fix card state by recomputing from events.
+ * Safety: Never regress a card to NEW if it's currently in a more advanced state
+ * and recomputation found no events (possible race condition with event sync).
  */
 export async function fixCardState(cardId: string): Promise<ComputedCardState> {
   const computed = await recomputeCardState(cardId);
+
+  // Safety check: don't reset a card to NEW if it already has progress.
+  // This can happen if events haven't been written to IndexedDB yet
+  // (e.g., during a study session when sync runs concurrently).
+  const currentCard = await db.cards.get(cardId);
+  if (currentCard && computed.queue === 0 && currentCard.queue !== 0) {
+    // Card has progress but recomputation says NEW - likely missing events
+    console.log('[fixCardState] Skipping reset to NEW for card', cardId,
+      'current queue:', currentCard.queue,
+      'computed queue:', computed.queue,
+      '(likely missing events, preserving current state)');
+    return computed;
+  }
 
   await db.cards.update(cardId, {
     queue: computed.queue,

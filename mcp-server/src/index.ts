@@ -78,6 +78,70 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     version: "1.0.0",
   });
 
+  /**
+   * Create a temporary session token for authenticated API calls.
+   * The MCP server needs to call the main API for operations like TTS generation,
+   * but the API requires authentication. This creates a short-lived session.
+   */
+  private async getApiSessionToken(userId: string): Promise<string> {
+    const sessionId = generateId();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 min expiry
+
+    await this.env.DB
+      .prepare('INSERT INTO auth_sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
+      .bind(sessionId, userId, expiresAt)
+      .run();
+
+    return sessionId;
+  }
+
+  /**
+   * Clean up a temporary session token after use.
+   */
+  private async cleanupSessionToken(sessionId: string): Promise<void> {
+    try {
+      await this.env.DB
+        .prepare('DELETE FROM auth_sessions WHERE id = ?')
+        .bind(sessionId)
+        .run();
+    } catch (e) {
+      console.error('Failed to cleanup session token:', e);
+    }
+  }
+
+  /**
+   * Get the base URL for the main API.
+   */
+  private getApiUrl(): string {
+    return this.env.ENVIRONMENT === 'production'
+      ? 'https://chinese-learning-api.jeromeswannack.workers.dev'
+      : 'http://localhost:8787';
+  }
+
+  /**
+   * Call the generate-audio API endpoint with proper authentication.
+   */
+  private async generateAudioForNote(noteId: string, userId: string): Promise<boolean> {
+    let sessionToken: string | null = null;
+    try {
+      sessionToken = await this.getApiSessionToken(userId);
+      const response = await fetch(`${this.getApiUrl()}/api/notes/${noteId}/generate-audio`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionToken}`,
+        },
+      });
+      return response.ok;
+    } catch (e) {
+      console.error('Failed to generate audio:', e);
+      return false;
+    } finally {
+      if (sessionToken) {
+        await this.cleanupSessionToken(sessionToken);
+      }
+    }
+  }
+
   async init() {
     const userId = this.props!.userId;
 
@@ -417,19 +481,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .bind(deck_id)
           .run();
 
-        // Generate TTS audio via main API
-        let audioGenerated = false;
-        try {
-          const apiUrl = this.env.ENVIRONMENT === 'production'
-            ? 'https://chinese-learning-api.jeromeswannack.workers.dev'
-            : 'http://localhost:8787';
-          const audioResponse = await fetch(`${apiUrl}/api/notes/${noteId}/generate-audio`, {
-            method: 'POST',
-          });
-          audioGenerated = audioResponse.ok;
-        } catch (e) {
-          console.error('Failed to generate audio:', e);
-        }
+        // Generate TTS audio via main API (with proper authentication)
+        const audioGenerated = await this.generateAudioForNote(noteId, userId);
 
         return {
           content: [{
@@ -502,25 +555,14 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .bind(deck_id)
           .run();
 
-        // Generate TTS audio for all notes (in parallel)
-        const apiUrl = this.env.ENVIRONMENT === 'production'
-          ? 'https://chinese-learning-api.jeromeswannack.workers.dev'
-          : 'http://localhost:8787';
-
-        const audioPromises = noteIds.map(async (noteId, index) => {
-          try {
-            const response = await fetch(`${apiUrl}/api/notes/${noteId}/generate-audio`, {
-              method: 'POST',
-            });
-            if (response.ok) {
-              results[index].audioGenerated = true;
-            }
-          } catch (e) {
-            console.error(`Failed to generate audio for note ${noteId}:`, e);
+        // Generate TTS audio for all notes (with proper authentication)
+        // Process sequentially to avoid creating too many sessions
+        for (let i = 0; i < noteIds.length; i++) {
+          const generated = await this.generateAudioForNote(noteIds[i], userId);
+          if (generated) {
+            results[i].audioGenerated = true;
           }
-        });
-
-        await Promise.all(audioPromises);
+        }
 
         const successful = results.filter(r => r.success);
         const withAudio = results.filter(r => r.audioGenerated);

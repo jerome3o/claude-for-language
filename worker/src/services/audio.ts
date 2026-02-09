@@ -207,6 +207,8 @@ export async function generateGoogleTTS(
           audioConfig: {
             audioEncoding: 'MP3',
             speakingRate: 0.9, // Slightly slower for learning
+            sampleRateHertz: 24000, // Higher quality sample rate for Wavenet
+            effectsProfileId: ['headphone-class-device'], // Optimize for headphone playback
           },
         }),
       }
@@ -422,6 +424,8 @@ async function generateGoogleTTSWithOptions(
           audioConfig: {
             audioEncoding: 'MP3',
             speakingRate: speed,
+            sampleRateHertz: 24000, // Higher quality sample rate for Wavenet
+            effectsProfileId: ['headphone-class-device'], // Optimize for headphone playback
           },
         }),
       }
@@ -554,6 +558,8 @@ export async function generateConversationTTS(
             audioConfig: {
               audioEncoding: 'MP3',
               speakingRate: speed,
+              sampleRateHertz: 24000,
+              effectsProfileId: ['headphone-class-device'],
             },
           }),
         }
