@@ -26,6 +26,7 @@ bucket_name = "chinese-learning-audio"
 # - SESSION_SECRET: Random secret for session signing (openssl rand -base64 32)
 # - ADMIN_EMAIL: Email address of the admin user
 # - NTFY_TOPIC: ntfy.sh topic for new user notifications
+# - SENDGRID_API_KEY: SendGrid API key for email notifications (message alerts, invitations)
 [vars]
 ENVIRONMENT = "production"
 

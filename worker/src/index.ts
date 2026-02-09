@@ -1917,32 +1917,37 @@ app.post('/api/conversations/:id/messages', async (c) => {
     const message = await sendMessage(c.env.DB, convId, userId, content);
 
     // Send email notification to the other user (non-blocking)
+    // Must use waitUntil() so the worker stays alive for the SendGrid fetch
     if (c.env.SENDGRID_API_KEY) {
-      const conv = await getConversationById(c.env.DB, convId, userId);
-      if (conv) {
-        const relationship = await getRelationshipById(c.env.DB, conv.relationship_id);
-        if (relationship) {
-          const otherUserId = getOtherUserId(relationship, userId);
-          const otherUser =
-            relationship.requester.id === otherUserId
-              ? relationship.requester
-              : relationship.recipient;
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const conv = await getConversationById(c.env.DB, convId, userId);
+          if (conv) {
+            const relationship = await getRelationshipById(c.env.DB, conv.relationship_id);
+            if (relationship) {
+              const otherUserId = getOtherUserId(relationship, userId);
+              const otherUser =
+                relationship.requester.id === otherUserId
+                  ? relationship.requester
+                  : relationship.recipient;
 
-          if (otherUser.email) {
-            // Fire and forget - don't block the response
-            sendNewMessageNotification(c.env.SENDGRID_API_KEY, {
-              recipientEmail: otherUser.email,
-              recipientName: otherUser.name,
-              senderName: message.sender.name,
-              messagePreview: content,
-              conversationId: convId,
-              relationshipId: conv.relationship_id,
-            }).catch((err) => {
-              console.error('Failed to send email notification:', err);
-            });
+              if (otherUser.email) {
+                const sent = await sendNewMessageNotification(c.env.SENDGRID_API_KEY, {
+                  recipientEmail: otherUser.email,
+                  recipientName: otherUser.name,
+                  senderName: message.sender.name,
+                  messagePreview: content,
+                  conversationId: convId,
+                  relationshipId: conv.relationship_id,
+                });
+                console.log('[Email] Message notification to', otherUser.email, sent ? 'sent' : 'FAILED');
+              }
+            }
           }
+        } catch (err) {
+          console.error('[Email] Failed to send message notification:', err);
         }
-      }
+      })());
     }
 
     return c.json(message, 201);
