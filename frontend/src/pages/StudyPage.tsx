@@ -32,6 +32,7 @@ import { useStudySession } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
+import { pinyin } from 'pinyin-pro';
 
 // Character diff component for typed answers (Anki-style)
 function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correctAnswer: string }) {
@@ -55,6 +56,9 @@ function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correct
 
   const isFullyCorrect = userAnswer === correctAnswer;
 
+  // Generate pinyin for user's answer
+  const userPinyin = pinyin(userAnswer, { toneType: 'symbol', type: 'string' });
+
   if (isFullyCorrect) {
     return (
       <div className="answer-diff">
@@ -63,6 +67,7 @@ function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correct
             <span key={i} className="diff-char diff-correct">{c.char}</span>
           ))}
         </div>
+        <div className="answer-diff-pinyin">{userPinyin}</div>
       </div>
     );
   }
@@ -74,6 +79,7 @@ function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correct
           <span key={i} className={`diff-char ${c.correct ? 'diff-correct' : 'diff-wrong'}`}>{c.char}</span>
         ))}
       </div>
+      <div className="answer-diff-pinyin">{userPinyin}</div>
       <div className="answer-diff-arrow">↓</div>
       <div className="answer-diff-row">
         {correctChars.map((c, i) => (
