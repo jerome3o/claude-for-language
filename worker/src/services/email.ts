@@ -245,3 +245,79 @@ Chinese Learning App`;
     htmlContent,
   });
 }
+
+/**
+ * Send a notification email when an existing user receives a connection request
+ */
+export async function sendConnectionRequestEmail(
+  apiKey: string,
+  params: {
+    recipientEmail: string;
+    recipientName: string | null;
+    requesterName: string | null;
+    requesterRole: 'tutor' | 'student';
+  }
+): Promise<boolean> {
+  const { recipientEmail, recipientName, requesterName, requesterRole } = params;
+
+  const displayName = requesterName || 'Someone';
+  const roleDescription = requesterRole === 'tutor'
+    ? 'wants to be your Chinese tutor'
+    : 'wants you to be their Chinese tutor';
+
+  const connectionsUrl = `${APP_BASE_URL}/connections`;
+
+  const subject = `${displayName} wants to connect with you`;
+
+  const textContent = `Hi ${recipientName || 'there'},
+
+${displayName} ${roleDescription} on Chinese Learning App!
+
+View and accept the request: ${connectionsUrl}
+
+---
+Chinese Learning App`;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { color: #2563eb; margin-bottom: 20px; }
+    .invite-box { background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+    .invite-text { font-size: 18px; color: #1f2937; margin-bottom: 8px; }
+    .role-text { color: #4b5563; }
+    .button { display: inline-block; background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 500; }
+    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 class="header">New Connection Request</h2>
+    <p>Hi ${recipientName || 'there'},</p>
+    <div class="invite-box">
+      <p class="invite-text"><strong>${displayName}</strong></p>
+      <p class="role-text">${roleDescription}</p>
+    </div>
+    <p>Open the app to accept or decline this request.</p>
+    <div style="text-align: center;">
+      <a href="${connectionsUrl}" class="button">View Connection Requests</a>
+    </div>
+    <div class="footer">
+      <p>Chinese Learning App</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return sendEmail(apiKey, {
+    to: recipientEmail,
+    toName: recipientName || undefined,
+    subject,
+    textContent,
+    htmlContent,
+  });
+}

@@ -51,7 +51,7 @@ import {
   cancelPendingInvitation,
   processPendingInvitations,
 } from './services/relationships';
-import { sendNewMessageNotification, sendInvitationEmail } from './services/email';
+import { sendNewMessageNotification, sendInvitationEmail, sendConnectionRequestEmail } from './services/email';
 import {
   getConversations,
   createConversation,
@@ -1730,7 +1730,26 @@ app.post('/api/relationships', async (c) => {
       return c.json(result, 201);
     }
 
-    // Regular relationship
+    // Regular relationship — notify the recipient via email
+    if (result.type === 'relationship' && result.data.status === 'pending') {
+      if (c.env.SENDGRID_API_KEY) {
+        const recipient = result.data.requester.id === userId
+          ? result.data.recipient : result.data.requester;
+        if (recipient.email) {
+          c.executionCtx.waitUntil(
+            sendConnectionRequestEmail(c.env.SENDGRID_API_KEY, {
+              recipientEmail: recipient.email,
+              recipientName: recipient.name,
+              requesterName: user.name,
+              requesterRole: role,
+            }).catch(err => {
+              console.error('[Relationships] Failed to send connection request email:', err);
+            })
+          );
+        }
+      }
+    }
+
     return c.json(result, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create relationship';
