@@ -262,6 +262,17 @@ class SyncService {
         await db.cards.bulkPut(newCards);
       }
 
+      // Update deck_id on existing cards if notes have moved between decks.
+      // This only touches deck_id, not scheduling state.
+      const existingCards = allCards.filter(c => existingCardIds.has(c.id));
+      for (const serverCard of existingCards) {
+        const localCard = await db.cards.get(serverCard.id);
+        if (localCard && localCard.deck_id !== serverCard.deck_id) {
+          console.log('[Sync] Updating card deck_id:', serverCard.id, 'from', localCard.deck_id, 'to', serverCard.deck_id);
+          await db.cards.update(serverCard.id, { deck_id: serverCard.deck_id });
+        }
+      }
+
       await updateSyncMeta({
         id: 'sync_state',
         last_full_sync: Date.now(),
@@ -340,6 +351,20 @@ class SyncService {
       }
       if (changes.notes.length > 0) {
         await db.notes.bulkPut(changes.notes.map(n => noteToLocal(n)));
+
+        // When notes are updated, their deck_id may have changed (e.g., moved between decks).
+        // Update deck_id on local cards to match the note's current deck_id.
+        // This only touches deck_id, not scheduling state.
+        for (const note of changes.notes) {
+          const noteLocal = noteToLocal(note);
+          const cardsForNote = await db.cards.where('note_id').equals(noteLocal.id).toArray();
+          for (const card of cardsForNote) {
+            if (card.deck_id !== noteLocal.deck_id) {
+              console.log('[Sync] Updating card deck_id:', card.id, 'from', card.deck_id, 'to', noteLocal.deck_id);
+              await db.cards.update(card.id, { deck_id: noteLocal.deck_id });
+            }
+          }
+        }
       }
       if (changes.cards.length > 0) {
         // IMPORTANT: Only INSERT new cards, don't update existing ones!

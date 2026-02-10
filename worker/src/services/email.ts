@@ -112,11 +112,11 @@ export async function sendNewMessageNotification(
 
   const textContent = `Hi ${recipientName || 'there'},
 
-You have a new message from ${displayName}:
-
-"${truncatedPreview}"
+You have a new message from ${displayName}.
 
 View the conversation: ${conversationUrl}
+
+"${truncatedPreview}"
 
 ---
 Chinese Learning App`;
@@ -140,11 +140,11 @@ Chinese Learning App`;
   <div class="container">
     <h2 class="header">New Message</h2>
     <p>Hi ${recipientName || 'there'},</p>
-    <p>You have a new message from <strong>${displayName}</strong>:</p>
+    <p>You have a new message from <strong>${displayName}</strong>.</p>
+    <a href="${conversationUrl}" class="button">View Conversation</a>
     <div class="message-box">
       <p class="message-text">"${truncatedPreview}"</p>
     </div>
-    <a href="${conversationUrl}" class="button">View Conversation</a>
     <div class="footer">
       <p>Chinese Learning App</p>
     </div>
