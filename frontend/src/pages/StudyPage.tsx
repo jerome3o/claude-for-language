@@ -32,7 +32,7 @@ import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
 import { syncService } from '../services/sync';
-import { useStudySession } from '../hooks/useStudySession';
+import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
@@ -1088,6 +1088,47 @@ function StudyCard({
   );
 }
 
+function SessionRecap({ stats }: { stats: SessionStats }) {
+  if (stats.totalReviews === 0) return null;
+
+  const accuracy = Math.round((stats.correctCount / stats.totalReviews) * 100);
+  const timeSpentMs = Date.now() - stats.timeStarted;
+  const minutes = Math.floor(timeSpentMs / 60000);
+  const seconds = Math.floor((timeSpentMs % 60000) / 1000);
+  const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  const leechCount = stats.cardsRatedAgainMultiple.size;
+
+  return (
+    <div className="session-recap">
+      <h3>Session Recap</h3>
+      <div className="recap-grid">
+        <div className="recap-stat">
+          <div className="recap-stat-value">{stats.totalReviews}</div>
+          <div className="recap-stat-label">Reviews</div>
+        </div>
+        <div className="recap-stat">
+          <div className="recap-stat-value">{accuracy}%</div>
+          <div className="recap-stat-label">Accuracy</div>
+        </div>
+        <div className="recap-stat">
+          <div className="recap-stat-value">{timeStr}</div>
+          <div className="recap-stat-label">Time Spent</div>
+        </div>
+        <div className="recap-stat">
+          <div className="recap-stat-value">{stats.bestStreak}</div>
+          <div className="recap-stat-label">Best Streak</div>
+        </div>
+        {leechCount > 0 && (
+          <div className="recap-stat recap-attention">
+            <div className="recap-stat-value">{leechCount}</div>
+            <div className="recap-stat-label">Cards needing attention</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function StudyPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -1161,6 +1202,7 @@ export function StudyPage() {
     intervalPreviews,
     hasMoreNewCards,
     isRating,
+    sessionStats,
     rateCard,
     reloadQueue,
     selectNextCard,
@@ -1277,7 +1319,8 @@ export function StudyPage() {
                 ? `You've finished your daily limit${bonusNewCards > 0 ? ` (+${bonusNewCards} bonus)` : ''}. Want to study more?`
                 : "No more cards due right now."}
             </p>
-            <div className="flex flex-col gap-2 items-center mt-3">
+            <SessionRecap stats={sessionStats} />
+            <div className="flex flex-col gap-3 items-center mt-4">
               {hasMoreNewCards ? (
                 <button
                   className="btn btn-primary btn-block"

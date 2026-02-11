@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getDecks, createDeck, getDeckStats } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
-import { Deck, QueueCounts } from '../types';
+import { Deck, DeckStats, QueueCounts } from '../types';
 import { useOfflineQueueCounts, useOfflineDecks, useHasMoreNewCards } from '../hooks/useOfflineData';
 
 // Queue counts display component
@@ -16,6 +16,44 @@ function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
       <span style={{ color: '#f97316', fontWeight: 600 }}>{counts.learning}</span>
       <span style={{ color: '#9ca3af' }}>+</span>
       <span style={{ color: '#22c55e', fontWeight: 600 }}>{counts.review}</span>
+    </div>
+  );
+}
+
+function MasteryProgressBar({ stats }: { stats: DeckStats }) {
+  const { total_cards, cards_mastered, cards_learning } = stats;
+  if (total_cards === 0) return null;
+
+  const newCards = total_cards - cards_mastered - cards_learning;
+  const masteredPct = (cards_mastered / total_cards) * 100;
+  const learningPct = (cards_learning / total_cards) * 100;
+
+  return (
+    <div className="mastery-progress">
+      <div className="mastery-bar">
+        {masteredPct > 0 && (
+          <div
+            className="mastery-segment mastery-mastered"
+            style={{ width: `${masteredPct}%` }}
+          />
+        )}
+        {learningPct > 0 && (
+          <div
+            className="mastery-segment mastery-learning"
+            style={{ width: `${learningPct}%` }}
+          />
+        )}
+        {newCards > 0 && (
+          <div
+            className="mastery-segment mastery-new"
+            style={{ width: `${(newCards / total_cards) * 100}%` }}
+          />
+        )}
+      </div>
+      <div className="mastery-label">
+        <span>{Math.round(masteredPct)}% mastered</span>
+        <span className="text-light">{cards_mastered}/{total_cards} cards</span>
+      </div>
     </div>
   );
 }
@@ -74,10 +112,12 @@ function DeckCard({ deck }: { deck: Deck }) {
           </p>
         )}
         {stats && (
-          <div className="deck-card-stats">
-            <span>{stats.total_notes} notes</span>
-            {stats.cards_mastered > 0 && <span>{stats.cards_mastered} mastered</span>}
-          </div>
+          <>
+            <div className="deck-card-stats">
+              <span>{stats.total_notes} notes</span>
+            </div>
+            {stats.total_cards > 0 && <MasteryProgressBar stats={stats} />}
+          </>
         )}
       </Link>
 

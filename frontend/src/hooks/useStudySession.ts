@@ -158,6 +158,16 @@ function selectNextCardFromQueue(
   return null;
 }
 
+export interface SessionStats {
+  totalReviews: number;
+  correctCount: number;
+  againCount: number;
+  bestStreak: number;
+  currentStreak: number;
+  cardsRatedAgainMultiple: Set<string>;
+  timeStarted: number;
+}
+
 interface UseStudySessionOptions {
   deckId?: string;
   bonusNewCards?: number;
@@ -184,6 +194,18 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
+
+  // Session stats tracking
+  const [sessionStats, setSessionStats] = useState<SessionStats>({
+    totalReviews: 0,
+    correctCount: 0,
+    againCount: 0,
+    bestStreak: 0,
+    currentStreak: 0,
+    cardsRatedAgainMultiple: new Set(),
+    timeStarted: Date.now(),
+  });
+  const againCountByNoteRef = useRef<Map<string, number>>(new Map());
 
   // Track if we've initialized
   const initializedRef = useRef(false);
@@ -420,6 +442,34 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     console.log('[useStudySession] Rating card', { cardId, rating });
 
+    // Update session stats
+    setSessionStats(prev => {
+      const isCorrect = rating === 2 || rating === 3; // Good or Easy
+      const isAgain = rating === 0;
+      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
+      const newBestStreak = Math.max(prev.bestStreak, newCurrentStreak);
+
+      // Track again counts per note for leech detection
+      const newAgainMultiple = new Set(prev.cardsRatedAgainMultiple);
+      if (isAgain) {
+        const count = (againCountByNoteRef.current.get(noteId) || 0) + 1;
+        againCountByNoteRef.current.set(noteId, count);
+        if (count >= 2) {
+          newAgainMultiple.add(noteId);
+        }
+      }
+
+      return {
+        ...prev,
+        totalReviews: prev.totalReviews + 1,
+        correctCount: prev.correctCount + (isCorrect ? 1 : 0),
+        againCount: prev.againCount + (isAgain ? 1 : 0),
+        currentStreak: newCurrentStreak,
+        bestStreak: newBestStreak,
+        cardsRatedAgainMultiple: newAgainMultiple,
+      };
+    });
+
     // Get deck settings for calculating new state
     const settings = currentDeck ? deckSettingsFromDb(currentDeck) : DEFAULT_DECK_SETTINGS;
 
@@ -640,6 +690,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     intervalPreviews,
     hasMoreNewCards,
     isRating: reviewMutation.isPending,
+    sessionStats,
 
     // Actions
     rateCard,

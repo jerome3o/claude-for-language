@@ -1715,3 +1715,93 @@ textarea {
   font-size: 0.875rem;
   padding: 0.5rem 1rem;
 }
+
+/* ============ Mastery Progress Bar ============ */
+
+.mastery-progress {
+  margin-top: 0.375rem;
+}
+
+.mastery-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--color-border);
+}
+
+.mastery-segment {
+  min-width: 2px;
+}
+
+.mastery-mastered {
+  background-color: var(--color-success);
+}
+
+.mastery-learning {
+  background-color: #3b82f6;
+}
+
+.mastery-new {
+  background-color: var(--color-border);
+}
+
+.mastery-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6875rem;
+  margin-top: 0.25rem;
+  color: var(--color-text-light);
+}
+
+.mastery-label span:first-child {
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+/* ============ Session Recap ============ */
+
+.session-recap {
+  margin-top: 1.5rem;
+  text-align: left;
+}
+
+.session-recap h3 {
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  color: var(--color-text);
+}
+
+.recap-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.recap-stat {
+  background: var(--color-background);
+  border-radius: var(--radius-md);
+  padding: 0.625rem 0.75rem;
+  text-align: center;
+}
+
+.recap-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.recap-stat-label {
+  font-size: 0.6875rem;
+  color: var(--color-text-light);
+  margin-top: 0.125rem;
+}
+
+.recap-stat.recap-attention {
+  grid-column: 1 / -1;
+}
+
+.recap-stat.recap-attention .recap-stat-value {
+  color: var(--color-warning);
+}

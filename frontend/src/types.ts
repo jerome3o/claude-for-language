@@ -167,6 +167,7 @@ export interface DeckStats {
   total_cards: number;
   cards_due: number;
   cards_mastered: number;
+  cards_learning: number;
 }
 
 // Rating display info
