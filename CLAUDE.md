@@ -2,6 +2,22 @@
 
 This is a Chinese language learning app with spaced repetition. This document is for AI agents working on this codebase.
 
+## User Preferences (Jerome)
+
+These are Jerome's stated preferences — respect them in all implementations:
+
+- **Study sessions**: Drill ALL cards due today in one sitting (endOfToday, not "right now"). Show the same card immediately after rating — no cooldown wait screen.
+- **Card types**: All three types (hanzi→meaning, meaning→hanzi, audio→hanzi) are fine as-is.
+- **New cards per day**: Default 20 per deck is acceptable (10 would also be fine).
+- **Audio recordings**: Queue locally, upload during background sync (offline-first). Tutor should be able to listen to recordings.
+- **Offline mode**: Must work well on the train with low/no connection. Prefetch aggressively (audio, cards, etc.) — up to ~1GB is fine.
+- **Progress metrics**: Cards mastered, percentage through each deck, daily review counts. Goal: know at a glance if making good progress.
+- **Session end**: Should feel satisfying — celebration/confetti/sound for monkey brain motivation.
+- **Claude chat**: Wants it more powerful — agent loop where Claude can edit the current card, interactively add/edit cards from a deck.
+- **Device**: Google Pixel Pro Fold 10, installed as PWA, primarily folded mode but should work well unfolded too.
+- **Backups/export**: Wants backup capability but not for Anki migration (already migrated from Anki).
+- **Testing**: Values reliability and testing. Prefers isolated dev environments for feature work.
+
 ## Quick Start
 
 ```bash
