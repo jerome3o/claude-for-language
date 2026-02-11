@@ -9,7 +9,8 @@ import {
   DEFAULT_DECK_SETTINGS,
   parseLearningSteps,
 } from './services/anki-scheduler';
-import { generateDeck, suggestCards, askAboutNote, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
+import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
+import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS, generateConversationTTS } from './services/audio';
@@ -846,9 +847,99 @@ app.post('/api/notes/:id/ask', async (c) => {
   }
 
   try {
-    const answer = await askAboutNote(c.env.ANTHROPIC_API_KEY, note, question, context, conversationHistory);
+    const { answer, toolActions } = await askAboutNoteWithTools(c.env.ANTHROPIC_API_KEY, note, question, context, conversationHistory);
+
+    // Process tool actions and collect results
+    const toolResults: Array<{
+      tool: string;
+      success: boolean;
+      data?: Record<string, unknown>;
+      error?: string;
+    }> = [];
+
+    for (const action of toolActions) {
+      try {
+        switch (action.tool) {
+          case 'edit_current_card': {
+            const updates: { hanzi?: string; pinyin?: string; english?: string; funFacts?: string } = {};
+            const input = action.input as { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string };
+            if (input.hanzi) updates.hanzi = input.hanzi;
+            if (input.pinyin) updates.pinyin = input.pinyin;
+            if (input.english) updates.english = input.english;
+            if (input.fun_facts !== undefined) updates.funFacts = input.fun_facts;
+
+            const updatedNote = await db.updateNote(c.env.DB, id, userId, updates);
+            if (updatedNote) {
+              toolResults.push({
+                tool: 'edit_current_card',
+                success: true,
+                data: {
+                  note: updatedNote,
+                  changes: input,
+                },
+              });
+            } else {
+              toolResults.push({ tool: 'edit_current_card', success: false, error: 'Failed to update note' });
+            }
+            break;
+          }
+
+          case 'create_flashcards': {
+            const input = action.input as { flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
+            const createdNotes = [];
+            for (const fc of input.flashcards) {
+              const newNote = await db.createNote(
+                c.env.DB,
+                note.deck_id,
+                fc.hanzi,
+                fc.pinyin,
+                fc.english,
+                undefined,
+                fc.fun_facts
+              );
+              createdNotes.push(newNote);
+            }
+            toolResults.push({
+              tool: 'create_flashcards',
+              success: true,
+              data: {
+                created: createdNotes,
+                count: createdNotes.length,
+              },
+            });
+            break;
+          }
+
+          case 'delete_current_card': {
+            await db.deleteNote(c.env.DB, id, userId);
+            toolResults.push({
+              tool: 'delete_current_card',
+              success: true,
+              data: {
+                deletedNoteId: id,
+                reason: (action.input as { reason?: string }).reason || 'Deleted by user request',
+              },
+            });
+            break;
+          }
+        }
+      } catch (toolError) {
+        console.error(`Tool ${action.tool} error:`, toolError);
+        toolResults.push({
+          tool: action.tool,
+          success: false,
+          error: `Failed to execute ${action.tool}`,
+        });
+      }
+    }
+
     const noteQuestion = await db.createNoteQuestion(c.env.DB, id, question, answer);
-    return c.json(noteQuestion, 201);
+
+    // Return extended response with tool results
+    return c.json({
+      ...noteQuestion,
+      toolResults: toolResults.length > 0 ? toolResults : undefined,
+    }, 201);
   } catch (error) {
     console.error('AI ask error:', error);
     return c.json({ error: 'Failed to get answer from AI' }, 500);

@@ -300,13 +300,24 @@ export interface NoteQuestion {
   asked_at: string;
 }
 
+export interface AskToolResult {
+  tool: 'edit_current_card' | 'create_flashcards' | 'delete_current_card';
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface NoteQuestionWithTools extends NoteQuestion {
+  toolResults?: AskToolResult[];
+}
+
 export async function askAboutNote(
   noteId: string,
   question: string,
   context?: { userAnswer?: string; correctAnswer?: string; cardType?: string },
   conversationHistory?: { question: string; answer: string }[]
-): Promise<NoteQuestion> {
-  return fetchJSON<NoteQuestion>(`/notes/${noteId}/ask`, {
+): Promise<NoteQuestionWithTools> {
+  return fetchJSON<NoteQuestionWithTools>(`/notes/${noteId}/ask`, {
     method: 'POST',
     body: JSON.stringify({ question, context, conversationHistory }),
   });
