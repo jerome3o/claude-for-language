@@ -1079,11 +1079,12 @@ export async function getDeckStats(
   total_cards: number;
   cards_due: number;
   cards_mastered: number;
+  cards_learning: number;
 } | null> {
   const deck = await getDeckById(db, deckId, userId);
   if (!deck) return null;
 
-  const [totalNotes, totalCards, cardsDue, cardsMastered] = await Promise.all([
+  const [totalNotes, totalCards, cardsDue, cardsMastered, cardsLearning] = await Promise.all([
     db
       .prepare('SELECT COUNT(*) as count FROM notes WHERE deck_id = ?')
       .bind(deckId)
@@ -1110,6 +1111,14 @@ export async function getDeckStats(
       )
       .bind(deckId)
       .first<{ count: number }>(),
+    db
+      .prepare(
+        `SELECT COUNT(*) as count FROM cards c
+         JOIN notes n ON c.note_id = n.id
+         WHERE n.deck_id = ? AND c.interval > 0 AND c.interval <= 21`
+      )
+      .bind(deckId)
+      .first<{ count: number }>(),
   ]);
 
   return {
@@ -1117,6 +1126,7 @@ export async function getDeckStats(
     total_cards: totalCards?.count || 0,
     cards_due: cardsDue?.count || 0,
     cards_mastered: cardsMastered?.count || 0,
+    cards_learning: cardsLearning?.count || 0,
   };
 }
 
