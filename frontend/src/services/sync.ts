@@ -15,6 +15,7 @@ import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording } from '../api/client';
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates } from './review-events';
+import { preCacheAudio } from './audioCache';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -282,6 +283,16 @@ class SyncService {
         user_id: null,
       });
     });
+
+    // Pre-cache audio for all notes in background (don't block sync)
+    const audioUrls = allNotes
+      .map(n => n.audio_url)
+      .filter((url): url is string => !!url);
+    if (audioUrls.length > 0) {
+      preCacheAudio(audioUrls).catch(err =>
+        console.error('[Sync] Audio pre-cache failed:', err)
+      );
+    }
   }
 
   /**
@@ -420,6 +431,18 @@ class SyncService {
         last_full_sync: currentSyncMeta?.last_full_sync || null,
       });
     });
+
+    // Pre-cache audio for new/updated notes in background
+    if (changes.notes.length > 0) {
+      const audioUrls = changes.notes
+        .map(n => n.audio_url)
+        .filter((url): url is string => !!url);
+      if (audioUrls.length > 0) {
+        preCacheAudio(audioUrls).catch(err =>
+          console.error('[Sync] Audio pre-cache failed:', err)
+        );
+      }
+    }
   }
 
   /**

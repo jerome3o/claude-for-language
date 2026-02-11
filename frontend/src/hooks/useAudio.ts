@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { getAudioWithCache } from '../services/audioCache';
 
 /**
  * Hook for recording audio using MediaRecorder
@@ -203,12 +204,14 @@ export function useNoteAudio() {
     // Stop any current playback
     cleanupAudio();
 
-    // If we have a stored audio URL, use it
-    if (audioUrl) {
-      // Add cache buster to force reload after audio is regenerated
-      const cacheParam = cacheBuster ? `?v=${encodeURIComponent(cacheBuster)}` : '';
-      const fullUrl = `${apiBase}/api/audio/${audioUrl}${cacheParam}`;
-      const audio = new Audio(fullUrl);
+    if (!audioUrl) {
+      // No stored audio, use browser TTS
+      speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
+      return;
+    }
+
+    const playFromUrl = (url: string) => {
+      const audio = new Audio(url);
       audioRef.current = audio;
 
       audio.onplay = () => {
@@ -222,7 +225,6 @@ export function useNoteAudio() {
         }
       };
       audio.onerror = () => {
-        // Only fallback if this is still the current play request
         if (playIdRef.current === currentPlayId) {
           setIsPlaying(false);
           speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
@@ -230,14 +232,34 @@ export function useNoteAudio() {
       };
 
       audio.play().catch(() => {
-        // Only fallback if this is still the current play request
         if (playIdRef.current === currentPlayId) {
           speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
         }
       });
+    };
+
+    // Try IndexedDB cache first (works offline), then fall back to network
+    // Skip cache if cacheBuster is set (audio was just regenerated)
+    if (cacheBuster) {
+      const fullUrl = `${apiBase}/api/audio/${audioUrl}?v=${encodeURIComponent(cacheBuster)}`;
+      // Fetch fresh, then update cache in background
+      getAudioWithCache(audioUrl).catch(() => {});
+      playFromUrl(fullUrl);
     } else {
-      // No stored audio, use browser TTS
-      speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
+      getAudioWithCache(audioUrl).then(blob => {
+        if (playIdRef.current !== currentPlayId) return; // Superseded
+        if (blob) {
+          playFromUrl(URL.createObjectURL(blob));
+        } else {
+          // Not cached and offline, or fetch failed — try network URL directly
+          const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
+          playFromUrl(fullUrl);
+        }
+      }).catch(() => {
+        if (playIdRef.current !== currentPlayId) return;
+        const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
+        playFromUrl(fullUrl);
+      });
     }
   }, [cleanupAudio]);
 
