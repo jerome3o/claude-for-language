@@ -1,0 +1,88 @@
+/* Mobile-first styles */
+.settings-page {
+  padding: 0.5rem 0 1rem;
+}
+
+.settings-page h1 {
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+}
+
+.settings-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.settings-section h2 {
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.settings-section-desc {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin-bottom: 1rem;
+}
+
+.export-btn {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.export-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.export-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.export-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--color-error);
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-sm);
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+@media (min-width: 640px) {
+  .settings-page {
+    padding: 1.5rem 0 3rem;
+  }
+
+  .settings-page h1 {
+    font-size: 2rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .settings-section {
+    padding: 1.5rem;
+    max-width: 600px;
+  }
+
+  .settings-section h2 {
+    font-size: 1.125rem;
+  }
+
+  .export-btn {
+    width: auto;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
