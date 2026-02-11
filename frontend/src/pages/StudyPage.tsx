@@ -12,6 +12,7 @@ import {
   GenerateAudioOptions,
 } from '../api/client';
 import { Loading } from '../components/Loading';
+import { Confetti } from '../components/Confetti';
 import {
   CardWithNote,
   Rating,
@@ -1110,6 +1111,7 @@ export function StudyPage() {
 
     return (
       <div className="page">
+        <Confetti />
         <div className="container">
           <div className="card text-center">
             <div style={{ fontSize: '4rem' }}>🎉</div>
