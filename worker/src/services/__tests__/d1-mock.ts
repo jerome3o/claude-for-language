@@ -62,7 +62,7 @@ export function createMockD1(): MockD1Database {
   function createStatement(sql: string): D1PreparedStatement {
     let boundParams: any[] = [];
 
-    const stmt: D1PreparedStatement = {
+    const stmt: any = {
       bind(...params: any[]) {
         boundParams = params;
         return stmt;
@@ -75,29 +75,27 @@ export function createMockD1(): MockD1Database {
         if (column && match.result) return match.result[column];
         return match.result as T;
       },
-      async all<T = any>(): Promise<D1Result<T>> {
+      async all() {
         queries.push({ sql, params: boundParams });
         const match = findResult(sql);
         if (match?.error) throw new Error(match.error);
         const resultData = match?.result ?? { results: [] };
-        // If result is already in D1Result format, return as-is
         if (resultData.results !== undefined) return resultData;
-        // Otherwise wrap
-        return { results: Array.isArray(resultData) ? resultData : [resultData], success: true, meta: {} } as any;
+        return { results: Array.isArray(resultData) ? resultData : [resultData], success: true, meta: {} };
       },
-      async run(): Promise<D1Result> {
+      async run() {
         queries.push({ sql, params: boundParams });
         const match = findResult(sql);
         if (match?.error) throw new Error(match.error);
-        return { results: [], success: true, meta: {} } as any;
+        return { results: [], success: true, meta: {} };
       },
-      async raw<T = any>(): Promise<T[]> {
+      async raw() {
         queries.push({ sql, params: boundParams });
         return [];
       },
     };
 
-    return stmt;
+    return stmt as D1PreparedStatement;
   }
 
   const db = {

@@ -187,8 +187,10 @@ describe('relationships service', () => {
       const result = await createRelationship(db as any, tutorUser.id, 'new@test.com', 'tutor');
 
       expect(result.type).toBe('invitation');
-      expect(result.data.recipient_email).toBe('new@test.com');
-      expect(result.data.inviter.id).toBe(tutorUser.id);
+      if (result.type === 'invitation') {
+        expect(result.data.recipient_email).toBe('new@test.com');
+        expect(result.data.inviter.id).toBe(tutorUser.id);
+      }
     });
 
     it('returns existing invitation idempotently', async () => {
