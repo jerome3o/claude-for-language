@@ -129,6 +129,12 @@ export function Header() {
                 <div className="user-menu-divider" />
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/settings')}
+                >
+                  ⚙️ Settings
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/readers')}
                 >
                   📚 Readers
