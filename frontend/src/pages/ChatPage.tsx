@@ -27,6 +27,8 @@ import {
 import { Loading, ErrorMessage } from '../components/Loading';
 import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
 import { useAuth } from '../contexts/AuthContext';
+import { useNetwork } from '../contexts/NetworkContext';
+import { OfflineWarning } from '../components/OfflineWarning';
 import './ChatPage.css';
 
 const POLL_INTERVAL = 3000; // 3 seconds
@@ -34,6 +36,7 @@ const POLL_INTERVAL = 3000; // 3 seconds
 export function ChatPage() {
   const { relId, convId } = useParams<{ relId: string; convId: string }>();
   const { user } = useAuth();
+  const { isOnline } = useNetwork();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -638,12 +641,13 @@ export function ChatPage() {
       </div>
 
       {/* Input */}
+      <OfflineWarning message="You're offline. Messages can't be sent right now." />
       <form className="chat-input-form" onSubmit={handleSend}>
         <button
           type="button"
           className="btn btn-secondary chat-help-btn"
           onClick={handleIDontKnow}
-          disabled={isGeneratingOptions || messages.length === 0}
+          disabled={!isOnline || isGeneratingOptions || messages.length === 0}
           title="I don't know what to say"
         >
           {isGeneratingOptions ? '...' : '❓'}
@@ -658,7 +662,7 @@ export function ChatPage() {
         <button
           type="submit"
           className="btn btn-primary chat-send"
-          disabled={!newMessage.trim() || sendMutation.isPending || isWaitingForAI}
+          disabled={!isOnline || !newMessage.trim() || sendMutation.isPending || isWaitingForAI}
         >
           {isWaitingForAI ? '...' : 'Send'}
         </button>

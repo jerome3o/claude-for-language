@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -5,30 +6,38 @@ import { NetworkProvider } from './contexts/NetworkContext';
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { Loading } from './components/Loading';
+// Eagerly loaded — these are the landing pages
 import { HomePage } from './pages/HomePage';
 import { SplashPage } from './pages/SplashPage';
-import { DeckDetailPage } from './pages/DeckDetailPage';
-import { DeckProgressPage } from './pages/DeckProgressPage';
-import { StudyPage } from './pages/StudyPage';
-import { SessionReviewPage } from './pages/SessionReviewPage';
-import { GeneratePage } from './pages/GeneratePage';
-import { SentenceAnalysisPage } from './pages/SentenceAnalysisPage';
-import { AdminPage } from './pages/AdminPage';
-import { ConnectionsPage } from './pages/ConnectionsPage';
-import { ConnectionDetailPage } from './pages/ConnectionDetailPage';
-import { ChatPage } from './pages/ChatPage';
-import { StudentProgressPage } from './pages/StudentProgressPage';
-import { SharedDeckProgressPage } from './pages/SharedDeckProgressPage';
-import { DayDetailPage } from './pages/DayDetailPage';
-import { CardReviewDetailPage } from './pages/CardReviewDetailPage';
-import { MyProgressPage } from './pages/MyProgressPage';
-import { MyDayDetailPage } from './pages/MyDayDetailPage';
-import { MyCardReviewDetailPage } from './pages/MyCardReviewDetailPage';
-import { TutorReviewInboxPage } from './pages/TutorReviewInboxPage';
-import { TutorReviewDetailPage } from './pages/TutorReviewDetailPage';
-import { ReadersListPage } from './pages/ReadersListPage';
-import { GenerateReaderPage } from './pages/GenerateReaderPage';
-import { ReaderPage } from './pages/ReaderPage';
+
+// Lazy-loaded pages
+const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ default: m.DeckDetailPage })));
+const DeckProgressPage = lazy(() => import('./pages/DeckProgressPage').then(m => ({ default: m.DeckProgressPage })));
+const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
+const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
+const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
+const SentenceAnalysisPage = lazy(() => import('./pages/SentenceAnalysisPage').then(m => ({ default: m.SentenceAnalysisPage })));
+const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })));
+const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
+const ConnectionDetailPage = lazy(() => import('./pages/ConnectionDetailPage').then(m => ({ default: m.ConnectionDetailPage })));
+const ChatPage = lazy(() => import('./pages/ChatPage').then(m => ({ default: m.ChatPage })));
+const StudentProgressPage = lazy(() => import('./pages/StudentProgressPage').then(m => ({ default: m.StudentProgressPage })));
+const SharedDeckProgressPage = lazy(() => import('./pages/SharedDeckProgressPage').then(m => ({ default: m.SharedDeckProgressPage })));
+const DayDetailPage = lazy(() => import('./pages/DayDetailPage').then(m => ({ default: m.DayDetailPage })));
+const CardReviewDetailPage = lazy(() => import('./pages/CardReviewDetailPage').then(m => ({ default: m.CardReviewDetailPage })));
+const MyProgressPage = lazy(() => import('./pages/MyProgressPage').then(m => ({ default: m.MyProgressPage })));
+const MyDayDetailPage = lazy(() => import('./pages/MyDayDetailPage').then(m => ({ default: m.MyDayDetailPage })));
+const MyCardReviewDetailPage = lazy(() => import('./pages/MyCardReviewDetailPage').then(m => ({ default: m.MyCardReviewDetailPage })));
+const TutorReviewInboxPage = lazy(() => import('./pages/TutorReviewInboxPage').then(m => ({ default: m.TutorReviewInboxPage })));
+const TutorReviewDetailPage = lazy(() => import('./pages/TutorReviewDetailPage').then(m => ({ default: m.TutorReviewDetailPage })));
+const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => ({ default: m.ReadersListPage })));
+const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
+const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
+
+// Preload the study page since it's the most-used route
+const studyPagePreload = () => import('./pages/StudyPage');
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,6 +50,11 @@ const queryClient = new QueryClient({
 
 function HomeOrSplash() {
   const { isAuthenticated, isLoading } = useAuth();
+
+  // Preload the study page as soon as the user is authenticated
+  if (isAuthenticated) {
+    studyPagePreload();
+  }
 
   if (isLoading) {
     return (
@@ -62,8 +76,13 @@ function HomeOrSplash() {
   );
 }
 
+function LazyFallback() {
+  return <Loading message="Loading page..." />;
+}
+
 function AppRoutes() {
   return (
+    <Suspense fallback={<LazyFallback />}>
     <Routes>
       <Route path="/" element={<HomeOrSplash />} />
       <Route
@@ -71,7 +90,9 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Header />
-            <DeckDetailPage />
+            <ErrorBoundary fallbackTitle="Couldn't load this deck">
+              <DeckDetailPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />
@@ -89,7 +110,9 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Header />
-            <StudyPage />
+            <ErrorBoundary fallbackTitle="Study session interrupted">
+              <StudyPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />
@@ -178,7 +201,9 @@ function AppRoutes() {
         path="/connections/:relId/chat/:convId"
         element={
           <ProtectedRoute>
-            <ChatPage />
+            <ErrorBoundary fallbackTitle="Chat couldn't load">
+              <ChatPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />
@@ -272,6 +297,7 @@ function AppRoutes() {
         }
       />
     </Routes>
+    </Suspense>
   );
 }
 

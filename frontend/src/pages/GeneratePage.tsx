@@ -5,10 +5,13 @@ import { generateDeck, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { syncService } from '../services/sync';
 import { NoteWithCards } from '../types';
+import { useNetwork } from '../contexts/NetworkContext';
+import { OfflineWarning } from '../components/OfflineWarning';
 
 export function GeneratePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isOnline } = useNetwork();
   const { play: playAudio, isPlaying } = useNoteAudio();
 
   const [prompt, setPrompt] = useState('');
@@ -154,10 +157,14 @@ export function GeneratePage() {
               </div>
             )}
 
+            <div className="mb-3">
+              <OfflineWarning message="You're offline. AI generation requires an internet connection." />
+            </div>
+
             <button
               type="submit"
               className="btn btn-primary btn-lg btn-block"
-              disabled={!prompt.trim() || generateMutation.isPending}
+              disabled={!isOnline || !prompt.trim() || generateMutation.isPending}
             >
               {generateMutation.isPending ? (
                 <>

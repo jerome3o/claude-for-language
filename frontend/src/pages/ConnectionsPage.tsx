@@ -17,10 +17,13 @@ import {
 } from '../types';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
+import { useNetwork } from '../contexts/NetworkContext';
+import { OfflineWarning } from '../components/OfflineWarning';
 import './ConnectionsPage.css';
 
 export function ConnectionsPage() {
   const { user } = useAuth();
+  const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -217,10 +220,13 @@ export function ConnectionsPage() {
                 </div>
               </div>
               {inviteError && <p className="text-error mb-2">{inviteError}</p>}
+              <div className="mb-2">
+                <OfflineWarning message="You're offline. Invites can't be sent right now." />
+              </div>
               <button
                 type="submit"
                 className="btn btn-primary btn-block"
-                disabled={createMutation.isPending}
+                disabled={!isOnline || createMutation.isPending}
               >
                 {createMutation.isPending ? 'Sending...' : 'Send Invite'}
               </button>

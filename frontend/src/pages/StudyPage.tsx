@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   askAboutNote,
   startSession,
@@ -957,7 +957,7 @@ export function StudyPage() {
     enabled: isOnline,
     staleTime: 5 * 60 * 1000,
   });
-  const tutors = relationships?.tutors || [];
+  const tutors = useMemo(() => relationships?.tutors || [], [relationships?.tutors]);
 
   // Bonus new cards - persisted in localStorage per deck, resets daily
   const getTodayKey = (forDeckId?: string) =>
@@ -1025,19 +1025,19 @@ export function StudyPage() {
   }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
   // Handle rating a card (called from StudyCard or after flag modal)
-  const handleRateCard = (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
+  const handleRateCard = useCallback((rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
     rateCard(rating, timeSpentMs, userAnswer, recordingBlob);
-  };
+  }, [rateCard]);
 
   // Flag modal handlers
-  const handleShowFlagModal = (data: FlagModalData) => {
+  const handleShowFlagModal = useCallback((data: FlagModalData) => {
     setFlagModalData(data);
     // Auto-select first tutor if only one
     if (tutors.length === 1) {
       setSelectedTutor(tutors[0]);
     }
     setTimeout(() => flagMessageRef.current?.focus(), 100);
-  };
+  }, [tutors]);
 
   const handleFlagSubmit = async () => {
     if (!selectedTutor || !flagMessage.trim() || isFlagging || !flagModalData) return;
@@ -1073,12 +1073,12 @@ export function StudyPage() {
     setFlagMessage('');
   };
 
-  const handleEndSession = () => {
+  const handleEndSession = useCallback(() => {
     setStudyStarted(false);
     setSessionId(null);
     // Navigate back to home
     navigate('/');
-  };
+  }, [navigate]);
 
   // If study hasn't started (no autostart), redirect to home
   // The home page now handles deck selection and study initiation

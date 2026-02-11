@@ -19,7 +19,8 @@
     "deploy": "npm run deploy -w worker",
     "deploy:mcp": "npm run deploy -w mcp-server",
     "typecheck": "npm run typecheck -w worker && npm run typecheck -w frontend",
-    "test": "npm run test -w frontend",
+    "test": "npm run test -w frontend && npm run test -w worker",
+    "test:worker": "npm run test -w worker",
     "test:e2e": "npm run test -w e2e",
     "test:e2e:ui": "npm run test:ui -w e2e"
   },

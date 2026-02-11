@@ -1,0 +1,75 @@
+.error-boundary-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 1.5rem;
+}
+
+.error-boundary-card {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+}
+
+.error-boundary-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background-color: #fef2f2;
+  color: var(--color-error);
+  font-size: 1.5rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1rem;
+}
+
+.error-boundary-card h2 {
+  margin-bottom: 0.5rem;
+}
+
+.error-boundary-card > .text-light {
+  margin-bottom: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.error-boundary-details {
+  text-align: left;
+  margin-bottom: 1.25rem;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.error-boundary-details summary {
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}
+
+.error-boundary-details pre {
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.75rem;
+}
+
+.error-boundary-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .error-boundary-card {
+    padding: 2.5rem 2rem;
+  }
+}

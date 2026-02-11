@@ -53,6 +53,7 @@ export default defineConfig({
     ],
     server: {
         port: 3000,
+        allowedHosts: true,
         proxy: {
             '/api': {
                 target: 'http://localhost:8787',
@@ -62,5 +63,16 @@ export default defineConfig({
     },
     build: {
         outDir: 'dist',
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+                    'vendor-query': ['@tanstack/react-query'],
+                    'vendor-markdown': ['react-markdown'],
+                    'vendor-pinyin': ['pinyin-pro'],
+                    'vendor-dexie': ['dexie', 'dexie-react-hooks'],
+                },
+            },
+        },
     },
 });

@@ -64,5 +64,16 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-markdown': ['react-markdown'],
+          'vendor-pinyin': ['pinyin-pro'],
+          'vendor-dexie': ['dexie', 'dexie-react-hooks'],
+        },
+      },
+    },
   },
 })
