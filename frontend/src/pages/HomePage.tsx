@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { getDecks, createDeck, getDeckStats } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
+import { StudyStreak } from '../components/StudyStreak';
 import { Deck, QueueCounts } from '../types';
 import { useOfflineQueueCounts, useOfflineDecks, useHasMoreNewCards } from '../hooks/useOfflineData';
 
@@ -188,6 +189,9 @@ export function HomePage() {
     <div className="page">
       <div className="container">
         <h1 className="mb-4">Welcome to 汉语学习</h1>
+
+        {/* Study Streak */}
+        <StudyStreak />
 
         {/* Study All Button */}
         <div className="card mb-4">

@@ -1,0 +1,64 @@
+.study-streak-card {
+  display: block;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--radius-md, 0.5rem);
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.streak-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.streak-count {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+}
+
+.streak-fire {
+  font-size: 1.125rem;
+}
+
+.streak-number {
+  font-size: 1.125rem;
+  color: #1f2937;
+}
+
+.streak-label {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.streak-today {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.streak-sep {
+  color: #d1d5db;
+}
+
+.streak-heatmap {
+  display: flex;
+  gap: 2px;
+}
+
+.streak-heatmap-cell {
+  flex: 1;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  min-width: 0;
+  max-height: 12px;
+}
