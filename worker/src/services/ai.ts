@@ -155,7 +155,15 @@ Be concise but thorough in your answers. Focus on practical usage and learning. 
 - Memory aids or mnemonics
 - Pronunciation tips
 
-Keep your responses focused and helpful for language learning. Use examples with both Chinese characters and pinyin when relevant.`;
+Keep your responses focused and helpful for language learning. Use examples with both Chinese characters and pinyin when relevant.
+
+You have tools to edit the current card, create new flashcards, or delete the current card. Use these when:
+- The user points out an error in the card (wrong tone, incorrect translation, etc.) → use edit_current_card
+- The user asks for related vocabulary to be added → use create_flashcards
+- The user says the card is a duplicate or should be removed → use delete_current_card
+
+When editing, only change the fields that need fixing. When creating cards, use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers.
+After using a tool, briefly confirm what you did in your text response.`;
 
 export interface AskContext {
   userAnswer?: string;
@@ -254,6 +262,192 @@ export async function askAboutNote(
   }
 
   return textContent.text;
+}
+
+// ============ Ask About Note with Tool Use (Agent Loop) ============
+
+function getAskNoteTools(note: Note) {
+  return [
+    {
+      name: 'edit_current_card',
+      description: `Edit the current flashcard's note. The current card has: hanzi="${note.hanzi}", pinyin="${note.pinyin}", english="${note.english}", fun_facts="${note.fun_facts || ''}". Only provide the fields you want to change.`,
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          hanzi: { type: 'string', description: 'Updated Chinese characters (simplified)' },
+          pinyin: { type: 'string', description: 'Updated pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers.' },
+          english: { type: 'string', description: 'Updated English translation' },
+          fun_facts: { type: 'string', description: 'Updated cultural context, usage notes, or memory aids' },
+        },
+      },
+    },
+    {
+      name: 'create_flashcards',
+      description: 'Create new flashcards in the same deck as the current card. Use this when the user asks for related vocabulary or wants to add new cards.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          flashcards: {
+            type: 'array',
+            description: 'Array of flashcards to create',
+            items: {
+              type: 'object',
+              properties: {
+                hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
+                pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
+                english: { type: 'string', description: 'Clear, concise English translation' },
+                fun_facts: { type: 'string', description: 'Optional cultural context, usage notes, or memory aids' },
+              },
+              required: ['hanzi', 'pinyin', 'english'],
+            },
+          },
+        },
+        required: ['flashcards'],
+      },
+    },
+    {
+      name: 'delete_current_card',
+      description: `Delete the current flashcard's note (hanzi="${note.hanzi}"). Use this only when the user explicitly says the card is a duplicate or should be removed.`,
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          reason: { type: 'string', description: 'Brief reason for deletion' },
+        },
+      },
+    },
+  ];
+}
+
+export interface ToolAction {
+  tool: 'edit_current_card' | 'create_flashcards' | 'delete_current_card';
+  input: Record<string, unknown>;
+}
+
+export interface AskWithToolsResponse {
+  answer: string;
+  toolActions: ToolAction[];
+}
+
+/**
+ * Answer a question about a vocabulary note with tool use (agent loop)
+ */
+export async function askAboutNoteWithTools(
+  apiKey: string,
+  note: Note,
+  question: string,
+  askContext?: AskContext,
+  conversationHistory?: ConversationMessage[]
+): Promise<AskWithToolsResponse> {
+  const client = new Anthropic({ apiKey });
+  const tools = getAskNoteTools(note);
+
+  // Build vocab context
+  let vocabContextParts = [
+    `The user is studying this vocabulary:`,
+    `- Chinese: ${note.hanzi}`,
+    `- Pinyin: ${note.pinyin}`,
+    `- English: ${note.english}`,
+  ];
+
+  if (note.fun_facts) {
+    vocabContextParts.push(`- Notes: ${note.fun_facts}`);
+  }
+
+  if (askContext?.userAnswer) {
+    vocabContextParts.push('');
+    vocabContextParts.push(`The user was asked to write the Chinese characters.`);
+    vocabContextParts.push(`User's answer: ${askContext.userAnswer}`);
+    vocabContextParts.push(`Correct answer: ${askContext.correctAnswer || note.hanzi}`);
+  }
+
+  const vocabContext = vocabContextParts.join('\n');
+
+  // Build messages array
+  const messages: Anthropic.MessageParam[] = [];
+
+  if (conversationHistory && conversationHistory.length > 0) {
+    messages.push({
+      role: 'user',
+      content: `${vocabContext}\n\nUser's question: ${conversationHistory[0].question}`
+    });
+    messages.push({
+      role: 'assistant',
+      content: conversationHistory[0].answer
+    });
+
+    for (let i = 1; i < conversationHistory.length; i++) {
+      messages.push({
+        role: 'user',
+        content: conversationHistory[i].question
+      });
+      messages.push({
+        role: 'assistant',
+        content: conversationHistory[i].answer
+      });
+    }
+
+    messages.push({
+      role: 'user',
+      content: question
+    });
+  } else {
+    messages.push({
+      role: 'user',
+      content: `${vocabContext}\n\nUser's question: ${question}`
+    });
+  }
+
+  // Agent loop: keep calling Claude until it stops using tools
+  const collectedToolActions: ToolAction[] = [];
+  const textParts: string[] = [];
+  const MAX_ITERATIONS = 5;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages,
+      system: ASK_SYSTEM_PROMPT,
+      tools: tools as Anthropic.Tool[],
+    });
+
+    // Process response content
+    const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
+
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        textParts.push(block.text);
+      } else if (block.type === 'tool_use') {
+        toolUseBlocks.push(block);
+        collectedToolActions.push({
+          tool: block.name as ToolAction['tool'],
+          input: block.input as Record<string, unknown>,
+        });
+      }
+    }
+
+    // If no tool use, we're done
+    if (response.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
+      break;
+    }
+
+    // Add assistant response to messages
+    messages.push({ role: 'assistant', content: response.content });
+
+    // Add tool results
+    const toolResults: Anthropic.ToolResultBlockParam[] = toolUseBlocks.map((block) => ({
+      type: 'tool_result' as const,
+      tool_use_id: block.id,
+      content: JSON.stringify({ success: true, message: `Tool ${block.name} executed successfully` }),
+    }));
+
+    messages.push({ role: 'user', content: toolResults });
+  }
+
+  return {
+    answer: textParts.join('\n'),
+    toolActions: collectedToolActions,
+  };
 }
 
 // ============ AI Conversation Functions ============

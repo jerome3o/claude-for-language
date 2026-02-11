@@ -5,7 +5,8 @@ import {
   askAboutNote,
   startSession,
   API_BASE,
-  NoteQuestion,
+  NoteQuestionWithTools,
+  AskToolResult,
   getMyRelationships,
   createTutorReviewRequest,
   generateNoteAudio,
@@ -170,6 +171,7 @@ function StudyCard({
   onEnd,
   onShowFlagModal,
   onUpdateNote,
+  onDeleteCurrentCard,
 }: {
   card: CardWithNote;
   intervalPreviews: Record<Rating, IntervalPreview>;
@@ -180,6 +182,7 @@ function StudyCard({
   onEnd: () => void;
   onShowFlagModal: (data: FlagModalData) => void;
   onUpdateNote: (updatedNote: Partial<Note>) => void;
+  onDeleteCurrentCard: () => void;
 }) {
   const { isOnline } = useNetwork();
 
@@ -191,8 +194,9 @@ function StudyCard({
   // Ask Claude state
   const [showAskClaude, setShowAskClaude] = useState(false);
   const [question, setQuestion] = useState('');
-  const [conversation, setConversation] = useState<NoteQuestion[]>([]);
+  const [conversation, setConversation] = useState<NoteQuestionWithTools[]>([]);
   const [isAsking, setIsAsking] = useState(false);
+  const [cardDeleted, setCardDeleted] = useState(false);
   const questionInputRef = useRef<HTMLInputElement>(null);
 
   // Debug modal state
@@ -316,6 +320,49 @@ function StudyCard({
     onRate(rating, timeSpent, userAnswer || undefined, audioBlob || undefined);
   };
 
+  const processToolResults = (toolResults: AskToolResult[]) => {
+    for (const result of toolResults) {
+      if (!result.success) continue;
+      switch (result.tool) {
+        case 'edit_current_card': {
+          const note = result.data?.note as Partial<Note> | undefined;
+          if (note) {
+            onUpdateNote({
+              hanzi: note.hanzi,
+              pinyin: note.pinyin,
+              english: note.english,
+              fun_facts: note.fun_facts,
+              updated_at: note.updated_at,
+            });
+            // Also update in IndexedDB for offline consistency
+            db.notes.update(card.note.id, {
+              hanzi: note.hanzi ?? card.note.hanzi,
+              pinyin: note.pinyin ?? card.note.pinyin,
+              english: note.english ?? card.note.english,
+              fun_facts: note.fun_facts ?? card.note.fun_facts,
+              updated_at: note.updated_at ?? card.note.updated_at,
+            });
+          }
+          break;
+        }
+        case 'delete_current_card': {
+          setCardDeleted(true);
+          // Remove from IndexedDB
+          db.notes.delete(card.note.id);
+          db.cards.where('note_id').equals(card.note.id).delete();
+          // Advance after a short delay so user can see the confirmation
+          setTimeout(() => onDeleteCurrentCard(), 2000);
+          break;
+        }
+        case 'create_flashcards': {
+          // Cards are already created on the server side.
+          // Trigger a sync so IndexedDB picks them up next time.
+          break;
+        }
+      }
+    }
+  };
+
   const handleAskClaude = async () => {
     if (!question.trim() || isAsking) return;
 
@@ -337,6 +384,11 @@ function StudyCard({
       const response = await askAboutNote(card.note.id, question.trim(), context, history);
       setConversation((prev) => [...prev, response]);
       setQuestion('');
+
+      // Process any tool results
+      if (response.toolResults) {
+        processToolResults(response.toolResults);
+      }
     } catch (error) {
       console.error('Failed to ask Claude:', error);
     } finally {
@@ -516,6 +568,11 @@ function StudyCard({
       const response = await askAboutNote(card.note.id, questionText, context);
       setConversation((prev) => [...prev, response]);
       setQuestion('');
+
+      // Process any tool results
+      if (response.toolResults) {
+        processToolResults(response.toolResults);
+      }
     } catch (error) {
       console.error('Failed to ask Claude:', error);
     } finally {
@@ -784,6 +841,26 @@ function StudyCard({
                 </div>
                 <div className="claude-response">
                   <ReactMarkdown>{qa.answer}</ReactMarkdown>
+                  {qa.toolResults && qa.toolResults.length > 0 && (
+                    <div className="claude-tool-results">
+                      {qa.toolResults.map((tr, idx) => (
+                        <div key={idx} className={`claude-tool-result ${tr.success ? 'success' : 'error'}`}>
+                          {tr.tool === 'edit_current_card' && tr.success && (
+                            <span>Card updated{tr.data?.changes ? `: ${Object.keys(tr.data.changes as Record<string, unknown>).join(', ')} changed` : ''}</span>
+                          )}
+                          {tr.tool === 'create_flashcards' && tr.success && (
+                            <span>{(tr.data?.count as number) || 0} new card{(tr.data?.count as number) !== 1 ? 's' : ''} created</span>
+                          )}
+                          {tr.tool === 'delete_current_card' && tr.success && (
+                            <span>Card deleted — advancing to next card...</span>
+                          )}
+                          {!tr.success && (
+                            <span>Action failed: {tr.error || 'Unknown error'}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -793,27 +870,29 @@ function StudyCard({
             )}
           </div>
 
-          <div className="claude-input-row">
-            <input
-              ref={questionInputRef}
-              type="text"
-              className="form-input"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Ask a question..."
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAskClaude();
-              }}
-              disabled={isAsking}
-            />
-            <button
-              className="btn btn-primary"
-              onClick={handleAskClaude}
-              disabled={!question.trim() || isAsking}
-            >
-              Ask
-            </button>
-          </div>
+          {!cardDeleted && (
+            <div className="claude-input-row">
+              <input
+                ref={questionInputRef}
+                type="text"
+                className="form-input"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Ask a question..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAskClaude();
+                }}
+                disabled={isAsking}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={handleAskClaude}
+                disabled={!question.trim() || isAsking}
+              >
+                Ask
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1082,6 +1161,7 @@ export function StudyPage() {
     isRating,
     rateCard,
     reloadQueue,
+    selectNextCard,
     updateCurrentNote,
   } = useStudySession({
     deckId,
@@ -1335,6 +1415,7 @@ export function StudyPage() {
           onEnd={handleEndSession}
           onShowFlagModal={handleShowFlagModal}
           onUpdateNote={updateCurrentNote}
+          onDeleteCurrentCard={selectNextCard}
         />
       ) : null}
 
