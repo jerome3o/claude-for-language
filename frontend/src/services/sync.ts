@@ -7,18 +7,20 @@ import {
   getSyncMeta,
   clearAllData,
   cleanupUploadedRecordings,
+  getPendingRecordings,
+  markRecordingUploaded,
   resetSyncTimestamps,
 } from '../db/database';
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
-import { API_BASE, getAuthHeaders, getAuthToken } from '../api/client';
+import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording } from '../api/client';
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates } from './review-events';
 
 const API_PATH = `${API_BASE}/api`;
 
 // Progress tracking for sync operations
 export interface SyncProgress {
-  phase: 'starting' | 'events-up' | 'events-down' | 'decks' | 'notes' | 'cards' | 'cleanup' | 'done';
+  phase: 'starting' | 'events-up' | 'events-down' | 'recordings' | 'decks' | 'notes' | 'cards' | 'cleanup' | 'done';
   message: string;
   current?: number;
   total?: number;
@@ -453,6 +455,30 @@ class SyncService {
     const downloadResult = await downloadReviewEvents(token);
     if (downloadResult.downloaded > 0) {
       this.notifyProgress({ phase: 'events-down', message: `Downloaded ${downloadResult.downloaded} reviews` });
+    }
+
+    // Upload pending recordings
+    const pendingRecordings = await getPendingRecordings();
+    if (pendingRecordings.length > 0) {
+      this.notifyProgress({ phase: 'recordings', message: `Uploading ${pendingRecordings.length} recording(s)...` });
+      for (const recording of pendingRecordings) {
+        try {
+          // Look up the review event to get the card_id
+          const reviewEvent = await db.reviewEvents.get(recording.id);
+          if (reviewEvent) {
+            await uploadRecording(reviewEvent.card_id, recording.blob);
+            await markRecordingUploaded(recording.id);
+            console.log('[Sync] Uploaded recording for review:', recording.id);
+          } else {
+            console.warn('[Sync] No review event found for recording:', recording.id);
+            // Mark as uploaded anyway to prevent retrying forever
+            await markRecordingUploaded(recording.id);
+          }
+        } catch (error) {
+          console.error('[Sync] Failed to upload recording:', recording.id, error);
+          // Don't mark as uploaded — will retry on next sync
+        }
+      }
     }
 
     // Clean up old uploaded recordings
