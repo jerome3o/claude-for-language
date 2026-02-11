@@ -65,11 +65,11 @@ function DeckCard({ deck }: { deck: Deck }) {
   };
 
   return (
-    <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-        <div className="deck-card-title">{deck.name}</div>
+    <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+      <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0 }}>
+        <div className="deck-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deck.name}</div>
         {deck.description && (
-          <p className="text-light mb-2" style={{ fontSize: '0.875rem' }}>
+          <p className="text-light mb-2" style={{ fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
             {deck.description}
           </p>
         )}
@@ -196,7 +196,7 @@ export function HomePage() {
         {/* Study All Button */}
         <div className="card mb-4">
           {totalDue > 0 ? (
-            <button onClick={handleStudyAll} className="btn btn-primary btn-lg btn-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
+            <button onClick={handleStudyAll} className="btn btn-primary btn-lg btn-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
               <span>Study All</span>
               <QueueCountsBadge counts={totalCounts} />
             </button>

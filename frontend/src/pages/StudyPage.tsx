@@ -127,7 +127,7 @@ function RatingButtons({
   disabled: boolean;
 }) {
   return (
-    <div className="mt-3">
+    <div className="mt-2">
       <p className="text-center text-light mb-1" style={{ fontSize: '0.8125rem' }}>How well did you know this?</p>
       <div className="rating-buttons">
         {([0, 1, 2, 3] as Rating[]).map((rating) => (
@@ -821,8 +821,8 @@ function StudyCard({
 
   const renderBackActions = () => {
     return (
-      <div className="flex flex-col gap-2 mb-3">
-        <div className="flex gap-1 justify-center flex-wrap">
+      <div className="study-back-actions">
+        <div className="study-back-buttons">
           <button
             className={`btn btn-secondary btn-sm${isPlaying ? ' playing' : ''}`}
             onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
@@ -1187,18 +1187,18 @@ export function StudyPage() {
       <div className="page">
         <Confetti />
         <div className="container">
-          <div className="card text-center">
-            <div style={{ fontSize: '4rem' }}>🎉</div>
-            <h1 className="mt-2">All Done!</h1>
-            <p className="text-light mt-2">
+          <div className="card text-center" style={{ padding: '1rem' }}>
+            <div style={{ fontSize: '3rem' }}>🎉</div>
+            <h1 className="mt-1">All Done!</h1>
+            <p className="text-light mt-1" style={{ fontSize: '0.875rem' }}>
               {hasMoreNewCards
                 ? `You've finished your daily limit${bonusNewCards > 0 ? ` (+${bonusNewCards} bonus)` : ''}. Want to study more?`
                 : "No more cards due right now."}
             </p>
-            <div className="flex flex-col gap-3 items-center mt-4">
+            <div className="flex flex-col gap-2 items-center mt-3">
               {hasMoreNewCards ? (
                 <button
-                  className="btn btn-primary btn-lg"
+                  className="btn btn-primary btn-block"
                   onClick={handleStudyMoreNewCards}
                 >
                   Study {BONUS_NEW_CARDS_INCREMENT} More New Cards
@@ -1209,7 +1209,7 @@ export function StudyPage() {
                 </p>
               )}
               <button
-                className={hasMoreNewCards ? "btn btn-secondary" : "btn btn-primary"}
+                className={hasMoreNewCards ? "btn btn-secondary btn-block" : "btn btn-primary btn-block"}
                 onClick={handleEndSession}
               >
                 Done
