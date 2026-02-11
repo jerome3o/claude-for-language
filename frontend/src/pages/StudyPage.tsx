@@ -1005,6 +1005,7 @@ export function StudyPage() {
     intervalPreviews,
     hasMoreNewCards,
     isRating,
+    waitingForCooldown,
     rateCard,
     reloadQueue,
     updateCurrentNote,
@@ -1091,6 +1092,26 @@ export function StudyPage() {
   // Show loading while redirecting or loading data
   if (!studyStarted) {
     return <Loading />;
+  }
+
+  // Waiting for learning card cooldown to expire
+  if (!isLoading && !currentCard && waitingForCooldown) {
+    return (
+      <div className="page">
+        <div className="container">
+          <div className="card text-center">
+            <div style={{ fontSize: '4rem' }}>⏳</div>
+            <h1 className="mt-2">Cards Cooling Down</h1>
+            <p className="text-light mt-2">
+              Your cards are on a short cooldown. They'll appear again in a moment...
+            </p>
+            <div className="mt-4">
+              <Loading message="Waiting for next card..." />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Study complete

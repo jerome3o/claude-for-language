@@ -96,7 +96,8 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
 // Synchronously select the next card from a queue (pure function)
 function selectNextCardFromQueue(
   queue: LocalCard[],
-  recentNoteIds: string[]
+  recentNoteIds: string[],
+  justRatedCardId?: string
 ): LocalCard | null {
   const now = Date.now();
 
@@ -142,7 +143,31 @@ function selectNextCardFromQueue(
     }
   }
 
-  // No cards are ready now (learning cards may exist but are scheduled for later)
+  // Priority 3: Learning cards on cooldown but due today — show them to let user drill in one sitting
+  // Skip the card that was just rated to avoid showing it immediately again
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  const cooldownCards = cardsToChooseFrom.filter(c =>
+    (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+    c.id !== justRatedCardId &&
+    (!c.due_timestamp || c.due_timestamp <= endOfToday.getTime())
+  );
+  if (cooldownCards.length > 0) {
+    cooldownCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+    return cooldownCards[0];
+  }
+
+  // If the only learning card is the one just rated, don't show it again immediately
+  // The delayed learning card fallback or useOfflineData will handle it with a timer
+  const anyLearningDueToday = cardsToChooseFrom.filter(c =>
+    (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+    (!c.due_timestamp || c.due_timestamp <= endOfToday.getTime())
+  );
+  if (anyLearningDueToday.length > 0) {
+    // Cards exist but they were all just rated — return null to trigger cooldown wait
+    return null;
+  }
+
   return null;
 }
 
@@ -172,6 +197,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
+  const [waitingForCooldown, setWaitingForCooldown] = useState(false);
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Track if we've initialized
   const initializedRef = useRef(false);
@@ -249,14 +276,16 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       if (delayedLearningCards.length > 0) {
-        const dueNow = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= now
+        const endOfToday = new Date(now);
+        endOfToday.setHours(23, 59, 59, 999);
+        const dueToday = delayedLearningCards.filter(c =>
+          !c.due_timestamp || c.due_timestamp <= endOfToday.getTime()
         );
 
-        if (dueNow.length > 0) {
+        if (dueToday.length > 0) {
           // Sort by due_timestamp and pick soonest
-          dueNow.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-          const selected = dueNow[0];
+          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          const selected = dueToday[0];
 
           // Load note and deck
           const [note, deck] = await Promise.all([
@@ -441,7 +470,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const newRecentNoteIds = [...recentNoteIds.slice(-4), noteId];
 
     // Select the next card synchronously from the new queue
-    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds);
+    // Pass cardId so we don't immediately re-show a card the user just rated
+    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, cardId);
 
     console.log('[useStudySession] Next card selected:', nextCard?.id, 'from queue of', newQueue.length);
 
@@ -486,14 +516,76 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       if (delayedLearningCards.length > 0) {
-        const now = Date.now();
-        const dueNow = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= now
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const dueToday = delayedLearningCards.filter(c =>
+          !c.due_timestamp || c.due_timestamp <= endOfToday.getTime()
         );
 
-        if (dueNow.length > 0) {
-          dueNow.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-          const selected = dueNow[0];
+        if (dueToday.length > 0) {
+          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+
+          // Prefer a card that wasn't just rated to avoid showing the same card back-to-back
+          const otherCards = dueToday.filter(c => c.id !== cardId);
+          const candidateList = otherCards.length > 0 ? otherCards : dueToday;
+          const selected = candidateList[0];
+
+          // If the only available card is the one just rated AND it's on cooldown,
+          // wait for its cooldown to expire before showing it
+          const now = Date.now();
+          if (selected.id === cardId && selected.due_timestamp && selected.due_timestamp > now) {
+            const waitMs = selected.due_timestamp - now;
+            console.log('[useStudySession] Only card is on cooldown, waiting', waitMs, 'ms');
+
+            // Set waiting state so UI shows cooldown message instead of "All Done"
+            setQueue(newQueue);
+            setRecentNoteIds(newRecentNoteIds);
+            setCurrentCardState({ card: null, note: null, deck: null });
+            setWaitingForCooldown(true);
+
+            // Submit review event now
+            createLocalReviewEvent({
+              id: crypto.randomUUID(),
+              card_id: cardId,
+              rating,
+              time_spent_ms: timeSpentMs || null,
+              user_answer: userAnswer || null,
+              reviewed_at: reviewedAt,
+              _synced: 0,
+            }).then(() => {
+              if (recordingBlob) {
+                storePendingRecording({
+                  id: crypto.randomUUID(),
+                  blob: recordingBlob,
+                  uploaded: false,
+                  created_at: reviewedAt,
+                });
+              }
+              if (navigator.onLine) {
+                syncService.syncEvents().catch(console.error);
+              }
+            });
+
+            // Schedule auto-resume after cooldown expires
+            if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+            cooldownTimerRef.current = setTimeout(async () => {
+              console.log('[useStudySession] Cooldown expired, resuming');
+              setWaitingForCooldown(false);
+              // Re-fetch the card from DB (state may have changed)
+              const freshCard = await db.cards.get(selected.id);
+              if (freshCard && (freshCard.queue === CardQueue.LEARNING || freshCard.queue === CardQueue.RELEARNING)) {
+                const [freshNote, freshDeck] = await Promise.all([
+                  db.notes.get(freshCard.note_id),
+                  db.decks.get(freshCard.deck_id),
+                ]);
+                if (freshNote) {
+                  setQueue([freshCard]);
+                  setCurrentCardState({ card: freshCard, note: freshNote, deck: freshDeck || null });
+                }
+              }
+            }, Math.min(waitMs + 500, 600000)); // Cap at 10 min, add 500ms buffer
+            return;
+          }
 
           const [note, deck] = await Promise.all([
             db.notes.get(selected.note_id),
@@ -622,6 +714,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     intervalPreviews,
     hasMoreNewCards,
     isRating: reviewMutation.isPending,
+    waitingForCooldown,
 
     // Actions
     rateCard,
