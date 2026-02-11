@@ -1416,6 +1416,39 @@ app.get('/api/audio/*', async (c) => {
   return new Response(object.body, { headers });
 });
 
+// ============ Transcription (Workers AI Whisper) ============
+
+app.post('/api/transcribe', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as unknown;
+
+  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+    return c.json({ error: 'file is required' }, 400);
+  }
+
+  const blob = file as Blob;
+  const arrayBuffer = await blob.arrayBuffer();
+
+  try {
+    const result = await c.env.AI.run('@cf/openai/whisper', {
+      audio: [...new Uint8Array(arrayBuffer)],
+    });
+
+    return c.json({
+      text: result.text || '',
+      language: (result as unknown as Record<string, unknown>).detected_language || 'zh',
+    });
+  } catch (err) {
+    console.error('[transcribe] Whisper error:', err);
+    return c.json({ error: 'Transcription failed' }, 500);
+  }
+});
+
 // ============ AI Generation ============
 
 app.post('/api/ai/generate-deck', async (c) => {

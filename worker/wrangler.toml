@@ -57,5 +57,9 @@ queue = "image-generation-queue"
 max_batch_size = 1
 max_batch_timeout = 0
 
+# Workers AI (for speech-to-text transcription)
+[ai]
+binding = "AI"
+
 # Frontend is deployed separately to Cloudflare Pages
 # See .github/workflows/deploy.yml

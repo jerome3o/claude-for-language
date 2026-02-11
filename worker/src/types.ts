@@ -2,6 +2,7 @@
 export interface Env {
   DB: D1Database;
   AUDIO_BUCKET: R2Bucket;
+  AI: Ai;
   IMAGE_QUEUE: Queue<ImageGenerationMessage>;
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   ANTHROPIC_API_KEY: string;

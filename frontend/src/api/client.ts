@@ -464,6 +464,39 @@ export function getAudioUrl(key: string): string {
   return `${API_PATH}/audio/${key}`;
 }
 
+export interface TranscriptionResult {
+  text: string;
+  language: string;
+}
+
+export async function transcribeAudio(audioBlob: Blob): Promise<TranscriptionResult> {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.webm');
+
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/transcribe`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+
+  if (!response.ok) {
+    throw new Error('Transcription failed');
+  }
+
+  return response.json();
+}
+
 // ============ AI Generation ============
 
 export async function generateDeck(

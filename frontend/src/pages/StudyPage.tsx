@@ -27,6 +27,7 @@ import {
   Note,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useStudySession } from '../hooks/useStudySession';
@@ -214,6 +215,13 @@ function StudyCard({
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio } = useNoteAudio();
+  const {
+    isTranscribing,
+    comparison: transcriptionComparison,
+    isOffline: transcriptionOffline,
+    error: transcriptionError,
+    transcribe,
+  } = useTranscription();
 
   // Track which card we've played audio for to prevent re-triggering
   const playedAudioForRef = useRef<string | null>(null);
@@ -259,6 +267,13 @@ function StudyCard({
     }
   }, [showDebug, card.id]);
 
+
+  // Trigger transcription when speaking card is flipped with a recording
+  useEffect(() => {
+    if (flipped && isSpeakingCard && audioBlob) {
+      transcribe(audioBlob, card.note.hanzi, card.note.pinyin);
+    }
+  }, [flipped, isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe]);
 
   // Auto-play audio when answer is revealed
   useEffect(() => {
@@ -395,6 +410,63 @@ function StudyCard({
     }
   };
 
+  const renderTranscriptionResult = () => {
+    if (!isSpeakingCard || !audioBlob) return null;
+
+    if (isTranscribing) {
+      return (
+        <div className="transcription-result transcription-loading" style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: '6px',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          fontSize: '0.875rem',
+          marginBottom: '0.5rem',
+        }}>
+          Transcribing...
+        </div>
+      );
+    }
+
+    if (transcriptionOffline) {
+      return (
+        <div className="transcription-result" style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: '6px',
+          backgroundColor: 'rgba(156, 163, 175, 0.15)',
+          fontSize: '0.8125rem',
+          color: '#6b7280',
+          marginBottom: '0.5rem',
+        }}>
+          Recording saved, will transcribe when online
+        </div>
+      );
+    }
+
+    if (transcriptionError) {
+      return null; // Fail silently — the recording is still saved
+    }
+
+    if (transcriptionComparison) {
+      const { transcribedHanzi, transcribedPinyin, isMatch } = transcriptionComparison;
+      return (
+        <div className="transcription-result" style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: '6px',
+          backgroundColor: isMatch ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+          border: `1px solid ${isMatch ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+          fontSize: '0.875rem',
+          marginBottom: '0.5rem',
+        }}>
+          <div style={{ fontWeight: 500 }}>
+            You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : '\u274C'}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   const renderBackMain = () => {
     return (
       <div className="text-center">
@@ -407,6 +479,8 @@ function StudyCard({
           // Show just the hanzi for non-typing cards
           <div className="hanzi hanzi-large mb-1">{card.note.hanzi}</div>
         )}
+
+        {renderTranscriptionResult()}
 
         <div className="pinyin mb-1">{card.note.pinyin}</div>
         <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
