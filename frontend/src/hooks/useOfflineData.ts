@@ -359,16 +359,15 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
       // Check if any learning cards are due TODAY (same calendar day)
       // Cards due today should be shown even if on cooldown - user wants to complete in one sitting
       // Cards due tomorrow or later have "graduated" - session is complete
-      const now = new Date();
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+      const now = Date.now();
 
-      const dueToday = delayedLearningCards.filter(c =>
-        !c.due_timestamp || c.due_timestamp <= endOfToday
+      const dueNow = delayedLearningCards.filter(c =>
+        !c.due_timestamp || c.due_timestamp <= now
       );
 
-      if (dueToday.length === 0) {
-        // All learning cards have graduated (due tomorrow or later)
-        console.log('[useOfflineNextCard] All learning cards graduated (due tomorrow+), session complete:', {
+      if (dueNow.length === 0) {
+        // All learning cards are scheduled for later — session is complete for now
+        console.log('[useOfflineNextCard] All learning cards scheduled for later, session complete:', {
           totalDelayed: delayedLearningCards.length,
           soonestDue: delayedLearningCards[0]?.due_timestamp,
         });
@@ -378,7 +377,7 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
 
       // IMPORTANT: Use deterministic selection (sort by due_timestamp, then by id for stability)
       // Random selection causes race conditions when multiple useLiveQuery calls run in parallel
-      const sorted = [...dueToday].sort((a, b) => {
+      const sorted = [...dueNow].sort((a, b) => {
         // Sort by due_timestamp (soonest first), then by id for stability
         const timestampDiff = (a.due_timestamp || 0) - (b.due_timestamp || 0);
         if (timestampDiff !== 0) return timestampDiff;
@@ -393,11 +392,11 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
       // Only update currentSelectedCardId if it's a different card
       // This provides stability while still allowing rotation after rating
       if (currentSelectedCardId !== selected.id) {
-        console.log('[useOfflineNextCard] Selected LEARNING card due today:', {
+        console.log('[useOfflineNextCard] Selected LEARNING card due now:', {
           cardId: selected.id,
           noteId: selected.note_id,
           dueTimestamp: selected.due_timestamp,
-          totalDueToday: dueToday.length,
+          totalDueNow: dueNow.length,
           previousCardId: currentSelectedCardId,
         });
         currentSelectedCardId = selected.id;

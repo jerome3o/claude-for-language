@@ -142,15 +142,7 @@ function selectNextCardFromQueue(
     }
   }
 
-  // Priority 3: Any learning card (even if not due yet)
-  const anyLearning = cardsToChooseFrom.filter(c =>
-    c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING
-  );
-  if (anyLearning.length > 0) {
-    anyLearning.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-    return anyLearning[0];
-  }
-
+  // No cards are ready now (learning cards may exist but are scheduled for later)
   return null;
 }
 
@@ -257,16 +249,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       if (delayedLearningCards.length > 0) {
-        const endOfToday = new Date(now);
-        endOfToday.setHours(23, 59, 59, 999);
-        const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= endOfToday.getTime()
+        const dueNow = delayedLearningCards.filter(c =>
+          !c.due_timestamp || c.due_timestamp <= now
         );
 
-        if (dueToday.length > 0) {
+        if (dueNow.length > 0) {
           // Sort by due_timestamp and pick soonest
-          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-          const selected = dueToday[0];
+          dueNow.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          const selected = dueNow[0];
 
           // Load note and deck
           const [note, deck] = await Promise.all([
@@ -496,15 +486,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       if (delayedLearningCards.length > 0) {
-        const endOfToday = new Date();
-        endOfToday.setHours(23, 59, 59, 999);
-        const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= endOfToday.getTime()
+        const now = Date.now();
+        const dueNow = delayedLearningCards.filter(c =>
+          !c.due_timestamp || c.due_timestamp <= now
         );
 
-        if (dueToday.length > 0) {
-          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-          const selected = dueToday[0];
+        if (dueNow.length > 0) {
+          dueNow.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          const selected = dueNow[0];
 
           const [note, deck] = await Promise.all([
             db.notes.get(selected.note_id),
