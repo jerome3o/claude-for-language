@@ -70,7 +70,7 @@ h3 { font-size: 0.9375rem; }
 }
 
 .hanzi-large {
-  font-size: clamp(2rem, 10vw, 4rem);
+  font-size: clamp(1.75rem, 9vw, 4rem);
 }
 
 @media (min-width: 640px) {
@@ -189,8 +189,15 @@ a:hover {
 }
 
 .btn-lg {
-  padding: 1rem 2rem;
-  font-size: 1.125rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 1rem;
+}
+
+@media (min-width: 640px) {
+  .btn-lg {
+    padding: 1rem 2rem;
+    font-size: 1.125rem;
+  }
 }
 
 .btn-block {
@@ -265,7 +272,13 @@ a:hover {
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 0.75rem;
+  padding: 0 0.5rem;
+}
+
+@media (min-width: 400px) {
+  .container {
+    padding: 0 0.75rem;
+  }
 }
 
 @media (min-width: 640px) {
@@ -475,8 +488,14 @@ html:has(.study-page-fullscreen) .header {
   background-color: var(--color-surface);
   display: flex;
   flex-direction: column;
-  padding: 0.5rem;
+  padding: 0.25rem;
   z-index: 200;
+}
+
+@media (min-width: 400px) {
+  .study-page-fullscreen {
+    padding: 0.5rem;
+  }
 }
 
 @media (min-width: 640px) {
@@ -499,8 +518,14 @@ html:has(.study-page-fullscreen) .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.625rem;
   flex-shrink: 0;
+}
+
+@media (min-width: 640px) {
+  .study-topbar {
+    padding: 0.75rem 1rem;
+  }
 }
 
 .study-close-btn {
@@ -528,10 +553,22 @@ html:has(.study-page-fullscreen) .header {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 1rem;
+  padding: 0.5rem;
   overflow-y: auto;
   overscroll-behavior: contain;
   min-height: 0; /* Allow flex shrinking */
+}
+
+@media (min-width: 400px) {
+  .study-card-content {
+    padding: 0.75rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .study-card-content {
+    padding: 1rem;
+  }
 }
 
 .study-card-main {
@@ -544,12 +581,24 @@ html:has(.study-page-fullscreen) .header {
 /* Typing cards: anchor content to top so keyboard doesn't shift text */
 .study-card-main--typing {
   justify-content: flex-start;
-  padding-top: 2rem;
+  padding-top: 1rem;
+}
+
+@media (min-width: 640px) {
+  .study-card-main--typing {
+    padding-top: 2rem;
+  }
 }
 
 .study-card-actions {
   flex-shrink: 0;
-  padding-top: 1rem;
+  padding-top: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .study-card-actions {
+    padding-top: 1rem;
+  }
 }
 
 /* Typing input styling */
@@ -591,11 +640,19 @@ html:has(.study-page-fullscreen) .header {
 }
 
 .diff-char {
-  font-size: 1.75rem;
-  padding: 0.125rem 0.25rem;
+  font-size: 1.5rem;
+  padding: 0.125rem 0.125rem;
   border-radius: 4px;
-  min-width: 2rem;
+  min-width: 1.75rem;
   text-align: center;
+}
+
+@media (min-width: 400px) {
+  .diff-char {
+    font-size: 1.75rem;
+    padding: 0.125rem 0.25rem;
+    min-width: 2rem;
+  }
 }
 
 @media (min-width: 640px) {
@@ -688,7 +745,7 @@ html:has(.study-page-fullscreen) .header {
 
 /* Claude chat modal - nearly fullscreen */
 .claude-modal-overlay {
-  padding: 0.5rem;
+  padding: 0.25rem;
 }
 
 .claude-modal {
@@ -709,8 +766,15 @@ html:has(.study-page-fullscreen) .header {
 .claude-modal-content {
   flex: 1;
   overflow-y: auto;
-  padding: 0 1rem;
+  padding: 0 0.625rem;
   padding-bottom: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .claude-modal-content {
+    padding: 0 1rem;
+    padding-bottom: 0.5rem;
+  }
 }
 
 .claude-quick-actions {
@@ -741,14 +805,27 @@ html:has(.study-page-fullscreen) .header {
 
 .claude-input-row {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  gap: 0.375rem;
+  padding: 0.5rem;
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
+@media (min-width: 640px) {
+  .claude-input-row {
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+}
+
 .claude-input-row .form-input {
   flex: 1;
+}
+
+@media (min-width: 400px) {
+  .claude-modal-overlay {
+    padding: 0.5rem;
+  }
 }
 
 @media (min-width: 640px) {
@@ -775,8 +852,8 @@ html:has(.study-page-fullscreen) .header {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0.25rem;
-  font-size: 1.125rem;
+  gap: 0.125rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -802,6 +879,13 @@ html:has(.study-page-fullscreen) .header {
   text-underline-offset: 3px;
 }
 
+@media (min-width: 400px) {
+  .queue-counts {
+    font-size: 1.125rem;
+    gap: 0.25rem;
+  }
+}
+
 @media (min-width: 640px) {
   .queue-counts {
     font-size: 1.25rem;
@@ -813,11 +897,11 @@ html:has(.study-page-fullscreen) .header {
 .rating-buttons {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.375rem;
+  gap: 0.25rem;
 }
 
 .rating-btn {
-  padding: 0.5rem 0.25rem;
+  padding: 0.5rem 0.125rem;
   font-weight: 600;
   font-size: 0.75rem;
   border: none;
@@ -833,14 +917,24 @@ html:has(.study-page-fullscreen) .header {
 }
 
 .rating-label {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
 .rating-interval {
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   opacity: 0.8;
+}
+
+@media (min-width: 400px) {
+  .rating-buttons {
+    gap: 0.375rem;
+  }
+
+  .rating-btn {
+    padding: 0.5rem 0.25rem;
+  }
 }
 
 @media (min-width: 640px) {
@@ -859,6 +953,44 @@ html:has(.study-page-fullscreen) .header {
 
   .rating-interval {
     font-size: 0.75rem;
+  }
+}
+
+/* Study back actions (Play Audio, Ask Claude, etc.) */
+.study-back-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.study-back-buttons {
+  display: flex;
+  gap: 0.375rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.study-back-buttons .btn-sm {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+@media (min-width: 400px) {
+  .study-back-buttons .btn-sm {
+    padding: 0.5rem 0.75rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .study-back-actions {
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .study-back-buttons .btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
   }
 }
 
@@ -1250,13 +1382,22 @@ textarea {
 /* Safe area insets for notched devices */
 @supports (padding: max(0px)) {
   .page {
-    padding-left: max(1rem, env(safe-area-inset-left));
-    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
   }
 
   .header {
     padding-left: max(0px, env(safe-area-inset-left));
     padding-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
+@supports (padding: max(0px)) {
+  @media (min-width: 640px) {
+    .page {
+      padding-left: max(1rem, env(safe-area-inset-left));
+      padding-right: max(1rem, env(safe-area-inset-right));
+    }
   }
 }
 
