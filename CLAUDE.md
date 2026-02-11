@@ -664,12 +664,36 @@ Common issues:
 6. Deploys the frontend to Cloudflare Pages
 7. Deploys the MCP server
 
+### Pre-Merge Checklist (REQUIRED)
+
+Before merging to main or marking work as complete, **every agent must verify**:
+
+```bash
+# 1. TypeScript compiles clean across ALL packages
+npx tsc --noEmit --project frontend/tsconfig.json
+npx tsc --noEmit --project worker/tsconfig.json
+
+# 2. All tests pass
+npm test
+
+# 3. Frontend builds
+cd frontend && npx vite build
+
+# 4. If worker/mcp-server code was touched, verify those build too
+cd worker && npx wrangler deploy --dry-run --outdir=.wrangler/tmp
+cd mcp-server && npx wrangler deploy --dry-run --outdir=.wrangler/tmp
+```
+
+Do NOT skip these steps. CI failures on main break production deploys for everyone.
+
 ### To Deploy
 
 Simply push to main:
 ```bash
 git push origin main
 ```
+
+After pushing, verify CI passes: `gh run watch $(gh run list --limit 1 --json databaseId -q '.[0].databaseId') --exit-status`
 
 **You do NOT need to manually run migrations for production** - the CI handles this automatically before deploying the worker.
 
