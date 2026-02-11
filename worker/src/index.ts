@@ -1528,6 +1528,7 @@ app.post('/api/transcribe', async (c) => {
   try {
     const result = await c.env.AI.run('@cf/openai/whisper', {
       audio: [...new Uint8Array(arrayBuffer)],
+      language: 'zh',
     });
 
     return c.json({
