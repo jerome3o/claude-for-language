@@ -10,12 +10,17 @@
     "build:ui": "vite build && node scripts/embed-html.js"
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
     "@cloudflare/workers-oauth-provider": "^0.0.5",
     "@modelcontextprotocol/ext-apps": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "agents": "^0.3.5",
     "ai": "^6.0.0",
+    "cron-schedule": "^6.0.0",
     "hono": "^4.0.0",
+    "mimetext": "^3.0.28",
+    "partyserver": "^0.1.5",
+    "partysocket": "^1.1.10",
     "zod": "^3.23.0"
   },
   "devDependencies": {
