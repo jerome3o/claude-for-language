@@ -93,7 +93,7 @@ Start session with:
 If the only remaining cards are learning cards with cooldowns (e.g., all due in 5 minutes), they are shown immediately rather than making the user wait. The user can keep drilling until they graduate.
 
 ### Single learning card remaining
-The same card will be shown repeatedly until rated highly enough to graduate. Each rating updates the card's `updated_at`, causing the UI to reset for a fresh review.
+The same card is shown immediately and repeatedly, even if just rated, until it graduates. No cooldown wait screen — the user prefers to drill continuously in one sitting. Each rating updates the card's state, causing the UI to reset for a fresh review.
 
 ### Offline behavior
 All session logic works offline. Reviews are stored locally and synced when connectivity returns. The "Ask Claude" feature gracefully fails when offline.
