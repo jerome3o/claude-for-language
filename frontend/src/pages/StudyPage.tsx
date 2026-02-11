@@ -31,6 +31,7 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
+import { syncService } from '../services/sync';
 import { useStudySession } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -356,7 +357,8 @@ function StudyCard({
         }
         case 'create_flashcards': {
           // Cards are already created on the server side.
-          // Trigger a sync so IndexedDB picks them up next time.
+          // Trigger an incremental sync so they appear in IndexedDB immediately.
+          syncService.incrementalSync().catch(console.error);
           break;
         }
       }

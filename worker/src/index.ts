@@ -9,7 +9,7 @@ import {
   DEFAULT_DECK_SETTINGS,
   parseLearningSteps,
 } from './services/anki-scheduler';
-import { generateDeck, suggestCards, askAboutNote, askAboutNoteWithTools, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
+import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generateStory, generatePageImage } from './services/graded-reader';
