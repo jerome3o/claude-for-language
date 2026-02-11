@@ -2831,57 +2831,62 @@ app.get('/api/export', async (c) => {
   const user = c.get('user');
   const userId = user.id;
 
-  // Query all user data in parallel
-  const [decksResult, notesResult, cardsResult, reviewEventsResult] = await Promise.all([
-    c.env.DB.prepare(
-      'SELECT id, name, description, new_cards_per_day, created_at, updated_at FROM decks WHERE user_id = ? ORDER BY created_at'
-    ).bind(userId).all(),
-    c.env.DB.prepare(
-      `SELECT n.id, n.deck_id, n.hanzi, n.pinyin, n.english, n.fun_facts, n.audio_url, n.created_at, n.updated_at
-       FROM notes n
-       JOIN decks d ON n.deck_id = d.id
-       WHERE d.user_id = ?
-       ORDER BY n.created_at`
-    ).bind(userId).all(),
-    c.env.DB.prepare(
-      `SELECT c.id, c.note_id, c.card_type, c.queue, c.stability, c.difficulty, c.lapses, c.reps,
-              c.ease_factor, c.interval, c.repetitions, c.next_review_at, c.created_at, c.updated_at
-       FROM cards c
-       JOIN notes n ON c.note_id = n.id
-       JOIN decks d ON n.deck_id = d.id
-       WHERE d.user_id = ?
-       ORDER BY c.created_at`
-    ).bind(userId).all(),
-    c.env.DB.prepare(
-      `SELECT re.id, re.card_id, re.rating, re.time_spent_ms, re.user_answer,
-              re.recording_url, re.reviewed_at, re.created_at
-       FROM review_events re
-       WHERE re.user_id = ?
-       ORDER BY re.reviewed_at`
-    ).bind(userId).all(),
-  ]);
+  try {
+    // Query all user data in parallel
+    const [decksResult, notesResult, cardsResult, reviewEventsResult] = await Promise.all([
+      c.env.DB.prepare(
+        'SELECT id, name, description, new_cards_per_day, created_at, updated_at FROM decks WHERE user_id = ? ORDER BY created_at'
+      ).bind(userId).all(),
+      c.env.DB.prepare(
+        `SELECT n.id, n.deck_id, n.hanzi, n.pinyin, n.english, n.fun_facts, n.audio_url, n.created_at, n.updated_at
+         FROM notes n
+         JOIN decks d ON n.deck_id = d.id
+         WHERE d.user_id = ?
+         ORDER BY n.created_at`
+      ).bind(userId).all(),
+      c.env.DB.prepare(
+        `SELECT c.id, c.note_id, c.card_type, c.queue, c.stability, c.difficulty, c.lapses,
+                c.ease_factor, c.interval, c.repetitions, c.next_review_at, c.created_at, c.updated_at
+         FROM cards c
+         JOIN notes n ON c.note_id = n.id
+         JOIN decks d ON n.deck_id = d.id
+         WHERE d.user_id = ?
+         ORDER BY c.created_at`
+      ).bind(userId).all(),
+      c.env.DB.prepare(
+        `SELECT re.id, re.card_id, re.rating, re.time_spent_ms, re.user_answer,
+                re.recording_url, re.reviewed_at, re.created_at
+         FROM review_events re
+         WHERE re.user_id = ?
+         ORDER BY re.reviewed_at`
+      ).bind(userId).all(),
+    ]);
 
-  const exportData = {
-    version: '1.0',
-    exported_at: new Date().toISOString(),
-    user: {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-    },
-    decks: decksResult.results,
-    notes: notesResult.results,
-    cards: cardsResult.results,
-    review_events: reviewEventsResult.results,
-  };
+    const exportData = {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      },
+      decks: decksResult.results,
+      notes: notesResult.results,
+      cards: cardsResult.results,
+      review_events: reviewEventsResult.results,
+    };
 
-  const today = new Date().toISOString().slice(0, 10);
-  return new Response(JSON.stringify(exportData, null, 2), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Disposition': `attachment; filename="chinese-learning-backup-${today}.json"`,
-    },
-  });
+    const today = new Date().toISOString().slice(0, 10);
+    return new Response(JSON.stringify(exportData, null, 2), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="chinese-learning-backup-${today}.json"`,
+      },
+    });
+  } catch (error) {
+    console.error('Export failed:', error);
+    return c.json({ error: 'Failed to export data' }, 500);
+  }
 });
 
 // ============ Review Events (Event-Sourced Sync) ============
