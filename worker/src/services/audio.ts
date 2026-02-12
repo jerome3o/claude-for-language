@@ -55,6 +55,11 @@ export function getNoteAudioKey(noteId: string): string {
   return `generated/${noteId}.mp3`;
 }
 
+export function getUniqueAudioKey(noteId: string): string {
+  const id = crypto.randomUUID().split('-')[0];
+  return `generated/${noteId}_${id}.mp3`;
+}
+
 /**
  * Generate a key for user recording
  */
@@ -161,7 +166,7 @@ export async function generateMiniMaxTTS(
       console.error('[TTS] Warning: Audio does not appear to be valid MP3, first bytes:', header);
     }
 
-    // Store in R2
+    // Store in R2 (legacy single-audio path, overwrites same key)
     const key = getNoteAudioKey(noteId);
     await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer as ArrayBuffer, 'audio/mpeg');
     console.log('[TTS] Stored MiniMax audio in R2 with key:', key);
@@ -229,7 +234,7 @@ export async function generateGoogleTTS(
     const audioBytes = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
     console.log('[TTS] Decoded audio bytes:', audioBytes.length);
 
-    // Store in R2
+    // Store in R2 (legacy single-audio path, overwrites same key)
     const key = getNoteAudioKey(noteId);
     await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer as ArrayBuffer, 'audio/mpeg');
     console.log('[TTS] Stored audio in R2 with key:', key);
@@ -375,8 +380,8 @@ async function generateMiniMaxTTSWithOptions(
     }
     console.log('[TTS] Decoded audio bytes:', audioBytes.length);
 
-    // Store in R2
-    const key = getNoteAudioKey(noteId);
+    // Store in R2 with unique key per recording
+    const key = getUniqueAudioKey(noteId);
     await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer as ArrayBuffer, 'audio/mpeg');
     console.log('[TTS] Stored MiniMax audio in R2 with key:', key);
 
@@ -445,7 +450,7 @@ async function generateGoogleTTSWithOptions(
     const audioBytes = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
     console.log('[TTS] Decoded audio bytes:', audioBytes.length);
 
-    const key = getNoteAudioKey(noteId);
+    const key = getUniqueAudioKey(noteId);
     await storeAudio(env.AUDIO_BUCKET, key, audioBytes.buffer as ArrayBuffer, 'audio/mpeg');
     console.log('[TTS] Stored audio in R2 with key:', key);
 
