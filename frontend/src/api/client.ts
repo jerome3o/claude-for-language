@@ -476,11 +476,12 @@ export async function addNoteAudioRecording(
 
 export async function generateNoteAudioRecording(
   noteId: string,
-  provider: 'minimax' | 'gtts' = 'gtts'
+  provider: 'minimax' | 'gtts' = 'gtts',
+  options?: { speed?: number; voiceId?: string }
 ): Promise<NoteAudioRecording> {
   return fetchJSON<NoteAudioRecording>(`/notes/${noteId}/audio`, {
     method: 'POST',
-    body: JSON.stringify({ generate: true, provider }),
+    body: JSON.stringify({ generate: true, provider, ...options }),
   });
 }
 

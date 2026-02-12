@@ -1478,10 +1478,18 @@ app.post('/api/notes/:id/audio', async (c) => {
   } else {
     // JSON request - generate TTS audio
     let provider: 'minimax' | 'gtts' = 'gtts';
+    let speed: number | undefined;
+    let voiceId: string | undefined;
     try {
-      const body = await c.req.json() as { generate?: boolean; provider?: string };
+      const body = await c.req.json() as { generate?: boolean; provider?: string; speed?: number; voiceId?: string };
       if (body.provider === 'minimax' || body.provider === 'gtts') {
         provider = body.provider;
+      }
+      if (body.speed !== undefined) {
+        speed = Math.max(0.3, Math.min(1.5, body.speed));
+      }
+      if (body.voiceId && typeof body.voiceId === 'string') {
+        voiceId = body.voiceId;
       }
     } catch {
       // Default to gtts
@@ -1492,7 +1500,7 @@ app.post('/api/notes/:id/audio', async (c) => {
     }
 
     try {
-      const result = await generateTTS(c.env, note.hanzi, noteId, { preferProvider: provider });
+      const result = await generateTTS(c.env, note.hanzi, noteId, { preferProvider: provider, speed, voiceId });
       if (!result) {
         return c.json({ error: 'Failed to generate audio' }, 500);
       }

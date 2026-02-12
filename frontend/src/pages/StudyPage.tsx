@@ -1204,6 +1204,12 @@ function StudyCard({
               audio_url: updatedNote.audio_url,
             });
           }}
+          onDeleteCard={() => {
+            // Remove from IndexedDB and move to next card
+            db.notes.delete(card.note.id);
+            db.cards.where('note_id').equals(card.note.id).delete();
+            onDeleteCurrentCard();
+          }}
         />
       )}
     </>
