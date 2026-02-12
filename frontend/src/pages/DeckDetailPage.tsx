@@ -1,13 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
+import { useState, useEffect, useMemo } from 'react';
+import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship } from '../types';
 import { CompletionSection, CardTypeBreakdownSection } from '../components/DeckProgress';
 import CardEditModal from '../components/CardEditModal';
 import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent } from '../db/database';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -15,6 +16,17 @@ const CARD_TYPE_LABELS: Record<string, string> = {
   meaning_to_hanzi: 'Meaning → Hanzi',
   audio_to_hanzi: 'Audio → Hanzi',
 };
+
+function getMasteryLevel(
+  queue: CardQueue,
+  stability: number
+): 'new' | 'learning' | 'familiar' | 'mastered' {
+  if (queue === CardQueue.NEW) return 'new';
+  if (queue === CardQueue.LEARNING || queue === CardQueue.RELEARNING) return 'learning';
+  if (stability <= 7) return 'learning';
+  if (stability <= 21) return 'familiar';
+  return 'mastered';
+}
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -1458,12 +1470,129 @@ export function DeckDetailPage() {
     enabled: !!id,
   });
 
-  // Fetch progress data for the progress-style note rows
-  const progressQuery = useQuery({
-    queryKey: ['deckProgress', id],
-    queryFn: () => getDeckProgress(id!),
-    enabled: !!id,
-  });
+  // Local Dexie data for progress-style note rows (instant, no API call)
+  const localCards = useLiveQuery(
+    () => id ? db.cards.where('deck_id').equals(id).toArray() : [],
+    [id]
+  );
+
+  const localReviewEvents = useLiveQuery(
+    async () => {
+      if (!localCards || localCards.length === 0) return [];
+      const cardIds = localCards.map(c => c.id);
+      return db.reviewEvents
+        .where('card_id')
+        .anyOf(cardIds)
+        .reverse()
+        .sortBy('reviewed_at');
+    },
+    [localCards]
+  );
+
+  const localNotes = useLiveQuery(
+    () => id ? db.notes.where('deck_id').equals(id).toArray() : [],
+    [id]
+  );
+
+  // Compute progress data from local Dexie data
+  const localProgress = useMemo(() => {
+    if (!localCards || !localNotes) return null;
+    const events = localReviewEvents || [];
+
+    // Build card type breakdown
+    const cardTypeBreakdown = {
+      hanzi_to_meaning: { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0 },
+      meaning_to_hanzi: { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0 },
+      audio_to_hanzi: { total: 0, new: 0, learning: 0, familiar: 0, mastered: 0 },
+    };
+
+    let cardsSeen = 0;
+    let cardsMastered = 0;
+    const totalCards = localCards.length;
+
+    // Group cards by note_id for mastery computation
+    const cardsByNote = new Map<string, LocalCard[]>();
+    for (const card of localCards) {
+      const mastery = getMasteryLevel(card.queue, card.stability);
+      if (mastery !== 'new') cardsSeen++;
+      if (mastery === 'mastered') cardsMastered++;
+
+      const typeStats = cardTypeBreakdown[card.card_type as keyof typeof cardTypeBreakdown];
+      if (typeStats) {
+        typeStats.total++;
+        typeStats[mastery]++;
+      }
+
+      const existing = cardsByNote.get(card.note_id) || [];
+      existing.push(card);
+      cardsByNote.set(card.note_id, existing);
+    }
+
+    // Group recent ratings by note and card type (last 8 per type)
+    const ratingsByNote = new Map<string, {
+      hanzi_to_meaning: number[];
+      meaning_to_hanzi: number[];
+      audio_to_hanzi: number[];
+    }>();
+
+    // Build card_id -> (note_id, card_type) lookup
+    const cardInfo = new Map<string, { note_id: string; card_type: string }>();
+    for (const card of localCards) {
+      cardInfo.set(card.id, { note_id: card.note_id, card_type: card.card_type });
+    }
+
+    for (const event of events) {
+      const info = cardInfo.get(event.card_id);
+      if (!info) continue;
+
+      let noteRatings = ratingsByNote.get(info.note_id);
+      if (!noteRatings) {
+        noteRatings = { hanzi_to_meaning: [], meaning_to_hanzi: [], audio_to_hanzi: [] };
+        ratingsByNote.set(info.note_id, noteRatings);
+      }
+      const typeRatings = noteRatings[info.card_type as keyof typeof noteRatings];
+      if (typeRatings && typeRatings.length < 8) {
+        typeRatings.push(event.rating);
+      }
+    }
+
+    // Build notes array
+    const notes = localNotes.map(note => {
+      const cards = cardsByNote.get(note.id) || [];
+      const totalStability = cards.reduce((sum, c) => sum + (c.stability || 0), 0);
+      const avgStability = cards.length > 0 ? totalStability / cards.length : 0;
+      const masteryPercent = Math.min(100, Math.round((avgStability / 30) * 100));
+      const recentRatings = ratingsByNote.get(note.id) || {
+        hanzi_to_meaning: [],
+        meaning_to_hanzi: [],
+        audio_to_hanzi: [],
+      };
+
+      return {
+        noteId: note.id,
+        hanzi: note.hanzi,
+        pinyin: note.pinyin,
+        english: note.english,
+        mastery_percent: masteryPercent,
+        recent_ratings: recentRatings,
+      };
+    });
+
+    // Sort by mastery descending
+    notes.sort((a, b) => b.mastery_percent - a.mastery_percent);
+
+    return {
+      completion: {
+        total_cards: totalCards,
+        cards_seen: cardsSeen,
+        cards_mastered: cardsMastered,
+        percent_seen: totalCards > 0 ? Math.round((cardsSeen / totalCards) * 100) : 0,
+        percent_mastered: totalCards > 0 ? Math.round((cardsMastered / totalCards) * 100) : 0,
+      },
+      card_type_breakdown: cardTypeBreakdown,
+      notes,
+    };
+  }, [localCards, localNotes, localReviewEvents]);
 
   // Card edit modal state
   const [cardEditNote, setCardEditNote] = useState<CardWithNote | null>(null);
@@ -1838,11 +1967,11 @@ export function DeckDetailPage() {
           </div>
         )}
 
-        {/* Progress overview */}
-        {progressQuery.data && (
+        {/* Progress overview (from local data) */}
+        {localProgress && localProgress.completion.total_cards > 0 && (
           <>
-            <CompletionSection completion={progressQuery.data.completion} />
-            <CardTypeBreakdownSection breakdown={progressQuery.data.card_type_breakdown} />
+            <CompletionSection completion={localProgress.completion} />
+            <CardTypeBreakdownSection breakdown={localProgress.card_type_breakdown} />
           </>
         )}
 
@@ -1868,7 +1997,7 @@ export function DeckDetailPage() {
             />
           ) : (
             <>
-              {progressQuery.data && progressQuery.data.notes.length > 0 && (
+              {localProgress && localProgress.notes.length > 0 && (
                 <div className="rating-dots-legend" style={{ marginBottom: '0.5rem' }}>
                   <span className="legend-label">Reviews:</span>
                   <span className="legend-dot" style={{ backgroundColor: '#ef4444' }} />
@@ -1882,105 +2011,23 @@ export function DeckDetailPage() {
                 </div>
               )}
               <div className="deck-notes-progress-list">
-                {progressQuery.data ? (
-                  // Progress data loaded — show full progress-style rows
-                  progressQuery.data.notes.map((noteProgress) => {
-                    const noteData = deck.notes.find(n => n.hanzi === noteProgress.hanzi);
-                    const hasAnyRatings =
-                      noteProgress.recent_ratings.hanzi_to_meaning.length > 0 ||
-                      noteProgress.recent_ratings.meaning_to_hanzi.length > 0 ||
-                      noteProgress.recent_ratings.audio_to_hanzi.length > 0;
+                {(localProgress?.notes || []).map((noteProgress) => {
+                  const noteData = deck.notes.find(n => n.id === noteProgress.noteId);
+                  const hasAnyRatings =
+                    noteProgress.recent_ratings.hanzi_to_meaning.length > 0 ||
+                    noteProgress.recent_ratings.meaning_to_hanzi.length > 0 ||
+                    noteProgress.recent_ratings.audio_to_hanzi.length > 0;
 
-                    return (
-                      <div
-                        key={noteProgress.hanzi}
-                        className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}`}
-                        onClick={() => {
-                          if (selectMode && noteData) {
-                            toggleNoteSelection(noteData.id);
-                            return;
-                          }
-                          if (!noteData || !noteData.cards?.length) return;
-                          setCardEditNote({
-                            ...noteData.cards[0],
-                            note: {
-                              id: noteData.id,
-                              deck_id: noteData.deck_id,
-                              hanzi: noteData.hanzi,
-                              pinyin: noteData.pinyin,
-                              english: noteData.english,
-                              audio_url: noteData.audio_url,
-                              audio_provider: noteData.audio_provider,
-                              fun_facts: noteData.fun_facts,
-                              context: noteData.context,
-                              created_at: noteData.created_at,
-                              updated_at: noteData.updated_at,
-                            },
-                          });
-                        }}
-                      >
-                        {selectMode && noteData?.audio_url && (
-                          <input
-                            type="checkbox"
-                            checked={selectedNotes.has(noteData.id)}
-                            onChange={() => noteData && toggleNoteSelection(noteData.id)}
-                            onClick={e => e.stopPropagation()}
-                            className="deck-note-checkbox"
-                          />
-                        )}
-                        <div className="deck-note-info">
-                          <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
-                          <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
-                          <span className="deck-note-english">{noteProgress.english}</span>
-                        </div>
-                        <div className="deck-note-ratings">
-                          {hasAnyRatings ? (
-                            <div className="deck-note-ratings-grid">
-                              {(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const).map((type) => {
-                                const ratings = noteProgress.recent_ratings[type];
-                                if (ratings.length === 0) return null;
-                                const LABELS: Record<string, string> = {
-                                  hanzi_to_meaning: '字→义',
-                                  meaning_to_hanzi: '义→字',
-                                  audio_to_hanzi: '听→字',
-                                };
-                                const COLORS = ['#ef4444', '#f97316', '#22c55e', '#3b82f6'];
-                                return (
-                                  <div key={type} className="deck-note-rating-row">
-                                    <span className="deck-note-rating-label">{LABELS[type]}</span>
-                                    <span className="rating-dots">
-                                      {[...ratings].reverse().map((r, i) => (
-                                        <span
-                                          key={i}
-                                          className="rating-dot"
-                                          style={{ backgroundColor: COLORS[r] || '#9ca3af' }}
-                                        />
-                                      ))}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <span className="deck-note-no-reviews">—</span>
-                          )}
-                        </div>
-                        <span className="deck-note-mastery">{noteProgress.mastery_percent}%</span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  // Progress data still loading — show deck notes as simple clickable rows
-                  deck.notes.map((noteData) => (
+                  return (
                     <div
-                      key={noteData.id}
-                      className={`deck-note-progress-item${selectMode && noteData.audio_url ? ' selectable' : ''}`}
+                      key={noteProgress.noteId}
+                      className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}`}
                       onClick={() => {
-                        if (selectMode) {
+                        if (selectMode && noteData) {
                           toggleNoteSelection(noteData.id);
                           return;
                         }
-                        if (!noteData.cards?.length) return;
+                        if (!noteData || !noteData.cards?.length) return;
                         setCardEditNote({
                           ...noteData.cards[0],
                           note: {
@@ -1999,26 +2046,56 @@ export function DeckDetailPage() {
                         });
                       }}
                     >
-                      {selectMode && noteData.audio_url && (
+                      {selectMode && noteData?.audio_url && (
                         <input
                           type="checkbox"
                           checked={selectedNotes.has(noteData.id)}
-                          onChange={() => toggleNoteSelection(noteData.id)}
+                          onChange={() => noteData && toggleNoteSelection(noteData.id)}
                           onClick={e => e.stopPropagation()}
                           className="deck-note-checkbox"
                         />
                       )}
                       <div className="deck-note-info">
-                        <span className="deck-note-hanzi">{noteData.hanzi}</span>
-                        <span className="deck-note-pinyin">{noteData.pinyin}</span>
-                        <span className="deck-note-english">{noteData.english}</span>
+                        <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
+                        <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
+                        <span className="deck-note-english">{noteProgress.english}</span>
                       </div>
                       <div className="deck-note-ratings">
-                        <span className="deck-note-no-reviews">...</span>
+                        {hasAnyRatings ? (
+                          <div className="deck-note-ratings-grid">
+                            {(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const).map((type) => {
+                              const ratings = noteProgress.recent_ratings[type];
+                              if (ratings.length === 0) return null;
+                              const LABELS: Record<string, string> = {
+                                hanzi_to_meaning: '字→义',
+                                meaning_to_hanzi: '义→字',
+                                audio_to_hanzi: '听→字',
+                              };
+                              const COLORS = ['#ef4444', '#f97316', '#22c55e', '#3b82f6'];
+                              return (
+                                <div key={type} className="deck-note-rating-row">
+                                  <span className="deck-note-rating-label">{LABELS[type]}</span>
+                                  <span className="rating-dots">
+                                    {[...ratings].reverse().map((r, i) => (
+                                      <span
+                                        key={i}
+                                        className="rating-dot"
+                                        style={{ backgroundColor: COLORS[r] || '#9ca3af' }}
+                                      />
+                                    ))}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="deck-note-no-reviews">—</span>
+                        )}
                       </div>
+                      <span className="deck-note-mastery">{noteProgress.mastery_percent}%</span>
                     </div>
-                  ))
-                )}
+                  );
+                })}
               </div>
             </>
           )}
@@ -2032,13 +2109,11 @@ export function DeckDetailPage() {
             onSave={() => {
               setCardEditNote(null);
               queryClient.invalidateQueries({ queryKey: ['deck', id] });
-              queryClient.invalidateQueries({ queryKey: ['deckProgress', id] });
             }}
             onDeleteCard={() => {
               setCardEditNote(null);
               queryClient.invalidateQueries({ queryKey: ['deck', id] });
               queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
-              queryClient.invalidateQueries({ queryKey: ['deckProgress', id] });
             }}
           />
         )}
