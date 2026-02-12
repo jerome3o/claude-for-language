@@ -33,6 +33,9 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Audio playback tracking
+  const [playingRecordingId, setPlayingRecordingId] = useState<string | null>(null);
+
   // MiniMax generation options
   const [showMiniMaxOptions, setShowMiniMaxOptions] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
@@ -152,10 +155,18 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
     }
   };
 
-  const handlePlayRecording = (audioUrl: string) => {
-    if (isPlaying) {
+  // Clear playingRecordingId when audio finishes
+  useEffect(() => {
+    if (!isPlaying) setPlayingRecordingId(null);
+  }, [isPlaying]);
+
+  const handlePlayRecording = (recordingId: string, audioUrl: string) => {
+    if (isPlaying && playingRecordingId === recordingId) {
       stopAudio();
+      setPlayingRecordingId(null);
     } else {
+      stopAudio();
+      setPlayingRecordingId(recordingId);
       playAudio(audioUrl, card.note.hanzi, API_BASE);
     }
   };
@@ -223,9 +234,9 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
                   <div key={rec.id} className="card-edit-recording-item">
                     <button
                       className="btn btn-secondary btn-sm card-edit-play-btn"
-                      onClick={() => handlePlayRecording(rec.audio_url)}
+                      onClick={() => handlePlayRecording(rec.id, rec.audio_url)}
                     >
-                      {isPlaying ? '...' : '\u25B6'}
+                      {isPlaying && playingRecordingId === rec.id ? '...' : '\u25B6'}
                     </button>
                     <div className="card-edit-recording-info">
                       <span className="card-edit-speaker-name">
