@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CardWithNote, NoteAudioRecording } from '../types';
+import { CardWithNote, NoteAudioRecording, MINIMAX_VOICES, DEFAULT_MINIMAX_VOICE } from '../types';
 import {
   getNoteAudioRecordings,
   addNoteAudioRecording,
@@ -7,6 +7,7 @@ import {
   setAudioRecordingPrimary,
   deleteAudioRecording,
   updateNote,
+  deleteNote,
   API_BASE,
 } from '../api/client';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
@@ -15,9 +16,10 @@ interface CardEditModalProps {
   card: CardWithNote;
   onClose: () => void;
   onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null }) => void;
+  onDeleteCard?: () => void;
 }
 
-export default function CardEditModal({ card, onClose, onSave }: CardEditModalProps) {
+export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: CardEditModalProps) {
   const [hanzi, setHanzi] = useState(card.note.hanzi);
   const [pinyin, setPinyin] = useState(card.note.pinyin);
   const [english, setEnglish] = useState(card.note.english);
@@ -28,6 +30,13 @@ export default function CardEditModal({ card, onClose, onSave }: CardEditModalPr
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // MiniMax generation options
+  const [showMiniMaxOptions, setShowMiniMaxOptions] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
+  const [audioSpeed, setAudioSpeed] = useState(0.8);
 
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
   const {
@@ -95,10 +104,27 @@ export default function CardEditModal({ card, onClose, onSave }: CardEditModalPr
     }
   };
 
+  const handleDeleteCard = async () => {
+    if (!onDeleteCard) return;
+    setDeleting(true);
+    try {
+      await deleteNote(card.note.id);
+      onDeleteCard();
+      onClose();
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleGenerateAudio = async (provider: 'minimax' | 'gtts') => {
     setGenerating(true);
     try {
-      await generateNoteAudioRecording(card.note.id, provider);
+      const options = provider === 'minimax'
+        ? { speed: audioSpeed, voiceId: selectedVoice }
+        : undefined;
+      await generateNoteAudioRecording(card.note.id, provider, options);
       await loadRecordings();
     } catch (err) {
       console.error('Failed to generate audio:', err);
@@ -116,7 +142,7 @@ export default function CardEditModal({ card, onClose, onSave }: CardEditModalPr
     }
   };
 
-  const handleDelete = async (recordingId: string) => {
+  const handleDeleteRecording = async (recordingId: string) => {
     try {
       await deleteAudioRecording(card.note.id, recordingId);
       setConfirmDeleteId(null);
@@ -199,7 +225,7 @@ export default function CardEditModal({ card, onClose, onSave }: CardEditModalPr
                       className="btn btn-secondary btn-sm card-edit-play-btn"
                       onClick={() => handlePlayRecording(rec.audio_url)}
                     >
-                      {isPlaying ? '...' : '▶'}
+                      {isPlaying ? '...' : '\u25B6'}
                     </button>
                     <div className="card-edit-recording-info">
                       <span className="card-edit-speaker-name">
@@ -223,7 +249,7 @@ export default function CardEditModal({ card, onClose, onSave }: CardEditModalPr
                         <span className="card-edit-confirm-delete">
                           <button
                             className="btn btn-error btn-xs"
-                            onClick={() => handleDelete(rec.id)}
+                            onClick={() => handleDeleteRecording(rec.id)}
                           >
                             Confirm
                           </button>
@@ -254,34 +280,99 @@ export default function CardEditModal({ card, onClose, onSave }: CardEditModalPr
                 className={`btn btn-secondary btn-sm${isRecording ? ' recording' : ''}`}
                 onClick={isRecording ? stopRecording : startRecording}
               >
-                {isRecording ? 'Stop Recording' : 'Record Audio'}
+                {isRecording ? 'Stop' : 'Record'}
               </button>
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => handleGenerateAudio('gtts')}
                 disabled={generating}
               >
-                {generating ? 'Generating...' : 'Generate (Google)'}
+                {generating ? '...' : 'Google TTS'}
               </button>
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => handleGenerateAudio('minimax')}
-                disabled={generating}
+                onClick={() => setShowMiniMaxOptions(!showMiniMaxOptions)}
               >
-                {generating ? 'Generating...' : 'Generate (MiniMax)'}
+                MiniMax {showMiniMaxOptions ? '\u25B2' : '\u25BC'}
               </button>
             </div>
+
+            {/* MiniMax options panel */}
+            {showMiniMaxOptions && (
+              <div className="card-edit-minimax-options">
+                <div className="card-edit-minimax-row">
+                  <label>Voice</label>
+                  <select
+                    value={selectedVoice}
+                    onChange={e => setSelectedVoice(e.target.value)}
+                    className="form-input card-edit-voice-select"
+                  >
+                    {MINIMAX_VOICES.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="card-edit-minimax-row">
+                  <label>Speed: {audioSpeed.toFixed(1)}</label>
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="1.5"
+                    step="0.1"
+                    value={audioSpeed}
+                    onChange={e => setAudioSpeed(parseFloat(e.target.value))}
+                    className="card-edit-speed-slider"
+                  />
+                </div>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleGenerateAudio('minimax')}
+                  disabled={generating}
+                >
+                  {generating ? 'Generating...' : 'Generate MiniMax'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Save/Cancel */}
+        {/* Footer: Delete / Cancel / Save */}
         <div className="card-edit-footer">
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          {onDeleteCard && (
+            confirmDeleteCard ? (
+              <div className="card-edit-delete-confirm">
+                <span className="text-sm">Delete this note?</span>
+                <button
+                  className="btn btn-error btn-sm"
+                  onClick={handleDeleteCard}
+                  disabled={deleting}
+                >
+                  {deleting ? '...' : 'Yes, Delete'}
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setConfirmDeleteCard(false)}
+                >
+                  No
+                </button>
+              </div>
+            ) : (
+              <button
+                className="btn btn-secondary btn-sm card-edit-delete-btn"
+                onClick={() => setConfirmDeleteCard(true)}
+              >
+                Delete Note
+              </button>
+            )
+          )}
+          <div className="card-edit-footer-right">
+            <button className="btn btn-secondary btn-sm" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
