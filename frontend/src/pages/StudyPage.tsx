@@ -31,6 +31,7 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
+import CardEditModal from '../components/CardEditModal';
 import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
@@ -200,6 +201,9 @@ function StudyCard({
   const [cardDeleted, setCardDeleted] = useState(false);
   const [pendingToolResults, setPendingToolResults] = useState<AskToolResult[] | null>(null);
   const questionInputRef = useRef<HTMLInputElement>(null);
+
+  // Card edit modal state
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Debug modal state
   const [showDebug, setShowDebug] = useState(false);
@@ -1024,6 +1028,12 @@ function StudyCard({
           </button>
           <button
             className="btn btn-secondary btn-sm"
+            onClick={() => setShowEditModal(true)}
+          >
+            Edit
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
             onClick={() => setShowDebug(true)}
             title="Show debug info"
           >
@@ -1177,6 +1187,25 @@ function StudyCard({
 
       {/* Debug Modal */}
       {renderDebugModal()}
+
+      {/* Card Edit Modal */}
+      {showEditModal && (
+        <CardEditModal
+          card={card}
+          onClose={() => setShowEditModal(false)}
+          onSave={(updatedNote) => {
+            onUpdateNote(updatedNote);
+            // Also update IndexedDB for offline consistency
+            db.notes.update(card.note.id, {
+              hanzi: updatedNote.hanzi,
+              pinyin: updatedNote.pinyin,
+              english: updatedNote.english,
+              fun_facts: updatedNote.fun_facts,
+              audio_url: updatedNote.audio_url,
+            });
+          }}
+        />
+      )}
     </>
   );
 }

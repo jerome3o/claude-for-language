@@ -1,0 +1,289 @@
+import { useState, useEffect, useCallback } from 'react';
+import { CardWithNote, NoteAudioRecording } from '../types';
+import {
+  getNoteAudioRecordings,
+  addNoteAudioRecording,
+  generateNoteAudioRecording,
+  setAudioRecordingPrimary,
+  deleteAudioRecording,
+  updateNote,
+  API_BASE,
+} from '../api/client';
+import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+
+interface CardEditModalProps {
+  card: CardWithNote;
+  onClose: () => void;
+  onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null }) => void;
+}
+
+export default function CardEditModal({ card, onClose, onSave }: CardEditModalProps) {
+  const [hanzi, setHanzi] = useState(card.note.hanzi);
+  const [pinyin, setPinyin] = useState(card.note.pinyin);
+  const [english, setEnglish] = useState(card.note.english);
+  const [funFacts, setFunFacts] = useState(card.note.fun_facts || '');
+
+  const [recordings, setRecordings] = useState<NoteAudioRecording[]>([]);
+  const [loadingRecordings, setLoadingRecordings] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
+  const {
+    isRecording,
+    audioBlob: recorderBlob,
+    startRecording,
+    stopRecording,
+    clearRecording,
+  } = useAudioRecorder();
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      setLoadingRecordings(true);
+      const recs = await getNoteAudioRecordings(card.note.id);
+      setRecordings(recs);
+    } catch (err) {
+      console.error('Failed to load audio recordings:', err);
+    } finally {
+      setLoadingRecordings(false);
+    }
+  }, [card.note.id]);
+
+  useEffect(() => {
+    loadRecordings();
+  }, [loadRecordings]);
+
+  // Upload recorded audio when recording stops
+  useEffect(() => {
+    if (recorderBlob) {
+      const upload = async () => {
+        try {
+          await addNoteAudioRecording(card.note.id, recorderBlob, 'My Recording');
+          clearRecording();
+          await loadRecordings();
+        } catch (err) {
+          console.error('Failed to upload recording:', err);
+        }
+      };
+      upload();
+    }
+  }, [recorderBlob, card.note.id, clearRecording, loadRecordings]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateNote(card.note.id, {
+        hanzi,
+        pinyin,
+        english,
+        fun_facts: funFacts || undefined,
+      });
+      const primary = recordings.find(r => r.is_primary);
+      onSave({
+        hanzi,
+        pinyin,
+        english,
+        fun_facts: funFacts || null,
+        audio_url: primary?.audio_url || card.note.audio_url,
+      });
+      onClose();
+    } catch (err) {
+      console.error('Failed to save note:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleGenerateAudio = async (provider: 'minimax' | 'gtts') => {
+    setGenerating(true);
+    try {
+      await generateNoteAudioRecording(card.note.id, provider);
+      await loadRecordings();
+    } catch (err) {
+      console.error('Failed to generate audio:', err);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleSetPrimary = async (recordingId: string) => {
+    try {
+      await setAudioRecordingPrimary(card.note.id, recordingId);
+      await loadRecordings();
+    } catch (err) {
+      console.error('Failed to set primary:', err);
+    }
+  };
+
+  const handleDelete = async (recordingId: string) => {
+    try {
+      await deleteAudioRecording(card.note.id, recordingId);
+      setConfirmDeleteId(null);
+      await loadRecordings();
+    } catch (err) {
+      console.error('Failed to delete recording:', err);
+    }
+  };
+
+  const handlePlayRecording = (audioUrl: string) => {
+    if (isPlaying) {
+      stopAudio();
+    } else {
+      playAudio(audioUrl, card.note.hanzi, API_BASE);
+    }
+  };
+
+  return (
+    <div className="modal-overlay card-edit-modal-overlay" onClick={onClose}>
+      <div className="modal card-edit-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">Edit Card</h2>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+
+        <div className="card-edit-content">
+          {/* Text fields */}
+          <div className="card-edit-fields">
+            <div className="card-edit-field">
+              <label>Hanzi</label>
+              <input
+                type="text"
+                value={hanzi}
+                onChange={e => setHanzi(e.target.value)}
+                className="form-input"
+              />
+            </div>
+            <div className="card-edit-field">
+              <label>Pinyin</label>
+              <input
+                type="text"
+                value={pinyin}
+                onChange={e => setPinyin(e.target.value)}
+                className="form-input"
+              />
+            </div>
+            <div className="card-edit-field">
+              <label>English</label>
+              <input
+                type="text"
+                value={english}
+                onChange={e => setEnglish(e.target.value)}
+                className="form-input"
+              />
+            </div>
+            <div className="card-edit-field">
+              <label>Fun Facts</label>
+              <textarea
+                value={funFacts}
+                onChange={e => setFunFacts(e.target.value)}
+                className="form-input"
+                rows={2}
+              />
+            </div>
+          </div>
+
+          {/* Audio recordings */}
+          <div className="card-edit-audio-section">
+            <h3>Audio Recordings</h3>
+
+            {loadingRecordings ? (
+              <p className="text-sm text-light">Loading recordings...</p>
+            ) : recordings.length === 0 ? (
+              <p className="text-sm text-light">No audio recordings yet.</p>
+            ) : (
+              <div className="card-edit-recordings-list">
+                {recordings.map(rec => (
+                  <div key={rec.id} className="card-edit-recording-item">
+                    <button
+                      className="btn btn-secondary btn-sm card-edit-play-btn"
+                      onClick={() => handlePlayRecording(rec.audio_url)}
+                    >
+                      {isPlaying ? '...' : '▶'}
+                    </button>
+                    <div className="card-edit-recording-info">
+                      <span className="card-edit-speaker-name">
+                        {rec.speaker_name || rec.provider}
+                      </span>
+                      {rec.is_primary && (
+                        <span className="card-edit-primary-badge">Primary</span>
+                      )}
+                    </div>
+                    <div className="card-edit-recording-actions">
+                      {!rec.is_primary && (
+                        <button
+                          className="btn btn-secondary btn-xs"
+                          onClick={() => handleSetPrimary(rec.id)}
+                          title="Set as primary"
+                        >
+                          Set Primary
+                        </button>
+                      )}
+                      {confirmDeleteId === rec.id ? (
+                        <span className="card-edit-confirm-delete">
+                          <button
+                            className="btn btn-error btn-xs"
+                            onClick={() => handleDelete(rec.id)}
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-xs"
+                            onClick={() => setConfirmDeleteId(null)}
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          className="btn btn-secondary btn-xs"
+                          onClick={() => setConfirmDeleteId(rec.id)}
+                          title="Delete recording"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="card-edit-audio-actions">
+              <button
+                className={`btn btn-secondary btn-sm${isRecording ? ' recording' : ''}`}
+                onClick={isRecording ? stopRecording : startRecording}
+              >
+                {isRecording ? 'Stop Recording' : 'Record Audio'}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => handleGenerateAudio('gtts')}
+                disabled={generating}
+              >
+                {generating ? 'Generating...' : 'Generate (Google)'}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => handleGenerateAudio('minimax')}
+                disabled={generating}
+              >
+                {generating ? 'Generating...' : 'Generate (MiniMax)'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Save/Cancel */}
+        <div className="card-edit-footer">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

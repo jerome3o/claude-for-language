@@ -41,6 +41,7 @@ import {
   GradedReader,
   GradedReaderWithPages,
   DifficultyLevel,
+  NoteAudioRecording,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -429,6 +430,75 @@ export async function recordReview(
 export async function completeSession(id: string): Promise<StudySession> {
   return fetchJSON<StudySession>(`/study/sessions/${id}/complete`, {
     method: 'PUT',
+  });
+}
+
+// ============ Note Audio Recordings ============
+
+export async function getNoteAudioRecordings(noteId: string): Promise<NoteAudioRecording[]> {
+  return fetchJSON<NoteAudioRecording[]>(`/notes/${noteId}/audio`);
+}
+
+export async function addNoteAudioRecording(
+  noteId: string,
+  audioBlob: Blob,
+  speakerName?: string
+): Promise<NoteAudioRecording> {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.webm');
+  if (speakerName) {
+    formData.append('speaker_name', speakerName);
+  }
+
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/notes/${noteId}/audio`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+
+  if (!response.ok) {
+    throw new Error('Failed to upload audio recording');
+  }
+
+  return response.json();
+}
+
+export async function generateNoteAudioRecording(
+  noteId: string,
+  provider: 'minimax' | 'gtts' = 'gtts'
+): Promise<NoteAudioRecording> {
+  return fetchJSON<NoteAudioRecording>(`/notes/${noteId}/audio`, {
+    method: 'POST',
+    body: JSON.stringify({ generate: true, provider }),
+  });
+}
+
+export async function setAudioRecordingPrimary(
+  noteId: string,
+  recordingId: string
+): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/notes/${noteId}/audio/${recordingId}/primary`, {
+    method: 'PUT',
+  });
+}
+
+export async function deleteAudioRecording(
+  noteId: string,
+  recordingId: string
+): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/notes/${noteId}/audio/${recordingId}`, {
+    method: 'DELETE',
   });
 }
 
