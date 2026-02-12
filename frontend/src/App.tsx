@@ -36,6 +36,7 @@ const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => (
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -268,6 +269,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <TutorReviewDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/search"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <SearchPage />
           </ProtectedRoute>
         }
       />
