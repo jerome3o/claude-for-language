@@ -1882,23 +1882,105 @@ export function DeckDetailPage() {
                 </div>
               )}
               <div className="deck-notes-progress-list">
-                {(progressQuery.data?.notes || []).map((noteProgress) => {
-                  const noteData = deck.notes.find(n => n.hanzi === noteProgress.hanzi);
-                  const hasAnyRatings =
-                    noteProgress.recent_ratings.hanzi_to_meaning.length > 0 ||
-                    noteProgress.recent_ratings.meaning_to_hanzi.length > 0 ||
-                    noteProgress.recent_ratings.audio_to_hanzi.length > 0;
+                {progressQuery.data ? (
+                  // Progress data loaded — show full progress-style rows
+                  progressQuery.data.notes.map((noteProgress) => {
+                    const noteData = deck.notes.find(n => n.hanzi === noteProgress.hanzi);
+                    const hasAnyRatings =
+                      noteProgress.recent_ratings.hanzi_to_meaning.length > 0 ||
+                      noteProgress.recent_ratings.meaning_to_hanzi.length > 0 ||
+                      noteProgress.recent_ratings.audio_to_hanzi.length > 0;
 
-                  return (
+                    return (
+                      <div
+                        key={noteProgress.hanzi}
+                        className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}`}
+                        onClick={() => {
+                          if (selectMode && noteData) {
+                            toggleNoteSelection(noteData.id);
+                            return;
+                          }
+                          if (!noteData || !noteData.cards?.length) return;
+                          setCardEditNote({
+                            ...noteData.cards[0],
+                            note: {
+                              id: noteData.id,
+                              deck_id: noteData.deck_id,
+                              hanzi: noteData.hanzi,
+                              pinyin: noteData.pinyin,
+                              english: noteData.english,
+                              audio_url: noteData.audio_url,
+                              audio_provider: noteData.audio_provider,
+                              fun_facts: noteData.fun_facts,
+                              context: noteData.context,
+                              created_at: noteData.created_at,
+                              updated_at: noteData.updated_at,
+                            },
+                          });
+                        }}
+                      >
+                        {selectMode && noteData?.audio_url && (
+                          <input
+                            type="checkbox"
+                            checked={selectedNotes.has(noteData.id)}
+                            onChange={() => noteData && toggleNoteSelection(noteData.id)}
+                            onClick={e => e.stopPropagation()}
+                            className="deck-note-checkbox"
+                          />
+                        )}
+                        <div className="deck-note-info">
+                          <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
+                          <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
+                          <span className="deck-note-english">{noteProgress.english}</span>
+                        </div>
+                        <div className="deck-note-ratings">
+                          {hasAnyRatings ? (
+                            <div className="deck-note-ratings-grid">
+                              {(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const).map((type) => {
+                                const ratings = noteProgress.recent_ratings[type];
+                                if (ratings.length === 0) return null;
+                                const LABELS: Record<string, string> = {
+                                  hanzi_to_meaning: '字→义',
+                                  meaning_to_hanzi: '义→字',
+                                  audio_to_hanzi: '听→字',
+                                };
+                                const COLORS = ['#ef4444', '#f97316', '#22c55e', '#3b82f6'];
+                                return (
+                                  <div key={type} className="deck-note-rating-row">
+                                    <span className="deck-note-rating-label">{LABELS[type]}</span>
+                                    <span className="rating-dots">
+                                      {[...ratings].reverse().map((r, i) => (
+                                        <span
+                                          key={i}
+                                          className="rating-dot"
+                                          style={{ backgroundColor: COLORS[r] || '#9ca3af' }}
+                                        />
+                                      ))}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <span className="deck-note-no-reviews">—</span>
+                          )}
+                        </div>
+                        <span className="deck-note-mastery">{noteProgress.mastery_percent}%</span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  // Progress data still loading — show deck notes as simple clickable rows
+                  deck.notes.map((noteData) => (
                     <div
-                      key={noteProgress.hanzi}
-                      className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}`}
+                      key={noteData.id}
+                      className={`deck-note-progress-item${selectMode && noteData.audio_url ? ' selectable' : ''}`}
                       onClick={() => {
-                        if (selectMode && noteData) {
+                        if (selectMode) {
                           toggleNoteSelection(noteData.id);
                           return;
                         }
-                        if (!noteData || !noteData.cards?.length) return;
+                        if (!noteData.cards?.length) return;
                         setCardEditNote({
                           ...noteData.cards[0],
                           note: {
@@ -1917,56 +1999,26 @@ export function DeckDetailPage() {
                         });
                       }}
                     >
-                      {selectMode && noteData?.audio_url && (
+                      {selectMode && noteData.audio_url && (
                         <input
                           type="checkbox"
                           checked={selectedNotes.has(noteData.id)}
-                          onChange={() => noteData && toggleNoteSelection(noteData.id)}
+                          onChange={() => toggleNoteSelection(noteData.id)}
                           onClick={e => e.stopPropagation()}
                           className="deck-note-checkbox"
                         />
                       )}
                       <div className="deck-note-info">
-                        <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
-                        <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
-                        <span className="deck-note-english">{noteProgress.english}</span>
+                        <span className="deck-note-hanzi">{noteData.hanzi}</span>
+                        <span className="deck-note-pinyin">{noteData.pinyin}</span>
+                        <span className="deck-note-english">{noteData.english}</span>
                       </div>
                       <div className="deck-note-ratings">
-                        {hasAnyRatings ? (
-                          <div className="deck-note-ratings-grid">
-                            {(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const).map((type) => {
-                              const ratings = noteProgress.recent_ratings[type];
-                              if (ratings.length === 0) return null;
-                              const LABELS: Record<string, string> = {
-                                hanzi_to_meaning: '字→义',
-                                meaning_to_hanzi: '义→字',
-                                audio_to_hanzi: '听→字',
-                              };
-                              const COLORS = ['#ef4444', '#f97316', '#22c55e', '#3b82f6'];
-                              return (
-                                <div key={type} className="deck-note-rating-row">
-                                  <span className="deck-note-rating-label">{LABELS[type]}</span>
-                                  <span className="rating-dots">
-                                    {[...ratings].reverse().map((r, i) => (
-                                      <span
-                                        key={i}
-                                        className="rating-dot"
-                                        style={{ backgroundColor: COLORS[r] || '#9ca3af' }}
-                                      />
-                                    ))}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="deck-note-no-reviews">—</span>
-                        )}
+                        <span className="deck-note-no-reviews">...</span>
                       </div>
-                      <span className="deck-note-mastery">{noteProgress.mastery_percent}%</span>
                     </div>
-                  );
-                })}
+                  ))
+                )}
               </div>
             </>
           )}
