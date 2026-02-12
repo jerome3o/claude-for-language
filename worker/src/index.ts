@@ -1426,6 +1426,128 @@ app.put('/api/study/sessions/:id/complete', async (c) => {
   return c.json(session);
 });
 
+// ============ Note Audio Recordings ============
+
+app.get('/api/notes/:id/audio', async (c) => {
+  const userId = c.get('user').id;
+  const noteId = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, noteId, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  const recordings = await db.getNoteAudioRecordings(c.env.DB, noteId);
+  return c.json(recordings);
+});
+
+app.post('/api/notes/:id/audio', async (c) => {
+  const user = c.get('user');
+  const userId = user.id;
+  const noteId = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, noteId, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  const contentType = c.req.header('Content-Type') || '';
+
+  if (contentType.includes('multipart/form-data')) {
+    // File upload (user/tutor recording)
+    const formData = await c.req.formData();
+    const file = formData.get('file') as unknown;
+    const speakerName = (formData.get('speaker_name') as string) || 'My Recording';
+
+    if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+      return c.json({ error: 'file is required' }, 400);
+    }
+
+    const blob = file as Blob;
+    const { generateId: genId } = await import('./services/cards');
+    const recordingId = genId();
+    const key = `recordings/${noteId}/${recordingId}.webm`;
+    const arrayBuffer = await blob.arrayBuffer();
+    await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type);
+
+    const recording = await db.addNoteAudioRecording(
+      c.env.DB, noteId, key, 'user', speakerName, userId
+    );
+
+    return c.json(recording, 201);
+  } else {
+    // JSON request - generate TTS audio
+    let provider: 'minimax' | 'gtts' = 'gtts';
+    try {
+      const body = await c.req.json() as { generate?: boolean; provider?: string };
+      if (body.provider === 'minimax' || body.provider === 'gtts') {
+        provider = body.provider;
+      }
+    } catch {
+      // Default to gtts
+    }
+
+    if (!c.env.GOOGLE_TTS_API_KEY && !c.env.MINIMAX_API_KEY) {
+      return c.json({ error: 'TTS is not configured' }, 500);
+    }
+
+    try {
+      const result = await generateTTS(c.env, note.hanzi, noteId, { preferProvider: provider });
+      if (!result) {
+        return c.json({ error: 'Failed to generate audio' }, 500);
+      }
+
+      const recording = await db.addNoteAudioRecording(
+        c.env.DB, noteId, result.audioKey, result.provider, 'AI Generated', null
+      );
+
+      return c.json(recording, 201);
+    } catch (error) {
+      console.error('TTS generation error:', error);
+      return c.json({ error: 'Failed to generate audio' }, 500);
+    }
+  }
+});
+
+app.put('/api/notes/:id/audio/:recordingId/primary', async (c) => {
+  const userId = c.get('user').id;
+  const noteId = c.req.param('id');
+  const recordingId = c.req.param('recordingId');
+
+  const note = await db.getNoteById(c.env.DB, noteId, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  await db.setAudioRecordingPrimary(c.env.DB, noteId, recordingId);
+  return c.json({ success: true });
+});
+
+app.delete('/api/notes/:id/audio/:recordingId', async (c) => {
+  const userId = c.get('user').id;
+  const noteId = c.req.param('id');
+  const recordingId = c.req.param('recordingId');
+
+  const note = await db.getNoteById(c.env.DB, noteId, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  const result = await db.deleteAudioRecording(c.env.DB, recordingId);
+  if (!result) {
+    return c.json({ error: 'Recording not found' }, 404);
+  }
+
+  // Delete the audio file from R2
+  try {
+    await deleteAudio(c.env.AUDIO_BUCKET, result.audio_url);
+  } catch (err) {
+    console.error('[Delete Audio Recording] Failed to delete from R2:', err);
+  }
+
+  return c.json({ success: true });
+});
+
 // ============ Audio ============
 
 app.post('/api/audio/upload', async (c) => {

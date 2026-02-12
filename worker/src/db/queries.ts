@@ -16,6 +16,7 @@ import {
   GradedReaderWithPages,
   VocabularyItem,
   DifficultyLevel,
+  NoteAudioRecording,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -1889,4 +1890,124 @@ export async function getLearnedVocabulary(
   `).bind(userId, ...deckIds).all<{ hanzi: string; pinyin: string; english: string }>();
 
   return result.results;
+}
+
+// ============ Note Audio Recordings ============
+
+export async function getNoteAudioRecordings(
+  db: D1Database,
+  noteId: string
+): Promise<NoteAudioRecording[]> {
+  const result = await db.prepare(`
+    SELECT nar.*, u.name as creator_name
+    FROM note_audio_recordings nar
+    LEFT JOIN users u ON nar.created_by = u.id
+    WHERE nar.note_id = ?
+    ORDER BY nar.is_primary DESC, nar.created_at ASC
+  `).bind(noteId).all<NoteAudioRecording & { creator_name: string | null }>();
+
+  return result.results.map(r => ({
+    id: r.id,
+    note_id: r.note_id,
+    audio_url: r.audio_url,
+    provider: r.provider,
+    is_primary: !!r.is_primary,
+    speaker_name: r.speaker_name,
+    created_by: r.created_by,
+    created_at: r.created_at,
+  }));
+}
+
+export async function addNoteAudioRecording(
+  db: D1Database,
+  noteId: string,
+  audioUrl: string,
+  provider: string,
+  speakerName: string | null,
+  createdBy: string | null
+): Promise<NoteAudioRecording> {
+  const id = generateId();
+
+  await db.prepare(`
+    INSERT INTO note_audio_recordings (id, note_id, audio_url, provider, is_primary, speaker_name, created_by)
+    VALUES (?, ?, ?, ?, 0, ?, ?)
+  `).bind(id, noteId, audioUrl, provider, speakerName, createdBy).run();
+
+  const recording = await db.prepare('SELECT * FROM note_audio_recordings WHERE id = ?')
+    .bind(id)
+    .first<NoteAudioRecording>();
+
+  if (!recording) throw new Error('Failed to create audio recording');
+  return { ...recording, is_primary: !!recording.is_primary };
+}
+
+export async function setAudioRecordingPrimary(
+  db: D1Database,
+  noteId: string,
+  recordingId: string
+): Promise<void> {
+  // Unset all primary flags for this note
+  await db.prepare(`
+    UPDATE note_audio_recordings SET is_primary = 0 WHERE note_id = ?
+  `).bind(noteId).run();
+
+  // Set the specified recording as primary
+  await db.prepare(`
+    UPDATE note_audio_recordings SET is_primary = 1 WHERE id = ? AND note_id = ?
+  `).bind(recordingId, noteId).run();
+
+  // Update notes.audio_url to match the new primary
+  const recording = await db.prepare('SELECT audio_url, provider FROM note_audio_recordings WHERE id = ?')
+    .bind(recordingId)
+    .first<{ audio_url: string; provider: string }>();
+
+  if (recording) {
+    await db.prepare(`
+      UPDATE notes SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE id = ?
+    `).bind(recording.audio_url, recording.provider, noteId).run();
+  }
+}
+
+export async function deleteAudioRecording(
+  db: D1Database,
+  recordingId: string
+): Promise<{ was_primary: boolean; note_id: string; audio_url: string } | null> {
+  const recording = await db.prepare('SELECT * FROM note_audio_recordings WHERE id = ?')
+    .bind(recordingId)
+    .first<NoteAudioRecording>();
+
+  if (!recording) return null;
+
+  const wasPrimary = !!recording.is_primary;
+  const noteId = recording.note_id;
+  const audioUrl = recording.audio_url;
+
+  await db.prepare('DELETE FROM note_audio_recordings WHERE id = ?')
+    .bind(recordingId)
+    .run();
+
+  // If we deleted the primary, promote the next one
+  if (wasPrimary) {
+    const next = await db.prepare(`
+      SELECT id, audio_url, provider FROM note_audio_recordings
+      WHERE note_id = ?
+      ORDER BY created_at ASC
+      LIMIT 1
+    `).bind(noteId).first<{ id: string; audio_url: string; provider: string }>();
+
+    if (next) {
+      await db.prepare('UPDATE note_audio_recordings SET is_primary = 1 WHERE id = ?')
+        .bind(next.id).run();
+      await db.prepare(`
+        UPDATE notes SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE id = ?
+      `).bind(next.audio_url, next.provider, noteId).run();
+    } else {
+      // No recordings left, clear the note's audio_url
+      await db.prepare(`
+        UPDATE notes SET audio_url = NULL, audio_provider = NULL, updated_at = datetime('now') WHERE id = ?
+      `).bind(noteId).run();
+    }
+  }
+
+  return { was_primary: wasPrimary, note_id: noteId, audio_url: audioUrl };
 }

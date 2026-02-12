@@ -194,6 +194,17 @@ export interface NoteQuestion {
   asked_at: string;
 }
 
+export interface NoteAudioRecording {
+  id: string;
+  note_id: string;
+  audio_url: string;
+  provider: string;
+  is_primary: boolean;
+  speaker_name: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 // API request/response types
 export interface CreateDeckRequest {
   name: string;

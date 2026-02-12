@@ -129,6 +129,17 @@ export interface CardReview {
   reviewed_at: string;
 }
 
+export interface NoteAudioRecording {
+  id: string;
+  note_id: string;
+  audio_url: string;
+  provider: string;
+  is_primary: boolean;
+  speaker_name: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 // Extended types for API responses (with joins)
 export interface NoteWithCards extends Note {
   cards: Card[];
