@@ -198,6 +198,7 @@ function StudyCard({
   const [conversation, setConversation] = useState<NoteQuestionWithTools[]>([]);
   const [isAsking, setIsAsking] = useState(false);
   const [cardDeleted, setCardDeleted] = useState(false);
+  const [pendingToolResults, setPendingToolResults] = useState<AskToolResult[] | null>(null);
   const questionInputRef = useRef<HTMLInputElement>(null);
 
   // Debug modal state
@@ -366,6 +367,17 @@ function StudyCard({
     }
   };
 
+  const approveToolResults = () => {
+    if (pendingToolResults) {
+      processToolResults(pendingToolResults);
+      setPendingToolResults(null);
+    }
+  };
+
+  const rejectToolResults = () => {
+    setPendingToolResults(null);
+  };
+
   const handleAskClaude = async () => {
     if (!question.trim() || isAsking) return;
 
@@ -388,9 +400,9 @@ function StudyCard({
       setConversation((prev) => [...prev, response]);
       setQuestion('');
 
-      // Process any tool results
-      if (response.toolResults) {
-        processToolResults(response.toolResults);
+      // Store tool results as pending for user approval
+      if (response.toolResults && response.toolResults.length > 0) {
+        setPendingToolResults(response.toolResults);
       }
     } catch (error) {
       console.error('Failed to ask Claude:', error);
@@ -597,9 +609,9 @@ function StudyCard({
       setConversation((prev) => [...prev, response]);
       setQuestion('');
 
-      // Process any tool results
-      if (response.toolResults) {
-        processToolResults(response.toolResults);
+      // Store tool results as pending for user approval
+      if (response.toolResults && response.toolResults.length > 0) {
+        setPendingToolResults(response.toolResults);
       }
     } catch (error) {
       console.error('Failed to ask Claude:', error);
@@ -862,36 +874,90 @@ function StudyCard({
               </div>
             )}
 
-            {conversation.map((qa) => (
-              <div key={qa.id} className="claude-message-pair">
-                <div className="claude-user-message">
-                  {qa.question}
+            {conversation.map((qa, qaIdx) => {
+              const isLatest = qaIdx === conversation.length - 1;
+              const hasPending = isLatest && pendingToolResults !== null;
+              return (
+                <div key={qa.id} className="claude-message-pair">
+                  <div className="claude-user-message">
+                    {qa.question}
+                  </div>
+                  <div className="claude-response">
+                    <ReactMarkdown>{qa.answer}</ReactMarkdown>
+                    {qa.toolResults && qa.toolResults.length > 0 && (
+                      <div className="claude-tool-results">
+                        {hasPending ? (
+                          /* Pending approval UI */
+                          <div className="tool-approval-box">
+                            <div className="tool-approval-header">Claude wants to make changes:</div>
+                            {qa.toolResults.map((tr, idx) => (
+                              <div key={idx} className="tool-approval-item">
+                                {tr.tool === 'edit_current_card' && tr.success && (
+                                  <div>
+                                    <span className="tool-approval-icon">&#9998;</span>
+                                    <strong>Edit card</strong>
+                                    {tr.data?.changes ? (
+                                      <div className="tool-approval-changes">
+                                        {Object.entries(tr.data.changes as Record<string, unknown>).map(([field, value]) => (
+                                          <div key={field} className="tool-approval-change">
+                                            <span className="tool-approval-field">{field}:</span> {String(value)}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                )}
+                                {tr.tool === 'create_flashcards' && tr.success && (
+                                  <div>
+                                    <span className="tool-approval-icon">&#43;</span>
+                                    <strong>Create {(tr.data?.count as number) || 0} new card{(tr.data?.count as number) !== 1 ? 's' : ''}</strong>
+                                  </div>
+                                )}
+                                {tr.tool === 'delete_current_card' && tr.success && (
+                                  <div>
+                                    <span className="tool-approval-icon">&#128465;</span>
+                                    <strong>Delete this card</strong>
+                                  </div>
+                                )}
+                                {!tr.success && (
+                                  <div>Action failed: {tr.error || 'Unknown error'}</div>
+                                )}
+                              </div>
+                            ))}
+                            <div className="tool-approval-buttons">
+                              <button className="btn btn-success btn-sm" onClick={approveToolResults}>
+                                Approve
+                              </button>
+                              <button className="btn btn-secondary btn-sm" onClick={rejectToolResults}>
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Already applied tool results */
+                          qa.toolResults.map((tr, idx) => (
+                            <div key={idx} className={`claude-tool-result ${tr.success ? 'success' : 'error'}`}>
+                              {tr.tool === 'edit_current_card' && tr.success && (
+                                <span>Card updated{tr.data?.changes ? `: ${Object.keys(tr.data.changes as Record<string, unknown>).join(', ')} changed` : ''}</span>
+                              )}
+                              {tr.tool === 'create_flashcards' && tr.success && (
+                                <span>{(tr.data?.count as number) || 0} new card{(tr.data?.count as number) !== 1 ? 's' : ''} created</span>
+                              )}
+                              {tr.tool === 'delete_current_card' && tr.success && (
+                                <span>Card deleted — advancing to next card...</span>
+                              )}
+                              {!tr.success && (
+                                <span>Action failed: {tr.error || 'Unknown error'}</span>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="claude-response">
-                  <ReactMarkdown>{qa.answer}</ReactMarkdown>
-                  {qa.toolResults && qa.toolResults.length > 0 && (
-                    <div className="claude-tool-results">
-                      {qa.toolResults.map((tr, idx) => (
-                        <div key={idx} className={`claude-tool-result ${tr.success ? 'success' : 'error'}`}>
-                          {tr.tool === 'edit_current_card' && tr.success && (
-                            <span>Card updated{tr.data?.changes ? `: ${Object.keys(tr.data.changes as Record<string, unknown>).join(', ')} changed` : ''}</span>
-                          )}
-                          {tr.tool === 'create_flashcards' && tr.success && (
-                            <span>{(tr.data?.count as number) || 0} new card{(tr.data?.count as number) !== 1 ? 's' : ''} created</span>
-                          )}
-                          {tr.tool === 'delete_current_card' && tr.success && (
-                            <span>Card deleted — advancing to next card...</span>
-                          )}
-                          {!tr.success && (
-                            <span>Action failed: {tr.error || 'Unknown error'}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
 
             {isAsking && (
               <div className="claude-loading">Thinking...</div>
@@ -906,16 +972,16 @@ function StudyCard({
                 className="form-input"
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ask a question..."
+                placeholder={pendingToolResults ? "Approve or reject changes first..." : "Ask a question..."}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleAskClaude();
                 }}
-                disabled={isAsking}
+                disabled={isAsking || !!pendingToolResults}
               />
               <button
                 className="btn btn-primary"
                 onClick={handleAskClaude}
-                disabled={!question.trim() || isAsking}
+                disabled={!question.trim() || isAsking || !!pendingToolResults}
               >
                 Ask
               </button>
