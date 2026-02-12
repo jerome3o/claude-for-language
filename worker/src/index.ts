@@ -1526,14 +1526,22 @@ app.post('/api/transcribe', async (c) => {
   const arrayBuffer = await blob.arrayBuffer();
 
   try {
-    const result = await c.env.AI.run('@cf/openai/whisper', {
-      audio: [...new Uint8Array(arrayBuffer)],
+    // Use whisper-large-v3-turbo for better accuracy and Chinese language support
+    // It supports language, initial_prompt, and prefix parameters unlike basic whisper
+    const uint8 = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+    const base64 = btoa(binary);
+    const result = await c.env.AI.run('@cf/openai/whisper-large-v3-turbo' as any, {
+      audio: base64,
       language: 'zh',
+      initial_prompt: '以下是普通话的句子。',
     });
 
+    const res = result as Record<string, any>;
     return c.json({
-      text: result.text || '',
-      language: (result as unknown as Record<string, unknown>).detected_language || 'zh',
+      text: res.text || '',
+      language: res.transcription_info?.language || res.detected_language || 'zh',
     });
   } catch (err) {
     console.error('[transcribe] Whisper error:', err);

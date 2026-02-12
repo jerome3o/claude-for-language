@@ -226,6 +226,7 @@ function StudyCard({
     isOffline: transcriptionOffline,
     error: transcriptionError,
     transcribe,
+    reset: resetTranscription,
   } = useTranscription();
 
   // Track which card we've played audio for to prevent re-triggering
@@ -514,6 +515,16 @@ function StudyCard({
           <div style={{ fontWeight: 500 }}>
             You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : '\u274C'}
           </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              resetTranscription();
+              clearRecording();
+            }}
+            style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
+          >
+            Try Again
+          </button>
         </div>
       );
     }
@@ -535,6 +546,21 @@ function StudyCard({
         )}
 
         {renderTranscriptionResult()}
+
+        {/* Show recording controls on the answer screen when retrying */}
+        {flipped && isSpeakingCard && !audioBlob && !transcriptionComparison && (
+          <div style={{ marginBottom: '0.5rem' }}>
+            {isRecording ? (
+              <button className="btn btn-error btn-sm" onClick={stopRecording}>
+                Stop Recording
+              </button>
+            ) : (
+              <button className="btn btn-primary btn-sm" onClick={startRecording}>
+                Record Again
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="pinyin mb-1">{card.note.pinyin}</div>
         <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
