@@ -1104,6 +1104,7 @@ function StudyCard({
         <input
           ref={inputRef}
           type="text"
+          lang="zh-CN"
           className="form-input study-typing-input"
           value={userAnswer}
           onChange={(e) => setUserAnswer(e.target.value)}
