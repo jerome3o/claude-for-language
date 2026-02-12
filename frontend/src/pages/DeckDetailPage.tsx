@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { getDeck, createNote, updateNote, deleteNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, API_BASE, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
-import { useNoteAudio } from '../hooks/useAudio';
+import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
-import { Note, Deck, Card, CardQueue, NoteWithCards, CardType, getOtherUserInRelationship } from '../types';
+import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship } from '../types';
+import { CompletionSection, CardTypeBreakdownSection } from '../components/DeckProgress';
+import CardEditModal from '../components/CardEditModal';
 import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent } from '../db/database';
 
@@ -36,122 +37,6 @@ function formatInterval(days: number): string {
   if (days < 30) return `${days} days`;
   if (days < 365) return `${Math.round(days / 30)} months`;
   return `${(days / 365).toFixed(1)} years`;
-}
-
-// Short card type labels for the status display
-const CARD_TYPE_SHORT: Record<string, string> = {
-  hanzi_to_meaning: 'H→M',
-  meaning_to_hanzi: 'M→H',
-  audio_to_hanzi: 'A→H',
-};
-
-function getCardStatus(card: Card): { label: string; color: string; priority: number } {
-  const now = new Date();
-
-  if (card.queue === CardQueue.NEW) {
-    return { label: 'New', color: '#3b82f6', priority: 3 }; // blue
-  }
-
-  if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-    // Check if due now
-    if (card.due_timestamp && card.due_timestamp <= Date.now()) {
-      return { label: 'Due', color: '#ef4444', priority: 0 }; // red
-    }
-    // Still learning but not due yet
-    const dueIn = card.due_timestamp ? Math.ceil((card.due_timestamp - Date.now()) / 60000) : 0;
-    return { label: dueIn > 0 ? `${dueIn}m` : 'Learning', color: '#f97316', priority: 1 }; // orange
-  }
-
-  if (card.queue === CardQueue.REVIEW) {
-    const nextReview = card.next_review_at ? new Date(card.next_review_at) : null;
-    if (!nextReview || nextReview <= now) {
-      return { label: 'Due', color: '#22c55e', priority: 0 }; // green
-    }
-    // Calculate days until due
-    const daysUntil = Math.ceil((nextReview.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (daysUntil === 1) {
-      return { label: '1d', color: '#22c55e', priority: 2 };
-    }
-    if (daysUntil < 7) {
-      return { label: `${daysUntil}d`, color: '#22c55e', priority: 2 };
-    }
-    if (daysUntil < 30) {
-      return { label: `${Math.round(daysUntil / 7)}w`, color: '#22c55e', priority: 2 };
-    }
-    if (daysUntil < 365) {
-      return { label: `${Math.round(daysUntil / 30)}mo`, color: '#22c55e', priority: 2 };
-    }
-    return { label: `${(daysUntil / 365).toFixed(1)}y`, color: '#22c55e', priority: 2 };
-  }
-
-  return { label: '?', color: '#9ca3af', priority: 4 };
-}
-
-function getNoteLearningStatus(cards: Card[]): {
-  nextDue: string | null;
-  isDue: boolean;
-  allNew: boolean;
-  avgInterval: number;
-  avgEase: number;
-  totalReps: number;
-} {
-  const now = new Date();
-  let earliestDue: Date | null = null;
-  let isDue = false;
-  let allNew = true;
-  let totalInterval = 0;
-  let totalEase = 0;
-  let totalReps = 0;
-
-  for (const card of cards) {
-    if (card.queue !== CardQueue.NEW) {
-      allNew = false;
-    }
-
-    totalInterval += card.interval;
-    totalEase += card.ease_factor;
-    totalReps += card.repetitions;
-
-    // Check if due
-    if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-      if (card.due_timestamp && card.due_timestamp <= Date.now()) {
-        isDue = true;
-      }
-    } else if (card.queue === CardQueue.REVIEW && card.next_review_at) {
-      const nextReview = new Date(card.next_review_at);
-      if (nextReview <= now) {
-        isDue = true;
-      }
-      if (!earliestDue || nextReview < earliestDue) {
-        earliestDue = nextReview;
-      }
-    } else if (card.queue === CardQueue.NEW) {
-      isDue = true;
-    }
-  }
-
-  let nextDue: string | null = null;
-  if (earliestDue && earliestDue > now) {
-    const daysUntil = Math.ceil((earliestDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (daysUntil === 0) {
-      nextDue = 'Today';
-    } else if (daysUntil === 1) {
-      nextDue = 'Tomorrow';
-    } else if (daysUntil < 7) {
-      nextDue = `${daysUntil} days`;
-    } else {
-      nextDue = earliestDue.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    }
-  }
-
-  return {
-    nextDue,
-    isDue,
-    allNew,
-    avgInterval: cards.length > 0 ? Math.round(totalInterval / cards.length) : 0,
-    avgEase: cards.length > 0 ? totalEase / cards.length : 2.5,
-    totalReps,
-  };
 }
 
 function NoteHistoryModal({
@@ -1542,210 +1427,6 @@ function NoteForm({
   );
 }
 
-function NoteCard({
-  note,
-  onEdit,
-  onDelete,
-  onHistory,
-  onAudioGenerated,
-  isSelected,
-  onToggleSelect,
-  showSelect,
-}: {
-  note: NoteWithCards;
-  onEdit: () => void;
-  onDelete: () => void;
-  onHistory: () => void;
-  onAudioGenerated: () => void;
-  isSelected?: boolean;
-  onToggleSelect?: () => void;
-  showSelect?: boolean;
-}) {
-  const { isPlaying, play } = useNoteAudio();
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isRegenerating, setIsRegenerating] = useState(false);
-
-  const handleGenerateAudio = async () => {
-    setIsGenerating(true);
-    try {
-      await generateNoteAudio(note.id);
-      onAudioGenerated();
-    } catch (error) {
-      console.error('Failed to generate audio:', error);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleRegenerateAudio = async () => {
-    setIsRegenerating(true);
-    try {
-      await regenerateNoteAudio(note.id);
-      onAudioGenerated();
-    } catch (error) {
-      console.error('Failed to regenerate audio:', error);
-    } finally {
-      setIsRegenerating(false);
-    }
-  };
-
-  // Check if note can be regenerated (has audio)
-  const canRegenerate = !!note.audio_url;
-
-  // Get learning status for all cards
-  const learningStatus = getNoteLearningStatus(note.cards || []);
-
-  // Sort cards by card_type for consistent display order
-  const sortedCards = [...(note.cards || [])].sort((a, b) => {
-    const order = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
-    return order.indexOf(a.card_type) - order.indexOf(b.card_type);
-  });
-
-  return (
-    <div className="note-card">
-      <div className="note-card-content">
-        <div className="flex items-center gap-2">
-          {showSelect && (
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={onToggleSelect}
-              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-            />
-          )}
-          {note.audio_url ? (
-            <>
-              <button
-                className="btn btn-sm btn-secondary"
-                onClick={() => play(note.audio_url || null, note.hanzi, API_BASE, note.updated_at)}
-                disabled={isPlaying}
-                style={{ padding: '0.25rem 0.5rem', minWidth: 'auto' }}
-              >
-                {isPlaying ? '...' : '▶'}
-              </button>
-              {canRegenerate && !showSelect && (
-                <button
-                  className="btn btn-sm"
-                  onClick={handleRegenerateAudio}
-                  disabled={isRegenerating}
-                  style={{
-                    padding: '0.25rem 0.5rem',
-                    minWidth: 'auto',
-                    fontSize: '0.65rem',
-                    background: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
-                  }}
-                  title="Regenerate audio with current settings"
-                >
-                  {isRegenerating ? '...' : '🔄'}
-                </button>
-              )}
-              {note.audio_provider === 'minimax' && (
-                <span
-                  style={{
-                    fontSize: '0.6rem',
-                    padding: '0.1rem 0.3rem',
-                    background: '#10b981',
-                    color: 'white',
-                    borderRadius: '3px',
-                  }}
-                  title="MiniMax HD audio"
-                >
-                  HD
-                </span>
-              )}
-            </>
-          ) : (
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={handleGenerateAudio}
-              disabled={isGenerating}
-              style={{ padding: '0.25rem 0.5rem', minWidth: 'auto', fontSize: '0.7rem' }}
-              title="Generate audio"
-            >
-              {isGenerating ? '...' : '🔊+'}
-            </button>
-          )}
-          <div className="note-card-hanzi">{note.hanzi}</div>
-        </div>
-        <div className="note-card-details">
-          <span className="pinyin">{note.pinyin}</span>
-          <span> - </span>
-          <span>{note.english}</span>
-        </div>
-        {note.fun_facts && (
-          <p className="text-light mt-1" style={{ fontSize: '0.875rem' }}>
-            {note.fun_facts}
-          </p>
-        )}
-
-        {/* Learning Status */}
-        {sortedCards.length > 0 && (
-          <div className="note-learning-status">
-            <div className="card-status-row">
-              {sortedCards.map((card) => {
-                const status = getCardStatus(card);
-                return (
-                  <div
-                    key={card.id}
-                    className="card-status-item"
-                    title={`${CARD_TYPE_LABELS[card.card_type]}: ${status.label}${card.interval > 0 ? ` (${formatInterval(card.interval)} interval)` : ''}`}
-                  >
-                    <span className="card-type-label">{CARD_TYPE_SHORT[card.card_type]}</span>
-                    <span
-                      className="card-status-badge"
-                      style={{ backgroundColor: status.color }}
-                    >
-                      {status.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            {/* Summary row */}
-            <div className="note-status-summary">
-              {learningStatus.allNew ? (
-                <span className="text-light">Not started</span>
-              ) : (
-                <>
-                  <span className="text-light">
-                    {learningStatus.totalReps} reviews
-                  </span>
-                  <span className="text-light">
-                    {Math.round(learningStatus.avgEase * 100)}% ease
-                  </span>
-                  {learningStatus.avgInterval > 0 && (
-                    <span className="text-light">
-                      ~{formatInterval(learningStatus.avgInterval)}
-                    </span>
-                  )}
-                  {learningStatus.nextDue && !learningStatus.isDue && (
-                    <span className="text-light">
-                      Next: {learningStatus.nextDue}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="note-card-actions">
-        <button className="btn btn-sm btn-secondary" onClick={onHistory}>
-          History
-        </button>
-        <button className="btn btn-sm btn-secondary" onClick={onEdit}>
-          Edit
-        </button>
-        <button className="btn btn-sm btn-error" onClick={onDelete}>
-          Delete
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function DeckDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -1776,6 +1457,16 @@ export function DeckDetailPage() {
     queryFn: () => getDeckStats(id!),
     enabled: !!id,
   });
+
+  // Fetch progress data for the progress-style note rows
+  const progressQuery = useQuery({
+    queryKey: ['deckProgress', id],
+    queryFn: () => getDeckProgress(id!),
+    enabled: !!id,
+  });
+
+  // Card edit modal state
+  const [cardEditNote, setCardEditNote] = useState<CardWithNote | null>(null);
 
   // Fetch which tutors this deck is shared with
   const tutorSharesQuery = useQuery({
@@ -1823,14 +1514,6 @@ export function DeckDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deck', id] });
       setEditingNote(null);
-    },
-  });
-
-  const deleteNoteMutation = useMutation({
-    mutationFn: (noteId: string) => deleteNote(noteId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deck', id] });
-      queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
     },
   });
 
@@ -2155,6 +1838,14 @@ export function DeckDetailPage() {
           </div>
         )}
 
+        {/* Progress overview */}
+        {progressQuery.data && (
+          <>
+            <CompletionSection completion={progressQuery.data.completion} />
+            <CardTypeBreakdownSection breakdown={progressQuery.data.card_type_breakdown} />
+          </>
+        )}
+
         {/* Notes */}
         <div className="card">
           <div className="flex justify-between items-center mb-3">
@@ -2176,29 +1867,129 @@ export function DeckDetailPage() {
               }
             />
           ) : (
-            <div className="flex flex-col gap-2">
-              {deck.notes.map((note) => (
-                <NoteCard
-                  key={note.id}
-                  note={note}
-                  onEdit={() => setEditingNote(note)}
-                  onHistory={() => setHistoryNote(note)}
-                  onDelete={() => {
-                    if (confirm(`Delete "${note.hanzi}"?`)) {
-                      deleteNoteMutation.mutate(note.id);
-                    }
-                  }}
-                  onAudioGenerated={() => {
-                    queryClient.invalidateQueries({ queryKey: ['deck', id] });
-                  }}
-                  showSelect={selectMode && !!note.audio_url}
-                  isSelected={selectedNotes.has(note.id)}
-                  onToggleSelect={() => toggleNoteSelection(note.id)}
-                />
-              ))}
-            </div>
+            <>
+              {progressQuery.data && progressQuery.data.notes.length > 0 && (
+                <div className="rating-dots-legend" style={{ marginBottom: '0.5rem' }}>
+                  <span className="legend-label">Reviews:</span>
+                  <span className="legend-dot" style={{ backgroundColor: '#ef4444' }} />
+                  <span className="legend-text">Again</span>
+                  <span className="legend-dot" style={{ backgroundColor: '#f97316' }} />
+                  <span className="legend-text">Hard</span>
+                  <span className="legend-dot" style={{ backgroundColor: '#22c55e' }} />
+                  <span className="legend-text">Good</span>
+                  <span className="legend-dot" style={{ backgroundColor: '#3b82f6' }} />
+                  <span className="legend-text">Easy</span>
+                </div>
+              )}
+              <div className="deck-notes-progress-list">
+                {(progressQuery.data?.notes || []).map((noteProgress) => {
+                  const noteData = deck.notes.find(n => n.hanzi === noteProgress.hanzi);
+                  const hasAnyRatings =
+                    noteProgress.recent_ratings.hanzi_to_meaning.length > 0 ||
+                    noteProgress.recent_ratings.meaning_to_hanzi.length > 0 ||
+                    noteProgress.recent_ratings.audio_to_hanzi.length > 0;
+
+                  return (
+                    <div
+                      key={noteProgress.hanzi}
+                      className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}`}
+                      onClick={() => {
+                        if (selectMode && noteData) {
+                          toggleNoteSelection(noteData.id);
+                          return;
+                        }
+                        if (!noteData || !noteData.cards?.length) return;
+                        setCardEditNote({
+                          ...noteData.cards[0],
+                          note: {
+                            id: noteData.id,
+                            deck_id: noteData.deck_id,
+                            hanzi: noteData.hanzi,
+                            pinyin: noteData.pinyin,
+                            english: noteData.english,
+                            audio_url: noteData.audio_url,
+                            audio_provider: noteData.audio_provider,
+                            fun_facts: noteData.fun_facts,
+                            context: noteData.context,
+                            created_at: noteData.created_at,
+                            updated_at: noteData.updated_at,
+                          },
+                        });
+                      }}
+                    >
+                      {selectMode && noteData?.audio_url && (
+                        <input
+                          type="checkbox"
+                          checked={selectedNotes.has(noteData.id)}
+                          onChange={() => noteData && toggleNoteSelection(noteData.id)}
+                          onClick={e => e.stopPropagation()}
+                          className="deck-note-checkbox"
+                        />
+                      )}
+                      <div className="deck-note-info">
+                        <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
+                        <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
+                        <span className="deck-note-english">{noteProgress.english}</span>
+                      </div>
+                      <div className="deck-note-ratings">
+                        {hasAnyRatings ? (
+                          <div className="deck-note-ratings-grid">
+                            {(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const).map((type) => {
+                              const ratings = noteProgress.recent_ratings[type];
+                              if (ratings.length === 0) return null;
+                              const LABELS: Record<string, string> = {
+                                hanzi_to_meaning: '字→义',
+                                meaning_to_hanzi: '义→字',
+                                audio_to_hanzi: '听→字',
+                              };
+                              const COLORS = ['#ef4444', '#f97316', '#22c55e', '#3b82f6'];
+                              return (
+                                <div key={type} className="deck-note-rating-row">
+                                  <span className="deck-note-rating-label">{LABELS[type]}</span>
+                                  <span className="rating-dots">
+                                    {[...ratings].reverse().map((r, i) => (
+                                      <span
+                                        key={i}
+                                        className="rating-dot"
+                                        style={{ backgroundColor: COLORS[r] || '#9ca3af' }}
+                                      />
+                                    ))}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="deck-note-no-reviews">—</span>
+                        )}
+                      </div>
+                      <span className="deck-note-mastery">{noteProgress.mastery_percent}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
+
+        {/* Card Edit Modal (from clicking a note row) */}
+        {cardEditNote && (
+          <CardEditModal
+            card={cardEditNote}
+            onClose={() => setCardEditNote(null)}
+            onSave={() => {
+              setCardEditNote(null);
+              queryClient.invalidateQueries({ queryKey: ['deck', id] });
+              queryClient.invalidateQueries({ queryKey: ['deckProgress', id] });
+            }}
+            onDeleteCard={() => {
+              setCardEditNote(null);
+              queryClient.invalidateQueries({ queryKey: ['deck', id] });
+              queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
+              queryClient.invalidateQueries({ queryKey: ['deckProgress', id] });
+            }}
+          />
+        )}
 
         {/* Add Note Modal */}
         {showAddModal && (
