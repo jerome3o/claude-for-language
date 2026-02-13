@@ -2555,13 +2555,14 @@ app.post('/api/messages/:id/discuss', async (c) => {
     // Get chat context (surrounding messages)
     const chatContext = await getChatContext(c.env.DB, message.conversation_id, userId);
 
-    // Call AI discussion
+    // Call AI discussion with DB context for read-only tools
     const result = await discussMessage(
       c.env.ANTHROPIC_API_KEY,
       message.content,
       question.trim(),
       chatContext,
-      conversationHistory
+      conversationHistory,
+      { db: c.env.DB, userId }
     );
 
     return c.json(result);

@@ -872,11 +872,14 @@ Help the user understand the message. You can:
 - Give related vocabulary or phrases
 - Explain pronunciation tips
 - Create flashcards when the user asks or when it would be helpful
+- Search the user's existing flashcards to find related vocabulary or check for duplicates
+
+You have tools available. Read-only tools (search_cards, list_student_decks) execute automatically. The create_flashcards tool suggests cards for user approval.
 
 Use examples with both Chinese characters and pinyin (with tone marks) when relevant.
 Keep your responses concise and focused on language learning.
 
-When you identify vocabulary or phrases worth learning, proactively suggest creating flashcards. Use the create_flashcards tool to create them.`;
+When you identify vocabulary or phrases worth learning, proactively suggest creating flashcards. Before creating flashcards, consider using search_cards to check if similar cards already exist. Use the create_flashcards tool to create them.`;
 
 const CREATE_FLASHCARDS_TOOL = {
   name: 'create_flashcards',
@@ -913,22 +916,53 @@ export interface DiscussMessageResponse {
   flashcards: GeneratedNote[] | null;
 }
 
+export interface DiscussDbContext {
+  db: D1Database;
+  userId: string;
+}
+
+const DISCUSS_READ_ONLY_TOOLS = new Set(['search_cards', 'list_student_decks']);
+
+const DISCUSS_SEARCH_CARDS_TOOL = {
+  name: 'search_cards',
+  description: 'Search through the user\'s existing flashcards across all decks. Use this to find related vocabulary, check for duplicates before creating flashcards, or answer questions about what cards the user already has.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      query: { type: 'string', description: 'Search query — matches against hanzi, pinyin, and english fields' },
+    },
+    required: ['query'],
+  },
+};
+
+const DISCUSS_LIST_DECKS_TOOL = {
+  name: 'list_student_decks',
+  description: 'List the user\'s flashcard decks with card counts. Use this to understand what the user is studying.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {},
+  },
+};
+
 /**
- * Discuss a chat message with Claude, with flashcard creation tool
+ * Discuss a chat message with Claude, with flashcard creation + read-only tools (agent loop)
  */
 export async function discussMessage(
   apiKey: string,
   messageContent: string,
   question: string,
   chatContext: string,
-  conversationHistory?: DiscussMessageHistory[]
+  conversationHistory?: DiscussMessageHistory[],
+  dbContext?: DiscussDbContext
 ): Promise<DiscussMessageResponse> {
   const client = new Anthropic({ apiKey });
+
+  const tools = [CREATE_FLASHCARDS_TOOL, DISCUSS_SEARCH_CARDS_TOOL, DISCUSS_LIST_DECKS_TOOL];
 
   const contextPreamble = `The user is looking at this message from a conversation:\n\n"${messageContent}"\n\nConversation context:\n${chatContext}\n\n`;
 
   // Build messages array
-  const messages: { role: 'user' | 'assistant'; content: string }[] = [];
+  const messages: Anthropic.MessageParam[] = [];
 
   if (conversationHistory && conversationHistory.length > 0) {
     // First message includes context
@@ -957,31 +991,113 @@ export async function discussMessage(
     });
   }
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 2000,
-    messages,
-    system: DISCUSS_MESSAGE_SYSTEM_PROMPT,
-    tools: [CREATE_FLASHCARDS_TOOL as any],
-  });
-
-  // Parse response - extract text and any tool use
-  let textParts: string[] = [];
+  // Agent loop: keep calling Claude until it stops using tools
   let flashcards: GeneratedNote[] | null = null;
+  const textParts: string[] = [];
+  const MAX_ITERATIONS = 5;
 
-  for (const block of response.content) {
-    if (block.type === 'text') {
-      textParts.push(block.text);
-    } else if (block.type === 'tool_use' && block.name === 'create_flashcards') {
-      const input = block.input as { flashcards: GeneratedNote[] };
-      if (input.flashcards && Array.isArray(input.flashcards)) {
-        flashcards = input.flashcards;
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages,
+      system: DISCUSS_MESSAGE_SYSTEM_PROMPT,
+      tools: tools as Anthropic.Tool[],
+    });
+
+    // Process response content
+    const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
+
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        textParts.push(block.text);
+      } else if (block.type === 'tool_use') {
+        toolUseBlocks.push(block);
+        // Collect flashcards from create_flashcards tool
+        if (block.name === 'create_flashcards') {
+          const input = block.input as { flashcards: GeneratedNote[] };
+          if (input.flashcards && Array.isArray(input.flashcards)) {
+            flashcards = input.flashcards;
+          }
+        }
       }
     }
+
+    // If no tool use, we're done
+    if (response.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
+      break;
+    }
+
+    // Add assistant response to messages
+    messages.push({ role: 'assistant', content: response.content });
+
+    // Execute read-only tools and return real results; acknowledge mutating tools
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of toolUseBlocks) {
+      if (DISCUSS_READ_ONLY_TOOLS.has(block.name) && dbContext) {
+        const result = await executeDiscussReadOnlyTool(block.name, block.input as Record<string, unknown>, dbContext);
+        toolResults.push({
+          type: 'tool_result' as const,
+          tool_use_id: block.id,
+          content: JSON.stringify(result),
+        });
+      } else {
+        toolResults.push({
+          type: 'tool_result' as const,
+          tool_use_id: block.id,
+          content: JSON.stringify({ success: true, message: 'Flashcards will be shown to the user for review' }),
+        });
+      }
+    }
+
+    messages.push({ role: 'user', content: toolResults });
   }
 
   return {
     response: textParts.join('\n'),
     flashcards,
   };
+}
+
+/**
+ * Execute a read-only tool for discuss message and return the result
+ */
+async function executeDiscussReadOnlyTool(
+  toolName: string,
+  input: Record<string, unknown>,
+  ctx: DiscussDbContext
+): Promise<Record<string, unknown>> {
+  try {
+    switch (toolName) {
+      case 'search_cards': {
+        const query = (input.query as string || '').toLowerCase();
+        const results = await ctx.db.prepare(`
+          SELECT n.id, n.hanzi, n.pinyin, n.english, d.name as deck_name
+          FROM notes n
+          JOIN decks d ON n.deck_id = d.id
+          WHERE d.user_id = ?
+          AND (LOWER(n.hanzi) LIKE ? OR LOWER(n.pinyin) LIKE ? OR LOWER(n.english) LIKE ?)
+          LIMIT 20
+        `).bind(ctx.userId, `%${query}%`, `%${query}%`, `%${query}%`).all();
+        return { results: results.results || [], count: (results.results || []).length };
+      }
+
+      case 'list_student_decks': {
+        const decks = await ctx.db.prepare(`
+          SELECT d.id, d.name, d.description,
+            (SELECT COUNT(*) FROM notes WHERE deck_id = d.id) as note_count
+          FROM decks d
+          WHERE d.user_id = ?
+          ORDER BY d.name
+        `).bind(ctx.userId).all();
+        return { decks: decks.results || [], count: (decks.results || []).length };
+      }
+
+      default:
+        return { error: `Unknown tool: ${toolName}` };
+    }
+  } catch (error) {
+    console.error(`Discuss read-only tool ${toolName} error:`, error);
+    return { error: `Failed to execute ${toolName}` };
+  }
 }
