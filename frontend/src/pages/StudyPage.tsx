@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
@@ -11,6 +11,8 @@ import {
   createTutorReviewRequest,
   generateNoteAudio,
   GenerateAudioOptions,
+  getNoteAudioRecordings,
+  generateNoteAudioRecording,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -205,6 +207,21 @@ function StudyCard({
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
 
+  // Audio recording cycling state
+  const queryClient = useQueryClient();
+  const recordingsQuery = useQuery({
+    queryKey: ['noteRecordings', card.note.id],
+    queryFn: () => getNoteAudioRecordings(card.note.id),
+  });
+  const recordings = recordingsQuery.data || [];
+  const [recordingIndex, setRecordingIndex] = useState(0);
+  const [isGeneratingStudyAudio, setIsGeneratingStudyAudio] = useState(false);
+
+  // Reset recording index when card changes
+  useEffect(() => {
+    setRecordingIndex(0);
+  }, [card.id]);
+
   // Debug modal state
   const [showDebug, setShowDebug] = useState(false);
   const [reviewHistory, setReviewHistory] = useState<LocalReviewEvent[]>([]);
@@ -241,6 +258,55 @@ function StudyCard({
   const isTypingCard = cardInfo.action === 'type';
   const isSpeakingCard = cardInfo.action === 'speak';
 
+  // Play audio from recording at given index, or fall back to note's primary audio
+  const playRecordingAtIndex = useCallback((index: number) => {
+    if (recordings.length > 0) {
+      const rec = recordings[index % recordings.length];
+      playAudio(rec.audio_url, card.note.hanzi, API_BASE);
+    } else {
+      playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at);
+    }
+  }, [recordings, card.note.audio_url, card.note.hanzi, card.note.updated_at, playAudio]);
+
+  // Cycle to next recording and play it
+  const cycleAndPlay = useCallback(() => {
+    if (recordings.length > 1) {
+      const nextIndex = (recordingIndex + 1) % recordings.length;
+      setRecordingIndex(nextIndex);
+      playRecordingAtIndex(nextIndex);
+    } else {
+      playRecordingAtIndex(0);
+    }
+  }, [recordings.length, recordingIndex, playRecordingAtIndex]);
+
+  // Generate new audio with random MiniMax voice and speed
+  const generateStudyAudio = useCallback(async () => {
+    setIsGeneratingStudyAudio(true);
+    try {
+      const randomVoice = MINIMAX_VOICES[Math.floor(Math.random() * MINIMAX_VOICES.length)];
+      const randomSpeed = 0.8 + Math.random() * 0.2; // 0.8 to 1.0
+      await generateNoteAudioRecording(card.note.id, 'minimax', {
+        speed: Math.round(randomSpeed * 100) / 100,
+        voiceId: randomVoice.id,
+      });
+      // Refresh recordings list
+      const updated = await queryClient.fetchQuery({
+        queryKey: ['noteRecordings', card.note.id],
+        queryFn: () => getNoteAudioRecordings(card.note.id),
+      });
+      // Play the newly generated recording (last in list)
+      if (updated.length > 0) {
+        const newIndex = updated.length - 1;
+        setRecordingIndex(newIndex);
+        playAudio(updated[newIndex].audio_url, card.note.hanzi, API_BASE);
+      }
+    } catch (error) {
+      console.error('Failed to generate study audio:', error);
+    } finally {
+      setIsGeneratingStudyAudio(false);
+    }
+  }, [card.note.id, card.note.hanzi, queryClient, playAudio]);
+
   // Focus input for typing cards
   useEffect(() => {
     if (isTypingCard && inputRef.current && !flipped) {
@@ -259,10 +325,10 @@ function StudyCard({
           hanzi: card.note.hanzi,
         });
         playedAudioForRef.current = card.id;
-        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at);
+        playRecordingAtIndex(0);
       }
     }
-  }, [card.id, card.card_type, card.note.audio_url, card.note.hanzi, flipped, playAudio]);
+  }, [card.id, card.card_type, card.note.hanzi, flipped, playRecordingAtIndex]);
 
   // Reset the played audio ref when card changes
   useEffect(() => {
@@ -291,11 +357,11 @@ function StudyCard({
     if (flipped) {
       // Small delay to ensure any previous audio is fully stopped
       const timer = setTimeout(() => {
-        playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at);
+        playRecordingAtIndex(0);
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [flipped, card.note.audio_url, card.note.hanzi, playAudio]);
+  }, [flipped, playRecordingAtIndex]);
 
   const handleFlip = () => {
     if (!flipped) {
@@ -462,13 +528,25 @@ function StudyCard({
           <div className="text-center">
             {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
-            <button
-              className={`btn btn-secondary mb-3${isPlaying ? ' playing' : ''}`}
-              onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
-              disabled={isPlaying}
-            >
-              Play Audio
-            </button>
+            <div className="study-audio-controls">
+              <button
+                className={`btn btn-secondary${isPlaying ? ' playing' : ''}`}
+                onClick={cycleAndPlay}
+                disabled={isPlaying}
+              >
+                Play Audio{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
+              </button>
+              {isOnline && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={generateStudyAudio}
+                  disabled={isGeneratingStudyAudio}
+                  title="Generate new audio with random voice"
+                >
+                  {isGeneratingStudyAudio ? '...' : '+ New Voice'}
+                </button>
+              )}
+            </div>
           </div>
         );
     }
@@ -1002,10 +1080,10 @@ function StudyCard({
         <div className="study-back-buttons">
           <button
             className={`btn btn-secondary btn-sm${isPlaying ? ' playing' : ''}`}
-            onClick={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at)}
+            onClick={cycleAndPlay}
             disabled={isPlaying}
           >
-            Play Audio
+            Play Audio{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
           </button>
           {audioBlob && (
             <button
