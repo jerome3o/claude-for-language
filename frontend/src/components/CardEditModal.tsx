@@ -124,12 +124,14 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const handleGenerateAudio = async (provider: 'minimax' | 'gtts') => {
     setGenerating(true);
     try {
-      const voiceId = selectedVoice === '__random__'
-        ? MINIMAX_VOICES[Math.floor(Math.random() * MINIMAX_VOICES.length)].id
-        : selectedVoice;
+      const voice = selectedVoice === '__random__'
+        ? MINIMAX_VOICES[Math.floor(Math.random() * MINIMAX_VOICES.length)]
+        : MINIMAX_VOICES.find(v => v.id === selectedVoice) || { id: selectedVoice, name: selectedVoice };
+      const voiceName = voice.name.replace(/\s*\(.*\)$/, ''); // Strip parenthetical like "(Male, Formal)"
+      const speedLabel = audioSpeed !== 1.0 ? ` ${audioSpeed.toFixed(1)}x` : '';
       const options = provider === 'minimax'
-        ? { speed: audioSpeed, voiceId }
-        : undefined;
+        ? { speed: audioSpeed, voiceId: voice.id, speakerName: `${voiceName}${speedLabel}` }
+        : { speakerName: `Google TTS${speedLabel}` };
       await generateNoteAudioRecording(card.note.id, provider, options);
       await loadRecordings();
     } catch (err) {

@@ -290,10 +290,13 @@ function StudyCard({
     setIsGeneratingStudyAudio(true);
     try {
       const randomVoice = MINIMAX_VOICES[Math.floor(Math.random() * MINIMAX_VOICES.length)];
-      const randomSpeed = 0.8 + Math.random() * 0.2; // 0.8 to 1.0
+      const randomSpeed = Math.round((0.8 + Math.random() * 0.2) * 100) / 100; // 0.8 to 1.0
+      const voiceName = randomVoice.name.replace(/\s*\(.*\)$/, '');
+      const speedLabel = randomSpeed !== 1.0 ? ` ${randomSpeed.toFixed(1)}x` : '';
       const newRecording = await generateNoteAudioRecording(card.note.id, 'minimax', {
-        speed: Math.round(randomSpeed * 100) / 100,
+        speed: randomSpeed,
         voiceId: randomVoice.id,
+        speakerName: `${voiceName}${speedLabel}`,
       });
       // Invalidate and refetch recordings list so React re-renders with new data
       await queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
