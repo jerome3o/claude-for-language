@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CardWithNote, NoteAudioRecording, MINIMAX_VOICES, DEFAULT_MINIMAX_VOICE } from '../types';
+import { CardWithNote, NoteAudioRecording, MINIMAX_VOICES } from '../types';
 import {
   getNoteAudioRecordings,
   addNoteAudioRecording,
@@ -38,7 +38,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
 
   // MiniMax generation options
   const [showMiniMaxOptions, setShowMiniMaxOptions] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
+  const [selectedVoice, setSelectedVoice] = useState<string>('__random__');
   const [audioSpeed, setAudioSpeed] = useState(0.8);
 
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
@@ -124,8 +124,11 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const handleGenerateAudio = async (provider: 'minimax' | 'gtts') => {
     setGenerating(true);
     try {
+      const voiceId = selectedVoice === '__random__'
+        ? MINIMAX_VOICES[Math.floor(Math.random() * MINIMAX_VOICES.length)].id
+        : selectedVoice;
       const options = provider === 'minimax'
-        ? { speed: audioSpeed, voiceId: selectedVoice }
+        ? { speed: audioSpeed, voiceId }
         : undefined;
       await generateNoteAudioRecording(card.note.id, provider, options);
       await loadRecordings();
@@ -318,6 +321,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
                     onChange={e => setSelectedVoice(e.target.value)}
                     className="form-input card-edit-voice-select"
                   >
+                    <option value="__random__">Random</option>
                     {MINIMAX_VOICES.map(v => (
                       <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
