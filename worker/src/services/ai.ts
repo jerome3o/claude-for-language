@@ -147,6 +147,8 @@ Respond with JSON in this exact format:
 
 const ASK_SYSTEM_PROMPT = `You are a helpful Chinese language tutor. The user is studying a Chinese vocabulary word and has a question about it.
 
+You'll be given context about the card including its deck, mastery level (card status with queue state, interval, stability, and repetition count), and recent review history. Use this to tailor your responses — e.g., if the user keeps rating "Again", offer extra memory aids; if they're at high stability, challenge them with advanced usage.
+
 Be concise but thorough in your answers. Focus on practical usage and learning. You can explain:
 - Grammar patterns and sentence structures
 - Cultural context and usage notes
@@ -267,6 +269,19 @@ export async function askAboutNote(
   }
 
   return textContent.text;
+}
+
+// Helper: human-readable time ago string
+function getTimeAgo(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  return `${days}d ago`;
 }
 
 // ============ Ask About Note with Tool Use (Agent Loop) ============
@@ -398,6 +413,67 @@ export async function askAboutNoteWithTools(
 
   if (note.fun_facts) {
     vocabContextParts.push(`- Notes: ${note.fun_facts}`);
+  }
+
+  // Add enhanced context from DB if available
+  if (dbContext) {
+    try {
+      // Fetch deck info
+      const deck = await dbContext.db.prepare(
+        `SELECT name, description FROM decks WHERE id = ? AND user_id = ?`
+      ).bind(dbContext.deckId, dbContext.userId).first<{ name: string; description: string | null }>();
+
+      if (deck) {
+        vocabContextParts.push(`- Deck: ${deck.name}${deck.description ? ` — ${deck.description}` : ''}`);
+      }
+
+      // Fetch card mastery info (aggregate across all card types for this note)
+      const cards = await dbContext.db.prepare(`
+        SELECT card_type, queue, ease_factor, interval, repetitions, stability
+        FROM cards WHERE note_id = ? AND deck_id = ?
+      `).bind(note.id, dbContext.deckId).all<{
+        card_type: string; queue: number; ease_factor: number;
+        interval: number; repetitions: number; stability: number | null;
+      }>();
+
+      if (cards.results && cards.results.length > 0) {
+        const queueNames: Record<number, string> = { 0: 'new', 1: 'learning', 2: 'review', 3: 'relearning' };
+        const cardSummaries = cards.results.map(c => {
+          const q = queueNames[c.queue] || 'unknown';
+          const parts = [`${c.card_type}: ${q}`];
+          if (c.queue === 2) { // REVIEW
+            parts.push(`interval ${c.interval}d`);
+            if (c.stability) parts.push(`stability ${Math.round(c.stability)}d`);
+          }
+          if (c.repetitions > 0) parts.push(`${c.repetitions} reps`);
+          return parts.join(', ');
+        });
+        vocabContextParts.push(`- Card status: ${cardSummaries.join(' | ')}`);
+      }
+
+      // Fetch recent review events (last 5)
+      const reviews = await dbContext.db.prepare(`
+        SELECT re.rating, re.reviewed_at, c.card_type
+        FROM review_events re
+        JOIN cards c ON re.card_id = c.id
+        WHERE c.note_id = ? AND c.deck_id = ?
+        ORDER BY re.reviewed_at DESC
+        LIMIT 5
+      `).bind(note.id, dbContext.deckId).all<{
+        rating: number; reviewed_at: string; card_type: string;
+      }>();
+
+      if (reviews.results && reviews.results.length > 0) {
+        const ratingNames: Record<number, string> = { 0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy' };
+        const reviewSummary = reviews.results.map(r => {
+          const ago = getTimeAgo(r.reviewed_at);
+          return `${ratingNames[r.rating] || r.rating} on ${r.card_type} (${ago})`;
+        }).join(', ');
+        vocabContextParts.push(`- Recent reviews: ${reviewSummary}`);
+      }
+    } catch (err) {
+      console.error('[askAboutNoteWithTools] Failed to fetch enhanced context:', err);
+    }
   }
 
   if (askContext?.userAnswer) {
