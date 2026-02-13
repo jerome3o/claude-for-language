@@ -1480,8 +1480,9 @@ app.post('/api/notes/:id/audio', async (c) => {
     let provider: 'minimax' | 'gtts' = 'gtts';
     let speed: number | undefined;
     let voiceId: string | undefined;
+    let speakerName: string | undefined;
     try {
-      const body = await c.req.json() as { generate?: boolean; provider?: string; speed?: number; voiceId?: string };
+      const body = await c.req.json() as { generate?: boolean; provider?: string; speed?: number; voiceId?: string; speakerName?: string };
       if (body.provider === 'minimax' || body.provider === 'gtts') {
         provider = body.provider;
       }
@@ -1490,6 +1491,9 @@ app.post('/api/notes/:id/audio', async (c) => {
       }
       if (body.voiceId && typeof body.voiceId === 'string') {
         voiceId = body.voiceId;
+      }
+      if (body.speakerName && typeof body.speakerName === 'string') {
+        speakerName = body.speakerName;
       }
     } catch {
       // Default to gtts
@@ -1506,7 +1510,7 @@ app.post('/api/notes/:id/audio', async (c) => {
       }
 
       const recording = await db.addNoteAudioRecording(
-        c.env.DB, noteId, result.audioKey, result.provider, 'AI Generated', null
+        c.env.DB, noteId, result.audioKey, result.provider, speakerName || 'AI Generated', null
       );
 
       return c.json(recording, 201);
