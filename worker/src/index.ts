@@ -847,7 +847,10 @@ app.post('/api/notes/:id/ask', async (c) => {
   }
 
   try {
-    const { answer, toolActions } = await askAboutNoteWithTools(c.env.ANTHROPIC_API_KEY, note, question, context, conversationHistory);
+    const { answer, toolActions } = await askAboutNoteWithTools(
+      c.env.ANTHROPIC_API_KEY, note, question, context, conversationHistory,
+      { db: c.env.DB, userId, deckId: note.deck_id }
+    );
 
     // Process tool actions and collect results
     const toolResults: Array<{
