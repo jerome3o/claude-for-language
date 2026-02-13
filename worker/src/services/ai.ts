@@ -157,10 +157,15 @@ Be concise but thorough in your answers. Focus on practical usage and learning. 
 
 Keep your responses focused and helpful for language learning. Use examples with both Chinese characters and pinyin when relevant.
 
-You have tools to edit the current card, create new flashcards, or delete the current card. Use these when:
+You have tools to help the user. Read-only tools (search_cards, list_conversations, get_deck_info) are executed automatically. Mutating tools require user approval.
+
+Tool usage guidelines:
 - The user points out an error in the card (wrong tone, incorrect translation, etc.) → use edit_current_card
 - The user asks for related vocabulary to be added → use create_flashcards
 - The user says the card is a duplicate or should be removed → use delete_current_card
+- Use search_cards to find related vocabulary, check for duplicates, or answer questions about what cards exist
+- Use list_conversations to find past discussions about cards
+- Use get_deck_info to understand the deck context
 
 When editing, only change the fields that need fixing. When creating cards, use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers.
 After using a tool, briefly confirm what you did in your text response.`;
@@ -266,6 +271,9 @@ export async function askAboutNote(
 
 // ============ Ask About Note with Tool Use (Agent Loop) ============
 
+// Read-only tools that are executed during the agent loop
+const READ_ONLY_TOOLS = new Set(['search_cards', 'list_conversations', 'get_deck_info']);
+
 function getAskNoteTools(note: Note) {
   return [
     {
@@ -315,17 +323,55 @@ function getAskNoteTools(note: Note) {
         },
       },
     },
+    {
+      name: 'search_cards',
+      description: 'Search through all flashcards across all decks. Use this to find related vocabulary, check for duplicates, or answer questions about what cards exist.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'Search query — matches against hanzi, pinyin, and english fields' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'list_conversations',
+      description: 'List previous Ask Claude conversations for the current note or all notes. Returns question previews with timestamps.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          note_id: { type: 'string', description: 'Optional note ID to filter conversations. If omitted, lists recent conversations across all notes.' },
+          limit: { type: 'number', description: 'Max number of conversations to return (default 10)' },
+        },
+      },
+    },
+    {
+      name: 'get_deck_info',
+      description: 'Get information about the current deck including name, description, card count, and settings.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {},
+      },
+    },
   ];
 }
 
+export type ToolName = 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'search_cards' | 'list_conversations' | 'get_deck_info';
+
 export interface ToolAction {
-  tool: 'edit_current_card' | 'create_flashcards' | 'delete_current_card';
+  tool: ToolName;
   input: Record<string, unknown>;
 }
 
 export interface AskWithToolsResponse {
   answer: string;
   toolActions: ToolAction[];
+}
+
+export interface AskDbContext {
+  db: D1Database;
+  userId: string;
+  deckId: string;
 }
 
 /**
@@ -336,7 +382,8 @@ export async function askAboutNoteWithTools(
   note: Note,
   question: string,
   askContext?: AskContext,
-  conversationHistory?: ConversationMessage[]
+  conversationHistory?: ConversationMessage[],
+  dbContext?: AskDbContext
 ): Promise<AskWithToolsResponse> {
   const client = new Anthropic({ apiKey });
   const tools = getAskNoteTools(note);
@@ -419,10 +466,13 @@ export async function askAboutNoteWithTools(
         textParts.push(block.text);
       } else if (block.type === 'tool_use') {
         toolUseBlocks.push(block);
-        collectedToolActions.push({
-          tool: block.name as ToolAction['tool'],
-          input: block.input as Record<string, unknown>,
-        });
+        // Only collect mutating tool actions for deferred execution
+        if (!READ_ONLY_TOOLS.has(block.name)) {
+          collectedToolActions.push({
+            tool: block.name as ToolAction['tool'],
+            input: block.input as Record<string, unknown>,
+          });
+        }
       }
     }
 
@@ -434,12 +484,24 @@ export async function askAboutNoteWithTools(
     // Add assistant response to messages
     messages.push({ role: 'assistant', content: response.content });
 
-    // Add tool results
-    const toolResults: Anthropic.ToolResultBlockParam[] = toolUseBlocks.map((block) => ({
-      type: 'tool_result' as const,
-      tool_use_id: block.id,
-      content: JSON.stringify({ success: true, message: `Tool ${block.name} executed successfully` }),
-    }));
+    // Execute read-only tools and return real results; defer mutating tools
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of toolUseBlocks) {
+      if (READ_ONLY_TOOLS.has(block.name) && dbContext) {
+        const result = await executeReadOnlyTool(block.name, block.input as Record<string, unknown>, dbContext, note);
+        toolResults.push({
+          type: 'tool_result' as const,
+          tool_use_id: block.id,
+          content: JSON.stringify(result),
+        });
+      } else {
+        toolResults.push({
+          type: 'tool_result' as const,
+          tool_use_id: block.id,
+          content: JSON.stringify({ success: true, message: `Tool ${block.name} will be executed after user approval` }),
+        });
+      }
+    }
 
     messages.push({ role: 'user', content: toolResults });
   }
@@ -448,6 +510,89 @@ export async function askAboutNoteWithTools(
     answer: textParts.join('\n'),
     toolActions: collectedToolActions,
   };
+}
+
+/**
+ * Execute a read-only tool and return the result
+ */
+async function executeReadOnlyTool(
+  toolName: string,
+  input: Record<string, unknown>,
+  ctx: AskDbContext,
+  currentNote: Note
+): Promise<Record<string, unknown>> {
+  try {
+    switch (toolName) {
+      case 'search_cards': {
+        const query = (input.query as string || '').toLowerCase();
+        // Search across user's notes
+        const results = await ctx.db.prepare(`
+          SELECT n.id, n.hanzi, n.pinyin, n.english, d.name as deck_name
+          FROM notes n
+          JOIN decks d ON n.deck_id = d.id
+          WHERE d.user_id = ?
+          AND (LOWER(n.hanzi) LIKE ? OR LOWER(n.pinyin) LIKE ? OR LOWER(n.english) LIKE ?)
+          LIMIT 20
+        `).bind(ctx.userId, `%${query}%`, `%${query}%`, `%${query}%`).all();
+        return { results: results.results || [], count: (results.results || []).length };
+      }
+
+      case 'list_conversations': {
+        const noteId = input.note_id as string | undefined;
+        const limit = Math.min((input.limit as number) || 10, 20);
+        let results;
+        if (noteId) {
+          results = await ctx.db.prepare(`
+            SELECT nq.id, nq.note_id, nq.question, nq.answer, nq.asked_at, n.hanzi, n.pinyin
+            FROM note_questions nq
+            JOIN notes n ON nq.note_id = n.id
+            JOIN decks d ON n.deck_id = d.id
+            WHERE nq.note_id = ? AND d.user_id = ?
+            ORDER BY nq.asked_at DESC
+            LIMIT ?
+          `).bind(noteId, ctx.userId, limit).all();
+        } else {
+          results = await ctx.db.prepare(`
+            SELECT nq.id, nq.note_id, nq.question, nq.answer, nq.asked_at, n.hanzi, n.pinyin
+            FROM note_questions nq
+            JOIN notes n ON nq.note_id = n.id
+            JOIN decks d ON n.deck_id = d.id
+            WHERE d.user_id = ?
+            ORDER BY nq.asked_at DESC
+            LIMIT ?
+          `).bind(ctx.userId, limit).all();
+        }
+        // Truncate answers for the listing
+        const conversations = (results.results || []).map((r: Record<string, unknown>) => ({
+          id: r.id,
+          note_id: r.note_id,
+          hanzi: r.hanzi,
+          pinyin: r.pinyin,
+          question: r.question,
+          answer_preview: (r.answer as string || '').substring(0, 200),
+          asked_at: r.asked_at,
+        }));
+        return { conversations, count: conversations.length };
+      }
+
+      case 'get_deck_info': {
+        const deck = await ctx.db.prepare(`
+          SELECT d.id, d.name, d.description, d.new_cards_per_day, d.created_at,
+            (SELECT COUNT(*) FROM notes WHERE deck_id = d.id) as note_count,
+            (SELECT COUNT(*) FROM cards WHERE deck_id = d.id) as card_count
+          FROM decks d
+          WHERE d.id = ? AND d.user_id = ?
+        `).bind(ctx.deckId, ctx.userId).first();
+        return deck ? { deck } : { error: 'Deck not found' };
+      }
+
+      default:
+        return { error: `Unknown tool: ${toolName}` };
+    }
+  } catch (error) {
+    console.error(`Read-only tool ${toolName} error:`, error);
+    return { error: `Failed to execute ${toolName}` };
+  }
 }
 
 // ============ AI Conversation Functions ============
