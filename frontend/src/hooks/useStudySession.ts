@@ -212,6 +212,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const deckIdRef = useRef(deckId);
   const bonusNewCardsRef = useRef(bonusNewCards);
 
+  // Track pending background DB writes so we can await them before fallback queries
+  const pendingWritesRef = useRef<Promise<void>[]>([]);
+
   // Load initial queue
   const loadQueue = useCallback(async () => {
     if (!enabled) return;
@@ -522,7 +525,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       setCurrentCardState({ card: nextCard, note: note || null, deck: deck || null });
     } else {
       // No card from queue - need to check IndexedDB for delayed learning cards.
-      // But first, we must update IndexedDB with the current card's new state,
+      // First, await any pending background writes so the DB query sees all state.
+      if (pendingWritesRef.current.length > 0) {
+        console.log('[useStudySession] Awaiting', pendingWritesRef.current.length, 'pending DB writes before fallback query');
+        await Promise.all(pendingWritesRef.current);
+        pendingWritesRef.current = [];
+      }
+
+      // Then update IndexedDB with the current card's new state,
       // otherwise the query will find this card still in its old LEARNING state.
       const reviewedAt = new Date().toISOString();
       await db.cards.update(cardId, {
@@ -632,14 +642,21 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       return;
     }
 
-    // Submit review in background (don't await)
-    reviewMutation.mutate({
+    // Submit review in background (don't await), but track the promise
+    // so we can await it if the next rating needs to query IndexedDB
+    const writePromise = reviewMutation.mutateAsync({
       cardId,
       rating,
       timeSpentMs,
       userAnswer,
       recordingBlob,
+    }).then(() => {
+      // Remove from pending list once complete
+      pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
+    }).catch(() => {
+      pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
     });
+    pendingWritesRef.current.push(writePromise);
   }, [currentCardState, queue, recentNoteIds, reviewMutation, selectNextCard]);
 
   // Calculate current state
