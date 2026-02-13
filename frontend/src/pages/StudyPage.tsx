@@ -258,26 +258,32 @@ function StudyCard({
   const isTypingCard = cardInfo.action === 'type';
   const isSpeakingCard = cardInfo.action === 'speak';
 
+  // Keep a ref to recordings so callbacks always see the latest
+  const recordingsRef = useRef(recordings);
+  recordingsRef.current = recordings;
+
   // Play audio from recording at given index, or fall back to note's primary audio
   const playRecordingAtIndex = useCallback((index: number) => {
-    if (recordings.length > 0) {
-      const rec = recordings[index % recordings.length];
+    const recs = recordingsRef.current;
+    if (recs.length > 0) {
+      const rec = recs[index % recs.length];
       playAudio(rec.audio_url, card.note.hanzi, API_BASE);
     } else {
       playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at);
     }
-  }, [recordings, card.note.audio_url, card.note.hanzi, card.note.updated_at, playAudio]);
+  }, [card.note.audio_url, card.note.hanzi, card.note.updated_at, playAudio]);
 
   // Cycle to next recording and play it
   const cycleAndPlay = useCallback(() => {
-    if (recordings.length > 1) {
-      const nextIndex = (recordingIndex + 1) % recordings.length;
+    const recs = recordingsRef.current;
+    if (recs.length > 0) {
+      const nextIndex = recs.length > 1 ? (recordingIndex + 1) % recs.length : 0;
       setRecordingIndex(nextIndex);
       playRecordingAtIndex(nextIndex);
     } else {
       playRecordingAtIndex(0);
     }
-  }, [recordings.length, recordingIndex, playRecordingAtIndex]);
+  }, [recordingIndex, playRecordingAtIndex]);
 
   // Generate new audio with random MiniMax voice and speed
   const generateStudyAudio = useCallback(async () => {
@@ -285,21 +291,14 @@ function StudyCard({
     try {
       const randomVoice = MINIMAX_VOICES[Math.floor(Math.random() * MINIMAX_VOICES.length)];
       const randomSpeed = 0.8 + Math.random() * 0.2; // 0.8 to 1.0
-      await generateNoteAudioRecording(card.note.id, 'minimax', {
+      const newRecording = await generateNoteAudioRecording(card.note.id, 'minimax', {
         speed: Math.round(randomSpeed * 100) / 100,
         voiceId: randomVoice.id,
       });
-      // Refresh recordings list
-      const updated = await queryClient.fetchQuery({
-        queryKey: ['noteRecordings', card.note.id],
-        queryFn: () => getNoteAudioRecordings(card.note.id),
-      });
-      // Play the newly generated recording (last in list)
-      if (updated.length > 0) {
-        const newIndex = updated.length - 1;
-        setRecordingIndex(newIndex);
-        playAudio(updated[newIndex].audio_url, card.note.hanzi, API_BASE);
-      }
+      // Invalidate and refetch recordings list so React re-renders with new data
+      await queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
+      // Play the newly generated recording immediately using its URL
+      playAudio(newRecording.audio_url, card.note.hanzi, API_BASE);
     } catch (error) {
       console.error('Failed to generate study audio:', error);
     } finally {
@@ -1270,7 +1269,11 @@ function StudyCard({
       {showEditModal && (
         <CardEditModal
           card={card}
-          onClose={() => setShowEditModal(false)}
+          onClose={() => {
+            setShowEditModal(false);
+            // Refresh recordings in case user added/removed recordings in the modal
+            queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
+          }}
           onSave={(updatedNote) => {
             onUpdateNote(updatedNote);
             // Also update IndexedDB for offline consistency
@@ -1281,6 +1284,8 @@ function StudyCard({
               fun_facts: updatedNote.fun_facts,
               audio_url: updatedNote.audio_url,
             });
+            // Refresh recordings list
+            queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
           }}
           onDeleteCard={() => {
             // Remove from IndexedDB and move to next card
