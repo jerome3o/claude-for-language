@@ -933,6 +933,8 @@ function StudyCard({
       { label: 'Use in sentence', question: 'Please use this word in a few example sentences with pinyin and English translations.' },
       { label: 'Explain characters', question: 'Please break down each character in this word, explaining the radicals, components, and individual meanings.' },
       { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
+      { label: 'Check my answer', question: 'Is my answer grammatically and semantically correct? Please explain any errors.' },
+      { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
     ];
 
     return (
