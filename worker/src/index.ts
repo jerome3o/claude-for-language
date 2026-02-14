@@ -847,7 +847,7 @@ app.post('/api/notes/:id/ask', async (c) => {
   }
 
   try {
-    const { answer, toolActions } = await askAboutNoteWithTools(
+    const { answer, toolActions, readOnlyToolCalls } = await askAboutNoteWithTools(
       c.env.ANTHROPIC_API_KEY, note, question, context, conversationHistory,
       { db: c.env.DB, userId, deckId: note.deck_id }
     );
@@ -938,10 +938,11 @@ app.post('/api/notes/:id/ask', async (c) => {
 
     const noteQuestion = await db.createNoteQuestion(c.env.DB, id, question, answer);
 
-    // Return extended response with tool results
+    // Return extended response with tool results and read-only tool calls
     return c.json({
       ...noteQuestion,
       toolResults: toolResults.length > 0 ? toolResults : undefined,
+      readOnlyToolCalls: readOnlyToolCalls.length > 0 ? readOnlyToolCalls : undefined,
     }, 201);
   } catch (error) {
     console.error('AI ask error:', error);

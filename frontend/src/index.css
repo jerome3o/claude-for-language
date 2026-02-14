@@ -797,6 +797,61 @@ html:has(.study-page-fullscreen) .header {
   font-size: 0.875rem;
 }
 
+/* Read-only tool calls collapsible */
+.claude-tool-calls-collapsible {
+  margin-bottom: 0.375rem;
+}
+
+.claude-tool-calls-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: none;
+  border: none;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  transition: color 0.15s;
+}
+
+.claude-tool-calls-toggle:hover {
+  color: var(--color-text);
+}
+
+.claude-tool-calls-icon {
+  font-size: 0.625rem;
+  width: 0.75rem;
+}
+
+.claude-tool-calls-summary {
+  font-style: italic;
+}
+
+.claude-tool-calls-details {
+  padding: 0.375rem 0.5rem;
+  margin-top: 0.125rem;
+  background-color: var(--color-background);
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+}
+
+.claude-tool-call-item {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  padding: 0.125rem 0;
+}
+
+.claude-tool-call-name {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.claude-tool-call-input {
+  margin-left: 0.25rem;
+  opacity: 0.7;
+}
+
 .claude-loading {
   color: var(--color-text-light);
   font-size: 0.875rem;
