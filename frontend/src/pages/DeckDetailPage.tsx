@@ -1,14 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
-import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
+import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
-import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship } from '../types';
-import { CompletionSection, CardTypeBreakdownSection } from '../components/DeckProgress';
+import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship, DeckProgress } from '../types';
+import { CompletionSection, CardTypeBreakdownSection, ActivitySection } from '../components/DeckProgress';
 import CardEditModal from '../components/CardEditModal';
 import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
+import './SharedDeckProgressPage.css';
 
 const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -1470,6 +1471,14 @@ export function DeckDetailPage() {
     enabled: !!id,
   });
 
+  // Server-computed progress data (reliable, includes activity)
+  const progressQuery = useQuery({
+    queryKey: ['deckProgress', id],
+    queryFn: () => getDeckProgress(id!),
+    enabled: !!id,
+  });
+  const serverProgress: DeckProgress | undefined = progressQuery.data;
+
   // Local Dexie data for progress-style note rows (instant, no API call)
   const localCards = useLiveQuery(
     () => id ? db.cards.where('deck_id').equals(id).toArray() : [],
@@ -1752,9 +1761,6 @@ export function DeckDetailPage() {
                 Study ({stats.cards_due} due)
               </Link>
             )}
-            <Link to={`/decks/${id}/progress`} className="btn btn-secondary">
-              View Progress
-            </Link>
             {deck.notes.filter(n => !n.audio_url).length > 0 && (
               <button
                 className="btn btn-secondary"
@@ -1967,11 +1973,14 @@ export function DeckDetailPage() {
           </div>
         )}
 
-        {/* Progress overview (from local data) */}
-        {localProgress && localProgress.completion.total_cards > 0 && (
+        {/* Progress overview (server data primary, local fallback) */}
+        {(serverProgress || (localProgress && localProgress.completion.total_cards > 0)) && (
           <>
-            <CompletionSection completion={localProgress.completion} />
-            <CardTypeBreakdownSection breakdown={localProgress.card_type_breakdown} />
+            <CompletionSection completion={serverProgress?.completion || localProgress!.completion} />
+            <CardTypeBreakdownSection breakdown={serverProgress?.card_type_breakdown || localProgress!.card_type_breakdown} />
+            {serverProgress?.activity && (
+              <ActivitySection activity={serverProgress.activity} />
+            )}
           </>
         )}
 
