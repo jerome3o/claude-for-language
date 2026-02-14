@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { syncService } from '../services/sync';
-import { recomputeCardStates } from '../api/client';
+import { recomputeCardStates, getPendingFeatureRequestCount } from '../api/client';
 import './Header.css';
 
 export function Header() {
@@ -12,6 +12,7 @@ export function Header() {
   const [isClearing, setIsClearing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRecomputing, setIsRecomputing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -25,6 +26,12 @@ export function Header() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Fetch pending feature request count for admins
+  useEffect(() => {
+    if (!user?.is_admin) return;
+    getPendingFeatureRequestCount().then(setPendingCount).catch(() => {});
+  }, [user?.is_admin]);
 
   const handleLogout = async () => {
     setShowUserMenu(false);
@@ -119,6 +126,9 @@ export function Header() {
                 <div className="user-avatar-placeholder">
                   {user.name?.[0] || user.email?.[0] || '?'}
                 </div>
+              )}
+              {pendingCount > 0 && (
+                <span className="admin-notification-badge">{pendingCount}</span>
               )}
             </button>
             {showUserMenu && (
