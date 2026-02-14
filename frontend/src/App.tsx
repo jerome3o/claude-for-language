@@ -6,6 +6,7 @@ import { NetworkProvider } from './contexts/NetworkContext';
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
+import { FeedbackFAB } from './components/FeedbackFAB';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/Loading';
 // Eagerly loaded — these are the landing pages
@@ -329,6 +330,7 @@ function App() {
           <BrowserRouter>
             <AppRoutes />
             <OfflineBanner />
+            <FeedbackFAB />
           </BrowserRouter>
         </NetworkProvider>
       </AuthProvider>

@@ -3513,6 +3513,159 @@ app.get('/api/sync/changes', async (c) => {
   });
 });
 
+// ============ Feature Requests ============
+
+// List feature requests (own for regular users, all for admins)
+app.get('/api/feature-requests', async (c) => {
+  const user = c.get('user');
+  const status = c.req.query('status');
+  const all = c.req.query('all') === 'true' && user.is_admin;
+
+  let query: string;
+  const params: unknown[] = [];
+
+  if (all) {
+    query = `
+      SELECT fr.*, u.name as user_name, u.email as user_email,
+        (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
+      FROM feature_requests fr
+      JOIN users u ON fr.user_id = u.id
+      ${status ? 'WHERE fr.status = ?' : ''}
+      ORDER BY fr.created_at DESC
+    `;
+    if (status) params.push(status);
+  } else {
+    query = `
+      SELECT fr.*,
+        (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
+      FROM feature_requests fr
+      WHERE fr.user_id = ?
+      ${status ? 'AND fr.status = ?' : ''}
+      ORDER BY fr.created_at DESC
+    `;
+    params.push(user.id);
+    if (status) params.push(status);
+  }
+
+  const results = await c.env.DB.prepare(query).bind(...params).all();
+  return c.json({ requests: results.results || [] });
+});
+
+// Create a feature request
+app.post('/api/feature-requests', async (c) => {
+  const userId = c.get('user').id;
+  const { content, pageContext } = await c.req.json<{
+    content: string;
+    pageContext?: string;
+  }>();
+
+  if (!content || !content.trim()) {
+    return c.json({ error: 'Content is required' }, 400);
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await c.env.DB.prepare(`
+    INSERT INTO feature_requests (id, user_id, content, page_context, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'new', ?, ?)
+  `).bind(id, userId, content.trim(), pageContext || null, now, now).run();
+
+  return c.json({ id, status: 'new', created_at: now });
+});
+
+// Get a single feature request with comments
+app.get('/api/feature-requests/:id', async (c) => {
+  const user = c.get('user');
+  const id = c.req.param('id');
+
+  const request = await c.env.DB.prepare(`
+    SELECT fr.*, u.name as user_name
+    FROM feature_requests fr
+    JOIN users u ON fr.user_id = u.id
+    WHERE fr.id = ?
+  `).bind(id).first();
+
+  if (!request) {
+    return c.json({ error: 'Not found' }, 404);
+  }
+
+  // Only allow owner or admin to view
+  if (request.user_id !== user.id && !user.is_admin) {
+    return c.json({ error: 'Access denied' }, 403);
+  }
+
+  const comments = await c.env.DB.prepare(`
+    SELECT * FROM feature_request_comments
+    WHERE request_id = ?
+    ORDER BY created_at ASC
+  `).bind(id).all();
+
+  return c.json({ request, comments: comments.results || [] });
+});
+
+// Update feature request status (admin only)
+app.patch('/api/feature-requests/:id', async (c) => {
+  const user = c.get('user');
+  if (!user.is_admin) {
+    return c.json({ error: 'Admin only' }, 403);
+  }
+
+  const id = c.req.param('id');
+  const { status } = await c.req.json<{ status: string }>();
+
+  const validStatuses = ['new', 'in_progress', 'done', 'declined'];
+  if (!validStatuses.includes(status)) {
+    return c.json({ error: `Invalid status. Valid: ${validStatuses.join(', ')}` }, 400);
+  }
+
+  const now = new Date().toISOString();
+  await c.env.DB.prepare(`
+    UPDATE feature_requests SET status = ?, updated_at = ? WHERE id = ?
+  `).bind(status, now, id).run();
+
+  return c.json({ success: true, status });
+});
+
+// Add comment to a feature request
+app.post('/api/feature-requests/:id/comments', async (c) => {
+  const user = c.get('user');
+  const requestId = c.req.param('id');
+  const { content, authorName } = await c.req.json<{
+    content: string;
+    authorName?: string;
+  }>();
+
+  if (!content || !content.trim()) {
+    return c.json({ error: 'Content is required' }, 400);
+  }
+
+  // Verify request exists and user has access
+  const request = await c.env.DB.prepare(
+    'SELECT * FROM feature_requests WHERE id = ?'
+  ).bind(requestId).first();
+
+  if (!request) {
+    return c.json({ error: 'Not found' }, 404);
+  }
+
+  if (request.user_id !== user.id && !user.is_admin) {
+    return c.json({ error: 'Access denied' }, 403);
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const name = authorName || user.name || 'User';
+  const authorType = user.is_admin ? 'admin' : 'user';
+
+  await c.env.DB.prepare(`
+    INSERT INTO feature_request_comments (id, request_id, author_name, author_type, content, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(id, requestId, name, authorType, content.trim(), now).run();
+
+  return c.json({ id, created_at: now });
+});
+
 // Serve static files (frontend) for non-API routes
 app.get('*', async (c) => {
   // In production, this would serve from c.env.ASSETS

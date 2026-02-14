@@ -1046,3 +1046,68 @@ export async function recomputeCardStates(): Promise<{
     { method: 'POST' }
   );
 }
+
+// ============ Feature Requests ============
+
+export interface FeatureRequest {
+  id: string;
+  user_id: string;
+  content: string;
+  page_context: string | null;
+  status: string;
+  comment_count: number;
+  user_name?: string;
+  user_email?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeatureRequestComment {
+  id: string;
+  request_id: string;
+  author_name: string;
+  author_type: string;
+  content: string;
+  created_at: string;
+}
+
+export async function getFeatureRequests(options?: { status?: string; all?: boolean }): Promise<FeatureRequest[]> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set('status', options.status);
+  if (options?.all) params.set('all', 'true');
+  const qs = params.toString();
+  const { requests } = await fetchJSON<{ requests: FeatureRequest[] }>(
+    `/feature-requests${qs ? `?${qs}` : ''}`
+  );
+  return requests;
+}
+
+export async function createFeatureRequest(content: string, pageContext?: string): Promise<{ id: string }> {
+  return fetchJSON<{ id: string }>('/feature-requests', {
+    method: 'POST',
+    body: JSON.stringify({ content, pageContext }),
+  });
+}
+
+export async function getFeatureRequest(id: string): Promise<{
+  request: FeatureRequest;
+  comments: FeatureRequestComment[];
+}> {
+  return fetchJSON<{ request: FeatureRequest; comments: FeatureRequestComment[] }>(
+    `/feature-requests/${id}`
+  );
+}
+
+export async function updateFeatureRequestStatus(id: string, status: string): Promise<void> {
+  await fetchJSON(`/feature-requests/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function addFeatureRequestComment(id: string, content: string, authorName?: string): Promise<{ id: string }> {
+  return fetchJSON<{ id: string }>(`/feature-requests/${id}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ content, authorName }),
+  });
+}
