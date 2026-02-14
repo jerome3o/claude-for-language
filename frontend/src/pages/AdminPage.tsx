@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AdminUser } from '../types';
-import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats } from '../api/client';
+import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats, getFeatureRequests, approveFeatureRequest, FeatureRequest } from '../api/client';
 import { syncService } from '../services/sync';
 import './AdminPage.css';
 
@@ -24,6 +24,31 @@ export function AdminPage() {
   const [isFixingCards, setIsFixingCards] = useState(false);
   const [cardFixResult, setCardFixResult] = useState<string | null>(null);
 
+  // Feature requests state
+  const [pendingRequests, setPendingRequests] = useState<FeatureRequest[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+
+  const loadPendingRequests = useCallback(async () => {
+    setIsLoadingRequests(true);
+    try {
+      const all = await getFeatureRequests({ all: true });
+      setPendingRequests(all.filter(r => r.approval_status === 'pending'));
+    } catch (err) {
+      console.error('Failed to load feature requests:', err);
+    } finally {
+      setIsLoadingRequests(false);
+    }
+  }, []);
+
+  const handleApproval = useCallback(async (id: string, status: 'approved' | 'declined') => {
+    try {
+      await approveFeatureRequest(id, status);
+      setPendingRequests(prev => prev.filter(r => r.id !== id));
+    } catch (err) {
+      console.error('Failed to update approval:', err);
+    }
+  }, []);
+
   useEffect(() => {
     const loadUsers = async () => {
       try {
@@ -37,7 +62,8 @@ export function AdminPage() {
     };
 
     loadUsers();
-  }, []);
+    loadPendingRequests();
+  }, [loadPendingRequests]);
 
   const loadStorageStats = async () => {
     setIsLoadingStorage(true);
@@ -178,6 +204,41 @@ export function AdminPage() {
             <span className="stat-label">Total Reviews</span>
           </div>
         </div>
+
+        {pendingRequests.length > 0 && (
+          <>
+            <h2>Pending Feature Requests ({pendingRequests.length})</h2>
+            <div className="pending-requests-section">
+              {pendingRequests.map(req => (
+                <div key={req.id} className="pending-request-card">
+                  <div className="pending-request-content">
+                    <p className="pending-request-text">{req.content}</p>
+                    <div className="pending-request-meta">
+                      <span>{req.user_name || req.user_email || 'Unknown user'}</span>
+                      <span>from {req.page_context || '/'}</span>
+                      <span>{formatDate(req.created_at)}</span>
+                    </div>
+                  </div>
+                  <div className="pending-request-actions">
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleApproval(req.id, 'approved')}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleApproval(req.id, 'declined')}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {!isLoadingRequests && pendingRequests.length === 0 && null}
 
         <h2>Storage</h2>
         <div className="storage-section">

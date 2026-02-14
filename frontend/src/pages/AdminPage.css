@@ -379,3 +379,61 @@
     flex-wrap: nowrap;
   }
 }
+
+/* Pending Feature Requests */
+.pending-requests-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pending-request-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pending-request-text {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.pending-request-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.pending-request-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+@media (min-width: 640px) {
+  .pending-request-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .pending-request-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pending-request-actions {
+    flex-shrink: 0;
+  }
+}

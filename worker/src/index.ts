@@ -3553,7 +3553,6 @@ app.get('/api/feature-requests', async (c) => {
 
 // Create a feature request
 app.post('/api/feature-requests', async (c) => {
-  const userId = c.get('user').id;
   const { content, pageContext } = await c.req.json<{
     content: string;
     pageContext?: string;
@@ -3563,15 +3562,31 @@ app.post('/api/feature-requests', async (c) => {
     return c.json({ error: 'Content is required' }, 400);
   }
 
+  const user = c.get('user');
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const approvalStatus = user.is_admin ? 'approved' : 'pending';
 
   await c.env.DB.prepare(`
-    INSERT INTO feature_requests (id, user_id, content, page_context, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'new', ?, ?)
-  `).bind(id, userId, content.trim(), pageContext || null, now, now).run();
+    INSERT INTO feature_requests (id, user_id, content, page_context, status, approval_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'new', ?, ?, ?)
+  `).bind(id, user.id, content.trim(), pageContext || null, approvalStatus, now, now).run();
 
-  return c.json({ id, status: 'new', created_at: now });
+  return c.json({ id, status: 'new', approval_status: approvalStatus, created_at: now });
+});
+
+// Get count of pending feature requests (admin only)
+app.get('/api/feature-requests/pending-count', async (c) => {
+  const user = c.get('user');
+  if (!user.is_admin) {
+    return c.json({ count: 0 });
+  }
+
+  const result = await c.env.DB.prepare(
+    "SELECT COUNT(*) as count FROM feature_requests WHERE approval_status = 'pending'"
+  ).first<{ count: number }>();
+
+  return c.json({ count: result?.count || 0 });
 });
 
 // Get a single feature request with comments
@@ -3625,6 +3640,28 @@ app.patch('/api/feature-requests/:id', async (c) => {
   `).bind(status, now, id).run();
 
   return c.json({ success: true, status });
+});
+
+// Approve or decline a feature request (admin only)
+app.patch('/api/feature-requests/:id/approval', async (c) => {
+  const user = c.get('user');
+  if (!user.is_admin) {
+    return c.json({ error: 'Admin only' }, 403);
+  }
+
+  const id = c.req.param('id');
+  const { approval_status } = await c.req.json<{ approval_status: string }>();
+
+  if (!['approved', 'declined'].includes(approval_status)) {
+    return c.json({ error: 'Invalid approval_status. Valid: approved, declined' }, 400);
+  }
+
+  const now = new Date().toISOString();
+  await c.env.DB.prepare(`
+    UPDATE feature_requests SET approval_status = ?, updated_at = ? WHERE id = ?
+  `).bind(approval_status, now, id).run();
+
+  return c.json({ success: true, approval_status });
 });
 
 // Add comment to a feature request

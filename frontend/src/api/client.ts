@@ -1055,6 +1055,7 @@ export interface FeatureRequest {
   content: string;
   page_context: string | null;
   status: string;
+  approval_status: string;
   comment_count: number;
   user_name?: string;
   user_email?: string;
@@ -1110,4 +1111,16 @@ export async function addFeatureRequestComment(id: string, content: string, auth
     method: 'POST',
     body: JSON.stringify({ content, authorName }),
   });
+}
+
+export async function approveFeatureRequest(id: string, approval_status: 'approved' | 'declined'): Promise<void> {
+  await fetchJSON(`/feature-requests/${id}/approval`, {
+    method: 'PATCH',
+    body: JSON.stringify({ approval_status }),
+  });
+}
+
+export async function getPendingFeatureRequestCount(): Promise<number> {
+  const { count } = await fetchJSON<{ count: number }>('/feature-requests/pending-count');
+  return count;
 }

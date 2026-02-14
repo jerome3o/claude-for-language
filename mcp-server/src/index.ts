@@ -1607,16 +1607,19 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "list_feature_requests",
-      "List feature requests submitted by users. Admins see all requests; non-admins see only their own.",
+      "List feature requests submitted by users. Admins see all requests; non-admins see only their own. IMPORTANT: Only act on requests where approval_status is 'approved'. Requests with 'pending' approval_status have not been reviewed by the admin yet and should not be worked on.",
       {
         status: z.enum(['new', 'in_progress', 'done', 'declined']).optional()
           .describe("Filter by status"),
+        approval_status: z.enum(['pending', 'approved', 'declined']).optional()
+          .describe("Filter by approval status"),
       },
-      async ({ status }) => {
+      async ({ status, approval_status }) => {
         const admin = await isAdmin();
 
         let query: string;
         const params: (string | number)[] = [];
+        const conditions: string[] = [];
 
         if (admin) {
           query = `
@@ -1625,10 +1628,9 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
             FROM feature_requests fr
             LEFT JOIN users u ON fr.user_id = u.id
           `;
-          if (status) {
-            query += ' WHERE fr.status = ?';
-            params.push(status);
-          }
+          if (status) { conditions.push('fr.status = ?'); params.push(status); }
+          if (approval_status) { conditions.push('fr.approval_status = ?'); params.push(approval_status); }
+          if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
           query += ' ORDER BY fr.created_at DESC';
         } else {
           query = `
@@ -1638,10 +1640,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
             WHERE fr.user_id = ?
           `;
           params.push(userId);
-          if (status) {
-            query += ' AND fr.status = ?';
-            params.push(status);
-          }
+          if (status) { query += ' AND fr.status = ?'; params.push(status); }
+          if (approval_status) { query += ' AND fr.approval_status = ?'; params.push(approval_status); }
           query += ' ORDER BY fr.created_at DESC';
         }
 
