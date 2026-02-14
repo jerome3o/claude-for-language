@@ -658,16 +658,18 @@ function StudyCard({
           <div style={{ fontWeight: 500 }}>
             You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : '\u274C'}
           </div>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              resetTranscription();
-              clearRecording();
-            }}
-            style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
-          >
-            Try Again
-          </button>
+          {!isMatch && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                resetTranscription();
+                clearRecording();
+              }}
+              style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
+            >
+              Try Again
+            </button>
+          )}
         </div>
       );
     }
