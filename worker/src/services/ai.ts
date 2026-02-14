@@ -257,7 +257,7 @@ export async function askAboutNote(
   }
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-6',
     max_tokens: 1000,
     messages,
     system: ASK_SYSTEM_PROMPT,
@@ -587,7 +587,7 @@ export async function askAboutNoteWithTools(
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-6',
       max_tokens: 1500,
       messages,
       system: ASK_SYSTEM_PROMPT,
@@ -912,7 +912,7 @@ The student just said: "${latestUserMessage}"
 Respond naturally in Chinese, staying in character. Remember: respond ONLY in Chinese characters.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-6',
     max_tokens: 500,
     messages: [
       { role: 'user', content: userPrompt }
@@ -970,7 +970,7 @@ The student wrote: "${userMessage}"
 Evaluate this message. Is it grammatically correct and natural Chinese for this conversation context?`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-6',
     max_tokens: 1000,
     messages: [
       { role: 'user', content: userPrompt }
@@ -1031,7 +1031,7 @@ The student doesn't know what to say next. Generate 3-5 options they could say, 
 Include the relevant conversation context with each option.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-6',
     max_tokens: 2000,
     messages: [
       { role: 'user', content: userPrompt }
@@ -1194,7 +1194,7 @@ export async function discussMessage(
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-6',
       max_tokens: 2000,
       messages,
       system: DISCUSS_MESSAGE_SYSTEM_PROMPT,
