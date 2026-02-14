@@ -205,9 +205,18 @@ export function AdminPage() {
           </div>
         </div>
 
-        {pendingRequests.length > 0 && (
-          <>
-            <h2>Pending Feature Requests ({pendingRequests.length})</h2>
+        <div className={`pending-requests-wrapper${pendingRequests.length > 0 ? ' has-pending' : ''}`}>
+          <h2 className="pending-requests-heading">
+            📋 Pending Feature Requests
+            {pendingRequests.length > 0 && (
+              <span className="pending-count-badge">{pendingRequests.length}</span>
+            )}
+          </h2>
+          {isLoadingRequests ? (
+            <p className="pending-empty">Loading requests...</p>
+          ) : pendingRequests.length === 0 ? (
+            <p className="pending-empty">No pending requests — all caught up!</p>
+          ) : (
             <div className="pending-requests-section">
               {pendingRequests.map(req => (
                 <div key={req.id} className="pending-request-card">
@@ -221,13 +230,13 @@ export function AdminPage() {
                   </div>
                   <div className="pending-request-actions">
                     <button
-                      className="btn btn-primary btn-sm"
+                      className="btn btn-approve btn-sm"
                       onClick={() => handleApproval(req.id, 'approved')}
                     >
                       Approve
                     </button>
                     <button
-                      className="btn btn-secondary btn-sm"
+                      className="btn btn-decline btn-sm"
                       onClick={() => handleApproval(req.id, 'declined')}
                     >
                       Decline
@@ -236,9 +245,8 @@ export function AdminPage() {
                 </div>
               ))}
             </div>
-          </>
-        )}
-        {!isLoadingRequests && pendingRequests.length === 0 && null}
+          )}
+        </div>
 
         <h2>Storage</h2>
         <div className="storage-section">

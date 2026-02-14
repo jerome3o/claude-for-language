@@ -129,3 +129,32 @@
   padding: 0 3px;
   line-height: 1;
 }
+
+/* Review requests menu item */
+.user-menu-item-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(239, 68, 68, 0.06);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-menu-item-review:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.menu-badge {
+  background: #ef4444;
+  color: white;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  line-height: 1;
+}
