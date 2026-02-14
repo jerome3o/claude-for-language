@@ -298,6 +298,50 @@ function StudyCard({
     reset: resetTranscription,
   } = useTranscription();
 
+  // Track initial 0.5s delay to prevent accidental stop clicks
+  const [isRecordingDelayActive, setIsRecordingDelayActive] = useState(false);
+  const recordingDelayTimeoutRef = useRef<number | null>(null);
+
+  // Enhanced startRecording with 0.5s delay
+  const startRecordingWithDelay = useCallback(() => {
+    // Clear any existing timeout
+    if (recordingDelayTimeoutRef.current) {
+      clearTimeout(recordingDelayTimeoutRef.current);
+    }
+
+    // Start recording
+    startRecording();
+
+    // Enable delay flag
+    setIsRecordingDelayActive(true);
+
+    // Clear delay after 500ms
+    recordingDelayTimeoutRef.current = window.setTimeout(() => {
+      setIsRecordingDelayActive(false);
+      recordingDelayTimeoutRef.current = null;
+    }, 500);
+  }, [startRecording]);
+
+  // Enhanced stopRecording that clears delay state
+  const stopRecordingWithDelay = useCallback(() => {
+    // Clear any active delay timeout
+    if (recordingDelayTimeoutRef.current) {
+      clearTimeout(recordingDelayTimeoutRef.current);
+      recordingDelayTimeoutRef.current = null;
+    }
+    setIsRecordingDelayActive(false);
+    stopRecording();
+  }, [stopRecording]);
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingDelayTimeoutRef.current) {
+        clearTimeout(recordingDelayTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Track which card we've played audio for to prevent re-triggering
   const playedAudioForRef = useRef<string | null>(null);
 
@@ -665,7 +709,7 @@ function StudyCard({
                 resetTranscription();
                 clearRecording();
                 // Auto-start recording after a short delay to let state reset
-                setTimeout(() => startRecording(), 100);
+                setTimeout(() => startRecordingWithDelay(), 100);
               }}
               style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
             >
@@ -698,11 +742,22 @@ function StudyCard({
         {flipped && isSpeakingCard && !audioBlob && !transcriptionComparison && (
           <div style={{ marginBottom: '0.5rem' }}>
             {isRecording ? (
-              <button className="btn btn-error btn-sm" onClick={stopRecording}>
-                Stop Recording
-              </button>
+              isRecordingDelayActive ? (
+                <div style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  fontSize: '0.875rem',
+                }}>
+                  Transcribing...
+                </div>
+              ) : (
+                <button className="btn btn-error btn-sm" onClick={stopRecordingWithDelay}>
+                  Stop Recording
+                </button>
+              )
             ) : (
-              <button className="btn btn-primary btn-sm" onClick={startRecording}>
+              <button className="btn btn-primary btn-sm" onClick={startRecordingWithDelay}>
                 Record Again
               </button>
             )}
@@ -1195,8 +1250,22 @@ function StudyCard({
 
   const renderSpeakingCardButtons = () => {
     if (isRecording) {
+      // During the initial 0.5s delay, show "Transcribing..." instead of clickable button
+      if (isRecordingDelayActive) {
+        return (
+          <div style={{
+            padding: '0.5rem 0.75rem',
+            borderRadius: '6px',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            fontSize: '0.875rem',
+          }}>
+            Transcribing...
+          </div>
+        );
+      }
+
       return (
-        <button className="btn btn-error" onClick={stopRecording}>
+        <button className="btn btn-error" onClick={stopRecordingWithDelay}>
           Stop Recording
         </button>
       );
@@ -1228,7 +1297,7 @@ function StudyCard({
 
     return (
       <div className="flex flex-col gap-2 items-center">
-        <button className="btn btn-primary" onClick={startRecording}>
+        <button className="btn btn-primary" onClick={startRecordingWithDelay}>
           Record Your Pronunciation
         </button>
         <button
