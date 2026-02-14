@@ -185,6 +185,15 @@ export function Header() {
                 </button>
                 {user.is_admin && (
                   <>
+                    {pendingCount > 0 && (
+                      <button
+                        className="user-menu-item user-menu-item-review"
+                        onClick={() => handleMenuItemClick('/admin')}
+                      >
+                        📋 Review Requests
+                        <span className="menu-badge">{pendingCount}</span>
+                      </button>
+                    )}
                     <button
                       className="user-menu-item"
                       onClick={() => handleMenuItemClick('/admin')}
