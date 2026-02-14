@@ -2286,3 +2286,227 @@ textarea {
   text-align: right;
   flex-shrink: 0;
 }
+
+/* ============ Feedback FAB ============ */
+
+.feedback-fab {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.feedback-fab:hover {
+  transform: scale(1.1);
+}
+
+.feedback-fab:active {
+  transform: scale(0.95);
+}
+
+.feedback-fab-subtle {
+  opacity: 0.3;
+}
+
+.feedback-fab-subtle:hover {
+  opacity: 1;
+}
+
+.feedback-fab-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.feedback-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.feedback-modal {
+  background: white;
+  border-radius: 1rem 1rem 0 0;
+  width: 100%;
+  max-width: 500px;
+  padding: 1.25rem;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.feedback-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.feedback-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.feedback-textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 100px;
+  box-sizing: border-box;
+}
+
+.feedback-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.feedback-context {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  margin: 0.5rem 0;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.feedback-success {
+  text-align: center;
+  padding: 1.5rem 0;
+  color: #16a34a;
+  font-weight: 500;
+}
+
+/* Desktop: center the modal */
+@media (min-width: 768px) {
+  .feedback-modal-overlay {
+    align-items: center;
+  }
+
+  .feedback-modal {
+    border-radius: 1rem;
+  }
+}
+
+/* ============ Feature Requests (Settings) ============ */
+
+.feature-requests-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.feature-request-card {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.feature-request-card:hover {
+  background: var(--color-background);
+}
+
+.feature-request-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.feature-request-content {
+  font-size: 0.9rem;
+  color: var(--color-text);
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.feature-request-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.feature-request-status {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.feature-request-status.status-new {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.feature-request-status.status-in_progress {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.feature-request-status.status-done {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.feature-request-status.status-declined {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.feature-request-detail-modal .feedback-textarea {
+  min-height: 60px;
+}
+
+.feature-request-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.feature-request-comment {
+  border-left: 3px solid var(--color-border);
+  padding-left: 0.75rem;
+}
+
+.feature-request-comment-author {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-light);
+  margin-bottom: 0.25rem;
+}
+
+.feature-request-comment-content {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
