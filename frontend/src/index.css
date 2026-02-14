@@ -2291,21 +2291,22 @@ textarea {
 
 .feedback-fab {
   position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
   width: 48px;
   height: 48px;
   border-radius: 50%;
   background: var(--color-primary);
   color: white;
   border: none;
-  cursor: pointer;
+  cursor: grab;
   z-index: 500;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   transition: opacity 0.2s, transform 0.2s;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .feedback-fab:hover {
@@ -2313,7 +2314,13 @@ textarea {
 }
 
 .feedback-fab:active {
+  cursor: grabbing;
   transform: scale(0.95);
+}
+
+.feedback-fab-dragging {
+  cursor: grabbing;
+  transition: none;
 }
 
 .feedback-fab-subtle {
