@@ -15,7 +15,6 @@ import { SplashPage } from './pages/SplashPage';
 
 // Lazy-loaded pages
 const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ default: m.DeckDetailPage })));
-const DeckProgressPage = lazy(() => import('./pages/DeckProgressPage').then(m => ({ default: m.DeckProgressPage })));
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
 const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
 const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
@@ -96,15 +95,6 @@ function AppRoutes() {
             <ErrorBoundary fallbackTitle="Couldn't load this deck">
               <DeckDetailPage />
             </ErrorBoundary>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/decks/:deckId/progress"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <DeckProgressPage />
           </ProtectedRoute>
         }
       />
