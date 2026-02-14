@@ -664,6 +664,8 @@ function StudyCard({
               onClick={() => {
                 resetTranscription();
                 clearRecording();
+                // Auto-start recording after a short delay to let state reset
+                setTimeout(() => startRecording(), 100);
               }}
               style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
             >
