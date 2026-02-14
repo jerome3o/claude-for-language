@@ -2344,7 +2344,7 @@ textarea {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 1rem;
+  padding: 0;
 }
 
 .feedback-modal {
@@ -2353,6 +2353,7 @@ textarea {
   width: 100%;
   max-width: 500px;
   padding: 1.25rem;
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
   max-height: 70vh;
   overflow-y: auto;
 }
@@ -2410,10 +2411,12 @@ textarea {
 @media (min-width: 768px) {
   .feedback-modal-overlay {
     align-items: center;
+    padding: 1rem;
   }
 
   .feedback-modal {
     border-radius: 1rem;
+    padding-bottom: 1.25rem;
   }
 }
 
