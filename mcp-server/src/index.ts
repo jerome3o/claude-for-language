@@ -1594,6 +1594,181 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       }
     );
 
+    // ============ Feature Request Tools (Admin) ============
+
+    // Helper to check admin status
+    const isAdmin = async (): Promise<boolean> => {
+      const user = await this.env.DB
+        .prepare('SELECT is_admin FROM users WHERE id = ?')
+        .bind(userId)
+        .first<{ is_admin: number }>();
+      return user?.is_admin === 1;
+    };
+
+    this.server.tool(
+      "list_feature_requests",
+      "List feature requests submitted by users. Admins see all requests; non-admins see only their own.",
+      {
+        status: z.enum(['new', 'in_progress', 'done', 'declined']).optional()
+          .describe("Filter by status"),
+      },
+      async ({ status }) => {
+        const admin = await isAdmin();
+
+        let query: string;
+        const params: (string | number)[] = [];
+
+        if (admin) {
+          query = `
+            SELECT fr.*, u.name as user_name, u.email as user_email,
+              (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
+            FROM feature_requests fr
+            LEFT JOIN users u ON fr.user_id = u.id
+          `;
+          if (status) {
+            query += ' WHERE fr.status = ?';
+            params.push(status);
+          }
+          query += ' ORDER BY fr.created_at DESC';
+        } else {
+          query = `
+            SELECT fr.*,
+              (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
+            FROM feature_requests fr
+            WHERE fr.user_id = ?
+          `;
+          params.push(userId);
+          if (status) {
+            query += ' AND fr.status = ?';
+            params.push(status);
+          }
+          query += ' ORDER BY fr.created_at DESC';
+        }
+
+        const stmt = this.env.DB.prepare(query);
+        const results = params.length > 0
+          ? await stmt.bind(...params).all()
+          : await stmt.all();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify(results.results, null, 2),
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "get_feature_request",
+      "Get a feature request with its comments. Admins can view any request; non-admins can only view their own.",
+      {
+        request_id: z.string().describe("The feature request ID"),
+      },
+      async ({ request_id }) => {
+        const admin = await isAdmin();
+
+        const request = await this.env.DB
+          .prepare(`
+            SELECT fr.*, u.name as user_name, u.email as user_email
+            FROM feature_requests fr
+            LEFT JOIN users u ON fr.user_id = u.id
+            WHERE fr.id = ?
+          `)
+          .bind(request_id)
+          .first();
+
+        if (!request) {
+          return { content: [{ type: "text" as const, text: "Feature request not found" }] };
+        }
+
+        if (!admin && (request as { user_id: string }).user_id !== userId) {
+          return { content: [{ type: "text" as const, text: "Access denied" }] };
+        }
+
+        const comments = await this.env.DB
+          .prepare('SELECT * FROM feature_request_comments WHERE request_id = ? ORDER BY created_at ASC')
+          .bind(request_id)
+          .all();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ request, comments: comments.results }, null, 2),
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "update_feature_request_status",
+      "Update the status of a feature request. Admin only.",
+      {
+        request_id: z.string().describe("The feature request ID"),
+        status: z.enum(['new', 'in_progress', 'done', 'declined']).describe("The new status"),
+      },
+      async ({ request_id, status }) => {
+        if (!await isAdmin()) {
+          return { content: [{ type: "text" as const, text: "Admin access required" }] };
+        }
+
+        await this.env.DB
+          .prepare("UPDATE feature_requests SET status = ?, updated_at = datetime('now') WHERE id = ?")
+          .bind(status, request_id)
+          .run();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Feature request ${request_id} status updated to "${status}"`,
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "add_feature_request_comment",
+      "Add a comment to a feature request. Admin only — users comment through the app UI.",
+      {
+        request_id: z.string().describe("The feature request ID"),
+        content: z.string().describe("The comment text"),
+        author_name: z.string().optional().describe("Author name (defaults to user's name)"),
+      },
+      async ({ request_id, content, author_name }) => {
+        if (!await isAdmin()) {
+          return { content: [{ type: "text" as const, text: "Admin access required" }] };
+        }
+
+        // Verify the request exists
+        const request = await this.env.DB
+          .prepare('SELECT id FROM feature_requests WHERE id = ?')
+          .bind(request_id)
+          .first();
+
+        if (!request) {
+          return { content: [{ type: "text" as const, text: "Feature request not found" }] };
+        }
+
+        const commentId = generateId();
+        const name = author_name || this.props!.userName || 'Admin';
+
+        await this.env.DB
+          .prepare(`
+            INSERT INTO feature_request_comments (id, request_id, author_name, author_type, content)
+            VALUES (?, ?, ?, 'admin', ?)
+          `)
+          .bind(commentId, request_id, name, content)
+          .run();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Comment added to feature request ${request_id}`,
+          }],
+        };
+      }
+    );
+
     // Register the study app HTML resource
     registerAppResource(
       this.server,
