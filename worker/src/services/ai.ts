@@ -287,7 +287,11 @@ function getTimeAgo(isoDate: string): string {
 // ============ Ask About Note with Tool Use (Agent Loop) ============
 
 // Read-only tools that are executed during the agent loop
-const READ_ONLY_TOOLS = new Set(['search_cards', 'list_conversations', 'get_deck_info']);
+const READ_ONLY_TOOLS = new Set([
+  'search_cards', 'list_conversations', 'get_deck_info',
+  'get_note_cards', 'get_note_history', 'get_deck_progress',
+  'get_due_cards', 'get_overall_stats',
+]);
 
 function getAskNoteTools(note: Note) {
   return [
@@ -368,19 +372,74 @@ function getAskNoteTools(note: Note) {
         properties: {},
       },
     },
+    {
+      name: 'get_note_cards',
+      description: `Get all cards for a specific note with their current SRS state (ease factor, interval, queue, repetitions). Use this to check detailed card scheduling data or compare cards for a note.`,
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          note_id: { type: 'string', description: 'The note ID to get cards for. Use the current note ID or one found via search_cards.' },
+        },
+        required: ['note_id'],
+      },
+    },
+    {
+      name: 'get_note_history',
+      description: 'Get review history for a note including all card types, ratings, and timing. Use this to understand how well the user knows a card.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          note_id: { type: 'string', description: 'The note ID to get history for.' },
+        },
+        required: ['note_id'],
+      },
+    },
+    {
+      name: 'get_deck_progress',
+      description: 'Get detailed study progress for the current deck including per-note card stats, counts of new/learning/review/mastered cards.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {},
+      },
+    },
+    {
+      name: 'get_due_cards',
+      description: 'Get cards that are currently due for review in the current deck or across all decks.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          limit: { type: 'number', description: 'Maximum number of cards to return (default 20)' },
+        },
+      },
+    },
+    {
+      name: 'get_overall_stats',
+      description: 'Get overall study statistics: total decks, total cards, cards due today, cards studied today.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {},
+      },
+    },
   ];
 }
 
-export type ToolName = 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'search_cards' | 'list_conversations' | 'get_deck_info';
+export type ToolName = 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'search_cards' | 'list_conversations' | 'get_deck_info' | 'get_note_cards' | 'get_note_history' | 'get_deck_progress' | 'get_due_cards' | 'get_overall_stats';
 
 export interface ToolAction {
   tool: ToolName;
   input: Record<string, unknown>;
 }
 
+export interface ReadOnlyToolCall {
+  tool: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown>;
+}
+
 export interface AskWithToolsResponse {
   answer: string;
   toolActions: ToolAction[];
+  readOnlyToolCalls: ReadOnlyToolCall[];
 }
 
 export interface AskDbContext {
@@ -522,6 +581,7 @@ export async function askAboutNoteWithTools(
 
   // Agent loop: keep calling Claude until it stops using tools
   const collectedToolActions: ToolAction[] = [];
+  const collectedReadOnlyToolCalls: ReadOnlyToolCall[] = [];
   const textParts: string[] = [];
   const MAX_ITERATIONS = 5;
 
@@ -565,6 +625,11 @@ export async function askAboutNoteWithTools(
     for (const block of toolUseBlocks) {
       if (READ_ONLY_TOOLS.has(block.name) && dbContext) {
         const result = await executeReadOnlyTool(block.name, block.input as Record<string, unknown>, dbContext, note);
+        collectedReadOnlyToolCalls.push({
+          tool: block.name,
+          input: block.input as Record<string, unknown>,
+          result,
+        });
         toolResults.push({
           type: 'tool_result' as const,
           tool_use_id: block.id,
@@ -585,6 +650,7 @@ export async function askAboutNoteWithTools(
   return {
     answer: textParts.join('\n'),
     toolActions: collectedToolActions,
+    readOnlyToolCalls: collectedReadOnlyToolCalls,
   };
 }
 
@@ -660,6 +726,136 @@ async function executeReadOnlyTool(
           WHERE d.id = ? AND d.user_id = ?
         `).bind(ctx.deckId, ctx.userId).first();
         return deck ? { deck } : { error: 'Deck not found' };
+      }
+
+      case 'get_note_cards': {
+        const noteId = input.note_id as string;
+        const note = await ctx.db.prepare(`
+          SELECT n.hanzi, n.pinyin, n.english FROM notes n
+          JOIN decks d ON n.deck_id = d.id
+          WHERE n.id = ? AND d.user_id = ?
+        `).bind(noteId, ctx.userId).first<{ hanzi: string; pinyin: string; english: string }>();
+        if (!note) return { error: 'Note not found' };
+
+        const cards = await ctx.db.prepare(`
+          SELECT id, card_type, ease_factor, interval, repetitions, queue, next_review_at
+          FROM cards WHERE note_id = ?
+        `).bind(noteId).all();
+
+        const queueNames: Record<number, string> = { 0: 'new', 1: 'learning', 2: 'review', 3: 'relearning' };
+        const cardsWithLabels = (cards.results || []).map((c: Record<string, unknown>) => ({
+          ...c,
+          queue_name: queueNames[c.queue as number] || 'unknown',
+        }));
+        return { note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english }, cards: cardsWithLabels };
+      }
+
+      case 'get_note_history': {
+        const noteId = input.note_id as string;
+        const noteCheck = await ctx.db.prepare(`
+          SELECT n.hanzi, n.pinyin, n.english FROM notes n
+          JOIN decks d ON n.deck_id = d.id
+          WHERE n.id = ? AND d.user_id = ?
+        `).bind(noteId, ctx.userId).first<{ hanzi: string; pinyin: string; english: string }>();
+        if (!noteCheck) return { error: 'Note not found' };
+
+        const reviews = await ctx.db.prepare(`
+          SELECT re.rating, re.time_spent_ms, re.user_answer, re.reviewed_at, c.card_type
+          FROM review_events re
+          JOIN cards c ON re.card_id = c.id
+          WHERE c.note_id = ?
+          ORDER BY re.reviewed_at DESC
+          LIMIT 30
+        `).bind(noteId).all<{
+          rating: number; time_spent_ms: number | null; user_answer: string | null;
+          reviewed_at: string; card_type: string;
+        }>();
+
+        const ratingLabels = ['Again', 'Hard', 'Good', 'Easy'];
+        const byCardType: Record<string, unknown[]> = {};
+        for (const review of reviews.results) {
+          if (!byCardType[review.card_type]) byCardType[review.card_type] = [];
+          byCardType[review.card_type].push({
+            reviewed_at: review.reviewed_at,
+            rating: ratingLabels[review.rating] || review.rating,
+            time_spent_ms: review.time_spent_ms,
+            user_answer: review.user_answer,
+          });
+        }
+        return {
+          note: { hanzi: noteCheck.hanzi, pinyin: noteCheck.pinyin, english: noteCheck.english },
+          total_reviews: reviews.results.length,
+          history_by_card_type: byCardType,
+        };
+      }
+
+      case 'get_deck_progress': {
+        const cards = await ctx.db.prepare(`
+          SELECT c.interval, c.next_review_at, c.card_type, c.ease_factor, c.repetitions,
+                 n.hanzi, n.pinyin, n.english, n.id as note_id
+          FROM cards c
+          JOIN notes n ON c.note_id = n.id
+          WHERE n.deck_id = ? AND n.deck_id IN (SELECT id FROM decks WHERE user_id = ?)
+          ORDER BY n.hanzi
+        `).bind(ctx.deckId, ctx.userId).all();
+
+        const results = cards.results || [];
+        const stats = {
+          total_cards: results.length,
+          new_cards: results.filter((c: Record<string, unknown>) => c.next_review_at === null).length,
+          learning: results.filter((c: Record<string, unknown>) => c.next_review_at !== null && (c.interval as number) <= 1).length,
+          reviewing: results.filter((c: Record<string, unknown>) => (c.interval as number) > 1 && (c.interval as number) <= 21).length,
+          mastered: results.filter((c: Record<string, unknown>) => (c.interval as number) > 21).length,
+          due_now: results.filter((c: Record<string, unknown>) =>
+            c.next_review_at === null || new Date(c.next_review_at as string) <= new Date()
+          ).length,
+        };
+        return { stats };
+      }
+
+      case 'get_due_cards': {
+        const limit = Math.min((input.limit as number) || 20, 30);
+        const result = await ctx.db.prepare(`
+          SELECT c.card_type, c.ease_factor, c.interval, c.repetitions, c.next_review_at,
+                 n.hanzi, n.pinyin, n.english, n.id as note_id
+          FROM cards c
+          JOIN notes n ON c.note_id = n.id
+          JOIN decks d ON n.deck_id = d.id
+          WHERE d.user_id = ? AND n.deck_id = ?
+            AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+          ORDER BY c.next_review_at ASC NULLS LAST
+          LIMIT ?
+        `).bind(ctx.userId, ctx.deckId, limit).all();
+        return { count: (result.results || []).length, cards: result.results || [] };
+      }
+
+      case 'get_overall_stats': {
+        const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
+          ctx.db.prepare(`
+            SELECT COUNT(*) as count FROM cards c
+            JOIN notes n ON c.note_id = n.id
+            JOIN decks d ON n.deck_id = d.id
+            WHERE d.user_id = ?
+          `).bind(ctx.userId).first<{ count: number }>(),
+          ctx.db.prepare(`
+            SELECT COUNT(*) as count FROM cards c
+            JOIN notes n ON c.note_id = n.id
+            JOIN decks d ON n.deck_id = d.id
+            WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+          `).bind(ctx.userId).first<{ count: number }>(),
+          ctx.db.prepare(`
+            SELECT COUNT(*) as count FROM review_events
+            WHERE user_id = ? AND date(reviewed_at) = date('now')
+          `).bind(ctx.userId).first<{ count: number }>(),
+          ctx.db.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
+            .bind(ctx.userId).first<{ count: number }>(),
+        ]);
+        return {
+          total_decks: totalDecks?.count || 0,
+          total_cards: totalCards?.count || 0,
+          cards_due_today: cardsDue?.count || 0,
+          cards_studied_today: studiedToday?.count || 0,
+        };
       }
 
       default:

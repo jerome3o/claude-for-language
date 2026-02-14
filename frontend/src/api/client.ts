@@ -308,8 +308,15 @@ export interface AskToolResult {
   error?: string;
 }
 
+export interface ReadOnlyToolCall {
+  tool: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown>;
+}
+
 export interface NoteQuestionWithTools extends NoteQuestion {
   toolResults?: AskToolResult[];
+  readOnlyToolCalls?: ReadOnlyToolCall[];
 }
 
 export async function askAboutNote(

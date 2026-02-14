@@ -7,6 +7,7 @@ import {
   API_BASE,
   NoteQuestionWithTools,
   AskToolResult,
+  ReadOnlyToolCall,
   getMyRelationships,
   createTutorReviewRequest,
   generateNoteAudio,
@@ -40,6 +41,52 @@ import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import { pinyin } from 'pinyin-pro';
+
+// Friendly labels for read-only tool names
+const TOOL_LABELS: Record<string, string> = {
+  search_cards: 'Searched cards',
+  list_conversations: 'Checked conversations',
+  get_deck_info: 'Looked up deck info',
+  get_note_cards: 'Checked card details',
+  get_note_history: 'Checked review history',
+  get_deck_progress: 'Checked deck progress',
+  get_due_cards: 'Checked due cards',
+  get_overall_stats: 'Checked study stats',
+};
+
+function ToolCallsCollapsible({ calls }: { calls: ReadOnlyToolCall[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="claude-tool-calls-collapsible">
+      <button
+        className="claude-tool-calls-toggle"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="claude-tool-calls-icon">{expanded ? '▾' : '▸'}</span>
+        <span className="claude-tool-calls-summary">
+          Used {calls.length} tool{calls.length !== 1 ? 's' : ''}
+        </span>
+      </button>
+      {expanded && (
+        <div className="claude-tool-calls-details">
+          {calls.map((call, idx) => (
+            <div key={idx} className="claude-tool-call-item">
+              <span className="claude-tool-call-name">
+                {TOOL_LABELS[call.tool] || call.tool}
+              </span>
+              {call.input && Object.keys(call.input).length > 0 && (
+                <span className="claude-tool-call-input">
+                  ({Object.entries(call.input).map(([k, v]) => `${k}: ${v}`).join(', ')})
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Character diff component for typed answers (Anki-style)
 function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correctAnswer: string }) {
@@ -968,6 +1015,9 @@ function StudyCard({
                   <div className="claude-user-message">
                     {qa.question}
                   </div>
+                  {qa.readOnlyToolCalls && qa.readOnlyToolCalls.length > 0 && (
+                    <ToolCallsCollapsible calls={qa.readOnlyToolCalls} />
+                  )}
                   <div className="claude-response">
                     <ReactMarkdown>{qa.answer}</ReactMarkdown>
                     {qa.toolResults && qa.toolResults.length > 0 && (
