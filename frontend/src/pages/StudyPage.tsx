@@ -1635,8 +1635,8 @@ export function StudyPage() {
     return <Loading />;
   }
 
-  // Study complete
-  if (!isLoading && !currentCard) {
+  // Study complete - check that ALL queues are empty, not just that currentCard is null
+  if (!isLoading && !currentCard && counts.new === 0 && counts.learning === 0 && counts.review === 0) {
     // Number of bonus cards to add each time the user clicks "Study More"
     const BONUS_NEW_CARDS_INCREMENT = 10;
 
