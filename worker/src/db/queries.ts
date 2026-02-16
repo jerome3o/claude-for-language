@@ -514,6 +514,8 @@ export async function updateNote(
     audioUrl?: string;
     audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
+    sentenceClue?: string;
+    sentenceClueAudioUrl?: string;
   },
   updates?: {
     hanzi?: string;
@@ -522,6 +524,8 @@ export async function updateNote(
     audioUrl?: string;
     audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
+    sentenceClue?: string;
+    sentenceClueAudioUrl?: string;
   }
 ): Promise<Note | null> {
   // Handle overloaded function signature
@@ -533,6 +537,8 @@ export async function updateNote(
     audioUrl?: string;
     audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
+    sentenceClue?: string;
+    sentenceClueAudioUrl?: string;
   };
 
   if (typeof userIdOrUpdates === 'string') {
@@ -574,6 +580,14 @@ export async function updateNote(
   if (actualUpdates.funFacts !== undefined) {
     fields.push('fun_facts = ?');
     values.push(actualUpdates.funFacts);
+  }
+  if (actualUpdates.sentenceClue !== undefined) {
+    fields.push('sentence_clue = ?');
+    values.push(actualUpdates.sentenceClue);
+  }
+  if (actualUpdates.sentenceClueAudioUrl !== undefined) {
+    fields.push('sentence_clue_audio_url = ?');
+    values.push(actualUpdates.sentenceClueAudioUrl);
   }
 
   if (fields.length === 0) {
