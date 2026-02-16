@@ -303,7 +303,7 @@ function StudyCard({
   const recordingDelayTimeoutRef = useRef<number | null>(null);
 
   // Enhanced startRecording with 0.5s delay
-  const startRecordingWithDelay = useCallback(() => {
+  const startRecordingWithDelay = useCallback((skipDelay = false) => {
     // Clear any existing timeout
     if (recordingDelayTimeoutRef.current) {
       clearTimeout(recordingDelayTimeoutRef.current);
@@ -312,14 +312,16 @@ function StudyCard({
     // Start recording
     startRecording();
 
-    // Enable delay flag
-    setIsRecordingDelayActive(true);
+    // Only enable delay flag if not skipping
+    if (!skipDelay) {
+      setIsRecordingDelayActive(true);
 
-    // Clear delay after 500ms
-    recordingDelayTimeoutRef.current = window.setTimeout(() => {
-      setIsRecordingDelayActive(false);
-      recordingDelayTimeoutRef.current = null;
-    }, 500);
+      // Clear delay after 500ms
+      recordingDelayTimeoutRef.current = window.setTimeout(() => {
+        setIsRecordingDelayActive(false);
+        recordingDelayTimeoutRef.current = null;
+      }, 500);
+    }
   }, [startRecording]);
 
   // Enhanced stopRecording that clears delay state
@@ -709,7 +711,8 @@ function StudyCard({
                 resetTranscription();
                 clearRecording();
                 // Auto-start recording after a short delay to let state reset
-                setTimeout(() => startRecordingWithDelay(), 100);
+                // Skip the delay to avoid confusing button transitions
+                setTimeout(() => startRecordingWithDelay(true), 100);
               }}
               style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
             >
@@ -757,7 +760,7 @@ function StudyCard({
                 </button>
               )
             ) : (
-              <button className="btn btn-primary btn-sm" onClick={startRecordingWithDelay}>
+              <button className="btn btn-primary btn-sm" onClick={() => startRecordingWithDelay()}>
                 Record Again
               </button>
             )}
@@ -1297,7 +1300,7 @@ function StudyCard({
 
     return (
       <div className="flex flex-col gap-2 items-center">
-        <button className="btn btn-primary" onClick={startRecordingWithDelay}>
+        <button className="btn btn-primary" onClick={() => startRecordingWithDelay()}>
           Record Your Pronunciation
         </button>
         <button
