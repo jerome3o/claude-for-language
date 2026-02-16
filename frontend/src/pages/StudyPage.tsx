@@ -1043,6 +1043,7 @@ function StudyCard({
       { label: 'Explain characters', question: 'Please break down each character in this word, explaining the radicals, components, and individual meanings.' },
       { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
       { label: 'Check my answer', question: 'Is my answer grammatically and semantically correct? Please explain any errors.' },
+      { label: 'Verify my answer', question: 'Is my answer correct? If not, what\'s wrong with it and how can I improve?' },
       { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
     ];
 
