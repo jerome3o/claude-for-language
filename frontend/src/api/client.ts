@@ -260,6 +260,12 @@ export async function regenerateNoteAudio(noteId: string): Promise<Note> {
   });
 }
 
+export async function generateSentenceClue(noteId: string): Promise<Note> {
+  return fetchJSON<Note>(`/notes/${noteId}/generate-sentence-clue`, {
+    method: 'POST',
+  });
+}
+
 export async function regenerateAllDeckAudio(deckId: string, noteIds?: string[]): Promise<{ regenerating: number; message: string }> {
   return fetchJSON<{ regenerating: number; message: string }>(`/decks/${deckId}/regenerate-all-audio`, {
     method: 'POST',
@@ -1090,10 +1096,10 @@ export async function getFeatureRequests(options?: { status?: string; all?: bool
   return requests;
 }
 
-export async function createFeatureRequest(content: string, pageContext?: string): Promise<{ id: string }> {
+export async function createFeatureRequest(content: string, pageContext?: string, consoleLogs?: string): Promise<{ id: string }> {
   return fetchJSON<{ id: string }>('/feature-requests', {
     method: 'POST',
-    body: JSON.stringify({ content, pageContext }),
+    body: JSON.stringify({ content, pageContext, consoleLogs }),
   });
 }
 
