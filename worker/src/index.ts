@@ -1094,7 +1094,7 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     // Update the note with sentence clue
     await db.updateNote(c.env.DB, id, userId, {
       sentenceClue,
-      sentenceClueAudioUrl,
+      sentenceClueAudioUrl: sentenceClueAudioUrl ?? undefined,
     });
 
     const updatedNote = await db.getNoteById(c.env.DB, id, userId);
