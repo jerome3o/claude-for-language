@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { createFeatureRequest } from '../api/client';
+import { getConsoleBuffer } from '../utils/consoleBuffer';
 
 const FAB_SIZE = 48;
 const STORAGE_KEY = 'feedback-fab-position';
@@ -31,6 +32,7 @@ export function FeedbackFAB() {
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [includeConsoleLogs, setIncludeConsoleLogs] = useState(false);
 
   // Position state — null means use CSS default (bottom-right)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(loadPosition);
@@ -147,9 +149,19 @@ export function FeedbackFAB() {
 
     setIsSubmitting(true);
     try {
-      await createFeatureRequest(content.trim(), location.pathname);
+      // Get console logs if user wants to include them
+      let consoleLogs: string | undefined;
+      if (includeConsoleLogs) {
+        const buffer = getConsoleBuffer();
+        if (buffer) {
+          consoleLogs = buffer.getLogsAsString();
+        }
+      }
+
+      await createFeatureRequest(content.trim(), location.pathname, consoleLogs);
       setSubmitted(true);
       setContent('');
+      setIncludeConsoleLogs(false);
       setTimeout(() => {
         setSubmitted(false);
         setIsOpen(false);
@@ -159,7 +171,7 @@ export function FeedbackFAB() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [content, isSubmitting, location.pathname]);
+  }, [content, isSubmitting, includeConsoleLogs, location.pathname]);
 
   if (!isAuthenticated) return null;
 
@@ -209,6 +221,17 @@ export function FeedbackFAB() {
                 />
                 <div className="feedback-context">
                   Page: {location.pathname}
+                </div>
+                <div className="feedback-options">
+                  <label className="feedback-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={includeConsoleLogs}
+                      onChange={(e) => setIncludeConsoleLogs(e.target.checked)}
+                      disabled={isSubmitting}
+                    />
+                    <span>Include console logs (for bug reports)</span>
+                  </label>
                 </div>
                 <div className="feedback-actions">
                   <button

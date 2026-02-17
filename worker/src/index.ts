@@ -3554,9 +3554,10 @@ app.get('/api/feature-requests', async (c) => {
 
 // Create a feature request
 app.post('/api/feature-requests', async (c) => {
-  const { content, pageContext } = await c.req.json<{
+  const { content, pageContext, consoleLogs } = await c.req.json<{
     content: string;
     pageContext?: string;
+    consoleLogs?: string;
   }>();
 
   if (!content || !content.trim()) {
@@ -3569,9 +3570,9 @@ app.post('/api/feature-requests', async (c) => {
   const approvalStatus = user.is_admin ? 'approved' : 'pending';
 
   await c.env.DB.prepare(`
-    INSERT INTO feature_requests (id, user_id, content, page_context, status, approval_status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'new', ?, ?, ?)
-  `).bind(id, user.id, content.trim(), pageContext || null, approvalStatus, now, now).run();
+    INSERT INTO feature_requests (id, user_id, content, page_context, console_logs, status, approval_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?)
+  `).bind(id, user.id, content.trim(), pageContext || null, consoleLogs || null, approvalStatus, now, now).run();
 
   return c.json({ id, status: 'new', approval_status: approvalStatus, created_at: now });
 });
