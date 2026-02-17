@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { getGradedReaders, deleteGradedReader } from '../api/client';
+import { getGradedReaders, deleteGradedReader, createBlankReader } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { GradedReader, DifficultyLevel } from '../types';
 
@@ -111,13 +112,22 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
             Unable to generate
           </span>
         ) : (
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={handleClick}
-            style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
-          >
-            Read
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleClick}
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              Read
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={(e) => { e.stopPropagation(); navigate(`/readers/${reader.id}/edit`); }}
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              Edit
+            </button>
+          </div>
         )}
         <button
           className="btn btn-secondary btn-sm"
@@ -134,8 +144,69 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
   );
 }
 
+function CreateReaderModal({ onClose, onCreate }: { onClose: () => void; onCreate: (data: { title_chinese: string; title_english: string; difficulty_level: DifficultyLevel; topic?: string }) => void }) {
+  const [titleChinese, setTitleChinese] = useState('');
+  const [titleEnglish, setTitleEnglish] = useState('');
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('beginner');
+  const [topic, setTopic] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!titleChinese.trim() || !titleEnglish.trim()) return;
+    onCreate({ title_chinese: titleChinese.trim(), title_english: titleEnglish.trim(), difficulty_level: difficulty, topic: topic.trim() || undefined });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Create New Reader</h2>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ padding: '1rem' }}>
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label className="form-label">Chinese Title</label>
+            <input className="form-input" value={titleChinese} onChange={(e) => setTitleChinese(e.target.value)} placeholder="e.g. 小猫的冒险" required />
+          </div>
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label className="form-label">English Title</label>
+            <input className="form-input" value={titleEnglish} onChange={(e) => setTitleEnglish(e.target.value)} placeholder="e.g. The Kitten's Adventure" required />
+          </div>
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label className="form-label">Difficulty</label>
+            <select className="form-input" value={difficulty} onChange={(e) => setDifficulty(e.target.value as DifficultyLevel)}>
+              <option value="beginner">Beginner</option>
+              <option value="elementary">Elementary</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label className="form-label">Topic (optional)</label>
+            <input className="form-input" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. animals, food, travel" />
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={!titleChinese.trim() || !titleEnglish.trim()}>Create</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function ReadersListPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const createMutation = useMutation({
+    mutationFn: createBlankReader,
+    onSuccess: (reader) => {
+      queryClient.invalidateQueries({ queryKey: ['readers'] });
+      navigate(`/readers/${reader.id}/edit`);
+    },
+  });
 
   const readersQuery = useQuery({
     queryKey: ['readers'],
@@ -187,9 +258,14 @@ export function ReadersListPage() {
       <div className="container">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <h1 style={{ margin: 0 }}>Graded Readers</h1>
-          <Link to="/readers/generate" className="btn btn-primary">
-            Generate Story
-          </Link>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="btn btn-secondary" onClick={() => setShowCreateModal(true)}>
+              Create New
+            </button>
+            <Link to="/readers/generate" className="btn btn-primary">
+              AI Generate
+            </Link>
+          </div>
         </div>
 
         {readers.length === 0 ? (
@@ -213,6 +289,16 @@ export function ReadersListPage() {
               />
             ))}
           </div>
+        )}
+
+        {showCreateModal && (
+          <CreateReaderModal
+            onClose={() => setShowCreateModal(false)}
+            onCreate={(data) => {
+              setShowCreateModal(false);
+              createMutation.mutate(data);
+            }}
+          />
         )}
       </div>
     </div>

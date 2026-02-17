@@ -35,6 +35,7 @@ const TutorReviewDetailPage = lazy(() => import('./pages/TutorReviewDetailPage')
 const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => ({ default: m.ReadersListPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
+const ReaderEditorPage = lazy(() => import('./pages/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 
@@ -296,6 +297,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <GenerateReaderPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/readers/:id/edit"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ReaderEditorPage />
           </ProtectedRoute>
         }
       />

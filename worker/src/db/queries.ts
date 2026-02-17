@@ -1917,6 +1917,67 @@ export async function getLearnedVocabulary(
   return result.results;
 }
 
+// ============ Reader Editor ============
+
+export async function createBlankReader(db: D1Database, userId: string, data: { title_chinese: string; title_english: string; difficulty_level: DifficultyLevel; topic: string | null }): Promise<GradedReaderWithPages> {
+  const readerId = crypto.randomUUID();
+  await db.prepare(`INSERT INTO graded_readers (id, user_id, title_chinese, title_english, difficulty_level, topic, source_deck_ids, vocabulary_used, status, is_published, creator_role) VALUES (?, ?, ?, ?, ?, ?, '[]', '[]', 'ready', 0, 'tutor')`).bind(readerId, userId, data.title_chinese, data.title_english, data.difficulty_level, data.topic).run();
+  return { id: readerId, user_id: userId, title_chinese: data.title_chinese, title_english: data.title_english, difficulty_level: data.difficulty_level, topic: data.topic, source_deck_ids: [], vocabulary_used: [], status: 'ready', is_published: 0, creator_role: 'tutor', created_at: new Date().toISOString(), pages: [] };
+}
+
+export async function updateGradedReader(db: D1Database, readerId: string, userId: string, data: { title_chinese?: string; title_english?: string; difficulty_level?: DifficultyLevel; topic?: string | null }): Promise<void> {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  if (data.title_chinese !== undefined) { sets.push('title_chinese = ?'); values.push(data.title_chinese); }
+  if (data.title_english !== undefined) { sets.push('title_english = ?'); values.push(data.title_english); }
+  if (data.difficulty_level !== undefined) { sets.push('difficulty_level = ?'); values.push(data.difficulty_level); }
+  if (data.topic !== undefined) { sets.push('topic = ?'); values.push(data.topic); }
+  if (sets.length === 0) return;
+  values.push(readerId, userId);
+  await db.prepare(`UPDATE graded_readers SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).bind(...values).run();
+}
+
+export async function addReaderPage(db: D1Database, readerId: string, userId: string, pageData: { content_chinese: string; content_pinyin: string; content_english: string; image_prompt: string | null }): Promise<ReaderPage> {
+  const reader = await db.prepare('SELECT id FROM graded_readers WHERE id = ? AND user_id = ?').bind(readerId, userId).first();
+  if (!reader) throw new Error('Reader not found');
+  const countResult = await db.prepare('SELECT COUNT(*) as count FROM reader_pages WHERE reader_id = ?').bind(readerId).first<{ count: number }>();
+  const pageNumber = (countResult?.count || 0) + 1;
+  const pageId = crypto.randomUUID();
+  await db.prepare('INSERT INTO reader_pages (id, reader_id, page_number, content_chinese, content_pinyin, content_english, image_url, image_prompt) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)').bind(pageId, readerId, pageNumber, pageData.content_chinese, pageData.content_pinyin, pageData.content_english, pageData.image_prompt).run();
+  return { id: pageId, reader_id: readerId, page_number: pageNumber, content_chinese: pageData.content_chinese, content_pinyin: pageData.content_pinyin, content_english: pageData.content_english, image_url: null, image_prompt: pageData.image_prompt };
+}
+
+export async function updateReaderPage(db: D1Database, pageId: string, readerId: string, userId: string, data: { content_chinese?: string; content_pinyin?: string; content_english?: string; image_prompt?: string | null }): Promise<void> {
+  const reader = await db.prepare('SELECT id FROM graded_readers WHERE id = ? AND user_id = ?').bind(readerId, userId).first();
+  if (!reader) throw new Error('Reader not found');
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  if (data.content_chinese !== undefined) { sets.push('content_chinese = ?'); values.push(data.content_chinese); }
+  if (data.content_pinyin !== undefined) { sets.push('content_pinyin = ?'); values.push(data.content_pinyin); }
+  if (data.content_english !== undefined) { sets.push('content_english = ?'); values.push(data.content_english); }
+  if (data.image_prompt !== undefined) { sets.push('image_prompt = ?'); values.push(data.image_prompt); }
+  if (sets.length === 0) return;
+  values.push(pageId, readerId);
+  await db.prepare(`UPDATE reader_pages SET ${sets.join(', ')} WHERE id = ? AND reader_id = ?`).bind(...values).run();
+}
+
+export async function deleteReaderPage(db: D1Database, pageId: string, readerId: string, userId: string): Promise<void> {
+  const reader = await db.prepare('SELECT id FROM graded_readers WHERE id = ? AND user_id = ?').bind(readerId, userId).first();
+  if (!reader) throw new Error('Reader not found');
+  const page = await db.prepare('SELECT page_number FROM reader_pages WHERE id = ? AND reader_id = ?').bind(pageId, readerId).first<{ page_number: number }>();
+  if (!page) throw new Error('Page not found');
+  await db.prepare('DELETE FROM reader_pages WHERE id = ? AND reader_id = ?').bind(pageId, readerId).run();
+  await db.prepare('UPDATE reader_pages SET page_number = page_number - 1 WHERE reader_id = ? AND page_number > ?').bind(readerId, page.page_number).run();
+}
+
+export async function reorderReaderPages(db: D1Database, readerId: string, userId: string, pageIds: string[]): Promise<void> {
+  const reader = await db.prepare('SELECT id FROM graded_readers WHERE id = ? AND user_id = ?').bind(readerId, userId).first();
+  if (!reader) throw new Error('Reader not found');
+  for (let i = 0; i < pageIds.length; i++) {
+    await db.prepare('UPDATE reader_pages SET page_number = ? WHERE id = ? AND reader_id = ?').bind(i + 1, pageIds[i], readerId).run();
+  }
+}
+
 // ============ Note Audio Recordings ============
 
 export async function getNoteAudioRecordings(
