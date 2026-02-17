@@ -781,3 +781,38 @@ export interface DeckTutorShare {
   shared_at: string;
   tutor: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 }
+
+// ============ Homework Assignments ============
+
+export type HomeworkStatus = 'assigned' | 'in_progress' | 'completed';
+
+export interface HomeworkAssignment {
+  id: string;
+  tutor_id: string;
+  student_id: string;
+  reader_id: string;
+  status: HomeworkStatus;
+  assigned_at: string;
+  completed_at: string | null;
+  notes: string | null;
+}
+
+export interface HomeworkAssignmentWithDetails extends HomeworkAssignment {
+  reader_title_chinese: string;
+  reader_title_english: string;
+  reader_difficulty_level: DifficultyLevel;
+  tutor_name: string | null;
+  tutor_email: string | null;
+  student_name: string | null;
+  student_email: string | null;
+}
+
+export interface CreateHomeworkRequest {
+  reader_id: string;
+  student_id: string;
+  notes?: string;
+}
+
+export interface UpdateHomeworkStatusRequest {
+  status: 'in_progress' | 'completed';
+}

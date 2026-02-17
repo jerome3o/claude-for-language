@@ -43,6 +43,8 @@ import {
   DifficultyLevel,
   NoteAudioRecording,
   ReaderPage,
+  HomeworkAssignmentWithDetails,
+  HomeworkAssignment,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -1171,4 +1173,39 @@ export async function approveFeatureRequest(id: string, approval_status: 'approv
 export async function getPendingFeatureRequestCount(): Promise<number> {
   const { count } = await fetchJSON<{ count: number }>('/feature-requests/pending-count');
   return count;
+}
+
+// ============ Homework Assignments ============
+
+export async function getHomeworkAssignments(): Promise<HomeworkAssignmentWithDetails[]> {
+  return fetchJSON<HomeworkAssignmentWithDetails[]>('/homework');
+}
+
+export async function getHomeworkAssignment(id: string): Promise<HomeworkAssignmentWithDetails> {
+  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${id}`);
+}
+
+export async function assignHomework(data: {
+  reader_id: string;
+  student_id: string;
+  notes?: string;
+}): Promise<HomeworkAssignment> {
+  return fetchJSON<HomeworkAssignment>('/homework', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateHomeworkStatus(
+  id: string,
+  status: 'in_progress' | 'completed',
+): Promise<HomeworkAssignmentWithDetails> {
+  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function deleteHomework(id: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/homework/${id}`, { method: 'DELETE' });
 }
