@@ -250,7 +250,7 @@ function StudyCard({
   const [isAsking, setIsAsking] = useState(false);
   const [cardDeleted, setCardDeleted] = useState(false);
   const [pendingToolResults, setPendingToolResults] = useState<AskToolResult[] | null>(null);
-  const questionInputRef = useRef<HTMLInputElement>(null);
+  const questionInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -1195,17 +1195,24 @@ function StudyCard({
 
           {!cardDeleted && (
             <div className="claude-input-row">
-              <input
+              <textarea
                 ref={questionInputRef}
-                type="text"
-                className="form-input"
+                className="form-input claude-autogrow-input"
                 value={question}
-                onChange={(e) => setQuestion(e.target.value)}
+                onChange={(e) => {
+                  setQuestion(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                }}
                 placeholder={pendingToolResults ? "Approve or reject changes first..." : "Ask a question..."}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAskClaude();
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleAskClaude();
+                  }
                 }}
                 disabled={isAsking || !!pendingToolResults}
+                rows={1}
               />
               <button
                 className="btn btn-primary"
