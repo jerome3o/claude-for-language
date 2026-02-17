@@ -35,6 +35,10 @@ interface Deck {
   id: string;
   name: string;
   description: string | null;
+  interval_modifier: number;
+  request_retention: number;
+  easy_interval: number;
+  maximum_interval: number;
   created_at: string;
   updated_at: string;
 }
@@ -343,13 +347,17 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "update_deck",
-      "Update a deck's name or description",
+      "Update a deck's name, description, or SRS scheduling parameters",
       {
         deck_id: z.string().describe("The deck ID"),
         name: z.string().optional().describe("New name for the deck"),
         description: z.string().optional().describe("New description for the deck"),
+        interval_modifier: z.number().optional().describe("Multiplier for review intervals as percentage (e.g., 100 = default, 110 = 10% longer)"),
+        request_retention: z.number().optional().describe("Target retention rate (e.g., 0.85 = 85%). Range: 0.7 to 0.97"),
+        easy_interval: z.number().optional().describe("Interval in days for cards rated easy"),
+        maximum_interval: z.number().optional().describe("Maximum review interval in days"),
       },
-      async ({ deck_id, name, description }) => {
+      async ({ deck_id, name, description, interval_modifier, request_retention, easy_interval, maximum_interval }) => {
         const existing = await this.env.DB
           .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
           .bind(deck_id, userId)
@@ -363,7 +371,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         }
 
         const updates: string[] = [];
-        const values: (string | null)[] = [];
+        const values: (string | number | null)[] = [];
 
         if (name !== undefined) {
           updates.push('name = ?');
@@ -372,6 +380,22 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         if (description !== undefined) {
           updates.push('description = ?');
           values.push(description);
+        }
+        if (interval_modifier !== undefined) {
+          updates.push('interval_modifier = ?');
+          values.push(interval_modifier);
+        }
+        if (request_retention !== undefined) {
+          updates.push('request_retention = ?');
+          values.push(request_retention);
+        }
+        if (easy_interval !== undefined) {
+          updates.push('easy_interval = ?');
+          values.push(easy_interval);
+        }
+        if (maximum_interval !== undefined) {
+          updates.push('maximum_interval = ?');
+          values.push(maximum_interval);
         }
 
         if (updates.length === 0) {

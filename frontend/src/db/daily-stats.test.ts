@@ -31,6 +31,7 @@ async function createTestDeck(id: string, name = 'Test Deck') {
     interval_modifier: 1.0,
     hard_multiplier: 1.2,
     easy_bonus: 1.3,
+    maximum_interval: 36500,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     _synced_at: null,

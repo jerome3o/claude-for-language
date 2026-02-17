@@ -68,6 +68,7 @@ export interface LocalDeck {
   interval_modifier: number;
   hard_multiplier: number;
   easy_bonus: number;
+  maximum_interval: number;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;

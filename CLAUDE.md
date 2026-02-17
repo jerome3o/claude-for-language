@@ -577,7 +577,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_deck` | Get a deck with all its notes |
 | `get_deck_progress` | Get detailed study progress for a deck |
 | `create_deck` | Create a new deck |
-| `update_deck` | Update deck name/description |
+| `update_deck` | Update deck name/description and SRS parameters (interval_modifier, request_retention, easy_interval, maximum_interval) |
 | `delete_deck` | Delete a deck and all its notes |
 | `add_note` | Add a vocabulary note (auto-generates TTS audio) |
 | `batch_add_notes` | Add multiple notes at once (more efficient for bulk operations) |
