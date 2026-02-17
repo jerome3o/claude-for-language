@@ -47,6 +47,7 @@ import {
   HomeworkAssignment,
   HomeworkRecording,
   HomeworkFeedback,
+  AppNotification,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -1325,5 +1326,28 @@ export async function deleteHomeworkFeedback(homeworkId: string, feedbackId: str
 export async function completeHomeworkReview(homeworkId: string): Promise<HomeworkAssignmentWithDetails> {
   return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${homeworkId}/review-complete`, {
     method: 'POST',
+  });
+}
+
+// ============ Notifications ============
+
+export async function getNotifications(): Promise<AppNotification[]> {
+  return fetchJSON<AppNotification[]>('/notifications');
+}
+
+export async function getUnreadNotificationCount(): Promise<number> {
+  const result = await fetchJSON<{ count: number }>('/notifications/unread-count');
+  return result.count;
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/notifications/${id}/read`, {
+    method: 'PATCH',
+  });
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  await fetchJSON<{ updated: number }>('/notifications/read-all', {
+    method: 'PATCH',
   });
 }
