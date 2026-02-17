@@ -45,6 +45,7 @@ import {
   ReaderPage,
   HomeworkAssignmentWithDetails,
   HomeworkAssignment,
+  HomeworkRecording,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -1208,4 +1209,62 @@ export async function updateHomeworkStatus(
 
 export async function deleteHomework(id: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/homework/${id}`, { method: 'DELETE' });
+}
+
+// ============ Homework Recordings ============
+
+export async function uploadHomeworkRecording(
+  homeworkId: string,
+  audioBlob: Blob,
+  type: 'page_reading' | 'voice_note',
+  pageId?: string,
+  durationMs?: number,
+): Promise<HomeworkRecording> {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.webm');
+  formData.append('type', type);
+  if (pageId) formData.append('page_id', pageId);
+  if (durationMs !== undefined) formData.append('duration_ms', String(durationMs));
+
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/homework/${homeworkId}/recordings`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error((err as { error: string }).error || 'Upload failed');
+  }
+  return response.json();
+}
+
+export async function getHomeworkRecordings(homeworkId: string): Promise<HomeworkRecording[]> {
+  return fetchJSON<HomeworkRecording[]>(`/homework/${homeworkId}/recordings`);
+}
+
+export async function deleteHomeworkRecording(homeworkId: string, recordingId: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/homework/${homeworkId}/recordings/${recordingId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function submitHomework(homeworkId: string): Promise<HomeworkAssignmentWithDetails> {
+  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${homeworkId}/submit`, {
+    method: 'POST',
+  });
+}
+
+export function getHomeworkRecordingUrl(audioUrl: string): string {
+  return `${API_BASE}/api/audio/${audioUrl}`;
 }

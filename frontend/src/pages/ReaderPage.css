@@ -368,3 +368,31 @@ body:has(.reader-page) #root {
     font-size: 1.375rem;
   }
 }
+
+/* Recording controls */
+.reader-recording-controls {
+  max-width: 500px;
+  width: 100%;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.reader-record-btn.recording {
+  animation: pulse-red 1.5s infinite;
+  background-color: #dc2626;
+  color: white;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
+@media (min-width: 1024px) {
+  .reader-recording-controls {
+    max-width: none;
+  }
+}

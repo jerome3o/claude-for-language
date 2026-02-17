@@ -2206,6 +2206,131 @@ app.delete('/api/homework/:id', async (c) => {
   return c.json({ success: true });
 });
 
+// Upload a recording for a homework assignment page or voice note
+app.post('/api/homework/:id/recordings', async (c) => {
+  const userId = c.get('user').id;
+  const homeworkId = c.req.param('id');
+
+  // Verify homework belongs to this student
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, userId);
+  if (!hw || hw.student_id !== userId) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+  if (hw.status === 'completed') {
+    return c.json({ error: 'Cannot add recordings to completed homework' }, 400);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as unknown;
+  const pageId = formData.get('page_id') as string | null;
+  const type = (formData.get('type') as string) || 'page_reading';
+  const durationMs = formData.get('duration_ms') ? parseInt(formData.get('duration_ms') as string, 10) : null;
+
+  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+    return c.json({ error: 'file is required' }, 400);
+  }
+  if (type !== 'page_reading' && type !== 'voice_note') {
+    return c.json({ error: 'type must be "page_reading" or "voice_note"' }, 400);
+  }
+  if (type === 'page_reading' && !pageId) {
+    return c.json({ error: 'page_id is required for page recordings' }, 400);
+  }
+
+  // If replacing an existing recording for this page, delete the old one
+  if (pageId) {
+    const existing = await db.getHomeworkRecordings(c.env.DB, homeworkId);
+    const old = existing.find((r) => r.page_id === pageId && r.type === 'page_reading');
+    if (old) {
+      await deleteAudio(c.env.AUDIO_BUCKET, old.audio_url);
+      await db.deleteHomeworkRecording(c.env.DB, old.id, homeworkId);
+    }
+  }
+  // For voice notes, also replace existing
+  if (type === 'voice_note') {
+    const existing = await db.getHomeworkRecordings(c.env.DB, homeworkId);
+    const old = existing.find((r) => r.type === 'voice_note');
+    if (old) {
+      await deleteAudio(c.env.AUDIO_BUCKET, old.audio_url);
+      await db.deleteHomeworkRecording(c.env.DB, old.id, homeworkId);
+    }
+  }
+
+  const blob = file as Blob;
+  const recordingId = crypto.randomUUID().split('-')[0];
+  const key = `recordings/homework/${homeworkId}/${recordingId}.webm`;
+  const arrayBuffer = await blob.arrayBuffer();
+  await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type || 'audio/webm');
+
+  // Auto-transition from 'assigned' to 'in_progress'
+  if (hw.status === 'assigned') {
+    await db.updateHomeworkStatus(c.env.DB, homeworkId, userId, 'in_progress');
+  }
+
+  const recording = await db.createHomeworkRecording(
+    c.env.DB, homeworkId, key, type as 'page_reading' | 'voice_note', pageId, durationMs
+  );
+  return c.json(recording, 201);
+});
+
+// List recordings for a homework assignment
+app.get('/api/homework/:id/recordings', async (c) => {
+  const userId = c.get('user').id;
+  const homeworkId = c.req.param('id');
+
+  // Verify user has access (student or tutor)
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, userId);
+  if (!hw) {
+    return c.json({ error: 'Homework not found' }, 404);
+  }
+
+  const recordings = await db.getHomeworkRecordings(c.env.DB, homeworkId);
+  return c.json(recordings);
+});
+
+// Delete a specific recording
+app.delete('/api/homework/:id/recordings/:recordingId', async (c) => {
+  const userId = c.get('user').id;
+  const homeworkId = c.req.param('id');
+  const recordingId = c.req.param('recordingId');
+
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, userId);
+  if (!hw || hw.student_id !== userId) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+  if (hw.status === 'completed') {
+    return c.json({ error: 'Cannot modify completed homework' }, 400);
+  }
+
+  const deleted = await db.deleteHomeworkRecording(c.env.DB, recordingId, homeworkId);
+  if (!deleted) {
+    return c.json({ error: 'Recording not found' }, 404);
+  }
+  await deleteAudio(c.env.AUDIO_BUCKET, deleted.audio_url);
+  return c.json({ success: true });
+});
+
+// Submit homework (student only)
+app.post('/api/homework/:id/submit', async (c) => {
+  const userId = c.get('user').id;
+  const homeworkId = c.req.param('id');
+
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, userId);
+  if (!hw || hw.student_id !== userId) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+  if (hw.status === 'completed') {
+    return c.json({ error: 'Homework already submitted' }, 400);
+  }
+
+  const submitted = await db.submitHomework(c.env.DB, homeworkId, userId);
+  if (!submitted) {
+    return c.json({ error: 'Failed to submit homework' }, 500);
+  }
+
+  const updated = await db.getHomeworkAssignment(c.env.DB, homeworkId, userId);
+  return c.json(updated);
+});
+
 // ============ Relationships (Tutor-Student) ============
 
 // List my relationships (tutors, students, pending)

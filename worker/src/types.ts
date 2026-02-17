@@ -816,3 +816,17 @@ export interface CreateHomeworkRequest {
 export interface UpdateHomeworkStatusRequest {
   status: 'in_progress' | 'completed';
 }
+
+// ============ Homework Recordings ============
+
+export type HomeworkRecordingType = 'page_reading' | 'voice_note';
+
+export interface HomeworkRecording {
+  id: string;
+  homework_id: string;
+  page_id: string | null;
+  audio_url: string;
+  duration_ms: number | null;
+  recorded_at: string;
+  type: HomeworkRecordingType;
+}
