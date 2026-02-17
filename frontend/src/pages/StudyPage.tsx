@@ -1420,19 +1420,26 @@ function StudyCard({
                         minWidth: '200px',
                       }}
                     >
-                      <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
-                        {card.note.sentence_clue}
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                        {card.note.sentence_clue_audio_url && (
+                      {/* On the clue side, only show modalities that match the clue type:
+                          - hanzi_to_meaning: clue is hanzi text → show sentence text, hide audio (audio reveals pronunciation)
+                          - meaning_to_hanzi / audio_to_hanzi: answer is hanzi → show audio only (text reveals the answer) */}
+                      {card.card_type === 'hanzi_to_meaning' && (
+                        <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+                          {card.note.sentence_clue}
+                        </div>
+                      )}
+                      {card.card_type !== 'hanzi_to_meaning' && card.note.sentence_clue_audio_url && (
+                        <div style={{ marginBottom: '0.5rem' }}>
                           <button
                             className="btn btn-secondary btn-sm"
                             onClick={playSentenceClue}
                             disabled={isPlaying}
                           >
-                            Play
+                            Play Sentence
                           </button>
-                        )}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
                         <button
                           className="btn btn-secondary btn-sm"
                           onClick={() => setShowSentenceClue(false)}
@@ -1461,6 +1468,34 @@ function StudyCard({
             <>
               <div className="study-card-main">
                 {renderBackMain()}
+
+                {/* Show full sentence clue on answer side if it was revealed */}
+                {showSentenceClue && card.note.sentence_clue && (
+                  <div className="mt-3" style={{ textAlign: 'center' }}>
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        borderRadius: '8px',
+                        display: 'inline-block',
+                        minWidth: '200px',
+                      }}
+                    >
+                      <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+                        {card.note.sentence_clue}
+                      </div>
+                      {card.note.sentence_clue_audio_url && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={playSentenceClue}
+                          disabled={isPlaying}
+                        >
+                          Play Sentence
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="study-card-actions">
                 {renderBackActions()}
