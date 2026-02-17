@@ -17,6 +17,9 @@ import {
   VocabularyItem,
   DifficultyLevel,
   NoteAudioRecording,
+  HomeworkAssignment,
+  HomeworkAssignmentWithDetails,
+  HomeworkStatus,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -2096,4 +2099,98 @@ export async function deleteAudioRecording(
   }
 
   return { was_primary: wasPrimary, note_id: noteId, audio_url: audioUrl };
+}
+
+// ============ Homework Assignments ============
+
+export async function createHomeworkAssignment(
+  db: D1Database,
+  tutorId: string,
+  studentId: string,
+  readerId: string,
+  notes: string | null,
+): Promise<HomeworkAssignment> {
+  const id = generateId();
+  await db.prepare(`
+    INSERT INTO homework_assignments (id, tutor_id, student_id, reader_id, notes)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(id, tutorId, studentId, readerId, notes).run();
+
+  const row = await db.prepare('SELECT * FROM homework_assignments WHERE id = ?')
+    .bind(id).first<HomeworkAssignment>();
+  return row!;
+}
+
+export async function getHomeworkAssignments(
+  db: D1Database,
+  userId: string,
+): Promise<HomeworkAssignmentWithDetails[]> {
+  const rows = await db.prepare(`
+    SELECT
+      h.*,
+      r.title_chinese AS reader_title_chinese,
+      r.title_english AS reader_title_english,
+      r.difficulty_level AS reader_difficulty_level,
+      t.name AS tutor_name,
+      t.email AS tutor_email,
+      s.name AS student_name,
+      s.email AS student_email
+    FROM homework_assignments h
+    JOIN graded_readers r ON h.reader_id = r.id
+    JOIN users t ON h.tutor_id = t.id
+    JOIN users s ON h.student_id = s.id
+    WHERE h.tutor_id = ? OR h.student_id = ?
+    ORDER BY h.assigned_at DESC
+  `).bind(userId, userId).all<HomeworkAssignmentWithDetails>();
+  return rows.results;
+}
+
+export async function getHomeworkAssignment(
+  db: D1Database,
+  id: string,
+  userId: string,
+): Promise<HomeworkAssignmentWithDetails | null> {
+  return db.prepare(`
+    SELECT
+      h.*,
+      r.title_chinese AS reader_title_chinese,
+      r.title_english AS reader_title_english,
+      r.difficulty_level AS reader_difficulty_level,
+      t.name AS tutor_name,
+      t.email AS tutor_email,
+      s.name AS student_name,
+      s.email AS student_email
+    FROM homework_assignments h
+    JOIN graded_readers r ON h.reader_id = r.id
+    JOIN users t ON h.tutor_id = t.id
+    JOIN users s ON h.student_id = s.id
+    WHERE h.id = ? AND (h.tutor_id = ? OR h.student_id = ?)
+  `).bind(id, userId, userId).first<HomeworkAssignmentWithDetails>();
+}
+
+export async function updateHomeworkStatus(
+  db: D1Database,
+  id: string,
+  userId: string,
+  status: HomeworkStatus,
+): Promise<boolean> {
+  const completedAt = status === 'completed' ? "datetime('now')" : 'NULL';
+  const result = await db.prepare(`
+    UPDATE homework_assignments
+    SET status = ?, completed_at = ${completedAt}
+    WHERE id = ? AND student_id = ?
+  `).bind(status, id, userId).run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+export async function deleteHomeworkAssignment(
+  db: D1Database,
+  id: string,
+  tutorId: string,
+): Promise<boolean> {
+  const result = await db.prepare(`
+    DELETE FROM homework_assignments
+    WHERE id = ? AND tutor_id = ?
+  `).bind(id, tutorId).run();
+  return (result.meta?.changes ?? 0) > 0;
 }

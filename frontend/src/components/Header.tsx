@@ -107,6 +107,7 @@ export function Header() {
           <nav className="header-nav">
             <Link to="/">Home</Link>
             <Link to="/search">Search</Link>
+            <Link to="/homework">Homework</Link>
             <Link to="/connections">Connections</Link>
           </nav>
         {user && (
@@ -149,6 +150,12 @@ export function Header() {
                   onClick={() => handleMenuItemClick('/readers')}
                 >
                   📚 Readers
+                </button>
+                <button
+                  className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/homework')}
+                >
+                  📋 Homework
                 </button>
                 <button
                   className="user-menu-item"

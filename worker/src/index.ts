@@ -2123,6 +2123,89 @@ app.post('/api/readers/:readerId/pages/:pageId/generate-text', async (c) => {
   return c.json({ text });
 });
 
+// ============ Homework Assignments ============
+
+// Assign a reader as homework to a student (tutor only)
+app.post('/api/homework', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'tutor') {
+    return c.json({ error: 'Only tutors can assign homework' }, 403);
+  }
+
+  const { reader_id, student_id, notes } = await c.req.json<{ reader_id: string; student_id: string; notes?: string }>();
+  if (!reader_id || !student_id) {
+    return c.json({ error: 'reader_id and student_id are required' }, 400);
+  }
+
+  // Verify the reader exists
+  const reader = await db.getGradedReader(c.env.DB, reader_id, user.id);
+  if (!reader) {
+    return c.json({ error: 'Reader not found' }, 404);
+  }
+
+  // Verify tutor-student relationship exists
+  const relationships = await getMyRelationships(c.env.DB, user.id);
+  const hasRelationship = relationships.students.some(
+    (r) => r.requester_id === student_id || r.recipient_id === student_id
+  );
+  if (!hasRelationship) {
+    return c.json({ error: 'No active relationship with this student' }, 403);
+  }
+
+  const assignment = await db.createHomeworkAssignment(
+    c.env.DB, user.id, student_id, reader_id, notes || null
+  );
+  return c.json(assignment, 201);
+});
+
+// List homework for the current user
+app.get('/api/homework', async (c) => {
+  const userId = c.get('user').id;
+  const assignments = await db.getHomeworkAssignments(c.env.DB, userId);
+  return c.json(assignments);
+});
+
+// Get homework details
+app.get('/api/homework/:id', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const assignment = await db.getHomeworkAssignment(c.env.DB, id, userId);
+  if (!assignment) {
+    return c.json({ error: 'Homework not found' }, 404);
+  }
+  return c.json(assignment);
+});
+
+// Update homework status (student only)
+app.patch('/api/homework/:id/status', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const { status } = await c.req.json<{ status: string }>();
+
+  if (status !== 'in_progress' && status !== 'completed') {
+    return c.json({ error: 'Status must be "in_progress" or "completed"' }, 400);
+  }
+
+  const updated = await db.updateHomeworkStatus(c.env.DB, id, userId, status);
+  if (!updated) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+
+  const assignment = await db.getHomeworkAssignment(c.env.DB, id, userId);
+  return c.json(assignment);
+});
+
+// Delete homework (tutor only)
+app.delete('/api/homework/:id', async (c) => {
+  const user = c.get('user');
+  const id = c.req.param('id');
+  const deleted = await db.deleteHomeworkAssignment(c.env.DB, id, user.id);
+  if (!deleted) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+  return c.json({ success: true });
+});
+
 // ============ Relationships (Tutor-Student) ============
 
 // List my relationships (tutors, students, pending)
