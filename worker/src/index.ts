@@ -2331,6 +2331,184 @@ app.post('/api/homework/:id/submit', async (c) => {
   return c.json(updated);
 });
 
+// ============ Homework Feedback ============
+
+// Submit feedback on a homework assignment (tutor only)
+app.post('/api/homework/:id/feedback', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'tutor') {
+    return c.json({ error: 'Only tutors can leave feedback' }, 403);
+  }
+
+  const homeworkId = c.req.param('id');
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, user.id);
+  if (!hw || hw.tutor_id !== user.id) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+  if (hw.status !== 'completed' && hw.status !== 'reviewed') {
+    return c.json({ error: 'Can only give feedback on completed homework' }, 400);
+  }
+
+  const formData = await c.req.formData();
+  const textFeedback = formData.get('text_feedback') as string | null;
+  const pageId = formData.get('page_id') as string | null;
+  const type = (formData.get('type') as string) || 'page_feedback';
+  const ratingStr = formData.get('rating') as string | null;
+  const rating = ratingStr ? parseInt(ratingStr, 10) : null;
+  const file = formData.get('file') as unknown;
+
+  if (type !== 'page_feedback' && type !== 'overall') {
+    return c.json({ error: 'type must be "page_feedback" or "overall"' }, 400);
+  }
+  if (type === 'page_feedback' && !pageId) {
+    return c.json({ error: 'page_id is required for page feedback' }, 400);
+  }
+  if (rating !== null && (rating < 1 || rating > 5)) {
+    return c.json({ error: 'rating must be between 1 and 5' }, 400);
+  }
+  if (!textFeedback && !file) {
+    return c.json({ error: 'Either text_feedback or audio file is required' }, 400);
+  }
+
+  let audioFeedbackUrl: string | null = null;
+
+  // If replacing existing feedback for same page/overall, delete old audio
+  const existing = await db.getHomeworkFeedback(c.env.DB, homeworkId);
+  const old = type === 'page_feedback'
+    ? existing.find((f) => f.page_id === pageId && f.type === 'page_feedback')
+    : existing.find((f) => f.type === 'overall');
+  if (old) {
+    if (old.audio_feedback_url) {
+      await deleteAudio(c.env.AUDIO_BUCKET, old.audio_feedback_url);
+    }
+    await db.deleteHomeworkFeedback(c.env.DB, old.id, user.id);
+  }
+
+  if (file && typeof file === 'object' && 'arrayBuffer' in file) {
+    const blob = file as Blob;
+    const feedbackId = crypto.randomUUID().split('-')[0];
+    const key = `recordings/feedback/${homeworkId}/${feedbackId}.webm`;
+    const arrayBuffer = await blob.arrayBuffer();
+    await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type || 'audio/webm');
+    audioFeedbackUrl = key;
+  }
+
+  const feedback = await db.createHomeworkFeedback(
+    c.env.DB, homeworkId, user.id, type as 'page_feedback' | 'overall',
+    pageId, textFeedback, audioFeedbackUrl, rating
+  );
+  return c.json(feedback, 201);
+});
+
+// Get all feedback for a homework assignment
+app.get('/api/homework/:id/feedback', async (c) => {
+  const userId = c.get('user').id;
+  const homeworkId = c.req.param('id');
+
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, userId);
+  if (!hw) {
+    return c.json({ error: 'Homework not found' }, 404);
+  }
+
+  const feedback = await db.getHomeworkFeedback(c.env.DB, homeworkId);
+  return c.json(feedback);
+});
+
+// Update feedback
+app.put('/api/homework/:id/feedback/:feedbackId', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'tutor') {
+    return c.json({ error: 'Only tutors can update feedback' }, 403);
+  }
+
+  const homeworkId = c.req.param('id');
+  const feedbackId = c.req.param('feedbackId');
+
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, user.id);
+  if (!hw || hw.tutor_id !== user.id) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+
+  const formData = await c.req.formData();
+  const textFeedback = formData.get('text_feedback') as string | null;
+  const ratingStr = formData.get('rating') as string | null;
+  const rating = ratingStr ? parseInt(ratingStr, 10) : null;
+  const file = formData.get('file') as unknown;
+
+  if (rating !== null && (rating < 1 || rating > 5)) {
+    return c.json({ error: 'rating must be between 1 and 5' }, 400);
+  }
+
+  // Get existing feedback to handle audio replacement
+  const existingFeedback = await db.getHomeworkFeedback(c.env.DB, homeworkId);
+  const existing = existingFeedback.find((f) => f.id === feedbackId);
+  if (!existing) {
+    return c.json({ error: 'Feedback not found' }, 404);
+  }
+
+  let audioFeedbackUrl = existing.audio_feedback_url;
+  if (file && typeof file === 'object' && 'arrayBuffer' in file) {
+    // Delete old audio if present
+    if (existing.audio_feedback_url) {
+      await deleteAudio(c.env.AUDIO_BUCKET, existing.audio_feedback_url);
+    }
+    const blob = file as Blob;
+    const newId = crypto.randomUUID().split('-')[0];
+    const key = `recordings/feedback/${homeworkId}/${newId}.webm`;
+    const arrayBuffer = await blob.arrayBuffer();
+    await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type || 'audio/webm');
+    audioFeedbackUrl = key;
+  }
+
+  const updated = await db.updateHomeworkFeedback(
+    c.env.DB, feedbackId, user.id, textFeedback, audioFeedbackUrl, rating
+  );
+  if (!updated) {
+    return c.json({ error: 'Feedback not found or not authorized' }, 404);
+  }
+  return c.json(updated);
+});
+
+// Delete feedback
+app.delete('/api/homework/:id/feedback/:feedbackId', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'tutor') {
+    return c.json({ error: 'Only tutors can delete feedback' }, 403);
+  }
+
+  const feedbackId = c.req.param('feedbackId');
+  const deleted = await db.deleteHomeworkFeedback(c.env.DB, feedbackId, user.id);
+  if (!deleted) {
+    return c.json({ error: 'Feedback not found or not authorized' }, 404);
+  }
+  if (deleted.audio_feedback_url) {
+    await deleteAudio(c.env.AUDIO_BUCKET, deleted.audio_feedback_url);
+  }
+  return c.json({ success: true });
+});
+
+// Mark review as complete (tutor only)
+app.post('/api/homework/:id/review-complete', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'tutor') {
+    return c.json({ error: 'Only tutors can complete reviews' }, 403);
+  }
+
+  const homeworkId = c.req.param('id');
+  const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, user.id);
+  if (!hw || hw.tutor_id !== user.id) {
+    return c.json({ error: 'Homework not found or not authorized' }, 404);
+  }
+
+  const marked = await db.markHomeworkReviewed(c.env.DB, homeworkId, user.id);
+  if (!marked) {
+    return c.json({ error: 'Homework must be completed before review' }, 400);
+  }
+
+  const updated = await db.getHomeworkAssignment(c.env.DB, homeworkId, user.id);
+  return c.json(updated);
+});
+
 // ============ Relationships (Tutor-Student) ============
 
 // List my relationships (tutors, students, pending)

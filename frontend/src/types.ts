@@ -753,7 +753,7 @@ export interface DeckTutorShare {
 
 // ============ Homework Assignments ============
 
-export type HomeworkStatus = 'assigned' | 'in_progress' | 'completed';
+export type HomeworkStatus = 'assigned' | 'in_progress' | 'completed' | 'reviewed';
 
 export interface HomeworkAssignment {
   id: string;
@@ -788,4 +788,20 @@ export interface HomeworkRecording {
   duration_ms: number | null;
   recorded_at: string;
   type: HomeworkRecordingType;
+}
+
+// ============ Homework Feedback ============
+
+export type HomeworkFeedbackType = 'page_feedback' | 'overall';
+
+export interface HomeworkFeedback {
+  id: string;
+  homework_id: string;
+  tutor_id: string;
+  page_id: string | null;
+  text_feedback: string | null;
+  audio_feedback_url: string | null;
+  rating: number | null;
+  type: HomeworkFeedbackType;
+  created_at: string;
 }

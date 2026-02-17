@@ -22,6 +22,8 @@ import {
   HomeworkStatus,
   HomeworkRecording,
   HomeworkRecordingType,
+  HomeworkFeedback,
+  HomeworkFeedbackType,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -2256,5 +2258,89 @@ export async function submitHomework(
     SET status = 'completed', completed_at = datetime('now')
     WHERE id = ? AND student_id = ? AND status != 'completed'
   `).bind(id, studentId).run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+// ============ Homework Feedback ============
+
+export async function createHomeworkFeedback(
+  db: D1Database,
+  homeworkId: string,
+  tutorId: string,
+  type: HomeworkFeedbackType,
+  pageId: string | null,
+  textFeedback: string | null,
+  audioFeedbackUrl: string | null,
+  rating: number | null,
+): Promise<HomeworkFeedback> {
+  const id = generateId();
+  await db.prepare(`
+    INSERT INTO homework_feedback (id, homework_id, tutor_id, page_id, text_feedback, audio_feedback_url, rating, type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, homeworkId, tutorId, pageId, textFeedback, audioFeedbackUrl, rating, type).run();
+
+  const row = await db.prepare('SELECT * FROM homework_feedback WHERE id = ?')
+    .bind(id).first<HomeworkFeedback>();
+  return row!;
+}
+
+export async function getHomeworkFeedback(
+  db: D1Database,
+  homeworkId: string,
+): Promise<HomeworkFeedback[]> {
+  const rows = await db.prepare(`
+    SELECT * FROM homework_feedback
+    WHERE homework_id = ?
+    ORDER BY created_at ASC
+  `).bind(homeworkId).all<HomeworkFeedback>();
+  return rows.results;
+}
+
+export async function updateHomeworkFeedback(
+  db: D1Database,
+  feedbackId: string,
+  tutorId: string,
+  textFeedback: string | null,
+  audioFeedbackUrl: string | null,
+  rating: number | null,
+): Promise<HomeworkFeedback | null> {
+  const result = await db.prepare(`
+    UPDATE homework_feedback
+    SET text_feedback = ?, audio_feedback_url = ?, rating = ?
+    WHERE id = ? AND tutor_id = ?
+  `).bind(textFeedback, audioFeedbackUrl, rating, feedbackId, tutorId).run();
+
+  if ((result.meta?.changes ?? 0) === 0) return null;
+
+  return db.prepare('SELECT * FROM homework_feedback WHERE id = ?')
+    .bind(feedbackId).first<HomeworkFeedback>();
+}
+
+export async function deleteHomeworkFeedback(
+  db: D1Database,
+  feedbackId: string,
+  tutorId: string,
+): Promise<HomeworkFeedback | null> {
+  const row = await db.prepare(
+    'SELECT * FROM homework_feedback WHERE id = ? AND tutor_id = ?'
+  ).bind(feedbackId, tutorId).first<HomeworkFeedback>();
+  if (!row) return null;
+
+  await db.prepare(
+    'DELETE FROM homework_feedback WHERE id = ? AND tutor_id = ?'
+  ).bind(feedbackId, tutorId).run();
+  return row;
+}
+
+export async function markHomeworkReviewed(
+  db: D1Database,
+  id: string,
+  tutorId: string,
+): Promise<boolean> {
+  const result = await db.prepare(`
+    UPDATE homework_assignments
+    SET status = 'reviewed'
+    WHERE id = ? AND tutor_id = ? AND status = 'completed'
+  `).bind(id, tutorId).run();
   return (result.meta?.changes ?? 0) > 0;
 }
