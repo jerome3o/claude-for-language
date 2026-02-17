@@ -8,6 +8,7 @@ import {
   deleteAudioRecording,
   updateNote,
   deleteNote,
+  generateSentenceClue,
   API_BASE,
 } from '../api/client';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
@@ -15,7 +16,7 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 interface CardEditModalProps {
   card: CardWithNote;
   onClose: () => void;
-  onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null }) => void;
+  onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null; sentence_clue: string | null; sentence_clue_audio_url: string | null }) => void;
   onDeleteCard?: () => void;
 }
 
@@ -24,11 +25,14 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const [pinyin, setPinyin] = useState(card.note.pinyin);
   const [english, setEnglish] = useState(card.note.english);
   const [funFacts, setFunFacts] = useState(card.note.fun_facts || '');
+  const [sentenceClue, setSentenceClue] = useState(card.note.sentence_clue || '');
+  const [sentenceClueAudioUrl, setSentenceClueAudioUrl] = useState(card.note.sentence_clue_audio_url || null);
 
   const [recordings, setRecordings] = useState<NoteAudioRecording[]>([]);
   const [loadingRecordings, setLoadingRecordings] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingSentence, setGeneratingSentence] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -85,11 +89,14 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const handleSave = async () => {
     setSaving(true);
     try {
+      const sentenceClueValue = sentenceClue.trim() || null;
       await updateNote(card.note.id, {
         hanzi,
         pinyin,
         english,
         fun_facts: funFacts || undefined,
+        sentence_clue: sentenceClueValue,
+        sentence_clue_audio_url: sentenceClueValue ? sentenceClueAudioUrl : null,
       });
       const primary = recordings.find(r => r.is_primary);
       onSave({
@@ -98,6 +105,8 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
         english,
         fun_facts: funFacts || null,
         audio_url: primary?.audio_url || card.note.audio_url,
+        sentence_clue: sentenceClueValue,
+        sentence_clue_audio_url: sentenceClueValue ? sentenceClueAudioUrl : null,
       });
       onClose();
     } catch (err) {
@@ -138,6 +147,19 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
       console.error('Failed to generate audio:', err);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleGenerateSentenceClue = async () => {
+    setGeneratingSentence(true);
+    try {
+      const updatedNote = await generateSentenceClue(card.note.id);
+      setSentenceClue(updatedNote.sentence_clue || '');
+      setSentenceClueAudioUrl(updatedNote.sentence_clue_audio_url || null);
+    } catch (err) {
+      console.error('Failed to generate sentence clue:', err);
+    } finally {
+      setGeneratingSentence(false);
     }
   };
 
@@ -222,6 +244,50 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
                 className="form-input"
                 rows={2}
               />
+            </div>
+          </div>
+
+          {/* Sentence Clue */}
+          <div className="card-edit-audio-section">
+            <h3>Sentence Clue</h3>
+            <div className="card-edit-fields">
+              <div className="card-edit-field">
+                <textarea
+                  value={sentenceClue}
+                  onChange={e => setSentenceClue(e.target.value)}
+                  className="form-input"
+                  rows={2}
+                  placeholder="Example sentence using this word..."
+                />
+              </div>
+            </div>
+            <div className="card-edit-audio-actions">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleGenerateSentenceClue}
+                disabled={generatingSentence}
+              >
+                {generatingSentence ? 'Generating...' : sentenceClue ? 'Regenerate' : 'Generate'}
+              </button>
+              {sentenceClueAudioUrl && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => playAudio(sentenceClueAudioUrl, sentenceClue, API_BASE)}
+                >
+                  {isPlaying && !playingRecordingId ? '...' : '\u25B6 Play'}
+                </button>
+              )}
+              {sentenceClue && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setSentenceClue('');
+                    setSentenceClueAudioUrl(null);
+                  }}
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
 

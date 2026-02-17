@@ -1499,6 +1499,8 @@ function StudyCard({
               english: updatedNote.english,
               fun_facts: updatedNote.fun_facts,
               audio_url: updatedNote.audio_url,
+              sentence_clue: updatedNote.sentence_clue,
+              sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
             });
             // Refresh recordings list
             queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });

@@ -2264,6 +2264,15 @@ textarea {
   white-space: nowrap;
 }
 
+.search-result-sentence-clue {
+  font-size: 0.625rem;
+  color: var(--color-text-light);
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .search-result-ratings {
   flex: 1;
   min-width: 0;
@@ -2417,6 +2426,16 @@ textarea {
 .deck-note-english {
   font-size: 0.6875rem;
   color: var(--color-text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.deck-note-sentence-clue {
+  font-size: 0.625rem;
+  color: var(--color-text-light);
+  opacity: 0.7;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

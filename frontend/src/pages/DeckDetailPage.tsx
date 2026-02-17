@@ -2070,6 +2070,9 @@ export function DeckDetailPage() {
                         <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
                         <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
                         <span className="deck-note-english">{noteProgress.english}</span>
+                        {noteData?.sentence_clue && (
+                          <span className="deck-note-sentence-clue">{noteData.sentence_clue}</span>
+                        )}
                       </div>
                       <div className="deck-note-ratings">
                         {hasAnyRatings ? (
