@@ -46,6 +46,7 @@ import {
   HomeworkAssignmentWithDetails,
   HomeworkAssignment,
   HomeworkRecording,
+  HomeworkFeedback,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -1267,4 +1268,62 @@ export async function submitHomework(homeworkId: string): Promise<HomeworkAssign
 
 export function getHomeworkRecordingUrl(audioUrl: string): string {
   return `${API_BASE}/api/audio/${audioUrl}`;
+}
+
+// ============ Homework Feedback ============
+
+export async function submitHomeworkFeedback(
+  homeworkId: string,
+  type: 'page_feedback' | 'overall',
+  opts: {
+    textFeedback?: string;
+    audioBlob?: Blob;
+    pageId?: string;
+    rating?: number;
+  },
+): Promise<HomeworkFeedback> {
+  const formData = new FormData();
+  formData.append('type', type);
+  if (opts.textFeedback) formData.append('text_feedback', opts.textFeedback);
+  if (opts.pageId) formData.append('page_id', opts.pageId);
+  if (opts.rating !== undefined) formData.append('rating', String(opts.rating));
+  if (opts.audioBlob) formData.append('file', opts.audioBlob, 'feedback.webm');
+
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/homework/${homeworkId}/feedback`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error((err as { error: string }).error || 'Upload failed');
+  }
+  return response.json();
+}
+
+export async function getHomeworkFeedback(homeworkId: string): Promise<HomeworkFeedback[]> {
+  return fetchJSON<HomeworkFeedback[]>(`/homework/${homeworkId}/feedback`);
+}
+
+export async function deleteHomeworkFeedback(homeworkId: string, feedbackId: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/homework/${homeworkId}/feedback/${feedbackId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function completeHomeworkReview(homeworkId: string): Promise<HomeworkAssignmentWithDetails> {
+  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${homeworkId}/review-complete`, {
+    method: 'POST',
+  });
 }

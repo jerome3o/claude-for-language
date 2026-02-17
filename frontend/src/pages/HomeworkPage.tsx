@@ -34,6 +34,7 @@ const STATUS_STYLES: Record<HomeworkStatus, { bg: string; text: string; label: s
   assigned: { bg: '#dbeafe', text: '#1e40af', label: 'Assigned' },
   in_progress: { bg: '#fef3c7', text: '#92400e', label: 'In Progress' },
   completed: { bg: '#dcfce7', text: '#166534', label: 'Completed' },
+  reviewed: { bg: '#f3e8ff', text: '#7c3aed', label: 'Reviewed' },
 };
 
 function formatDate(dateStr: string) {
@@ -345,6 +346,24 @@ function HomeworkCard({
               Review
             </Link>
           )}
+          {!isTutor && hw.status === 'reviewed' && (
+            <Link
+              to={`/homework/${hw.id}/review`}
+              className="btn btn-primary btn-sm"
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              View Feedback
+            </Link>
+          )}
+          {isTutor && (hw.status === 'completed' || hw.status === 'reviewed') && (
+            <Link
+              to={`/homework/${hw.id}/review`}
+              className="btn btn-primary btn-sm"
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              {hw.status === 'reviewed' ? 'View Review' : 'Review'}
+            </Link>
+          )}
           {isTutor && (
             <Link
               to={`/readers/${hw.reader_id}?homework=${hw.id}`}
@@ -496,7 +515,7 @@ export function HomeworkPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [filter, setFilter] = useState<'all' | HomeworkStatus>('all');
+  const [filter, setFilter] = useState<'all' | 'assigned' | 'in_progress' | 'completed' | 'reviewed'>('all');
   const isTutor = user?.role === 'tutor';
 
   const hwQuery = useQuery({
@@ -550,6 +569,7 @@ export function HomeworkPage() {
     assigned: assignments.filter((h) => h.status === 'assigned').length,
     in_progress: assignments.filter((h) => h.status === 'in_progress').length,
     completed: assignments.filter((h) => h.status === 'completed').length,
+    reviewed: assignments.filter((h) => h.status === 'reviewed').length,
   };
 
   return (
@@ -566,14 +586,14 @@ export function HomeworkPage() {
 
         {assignments.length > 0 && (
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-            {(['all', 'assigned', 'in_progress', 'completed'] as const).map((f) => (
+            {(['all', 'assigned', 'in_progress', 'completed', 'reviewed'] as const).map((f) => (
               <button
                 key={f}
                 className={`btn btn-sm ${filter === f ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => setFilter(f)}
                 style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
               >
-                {f === 'all' ? 'All' : f === 'in_progress' ? 'In Progress' : f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === 'all' ? 'All' : f === 'in_progress' ? 'In Progress' : f === 'reviewed' ? 'Reviewed' : f.charAt(0).toUpperCase() + f.slice(1)}
                 {' '}({counts[f]})
               </button>
             ))}
