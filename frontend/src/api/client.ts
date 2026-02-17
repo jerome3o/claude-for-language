@@ -42,6 +42,7 @@ import {
   GradedReaderWithPages,
   DifficultyLevel,
   NoteAudioRecording,
+  ReaderPage,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -1045,6 +1046,40 @@ export async function generateReaderPageImage(
 
 export function getReaderImageUrl(imageKey: string): string {
   return `${API_PATH}/audio/${imageKey}`;
+}
+
+// ============ Reader Editor ============
+
+export async function createBlankReader(data: { title_chinese: string; title_english: string; difficulty_level: DifficultyLevel; topic?: string }): Promise<GradedReaderWithPages> {
+  return fetchJSON<GradedReaderWithPages>('/readers', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateGradedReader(readerId: string, data: { title_chinese?: string; title_english?: string; difficulty_level?: DifficultyLevel; topic?: string | null }): Promise<GradedReaderWithPages> {
+  return fetchJSON<GradedReaderWithPages>(`/readers/${readerId}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function addReaderPage(readerId: string, data: { content_chinese: string; content_pinyin: string; content_english: string; image_prompt?: string | null }): Promise<ReaderPage> {
+  return fetchJSON<ReaderPage>(`/readers/${readerId}/pages`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateReaderPage(readerId: string, pageId: string, data: { content_chinese?: string; content_pinyin?: string; content_english?: string; image_prompt?: string | null }): Promise<void> {
+  await fetchJSON(`/readers/${readerId}/pages/${pageId}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteReaderPage(readerId: string, pageId: string): Promise<void> {
+  await fetchJSON(`/readers/${readerId}/pages/${pageId}`, { method: 'DELETE' });
+}
+
+export async function reorderReaderPages(readerId: string, pageIds: string[]): Promise<void> {
+  await fetchJSON(`/readers/${readerId}/pages/reorder`, { method: 'POST', body: JSON.stringify({ pageIds }) });
+}
+
+export async function publishReader(readerId: string): Promise<void> {
+  await fetchJSON(`/readers/${readerId}/publish`, { method: 'POST' });
+}
+
+export async function generateReaderPageText(readerId: string, pageId: string, field: string, context?: string): Promise<{ text: string }> {
+  return fetchJSON<{ text: string }>(`/readers/${readerId}/pages/${pageId}/generate-text`, { method: 'POST', body: JSON.stringify({ field, context }) });
 }
 
 // ============ Card State Management ============

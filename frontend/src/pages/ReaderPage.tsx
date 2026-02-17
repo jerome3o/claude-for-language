@@ -317,15 +317,24 @@ export function ReaderPage() {
           </div>
         </div>
 
-        <span
-          className="reader-difficulty-badge"
-          style={{
-            backgroundColor: difficultyStyle.bg,
-            color: difficultyStyle.text,
-          }}
-        >
-          {difficultyStyle.label}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => navigate(`/readers/${id}/edit`)}
+            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+          >
+            Edit
+          </button>
+          <span
+            className="reader-difficulty-badge"
+            style={{
+              backgroundColor: difficultyStyle.bg,
+              color: difficultyStyle.text,
+            }}
+          >
+            {difficultyStyle.label}
+          </span>
+        </div>
       </header>
 
       {/* Progress bar */}

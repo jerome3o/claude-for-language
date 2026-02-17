@@ -623,6 +623,8 @@ export interface GradedReader {
   source_deck_ids: string[];
   vocabulary_used: VocabularyItem[];
   status: ReaderStatus;
+  is_published?: number;
+  creator_role?: string;
   created_at: string;
 }
 

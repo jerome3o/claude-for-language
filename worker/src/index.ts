@@ -2024,6 +2024,105 @@ app.post('/api/readers/:readerId/pages/:pageId/generate-image', async (c) => {
   }
 });
 
+// ============ Reader Editor ============
+
+app.post('/api/readers', async (c) => {
+  const userId = c.get('user').id;
+  const { title_chinese, title_english, difficulty_level, topic } = await c.req.json<{ title_chinese: string; title_english: string; difficulty_level: DifficultyLevel; topic?: string }>();
+  const reader = await db.createBlankReader(c.env.DB, userId, { title_chinese, title_english, difficulty_level, topic: topic || null });
+  return c.json(reader);
+});
+
+app.put('/api/readers/:id', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+  const data = await c.req.json<{ title_chinese?: string; title_english?: string; difficulty_level?: DifficultyLevel; topic?: string | null }>();
+  await db.updateGradedReader(c.env.DB, readerId, userId, data);
+  const updated = await db.getGradedReader(c.env.DB, readerId, userId);
+  return c.json(updated);
+});
+
+app.post('/api/readers/:id/pages', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+  const pageData = await c.req.json<{ content_chinese: string; content_pinyin: string; content_english: string; image_prompt?: string | null }>();
+  const page = await db.addReaderPage(c.env.DB, readerId, userId, { ...pageData, image_prompt: pageData.image_prompt || null });
+  return c.json(page);
+});
+
+app.put('/api/readers/:readerId/pages/:pageId', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('readerId');
+  const pageId = c.req.param('pageId');
+  const data = await c.req.json<{ content_chinese?: string; content_pinyin?: string; content_english?: string; image_prompt?: string | null }>();
+  await db.updateReaderPage(c.env.DB, pageId, readerId, userId, data);
+  return c.json({ success: true });
+});
+
+app.delete('/api/readers/:readerId/pages/:pageId', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('readerId');
+  const pageId = c.req.param('pageId');
+  await db.deleteReaderPage(c.env.DB, pageId, readerId, userId);
+  return c.json({ success: true });
+});
+
+app.post('/api/readers/:id/pages/reorder', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+  const { pageIds } = await c.req.json<{ pageIds: string[] }>();
+  await db.reorderReaderPages(c.env.DB, readerId, userId, pageIds);
+  return c.json({ success: true });
+});
+
+app.post('/api/readers/:id/publish', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+  const stmt = c.env.DB.prepare('UPDATE graded_readers SET is_published = 1 WHERE id = ? AND user_id = ?');
+  await stmt.bind(readerId, userId).run();
+  return c.json({ success: true });
+});
+
+app.post('/api/readers/:readerId/pages/:pageId/generate-text', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('readerId');
+  const pageId = c.req.param('pageId');
+  const { field, context } = await c.req.json<{ field: 'chinese' | 'pinyin' | 'english' | 'image_prompt'; context?: string }>();
+
+  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
+  if (!reader) return c.json({ error: 'Reader not found' }, 404);
+  const page = reader.pages.find(p => p.id === pageId);
+  if (!page) return c.json({ error: 'Page not found' }, 404);
+
+  const anthropic = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+  let systemPrompt = '';
+  let userPrompt = '';
+
+  if (field === 'chinese') {
+    systemPrompt = `You are a Chinese language expert creating graded reader content at ${reader.difficulty_level} level. Write a short paragraph (2-4 sentences) of Chinese text for a story page. Only output the Chinese text, nothing else.`;
+    userPrompt = context || `Story: "${reader.title_chinese}" (${reader.title_english}). Topic: ${reader.topic || 'general'}. Page ${page.page_number}. Write the next page in Chinese.`;
+  } else if (field === 'pinyin') {
+    systemPrompt = 'You are a Chinese language expert. Convert the given Chinese text to pinyin with tone marks. Only output the pinyin, nothing else.';
+    userPrompt = page.content_chinese || 'No Chinese text provided yet.';
+  } else if (field === 'english') {
+    systemPrompt = 'You are a Chinese-English translator. Translate the given Chinese text into natural English. Only output the English translation, nothing else.';
+    userPrompt = page.content_chinese || 'No Chinese text provided yet.';
+  } else if (field === 'image_prompt') {
+    systemPrompt = 'You create image generation prompts for children\'s storybook illustrations. Create a vivid, descriptive prompt. Output only the image prompt, nothing else.';
+    userPrompt = `Chinese text: ${page.content_chinese || 'N/A'}\nEnglish: ${page.content_english || 'N/A'}\nStory: ${reader.title_english}`;
+  }
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 500,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '';
+  return c.json({ text });
+});
+
 // ============ Relationships (Tutor-Student) ============
 
 // List my relationships (tutors, students, pending)
