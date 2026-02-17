@@ -52,6 +52,8 @@ interface Note {
   audio_url: string | null;
   fun_facts: string | null;
   sentence_clue: string | null;
+  sentence_clue_pinyin: string | null;
+  sentence_clue_translation: string | null;
   sentence_clue_audio_url: string | null;
   created_at: string;
   updated_at: string;
@@ -202,7 +204,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       "Get a deck with all its notes. Use the 'fields' parameter to request only specific note fields (e.g. ['hanzi', 'english']) to reduce response size for large decks.",
       {
         deck_id: z.string().describe("The deck ID"),
-        fields: z.array(z.enum(['hanzi', 'pinyin', 'english', 'audio_url', 'fun_facts', 'sentence_clue', 'sentence_clue_audio_url', 'created_at', 'updated_at', 'context']))
+        fields: z.array(z.enum(['hanzi', 'pinyin', 'english', 'audio_url', 'fun_facts', 'sentence_clue', 'sentence_clue_pinyin', 'sentence_clue_translation', 'sentence_clue_audio_url', 'created_at', 'updated_at', 'context']))
           .optional()
           .describe("Which note fields to include in the response. If not specified, all fields are returned. The note 'id' and 'deck_id' are always included."),
       },
@@ -612,8 +614,10 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         english: z.string().optional().describe("New English translation"),
         fun_facts: z.string().optional().describe("New fun facts/notes"),
         sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
+        sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
+        sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
       },
-      async ({ note_id, hanzi, pinyin, english, fun_facts, sentence_clue }) => {
+      async ({ note_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation }) => {
         const note = await this.env.DB
           .prepare(`
             SELECT n.* FROM notes n
@@ -652,6 +656,14 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         if (sentence_clue !== undefined) {
           updates.push('sentence_clue = ?');
           values.push(sentence_clue);
+        }
+        if (sentence_clue_pinyin !== undefined) {
+          updates.push('sentence_clue_pinyin = ?');
+          values.push(sentence_clue_pinyin);
+        }
+        if (sentence_clue_translation !== undefined) {
+          updates.push('sentence_clue_translation = ?');
+          values.push(sentence_clue_translation);
         }
 
         if (updates.length === 0) {
@@ -872,6 +884,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
                 pinyin: note.pinyin,
                 english: note.english,
                 sentence_clue: note.sentence_clue,
+                sentence_clue_pinyin: note.sentence_clue_pinyin,
+                sentence_clue_translation: note.sentence_clue_translation,
                 sentence_clue_audio_url: note.sentence_clue_audio_url,
                 deck_name: note.deck_name,
               },
@@ -1189,7 +1203,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           content: [{
             type: "text" as const,
             text: JSON.stringify({
-              note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english, sentence_clue: note.sentence_clue, sentence_clue_audio_url: note.sentence_clue_audio_url },
+              note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english, sentence_clue: note.sentence_clue, sentence_clue_pinyin: note.sentence_clue_pinyin, sentence_clue_translation: note.sentence_clue_translation, sentence_clue_audio_url: note.sentence_clue_audio_url },
               total_reviews: reviews.results.length,
               history_by_card_type: byCardType,
             }, null, 2),

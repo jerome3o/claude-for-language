@@ -524,6 +524,8 @@ export async function updateNote(
     audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
     sentenceClue?: string;
+    sentenceCluePinyin?: string;
+    sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
   },
   updates?: {
@@ -534,6 +536,8 @@ export async function updateNote(
     audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
     sentenceClue?: string;
+    sentenceCluePinyin?: string;
+    sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
   }
 ): Promise<Note | null> {
@@ -547,6 +551,8 @@ export async function updateNote(
     audioProvider?: 'minimax' | 'gtts';
     funFacts?: string;
     sentenceClue?: string;
+    sentenceCluePinyin?: string;
+    sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
   };
 
@@ -593,6 +599,14 @@ export async function updateNote(
   if (actualUpdates.sentenceClue !== undefined) {
     fields.push('sentence_clue = ?');
     values.push(actualUpdates.sentenceClue);
+  }
+  if (actualUpdates.sentenceCluePinyin !== undefined) {
+    fields.push('sentence_clue_pinyin = ?');
+    values.push(actualUpdates.sentenceCluePinyin);
+  }
+  if (actualUpdates.sentenceClueTranslation !== undefined) {
+    fields.push('sentence_clue_translation = ?');
+    values.push(actualUpdates.sentenceClueTranslation);
   }
   if (actualUpdates.sentenceClueAudioUrl !== undefined) {
     fields.push('sentence_clue_audio_url = ?');
@@ -670,7 +684,7 @@ export async function getDueCards(
   limit: number = 20
 ): Promise<CardWithNote[]> {
   let query = `
-    SELECT c.*, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_audio_url
+    SELECT c.*, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url
     FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
@@ -725,6 +739,8 @@ export async function getDueCards(
       fun_facts: row.fun_facts as string | null,
       context: row.context as string | null,
       sentence_clue: row.sentence_clue as string | null,
+      sentence_clue_pinyin: row.sentence_clue_pinyin as string | null,
+      sentence_clue_translation: row.sentence_clue_translation as string | null,
       sentence_clue_audio_url: row.sentence_clue_audio_url as string | null,
       created_at: '',
       updated_at: '',
@@ -859,7 +875,7 @@ export async function getSessionWithReviews(
   const reviews = await db
     .prepare(
       `SELECT cr.*, c.note_id, c.card_type, c.ease_factor, c.interval, c.repetitions,
-              n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_audio_url
+              n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url
        FROM card_reviews cr
        JOIN cards c ON cr.card_id = c.id
        JOIN notes n ON c.note_id = n.id
@@ -907,6 +923,8 @@ export async function getSessionWithReviews(
         fun_facts: row.fun_facts as string | null,
         context: row.context as string | null,
         sentence_clue: row.sentence_clue as string | null,
+        sentence_clue_pinyin: row.sentence_clue_pinyin as string | null,
+        sentence_clue_translation: row.sentence_clue_translation as string | null,
         sentence_clue_audio_url: row.sentence_clue_audio_url as string | null,
         created_at: '',
         updated_at: '',
@@ -1273,7 +1291,7 @@ export async function getNextStudyCard(
     c.id, c.note_id, c.card_type, c.ease_factor, c.interval, c.repetitions,
     c.next_review_at, c.queue, c.learning_step, c.due_timestamp,
     c.created_at, c.updated_at,
-    n.id as n_id, n.deck_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.sentence_clue, n.sentence_clue_audio_url
+    n.id as n_id, n.deck_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url
   `;
 
   // Priority 1: Learning/Relearning cards due now
@@ -1396,6 +1414,8 @@ function mapCardWithNote(row: Record<string, unknown>): CardWithNote {
       fun_facts: row.fun_facts as string | null,
       context: row.context as string | null,
       sentence_clue: row.sentence_clue as string | null,
+      sentence_clue_pinyin: row.sentence_clue_pinyin as string | null,
+      sentence_clue_translation: row.sentence_clue_translation as string | null,
       sentence_clue_audio_url: row.sentence_clue_audio_url as string | null,
       created_at: '',
       updated_at: '',

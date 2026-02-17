@@ -783,6 +783,8 @@ app.put('/api/notes/:id', async (c) => {
     english?: string;
     fun_facts?: string;
     sentence_clue?: string | null;
+    sentence_clue_pinyin?: string | null;
+    sentence_clue_translation?: string | null;
     sentence_clue_audio_url?: string | null;
   }>();
 
@@ -792,6 +794,8 @@ app.put('/api/notes/:id', async (c) => {
     english: updates.english,
     funFacts: updates.fun_facts,
     sentenceClue: updates.sentence_clue ?? undefined,
+    sentenceCluePinyin: updates.sentence_clue_pinyin ?? undefined,
+    sentenceClueTranslation: updates.sentence_clue_translation ?? undefined,
     sentenceClueAudioUrl: updates.sentence_clue_audio_url ?? undefined,
   });
 
@@ -869,13 +873,15 @@ app.post('/api/notes/:id/ask', async (c) => {
       try {
         switch (action.tool) {
           case 'edit_current_card': {
-            const updates: { hanzi?: string; pinyin?: string; english?: string; funFacts?: string; sentenceClue?: string } = {};
-            const input = action.input as { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string };
+            const updates: { hanzi?: string; pinyin?: string; english?: string; funFacts?: string; sentenceClue?: string; sentenceCluePinyin?: string; sentenceClueTranslation?: string } = {};
+            const input = action.input as { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string; sentence_clue_pinyin?: string; sentence_clue_translation?: string };
             if (input.hanzi) updates.hanzi = input.hanzi;
             if (input.pinyin) updates.pinyin = input.pinyin;
             if (input.english) updates.english = input.english;
             if (input.fun_facts !== undefined) updates.funFacts = input.fun_facts;
             if (input.sentence_clue !== undefined) updates.sentenceClue = input.sentence_clue;
+            if (input.sentence_clue_pinyin !== undefined) updates.sentenceCluePinyin = input.sentence_clue_pinyin;
+            if (input.sentence_clue_translation !== undefined) updates.sentenceClueTranslation = input.sentence_clue_translation;
 
             const updatedNote = await db.updateNote(c.env.DB, id, userId, updates);
             if (updatedNote) {
@@ -1067,11 +1073,18 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     // Generate a simple example sentence using the note's hanzi
     const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
 
-    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones. Return ONLY the Chinese sentence, nothing else.`;
+    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones.
+
+Return a JSON object with exactly these fields:
+- "sentence": the Chinese sentence
+- "pinyin": the pinyin with tone marks (e.g. "Wǒ hěn gāoxìng")
+- "translation": the English translation
+
+Return ONLY the JSON object, nothing else.`;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 100,
+      max_tokens: 200,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -1080,7 +1093,19 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
       return c.json({ error: 'Failed to generate sentence' }, 500);
     }
 
-    const sentenceClue = textContent.text.trim();
+    let sentenceClue: string;
+    let sentenceCluePinyin: string | null = null;
+    let sentenceClueTranslation: string | null = null;
+
+    try {
+      const parsed = JSON.parse(textContent.text.trim());
+      sentenceClue = parsed.sentence;
+      sentenceCluePinyin = parsed.pinyin || null;
+      sentenceClueTranslation = parsed.translation || null;
+    } catch {
+      // Fallback: treat as plain text (backwards compatible with old prompt format)
+      sentenceClue = textContent.text.trim();
+    }
 
     // Generate TTS for the sentence clue
     let sentenceClueAudioUrl: string | null = null;
@@ -1099,6 +1124,8 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     // Update the note with sentence clue
     await db.updateNote(c.env.DB, id, userId, {
       sentenceClue,
+      sentenceCluePinyin: sentenceCluePinyin ?? undefined,
+      sentenceClueTranslation: sentenceClueTranslation ?? undefined,
       sentenceClueAudioUrl: sentenceClueAudioUrl ?? undefined,
     });
 

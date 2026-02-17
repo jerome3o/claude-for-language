@@ -85,6 +85,8 @@ export interface LocalNote {
   fun_facts: string | null;
   context: string | null;
   sentence_clue: string | null;
+  sentence_clue_pinyin: string | null;
+  sentence_clue_translation: string | null;
   sentence_clue_audio_url: string | null;
   created_at: string;
   updated_at: string;
