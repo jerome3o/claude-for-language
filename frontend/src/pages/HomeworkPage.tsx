@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useAudioRecorder } from '../hooks/useAudio';
 import {
   getHomeworkAssignments,
-  updateHomeworkStatus,
   deleteHomework,
   assignHomework,
   getGradedReaders,
   getMyRelationships,
+  getHomeworkRecordings,
+  uploadHomeworkRecording,
+  submitHomework,
+  getHomeworkRecordingUrl,
 } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import {
@@ -16,6 +20,7 @@ import {
   HomeworkStatus,
   DifficultyLevel,
   GradedReader,
+  HomeworkRecording,
 } from '../types';
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; label: string }> = {
@@ -40,20 +45,191 @@ function formatDate(dateStr: string) {
   });
 }
 
+function VoiceNoteRecorder({
+  homeworkId,
+  existingVoiceNote,
+  isCompleted,
+}: {
+  homeworkId: string;
+  existingVoiceNote: HomeworkRecording | null;
+  isCompleted: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const { isRecording, audioBlob, error: recError, startRecording, stopRecording, clearRecording } = useAudioRecorder();
+  const [isUploading, setIsUploading] = useState(false);
+  const [isPlayingBack, setIsPlayingBack] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recordingStartRef = useRef<number>(0);
+
+  const handleUpload = useCallback(async () => {
+    if (!audioBlob) return;
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      const durationMs = Date.now() - recordingStartRef.current;
+      await uploadHomeworkRecording(homeworkId, audioBlob, 'voice_note', undefined, durationMs);
+      clearRecording();
+      queryClient.invalidateQueries({ queryKey: ['homework-recordings', homeworkId] });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [audioBlob, homeworkId, clearRecording, queryClient]);
+
+  const handleStartRecording = useCallback(() => {
+    recordingStartRef.current = Date.now();
+    startRecording();
+  }, [startRecording]);
+
+  const playRecording = useCallback((audioUrl: string) => {
+    if (audioRef.current) audioRef.current.pause();
+    const audio = new Audio(getHomeworkRecordingUrl(audioUrl));
+    audioRef.current = audio;
+    audio.onplay = () => setIsPlayingBack(true);
+    audio.onended = () => setIsPlayingBack(false);
+    audio.onerror = () => setIsPlayingBack(false);
+    audio.play().catch(() => setIsPlayingBack(false));
+  }, []);
+
+  const stopPlayback = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsPlayingBack(false);
+    }
+  }, []);
+
+  const playPreview = useCallback(() => {
+    if (!audioBlob) return;
+    if (audioRef.current) audioRef.current.pause();
+    const url = URL.createObjectURL(audioBlob);
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.onplay = () => setIsPlayingBack(true);
+    audio.onended = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
+    audio.onerror = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
+    audio.play().catch(() => setIsPlayingBack(false));
+  }, [audioBlob]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  if (isCompleted) {
+    if (!existingVoiceNote) return null;
+    return (
+      <div style={{ marginTop: '0.5rem' }}>
+        <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '0 0 0.25rem 0' }}>Voice note:</p>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => isPlayingBack ? stopPlayback() : playRecording(existingVoiceNote.audio_url)}
+          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+        >
+          {isPlayingBack ? '⏹ Stop' : '▶ Play Voice Note'}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: '0.5rem' }}>
+      <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '0 0 0.25rem 0' }}>
+        Voice note for tutor (optional):
+      </p>
+      {recError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 0.25rem 0' }}>{recError}</p>}
+      {uploadError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 0.25rem 0' }}>{uploadError}</p>}
+
+      {existingVoiceNote && !audioBlob && !isRecording && (
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.25rem' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => isPlayingBack ? stopPlayback() : playRecording(existingVoiceNote.audio_url)}
+            style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+          >
+            {isPlayingBack ? '⏹ Stop' : '▶ Play Voice Note'}
+          </button>
+          <span style={{ color: '#16a34a', fontSize: '0.75rem' }}>Saved</span>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        {isRecording ? (
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={stopRecording}
+            style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', backgroundColor: '#dc2626', borderColor: '#dc2626' }}
+          >
+            ⏹ Stop
+          </button>
+        ) : audioBlob ? (
+          <>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => isPlayingBack ? stopPlayback() : playPreview()}
+              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+            >
+              {isPlayingBack ? '⏹ Stop' : '▶ Preview'}
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleUpload}
+              disabled={isUploading}
+              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+            >
+              {isUploading ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={clearRecording}
+              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+            >
+              Discard
+            </button>
+          </>
+        ) : (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleStartRecording}
+            style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+          >
+            {existingVoiceNote ? '🎙 Re-record Note' : '🎙 Record Note'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HomeworkCard({
   hw,
   isTutor,
-  onUpdateStatus,
   onDelete,
+  onSubmit,
 }: {
   hw: HomeworkAssignmentWithDetails;
   isTutor: boolean;
-  onUpdateStatus: (id: string, status: 'in_progress' | 'completed') => void;
   onDelete: (id: string) => void;
+  onSubmit: (id: string) => void;
 }) {
   const navigate = useNavigate();
   const diffStyle = DIFFICULTY_COLORS[hw.reader_difficulty_level];
   const statusStyle = STATUS_STYLES[hw.status];
+
+  const recordingsQuery = useQuery({
+    queryKey: ['homework-recordings', hw.id],
+    queryFn: () => getHomeworkRecordings(hw.id),
+  });
+
+  const recordings = recordingsQuery.data || [];
+  const pageRecordings = recordings.filter((r) => r.type === 'page_reading');
+  const voiceNote = recordings.find((r) => r.type === 'voice_note') || null;
 
   return (
     <div className="card" style={{ padding: '1rem' }}>
@@ -97,6 +273,40 @@ function HomeworkCard({
         </p>
       )}
 
+      {/* Recording progress */}
+      {pageRecordings.length > 0 && (
+        <div style={{
+          margin: '0.5rem 0',
+          padding: '0.375rem 0.5rem',
+          borderRadius: '6px',
+          backgroundColor: '#f0fdf4',
+          border: '1px solid #bbf7d0',
+          fontSize: '0.75rem',
+          color: '#166534',
+        }}>
+          {pageRecordings.length} page{pageRecordings.length !== 1 ? 's' : ''} recorded
+          {voiceNote && ' + voice note'}
+        </div>
+      )}
+
+      {/* Voice note recorder (student, not completed) */}
+      {!isTutor && hw.status !== 'completed' && (
+        <VoiceNoteRecorder
+          homeworkId={hw.id}
+          existingVoiceNote={voiceNote}
+          isCompleted={false}
+        />
+      )}
+
+      {/* Voice note playback for tutor or completed */}
+      {(isTutor || hw.status === 'completed') && voiceNote && (
+        <VoiceNoteRecorder
+          homeworkId={hw.id}
+          existingVoiceNote={voiceNote}
+          isCompleted={true}
+        />
+      )}
+
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb',
@@ -106,10 +316,7 @@ function HomeworkCard({
             <button
               className="btn btn-primary btn-sm"
               onClick={() => {
-                if (hw.status === 'assigned') {
-                  onUpdateStatus(hw.id, 'in_progress');
-                }
-                navigate(`/readers/${hw.reader_id}`);
+                navigate(`/readers/${hw.reader_id}?homework=${hw.id}`);
               }}
               style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
             >
@@ -119,24 +326,28 @@ function HomeworkCard({
           {!isTutor && hw.status === 'in_progress' && (
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => onUpdateStatus(hw.id, 'completed')}
+              onClick={() => {
+                if (window.confirm('Submit this homework? You won\'t be able to add more recordings after submitting.')) {
+                  onSubmit(hw.id);
+                }
+              }}
               style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
             >
-              Mark Complete
+              Submit Homework
             </button>
           )}
           {!isTutor && hw.status === 'completed' && (
             <Link
-              to={`/readers/${hw.reader_id}`}
+              to={`/readers/${hw.reader_id}?homework=${hw.id}`}
               className="btn btn-secondary btn-sm"
               style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
             >
-              Read Again
+              Review
             </Link>
           )}
           {isTutor && (
             <Link
-              to={`/readers/${hw.reader_id}`}
+              to={`/readers/${hw.reader_id}?homework=${hw.id}`}
               className="btn btn-secondary btn-sm"
               style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
             >
@@ -301,9 +512,8 @@ export function HomeworkPage() {
     },
   });
 
-  const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: 'in_progress' | 'completed' }) =>
-      updateHomeworkStatus(id, status),
+  const submitMutation = useMutation({
+    mutationFn: submitHomework,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['homework'] });
     },
@@ -394,8 +604,8 @@ export function HomeworkPage() {
                 key={hw.id}
                 hw={hw}
                 isTutor={isTutor!}
-                onUpdateStatus={(id, status) => statusMutation.mutate({ id, status })}
                 onDelete={(id) => deleteMutation.mutate(id)}
+                onSubmit={(id) => submitMutation.mutate(id)}
               />
             ))}
           </div>

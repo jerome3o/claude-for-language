@@ -1,10 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { getGradedReader, getReaderImageUrl, analyzeSentence, generateReaderPageImage } from '../api/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  getGradedReader,
+  getReaderImageUrl,
+  analyzeSentence,
+  generateReaderPageImage,
+  getHomeworkRecordings,
+  uploadHomeworkRecording,
+  getHomeworkRecordingUrl,
+} from '../api/client';
+import { useAudioRecorder } from '../hooks/useAudio';
 import { Loading } from '../components/Loading';
 import { SentenceBreakdown } from '../components/SentenceBreakdown';
-import { ReaderPage as ReaderPageType, SentenceBreakdown as SentenceBreakdownType, DifficultyLevel } from '../types';
+import {
+  ReaderPage as ReaderPageType,
+  SentenceBreakdown as SentenceBreakdownType,
+  DifficultyLevel,
+  HomeworkRecording,
+} from '../types';
 import './ReaderPage.css';
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; label: string }> = {
@@ -49,6 +63,175 @@ function SentenceAnalysisModal({
   );
 }
 
+function RecordingControls({
+  homeworkId,
+  pageId,
+  existingRecording,
+  isCompleted,
+}: {
+  homeworkId: string;
+  pageId: string;
+  existingRecording: HomeworkRecording | null;
+  isCompleted: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const { isRecording, audioBlob, error: recError, startRecording, stopRecording, clearRecording } = useAudioRecorder();
+  const [isUploading, setIsUploading] = useState(false);
+  const [isPlayingBack, setIsPlayingBack] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recordingStartRef = useRef<number>(0);
+
+  // Upload the recorded blob
+  const handleUpload = useCallback(async () => {
+    if (!audioBlob) return;
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      const durationMs = Date.now() - recordingStartRef.current;
+      await uploadHomeworkRecording(homeworkId, audioBlob, 'page_reading', pageId, durationMs);
+      clearRecording();
+      queryClient.invalidateQueries({ queryKey: ['homework-recordings', homeworkId] });
+      queryClient.invalidateQueries({ queryKey: ['homework'] });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [audioBlob, homeworkId, pageId, clearRecording, queryClient]);
+
+  const handleStartRecording = useCallback(() => {
+    recordingStartRef.current = Date.now();
+    startRecording();
+  }, [startRecording]);
+
+  // Play existing recording
+  const playRecording = useCallback((audioUrl: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    const audio = new Audio(getHomeworkRecordingUrl(audioUrl));
+    audioRef.current = audio;
+    audio.onplay = () => setIsPlayingBack(true);
+    audio.onended = () => setIsPlayingBack(false);
+    audio.onerror = () => setIsPlayingBack(false);
+    audio.play().catch(() => setIsPlayingBack(false));
+  }, []);
+
+  const stopPlayback = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsPlayingBack(false);
+    }
+  }, []);
+
+  // Play back just-recorded audio
+  const playPreview = useCallback(() => {
+    if (!audioBlob) return;
+    if (audioRef.current) audioRef.current.pause();
+    const url = URL.createObjectURL(audioBlob);
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.onplay = () => setIsPlayingBack(true);
+    audio.onended = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
+    audio.onerror = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
+    audio.play().catch(() => setIsPlayingBack(false));
+  }, [audioBlob]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  if (isCompleted) {
+    // Read-only: show existing recording playback if available
+    if (!existingRecording) return null;
+    return (
+      <div className="reader-recording-controls">
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => isPlayingBack ? stopPlayback() : playRecording(existingRecording.audio_url)}
+          style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+        >
+          {isPlayingBack ? '⏹ Stop' : '▶ Play Recording'}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="reader-recording-controls">
+      {recError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 0.5rem 0' }}>{recError}</p>}
+      {uploadError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 0.5rem 0' }}>{uploadError}</p>}
+
+      {/* Show existing recording */}
+      {existingRecording && !audioBlob && !isRecording && (
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => isPlayingBack ? stopPlayback() : playRecording(existingRecording.audio_url)}
+            style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+          >
+            {isPlayingBack ? '⏹ Stop' : '▶ Play Recording'}
+          </button>
+          <span style={{ color: '#16a34a', fontSize: '0.75rem' }}>Recorded</span>
+        </div>
+      )}
+
+      {/* Recording / re-recording controls */}
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        {isRecording ? (
+          <button
+            className="btn btn-primary btn-sm reader-record-btn recording"
+            onClick={stopRecording}
+            style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+          >
+            ⏹ Stop Recording
+          </button>
+        ) : audioBlob ? (
+          <>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => isPlayingBack ? stopPlayback() : playPreview()}
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+            >
+              {isPlayingBack ? '⏹ Stop' : '▶ Preview'}
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleUpload}
+              disabled={isUploading}
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+            >
+              {isUploading ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={clearRecording}
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+            >
+              Discard
+            </button>
+          </>
+        ) : (
+          <button
+            className="btn btn-primary btn-sm reader-record-btn"
+            onClick={handleStartRecording}
+            style={{ padding: '0.375rem 0.75rem', fontSize: '0.8rem' }}
+          >
+            {existingRecording ? '🎙 Re-record' : '🎙 Record Reading'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PageView({
   page,
   readerId,
@@ -57,6 +240,9 @@ function PageView({
   onTogglePinyin,
   onToggleTranslation,
   onAnalyzeSentence,
+  homeworkId,
+  pageRecording,
+  isCompleted,
 }: {
   page: ReaderPageType;
   readerId: string;
@@ -65,6 +251,9 @@ function PageView({
   onTogglePinyin: () => void;
   onToggleTranslation: () => void;
   onAnalyzeSentence: (sentence: string) => void;
+  homeworkId?: string;
+  pageRecording?: HomeworkRecording | null;
+  isCompleted?: boolean;
 }) {
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
@@ -223,6 +412,16 @@ function PageView({
         >
           {showTranslation ? page.content_english : 'Tap to reveal translation'}
         </div>
+
+        {/* Recording controls (homework mode only) */}
+        {homeworkId && (
+          <RecordingControls
+            homeworkId={homeworkId}
+            pageId={page.id}
+            existingRecording={pageRecording || null}
+            isCompleted={isCompleted || false}
+          />
+        )}
       </div>
     </div>
   );
@@ -230,7 +429,9 @@ function PageView({
 
 export function ReaderPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const homeworkId = searchParams.get('homework') || undefined;
 
   const [currentPage, setCurrentPage] = useState(0);
   const [showPinyin, setShowPinyin] = useState(false);
@@ -246,6 +447,14 @@ export function ReaderPage() {
     queryFn: () => getGradedReader(id!),
     enabled: !!id,
   });
+
+  const recordingsQuery = useQuery({
+    queryKey: ['homework-recordings', homeworkId],
+    queryFn: () => getHomeworkRecordings(homeworkId!),
+    enabled: !!homeworkId,
+  });
+
+  const recordings = recordingsQuery.data || [];
 
   const handleAnalyzeSentence = async (sentence: string) => {
     setAnalysisModal({ sentence, breakdown: null, isLoading: true });
@@ -274,6 +483,14 @@ export function ReaderPage() {
     }
   };
 
+  const handleBack = () => {
+    if (homeworkId) {
+      navigate('/homework');
+    } else {
+      navigate('/readers');
+    }
+  };
+
   if (readerQuery.isLoading) {
     return <Loading />;
   }
@@ -299,12 +516,22 @@ export function ReaderPage() {
   const page = reader.pages[currentPage];
   const difficultyStyle = DIFFICULTY_COLORS[reader.difficulty_level];
 
+  // Find recording for current page
+  const pageRecording = recordings.find(
+    (r) => r.page_id === page.id && r.type === 'page_reading'
+  );
+
+  // Calculate recording progress for homework mode
+  const pagesWithRecordings = homeworkId
+    ? new Set(recordings.filter((r) => r.type === 'page_reading').map((r) => r.page_id)).size
+    : 0;
+
   return (
     <div className="reader-page">
       {/* Header */}
       <header className="reader-header">
         <button
-          onClick={() => navigate('/readers')}
+          onClick={handleBack}
           className="reader-back-btn"
         >
           &larr;
@@ -314,17 +541,24 @@ export function ReaderPage() {
           <div className="reader-title">{reader.title_chinese}</div>
           <div className="reader-page-indicator">
             Page {currentPage + 1} of {reader.pages.length}
+            {homeworkId && (
+              <span style={{ marginLeft: '0.5rem', color: '#16a34a' }}>
+                ({pagesWithRecordings}/{reader.pages.length} recorded)
+              </span>
+            )}
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => navigate(`/readers/${id}/edit`)}
-            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-          >
-            Edit
-          </button>
+          {!homeworkId && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => navigate(`/readers/${id}/edit`)}
+              style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+            >
+              Edit
+            </button>
+          )}
           <span
             className="reader-difficulty-badge"
             style={{
@@ -357,6 +591,9 @@ export function ReaderPage() {
           onTogglePinyin={() => setShowPinyin(!showPinyin)}
           onToggleTranslation={() => setShowTranslation(!showTranslation)}
           onAnalyzeSentence={handleAnalyzeSentence}
+          homeworkId={homeworkId}
+          pageRecording={pageRecording}
+          isCompleted={false}
         />
       </div>
 
@@ -373,9 +610,9 @@ export function ReaderPage() {
         {currentPage === reader.pages.length - 1 ? (
           <button
             className="btn btn-primary reader-nav-btn"
-            onClick={() => navigate('/readers')}
+            onClick={handleBack}
           >
-            Finish
+            {homeworkId ? 'Back to Homework' : 'Finish'}
           </button>
         ) : (
           <button

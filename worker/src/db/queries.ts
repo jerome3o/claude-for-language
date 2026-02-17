@@ -20,6 +20,8 @@ import {
   HomeworkAssignment,
   HomeworkAssignmentWithDetails,
   HomeworkStatus,
+  HomeworkRecording,
+  HomeworkRecordingType,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -2192,5 +2194,67 @@ export async function deleteHomeworkAssignment(
     DELETE FROM homework_assignments
     WHERE id = ? AND tutor_id = ?
   `).bind(id, tutorId).run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+// ============ Homework Recordings ============
+
+export async function createHomeworkRecording(
+  db: D1Database,
+  homeworkId: string,
+  audioUrl: string,
+  type: HomeworkRecordingType,
+  pageId: string | null,
+  durationMs: number | null,
+): Promise<HomeworkRecording> {
+  const id = generateId();
+  await db.prepare(`
+    INSERT INTO homework_recordings (id, homework_id, page_id, audio_url, duration_ms, type)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(id, homeworkId, pageId, audioUrl, durationMs, type).run();
+
+  const row = await db.prepare('SELECT * FROM homework_recordings WHERE id = ?')
+    .bind(id).first<HomeworkRecording>();
+  return row!;
+}
+
+export async function getHomeworkRecordings(
+  db: D1Database,
+  homeworkId: string,
+): Promise<HomeworkRecording[]> {
+  const rows = await db.prepare(`
+    SELECT * FROM homework_recordings
+    WHERE homework_id = ?
+    ORDER BY recorded_at ASC
+  `).bind(homeworkId).all<HomeworkRecording>();
+  return rows.results;
+}
+
+export async function deleteHomeworkRecording(
+  db: D1Database,
+  recordingId: string,
+  homeworkId: string,
+): Promise<HomeworkRecording | null> {
+  const row = await db.prepare(
+    'SELECT * FROM homework_recordings WHERE id = ? AND homework_id = ?'
+  ).bind(recordingId, homeworkId).first<HomeworkRecording>();
+  if (!row) return null;
+
+  await db.prepare(
+    'DELETE FROM homework_recordings WHERE id = ? AND homework_id = ?'
+  ).bind(recordingId, homeworkId).run();
+  return row;
+}
+
+export async function submitHomework(
+  db: D1Database,
+  id: string,
+  studentId: string,
+): Promise<boolean> {
+  const result = await db.prepare(`
+    UPDATE homework_assignments
+    SET status = 'completed', completed_at = datetime('now')
+    WHERE id = ? AND student_id = ? AND status != 'completed'
+  `).bind(id, studentId).run();
   return (result.meta?.changes ?? 0) > 0;
 }
