@@ -250,7 +250,7 @@ function StudyCard({
   const [isAsking, setIsAsking] = useState(false);
   const [cardDeleted, setCardDeleted] = useState(false);
   const [pendingToolResults, setPendingToolResults] = useState<AskToolResult[] | null>(null);
-  const questionInputRef = useRef<HTMLInputElement>(null);
+  const questionInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -1073,8 +1073,8 @@ function StudyCard({
       { label: 'Explain characters', question: 'Please break down each character in this word, explaining the radicals, components, and individual meanings.' },
       { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
       { label: 'Check my answer', question: 'Is my answer grammatically and semantically correct? Please explain any errors.' },
-      { label: 'Verify my answer', question: 'Is my answer correct? If not, what\'s wrong with it and how can I improve?' },
       { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
+      { label: 'Add a fun fact', question: 'Please add an interesting fun fact, cultural context, or memory aid to this card by editing its fun_facts field using the edit_current_card tool.' },
     ];
 
     return (
@@ -1195,17 +1195,24 @@ function StudyCard({
 
           {!cardDeleted && (
             <div className="claude-input-row">
-              <input
+              <textarea
                 ref={questionInputRef}
-                type="text"
-                className="form-input"
+                className="form-input claude-autogrow-input"
                 value={question}
-                onChange={(e) => setQuestion(e.target.value)}
+                onChange={(e) => {
+                  setQuestion(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                }}
                 placeholder={pendingToolResults ? "Approve or reject changes first..." : "Ask a question..."}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAskClaude();
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleAskClaude();
+                  }
                 }}
                 disabled={isAsking || !!pendingToolResults}
+                rows={1}
               />
               <button
                 className="btn btn-primary"
