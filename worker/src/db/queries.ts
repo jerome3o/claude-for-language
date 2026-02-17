@@ -1468,7 +1468,7 @@ export async function getDeckSettings(
 
   return {
     request_retention: deck.request_retention || 0.9,
-    maximum_interval: 36500,  // Default max ~100 years
+    maximum_interval: deck.maximum_interval || 36500,
     enable_fuzz: true,
     w: weights,
   };
@@ -1493,6 +1493,7 @@ export async function updateDeckSettings(
     interval_modifier: number;
     hard_multiplier: number;
     easy_bonus: number;
+    maximum_interval: number;
   }>
 ): Promise<Deck | null> {
   const existing = await getDeckById(db, deckId, userId);
@@ -1544,6 +1545,10 @@ export async function updateDeckSettings(
   if (settings.easy_bonus !== undefined) {
     updates.push('easy_bonus = ?');
     values.push(settings.easy_bonus);
+  }
+  if (settings.maximum_interval !== undefined) {
+    updates.push('maximum_interval = ?');
+    values.push(settings.maximum_interval);
   }
 
   if (updates.length === 0) {

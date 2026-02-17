@@ -71,6 +71,7 @@ export interface Deck {
   interval_modifier: number;  // Stored as percentage, e.g., 100 = 1.0
   hard_multiplier: number;  // Stored as percentage, e.g., 120 = 1.2
   easy_bonus: number;  // Stored as percentage, e.g., 130 = 1.3
+  maximum_interval: number;  // Maximum review interval in days, default 36500
   created_at: string;
   updated_at: string;
 }
