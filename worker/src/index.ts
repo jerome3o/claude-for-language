@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import Anthropic from '@anthropic-ai/sdk';
 import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
@@ -1040,6 +1041,67 @@ app.post('/api/notes/:id/regenerate-audio', async (c) => {
   } catch (error) {
     console.error('MiniMax TTS generation error:', error);
     return c.json({ error: 'Failed to generate audio' }, 500);
+  }
+});
+
+// Generate sentence clue for a note
+app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 500);
+  }
+
+  try {
+    // Generate a simple example sentence using the note's hanzi
+    const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+
+    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones. Return ONLY the Chinese sentence, nothing else.`;
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 100,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const textContent = response.content.find(c => c.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
+      return c.json({ error: 'Failed to generate sentence' }, 500);
+    }
+
+    const sentenceClue = textContent.text.trim();
+
+    // Generate TTS for the sentence clue
+    let sentenceClueAudioUrl: string | null = null;
+    if (c.env.GOOGLE_TTS_API_KEY || c.env.MINIMAX_API_KEY) {
+      try {
+        const audioResult = await generateTTS(c.env, sentenceClue, `${id}-sentence`);
+        if (audioResult) {
+          sentenceClueAudioUrl = audioResult.audioKey;
+        }
+      } catch (error) {
+        console.error('Failed to generate sentence clue audio:', error);
+        // Continue without audio
+      }
+    }
+
+    // Update the note with sentence clue
+    await db.updateNote(c.env.DB, id, userId, {
+      sentenceClue,
+      sentenceClueAudioUrl: sentenceClueAudioUrl ?? undefined,
+    });
+
+    const updatedNote = await db.getNoteById(c.env.DB, id, userId);
+    return c.json(updatedNote);
+  } catch (error) {
+    console.error('Sentence clue generation error:', error);
+    return c.json({ error: 'Failed to generate sentence clue' }, 500);
   }
 });
 

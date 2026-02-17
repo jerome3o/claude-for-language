@@ -2049,6 +2049,8 @@ export function DeckDetailPage() {
                             audio_provider: noteData.audio_provider,
                             fun_facts: noteData.fun_facts,
                             context: noteData.context,
+                            sentence_clue: noteData.sentence_clue || null,
+                            sentence_clue_audio_url: noteData.sentence_clue_audio_url || null,
                             created_at: noteData.created_at,
                             updated_at: noteData.updated_at,
                           },

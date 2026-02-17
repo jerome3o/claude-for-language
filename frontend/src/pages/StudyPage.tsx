@@ -14,6 +14,7 @@ import {
   GenerateAudioOptions,
   getNoteAudioRecordings,
   generateNoteAudioRecording,
+  generateSentenceClue,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -286,6 +287,10 @@ function StudyCard({
   // Flag for tutor checkbox state (modal is handled by parent)
   const [flagForTutor, setFlagForTutor] = useState(false);
 
+  // Sentence clue state
+  const [showSentenceClue, setShowSentenceClue] = useState(false);
+  const [isGeneratingSentence, setIsGeneratingSentence] = useState(false);
+
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio } = useNoteAudio();
@@ -461,6 +466,31 @@ function StudyCard({
   const handleFlip = () => {
     if (!flipped) {
       setFlipped(true);
+    }
+  };
+
+  const handleGenerateSentenceClue = async () => {
+    setIsGeneratingSentence(true);
+    try {
+      const updatedNote = await generateSentenceClue(card.note.id);
+      // Update the local card with the new sentence clue
+      onUpdateNote(updatedNote);
+      // Also update IndexedDB
+      await db.notes.update(card.note.id, {
+        sentence_clue: updatedNote.sentence_clue,
+        sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
+      });
+      setShowSentenceClue(true);
+    } catch (error) {
+      console.error('Failed to generate sentence clue:', error);
+    } finally {
+      setIsGeneratingSentence(false);
+    }
+  };
+
+  const playSentenceClue = () => {
+    if (card.note.sentence_clue_audio_url) {
+      playAudio(card.note.sentence_clue_audio_url, card.note.sentence_clue || '', API_BASE);
     }
   };
 
@@ -1361,6 +1391,60 @@ function StudyCard({
               <div className={`study-card-main ${isTypingCard ? 'study-card-main--typing' : ''}`}>
                 {renderFront()}
               </div>
+
+              {/* Sentence clue section */}
+              {!flipped && (
+                <div className="mt-3 mb-3" style={{ textAlign: 'center' }}>
+                  {!showSentenceClue ? (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        if (card.note.sentence_clue) {
+                          setShowSentenceClue(true);
+                        } else {
+                          handleGenerateSentenceClue();
+                        }
+                      }}
+                      disabled={isGeneratingSentence || !isOnline}
+                      title={!isOnline ? 'Requires internet connection' : ''}
+                    >
+                      {isGeneratingSentence ? 'Generating...' : 'Use in Sentence'}
+                    </button>
+                  ) : (
+                    <div
+                      style={{
+                        padding: '0.75rem',
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        borderRadius: '8px',
+                        display: 'inline-block',
+                        minWidth: '200px',
+                      }}
+                    >
+                      <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+                        {card.note.sentence_clue}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                        {card.note.sentence_clue_audio_url && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={playSentenceClue}
+                            disabled={isPlaying}
+                          >
+                            Play
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setShowSentenceClue(false)}
+                        >
+                          Hide
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="study-card-actions text-center">
                 {isTypingCard ? (
                   renderTypingActions()

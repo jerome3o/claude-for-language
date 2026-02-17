@@ -85,6 +85,8 @@ export interface Note {
   audio_provider: AudioProvider | null;
   fun_facts: string | null;
   context: string | null;  // Conversation context shown on card front
+  sentence_clue: string | null;  // Example sentence for disambiguation
+  sentence_clue_audio_url: string | null;  // Audio for sentence clue
   created_at: string;
   updated_at: string;
 }
