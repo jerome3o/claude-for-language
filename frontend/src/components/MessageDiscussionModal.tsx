@@ -26,7 +26,7 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
   const [selectedCards, setSelectedCards] = useState<Set<number>>(new Set());
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (contentRef.current) {
@@ -216,17 +216,24 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
 
         {/* Input */}
         <div className="claude-input-row">
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
-            className="form-input"
+            className="form-input claude-autogrow-input"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+            }}
             placeholder="Ask about this message..."
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSend();
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
             }}
             disabled={isLoading}
+            rows={1}
           />
           <button
             className="btn btn-primary"

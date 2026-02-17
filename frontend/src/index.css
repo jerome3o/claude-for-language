@@ -860,6 +860,7 @@ html:has(.study-page-fullscreen) .header {
 
 .claude-input-row {
   display: flex;
+  align-items: flex-end;
   gap: 0.375rem;
   padding: 0.5rem;
   border-top: 1px solid var(--color-border);
@@ -875,6 +876,14 @@ html:has(.study-page-fullscreen) .header {
 
 .claude-input-row .form-input {
   flex: 1;
+}
+
+.claude-autogrow-input {
+  resize: none;
+  overflow-y: auto;
+  min-height: 2.25rem;
+  max-height: 120px;
+  line-height: 1.4;
 }
 
 /* Tool result indicators */
