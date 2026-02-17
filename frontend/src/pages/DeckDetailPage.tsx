@@ -2050,6 +2050,8 @@ export function DeckDetailPage() {
                             fun_facts: noteData.fun_facts,
                             context: noteData.context,
                             sentence_clue: noteData.sentence_clue || null,
+                            sentence_clue_pinyin: noteData.sentence_clue_pinyin || null,
+                            sentence_clue_translation: noteData.sentence_clue_translation || null,
                             sentence_clue_audio_url: noteData.sentence_clue_audio_url || null,
                             created_at: noteData.created_at,
                             updated_at: noteData.updated_at,

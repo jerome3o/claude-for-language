@@ -16,7 +16,7 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 interface CardEditModalProps {
   card: CardWithNote;
   onClose: () => void;
-  onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null; sentence_clue: string | null; sentence_clue_audio_url: string | null }) => void;
+  onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null; sentence_clue: string | null; sentence_clue_pinyin: string | null; sentence_clue_translation: string | null; sentence_clue_audio_url: string | null }) => void;
   onDeleteCard?: () => void;
 }
 
@@ -26,6 +26,8 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const [english, setEnglish] = useState(card.note.english);
   const [funFacts, setFunFacts] = useState(card.note.fun_facts || '');
   const [sentenceClue, setSentenceClue] = useState(card.note.sentence_clue || '');
+  const [sentenceCluePinyin, setSentenceCluePinyin] = useState(card.note.sentence_clue_pinyin || '');
+  const [sentenceClueTranslation, setSentenceClueTranslation] = useState(card.note.sentence_clue_translation || '');
   const [sentenceClueAudioUrl, setSentenceClueAudioUrl] = useState(card.note.sentence_clue_audio_url || null);
 
   const [recordings, setRecordings] = useState<NoteAudioRecording[]>([]);
@@ -90,12 +92,16 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
     setSaving(true);
     try {
       const sentenceClueValue = sentenceClue.trim() || null;
+      const sentenceCluePinyinValue = sentenceCluePinyin.trim() || null;
+      const sentenceClueTranslationValue = sentenceClueTranslation.trim() || null;
       await updateNote(card.note.id, {
         hanzi,
         pinyin,
         english,
         fun_facts: funFacts || undefined,
         sentence_clue: sentenceClueValue,
+        sentence_clue_pinyin: sentenceClueValue ? sentenceCluePinyinValue : null,
+        sentence_clue_translation: sentenceClueValue ? sentenceClueTranslationValue : null,
         sentence_clue_audio_url: sentenceClueValue ? sentenceClueAudioUrl : null,
       });
       const primary = recordings.find(r => r.is_primary);
@@ -106,6 +112,8 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
         fun_facts: funFacts || null,
         audio_url: primary?.audio_url || card.note.audio_url,
         sentence_clue: sentenceClueValue,
+        sentence_clue_pinyin: sentenceClueValue ? sentenceCluePinyinValue : null,
+        sentence_clue_translation: sentenceClueValue ? sentenceClueTranslationValue : null,
         sentence_clue_audio_url: sentenceClueValue ? sentenceClueAudioUrl : null,
       });
       onClose();
@@ -155,6 +163,8 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
     try {
       const updatedNote = await generateSentenceClue(card.note.id);
       setSentenceClue(updatedNote.sentence_clue || '');
+      setSentenceCluePinyin(updatedNote.sentence_clue_pinyin || '');
+      setSentenceClueTranslation(updatedNote.sentence_clue_translation || '');
       setSentenceClueAudioUrl(updatedNote.sentence_clue_audio_url || null);
     } catch (err) {
       console.error('Failed to generate sentence clue:', err);
@@ -260,6 +270,26 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
                   placeholder="Example sentence using this word..."
                 />
               </div>
+              <div className="card-edit-field">
+                <label>Pinyin</label>
+                <input
+                  type="text"
+                  value={sentenceCluePinyin}
+                  onChange={e => setSentenceCluePinyin(e.target.value)}
+                  className="form-input"
+                  placeholder="Sentence pinyin..."
+                />
+              </div>
+              <div className="card-edit-field">
+                <label>Translation</label>
+                <input
+                  type="text"
+                  value={sentenceClueTranslation}
+                  onChange={e => setSentenceClueTranslation(e.target.value)}
+                  className="form-input"
+                  placeholder="English translation..."
+                />
+              </div>
             </div>
             <div className="card-edit-audio-actions">
               <button
@@ -282,6 +312,8 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
                     setSentenceClue('');
+                    setSentenceCluePinyin('');
+                    setSentenceClueTranslation('');
                     setSentenceClueAudioUrl(null);
                   }}
                 >

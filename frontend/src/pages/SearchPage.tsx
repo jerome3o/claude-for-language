@@ -127,6 +127,8 @@ export function SearchPage() {
         fun_facts: note.fun_facts,
         context: note.context,
         sentence_clue: note.sentence_clue || null,
+        sentence_clue_pinyin: note.sentence_clue_pinyin || null,
+        sentence_clue_translation: note.sentence_clue_translation || null,
         sentence_clue_audio_url: note.sentence_clue_audio_url || null,
         created_at: note.created_at,
         updated_at: note.updated_at,

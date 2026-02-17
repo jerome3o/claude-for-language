@@ -208,7 +208,11 @@ export async function askAboutNote(
   }
 
   if (note.sentence_clue) {
-    vocabContextParts.push(`- Sentence clue: ${note.sentence_clue}${note.sentence_clue_audio_url ? ' (has audio)' : ''}`);
+    let clueStr = `- Sentence clue: ${note.sentence_clue}`;
+    if (note.sentence_clue_pinyin) clueStr += ` (${note.sentence_clue_pinyin})`;
+    if (note.sentence_clue_translation) clueStr += ` — ${note.sentence_clue_translation}`;
+    if (note.sentence_clue_audio_url) clueStr += ' (has audio)';
+    vocabContextParts.push(clueStr);
   }
 
   // Add user's answer context if provided
@@ -301,7 +305,7 @@ function getAskNoteTools(note: Note) {
   return [
     {
       name: 'edit_current_card',
-      description: `Edit the current flashcard's note. The current card has: hanzi="${note.hanzi}", pinyin="${note.pinyin}", english="${note.english}", fun_facts="${note.fun_facts || ''}", sentence_clue="${note.sentence_clue || ''}". Only provide the fields you want to change.`,
+      description: `Edit the current flashcard's note. The current card has: hanzi="${note.hanzi}", pinyin="${note.pinyin}", english="${note.english}", fun_facts="${note.fun_facts || ''}", sentence_clue="${note.sentence_clue || ''}", sentence_clue_pinyin="${note.sentence_clue_pinyin || ''}", sentence_clue_translation="${note.sentence_clue_translation || ''}". Only provide the fields you want to change.`,
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -310,6 +314,8 @@ function getAskNoteTools(note: Note) {
           english: { type: 'string', description: 'Updated English translation' },
           fun_facts: { type: 'string', description: 'Updated cultural context, usage notes, or memory aids' },
           sentence_clue: { type: 'string', description: 'A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words. Useful for homophones.' },
+          sentence_clue_pinyin: { type: 'string', description: 'Pinyin for the sentence clue' },
+          sentence_clue_translation: { type: 'string', description: 'English translation of the sentence clue' },
         },
       },
     },
@@ -480,7 +486,11 @@ export async function askAboutNoteWithTools(
   }
 
   if (note.sentence_clue) {
-    vocabContextParts.push(`- Sentence clue: ${note.sentence_clue}${note.sentence_clue_audio_url ? ' (has audio)' : ''}`);
+    let clueStr = `- Sentence clue: ${note.sentence_clue}`;
+    if (note.sentence_clue_pinyin) clueStr += ` (${note.sentence_clue_pinyin})`;
+    if (note.sentence_clue_translation) clueStr += ` — ${note.sentence_clue_translation}`;
+    if (note.sentence_clue_audio_url) clueStr += ' (has audio)';
+    vocabContextParts.push(clueStr);
   }
 
   // Add enhanced context from DB if available
@@ -740,10 +750,10 @@ async function executeReadOnlyTool(
       case 'get_note_cards': {
         const noteId = input.note_id as string;
         const note = await ctx.db.prepare(`
-          SELECT n.hanzi, n.pinyin, n.english, n.sentence_clue, n.sentence_clue_audio_url FROM notes n
+          SELECT n.hanzi, n.pinyin, n.english, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url FROM notes n
           JOIN decks d ON n.deck_id = d.id
           WHERE n.id = ? AND d.user_id = ?
-        `).bind(noteId, ctx.userId).first<{ hanzi: string; pinyin: string; english: string; sentence_clue: string | null; sentence_clue_audio_url: string | null }>();
+        `).bind(noteId, ctx.userId).first<{ hanzi: string; pinyin: string; english: string; sentence_clue: string | null; sentence_clue_pinyin: string | null; sentence_clue_translation: string | null; sentence_clue_audio_url: string | null }>();
         if (!note) return { error: 'Note not found' };
 
         const cards = await ctx.db.prepare(`
@@ -756,16 +766,16 @@ async function executeReadOnlyTool(
           ...c,
           queue_name: queueNames[c.queue as number] || 'unknown',
         }));
-        return { note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english, sentence_clue: note.sentence_clue, sentence_clue_audio_url: note.sentence_clue_audio_url }, cards: cardsWithLabels };
+        return { note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english, sentence_clue: note.sentence_clue, sentence_clue_pinyin: note.sentence_clue_pinyin, sentence_clue_translation: note.sentence_clue_translation, sentence_clue_audio_url: note.sentence_clue_audio_url }, cards: cardsWithLabels };
       }
 
       case 'get_note_history': {
         const noteId = input.note_id as string;
         const noteCheck = await ctx.db.prepare(`
-          SELECT n.hanzi, n.pinyin, n.english, n.sentence_clue, n.sentence_clue_audio_url FROM notes n
+          SELECT n.hanzi, n.pinyin, n.english, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url FROM notes n
           JOIN decks d ON n.deck_id = d.id
           WHERE n.id = ? AND d.user_id = ?
-        `).bind(noteId, ctx.userId).first<{ hanzi: string; pinyin: string; english: string; sentence_clue: string | null; sentence_clue_audio_url: string | null }>();
+        `).bind(noteId, ctx.userId).first<{ hanzi: string; pinyin: string; english: string; sentence_clue: string | null; sentence_clue_pinyin: string | null; sentence_clue_translation: string | null; sentence_clue_audio_url: string | null }>();
         if (!noteCheck) return { error: 'Note not found' };
 
         const reviews = await ctx.db.prepare(`
@@ -792,7 +802,7 @@ async function executeReadOnlyTool(
           });
         }
         return {
-          note: { hanzi: noteCheck.hanzi, pinyin: noteCheck.pinyin, english: noteCheck.english, sentence_clue: noteCheck.sentence_clue, sentence_clue_audio_url: noteCheck.sentence_clue_audio_url },
+          note: { hanzi: noteCheck.hanzi, pinyin: noteCheck.pinyin, english: noteCheck.english, sentence_clue: noteCheck.sentence_clue, sentence_clue_pinyin: noteCheck.sentence_clue_pinyin, sentence_clue_translation: noteCheck.sentence_clue_translation, sentence_clue_audio_url: noteCheck.sentence_clue_audio_url },
           total_reviews: reviews.results.length,
           history_by_card_type: byCardType,
         };

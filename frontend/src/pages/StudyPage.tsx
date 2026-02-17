@@ -478,6 +478,8 @@ function StudyCard({
       // Also update IndexedDB
       await db.notes.update(card.note.id, {
         sentence_clue: updatedNote.sentence_clue,
+        sentence_clue_pinyin: updatedNote.sentence_clue_pinyin,
+        sentence_clue_translation: updatedNote.sentence_clue_translation,
         sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
       });
       setShowSentenceClue(true);
@@ -1488,9 +1490,19 @@ function StudyCard({
                         minWidth: '200px',
                       }}
                     >
-                      <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+                      <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>
                         {card.note.sentence_clue}
                       </div>
+                      {card.note.sentence_clue_pinyin && (
+                        <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.25rem' }}>
+                          {card.note.sentence_clue_pinyin}
+                        </div>
+                      )}
+                      {card.note.sentence_clue_translation && (
+                        <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.5rem' }}>
+                          {card.note.sentence_clue_translation}
+                        </div>
+                      )}
                       {card.note.sentence_clue_audio_url && (
                         <button
                           className="btn btn-secondary btn-sm"
@@ -1542,6 +1554,8 @@ function StudyCard({
               fun_facts: updatedNote.fun_facts,
               audio_url: updatedNote.audio_url,
               sentence_clue: updatedNote.sentence_clue,
+              sentence_clue_pinyin: updatedNote.sentence_clue_pinyin,
+              sentence_clue_translation: updatedNote.sentence_clue_translation,
               sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
             });
             // Refresh recordings list
