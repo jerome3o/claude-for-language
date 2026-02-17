@@ -104,6 +104,7 @@ export function SearchPage() {
       if (note.english.toLowerCase().includes(q)) return true;
       if (note.pinyin.toLowerCase().includes(q)) return true;
       if (stripTones(note.pinyin).includes(qStripped)) return true;
+      if (note.sentence_clue && note.sentence_clue.toLowerCase().includes(q)) return true;
       return false;
     });
   }, [debouncedQuery, allNotes]);
@@ -218,6 +219,9 @@ export function SearchPage() {
                 <span className="search-result-hanzi">{note.hanzi}</span>
                 <span className="search-result-pinyin">{note.pinyin}</span>
                 <span className="search-result-english">{note.english}</span>
+                {note.sentence_clue && (
+                  <span className="search-result-sentence-clue">{note.sentence_clue}</span>
+                )}
               </div>
 
               <div className="search-result-ratings">

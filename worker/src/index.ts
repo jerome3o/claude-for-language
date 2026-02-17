@@ -782,6 +782,8 @@ app.put('/api/notes/:id', async (c) => {
     pinyin?: string;
     english?: string;
     fun_facts?: string;
+    sentence_clue?: string | null;
+    sentence_clue_audio_url?: string | null;
   }>();
 
   const note = await db.updateNote(c.env.DB, id, userId, {
@@ -789,6 +791,8 @@ app.put('/api/notes/:id', async (c) => {
     pinyin: updates.pinyin,
     english: updates.english,
     funFacts: updates.fun_facts,
+    sentenceClue: updates.sentence_clue ?? undefined,
+    sentenceClueAudioUrl: updates.sentence_clue_audio_url ?? undefined,
   });
 
   if (!note) {
