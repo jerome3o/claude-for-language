@@ -478,7 +478,11 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
     card.ease_factor,
     card.interval,
     card.repetitions,
-    settings
+    settings,
+    card.stability,
+    card.difficulty,
+    card.lapses,
+    card.updated_at
   );
 }
 
@@ -527,13 +531,17 @@ export function useSubmitReviewOffline() {
         card.ease_factor,
         card.interval,
         card.repetitions,
-        settings
+        settings,
+        card.stability,
+        card.difficulty,
+        card.lapses,
+        card.updated_at
       );
 
       const reviewId = crypto.randomUUID();
       const reviewedAt = new Date().toISOString();
 
-      // Update card with new state - this is the critical path for UI responsiveness
+      // Update card with new state (including FSRS fields) - this is the critical path for UI responsiveness
       await db.cards.update(cardId, {
         queue: result.queue,
         learning_step: result.learning_step,
@@ -542,6 +550,9 @@ export function useSubmitReviewOffline() {
         repetitions: result.repetitions,
         next_review_at: result.next_review_at?.toISOString() || null,
         due_timestamp: result.due_timestamp,
+        stability: result.stability,
+        difficulty: result.difficulty,
+        lapses: result.lapses,
         updated_at: reviewedAt,
       });
 

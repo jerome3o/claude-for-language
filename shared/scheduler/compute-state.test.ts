@@ -421,3 +421,161 @@ describe('FSRS Properties', () => {
     expect(easyCard.difficulty).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('FSRS 4x Easy - Interval Growth Bug Regression', () => {
+  // This test suite verifies the fix for a critical bug where FSRS state
+  // (stability, difficulty, lapses) was lost between reviews, causing
+  // intervals to never grow beyond ~1-2 weeks even after many Easy ratings.
+  //
+  // The bug was caused by:
+  // 1. scheduleCard/getIntervalPreview callers not passing stability/difficulty/lapses
+  // 2. Card updates not saving stability/difficulty/lapses back to IndexedDB
+  // 3. last_reviewed_at being null, so FSRS calculated elapsed_days as 0
+
+  it('stability grows rapidly with consecutive Easy ratings', () => {
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    // First review: Easy (skips learning, goes to Review)
+    let state = applyReview(initialCardState(), 3, DEFAULT_DECK_SETTINGS, now.toISOString());
+    expect(state.queue).toBe(CardQueue.REVIEW);
+    const stabilityAfterFirst = state.stability;
+    expect(stabilityAfterFirst).toBeGreaterThan(0);
+
+    // Second review: Easy, 5 days later
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 5).toISOString());
+    expect(state.stability).toBeGreaterThan(stabilityAfterFirst);
+
+    // Third review: Easy, 4 more days later
+    const stabilityBefore3 = state.stability;
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 9).toISOString());
+    expect(state.stability).toBeGreaterThan(stabilityBefore3);
+
+    // Fourth review: Easy, 6 more days later
+    const stabilityBefore4 = state.stability;
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 15).toISOString());
+    expect(state.stability).toBeGreaterThan(stabilityBefore4);
+
+    // After 4 Easy reviews, stability should be well above 30 days
+    expect(state.stability).toBeGreaterThan(30);
+  });
+
+  it('difficulty decreases with consecutive Easy ratings', () => {
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    // First review: Easy
+    let state = applyReview(initialCardState(), 3, DEFAULT_DECK_SETTINGS, now.toISOString());
+    const difficultyAfterFirst = state.difficulty;
+
+    // More Easy reviews
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 5).toISOString());
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 9).toISOString());
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 15).toISOString());
+
+    // Difficulty should be at or near minimum (1.0)
+    expect(state.difficulty).toBeLessThanOrEqual(difficultyAfterFirst);
+    expect(state.difficulty).toBeGreaterThanOrEqual(1);
+    expect(state.difficulty).toBeLessThan(3); // Should be low after 4 Easy
+  });
+
+  it('interval preview shows months-long intervals after 4 Easy reviews', () => {
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    // Simulate 4 Easy reviews
+    let state = applyReview(initialCardState(), 3, DEFAULT_DECK_SETTINGS, now.toISOString());
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 5).toISOString());
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 9).toISOString());
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, addDays(now, 15).toISOString());
+
+    // Get previews 7 days after last review
+    const previewTime = addDays(now, 22);
+    const previews = getIntervalPreviews(state, DEFAULT_DECK_SETTINGS, previewTime);
+
+    const easyPreview = previews.find(p => p.rating === 3)!;
+    const goodPreview = previews.find(p => p.rating === 2)!;
+
+    // After 4 Easy reviews, next Easy should be well over 30 days (months)
+    expect(easyPreview.intervalDays).toBeGreaterThan(30);
+    expect(goodPreview.intervalDays).toBeGreaterThan(30);
+
+    // These should NOT be showing ~1-2 weeks (the bug behavior)
+    expect(easyPreview.intervalDays).toBeGreaterThan(14);
+    expect(goodPreview.intervalDays).toBeGreaterThan(14);
+  });
+
+  it('computeCardState produces correct results for 4 Easy events', () => {
+    const cardId = 'test-easy-card';
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    const events = [
+      createEvent(cardId, 3, now.toISOString()),                    // Easy
+      createEvent(cardId, 3, addDays(now, 5).toISOString()),        // Easy, 5 days later
+      createEvent(cardId, 3, addDays(now, 9).toISOString()),        // Easy, 4 more days
+      createEvent(cardId, 3, addDays(now, 15).toISOString()),       // Easy, 6 more days
+    ];
+
+    const state = computeCardState(events);
+
+    // Should be in Review queue
+    expect(state.queue).toBe(CardQueue.REVIEW);
+    // 4 successful reviews
+    expect(state.reps).toBe(4);
+    // No lapses
+    expect(state.lapses).toBe(0);
+    // High stability (well over 30 days)
+    expect(state.stability).toBeGreaterThan(30);
+    // Low difficulty (near minimum)
+    expect(state.difficulty).toBeLessThan(3);
+    // Interval should be weeks to months, not days
+    expect(state.interval).toBeGreaterThan(14);
+  });
+
+  it('state is preserved across applyReview calls (no state loss)', () => {
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    // First review
+    let state = applyReview(initialCardState(), 3, DEFAULT_DECK_SETTINGS, now.toISOString());
+
+    // Verify FSRS fields are set
+    expect(state.stability).toBeGreaterThan(0);
+    expect(state.difficulty).toBeGreaterThan(0);
+
+    // Simulate what happens when we reconstruct state from stored fields
+    // (This is what the bug did - it dropped stability/difficulty)
+    const reconstructedState: typeof state = {
+      ...state,
+      // These fields should be preserved - the bug was they were reset to 0/5
+      stability: state.stability,
+      difficulty: state.difficulty,
+      lapses: state.lapses,
+    };
+
+    // Second review using reconstructed state
+    const state2 = applyReview(reconstructedState, 3, DEFAULT_DECK_SETTINGS, addDays(now, 5).toISOString());
+
+    // Stability should grow (not reset)
+    expect(state2.stability).toBeGreaterThan(state.stability);
+    // Difficulty should decrease or stay same (not jump to 5)
+    expect(state2.difficulty).toBeLessThanOrEqual(state.difficulty);
+  });
+
+  it('last_reviewed_at affects elapsed_days calculation', () => {
+    const now = new Date('2024-01-01T12:00:00Z');
+
+    // First review: Easy
+    let state = applyReview(initialCardState(), 3, DEFAULT_DECK_SETTINGS, now.toISOString());
+
+    // Verify last_reviewed_at is set
+    expect(state.last_reviewed_at).toBe(now.toISOString());
+
+    // Second review 10 days later
+    const secondReview = addDays(now, 10);
+    state = applyReview(state, 3, DEFAULT_DECK_SETTINGS, secondReview.toISOString());
+
+    // last_reviewed_at should be updated
+    expect(state.last_reviewed_at).toBe(secondReview.toISOString());
+
+    // Stability should have grown significantly (because 10 days elapsed)
+    // If last_reviewed_at was null, elapsed_days would be 0 and stability growth would be minimal
+    expect(state.stability).toBeGreaterThan(10);
+  });
+});

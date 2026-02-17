@@ -88,6 +88,7 @@ export function scheduleCard(
   currentStability: number = 0,
   currentDifficulty: number = 0,
   currentLapses: number = 0,
+  lastReviewedAt: string | null = null,
 ): SchedulerResult {
   const now = new Date();
   const nowIso = now.toISOString();
@@ -102,7 +103,7 @@ export function scheduleCard(
     lapses: currentLapses,
     next_review_at: null,
     due_timestamp: null,
-    last_reviewed_at: null, // Not available in this context
+    last_reviewed_at: lastReviewedAt,
     ease_factor: currentEaseFactor,
     interval: currentInterval,
     repetitions: currentRepetitions,
@@ -140,6 +141,7 @@ export function getIntervalPreview(
   currentStability: number = 0,
   currentDifficulty: number = 0,
   currentLapses: number = 0,
+  lastReviewedAt: string | null = null,
 ): IntervalPreview {
   const now = new Date();
 
@@ -153,7 +155,7 @@ export function getIntervalPreview(
     lapses: currentLapses,
     next_review_at: null,
     due_timestamp: null,
-    last_reviewed_at: null, // Not available in this context
+    last_reviewed_at: lastReviewedAt,
     ease_factor: currentEaseFactor,
     interval: currentInterval,
     repetitions: currentRepetitions,
