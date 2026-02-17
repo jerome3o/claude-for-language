@@ -24,6 +24,8 @@ import {
   HomeworkRecordingType,
   HomeworkFeedback,
   HomeworkFeedbackType,
+  AppNotification,
+  NotificationType,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -2343,4 +2345,73 @@ export async function markHomeworkReviewed(
     WHERE id = ? AND tutor_id = ? AND status = 'completed'
   `).bind(id, tutorId).run();
   return (result.meta?.changes ?? 0) > 0;
+}
+
+// ============ Notifications ============
+
+export async function createNotification(
+  db: D1Database,
+  userId: string,
+  type: NotificationType,
+  title: string,
+  message: string | null,
+  homeworkId: string | null,
+): Promise<AppNotification> {
+  const id = generateId();
+  await db.prepare(`
+    INSERT INTO notifications (id, user_id, type, title, message, homework_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(id, userId, type, title, message, homeworkId).run();
+
+  const row = await db.prepare('SELECT * FROM notifications WHERE id = ?')
+    .bind(id).first<AppNotification>();
+  return row!;
+}
+
+export async function getNotifications(
+  db: D1Database,
+  userId: string,
+  limit: number = 50,
+): Promise<AppNotification[]> {
+  const rows = await db.prepare(`
+    SELECT * FROM notifications
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).bind(userId, limit).all<AppNotification>();
+  return rows.results;
+}
+
+export async function getUnreadNotificationCount(
+  db: D1Database,
+  userId: string,
+): Promise<number> {
+  const row = await db.prepare(`
+    SELECT COUNT(*) as count FROM notifications
+    WHERE user_id = ? AND is_read = 0
+  `).bind(userId).first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+export async function markNotificationRead(
+  db: D1Database,
+  notificationId: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await db.prepare(`
+    UPDATE notifications SET is_read = 1
+    WHERE id = ? AND user_id = ?
+  `).bind(notificationId, userId).run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+export async function markAllNotificationsRead(
+  db: D1Database,
+  userId: string,
+): Promise<number> {
+  const result = await db.prepare(`
+    UPDATE notifications SET is_read = 1
+    WHERE user_id = ? AND is_read = 0
+  `).bind(userId).run();
+  return result.meta?.changes ?? 0;
 }

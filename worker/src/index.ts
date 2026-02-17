@@ -32,7 +32,7 @@ import {
   generateState,
   getAllUsersWithStats,
 } from './services/auth';
-import { notifyNewUser } from './services/notifications';
+import { notifyNewUser, notifyHomeworkAssigned, notifyHomeworkSubmitted, notifyHomeworkReviewed } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
 import {
@@ -2155,6 +2155,23 @@ app.post('/api/homework', async (c) => {
   const assignment = await db.createHomeworkAssignment(
     c.env.DB, user.id, student_id, reader_id, notes || null
   );
+
+  // Notify student of new homework assignment
+  const readerTitle = reader.title_english || reader.title_chinese;
+  c.executionCtx.waitUntil(
+    db.createNotification(
+      c.env.DB,
+      student_id,
+      'homework_assigned',
+      'New Homework Assigned',
+      `${user.name || 'Your tutor'} assigned you "${readerTitle}"`,
+      assignment.id,
+    ).catch(err => console.error('[Notifications] Failed to create assignment notification:', err))
+  );
+  c.executionCtx.waitUntil(
+    notifyHomeworkAssigned(c.env.NTFY_TOPIC, user.name || 'Tutor', readerTitle)
+  );
+
   return c.json(assignment, 201);
 });
 
@@ -2326,6 +2343,22 @@ app.post('/api/homework/:id/submit', async (c) => {
   if (!submitted) {
     return c.json({ error: 'Failed to submit homework' }, 500);
   }
+
+  // Notify tutor that student submitted homework
+  const submitReaderTitle = hw.reader_title_english || hw.reader_title_chinese;
+  c.executionCtx.waitUntil(
+    db.createNotification(
+      c.env.DB,
+      hw.tutor_id,
+      'homework_submitted',
+      'Homework Submitted',
+      `${hw.student_name || 'Your student'} submitted "${submitReaderTitle}"`,
+      homeworkId,
+    ).catch(err => console.error('[Notifications] Failed to create submission notification:', err))
+  );
+  c.executionCtx.waitUntil(
+    notifyHomeworkSubmitted(c.env.NTFY_TOPIC, hw.student_name || 'Student', submitReaderTitle)
+  );
 
   const updated = await db.getHomeworkAssignment(c.env.DB, homeworkId, userId);
   return c.json(updated);
@@ -2505,8 +2538,58 @@ app.post('/api/homework/:id/review-complete', async (c) => {
     return c.json({ error: 'Homework must be completed before review' }, 400);
   }
 
+  // Notify student that tutor completed review
+  const reviewReaderTitle = hw.reader_title_english || hw.reader_title_chinese;
+  c.executionCtx.waitUntil(
+    db.createNotification(
+      c.env.DB,
+      hw.student_id,
+      'homework_reviewed',
+      'Homework Reviewed',
+      `${user.name || 'Your tutor'} reviewed "${reviewReaderTitle}"`,
+      homeworkId,
+    ).catch(err => console.error('[Notifications] Failed to create review notification:', err))
+  );
+  c.executionCtx.waitUntil(
+    notifyHomeworkReviewed(c.env.NTFY_TOPIC, user.name || 'Tutor', reviewReaderTitle)
+  );
+
   const updated = await db.getHomeworkAssignment(c.env.DB, homeworkId, user.id);
   return c.json(updated);
+});
+
+// ============ Notifications ============
+
+// List notifications for the current user
+app.get('/api/notifications', async (c) => {
+  const userId = c.get('user').id;
+  const notifications = await db.getNotifications(c.env.DB, userId);
+  return c.json(notifications);
+});
+
+// Get unread notification count
+app.get('/api/notifications/unread-count', async (c) => {
+  const userId = c.get('user').id;
+  const count = await db.getUnreadNotificationCount(c.env.DB, userId);
+  return c.json({ count });
+});
+
+// Mark all notifications as read
+app.patch('/api/notifications/read-all', async (c) => {
+  const userId = c.get('user').id;
+  const updated = await db.markAllNotificationsRead(c.env.DB, userId);
+  return c.json({ updated });
+});
+
+// Mark a single notification as read
+app.patch('/api/notifications/:id/read', async (c) => {
+  const userId = c.get('user').id;
+  const notificationId = c.req.param('id');
+  const success = await db.markNotificationRead(c.env.DB, notificationId, userId);
+  if (!success) {
+    return c.json({ error: 'Notification not found' }, 404);
+  }
+  return c.json({ success: true });
 });
 
 // ============ Relationships (Tutor-Student) ============

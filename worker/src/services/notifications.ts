@@ -1,6 +1,6 @@
 import { User } from '../types';
 
-export async function notifyNewUser(topic: string, user: User): Promise<void> {
+async function sendNtfy(topic: string, title: string, body: string, tags: string, priority: string = '3'): Promise<void> {
   if (!topic) {
     console.log('[Notifications] No topic configured, skipping notification');
     return;
@@ -9,20 +9,52 @@ export async function notifyNewUser(topic: string, user: User): Promise<void> {
   try {
     const response = await fetch(`https://ntfy.sh/${topic}`, {
       method: 'POST',
-      headers: {
-        'Title': 'New User - Chinese Learning App',
-        'Tags': 'bust_in_silhouette,new',
-        'Priority': '3',
-      },
-      body: `New user signed up!\n\nEmail: ${user.email || 'Unknown'}\nName: ${user.name || 'No name'}\nTime: ${new Date().toISOString()}`,
+      headers: { 'Title': title, 'Tags': tags, 'Priority': priority },
+      body,
     });
 
     if (!response.ok) {
       console.error('[Notifications] Failed to send notification:', response.status);
     } else {
-      console.log('[Notifications] New user notification sent for:', user.email);
+      console.log('[Notifications] Push notification sent:', title);
     }
   } catch (error) {
     console.error('[Notifications] Error sending notification:', error);
   }
+}
+
+export async function notifyNewUser(topic: string, user: User): Promise<void> {
+  await sendNtfy(
+    topic,
+    'New User - Chinese Learning App',
+    `New user signed up!\n\nEmail: ${user.email || 'Unknown'}\nName: ${user.name || 'No name'}\nTime: ${new Date().toISOString()}`,
+    'bust_in_silhouette,new',
+  );
+}
+
+export async function notifyHomeworkAssigned(topic: string, tutorName: string, readerTitle: string): Promise<void> {
+  await sendNtfy(
+    topic,
+    'Homework Assigned',
+    `${tutorName} assigned homework: "${readerTitle}"`,
+    'books,new',
+  );
+}
+
+export async function notifyHomeworkSubmitted(topic: string, studentName: string, readerTitle: string): Promise<void> {
+  await sendNtfy(
+    topic,
+    'Homework Submitted',
+    `${studentName} submitted homework: "${readerTitle}"`,
+    'white_check_mark',
+  );
+}
+
+export async function notifyHomeworkReviewed(topic: string, tutorName: string, readerTitle: string): Promise<void> {
+  await sendNtfy(
+    topic,
+    'Homework Reviewed',
+    `${tutorName} reviewed homework: "${readerTitle}"`,
+    'star',
+  );
 }
