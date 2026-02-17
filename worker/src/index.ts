@@ -869,12 +869,13 @@ app.post('/api/notes/:id/ask', async (c) => {
       try {
         switch (action.tool) {
           case 'edit_current_card': {
-            const updates: { hanzi?: string; pinyin?: string; english?: string; funFacts?: string } = {};
-            const input = action.input as { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string };
+            const updates: { hanzi?: string; pinyin?: string; english?: string; funFacts?: string; sentenceClue?: string } = {};
+            const input = action.input as { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string };
             if (input.hanzi) updates.hanzi = input.hanzi;
             if (input.pinyin) updates.pinyin = input.pinyin;
             if (input.english) updates.english = input.english;
             if (input.fun_facts !== undefined) updates.funFacts = input.fun_facts;
+            if (input.sentence_clue !== undefined) updates.sentenceClue = input.sentence_clue;
 
             const updatedNote = await db.updateNote(c.env.DB, id, userId, updates);
             if (updatedNote) {

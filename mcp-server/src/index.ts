@@ -51,6 +51,8 @@ interface Note {
   english: string;
   audio_url: string | null;
   fun_facts: string | null;
+  sentence_clue: string | null;
+  sentence_clue_audio_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -200,7 +202,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       "Get a deck with all its notes. Use the 'fields' parameter to request only specific note fields (e.g. ['hanzi', 'english']) to reduce response size for large decks.",
       {
         deck_id: z.string().describe("The deck ID"),
-        fields: z.array(z.enum(['hanzi', 'pinyin', 'english', 'audio_url', 'fun_facts', 'created_at', 'updated_at', 'context']))
+        fields: z.array(z.enum(['hanzi', 'pinyin', 'english', 'audio_url', 'fun_facts', 'sentence_clue', 'sentence_clue_audio_url', 'created_at', 'updated_at', 'context']))
           .optional()
           .describe("Which note fields to include in the response. If not specified, all fields are returned. The note 'id' and 'deck_id' are always included."),
       },
@@ -609,8 +611,9 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         pinyin: z.string().optional().describe("New pinyin"),
         english: z.string().optional().describe("New English translation"),
         fun_facts: z.string().optional().describe("New fun facts/notes"),
+        sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
       },
-      async ({ note_id, hanzi, pinyin, english, fun_facts }) => {
+      async ({ note_id, hanzi, pinyin, english, fun_facts, sentence_clue }) => {
         const note = await this.env.DB
           .prepare(`
             SELECT n.* FROM notes n
@@ -645,6 +648,10 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         if (fun_facts !== undefined) {
           updates.push('fun_facts = ?');
           values.push(fun_facts);
+        }
+        if (sentence_clue !== undefined) {
+          updates.push('sentence_clue = ?');
+          values.push(sentence_clue);
         }
 
         if (updates.length === 0) {
@@ -864,6 +871,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
                 hanzi: note.hanzi,
                 pinyin: note.pinyin,
                 english: note.english,
+                sentence_clue: note.sentence_clue,
+                sentence_clue_audio_url: note.sentence_clue_audio_url,
                 deck_name: note.deck_name,
               },
               cards: cardsWithLabels,
@@ -1180,7 +1189,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           content: [{
             type: "text" as const,
             text: JSON.stringify({
-              note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english },
+              note: { hanzi: note.hanzi, pinyin: note.pinyin, english: note.english, sentence_clue: note.sentence_clue, sentence_clue_audio_url: note.sentence_clue_audio_url },
               total_reviews: reviews.results.length,
               history_by_card_type: byCardType,
             }, null, 2),
