@@ -142,6 +142,24 @@ export interface DailyStats {
   new_cards_studied: number;
 }
 
+// Sync debug log entry
+export interface SyncLogEntry {
+  id: string;
+  timestamp: number; // Date.now()
+  type: 'full' | 'incremental' | 'events' | 'background';
+  outcome: 'success' | 'error';
+  duration_ms: number;
+  error_message?: string;
+  details: {
+    decks_synced?: number;
+    notes_synced?: number;
+    cards_synced?: number;
+    events_uploaded?: number;
+    events_downloaded?: number;
+    recordings_uploaded?: number;
+  };
+}
+
 // Dexie database class
 export class ChineseLearningDB extends Dexie {
   // Core tables
@@ -160,6 +178,9 @@ export class ChineseLearningDB extends Dexie {
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
+
+  // Debug tables
+  syncLogs!: Table<SyncLogEntry, string>;
 
   constructor() {
     super('ChineseLearningDB');
@@ -260,6 +281,22 @@ export class ChineseLearningDB extends Dexie {
       });
 
       console.log('[DB] Migrated to version 5 (FSRS)');
+    });
+
+    // Version 6: Add syncLogs table for debug statistics
+    this.version(6).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
     });
   }
 }
@@ -775,4 +812,42 @@ export async function cleanupUploadedRecordings(): Promise<number> {
   }
 
   return oldRecordings.length;
+}
+
+// ============ Sync Log Functions ============
+
+const MAX_SYNC_LOGS = 200;
+const SYNC_LOG_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 2 weeks
+
+export async function addSyncLog(entry: SyncLogEntry): Promise<void> {
+  await db.syncLogs.put(entry);
+  // Purge old entries
+  await purgeSyncLogs();
+}
+
+export async function getSyncLogs(): Promise<SyncLogEntry[]> {
+  return db.syncLogs.orderBy('timestamp').reverse().toArray();
+}
+
+async function purgeSyncLogs(): Promise<void> {
+  const cutoff = Date.now() - SYNC_LOG_MAX_AGE_MS;
+
+  // Delete entries older than 2 weeks
+  const oldEntries = await db.syncLogs
+    .where('timestamp')
+    .below(cutoff)
+    .toArray();
+  if (oldEntries.length > 0) {
+    await db.syncLogs.bulkDelete(oldEntries.map(e => e.id));
+  }
+
+  // Keep only the most recent 200
+  const count = await db.syncLogs.count();
+  if (count > MAX_SYNC_LOGS) {
+    const toRemove = await db.syncLogs
+      .orderBy('timestamp')
+      .limit(count - MAX_SYNC_LOGS)
+      .toArray();
+    await db.syncLogs.bulkDelete(toRemove.map(e => e.id));
+  }
 }

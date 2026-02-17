@@ -10,6 +10,8 @@ import {
   getPendingRecordings,
   markRecordingUploaded,
   resetSyncTimestamps,
+  addSyncLog,
+  SyncLogEntry,
 } from '../db/database';
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
@@ -110,6 +112,26 @@ class SyncService {
   private syncListeners: Set<(syncing: boolean) => void> = new Set();
   private progressListeners: Set<(progress: SyncProgress | null) => void> = new Set();
   private currentProgress: SyncProgress | null = null;
+  private lastSyncDetails: SyncLogEntry['details'] = {};
+
+  private logSync(
+    type: SyncLogEntry['type'],
+    startTime: number,
+    outcome: SyncLogEntry['outcome'],
+    details: SyncLogEntry['details'] = {},
+    error?: unknown,
+  ): void {
+    const entry: SyncLogEntry = {
+      id: `sync_${startTime}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: startTime,
+      type,
+      outcome,
+      duration_ms: Date.now() - startTime,
+      details,
+      ...(error ? { error_message: error instanceof Error ? error.message : String(error) } : {}),
+    };
+    addSyncLog(entry).catch(err => console.error('[SyncLog] Failed to save log:', err));
+  }
 
   addSyncListener(listener: (syncing: boolean) => void) {
     this.syncListeners.add(listener);
@@ -160,14 +182,17 @@ class SyncService {
     }
 
     this.notifySyncListeners(true);
+    const startTime = Date.now();
     this.syncPromise = this._doFullSync();
 
     try {
       await this.syncPromise;
       this.notifyProgress({ phase: 'done', message: 'Sync complete' });
+      this.logSync('full', startTime, 'success', this.lastSyncDetails);
     } catch (err) {
       console.error('[Sync] Full sync failed:', err);
       this.notifyProgress(null);
+      this.logSync('full', startTime, 'error', {}, err);
       throw err;
     } finally {
       this.syncPromise = null;
@@ -181,6 +206,7 @@ class SyncService {
   }
 
   private async _doFullSync(): Promise<void> {
+    this.lastSyncDetails = {};
     this.notifyProgress({ phase: 'decks', message: 'Fetching deck list...' });
 
     // Fetch all decks
@@ -231,6 +257,10 @@ class SyncService {
         }
       }
     }
+
+    this.lastSyncDetails.decks_synced = fullDecks.length;
+    this.lastSyncDetails.notes_synced = allNotes.length;
+    this.lastSyncDetails.cards_synced = allCards.length;
 
     this.notifyProgress({
       phase: 'notes',
@@ -315,13 +345,16 @@ class SyncService {
 
     this.notifySyncListeners(true);
     this.notifyProgress({ phase: 'starting', message: 'Checking for updates...' });
+    const startTime = Date.now();
     this.syncPromise = this._doIncrementalSync(syncMeta.last_incremental_sync);
 
     try {
       await this.syncPromise;
+      this.logSync('incremental', startTime, 'success', this.lastSyncDetails);
     } catch (err) {
       console.error('[Sync] Incremental sync failed:', err);
       this.notifyProgress(null);
+      this.logSync('incremental', startTime, 'error', {}, err);
       throw err;
     } finally {
       this.syncPromise = null;
@@ -330,6 +363,7 @@ class SyncService {
   }
 
   private async _doIncrementalSync(since: number): Promise<void> {
+    this.lastSyncDetails = {};
     this.notifyProgress({ phase: 'decks', message: 'Fetching changes...' });
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
@@ -344,6 +378,9 @@ class SyncService {
     }
 
     const changes: SyncChangesResponse = await response.json();
+    this.lastSyncDetails.decks_synced = changes.decks.length;
+    this.lastSyncDetails.notes_synced = changes.notes.length;
+    this.lastSyncDetails.cards_synced = changes.cards.length;
     const currentSyncMeta = await getSyncMeta();
 
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
@@ -463,7 +500,7 @@ class SyncService {
    * Sync review events (event-sourced architecture)
    * Uploads unsynced events and downloads new events from server
    */
-  async syncEvents(): Promise<{ uploaded: number; downloaded: number; errors: string[] }> {
+  async syncEvents(): Promise<{ uploaded: number; downloaded: number; recordings_uploaded: number; errors: string[] }> {
     const token = getAuthToken();
 
     // Upload unsynced events
@@ -481,6 +518,7 @@ class SyncService {
     }
 
     // Upload pending recordings
+    let recordingsUploaded = 0;
     const pendingRecordings = await getPendingRecordings();
     if (pendingRecordings.length > 0) {
       this.notifyProgress({ phase: 'recordings', message: `Uploading ${pendingRecordings.length} recording(s)...` });
@@ -491,6 +529,7 @@ class SyncService {
           if (reviewEvent) {
             await uploadRecording(reviewEvent.card_id, recording.blob);
             await markRecordingUploaded(recording.id);
+            recordingsUploaded++;
             console.log('[Sync] Uploaded recording for review:', recording.id);
           } else {
             console.warn('[Sync] No review event found for recording:', recording.id);
@@ -511,6 +550,7 @@ class SyncService {
     return {
       uploaded: uploadResult.synced,
       downloaded: downloadResult.downloaded,
+      recordings_uploaded: recordingsUploaded,
       errors: [...uploadResult.errors, ...downloadResult.errors],
     };
   }
@@ -522,21 +562,31 @@ class SyncService {
   async syncInBackground(): Promise<void> {
     if (this.isSyncing) return;
 
+    const startTime = Date.now();
+    const details: SyncLogEntry['details'] = {};
+
     try {
       if (navigator.onLine) {
         this.notifyProgress({ phase: 'starting', message: 'Starting sync...' });
 
         // Sync review events (event-sourced architecture)
-        await this.syncEvents();
+        const eventResult = await this.syncEvents();
+        details.events_uploaded = eventResult.uploaded;
+        details.events_downloaded = eventResult.downloaded;
+        details.recordings_uploaded = eventResult.recordings_uploaded;
 
         // Sync deck/note/card data
         await this.incrementalSync();
+        // Merge incremental details
+        Object.assign(details, this.lastSyncDetails);
 
         this.notifyProgress({ phase: 'done', message: 'Sync complete' });
+        this.logSync('background', startTime, 'success', details);
       }
     } catch (error) {
       console.error('[Sync] Background sync failed:', error);
       this.notifyProgress(null);
+      this.logSync('background', startTime, 'error', details, error);
     }
   }
 

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AdminUser } from '../types';
 import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats, getFeatureRequests, approveFeatureRequest, FeatureRequest } from '../api/client';
 import { syncService } from '../services/sync';
+import { getSyncLogs, SyncLogEntry } from '../db/database';
 import './AdminPage.css';
 
 export function AdminPage() {
@@ -24,9 +25,26 @@ export function AdminPage() {
   const [isFixingCards, setIsFixingCards] = useState(false);
   const [cardFixResult, setCardFixResult] = useState<string | null>(null);
 
+  // Sync debug state
+  const [syncLogs, setSyncLogs] = useState<SyncLogEntry[]>([]);
+  const [isLoadingSyncLogs, setIsLoadingSyncLogs] = useState(false);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+
   // Feature requests state
   const [pendingRequests, setPendingRequests] = useState<FeatureRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+
+  const loadSyncLogs = useCallback(async () => {
+    setIsLoadingSyncLogs(true);
+    try {
+      const logs = await getSyncLogs();
+      setSyncLogs(logs);
+    } catch (err) {
+      console.error('Failed to load sync logs:', err);
+    } finally {
+      setIsLoadingSyncLogs(false);
+    }
+  }, []);
 
   const loadPendingRequests = useCallback(async () => {
     setIsLoadingRequests(true);
@@ -63,7 +81,8 @@ export function AdminPage() {
 
     loadUsers();
     loadPendingRequests();
-  }, [loadPendingRequests]);
+    loadSyncLogs();
+  }, [loadPendingRequests, loadSyncLogs]);
 
   const loadStorageStats = async () => {
     setIsLoadingStorage(true);
@@ -383,6 +402,106 @@ export function AdminPage() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        <h2>Sync Debug</h2>
+        <div className="sync-debug-section">
+          <div className="sync-debug-header">
+            <button
+              className="btn btn-secondary"
+              onClick={loadSyncLogs}
+              disabled={isLoadingSyncLogs}
+            >
+              {isLoadingSyncLogs ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+
+          {syncLogs.length > 0 && (
+            <div className="sync-debug-summary">
+              <div className="sync-debug-stat">
+                <span className="sync-debug-stat-number">{syncLogs.length}</span>
+                <span className="sync-debug-stat-label">Total</span>
+              </div>
+              <div className="sync-debug-stat">
+                <span className="sync-debug-stat-number sync-debug-success">
+                  {Math.round((syncLogs.filter(l => l.outcome === 'success').length / syncLogs.length) * 100)}%
+                </span>
+                <span className="sync-debug-stat-label">Success</span>
+              </div>
+              <div className="sync-debug-stat">
+                <span className="sync-debug-stat-number">
+                  {syncLogs.length > 0
+                    ? `${Math.round(syncLogs.reduce((sum, l) => sum + l.duration_ms, 0) / syncLogs.length)}ms`
+                    : '-'}
+                </span>
+                <span className="sync-debug-stat-label">Avg Duration</span>
+              </div>
+              <div className="sync-debug-stat">
+                <span className="sync-debug-stat-number sync-debug-error">
+                  {syncLogs.filter(l => l.outcome === 'error').length}
+                </span>
+                <span className="sync-debug-stat-label">Errors</span>
+              </div>
+            </div>
+          )}
+
+          {syncLogs.length === 0 ? (
+            <p className="sync-debug-empty">No sync logs yet. Logs will appear after sync operations run.</p>
+          ) : (
+            <div className="sync-log-list">
+              {syncLogs.map(log => (
+                <div
+                  key={log.id}
+                  className={`sync-log-entry ${log.outcome}`}
+                  onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+                >
+                  <div className="sync-log-row">
+                    <span className={`sync-log-badge ${log.outcome}`}>
+                      {log.outcome === 'success' ? 'OK' : 'ERR'}
+                    </span>
+                    <span className="sync-log-type">{log.type}</span>
+                    <span className="sync-log-duration">{log.duration_ms}ms</span>
+                    <span className="sync-log-time">
+                      {new Date(log.timestamp).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  {expandedLogId === log.id && (
+                    <div className="sync-log-details">
+                      {log.error_message && (
+                        <div className="sync-log-error-msg">{log.error_message}</div>
+                      )}
+                      <div className="sync-log-detail-grid">
+                        {log.details.decks_synced != null && (
+                          <span>Decks: {log.details.decks_synced}</span>
+                        )}
+                        {log.details.notes_synced != null && (
+                          <span>Notes: {log.details.notes_synced}</span>
+                        )}
+                        {log.details.cards_synced != null && (
+                          <span>Cards: {log.details.cards_synced}</span>
+                        )}
+                        {log.details.events_uploaded != null && (
+                          <span>Events up: {log.details.events_uploaded}</span>
+                        )}
+                        {log.details.events_downloaded != null && (
+                          <span>Events down: {log.details.events_downloaded}</span>
+                        )}
+                        {log.details.recordings_uploaded != null && (
+                          <span>Recordings: {log.details.recordings_uploaded}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <h2>Debug</h2>
