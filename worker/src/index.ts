@@ -32,7 +32,7 @@ import {
   generateState,
   getAllUsersWithStats,
 } from './services/auth';
-import { notifyNewUser, notifyHomeworkAssigned, notifyHomeworkSubmitted, notifyHomeworkReviewed, notifyTutorReviewFlagged } from './services/notifications';
+import { notifyNewUser, notifyHomeworkAssigned, notifyHomeworkSubmitted, notifyHomeworkReviewed, notifyTutorReviewFlagged, notifyNewChatMessage } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
 import {
@@ -2871,39 +2871,66 @@ app.post('/api/conversations/:id/messages', async (c) => {
   try {
     const message = await sendMessage(c.env.DB, convId, userId, content);
 
-    // Send email notification to the other user (non-blocking)
+    // Send email + in-app notification to the other user (non-blocking)
     // Must use waitUntil() so the worker stays alive for the SendGrid fetch
-    if (c.env.SENDGRID_API_KEY) {
-      c.executionCtx.waitUntil((async () => {
-        try {
-          const conv = await getConversationById(c.env.DB, convId, userId);
-          if (conv) {
-            const relationship = await getRelationshipById(c.env.DB, conv.relationship_id);
-            if (relationship) {
-              const otherUserId = getOtherUserId(relationship, userId);
-              const otherUser =
-                relationship.requester.id === otherUserId
-                  ? relationship.requester
-                  : relationship.recipient;
+    c.executionCtx.waitUntil((async () => {
+      try {
+        const conv = await getConversationById(c.env.DB, convId, userId);
+        if (!conv) return;
+        const relationship = await getRelationshipById(c.env.DB, conv.relationship_id);
+        if (!relationship) return;
+        const otherUserId = getOtherUserId(relationship, userId);
+        const otherUser =
+          relationship.requester.id === otherUserId
+            ? relationship.requester
+            : relationship.recipient;
+        const senderName = message.sender.name || 'Someone';
+        const truncatedContent = content.length > 100 ? content.slice(0, 100) + '...' : content;
 
-              if (otherUser.email) {
-                const sent = await sendNewMessageNotification(c.env.SENDGRID_API_KEY, {
-                  recipientEmail: otherUser.email,
-                  recipientName: otherUser.name,
-                  senderName: message.sender.name,
-                  messagePreview: content,
-                  conversationId: convId,
-                  relationshipId: conv.relationship_id,
-                });
-                console.log('[Email] Message notification to', otherUser.email, sent ? 'sent' : 'FAILED');
-              }
-            }
-          }
-        } catch (err) {
-          console.error('[Email] Failed to send message notification:', err);
+        // Send email notification
+        if (c.env.SENDGRID_API_KEY && otherUser.email) {
+          const sent = await sendNewMessageNotification(c.env.SENDGRID_API_KEY, {
+            recipientEmail: otherUser.email,
+            recipientName: otherUser.name,
+            senderName: message.sender.name,
+            messagePreview: content,
+            conversationId: convId,
+            relationshipId: conv.relationship_id,
+          });
+          console.log('[Email] Message notification to', otherUser.email, sent ? 'sent' : 'FAILED');
         }
-      })());
-    }
+
+        // Create in-app notification (with deduplication)
+        const existing = await db.getRecentUnreadChatNotification(c.env.DB, otherUserId, convId);
+        if (existing) {
+          // Count existing messages from the title (e.g., "2 new messages from X")
+          const countMatch = existing.title.match(/^(\d+) new messages from/);
+          const currentCount = countMatch ? parseInt(countMatch[1], 10) : 1;
+          const newCount = currentCount + 1;
+          await db.updateNotificationMessage(
+            c.env.DB,
+            existing.id,
+            `${newCount} new messages from ${senderName}`,
+            truncatedContent,
+          );
+        } else {
+          await db.createNotification(
+            c.env.DB,
+            otherUserId,
+            'new_chat_message',
+            `New message from ${senderName}`,
+            truncatedContent,
+            null,
+            { conversation_id: convId, relationship_id: conv.relationship_id },
+          );
+        }
+
+        // Send push notification via ntfy
+        await notifyNewChatMessage(c.env.NTFY_TOPIC, senderName, truncatedContent);
+      } catch (err) {
+        console.error('[Notifications] Failed to send message notification:', err);
+      }
+    })());
 
     return c.json(message, 201);
   } catch (error) {

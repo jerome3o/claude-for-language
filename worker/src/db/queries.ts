@@ -2435,6 +2435,32 @@ export async function markNotificationRead(
   return (result.meta?.changes ?? 0) > 0;
 }
 
+export async function getRecentUnreadChatNotification(
+  db: D1Database,
+  userId: string,
+  conversationId: string,
+): Promise<AppNotification | null> {
+  return db.prepare(`
+    SELECT * FROM notifications
+    WHERE user_id = ? AND type = 'new_chat_message' AND conversation_id = ? AND is_read = 0
+      AND created_at >= datetime('now', '-5 minutes')
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).bind(userId, conversationId).first<AppNotification>();
+}
+
+export async function updateNotificationMessage(
+  db: D1Database,
+  notificationId: string,
+  title: string,
+  message: string,
+): Promise<void> {
+  await db.prepare(`
+    UPDATE notifications SET title = ?, message = ?, created_at = datetime('now')
+    WHERE id = ?
+  `).bind(title, message, notificationId).run();
+}
+
 export async function markAllNotificationsRead(
   db: D1Database,
   userId: string,

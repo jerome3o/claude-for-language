@@ -67,3 +67,12 @@ export async function notifyTutorReviewFlagged(topic: string, studentName: strin
     'triangular_flag_on_post',
   );
 }
+
+export async function notifyNewChatMessage(topic: string, senderName: string, messagePreview: string): Promise<void> {
+  await sendNtfy(
+    topic,
+    'New Chat Message',
+    `${senderName}: ${messagePreview}`,
+    'speech_balloon',
+  );
+}
