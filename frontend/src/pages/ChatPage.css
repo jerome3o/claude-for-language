@@ -348,6 +348,39 @@ body:has(.chat-page) #root {
   justify-content: center;
 }
 
+/* "I don't know" Input Dialog */
+.idk-dialog-modal {
+  max-width: 420px;
+}
+
+.idk-field {
+  margin-bottom: 1rem;
+}
+
+.idk-field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.idk-input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.idk-input:focus {
+  outline: none;
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
 /* Response Options Modal */
 .response-options-modal {
   max-width: 500px;

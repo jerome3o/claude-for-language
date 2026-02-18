@@ -1013,11 +1013,14 @@ Evaluate this message. Is it grammatically correct and natural Chinese for this 
 
 const I_DONT_KNOW_SYSTEM_PROMPT = `You are a Chinese language teacher helping a student who doesn't know what to say next in a conversation.
 
-Based on the conversation context, generate 3-5 different options for what the student could say next.
+The student will tell you what they're trying to express (in English) and may also provide their best guess in Chinese.
+
+Based on the conversation context and what the student wants to say, generate 3-5 different ways to express their intended meaning in Chinese.
 Each option should:
-1. Be appropriate for the conversation
+1. Help the student express what they're trying to say
 2. Vary in difficulty (some simpler, some more advanced)
 3. Include the conversation context for reference
+4. If the student provided a guess, acknowledge what they got right and correct any mistakes
 
 Respond with JSON in this exact format:
 {
@@ -1026,7 +1029,7 @@ Respond with JSON in this exact format:
       "hanzi": "Chinese characters",
       "pinyin": "pinyin with tone marks",
       "english": "English meaning",
-      "fun_facts": "Brief note about when to use this phrase",
+      "fun_facts": "Brief note about usage, or feedback on the student's guess if provided",
       "context": "The conversation context that led to this suggestion"
     }
   ]
@@ -1039,15 +1042,25 @@ IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).`;
  */
 export async function generateIDontKnowOptions(
   apiKey: string,
-  chatContext: string
+  chatContext: string,
+  intendedMeaning?: string,
+  guess?: string,
 ): Promise<GeneratedNoteWithContext[]> {
   const client = new Anthropic({ apiKey });
 
-  const userPrompt = `Conversation so far:
+  let userPrompt = `Conversation so far:
 ${chatContext}
 
-The student doesn't know what to say next. Generate 3-5 options they could say, with varying difficulty levels.
-Include the relevant conversation context with each option.`;
+`;
+  if (intendedMeaning) {
+    userPrompt += `The student wants to express: "${intendedMeaning}"\n`;
+    if (guess) {
+      userPrompt += `Their attempt in Chinese: "${guess}"\n`;
+    }
+    userPrompt += `\nGenerate 3-5 ways to express this in Chinese, with varying difficulty levels. If the student provided a guess, give feedback on it in the fun_facts field.\nInclude the relevant conversation context with each option.`;
+  } else {
+    userPrompt += `The student doesn't know what to say next. Generate 3-5 options they could say, with varying difficulty levels.\nInclude the relevant conversation context with each option.`;
+  }
 
   const response = await client.messages.create({
     model: 'claude-opus-4-6',
