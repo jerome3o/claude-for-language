@@ -77,7 +77,9 @@ export function Header() {
       setUnreadCount(prev => Math.max(0, prev - 1));
     }
     setShowNotifications(false);
-    if (notif.type === 'tutor_review_flagged') {
+    if (notif.type === 'new_chat_message' && notif.relationship_id && notif.conversation_id) {
+      navigate(`/connections/${notif.relationship_id}/chat/${notif.conversation_id}`);
+    } else if (notif.type === 'tutor_review_flagged') {
       navigate('/tutor-review-inbox');
     } else if (notif.homework_id) {
       navigate('/homework');
