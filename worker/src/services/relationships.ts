@@ -195,13 +195,13 @@ export async function cancelPendingInvitation(
     .run();
 }
 
-// Process pending invitations when a new user signs up
+// Process pending invitations for a user (on signup or login)
 // This creates active relationships for all pending invitations to this email
 export async function processPendingInvitations(
   db: D1Database,
-  newUser: User
+  user: User
 ): Promise<number> {
-  if (!newUser.email) return 0;
+  if (!user.email) return 0;
 
   // Find all pending, non-expired invitations for this email
   const invitations = await db
@@ -210,13 +210,37 @@ export async function processPendingInvitations(
       WHERE recipient_email = ? AND status = 'pending'
       AND expires_at > datetime('now')
     `)
-    .bind(newUser.email)
+    .bind(user.email)
     .all<PendingInvitation>();
 
   let connectionsCreated = 0;
 
   for (const invitation of invitations.results) {
     try {
+      // Check if a relationship already exists between these users
+      const existing = await db
+        .prepare(`
+          SELECT id FROM tutor_relationships
+          WHERE ((requester_id = ? AND recipient_id = ?) OR (requester_id = ? AND recipient_id = ?))
+          AND status != 'removed'
+        `)
+        .bind(invitation.inviter_id, user.id, user.id, invitation.inviter_id)
+        .first();
+
+      if (existing) {
+        // Relationship already exists — just mark invitation as accepted
+        await db
+          .prepare(`
+            UPDATE pending_invitations
+            SET status = 'accepted', accepted_at = datetime('now')
+            WHERE id = ?
+          `)
+          .bind(invitation.id)
+          .run();
+        console.log(`[PendingInvitations] Invitation ${invitation.id} already has existing relationship, marked accepted`);
+        continue;
+      }
+
       // Create the relationship with status 'active' (auto-accepted)
       const id = generateId();
       await db
@@ -224,7 +248,7 @@ export async function processPendingInvitations(
           INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status, accepted_at)
           VALUES (?, ?, ?, ?, 'active', datetime('now'))
         `)
-        .bind(id, invitation.inviter_id, newUser.id, invitation.inviter_role)
+        .bind(id, invitation.inviter_id, user.id, invitation.inviter_role)
         .run();
 
       // Mark invitation as accepted
@@ -238,7 +262,7 @@ export async function processPendingInvitations(
         .run();
 
       connectionsCreated++;
-      console.log(`[PendingInvitations] Created relationship from invitation ${invitation.id} for user ${newUser.id}`);
+      console.log(`[PendingInvitations] Created relationship from invitation ${invitation.id} for user ${user.id}`);
     } catch (error) {
       console.error(`[PendingInvitations] Failed to process invitation ${invitation.id}:`, error);
     }
