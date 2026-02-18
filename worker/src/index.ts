@@ -193,18 +193,18 @@ app.get('/api/auth/callback', async (c) => {
       c.executionCtx.waitUntil(notifyNewUser(c.env.NTFY_TOPIC, user));
     }
 
-    // Process pending invitations for new users (auto-connect with inviters)
-    if (isNewUser) {
-      c.executionCtx.waitUntil(
-        processPendingInvitations(c.env.DB, user).then(count => {
-          if (count > 0) {
-            console.log(`[Auth Callback] Created ${count} relationship(s) from pending invitations for user ${user.id}`);
-          }
-        }).catch(err => {
-          console.error('[Auth Callback] Failed to process pending invitations:', err);
-        })
-      );
-    }
+    // Process pending invitations on every login (auto-connect with inviters)
+    // This handles: new signups, existing users who were invited later,
+    // and re-invites where a new pending_invitation was created after the user already existed.
+    c.executionCtx.waitUntil(
+      processPendingInvitations(c.env.DB, user).then(count => {
+        if (count > 0) {
+          console.log(`[Auth Callback] Created ${count} relationship(s) from pending invitations for user ${user.id}`);
+        }
+      }).catch(err => {
+        console.error('[Auth Callback] Failed to process pending invitations:', err);
+      })
+    );
 
     // Ensure user has a Claude AI tutor relationship (in background)
     c.executionCtx.waitUntil(
@@ -2623,8 +2623,11 @@ app.patch('/api/notifications/:id/read', async (c) => {
 
 // List my relationships (tutors, students, pending)
 app.get('/api/relationships', async (c) => {
-  const userId = c.get('user').id;
-  const relationships = await getMyRelationships(c.env.DB, userId);
+  const user = c.get('user');
+  // Process any pending invitations for this user's email before returning relationships.
+  // This handles the case where an existing user was invited while already logged in.
+  await processPendingInvitations(c.env.DB, user);
+  const relationships = await getMyRelationships(c.env.DB, user.id);
   return c.json(relationships);
 });
 
