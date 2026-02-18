@@ -851,7 +851,7 @@ export interface HomeworkFeedback {
 
 // ============ Notifications ============
 
-export type NotificationType = 'homework_assigned' | 'homework_submitted' | 'homework_reviewed';
+export type NotificationType = 'homework_assigned' | 'homework_submitted' | 'homework_reviewed' | 'tutor_review_flagged';
 
 export interface AppNotification {
   id: string;
@@ -860,6 +860,9 @@ export interface AppNotification {
   title: string;
   message: string | null;
   homework_id: string | null;
+  note_id: string | null;
+  conversation_id: string | null;
+  relationship_id: string | null;
   is_read: boolean;
   created_at: string;
 }

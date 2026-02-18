@@ -32,7 +32,7 @@ import {
   generateState,
   getAllUsersWithStats,
 } from './services/auth';
-import { notifyNewUser, notifyHomeworkAssigned, notifyHomeworkSubmitted, notifyHomeworkReviewed } from './services/notifications';
+import { notifyNewUser, notifyHomeworkAssigned, notifyHomeworkSubmitted, notifyHomeworkReviewed, notifyTutorReviewFlagged } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
 import {
@@ -3475,6 +3475,26 @@ app.post('/api/tutor-review-requests', async (c) => {
 
   try {
     const request = await createTutorReviewRequest(c.env.DB, userId, body);
+
+    // Notify the tutor about the flagged card
+    const studentName = request.student.name || 'Your student';
+    const noteHanzi = request.note.hanzi;
+    const notifMessage = `${studentName} flagged 「${noteHanzi}」 for review: ${request.message}`;
+    c.executionCtx.waitUntil(
+      db.createNotification(
+        c.env.DB,
+        request.tutor_id,
+        'tutor_review_flagged',
+        'New card flagged for review',
+        notifMessage,
+        null,
+        { note_id: request.note_id, relationship_id: request.relationship_id },
+      ).catch(err => console.error('[Notifications] Failed to create tutor review notification:', err))
+    );
+    c.executionCtx.waitUntil(
+      notifyTutorReviewFlagged(c.env.NTFY_TOPIC, studentName, noteHanzi, request.message)
+    );
+
     return c.json(request, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create review request';
