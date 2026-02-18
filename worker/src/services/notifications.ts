@@ -58,3 +58,12 @@ export async function notifyHomeworkReviewed(topic: string, tutorName: string, r
     'star',
   );
 }
+
+export async function notifyTutorReviewFlagged(topic: string, studentName: string, noteHanzi: string, message: string): Promise<void> {
+  await sendNtfy(
+    topic,
+    'Card Flagged for Review',
+    `${studentName} flagged 「${noteHanzi}」: ${message}`,
+    'triangular_flag_on_post',
+  );
+}

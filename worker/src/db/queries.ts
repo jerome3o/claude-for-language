@@ -2376,12 +2376,22 @@ export async function createNotification(
   title: string,
   message: string | null,
   homeworkId: string | null,
+  opts?: {
+    note_id?: string | null;
+    conversation_id?: string | null;
+    relationship_id?: string | null;
+  },
 ): Promise<AppNotification> {
   const id = generateId();
   await db.prepare(`
-    INSERT INTO notifications (id, user_id, type, title, message, homework_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(id, userId, type, title, message, homeworkId).run();
+    INSERT INTO notifications (id, user_id, type, title, message, homework_id, note_id, conversation_id, relationship_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    id, userId, type, title, message, homeworkId,
+    opts?.note_id ?? null,
+    opts?.conversation_id ?? null,
+    opts?.relationship_id ?? null,
+  ).run();
 
   const row = await db.prepare('SELECT * FROM notifications WHERE id = ?')
     .bind(id).first<AppNotification>();
