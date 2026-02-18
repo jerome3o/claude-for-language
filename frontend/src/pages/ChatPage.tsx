@@ -61,6 +61,11 @@ export function ChatPage() {
   const [showResponseOptionsModal, setShowResponseOptionsModal] = useState(false);
   const [isSavingOptions, setIsSavingOptions] = useState(false);
 
+  // "I don't know" input dialog state
+  const [showIdkDialog, setShowIdkDialog] = useState(false);
+  const [idkIntendedMeaning, setIdkIntendedMeaning] = useState('');
+  const [idkGuess, setIdkGuess] = useState('');
+
   // AI conversation state
   const [isWaitingForAI, setIsWaitingForAI] = useState(false);
   const [playingAudioMessageId, setPlayingAudioMessageId] = useState<string | null>(null);
@@ -323,14 +328,25 @@ export function ChatPage() {
     }
   };
 
-  // "I don't know" - generate response options
-  const handleIDontKnow = async () => {
-    if (!convId) return;
+  // "I don't know" - open input dialog
+  const handleIDontKnow = () => {
+    setIdkIntendedMeaning('');
+    setIdkGuess('');
+    setShowIdkDialog(true);
+  };
+
+  // Submit the "I don't know" dialog and generate response options
+  const handleIdkSubmit = async () => {
+    if (!convId || !idkIntendedMeaning.trim()) return;
+    setShowIdkDialog(false);
     setIsGeneratingOptions(true);
     setResponseOptions(null);
     setSelectedOptions(new Set());
     try {
-      const result = await generateResponseOptions(convId);
+      const result = await generateResponseOptions(convId, {
+        intendedMeaning: idkIntendedMeaning.trim(),
+        guess: idkGuess.trim() || undefined,
+      });
       setResponseOptions(result.options);
       // Select all options by default
       setSelectedOptions(new Set(result.options.map((_, i) => i)));
@@ -698,6 +714,50 @@ export function ChatPage() {
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowSaveModal(false)}>
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* "I don't know" Input Dialog */}
+      {showIdkDialog && (
+        <div className="modal-overlay" onClick={() => setShowIdkDialog(false)}>
+          <div className="modal idk-dialog-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>I don't know what to say</h3>
+            <div className="idk-field">
+              <label htmlFor="idk-intended">What are you trying to say?</label>
+              <textarea
+                id="idk-intended"
+                value={idkIntendedMeaning}
+                onChange={(e) => setIdkIntendedMeaning(e.target.value)}
+                placeholder='e.g. "I want to ask about their weekend plans"'
+                className="idk-input"
+                rows={2}
+                autoFocus
+              />
+            </div>
+            <div className="idk-field">
+              <label htmlFor="idk-guess">Your guess (optional)</label>
+              <textarea
+                id="idk-guess"
+                value={idkGuess}
+                onChange={(e) => setIdkGuess(e.target.value)}
+                placeholder="e.g. 你周末想..."
+                className="idk-input"
+                rows={2}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowIdkDialog(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleIdkSubmit}
+                disabled={!idkIntendedMeaning.trim()}
+              >
+                Help me say this
               </button>
             </div>
           </div>

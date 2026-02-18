@@ -741,13 +741,14 @@ export async function generateFlashcardFromChat(
 }
 
 export async function generateResponseOptions(
-  conversationId: string
+  conversationId: string,
+  input?: { intendedMeaning: string; guess?: string }
 ): Promise<{ options: GeneratedNoteWithContext[] }> {
   return fetchJSON<{ options: GeneratedNoteWithContext[] }>(
     `/conversations/${conversationId}/generate-response-options`,
     {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(input ?? {}),
     }
   );
 }

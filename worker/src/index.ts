@@ -2991,14 +2991,23 @@ app.post('/api/conversations/:id/generate-response-options', async (c) => {
   }
 
   try {
+    const body = await c.req.json<{
+      intendedMeaning?: string;
+      guess?: string;
+    }>().catch(() => ({} as { intendedMeaning?: string; guess?: string }));
+
     // Get chat context
     const chatContext = await getChatContext(c.env.DB, convId, userId);
     if (!chatContext || chatContext.trim() === '') {
       return c.json({ error: 'No messages found to generate response options from' }, 400);
     }
 
-    // Use the new function that includes context
-    const options = await generateIDontKnowOptions(c.env.ANTHROPIC_API_KEY, chatContext);
+    const options = await generateIDontKnowOptions(
+      c.env.ANTHROPIC_API_KEY,
+      chatContext,
+      body.intendedMeaning,
+      body.guess,
+    );
 
     return c.json({ options });
   } catch (error) {
