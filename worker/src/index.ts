@@ -1240,8 +1240,9 @@ app.get('/api/cards/due', async (c) => {
 app.get('/api/cards/queue-counts', async (c) => {
   const userId = c.get('user').id;
   const deckId = c.req.query('deck_id');
+  const localDate = c.req.query('local_date');
 
-  const counts = await db.getQueueCounts(c.env.DB, userId, deckId);
+  const counts = await db.getQueueCounts(c.env.DB, userId, deckId, localDate);
   return c.json(counts);
 });
 
@@ -1263,15 +1264,16 @@ app.get('/api/study/next-card', async (c) => {
   const deckId = c.req.query('deck_id');
   const excludeNotes = c.req.query('exclude_notes');
   const ignoreDailyLimit = c.req.query('ignore_daily_limit') === 'true';
+  const localDate = c.req.query('local_date');
 
   const excludeNoteIds = excludeNotes ? excludeNotes.split(',').filter(Boolean) : [];
 
-  const card = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds, ignoreDailyLimit);
-  const counts = await db.getQueueCounts(c.env.DB, userId, deckId);
+  const card = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds, ignoreDailyLimit, localDate);
+  const counts = await db.getQueueCounts(c.env.DB, userId, deckId, localDate);
 
   if (!card) {
     // Check if there are more new cards beyond the daily limit
-    const hasMoreNewCards = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds, true);
+    const hasMoreNewCards = await db.getNextStudyCard(c.env.DB, userId, deckId, excludeNoteIds, true, localDate);
     return c.json({ card: null, counts, hasMoreNewCards: !!hasMoreNewCards });
   }
 
@@ -1298,7 +1300,7 @@ app.get('/api/study/next-card', async (c) => {
 // Submit review with Anki-style scheduling
 app.post('/api/study/review', async (c) => {
   const userId = c.get('user').id;
-  const { card_id, rating, time_spent_ms, user_answer, session_id, reviewed_at, offline_result, event_id } = await c.req.json<{
+  const { card_id, rating, time_spent_ms, user_answer, session_id, reviewed_at, offline_result, event_id, local_date } = await c.req.json<{
     card_id: string;
     rating: Rating;
     time_spent_ms?: number;
@@ -1306,6 +1308,7 @@ app.post('/api/study/review', async (c) => {
     session_id?: string;
     reviewed_at?: string; // ISO timestamp from client (for offline sync)
     event_id?: string; // Client-generated event ID for idempotency
+    local_date?: string; // Client's local date YYYY-MM-DD (for timezone-correct daily limits)
     offline_result?: {
       queue: number;
       learning_step: number;
@@ -1342,7 +1345,7 @@ app.post('/api/study/review', async (c) => {
 
   // If this is a new card being studied, increment daily count
   if (card.queue === CardQueue.NEW) {
-    await db.incrementDailyNewCount(c.env.DB, userId, card.note.deck_id);
+    await db.incrementDailyNewCount(c.env.DB, userId, card.note.deck_id, local_date);
   }
 
   // Use offline_result if provided (from offline sync), otherwise calculate
@@ -1401,7 +1404,7 @@ app.post('/api/study/review', async (c) => {
   );
 
   // Get updated queue counts
-  const counts = await db.getQueueCounts(c.env.DB, userId, card.note.deck_id);
+  const counts = await db.getQueueCounts(c.env.DB, userId, card.note.deck_id, local_date);
 
   return c.json({
     success: true,
