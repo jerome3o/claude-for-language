@@ -4283,12 +4283,56 @@ app.get('/api/feature-requests', async (c) => {
   return c.json({ requests: results.results || [] });
 });
 
+// Upload a screenshot for a feature request
+app.post('/api/feature-requests/screenshot', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as unknown;
+
+  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+    return c.json({ error: 'file is required' }, 400);
+  }
+
+  const blob = file as Blob;
+  const screenshotId = crypto.randomUUID();
+  const key = `screenshots/${user.id}/${screenshotId}.png`;
+  const arrayBuffer = await blob.arrayBuffer();
+  await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type || 'image/png');
+
+  return c.json({ key, url: `/api/feature-requests/screenshot/${key}` }, 201);
+});
+
+// Serve a feature request screenshot
+app.get('/api/feature-requests/screenshot/*', async (c) => {
+  const key = c.req.path.replace('/api/feature-requests/screenshot/', '');
+  const object = await getAudio(c.env.AUDIO_BUCKET, key);
+
+  if (!object) {
+    return c.json({ error: 'Screenshot not found' }, 404);
+  }
+
+  const origin = c.req.header('Origin') || '*';
+
+  const headers = new Headers();
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'image/png');
+  headers.set('Cache-Control', 'public, max-age=31536000');
+  headers.set('Access-Control-Allow-Origin', origin);
+  headers.set('Access-Control-Allow-Credentials', 'true');
+
+  return new Response(object.body, { headers });
+});
+
 // Create a feature request
 app.post('/api/feature-requests', async (c) => {
-  const { content, pageContext, consoleLogs } = await c.req.json<{
+  const { content, pageContext, consoleLogs, screenshotUrl } = await c.req.json<{
     content: string;
     pageContext?: string;
     consoleLogs?: string;
+    screenshotUrl?: string;
   }>();
 
   if (!content || !content.trim()) {
@@ -4301,9 +4345,9 @@ app.post('/api/feature-requests', async (c) => {
   const approvalStatus = user.is_admin ? 'approved' : 'pending';
 
   await c.env.DB.prepare(`
-    INSERT INTO feature_requests (id, user_id, content, page_context, console_logs, status, approval_status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?)
-  `).bind(id, user.id, content.trim(), pageContext || null, consoleLogs || null, approvalStatus, now, now).run();
+    INSERT INTO feature_requests (id, user_id, content, page_context, console_logs, screenshot_url, status, approval_status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
+  `).bind(id, user.id, content.trim(), pageContext || null, consoleLogs || null, screenshotUrl || null, approvalStatus, now, now).run();
 
   return c.json({ id, status: 'new', approval_status: approvalStatus, created_at: now });
 });

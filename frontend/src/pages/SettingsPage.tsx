@@ -80,6 +80,18 @@ function FeatureRequestDetail({ requestId, onClose }: { requestId: string; onClo
           {request.page_context && <span>from {request.page_context}</span>}
         </div>
 
+        {request.screenshot_url && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <a href={`${API_BASE}${request.screenshot_url}`} target="_blank" rel="noopener noreferrer">
+              <img
+                src={`${API_BASE}${request.screenshot_url}`}
+                alt="Screenshot"
+                style={{ maxWidth: '100%', border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
+              />
+            </a>
+          </div>
+        )}
+
         {comments.length > 0 && (
           <div className="feature-request-comments">
             <h3 style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Comments</h3>

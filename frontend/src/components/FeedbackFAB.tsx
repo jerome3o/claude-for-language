@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import html2canvas from 'html2canvas';
 import { useAuth } from '../contexts/AuthContext';
-import { createFeatureRequest } from '../api/client';
+import { createFeatureRequest, uploadFeatureRequestScreenshot } from '../api/client';
 import { getConsoleBuffer } from '../utils/consoleBuffer';
 
 const FAB_SIZE = 48;
@@ -33,6 +34,8 @@ export function FeedbackFAB() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [includeConsoleLogs, setIncludeConsoleLogs] = useState(false);
+  const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
+  const [includeScreenshot, setIncludeScreenshot] = useState(true);
 
   // Position state — null means use CSS default (bottom-right)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(loadPosition);
@@ -138,10 +141,19 @@ export function FeedbackFAB() {
   }, [handleDragEnd]);
 
   // Click/tap — only open modal if we didn't drag
-  const handleClick = useCallback(() => {
-    if (!hasMoved.current) {
-      setIsOpen(true);
+  const handleClick = useCallback(async () => {
+    if (hasMoved.current) return;
+
+    // Capture screenshot before showing modal
+    try {
+      const canvas = await html2canvas(document.body);
+      setScreenshotDataUrl(canvas.toDataURL('image/png'));
+      setIncludeScreenshot(true);
+    } catch (e) {
+      console.error('Failed to capture screenshot:', e);
+      setScreenshotDataUrl(null);
     }
+    setIsOpen(true);
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -158,10 +170,20 @@ export function FeedbackFAB() {
         }
       }
 
-      await createFeatureRequest(content.trim(), location.pathname, consoleLogs);
+      // Upload screenshot if included
+      let screenshotUrl: string | undefined;
+      if (includeScreenshot && screenshotDataUrl) {
+        const res = await fetch(screenshotDataUrl);
+        const blob = await res.blob();
+        const upload = await uploadFeatureRequestScreenshot(blob);
+        screenshotUrl = upload.url;
+      }
+
+      await createFeatureRequest(content.trim(), location.pathname, consoleLogs, screenshotUrl);
       setSubmitted(true);
       setContent('');
       setIncludeConsoleLogs(false);
+      setScreenshotDataUrl(null);
       setTimeout(() => {
         setSubmitted(false);
         setIsOpen(false);
@@ -171,7 +193,7 @@ export function FeedbackFAB() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [content, isSubmitting, includeConsoleLogs, location.pathname]);
+  }, [content, isSubmitting, includeConsoleLogs, includeScreenshot, screenshotDataUrl, location.pathname]);
 
   if (!isAuthenticated) return null;
 
@@ -232,7 +254,27 @@ export function FeedbackFAB() {
                     />
                     <span>Include console logs (for bug reports)</span>
                   </label>
+                  {screenshotDataUrl && (
+                    <label className="feedback-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={includeScreenshot}
+                        onChange={(e) => setIncludeScreenshot(e.target.checked)}
+                        disabled={isSubmitting}
+                      />
+                      <span>Include screenshot</span>
+                    </label>
+                  )}
                 </div>
+                {screenshotDataUrl && includeScreenshot && (
+                  <div className="feedback-screenshot-preview">
+                    <img
+                      src={screenshotDataUrl}
+                      alt="Screenshot preview"
+                      style={{ maxWidth: 200, border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
+                    />
+                  </div>
+                )}
                 <div className="feedback-actions">
                   <button
                     className="btn btn-secondary"

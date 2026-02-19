@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AdminUser } from '../types';
-import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats, getFeatureRequests, approveFeatureRequest, FeatureRequest } from '../api/client';
+import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats, getFeatureRequests, approveFeatureRequest, FeatureRequest, API_BASE } from '../api/client';
 import { syncService } from '../services/sync';
 import { getSyncLogs, SyncLogEntry } from '../db/database';
 import './AdminPage.css';
@@ -241,6 +241,15 @@ export function AdminPage() {
                 <div key={req.id} className="pending-request-card">
                   <div className="pending-request-content">
                     <p className="pending-request-text">{req.content}</p>
+                    {req.screenshot_url && (
+                      <a href={`${API_BASE}${req.screenshot_url}`} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={`${API_BASE}${req.screenshot_url}`}
+                          alt="Screenshot"
+                          style={{ maxWidth: 200, border: '1px solid var(--border-color, #ccc)', borderRadius: 4, marginTop: 8 }}
+                        />
+                      </a>
+                    )}
                     <div className="pending-request-meta">
                       <span>{req.user_name || req.user_email || 'Unknown user'}</span>
                       <span>from {req.page_context || '/'}</span>
