@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { discussMessage, createNote, createDeck, getDecks } from '../api/client';
 import { MessageWithSender, GeneratedNote } from '../types';
 import { Loading } from './Loading';
@@ -162,7 +163,7 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
                 <div className="claude-user-message">{msg.content}</div>
               ) : (
                 <div className="claude-response">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                 </div>
               )}
             </div>
