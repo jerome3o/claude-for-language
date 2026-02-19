@@ -41,6 +41,7 @@ import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
 
 // Friendly labels for read-only tool names
@@ -1114,7 +1115,7 @@ function StudyCard({
                     <ToolCallsCollapsible calls={qa.readOnlyToolCalls} />
                   )}
                   <div className="claude-response">
-                    <ReactMarkdown>{qa.answer}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{qa.answer}</ReactMarkdown>
                     {qa.toolResults && qa.toolResults.length > 0 && (
                       <div className="claude-tool-results">
                         {hasPending ? (
