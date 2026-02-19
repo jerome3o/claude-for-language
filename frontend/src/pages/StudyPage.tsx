@@ -1076,7 +1076,7 @@ function StudyCard({
       { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
       { label: 'Check my answer', question: 'Is my answer grammatically and semantically correct? Please explain any errors.' },
       { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
-      { label: 'Add a fun fact', question: 'Please add an interesting fun fact, cultural context, or memory aid to this card by editing its fun_facts field using the edit_current_card tool.' },
+      { label: 'Add a fun fact', question: 'Add a brief, interesting fun fact or cultural context to this card.' },
     ];
 
     return (
