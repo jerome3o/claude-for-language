@@ -54,6 +54,15 @@ export const API_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL
   : '';
 
+/** Get the client's local date as YYYY-MM-DD (for timezone-correct daily limits). */
+function getLocalDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const API_PATH = `${API_BASE}/api`;
 
 // Session token for Authorization header (used when cookies don't work cross-origin)
@@ -371,6 +380,7 @@ export async function getCard(id: string): Promise<CardWithNote> {
 export async function getQueueCounts(deckId?: string): Promise<QueueCounts> {
   const params = new URLSearchParams();
   if (deckId) params.set('deck_id', deckId);
+  params.set('local_date', getLocalDateString());
   const query = params.toString();
   return fetchJSON<QueueCounts>(`/cards/queue-counts${query ? `?${query}` : ''}`);
 }
@@ -392,6 +402,7 @@ export async function getNextCard(
   if (deckId) params.set('deck_id', deckId);
   if (excludeNoteIds.length > 0) params.set('exclude_notes', excludeNoteIds.join(','));
   if (ignoreDailyLimit) params.set('ignore_daily_limit', 'true');
+  params.set('local_date', getLocalDateString());
   const query = params.toString();
   return fetchJSON<NextCardResponse>(`/study/next-card${query ? `?${query}` : ''}`);
 }
@@ -414,7 +425,7 @@ export async function submitReview(data: {
 }): Promise<ReviewResponse> {
   return fetchJSON<ReviewResponse>('/study/review', {
     method: 'POST',
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, local_date: getLocalDateString() }),
   });
 }
 

@@ -1184,9 +1184,10 @@ export async function getDeckStats(
 export async function getQueueCounts(
   db: D1Database,
   userId: string,
-  deckId?: string
+  deckId?: string,
+  localDate?: string
 ): Promise<QueueCounts> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDate || new Date().toISOString().split('T')[0];
 
   let deckFilter = '';
   const params: (string | number)[] = [userId];
@@ -1268,10 +1269,11 @@ export async function getNextStudyCard(
   userId: string,
   deckId?: string,
   excludeNoteIds: string[] = [],
-  ignoreDailyLimit: boolean = false
+  ignoreDailyLimit: boolean = false,
+  localDate?: string
 ): Promise<CardWithNote | null> {
   const now = Date.now();
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDate || new Date().toISOString().split('T')[0];
 
   let deckFilter = '';
   const baseParams: string[] = [userId];
@@ -1429,9 +1431,10 @@ function mapCardWithNote(row: Record<string, unknown>): CardWithNote {
 export async function incrementDailyNewCount(
   db: D1Database,
   userId: string,
-  deckId?: string
+  deckId?: string,
+  localDate?: string
 ): Promise<void> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDate || new Date().toISOString().split('T')[0];
   const id = generateId();
 
   // Try to insert, update on conflict

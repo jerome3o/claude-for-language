@@ -342,7 +342,11 @@ function getDailyStatsId(date: string, deckId: string): string {
  * Get the current date string in YYYY-MM-DD format.
  */
 function getTodayString(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -467,7 +471,10 @@ export async function incrementNewCardsStudiedToday(deckId: string): Promise<voi
 export async function cleanupOldDailyStats(): Promise<void> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 7);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const year = cutoff.getFullYear();
+  const month = String(cutoff.getMonth() + 1).padStart(2, '0');
+  const day = String(cutoff.getDate()).padStart(2, '0');
+  const cutoffStr = `${year}-${month}-${day}`;
 
   const oldStats = await db.dailyStats
     .filter(stat => stat.date < cutoffStr)
