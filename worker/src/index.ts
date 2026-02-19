@@ -1073,39 +1073,46 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     // Generate a simple example sentence using the note's hanzi
     const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
 
-    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones.
-
-Return a JSON object with exactly these fields:
-- "sentence": the Chinese sentence
-- "pinyin": the pinyin with tone marks (e.g. "Wǒ hěn gāoxìng")
-- "translation": the English translation
-
-Return ONLY the JSON object, nothing else.`;
+    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones.`;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 200,
+      max_tokens: 400,
+      tools: [{
+        name: 'create_sentence_clue',
+        description: 'Create an example Chinese sentence that uses a given word in natural context',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            sentence: {
+              type: 'string',
+              description: 'A short Chinese example sentence (5-10 characters) using the target word',
+            },
+            pinyin: {
+              type: 'string',
+              description: 'Pinyin with tone marks for the sentence (e.g. "Wǒ hěn gāoxìng")',
+            },
+            translation: {
+              type: 'string',
+              description: 'English translation of the sentence',
+            },
+          },
+          required: ['sentence', 'pinyin', 'translation'],
+        },
+      }],
+      tool_choice: { type: 'tool', name: 'create_sentence_clue' },
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const textContent = response.content.find(c => c.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
+    const toolUseBlock = response.content.find(c => c.type === 'tool_use');
+    if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
       return c.json({ error: 'Failed to generate sentence' }, 500);
     }
 
-    let sentenceClue: string;
-    let sentenceCluePinyin: string | null = null;
-    let sentenceClueTranslation: string | null = null;
-
-    try {
-      const parsed = JSON.parse(textContent.text.trim());
-      sentenceClue = parsed.sentence;
-      sentenceCluePinyin = parsed.pinyin || null;
-      sentenceClueTranslation = parsed.translation || null;
-    } catch {
-      // Fallback: treat as plain text (backwards compatible with old prompt format)
-      sentenceClue = textContent.text.trim();
-    }
+    const input = toolUseBlock.input as { sentence: string; pinyin: string; translation: string };
+    const sentenceClue = input.sentence;
+    const sentenceCluePinyin = input.pinyin || null;
+    const sentenceClueTranslation = input.translation || null;
 
     // Generate TTS for the sentence clue
     let sentenceClueAudioUrl: string | null = null;
