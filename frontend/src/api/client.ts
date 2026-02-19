@@ -1119,6 +1119,7 @@ export interface FeatureRequest {
   user_id: string;
   content: string;
   page_context: string | null;
+  screenshot_url: string | null;
   status: string;
   approval_status: string;
   comment_count: number;
@@ -1148,10 +1149,33 @@ export async function getFeatureRequests(options?: { status?: string; all?: bool
   return requests;
 }
 
-export async function createFeatureRequest(content: string, pageContext?: string, consoleLogs?: string): Promise<{ id: string }> {
+export async function uploadFeatureRequestScreenshot(blob: Blob): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append('file', blob, 'screenshot.png');
+
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/feature-requests/screenshot`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Upload failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<{ url: string }>;
+}
+
+export async function createFeatureRequest(content: string, pageContext?: string, consoleLogs?: string, screenshotUrl?: string): Promise<{ id: string }> {
   return fetchJSON<{ id: string }>('/feature-requests', {
     method: 'POST',
-    body: JSON.stringify({ content, pageContext, consoleLogs }),
+    body: JSON.stringify({ content, pageContext, consoleLogs, screenshotUrl }),
   });
 }
 
