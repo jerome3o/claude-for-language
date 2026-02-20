@@ -527,6 +527,7 @@ export async function updateNote(
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
+    multipleChoiceOptions?: string;
   },
   updates?: {
     hanzi?: string;
@@ -539,6 +540,7 @@ export async function updateNote(
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
+    multipleChoiceOptions?: string;
   }
 ): Promise<Note | null> {
   // Handle overloaded function signature
@@ -554,6 +556,7 @@ export async function updateNote(
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
+    multipleChoiceOptions?: string;
   };
 
   if (typeof userIdOrUpdates === 'string') {
@@ -611,6 +614,10 @@ export async function updateNote(
   if (actualUpdates.sentenceClueAudioUrl !== undefined) {
     fields.push('sentence_clue_audio_url = ?');
     values.push(actualUpdates.sentenceClueAudioUrl);
+  }
+  if (actualUpdates.multipleChoiceOptions !== undefined) {
+    fields.push('multiple_choice_options = ?');
+    values.push(actualUpdates.multipleChoiceOptions);
   }
 
   if (fields.length === 0) {
@@ -684,7 +691,7 @@ export async function getDueCards(
   limit: number = 20
 ): Promise<CardWithNote[]> {
   let query = `
-    SELECT c.*, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url
+    SELECT c.*, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url, n.multiple_choice_options
     FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
@@ -742,6 +749,7 @@ export async function getDueCards(
       sentence_clue_pinyin: row.sentence_clue_pinyin as string | null,
       sentence_clue_translation: row.sentence_clue_translation as string | null,
       sentence_clue_audio_url: row.sentence_clue_audio_url as string | null,
+      multiple_choice_options: row.multiple_choice_options as string | null,
       created_at: '',
       updated_at: '',
     },
@@ -875,7 +883,7 @@ export async function getSessionWithReviews(
   const reviews = await db
     .prepare(
       `SELECT cr.*, c.note_id, c.card_type, c.ease_factor, c.interval, c.repetitions,
-              n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url
+              n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url, n.multiple_choice_options
        FROM card_reviews cr
        JOIN cards c ON cr.card_id = c.id
        JOIN notes n ON c.note_id = n.id
@@ -926,6 +934,7 @@ export async function getSessionWithReviews(
         sentence_clue_pinyin: row.sentence_clue_pinyin as string | null,
         sentence_clue_translation: row.sentence_clue_translation as string | null,
         sentence_clue_audio_url: row.sentence_clue_audio_url as string | null,
+        multiple_choice_options: row.multiple_choice_options as string | null,
         created_at: '',
         updated_at: '',
       },
@@ -1293,7 +1302,7 @@ export async function getNextStudyCard(
     c.id, c.note_id, c.card_type, c.ease_factor, c.interval, c.repetitions,
     c.next_review_at, c.queue, c.learning_step, c.due_timestamp,
     c.created_at, c.updated_at,
-    n.id as n_id, n.deck_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url
+    n.id as n_id, n.deck_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url, n.multiple_choice_options
   `;
 
   // Priority 1: Learning/Relearning cards due now
@@ -1419,6 +1428,7 @@ function mapCardWithNote(row: Record<string, unknown>): CardWithNote {
       sentence_clue_pinyin: row.sentence_clue_pinyin as string | null,
       sentence_clue_translation: row.sentence_clue_translation as string | null,
       sentence_clue_audio_url: row.sentence_clue_audio_url as string | null,
+      multiple_choice_options: row.multiple_choice_options as string | null,
       created_at: '',
       updated_at: '',
     },

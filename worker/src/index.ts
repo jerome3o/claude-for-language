@@ -1144,6 +1144,99 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
   }
 });
 
+// Generate per-character multiple choice options for meaning_to_hanzi cards
+app.post('/api/notes/:id/generate-multiple-choice', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 500);
+  }
+
+  try {
+    const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+    const characters = [...note.hanzi];
+
+    const prompt = `For each Chinese character below, generate exactly 4 tricky alternative characters that a learner might confuse with the correct one. Choose alternatives that are:
+- Visually similar (same radical, similar stroke count, similar shape)
+- Similar sounding (homophones or near-homophones)
+- Commonly confused with the correct character
+
+Characters to generate alternatives for:
+${characters.map((char, i) => `${i + 1}. ${char}`).join('\n')}
+
+The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 400,
+      tools: [{
+        name: 'generate_character_alternatives',
+        description: 'Generate tricky alternative characters for a multiple choice quiz',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            characters: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  correct: { type: 'string', description: 'The correct character' },
+                  alternatives: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: '4 tricky alternative characters that could be mistaken for the correct one',
+                  },
+                },
+                required: ['correct', 'alternatives'],
+              },
+            },
+          },
+          required: ['characters'],
+        },
+      }],
+      tool_choice: { type: 'tool', name: 'generate_character_alternatives' },
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const toolUseBlock = response.content.find(b => b.type === 'tool_use');
+    if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
+      return c.json({ error: 'Failed to generate alternatives' }, 500);
+    }
+
+    const input = toolUseBlock.input as { characters: Array<{ correct: string; alternatives: string[] }> };
+
+    // Build options arrays with correct answer shuffled in
+    const multipleChoiceOptions = input.characters.map((charData) => {
+      const options = [...charData.alternatives.slice(0, 4)];
+      // Insert correct character at a random position
+      const insertPos = Math.floor(Math.random() * (options.length + 1));
+      options.splice(insertPos, 0, charData.correct);
+      return {
+        correct: charData.correct,
+        options,
+      };
+    });
+
+    const optionsJson = JSON.stringify(multipleChoiceOptions);
+
+    await db.updateNote(c.env.DB, id, userId, {
+      multipleChoiceOptions: optionsJson,
+    });
+
+    const updatedNote = await db.getNoteById(c.env.DB, id, userId);
+    return c.json(updatedNote);
+  } catch (error) {
+    console.error('Multiple choice generation error:', error);
+    return c.json({ error: 'Failed to generate multiple choice options' }, 500);
+  }
+});
+
 // Regenerate all audio in a deck with MiniMax
 app.post('/api/decks/:id/regenerate-all-audio', async (c) => {
   const userId = c.get('user').id;
