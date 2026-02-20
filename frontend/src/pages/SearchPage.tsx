@@ -130,6 +130,7 @@ export function SearchPage() {
         sentence_clue_pinyin: note.sentence_clue_pinyin || null,
         sentence_clue_translation: note.sentence_clue_translation || null,
         sentence_clue_audio_url: note.sentence_clue_audio_url || null,
+        multiple_choice_options: note.multiple_choice_options || null,
         created_at: note.created_at,
         updated_at: note.updated_at,
       },

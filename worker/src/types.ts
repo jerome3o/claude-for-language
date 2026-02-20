@@ -147,6 +147,7 @@ export interface Note {
   sentence_clue_pinyin: string | null;  // Pinyin for sentence clue
   sentence_clue_translation: string | null;  // English translation of sentence clue
   sentence_clue_audio_url: string | null;  // Audio for sentence clue
+  multiple_choice_options: string | null;  // JSON: per-character multiple choice alternatives
   created_at: string;
   updated_at: string;
 }

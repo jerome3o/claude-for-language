@@ -281,6 +281,12 @@ export async function generateSentenceClue(noteId: string): Promise<Note> {
   });
 }
 
+export async function generateMultipleChoice(noteId: string): Promise<Note> {
+  return fetchJSON<Note>(`/notes/${noteId}/generate-multiple-choice`, {
+    method: 'POST',
+  });
+}
+
 export async function regenerateAllDeckAudio(deckId: string, noteIds?: string[]): Promise<{ regenerating: number; message: string }> {
   return fetchJSON<{ regenerating: number; message: string }>(`/decks/${deckId}/regenerate-all-audio`, {
     method: 'POST',

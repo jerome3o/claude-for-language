@@ -15,6 +15,7 @@ import {
   getNoteAudioRecordings,
   generateNoteAudioRecording,
   generateSentenceClue,
+  generateMultipleChoice,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -292,6 +293,12 @@ function StudyCard({
   const [showSentenceClue, setShowSentenceClue] = useState(false);
   const [isGeneratingSentence, setIsGeneratingSentence] = useState(false);
 
+  // Multiple choice state
+  const [showMultipleChoice, setShowMultipleChoice] = useState(false);
+  const [isGeneratingMC, setIsGeneratingMC] = useState(false);
+  const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
+  const [mcSubmitted, setMcSubmitted] = useState(false);
+
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio } = useNoteAudio();
@@ -488,6 +495,54 @@ function StudyCard({
       console.error('Failed to generate sentence clue:', error);
     } finally {
       setIsGeneratingSentence(false);
+    }
+  };
+
+  const handleShowMultipleChoice = async () => {
+    if (card.note.multiple_choice_options) {
+      const options = JSON.parse(card.note.multiple_choice_options) as { correct: string; options: string[] }[];
+      setMcSelections(new Array(options.length).fill(null));
+      setMcSubmitted(false);
+      setShowMultipleChoice(true);
+      return;
+    }
+    setIsGeneratingMC(true);
+    try {
+      const updatedNote = await generateMultipleChoice(card.note.id);
+      onUpdateNote(updatedNote);
+      await db.notes.update(card.note.id, {
+        multiple_choice_options: updatedNote.multiple_choice_options,
+      });
+      if (updatedNote.multiple_choice_options) {
+        const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
+        setMcSelections(new Array(options.length).fill(null));
+        setMcSubmitted(false);
+        setShowMultipleChoice(true);
+      }
+    } catch (error) {
+      console.error('Failed to generate multiple choice options:', error);
+    } finally {
+      setIsGeneratingMC(false);
+    }
+  };
+
+  const handleRegenerateMC = async () => {
+    setIsGeneratingMC(true);
+    try {
+      const updatedNote = await generateMultipleChoice(card.note.id);
+      onUpdateNote(updatedNote);
+      await db.notes.update(card.note.id, {
+        multiple_choice_options: updatedNote.multiple_choice_options,
+      });
+      if (updatedNote.multiple_choice_options) {
+        const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
+        setMcSelections(new Array(options.length).fill(null));
+        setMcSubmitted(false);
+      }
+    } catch (error) {
+      console.error('Failed to regenerate multiple choice options:', error);
+    } finally {
+      setIsGeneratingMC(false);
     }
   };
 
@@ -1356,8 +1411,119 @@ function StudyCard({
     );
   };
 
+  // Render the multiple choice grid
+  const renderMultipleChoiceGrid = () => {
+    if (!card.note.multiple_choice_options) return null;
+    const options = JSON.parse(card.note.multiple_choice_options) as { correct: string; options: string[] }[];
+
+    const allSelected = mcSelections.every(s => s !== null);
+
+    const handleMcSubmit = () => {
+      setMcSubmitted(true);
+      // Set userAnswer to the selected characters for the answer diff
+      setUserAnswer(mcSelections.join(''));
+    };
+
+    return (
+      <div style={{ width: '100%' }}>
+        {options.map((charData, rowIdx) => (
+          <div key={rowIdx} style={{
+            display: 'flex',
+            gap: '0.5rem',
+            justifyContent: 'center',
+            marginBottom: '0.5rem',
+          }}>
+            {charData.options.map((opt, colIdx) => {
+              const isSelected = mcSelections[rowIdx] === opt;
+              const isCorrect = opt === charData.correct;
+              let btnStyle: React.CSSProperties = {
+                minWidth: '3rem',
+                fontSize: '1.5rem',
+                padding: '0.5rem',
+                border: '2px solid var(--border-color, #444)',
+                borderRadius: '8px',
+                background: 'transparent',
+                color: 'inherit',
+                cursor: mcSubmitted ? 'default' : 'pointer',
+              };
+              if (mcSubmitted) {
+                if (isCorrect) {
+                  btnStyle = { ...btnStyle, borderColor: '#4caf50', background: 'rgba(76, 175, 80, 0.2)' };
+                } else if (isSelected && !isCorrect) {
+                  btnStyle = { ...btnStyle, borderColor: '#f44336', background: 'rgba(244, 67, 54, 0.2)' };
+                }
+              } else if (isSelected) {
+                btnStyle = { ...btnStyle, borderColor: 'var(--primary-color, #4a9eff)', background: 'rgba(74, 158, 255, 0.15)' };
+              }
+              return (
+                <button
+                  key={colIdx}
+                  style={btnStyle}
+                  onClick={() => {
+                    if (mcSubmitted) return;
+                    setMcSelections(prev => {
+                      const next = [...prev];
+                      next[rowIdx] = opt;
+                      return next;
+                    });
+                  }}
+                  disabled={mcSubmitted}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.75rem' }}>
+          {!mcSubmitted ? (
+            <button
+              className="btn btn-primary btn-block"
+              onClick={handleMcSubmit}
+              disabled={!allSelected}
+            >
+              Check Answer
+            </button>
+          ) : (
+            <button className="btn btn-primary btn-block" onClick={handleFlip}>
+              Continue
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.5rem' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              setShowMultipleChoice(false);
+              setMcSubmitted(false);
+              setUserAnswer('');
+            }}
+          >
+            Type Instead
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleRegenerateMC}
+            disabled={isGeneratingMC || !isOnline}
+          >
+            {isGeneratingMC ? 'Regenerating...' : 'Regenerate'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // Render typing input and button for typing cards (inside card flow)
   const renderTypingActions = () => {
+    // Show multiple choice grid if active
+    if (showMultipleChoice && card.card_type === 'meaning_to_hanzi') {
+      return (
+        <div className="study-card-actions">
+          {renderMultipleChoiceGrid()}
+        </div>
+      );
+    }
+
     const placeholder = card.card_type === 'audio_to_hanzi' ? 'Type what you hear...' : 'Type in Chinese...';
     return (
       <div className="study-card-actions">
@@ -1376,6 +1542,17 @@ function StudyCard({
         <button className="btn btn-primary btn-block" onClick={handleFlip}>
           Check Answer
         </button>
+        {card.card_type === 'meaning_to_hanzi' && (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleShowMultipleChoice}
+            disabled={isGeneratingMC || !isOnline}
+            title={!isOnline ? 'Requires internet connection' : ''}
+            style={{ marginTop: '0.5rem' }}
+          >
+            {isGeneratingMC ? 'Loading...' : 'Multiple Choice'}
+          </button>
+        )}
       </div>
     );
   };
