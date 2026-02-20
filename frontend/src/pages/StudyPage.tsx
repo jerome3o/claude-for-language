@@ -1657,9 +1657,9 @@ function StudyCard({
               <div className="study-card-main">
                 {renderBackMain()}
 
-                {/* Show full sentence clue on answer side if it was revealed */}
-                {showSentenceClue && card.note.sentence_clue && (
-                  <div className="mt-3" style={{ textAlign: 'center' }}>
+                {/* Show sentence clue on answer side, or generate button if none exists */}
+                <div className="mt-3" style={{ textAlign: 'center' }}>
+                  {card.note.sentence_clue ? (
                     <div
                       style={{
                         padding: '0.75rem',
@@ -1692,8 +1692,17 @@ function StudyCard({
                         </button>
                       )}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleGenerateSentenceClue}
+                      disabled={isGeneratingSentence || !isOnline}
+                      title={!isOnline ? 'Requires internet connection' : ''}
+                    >
+                      {isGeneratingSentence ? 'Generating...' : 'Generate Sentence'}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="study-card-actions">
                 {renderBackActions()}
