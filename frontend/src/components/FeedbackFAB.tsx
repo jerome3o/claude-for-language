@@ -4,6 +4,7 @@ import html2canvas from 'html2canvas';
 import { useAuth } from '../contexts/AuthContext';
 import { createFeatureRequest, uploadFeatureRequestScreenshot } from '../api/client';
 import { getConsoleBuffer } from '../utils/consoleBuffer';
+import { AnnotationCanvas } from './AnnotationCanvas';
 
 const FAB_SIZE = 48;
 const STORAGE_KEY = 'feedback-fab-position';
@@ -36,6 +37,8 @@ export function FeedbackFAB() {
   const [includeConsoleLogs, setIncludeConsoleLogs] = useState(false);
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
   const [includeScreenshot, setIncludeScreenshot] = useState(true);
+  const [isAnnotating, setIsAnnotating] = useState(false);
+  const [isAnnotated, setIsAnnotated] = useState(false);
 
   // Position state — null means use CSS default (bottom-right)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(loadPosition);
@@ -156,6 +159,16 @@ export function FeedbackFAB() {
     setIsOpen(true);
   }, []);
 
+  const handleAnnotationSave = useCallback((compositedDataUrl: string) => {
+    setScreenshotDataUrl(compositedDataUrl);
+    setIsAnnotating(false);
+    setIsAnnotated(true);
+  }, []);
+
+  const handleAnnotationCancel = useCallback(() => {
+    setIsAnnotating(false);
+  }, []);
+
   const handleSubmit = useCallback(async () => {
     if (!content.trim() || isSubmitting) return;
 
@@ -184,6 +197,7 @@ export function FeedbackFAB() {
       setContent('');
       setIncludeConsoleLogs(false);
       setScreenshotDataUrl(null);
+      setIsAnnotated(false);
       setTimeout(() => {
         setSubmitted(false);
         setIsOpen(false);
@@ -218,7 +232,15 @@ export function FeedbackFAB() {
         </button>
       )}
 
-      {isOpen && (
+      {isAnnotating && screenshotDataUrl && (
+        <AnnotationCanvas
+          screenshotDataUrl={screenshotDataUrl}
+          onSave={handleAnnotationSave}
+          onCancel={handleAnnotationCancel}
+        />
+      )}
+
+      {isOpen && !isAnnotating && (
         <div className="feedback-modal-overlay" onClick={() => { if (!isSubmitting) setIsOpen(false); }}>
           <div className="feedback-modal" onClick={(e) => e.stopPropagation()}>
             <div className="feedback-modal-header">
@@ -268,11 +290,20 @@ export function FeedbackFAB() {
                 </div>
                 {screenshotDataUrl && includeScreenshot && (
                   <div className="feedback-screenshot-preview">
-                    <img
-                      src={screenshotDataUrl}
-                      alt="Screenshot preview"
-                      style={{ maxWidth: 200, border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
-                    />
+                    <button
+                      type="button"
+                      className="feedback-screenshot-btn"
+                      onClick={() => setIsAnnotating(true)}
+                      disabled={isSubmitting}
+                    >
+                      <img
+                        src={screenshotDataUrl}
+                        alt="Screenshot preview"
+                        style={{ maxWidth: 200, border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
+                      />
+                      {isAnnotated && <span className="feedback-annotated-badge">edited</span>}
+                      <span className="feedback-screenshot-hint">Tap to annotate</span>
+                    </button>
                   </div>
                 )}
                 <div className="feedback-actions">
