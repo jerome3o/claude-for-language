@@ -1078,6 +1078,7 @@ function StudyCard({
       { label: 'Check my answer', question: 'Is my answer grammatically and semantically correct? Please explain any errors.' },
       { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
       { label: 'Add a fun fact', question: 'Add a brief, interesting fun fact or cultural context to this card.' },
+      ...(card.note.sentence_clue ? [{ label: 'Explain sentence', question: 'Please explain the example sentence for this card. Break down the grammar, explain each word, and provide any cultural context.' }] : []),
     ];
 
     return (
