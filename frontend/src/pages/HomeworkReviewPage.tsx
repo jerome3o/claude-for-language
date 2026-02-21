@@ -441,7 +441,6 @@ export function HomeworkReviewPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isTutor = user?.role === 'tutor';
 
   const [currentPage, setCurrentPage] = useState(0);
 
@@ -450,6 +449,9 @@ export function HomeworkReviewPage() {
     queryFn: () => getHomeworkAssignment(homeworkId!),
     enabled: !!homeworkId,
   });
+
+  // Determine tutor status per-assignment, not from account role
+  const isTutor = !!hwQuery.data && hwQuery.data.tutor_id === user?.id;
 
   const readerQuery = useQuery({
     queryKey: ['reader', hwQuery.data?.reader_id],

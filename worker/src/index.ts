@@ -2255,12 +2255,10 @@ app.post('/api/readers/:readerId/pages/:pageId/generate-text', async (c) => {
 
 // ============ Homework Assignments ============
 
-// Assign a reader as homework to a student (tutor only)
+// Assign a reader as homework to a student
+// Authorization: user must have an active tutor relationship with the student (checked below)
 app.post('/api/homework', async (c) => {
   const user = c.get('user');
-  if (user.role !== 'tutor') {
-    return c.json({ error: 'Only tutors can assign homework' }, 403);
-  }
 
   const { reader_id, student_id, notes } = await c.req.json<{ reader_id: string; student_id: string; notes?: string }>();
   if (!reader_id || !student_id) {
@@ -2496,12 +2494,9 @@ app.post('/api/homework/:id/submit', async (c) => {
 
 // ============ Homework Feedback ============
 
-// Submit feedback on a homework assignment (tutor only)
+// Submit feedback on a homework assignment (tutor for this assignment)
 app.post('/api/homework/:id/feedback', async (c) => {
   const user = c.get('user');
-  if (user.role !== 'tutor') {
-    return c.json({ error: 'Only tutors can leave feedback' }, 403);
-  }
 
   const homeworkId = c.req.param('id');
   const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, user.id);
@@ -2580,9 +2575,6 @@ app.get('/api/homework/:id/feedback', async (c) => {
 // Update feedback
 app.put('/api/homework/:id/feedback/:feedbackId', async (c) => {
   const user = c.get('user');
-  if (user.role !== 'tutor') {
-    return c.json({ error: 'Only tutors can update feedback' }, 403);
-  }
 
   const homeworkId = c.req.param('id');
   const feedbackId = c.req.param('feedbackId');
@@ -2635,9 +2627,6 @@ app.put('/api/homework/:id/feedback/:feedbackId', async (c) => {
 // Delete feedback
 app.delete('/api/homework/:id/feedback/:feedbackId', async (c) => {
   const user = c.get('user');
-  if (user.role !== 'tutor') {
-    return c.json({ error: 'Only tutors can delete feedback' }, 403);
-  }
 
   const feedbackId = c.req.param('feedbackId');
   const deleted = await db.deleteHomeworkFeedback(c.env.DB, feedbackId, user.id);
@@ -2650,12 +2639,9 @@ app.delete('/api/homework/:id/feedback/:feedbackId', async (c) => {
   return c.json({ success: true });
 });
 
-// Mark review as complete (tutor only)
+// Mark review as complete (tutor for this assignment)
 app.post('/api/homework/:id/review-complete', async (c) => {
   const user = c.get('user');
-  if (user.role !== 'tutor') {
-    return c.json({ error: 'Only tutors can complete reviews' }, 403);
-  }
 
   const homeworkId = c.req.param('id');
   const hw = await db.getHomeworkAssignment(c.env.DB, homeworkId, user.id);
