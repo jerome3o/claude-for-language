@@ -1542,17 +1542,6 @@ function StudyCard({
         <button className="btn btn-primary btn-block" onClick={handleFlip}>
           Check Answer
         </button>
-        {card.card_type === 'meaning_to_hanzi' && (
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleShowMultipleChoice}
-            disabled={isGeneratingMC || !isOnline}
-            title={!isOnline ? 'Requires internet connection' : ''}
-            style={{ marginTop: '0.5rem' }}
-          >
-            {isGeneratingMC ? 'Loading...' : 'Multiple Choice'}
-          </button>
-        )}
       </div>
     );
   };
@@ -1584,20 +1573,32 @@ function StudyCard({
               {!flipped && (
                 <div className="mt-3 mb-3" style={{ textAlign: 'center' }}>
                   {!showSentenceClue ? (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => {
-                        if (card.note.sentence_clue) {
-                          setShowSentenceClue(true);
-                        } else {
-                          handleGenerateSentenceClue();
-                        }
-                      }}
-                      disabled={isGeneratingSentence || !isOnline}
-                      title={!isOnline ? 'Requires internet connection' : ''}
-                    >
-                      {isGeneratingSentence ? 'Generating...' : 'Use in Sentence'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          if (card.note.sentence_clue) {
+                            setShowSentenceClue(true);
+                          } else {
+                            handleGenerateSentenceClue();
+                          }
+                        }}
+                        disabled={isGeneratingSentence || !isOnline}
+                        title={!isOnline ? 'Requires internet connection' : ''}
+                      >
+                        {isGeneratingSentence ? 'Generating...' : 'Use in Sentence'}
+                      </button>
+                      {card.card_type === 'meaning_to_hanzi' && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleShowMultipleChoice}
+                          disabled={isGeneratingMC || !isOnline}
+                          title={!isOnline ? 'Requires internet connection' : ''}
+                        >
+                          {isGeneratingMC ? 'Loading...' : 'Multiple Choice'}
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <div
                       style={{
