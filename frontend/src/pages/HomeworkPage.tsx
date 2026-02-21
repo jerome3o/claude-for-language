@@ -516,7 +516,12 @@ export function HomeworkPage() {
   const queryClient = useQueryClient();
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [filter, setFilter] = useState<'all' | 'assigned' | 'in_progress' | 'completed' | 'reviewed'>('all');
-  const isTutor = user?.role === 'tutor';
+  // Determine tutor capability from relationships, not account role
+  const relationshipsQuery = useQuery({
+    queryKey: ['relationships'],
+    queryFn: getMyRelationships,
+  });
+  const hasStudents = (relationshipsQuery.data?.students?.length ?? 0) > 0;
 
   const hwQuery = useQuery({
     queryKey: ['homework'],
@@ -577,7 +582,7 @@ export function HomeworkPage() {
       <div className="container">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h1 style={{ margin: 0 }}>Homework</h1>
-          {isTutor && (
+          {hasStudents && (
             <button className="btn btn-primary" onClick={() => setShowAssignModal(true)}>
               Assign Homework
             </button>
@@ -602,16 +607,16 @@ export function HomeworkPage() {
 
         {filtered.length === 0 ? (
           <EmptyState
-            icon={isTutor ? '📋' : '📖'}
+            icon={hasStudents ? '📋' : '📖'}
             title={assignments.length === 0
-              ? (isTutor ? 'No homework assigned yet' : 'No homework yet')
+              ? (hasStudents ? 'No homework assigned yet' : 'No homework yet')
               : 'No homework matches this filter'}
             description={assignments.length === 0
-              ? (isTutor
+              ? (hasStudents
                   ? 'Assign graded readers to your students as homework'
                   : 'Your tutor hasn\'t assigned any homework yet')
               : 'Try a different filter to see more assignments'}
-            action={isTutor && assignments.length === 0 ? (
+            action={hasStudents && assignments.length === 0 ? (
               <button className="btn btn-primary" onClick={() => setShowAssignModal(true)}>
                 Assign Homework
               </button>
@@ -623,7 +628,7 @@ export function HomeworkPage() {
               <HomeworkCard
                 key={hw.id}
                 hw={hw}
-                isTutor={isTutor!}
+                isTutor={hw.tutor_id === user?.id}
                 onDelete={(id) => deleteMutation.mutate(id)}
                 onSubmit={(id) => submitMutation.mutate(id)}
               />
