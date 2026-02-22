@@ -588,6 +588,10 @@ function StudyCard({
               pinyin: note.pinyin,
               english: note.english,
               fun_facts: note.fun_facts,
+              sentence_clue: note.sentence_clue,
+              sentence_clue_pinyin: note.sentence_clue_pinyin,
+              sentence_clue_translation: note.sentence_clue_translation,
+              sentence_clue_audio_url: note.sentence_clue_audio_url,
               updated_at: note.updated_at,
             });
             // Also update in IndexedDB for offline consistency
@@ -596,6 +600,10 @@ function StudyCard({
               pinyin: note.pinyin ?? card.note.pinyin,
               english: note.english ?? card.note.english,
               fun_facts: note.fun_facts ?? card.note.fun_facts,
+              sentence_clue: note.sentence_clue ?? card.note.sentence_clue,
+              sentence_clue_pinyin: note.sentence_clue_pinyin ?? card.note.sentence_clue_pinyin,
+              sentence_clue_translation: note.sentence_clue_translation ?? card.note.sentence_clue_translation,
+              sentence_clue_audio_url: note.sentence_clue_audio_url ?? card.note.sentence_clue_audio_url,
               updated_at: note.updated_at ?? card.note.updated_at,
             });
           }
@@ -1635,6 +1643,14 @@ function StudyCard({
                         >
                           Hide
                         </button>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleGenerateSentenceClue}
+                          disabled={isGeneratingSentence || !isOnline}
+                          title="Regenerate sentence with pinyin and translation"
+                        >
+                          {isGeneratingSentence ? '...' : '↻'}
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1683,15 +1699,25 @@ function StudyCard({
                           {card.note.sentence_clue_translation}
                         </div>
                       )}
-                      {card.note.sentence_clue_audio_url && (
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.5rem' }}>
+                        {card.note.sentence_clue_audio_url && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={playSentenceClue}
+                            disabled={isPlaying}
+                          >
+                            Play Sentence
+                          </button>
+                        )}
                         <button
                           className="btn btn-secondary btn-sm"
-                          onClick={playSentenceClue}
-                          disabled={isPlaying}
+                          onClick={handleGenerateSentenceClue}
+                          disabled={isGeneratingSentence || !isOnline}
+                          title="Regenerate sentence with pinyin and translation"
                         >
-                          Play Sentence
+                          {isGeneratingSentence ? '...' : '↻'}
                         </button>
-                      )}
+                      </div>
                     </div>
                   ) : (
                     <button
