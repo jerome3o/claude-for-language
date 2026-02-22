@@ -80,7 +80,7 @@ export function Header() {
     if (notif.type === 'new_chat_message' && notif.relationship_id && notif.conversation_id) {
       navigate(`/connections/${notif.relationship_id}/chat/${notif.conversation_id}`);
     } else if (notif.type === 'tutor_review_flagged') {
-      navigate('/tutor-review-inbox');
+      navigate('/tutor-reviews');
     } else if (notif.homework_id) {
       navigate('/homework');
     }
