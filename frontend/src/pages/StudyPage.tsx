@@ -868,7 +868,7 @@ function StudyCard({
               borderRadius: '6px',
             }}
           >
-            {card.note.fun_facts}
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{card.note.fun_facts}</ReactMarkdown>
           </div>
         )}
       </div>
