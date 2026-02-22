@@ -1118,7 +1118,7 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     let sentenceClueAudioUrl: string | null = null;
     if (c.env.GOOGLE_TTS_API_KEY || c.env.MINIMAX_API_KEY) {
       try {
-        const audioResult = await generateTTS(c.env, sentenceClue, `${id}-sentence`);
+        const audioResult = await generateTTS(c.env, sentenceClue, `${id}-sentence`, { speed: 0.65 });
         if (audioResult) {
           sentenceClueAudioUrl = audioResult.audioKey;
         }
