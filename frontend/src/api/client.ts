@@ -1388,6 +1388,12 @@ export async function markNotificationRead(id: string): Promise<void> {
   });
 }
 
+export async function markNotificationsReadByConversation(conversationId: string): Promise<void> {
+  await fetchJSON<{ updated: number }>(`/notifications/read-by-conversation/${conversationId}`, {
+    method: 'PATCH',
+  });
+}
+
 export async function markAllNotificationsRead(): Promise<void> {
   await fetchJSON<{ updated: number }>('/notifications/read-all', {
     method: 'PATCH',

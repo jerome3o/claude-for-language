@@ -2474,6 +2474,18 @@ export async function updateNotificationMessage(
   `).bind(title, message, notificationId).run();
 }
 
+export async function markNotificationsReadByConversation(
+  db: D1Database,
+  userId: string,
+  conversationId: string,
+): Promise<number> {
+  const result = await db.prepare(`
+    UPDATE notifications SET is_read = 1
+    WHERE user_id = ? AND conversation_id = ? AND is_read = 0
+  `).bind(userId, conversationId).run();
+  return result.meta?.changes ?? 0;
+}
+
 export async function markAllNotificationsRead(
   db: D1Database,
   userId: string,
