@@ -15,6 +15,7 @@ import {
   checkMessage,
   updateConversationVoiceSettings,
   getConversations,
+  markNotificationsReadByConversation,
 } from '../api/client';
 import {
   MessageWithSender,
@@ -96,6 +97,13 @@ export function ChatPage() {
       audioElement.pause();
       setAudioElement(null);
       setPlayingAudioMessageId(null);
+    }
+  }, [convId]);
+
+  // Auto-clear chat notifications when opening the conversation
+  useEffect(() => {
+    if (convId) {
+      markNotificationsReadByConversation(convId).catch(() => {});
     }
   }, [convId]);
 

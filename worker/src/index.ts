@@ -2697,6 +2697,14 @@ app.patch('/api/notifications/read-all', async (c) => {
   return c.json({ updated });
 });
 
+// Mark notifications as read for a specific conversation
+app.patch('/api/notifications/read-by-conversation/:conversationId', async (c) => {
+  const userId = c.get('user').id;
+  const conversationId = c.req.param('conversationId');
+  const updated = await db.markNotificationsReadByConversation(c.env.DB, userId, conversationId);
+  return c.json({ updated });
+});
+
 // Mark a single notification as read
 app.patch('/api/notifications/:id/read', async (c) => {
   const userId = c.get('user').id;
