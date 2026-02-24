@@ -32,7 +32,7 @@ function normalizePinyin(py: string): string {
  * Compare transcribed text against expected note content.
  * Transcription comes back as hanzi — convert both to pinyin for tone-aware comparison.
  */
-function compareTranscription(transcribedText: string, expectedHanzi: string, expectedPinyin: string): TranscriptionComparison {
+export function compareTranscription(transcribedText: string, expectedHanzi: string, expectedPinyin: string): TranscriptionComparison {
   const trimmed = transcribedText.trim();
   const transcribedPy = pinyin(trimmed, { toneType: 'symbol', type: 'string' });
   const expectedPy = pinyin(expectedHanzi, { toneType: 'symbol', type: 'string' });
