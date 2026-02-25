@@ -900,12 +900,23 @@ app.post('/api/notes/:id/ask', async (c) => {
           }
 
           case 'create_flashcards': {
-            const input = action.input as { flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
+            const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
+            // Determine target deck — use provided deck_id if valid, otherwise current deck
+            let targetDeckId = note.deck_id;
+            if (input.deck_id && input.deck_id !== note.deck_id) {
+              const targetDeck = await db.getDeckById(c.env.DB, input.deck_id, userId);
+              if (targetDeck) {
+                targetDeckId = input.deck_id;
+              } else {
+                toolResults.push({ tool: 'create_flashcards', success: false, error: 'Target deck not found or not owned by user' });
+                break;
+              }
+            }
             const createdNotes = [];
             for (const fc of input.flashcards) {
               const newNote = await db.createNote(
                 c.env.DB,
-                note.deck_id,
+                targetDeckId,
                 fc.hanzi,
                 fc.pinyin,
                 fc.english,
@@ -920,6 +931,7 @@ app.post('/api/notes/:id/ask', async (c) => {
               data: {
                 created: createdNotes,
                 count: createdNotes.length,
+                targetDeckId,
               },
             });
             break;
