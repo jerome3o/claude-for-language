@@ -163,7 +163,7 @@ You have tools to help the user. Read-only tools (search_cards, list_conversatio
 
 Tool usage guidelines:
 - The user points out an error in the card (wrong tone, incorrect translation, etc.) → use edit_current_card
-- The user asks for related vocabulary to be added → use create_flashcards
+- The user asks for related vocabulary to be added → use create_flashcards (can target any of the user's decks by specifying deck_id)
 - The user says the card is a duplicate or should be removed → use delete_current_card
 - Use search_cards to find related vocabulary, check for duplicates, or answer questions about what cards exist
 - Use list_conversations to find past discussions about cards
@@ -321,10 +321,11 @@ function getAskNoteTools(note: Note) {
     },
     {
       name: 'create_flashcards',
-      description: 'Create new flashcards in the same deck as the current card. Use this when the user asks for related vocabulary or wants to add new cards.',
+      description: 'Create new flashcards. By default, cards are added to the current deck. To add cards to a different deck, specify the deck_id. The user\'s available decks are listed in the context.',
       input_schema: {
         type: 'object' as const,
         properties: {
+          deck_id: { type: 'string', description: 'Target deck ID to add cards to. If omitted, cards are added to the current deck.' },
           flashcards: {
             type: 'array',
             description: 'Array of flashcards to create',
@@ -503,6 +504,18 @@ export async function askAboutNoteWithTools(
 
       if (deck) {
         vocabContextParts.push(`- Deck: ${deck.name}${deck.description ? ` — ${deck.description}` : ''}`);
+      }
+
+      // Fetch all user decks so Claude knows what's available for cross-deck card creation
+      const allDecks = await dbContext.db.prepare(
+        `SELECT id, name FROM decks WHERE user_id = ? ORDER BY name`
+      ).bind(dbContext.userId).all<{ id: string; name: string }>();
+
+      if (allDecks.results && allDecks.results.length > 1) {
+        const deckList = allDecks.results.map(d =>
+          d.id === dbContext.deckId ? `${d.name} (id: ${d.id}) [current]` : `${d.name} (id: ${d.id})`
+        ).join(', ');
+        vocabContextParts.push(`- User's decks: ${deckList}`);
       }
 
       // Fetch card mastery info (aggregate across all card types for this note)
