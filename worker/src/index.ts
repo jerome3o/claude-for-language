@@ -1088,7 +1088,7 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones.`;
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5-20250929',
       max_tokens: 400,
       tools: [{
         name: 'create_sentence_clue',
@@ -1185,7 +1185,7 @@ ${characters.map((char, i) => `${i + 1}. ${char}`).join('\n')}
 The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5-20250929',
       max_tokens: 400,
       tools: [{
         name: 'generate_character_alternatives',
@@ -1933,10 +1933,10 @@ app.post('/api/analyze-pronunciation', async (c) => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': c.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2024-10-22',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 1024,
         tools: [{
           name: 'analyze_pronunciation',
@@ -2420,7 +2420,7 @@ app.post('/api/readers/:readerId/pages/:pageId/generate-text', async (c) => {
   }
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5-20250929',
     max_tokens: 500,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
@@ -3238,10 +3238,10 @@ app.post('/api/conversations/:id/generate-flashcard', async (c) => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': c.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2024-10-22',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 500,
         messages: [{ role: 'user', content: prompt }],
       }),
