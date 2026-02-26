@@ -295,6 +295,8 @@ function StudyCard({
   // Sentence clue state
   const [showSentenceClue, setShowSentenceClue] = useState(false);
   const [isGeneratingSentence, setIsGeneratingSentence] = useState(false);
+  const [showSentencePinyin, setShowSentencePinyin] = useState(false);
+  const [showSentenceTranslation, setShowSentenceTranslation] = useState(false);
 
   // Multiple choice state
   const [showMultipleChoice, setShowMultipleChoice] = useState(false);
@@ -1811,13 +1813,23 @@ function StudyCard({
                         {card.note.sentence_clue}
                       </div>
                       {card.note.sentence_clue_pinyin && (
-                        <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.25rem' }}>
-                          {card.note.sentence_clue_pinyin}
+                        <div
+                          style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.25rem', cursor: showSentencePinyin ? 'default' : 'pointer' }}
+                          onClick={() => !showSentencePinyin && setShowSentencePinyin(true)}
+                        >
+                          {showSentencePinyin ? card.note.sentence_clue_pinyin : (
+                            <span style={{ opacity: 0.5, fontStyle: 'italic' }}>Tap to show pinyin</span>
+                          )}
                         </div>
                       )}
                       {card.note.sentence_clue_translation && (
-                        <div style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.5rem' }}>
-                          {card.note.sentence_clue_translation}
+                        <div
+                          style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.5rem', cursor: showSentenceTranslation ? 'default' : 'pointer' }}
+                          onClick={() => !showSentenceTranslation && setShowSentenceTranslation(true)}
+                        >
+                          {showSentenceTranslation ? card.note.sentence_clue_translation : (
+                            <span style={{ opacity: 0.5, fontStyle: 'italic' }}>Tap to show translation</span>
+                          )}
                         </div>
                       )}
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.5rem' }}>
