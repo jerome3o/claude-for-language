@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment } from '../api/client';
+import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio } from '../api/client';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
 import './SettingsPage.css';
 
@@ -135,6 +135,10 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [requests, setRequests] = useState<FeatureRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [bio, setBio] = useState('');
+  const [bioSaved, setBioSaved] = useState('');
+  const [isSavingBio, setIsSavingBio] = useState(false);
+  const [bioLoaded, setBioLoaded] = useState(false);
 
   const lastExport = localStorage.getItem('lastExportDate');
   const lastExportSize = localStorage.getItem('lastExportSize');
@@ -149,6 +153,27 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => { loadRequests(); }, [loadRequests]);
+
+  useEffect(() => {
+    getUserBio().then((b) => {
+      setBio(b || '');
+      setBioSaved(b || '');
+      setBioLoaded(true);
+    }).catch(() => setBioLoaded(true));
+  }, []);
+
+  const handleSaveBio = async () => {
+    setIsSavingBio(true);
+    try {
+      const saved = await updateUserBio(bio.trim() || null);
+      setBioSaved(saved || '');
+      setBio(saved || '');
+    } catch (err) {
+      console.error('Failed to save bio:', err);
+    } finally {
+      setIsSavingBio(false);
+    }
+  };
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -191,6 +216,36 @@ export function SettingsPage() {
     <div className="page">
       <div className="container settings-page">
         <h1>Settings</h1>
+
+        <div className="settings-section">
+          <h2>Personal Bio</h2>
+          <p className="settings-section-desc">
+            Tell us a bit about yourself. This is used to personalize example sentences — e.g. if you mention you like coffee, you might get sentences about ordering coffee.
+          </p>
+          {bioLoaded && (
+            <>
+              <textarea
+                className="feedback-textarea"
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                placeholder="e.g. I'm a software developer living in New Zealand. I like hiking, coffee, and cooking. I'm learning Chinese to talk to my partner's family."
+                rows={3}
+                maxLength={500}
+                disabled={isSavingBio}
+              />
+              <div className="feedback-actions">
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSaveBio}
+                  disabled={isSavingBio || bio === bioSaved}
+                >
+                  {isSavingBio ? 'Saving...' : 'Save Bio'}
+                </button>
+                <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>{bio.length}/500</span>
+              </div>
+            </>
+          )}
+        </div>
 
         <div className="settings-section">
           <h2>Feature Requests</h2>

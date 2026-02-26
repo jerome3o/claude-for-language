@@ -294,6 +294,7 @@ app.get('/api/auth/me', async (c) => {
     picture_url: user.picture_url,
     role: user.role,
     is_admin: !!user.is_admin,
+    bio: user.bio || null,
   });
 });
 
@@ -429,6 +430,25 @@ app.post('/api/admin/storage/cleanup', adminMiddleware, async (c) => {
     deleted_size_bytes: deletedSize,
     deleted_size_mb: Math.round(deletedSize / 1024 / 1024 * 100) / 100,
   });
+});
+
+// ============ User Profile ============
+
+app.get('/api/profile/bio', async (c) => {
+  const userId = c.get('user').id;
+  const row = await c.env.DB.prepare('SELECT bio FROM users WHERE id = ?').bind(userId).first<{ bio: string | null }>();
+  return c.json({ bio: row?.bio || null });
+});
+
+app.put('/api/profile/bio', async (c) => {
+  const userId = c.get('user').id;
+  const { bio } = await c.req.json<{ bio: string | null }>();
+
+  // Limit bio length
+  const trimmed = bio?.trim().slice(0, 500) || null;
+
+  await c.env.DB.prepare('UPDATE users SET bio = ? WHERE id = ?').bind(trimmed, userId).run();
+  return c.json({ bio: trimmed });
 });
 
 // ============ Decks ============
@@ -1085,7 +1105,11 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     // Generate a simple example sentence using the note's hanzi
     const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
 
-    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones.`;
+    // Fetch user's bio for personalized context
+    const userRow = await c.env.DB.prepare('SELECT bio FROM users WHERE id = ?').bind(userId).first<{ bio: string | null }>();
+    const bioContext = userRow?.bio ? ` The learner describes themselves as: "${userRow.bio}". Try to make the sentence relevant to their life or interests when possible.` : '';
+
+    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones.${bioContext}`;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',

@@ -518,6 +518,14 @@ export async function askAboutNoteWithTools(
         vocabContextParts.push(`- User's decks: ${deckList}`);
       }
 
+      // Fetch user bio for personalized responses
+      const userRow = await dbContext.db.prepare(
+        'SELECT bio FROM users WHERE id = ?'
+      ).bind(dbContext.userId).first<{ bio: string | null }>();
+      if (userRow?.bio) {
+        vocabContextParts.push(`- Learner bio: ${userRow.bio}`);
+      }
+
       // Fetch card mastery info (aggregate across all card types for this note)
       const cards = await dbContext.db.prepare(`
         SELECT card_type, queue, ease_factor, interval, repetitions, stability

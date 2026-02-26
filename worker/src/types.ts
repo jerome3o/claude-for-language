@@ -67,6 +67,7 @@ export interface User {
   role: UserRole;
   is_admin: number;
   last_login_at: string | null;
+  bio: string | null;
   created_at: string;
 }
 
