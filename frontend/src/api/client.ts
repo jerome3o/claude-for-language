@@ -1216,6 +1216,21 @@ export interface FeatureRequestComment {
   created_at: string;
 }
 
+// ============ User Profile ============
+
+export async function getUserBio(): Promise<string | null> {
+  const data = await fetchJSON<{ bio: string | null }>('/profile/bio');
+  return data.bio;
+}
+
+export async function updateUserBio(bio: string | null): Promise<string | null> {
+  const data = await fetchJSON<{ bio: string | null }>('/profile/bio', {
+    method: 'PUT',
+    body: JSON.stringify({ bio }),
+  });
+  return data.bio;
+}
+
 export async function getFeatureRequests(options?: { status?: string; all?: boolean }): Promise<FeatureRequest[]> {
   const params = new URLSearchParams();
   if (options?.status) params.set('status', options.status);
