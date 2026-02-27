@@ -69,11 +69,11 @@ export function useOfflineDecks(apiDecks?: { id: string }[]) {
   React.useEffect(() => {
     if (hasMismatch && navigator.onLine && !isAutoSyncing && !syncService.isSyncingNow) {
       console.log('[useOfflineDecks] Mismatch detected! API has decks not in IndexedDB:', missingDecks.map(d => d.id));
-      console.log('[useOfflineDecks] Triggering full sync to fix...');
+      console.log('[useOfflineDecks] Triggering incremental sync to fix...');
       setIsAutoSyncing(true);
-      syncService.fullSync()
-        .then(() => console.log('[useOfflineDecks] Auto full sync complete'))
-        .catch(err => console.error('[useOfflineDecks] Auto full sync failed:', err))
+      syncService.incrementalSync()
+        .then(() => console.log('[useOfflineDecks] Auto incremental sync complete'))
+        .catch(err => console.error('[useOfflineDecks] Auto incremental sync failed:', err))
         .finally(() => setIsAutoSyncing(false));
     }
   }, [hasMismatch, missingDecks, isAutoSyncing]);

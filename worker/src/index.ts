@@ -4471,7 +4471,8 @@ app.get('/api/sync/changes', async (c) => {
     return c.json({ error: 'since must be a valid timestamp' }, 400);
   }
 
-  const sinceDate = new Date(since).toISOString();
+  // Convert to SQLite datetime format (YYYY-MM-DD HH:MM:SS) to match datetime('now') values
+  const sinceDate = new Date(since).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
   console.log('[API sync/changes] sinceDate:', sinceDate);
 
   // Get updated decks
