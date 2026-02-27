@@ -16,9 +16,6 @@ import {
   generateNoteAudioRecording,
   generateSentenceClue,
   generateMultipleChoice,
-  analyzePronunciation,
-  PronunciationAnalysis,
-  transcribeAudioGoogle,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -36,7 +33,7 @@ import {
   Note,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
-import { useTranscription, TranscriptionComparison, compareTranscription } from '../hooks/useTranscription';
+import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
 import CardEditModal from '../components/CardEditModal';
@@ -315,14 +312,6 @@ function StudyCard({
     transcribe,
     reset: resetTranscription,
   } = useTranscription();
-
-  // Alternative analysis state
-  const [claudeAnalysis, setClaudeAnalysis] = useState<PronunciationAnalysis | null>(null);
-  const [isAnalyzingClaude, setIsAnalyzingClaude] = useState(false);
-  const [claudeError, setClaudeError] = useState<string | null>(null);
-  const [googleComparison, setGoogleComparison] = useState<TranscriptionComparison | null>(null);
-  const [isTranscribingGoogle, setIsTranscribingGoogle] = useState(false);
-  const [googleError, setGoogleError] = useState<string | null>(null);
 
   // Track initial 0.5s delay to prevent accidental stop clicks
   const [isRecordingDelayActive, setIsRecordingDelayActive] = useState(false);
@@ -802,143 +791,32 @@ function StudyCard({
     if (transcriptionComparison) {
       const { transcribedHanzi, transcribedPinyin, isMatch } = transcriptionComparison;
 
-      const handleAnalyzeClaude = async () => {
-        if (!audioBlob) return;
-        setIsAnalyzingClaude(true);
-        setClaudeError(null);
-        setClaudeAnalysis(null);
-        try {
-          const result = await analyzePronunciation(audioBlob, card.note.hanzi, card.note.pinyin, card.note.english);
-          setClaudeAnalysis(result);
-        } catch {
-          setClaudeError('Claude analysis failed');
-        } finally {
-          setIsAnalyzingClaude(false);
-        }
-      };
-
-      const handleGoogleSTT = async () => {
-        if (!audioBlob) return;
-        setIsTranscribingGoogle(true);
-        setGoogleError(null);
-        setGoogleComparison(null);
-        try {
-          const result = await transcribeAudioGoogle(audioBlob);
-          const comparison = compareTranscription(result.text, card.note.hanzi, card.note.pinyin);
-          setGoogleComparison(comparison);
-        } catch {
-          setGoogleError('Google transcription failed');
-        } finally {
-          setIsTranscribingGoogle(false);
-        }
-      };
-
       return (
-        <>
-          <div className="transcription-result" style={{
-            padding: '0.5rem 0.75rem',
-            borderRadius: '6px',
-            backgroundColor: isMatch ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-            border: `1px solid ${isMatch ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-            fontSize: '0.875rem',
-            marginBottom: '0.5rem',
-          }}>
-            <div style={{ fontWeight: 500 }}>
-              You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : '\u274C'}
-            </div>
-            {!isMatch && (
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  resetTranscription();
-                  clearRecording();
-                  setTimeout(() => startRecordingWithDelay(true), 100);
-                }}
-                style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
-              >
-                Try Again
-              </button>
-            )}
+        <div className="transcription-result" style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: '6px',
+          backgroundColor: isMatch ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+          border: `1px solid ${isMatch ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+          fontSize: '0.875rem',
+          marginBottom: '0.5rem',
+        }}>
+          <div style={{ fontWeight: 500 }}>
+            You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : '\u274C'}
           </div>
-
-          {/* Alternative analysis buttons */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          {!isMatch && (
             <button
               className="btn btn-secondary btn-sm"
-              onClick={handleAnalyzeClaude}
-              disabled={isAnalyzingClaude}
-              style={{ fontSize: '0.75rem' }}
+              onClick={() => {
+                resetTranscription();
+                clearRecording();
+                setTimeout(() => startRecordingWithDelay(true), 100);
+              }}
+              style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
             >
-              {isAnalyzingClaude ? 'Analyzing...' : 'Analyze with Claude'}
+              Try Again
             </button>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={handleGoogleSTT}
-              disabled={isTranscribingGoogle}
-              style={{ fontSize: '0.75rem' }}
-            >
-              {isTranscribingGoogle ? 'Transcribing...' : 'Google STT'}
-            </button>
-          </div>
-
-          {/* Claude analysis result */}
-          {claudeError && (
-            <div style={{
-              padding: '0.5rem 0.75rem',
-              borderRadius: '6px',
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              fontSize: '0.8125rem',
-              color: '#dc2626',
-              marginBottom: '0.5rem',
-            }}>
-              {claudeError}
-            </div>
           )}
-          {claudeAnalysis && (
-            <div style={{
-              padding: '0.5rem 0.75rem',
-              borderRadius: '6px',
-              backgroundColor: claudeAnalysis.is_correct ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-              border: `1px solid ${claudeAnalysis.is_correct ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-              fontSize: '0.8125rem',
-              marginBottom: '0.5rem',
-            }}>
-              <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>
-                Claude: {claudeAnalysis.accuracy_score}/10 {claudeAnalysis.is_correct ? '\u2705' : '\u274C'}
-              </div>
-              <div>Heard: {claudeAnalysis.transcribed_pinyin} ({claudeAnalysis.transcribed_text})</div>
-              <div style={{ color: '#6b7280', marginTop: '0.25rem' }}>{claudeAnalysis.feedback}</div>
-            </div>
-          )}
-
-          {/* Google STT result */}
-          {googleError && (
-            <div style={{
-              padding: '0.5rem 0.75rem',
-              borderRadius: '6px',
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              fontSize: '0.8125rem',
-              color: '#dc2626',
-              marginBottom: '0.5rem',
-            }}>
-              {googleError}
-            </div>
-          )}
-          {googleComparison && (
-            <div style={{
-              padding: '0.5rem 0.75rem',
-              borderRadius: '6px',
-              backgroundColor: googleComparison.isMatch ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-              border: `1px solid ${googleComparison.isMatch ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-              fontSize: '0.8125rem',
-              marginBottom: '0.5rem',
-            }}>
-              <div style={{ fontWeight: 500 }}>
-                Google: {googleComparison.transcribedPinyin} ({googleComparison.transcribedHanzi}) {googleComparison.isMatch ? '\u2705' : '\u274C'}
-              </div>
-            </div>
-          )}
-        </>
+        </div>
       );
     }
 
