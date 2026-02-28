@@ -1140,6 +1140,7 @@ function StudyCard({
       { label: 'Explain characters', question: 'Please break down each character in this word, explaining the radicals, components, and individual meanings.' },
       { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
       { label: 'Check my answer', question: 'Is my answer grammatically and semantically correct? Please explain any errors.' },
+      { label: 'Verify my answer', question: 'Is my answer correct? If not, what\'s wrong with it and how can I improve?' },
       { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
       { label: 'Add a fun fact', question: 'Add a brief, interesting fun fact or cultural context to this card.' },
       ...(card.note.sentence_clue ? [{ label: 'Explain sentence', question: 'Please explain the example sentence for this card. Break down the grammar, explain each word, and provide any cultural context.' }] : []),
