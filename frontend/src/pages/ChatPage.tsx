@@ -13,10 +13,12 @@ import {
   getAIResponse,
   generateConversationTTS,
   checkMessage,
+  translateMessageFlashcard,
   updateConversationVoiceSettings,
   getConversations,
   markNotificationsReadByConversation,
 } from '../api/client';
+import type { TranslateFlashcardResponse } from '../api/client';
 import {
   MessageWithSender,
   getOtherUserInRelationship,
@@ -83,6 +85,12 @@ export function ChatPage() {
 
   // Message discussion state
   const [discussingMessage, setDiscussingMessage] = useState<MessageWithSender | null>(null);
+
+  // Translate + flashcard state
+  const [translatingMessageId, setTranslatingMessageId] = useState<string | null>(null);
+  const [translateResult, setTranslateResult] = useState<TranslateFlashcardResponse | null>(null);
+  const [showTranslateModal, setShowTranslateModal] = useState(false);
+  const [isSavingTranslateCard, setIsSavingTranslateCard] = useState(false);
 
   // Voice settings state
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
@@ -429,6 +437,44 @@ export function ChatPage() {
     }
   };
 
+  // Translate message and generate flashcard
+  const handleTranslateFlashcard = async (msg: MessageWithSender) => {
+    if (translatingMessageId) return;
+    setTranslatingMessageId(msg.id);
+    try {
+      const result = await translateMessageFlashcard(msg.id);
+      setTranslateResult(result);
+      setShowTranslateModal(true);
+    } catch (error) {
+      console.error('Failed to translate message:', error);
+      alert('Failed to translate message');
+    } finally {
+      setTranslatingMessageId(null);
+    }
+  };
+
+  const handleSaveTranslateCard = async (deckId: string) => {
+    if (!translateResult) return;
+    setIsSavingTranslateCard(true);
+    try {
+      await createNote(deckId, {
+        hanzi: translateResult.flashcard.hanzi,
+        pinyin: translateResult.flashcard.pinyin,
+        english: translateResult.flashcard.english,
+        fun_facts: translateResult.flashcard.fun_facts,
+        context: translateResult.flashcard.context,
+      });
+      setShowTranslateModal(false);
+      setTranslateResult(null);
+      alert('Flashcard saved!');
+    } catch (error) {
+      console.error('Failed to save flashcard:', error);
+      alert('Failed to save flashcard');
+    } finally {
+      setIsSavingTranslateCard(false);
+    }
+  };
+
   // Voice settings handlers
   const handleVoiceChange = async (voiceId: string) => {
     if (!convId) return;
@@ -629,6 +675,17 @@ export function ChatPage() {
                           {/* Recording indicator */}
                           {msg.recording_url && (
                             <span className="has-recording" title="Has recording">🎤</span>
+                          )}
+                          {/* Translate + Flashcard button (for other person's Chinese messages) */}
+                          {!isMe && hasChineseContent && (
+                            <button
+                              className="msg-action-btn"
+                              onClick={() => handleTranslateFlashcard(msg)}
+                              disabled={translatingMessageId === msg.id}
+                              title="Translate &amp; make flashcard"
+                            >
+                              {translatingMessageId === msg.id ? '...' : '🔤'}
+                            </button>
                           )}
                           {/* Discuss with Claude button */}
                           <button
@@ -864,6 +921,42 @@ export function ChatPage() {
           message={discussingMessage}
           onClose={() => setDiscussingMessage(null)}
         />
+      )}
+
+      {/* Translate + Flashcard Modal */}
+      {showTranslateModal && translateResult && (
+        <div className="modal-overlay" onClick={() => setShowTranslateModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Translation</h3>
+            <div className="translate-result">
+              <div className="translate-english">{translateResult.translation}</div>
+            </div>
+            <h4>Flashcard</h4>
+            <div className="generated-card-preview">
+              <div className="preview-hanzi">{translateResult.flashcard.hanzi}</div>
+              <div className="preview-pinyin">{translateResult.flashcard.pinyin}</div>
+              <div className="preview-english">{translateResult.flashcard.english}</div>
+              {translateResult.flashcard.fun_facts && (
+                <div className="preview-funfacts">{translateResult.flashcard.fun_facts}</div>
+              )}
+              {translateResult.flashcard.context && (
+                <div className="preview-context" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                  Context: {translateResult.flashcard.context}
+                </div>
+              )}
+            </div>
+            <DeckSelectorWithCreate
+              onSelect={(deckId) => handleSaveTranslateCard(deckId)}
+              isSaving={isSavingTranslateCard}
+              selectedCount={1}
+            />
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowTranslateModal(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Voice Settings Modal */}

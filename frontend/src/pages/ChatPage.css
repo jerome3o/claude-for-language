@@ -792,6 +792,19 @@ body:has(.chat-page) #root {
 }
 
 /* Large desktop - constrain max width for readability */
+/* Translate + Flashcard */
+.translate-result {
+  background: var(--muted-bg, #f5f5f5);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.translate-english {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
 @media (min-width: 1400px) {
   .chat-page {
     max-width: 1200px;
