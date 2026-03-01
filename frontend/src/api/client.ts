@@ -844,6 +844,26 @@ export async function discussMessage(
   );
 }
 
+export interface TranslateFlashcardResponse {
+  translation: string;
+  flashcard: {
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    fun_facts?: string;
+    context?: string;
+  };
+}
+
+export async function translateMessageFlashcard(
+  messageId: string
+): Promise<TranslateFlashcardResponse> {
+  return fetchJSON<TranslateFlashcardResponse>(
+    `/messages/${messageId}/translate-flashcard`,
+    { method: 'POST' }
+  );
+}
+
 export async function updateConversationVoiceSettings(
   conversationId: string,
   voiceId?: string,

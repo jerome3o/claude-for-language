@@ -3410,6 +3410,118 @@ app.post('/api/messages/:id/discuss', async (c) => {
   }
 });
 
+// Translate a message and generate a flashcard from it
+app.post('/api/messages/:id/translate-flashcard', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    // Get the message
+    const message = await c.env.DB
+      .prepare('SELECT * FROM messages WHERE id = ?')
+      .bind(msgId)
+      .first<{ id: string; conversation_id: string; sender_id: string; content: string }>();
+
+    if (!message) {
+      return c.json({ error: 'Message not found' }, 404);
+    }
+
+    // Verify user has access to this conversation
+    const conv = await c.env.DB
+      .prepare('SELECT * FROM conversations WHERE id = ?')
+      .bind(message.conversation_id)
+      .first<{ id: string; relationship_id: string }>();
+
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    const rel = await c.env.DB
+      .prepare('SELECT * FROM tutor_relationships WHERE id = ? AND status = ? AND (requester_id = ? OR recipient_id = ?)')
+      .bind(conv.relationship_id, 'active', userId, userId)
+      .first();
+
+    if (!rel) {
+      return c.json({ error: 'Access denied' }, 403);
+    }
+
+    const prompt = `You are a Mandarin Chinese language expert. A student received this message in a conversation:
+
+"${message.content}"
+
+Please:
+1. Translate the message to English
+2. Identify the key vocabulary word or phrase from this message that would be most valuable to learn as a flashcard
+
+IMPORTANT: Use tone marks for pinyin (nǐ hǎo) NOT tone numbers (ni3 hao3).
+
+Respond with ONLY a JSON object in this exact format:
+{
+  "translation": "The full English translation of the message",
+  "flashcard": {
+    "hanzi": "汉字",
+    "pinyin": "hànzì",
+    "english": "Chinese characters",
+    "fun_facts": "A helpful tip or interesting fact about this word or phrase",
+    "context": "The original sentence this appeared in"
+  }
+}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': c.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2024-10-22',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 500,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to translate message');
+    }
+
+    const data = await response.json() as {
+      content: Array<{ type: string; text?: string }>;
+    };
+
+    const textContent = data.content.find((c) => c.type === 'text');
+    if (!textContent || !textContent.text) {
+      throw new Error('No response from AI');
+    }
+
+    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Invalid AI response format');
+    }
+
+    const result = JSON.parse(jsonMatch[0]) as {
+      translation: string;
+      flashcard: {
+        hanzi: string;
+        pinyin: string;
+        english: string;
+        fun_facts?: string;
+        context?: string;
+      };
+    };
+
+    return c.json(result);
+  } catch (error) {
+    console.error('Translate flashcard error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to translate message';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
 // Upload recording for a message
 app.post('/api/messages/:id/recording', async (c) => {
   const userId = c.get('user').id;
