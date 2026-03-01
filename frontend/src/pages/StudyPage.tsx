@@ -447,6 +447,21 @@ function StudyCard({
     };
   }, [card.id]);
 
+  // Auto-generate audio if note has no audio_url
+  const generatingAudioForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!card.note.audio_url && isOnline && generatingAudioForRef.current !== card.note.id) {
+      generatingAudioForRef.current = card.note.id;
+      generateNoteAudio(card.note.id).then((updatedNote) => {
+        if (updatedNote.audio_url) {
+          onUpdateNote({ audio_url: updatedNote.audio_url, audio_provider: updatedNote.audio_provider });
+        }
+      }).catch((err) => {
+        console.error('[StudyCard] Auto-generate audio failed:', err);
+      });
+    }
+  }, [card.note.id, card.note.audio_url, isOnline, onUpdateNote]);
+
   // Load review history when debug modal opens
   useEffect(() => {
     if (showDebug) {
