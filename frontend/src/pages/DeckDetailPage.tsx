@@ -2054,6 +2054,7 @@ export function DeckDetailPage() {
                             sentence_clue_translation: noteData.sentence_clue_translation || null,
                             sentence_clue_audio_url: noteData.sentence_clue_audio_url || null,
                             multiple_choice_options: noteData.multiple_choice_options || null,
+                            pinyin_only: noteData.pinyin_only || 0,
                             created_at: noteData.created_at,
                             updated_at: noteData.updated_at,
                           },

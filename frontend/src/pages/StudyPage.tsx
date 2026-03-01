@@ -16,6 +16,7 @@ import {
   generateNoteAudioRecording,
   generateSentenceClue,
   generateMultipleChoice,
+  updateNote,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -542,6 +543,16 @@ function StudyCard({
       setIsGeneratingMC(false);
     }
   };
+
+  // Auto-show multiple choice for pinyin-only cards on meaning_to_hanzi
+  const autoMcTriggeredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (card.note.pinyin_only && card.card_type === 'meaning_to_hanzi' && !showMultipleChoice && autoMcTriggeredRef.current !== card.id) {
+      autoMcTriggeredRef.current = card.id;
+      handleShowMultipleChoice();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.id, card.note.pinyin_only, card.card_type]);
 
   const handleRegenerateMC = async () => {
     setIsGeneratingMC(true);
@@ -1357,6 +1368,27 @@ function StudyCard({
           </button>
         </div>
 
+        {/* Pinyin-only toggle */}
+        <label className="flex items-center justify-center gap-2 text-sm cursor-pointer" style={{ marginTop: '0.25rem' }}>
+          <input
+            type="checkbox"
+            checked={!!card.note.pinyin_only}
+            onChange={async (e) => {
+              const val = e.target.checked ? 1 : 0;
+              try {
+                await updateNote(card.note.id, { pinyin_only: val });
+                onUpdateNote({ pinyin_only: val });
+                await db.notes.update(card.note.id, { pinyin_only: val });
+              } catch (err) {
+                console.error('Failed to update pinyin_only:', err);
+              }
+            }}
+            className="form-checkbox"
+            disabled={!isOnline}
+          />
+          <span className="text-light">Pinyin only (auto multi-choice)</span>
+        </label>
+
         {/* Flag for tutor review checkbox */}
         {tutors.length > 0 && isOnline && (
           <label className="flex items-center justify-center gap-2 text-sm cursor-pointer">
@@ -1541,7 +1573,7 @@ function StudyCard({
   // Render typing input and button for typing cards (inside card flow)
   const renderTypingActions = () => {
     // Show multiple choice grid if active
-    if (showMultipleChoice && card.card_type === 'meaning_to_hanzi') {
+    if (showMultipleChoice && (card.card_type === 'meaning_to_hanzi' || card.card_type === 'audio_to_hanzi')) {
       return (
         <div className="study-card-actions">
           {renderMultipleChoiceGrid()}
@@ -1613,7 +1645,7 @@ function StudyCard({
                       >
                         {isGeneratingSentence ? 'Generating...' : 'Use in Sentence'}
                       </button>
-                      {card.card_type === 'meaning_to_hanzi' && (
+                      {(card.card_type === 'meaning_to_hanzi' || card.card_type === 'audio_to_hanzi') && (
                         <button
                           className="btn btn-secondary btn-sm"
                           onClick={handleShowMultipleChoice}
