@@ -64,19 +64,53 @@ export function useOfflineDecks(apiDecks?: { id: string }[]) {
   const missingDecks = apiDecks?.filter(d => !localDeckIds.has(d.id)) || [];
   const hasMismatch = missingDecks.length > 0;
 
-  // Auto-trigger full sync when mismatch detected
+  // Auto-trigger sync when mismatch detected, with retry backoff
   const [isAutoSyncing, setIsAutoSyncing] = React.useState(false);
+  const retryCountRef = React.useRef(0);
+  const lastMismatchKeyRef = React.useRef('');
+
+  // Reset retry count when the set of missing decks changes
+  const mismatchKey = missingDecks.map(d => d.id).sort().join(',');
+  if (mismatchKey !== lastMismatchKeyRef.current) {
+    lastMismatchKeyRef.current = mismatchKey;
+    retryCountRef.current = 0;
+  }
+
   React.useEffect(() => {
-    if (hasMismatch && navigator.onLine && !isAutoSyncing && !syncService.isSyncingNow) {
-      console.log('[useOfflineDecks] Mismatch detected! API has decks not in IndexedDB:', missingDecks.map(d => d.id));
-      console.log('[useOfflineDecks] Triggering incremental sync to fix...');
-      setIsAutoSyncing(true);
-      syncService.incrementalSync()
-        .then(() => console.log('[useOfflineDecks] Auto incremental sync complete'))
-        .catch(err => console.error('[useOfflineDecks] Auto incremental sync failed:', err))
-        .finally(() => setIsAutoSyncing(false));
+    const MAX_RETRIES = 3;
+    if (hasMismatch && navigator.onLine && !isAutoSyncing && !syncService.isSyncingNow && retryCountRef.current < MAX_RETRIES) {
+      const attempt = retryCountRef.current + 1;
+      // Exponential backoff: 0ms, 2s, 4s
+      const delay = retryCountRef.current > 0 ? retryCountRef.current * 2000 : 0;
+
+      console.log(`[useOfflineDecks] Mismatch detected! Missing decks: [${missingDecks.map(d => d.id).join(', ')}] (attempt ${attempt}/${MAX_RETRIES})`);
+
+      const timeoutId = setTimeout(async () => {
+        setIsAutoSyncing(true);
+        retryCountRef.current = attempt;
+        try {
+          // First attempt: try incremental sync (lightweight)
+          // Subsequent attempts: use full sync (guaranteed to find new decks)
+          if (attempt === 1) {
+            console.log('[useOfflineDecks] Trying incremental sync...');
+            await syncService.incrementalSync();
+          } else {
+            console.log('[useOfflineDecks] Trying full sync (fallback)...');
+            await syncService.fullSync();
+          }
+          console.log('[useOfflineDecks] Auto sync complete');
+        } catch (err) {
+          console.error(`[useOfflineDecks] Auto sync failed (attempt ${attempt}):`, err);
+        } finally {
+          setIsAutoSyncing(false);
+        }
+      }, delay);
+
+      return () => clearTimeout(timeoutId);
+    } else if (hasMismatch && retryCountRef.current >= 3) {
+      console.log('[useOfflineDecks] Max retries reached, use manual sync to fix');
     }
-  }, [hasMismatch, missingDecks, isAutoSyncing]);
+  }, [hasMismatch, mismatchKey, isAutoSyncing]);
 
   // Trigger background sync when online
   const triggerSync = async () => {
