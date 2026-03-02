@@ -779,6 +779,13 @@ export async function getAIResponse(conversationId: string): Promise<AIRespondRe
   });
 }
 
+export async function initiateAIConversation(conversationId: string): Promise<AIRespondResponse> {
+  return fetchJSON<AIRespondResponse>(`/conversations/${conversationId}/ai-initiate`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 export async function generateConversationTTS(
   conversationId: string,
   text: string,
