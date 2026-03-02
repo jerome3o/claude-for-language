@@ -922,6 +922,51 @@ CRITICAL RULES:
 Remember: Your response should be 100% Chinese characters. No English, no pinyin, no parenthetical translations.`;
 
 /**
+ * Generate Claude's opening message for an AI conversation.
+ * Used when a conversation is initiated from a study card — Claude starts the conversation
+ * using the vocabulary word in a natural context.
+ */
+export async function generateAIConversationOpener(
+  apiKey: string,
+  conversation: Conversation,
+): Promise<string> {
+  const client = new Anthropic({ apiKey });
+
+  let scenarioContext = '';
+  if (conversation.scenario) {
+    scenarioContext = `Scenario: ${conversation.scenario}\n`;
+  }
+  if (conversation.ai_role) {
+    scenarioContext += `Your role: ${conversation.ai_role}\n`;
+  }
+  if (conversation.user_role) {
+    scenarioContext += `The student's role: ${conversation.user_role}\n`;
+  }
+
+  const userPrompt = `${scenarioContext}
+This is a NEW conversation. You are starting it. Send the first message to the student in Chinese.
+Your message should naturally use the vocabulary from the scenario to give the student practice.
+Keep it short (1-2 sentences) and conversational — invite a response from the student.
+Remember: respond ONLY in Chinese characters. No English, no pinyin.`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-5-20250929',
+    max_tokens: 200,
+    messages: [
+      { role: 'user', content: userPrompt }
+    ],
+    system: AI_CONVERSATION_SYSTEM_PROMPT,
+  });
+
+  const textContent = response.content.find(c => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('No text content in AI response');
+  }
+
+  return textContent.text;
+}
+
+/**
  * Generate Claude's response in an AI conversation
  */
 export async function generateAIConversationResponse(

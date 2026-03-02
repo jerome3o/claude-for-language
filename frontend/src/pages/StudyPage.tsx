@@ -9,6 +9,8 @@ import {
   AskToolResult,
   ReadOnlyToolCall,
   getMyRelationships,
+  createConversation,
+  initiateAIConversation,
   createTutorReviewRequest,
   generateNoteAudio,
   GenerateAudioOptions,
@@ -29,6 +31,7 @@ import {
   IntervalPreview,
   TutorRelationshipWithUsers,
   getOtherUserInRelationship,
+  isClaudeUser,
   MINIMAX_VOICES,
   DEFAULT_MINIMAX_VOICE,
   Note,
@@ -257,6 +260,10 @@ function StudyCard({
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
+
+  // Use in Conversation state
+  const [isInitiatingConversation, setIsInitiatingConversation] = useState(false);
+  const navigate = useNavigate();
 
   // Audio recording cycling state
   const queryClient = useQueryClient();
@@ -1323,6 +1330,32 @@ function StudyCard({
     );
   };
 
+  // Find Claude relationship for "Use in Conversation"
+  const claudeRelationship = tutors.find(
+    t => isClaudeUser(t.requester.id) || isClaudeUser(t.recipient.id)
+  );
+
+  const handleUseInConversation = async () => {
+    if (!claudeRelationship || isInitiatingConversation) return;
+    setIsInitiatingConversation(true);
+    try {
+      const conv = await createConversation(claudeRelationship.id, {
+        title: `Practice: ${card.note.hanzi}`,
+        scenario: `The student is practicing the word/phrase: ${card.note.hanzi} (${card.note.pinyin}) meaning "${card.note.english}". Start a conversation that naturally uses this vocabulary. Keep it at a beginner-intermediate level.`,
+        user_role: 'Chinese language student practicing vocabulary',
+        ai_role: 'Friendly Chinese conversation partner',
+      });
+      // Trigger Claude's opening message
+      await initiateAIConversation(conv.id);
+      // Navigate to the chat
+      navigate(`/connections/${claudeRelationship.id}/chat/${conv.id}`);
+    } catch (err) {
+      console.error('[StudyCard] Failed to initiate conversation:', err);
+    } finally {
+      setIsInitiatingConversation(false);
+    }
+  };
+
   const renderBackActions = () => {
     return (
       <div className="study-back-actions">
@@ -1359,6 +1392,16 @@ function StudyCard({
           >
             Edit
           </button>
+          {claudeRelationship && isOnline && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleUseInConversation}
+              disabled={isInitiatingConversation}
+              title="Practice this word in a conversation with Claude"
+            >
+              {isInitiatingConversation ? 'Starting...' : 'Use in Chat'}
+            </button>
+          )}
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setShowDebug(true)}

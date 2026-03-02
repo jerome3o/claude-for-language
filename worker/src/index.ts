@@ -10,7 +10,7 @@ import {
   DEFAULT_DECK_SETTINGS,
   parseLearningSteps,
 } from './services/anki-scheduler';
-import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
+import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generateStory, generatePageImage } from './services/graded-reader';
@@ -3247,6 +3247,66 @@ app.post('/api/conversations/:id/ai-respond', async (c) => {
   } catch (error) {
     console.error('AI respond error:', error);
     const message = error instanceof Error ? error.message : 'Failed to get AI response';
+    return c.json({ error: message }, 500);
+  }
+});
+
+// Generate Claude's opening message for a new AI conversation (e.g. from study card)
+app.post('/api/conversations/:id/ai-initiate', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    const conv = await getConversationById(c.env.DB, convId, userId);
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    if (!conv.is_ai_conversation) {
+      return c.json({ error: 'This is not an AI conversation' }, 400);
+    }
+
+    // Check conversation has no messages yet (this is for initiating only)
+    const { messages } = await getMessages(c.env.DB, convId, userId);
+    if (messages.length > 0) {
+      return c.json({ error: 'Conversation already has messages' }, 400);
+    }
+
+    // Generate Claude's opening message
+    const aiResponse = await generateAIConversationOpener(
+      c.env.ANTHROPIC_API_KEY,
+      conv,
+    );
+
+    // Save AI message
+    const aiMessage = await sendMessage(c.env.DB, convId, CLAUDE_AI_USER_ID, aiResponse);
+
+    // Generate TTS audio
+    let audioBase64: string | null = null;
+    let audioContentType: string | null = null;
+
+    const ttsResult = await generateConversationTTS(c.env, aiResponse, {
+      voiceId: conv.voice_id || 'Chinese (Mandarin)_Gentleman',
+      speed: conv.voice_speed || 0.8,
+    });
+
+    if (ttsResult) {
+      audioBase64 = ttsResult.audioBase64;
+      audioContentType = ttsResult.contentType;
+    }
+
+    return c.json({
+      message: aiMessage,
+      audio_base64: audioBase64,
+      audio_content_type: audioContentType,
+    });
+  } catch (error) {
+    console.error('AI initiate error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to initiate AI conversation';
     return c.json({ error: message }, 500);
   }
 });
