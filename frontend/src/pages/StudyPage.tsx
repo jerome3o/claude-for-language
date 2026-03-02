@@ -895,7 +895,7 @@ function StudyCard({
 
         {card.note.fun_facts && (
           <div
-            className="mt-3 text-light"
+            className="mt-3 text-light claude-response"
             style={{
               fontSize: '0.8125rem',
               backgroundColor: '#f3f4f6',
