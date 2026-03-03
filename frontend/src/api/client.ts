@@ -281,6 +281,12 @@ export async function generateSentenceClue(noteId: string): Promise<Note> {
   });
 }
 
+export async function generateFunFact(noteId: string): Promise<Note> {
+  return fetchJSON<Note>(`/notes/${noteId}/generate-fun-fact`, {
+    method: 'POST',
+  });
+}
+
 export async function generateMultipleChoice(noteId: string): Promise<Note> {
   return fetchJSON<Note>(`/notes/${noteId}/generate-multiple-choice`, {
     method: 'POST',
@@ -760,8 +766,8 @@ export async function generateFlashcardFromChat(
 export async function generateResponseOptions(
   conversationId: string,
   input?: { intendedMeaning: string; guess?: string }
-): Promise<{ options: GeneratedNoteWithContext[] }> {
-  return fetchJSON<{ options: GeneratedNoteWithContext[] }>(
+): Promise<{ explanation?: string; options: GeneratedNoteWithContext[] }> {
+  return fetchJSON<{ explanation?: string; options: GeneratedNoteWithContext[] }>(
     `/conversations/${conversationId}/generate-response-options`,
     {
       method: 'POST',

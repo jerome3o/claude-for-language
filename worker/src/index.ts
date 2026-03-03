@@ -1182,6 +1182,55 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
   }
 });
 
+// Generate a fun fact for a note that doesn't have one
+app.post('/api/notes/:id/generate-fun-fact', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 500);
+  }
+
+  try {
+    const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+
+    const prompt = `Generate a short, interesting fun fact about the Chinese word/phrase "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).
+
+Include things like:
+- Etymology or character composition breakdown
+- Cultural context or usage tips
+- Common phrases or idioms using this word
+- Interesting mnemonics or memory aids
+
+Keep it concise (2-4 sentences). Use markdown formatting for emphasis. Use tone marks for any pinyin (nǐ hǎo) NOT tone numbers.`;
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 300,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const textContent = response.content.find(c => c.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
+      return c.json({ error: 'Failed to generate fun fact' }, 500);
+    }
+
+    // Save the fun fact to the note
+    await db.updateNote(c.env.DB, id, userId, { funFacts: textContent.text });
+
+    const updatedNote = await db.getNoteById(c.env.DB, id, userId);
+    return c.json(updatedNote);
+  } catch (error) {
+    console.error('Fun fact generation error:', error);
+    return c.json({ error: 'Failed to generate fun fact' }, 500);
+  }
+});
+
 // Generate per-character multiple choice options for meaning_to_hanzi cards
 app.post('/api/notes/:id/generate-multiple-choice', async (c) => {
   const userId = c.get('user').id;
@@ -3164,14 +3213,14 @@ app.post('/api/conversations/:id/generate-response-options', async (c) => {
       return c.json({ error: 'No messages found to generate response options from' }, 400);
     }
 
-    const options = await generateIDontKnowOptions(
+    const result = await generateIDontKnowOptions(
       c.env.ANTHROPIC_API_KEY,
       chatContext,
       body.intendedMeaning,
       body.guess,
     );
 
-    return c.json({ options });
+    return c.json({ explanation: result.explanation, options: result.options });
   } catch (error) {
     console.error('Generate response options error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate response options';
@@ -3531,30 +3580,15 @@ Respond with ONLY a JSON object in this exact format:
   }
 }`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': c.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2024-10-22',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 500,
-        messages: [{ role: 'user', content: prompt }],
-      }),
+    const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+    const aiResponse = await client.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 500,
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to translate message');
-    }
-
-    const data = await response.json() as {
-      content: Array<{ type: string; text?: string }>;
-    };
-
-    const textContent = data.content.find((c) => c.type === 'text');
-    if (!textContent || !textContent.text) {
+    const textContent = aiResponse.content.find((c) => c.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
       throw new Error('No response from AI');
     }
 

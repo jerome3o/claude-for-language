@@ -1081,21 +1081,24 @@ const I_DONT_KNOW_SYSTEM_PROMPT = `You are a Chinese language teacher helping a 
 
 The student will tell you what they're trying to express (in English) and may also provide their best guess in Chinese.
 
-Based on the conversation context and what the student wants to say, generate 3-5 different ways to express their intended meaning in Chinese.
-Each option should:
-1. Help the student express what they're trying to say
-2. Vary in difficulty (some simpler, some more advanced)
-3. Include the conversation context for reference
-4. If the student provided a guess, acknowledge what they got right and correct any mistakes
+Your response has TWO parts:
+
+1. **Explanation** (required): First, provide a brief teaching explanation. If the student provided a guess, explain what they got right and wrong, and why. If no guess was provided, briefly explain what vocabulary/grammar patterns would be useful for expressing their intended meaning. Keep this concise (2-4 sentences) and encouraging.
+
+2. **Options**: Then generate 3-5 different ways to express their intended meaning in Chinese. Each option should:
+   - Help the student express what they're trying to say
+   - Vary in difficulty (some simpler, some more advanced)
+   - Include the conversation context for reference
 
 Respond with JSON in this exact format:
 {
+  "explanation": "Your teaching explanation here. Use markdown for emphasis. Include pinyin with tone marks for any Chinese mentioned.",
   "options": [
     {
       "hanzi": "Chinese characters",
       "pinyin": "pinyin with tone marks",
       "english": "English meaning",
-      "fun_facts": "Brief note about usage, or feedback on the student's guess if provided",
+      "fun_facts": "Brief note about usage or grammar pattern",
       "context": "The conversation context that led to this suggestion"
     }
   ]
@@ -1111,7 +1114,7 @@ export async function generateIDontKnowOptions(
   chatContext: string,
   intendedMeaning?: string,
   guess?: string,
-): Promise<GeneratedNoteWithContext[]> {
+): Promise<{ explanation?: string; options: GeneratedNoteWithContext[] }> {
   const client = new Anthropic({ apiKey });
 
   let userPrompt = `Conversation so far:
@@ -1147,13 +1150,13 @@ ${chatContext}
     throw new Error('Could not find JSON in AI response');
   }
 
-  const result = JSON.parse(jsonMatch[0]) as { options: GeneratedNoteWithContext[] };
+  const result = JSON.parse(jsonMatch[0]) as { explanation?: string; options: GeneratedNoteWithContext[] };
 
   if (!result.options || !Array.isArray(result.options)) {
     throw new Error('Invalid options structure from AI');
   }
 
-  return result.options;
+  return { explanation: result.explanation, options: result.options };
 }
 
 // ============ Message Discussion with Flashcard Tool ============
