@@ -19,6 +19,7 @@ import {
   generateSentenceClue,
   generateMultipleChoice,
   updateNote,
+  generateFunFact,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -306,6 +307,7 @@ function StudyCard({
   // Multiple choice state
   const [showMultipleChoice, setShowMultipleChoice] = useState(false);
   const [isGeneratingMC, setIsGeneratingMC] = useState(false);
+  const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
   const [mcSubmitted, setMcSubmitted] = useState(false);
 
@@ -520,6 +522,19 @@ function StudyCard({
       console.error('Failed to generate sentence clue:', error);
     } finally {
       setIsGeneratingSentence(false);
+    }
+  };
+
+  const handleGenerateFunFact = async () => {
+    setIsGeneratingFunFact(true);
+    try {
+      const updatedNote = await generateFunFact(card.note.id);
+      onUpdateNote(updatedNote);
+      await db.notes.update(card.note.id, { fun_facts: updatedNote.fun_facts });
+    } catch (error) {
+      console.error('Failed to generate fun fact:', error);
+    } finally {
+      setIsGeneratingFunFact(false);
     }
   };
 
@@ -900,7 +915,7 @@ function StudyCard({
         <div className="pinyin mb-1">{card.note.pinyin}</div>
         <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
 
-        {card.note.fun_facts && (
+        {card.note.fun_facts ? (
           <div
             className="mt-3 text-light claude-response"
             style={{
@@ -912,7 +927,16 @@ function StudyCard({
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{card.note.fun_facts}</ReactMarkdown>
           </div>
-        )}
+        ) : isOnline ? (
+          <button
+            className="btn btn-sm mt-2"
+            style={{ fontSize: '0.75rem', opacity: 0.7 }}
+            onClick={handleGenerateFunFact}
+            disabled={isGeneratingFunFact}
+          >
+            {isGeneratingFunFact ? 'Generating...' : 'Generate Fun Fact'}
+          </button>
+        ) : null}
       </div>
     );
   };

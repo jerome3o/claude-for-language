@@ -60,6 +60,7 @@ export function ChatPage() {
   // Response options (I don't know) state
   const [isGeneratingOptions, setIsGeneratingOptions] = useState(false);
   const [responseOptions, setResponseOptions] = useState<GeneratedNoteWithContext[] | null>(null);
+  const [responseExplanation, setResponseExplanation] = useState<string | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
   const [showResponseOptionsModal, setShowResponseOptionsModal] = useState(false);
   const [isSavingOptions, setIsSavingOptions] = useState(false);
@@ -357,6 +358,7 @@ export function ChatPage() {
     setShowIdkDialog(false);
     setIsGeneratingOptions(true);
     setResponseOptions(null);
+    setResponseExplanation(null);
     setSelectedOptions(new Set());
     try {
       const result = await generateResponseOptions(convId, {
@@ -364,6 +366,7 @@ export function ChatPage() {
         guess: idkGuess.trim() || undefined,
       });
       setResponseOptions(result.options);
+      setResponseExplanation(result.explanation || null);
       // Select all options by default
       setSelectedOptions(new Set(result.options.map((_, i) => i)));
       setShowResponseOptionsModal(true);
@@ -834,6 +837,19 @@ export function ChatPage() {
         <div className="modal-overlay" onClick={() => setShowResponseOptionsModal(false)}>
           <div className="modal response-options-modal" onClick={(e) => e.stopPropagation()}>
             <h3>What could I say?</h3>
+            {responseExplanation && (
+              <div className="idk-explanation" style={{
+                backgroundColor: '#f0f7ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: '8px',
+                padding: '0.75rem',
+                marginBottom: '0.75rem',
+                fontSize: '0.875rem',
+                lineHeight: '1.5',
+              }}>
+                {responseExplanation}
+              </div>
+            )}
             <p className="modal-subtitle">Select the responses you'd like to save as flashcards:</p>
             <div className="response-options-list">
               {responseOptions.map((option, index) => (
