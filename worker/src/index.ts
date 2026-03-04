@@ -1199,19 +1199,14 @@ app.post('/api/notes/:id/generate-fun-fact', async (c) => {
   try {
     const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
 
-    const prompt = `Generate a short, interesting fun fact about the Chinese word/phrase "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).
+    const prompt = `Write a brief fun fact about the Chinese word "${note.hanzi}" (${note.pinyin}: ${note.english}).
 
-Include things like:
-- Etymology or character composition breakdown
-- Cultural context or usage tips
-- Common phrases or idioms using this word
-- Interesting mnemonics or memory aids
-
-Keep it concise (2-4 sentences). Use markdown formatting for emphasis. Use tone marks for any pinyin (nǐ hǎo) NOT tone numbers.`;
+Pick ONE of: character breakdown, cultural context, common usage, or a mnemonic.
+1-2 sentences max. Be punchy and memorable. Use tone marks for pinyin (nǐ hǎo) NOT tone numbers.`;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 300,
+      max_tokens: 150,
       messages: [{ role: 'user', content: prompt }],
     });
 
