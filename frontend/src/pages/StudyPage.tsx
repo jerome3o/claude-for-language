@@ -300,6 +300,7 @@ function StudyCard({
   // Sentence clue state
   const [showSentenceClue, setShowSentenceClue] = useState(false);
   const [isGeneratingSentence, setIsGeneratingSentence] = useState(false);
+  const [showSentenceHanzi, setShowSentenceHanzi] = useState(false);
   const [showSentencePinyin, setShowSentencePinyin] = useState(false);
   const [showSentenceTranslation, setShowSentenceTranslation] = useState(false);
 
@@ -1791,60 +1792,68 @@ function StudyCard({
               <div className="study-card-main">
                 {renderBackMain()}
 
-                {/* Show sentence clue on answer side, or generate button if none exists */}
+                {/* Sentence clue section with progressive reveal */}
                 <div className="mt-3" style={{ textAlign: 'center' }}>
                   {card.note.sentence_clue ? (
-                    <div
-                      style={{
-                        padding: '0.75rem',
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        borderRadius: '8px',
-                        display: 'inline-block',
-                        minWidth: '200px',
-                      }}
-                    >
-                      <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.25rem' }}>
-                        {card.note.sentence_clue}
+                    <div className="sentence-clue-box">
+                      <div className="sentence-clue-header">
+                        {card.note.sentence_clue_audio_url && (
+                          <button
+                            className="sentence-clue-play"
+                            onClick={playSentenceClue}
+                            disabled={isPlaying}
+                            title="Play sentence"
+                          >
+                            {isPlaying ? '⏸' : '▶'}
+                          </button>
+                        )}
+                        <span className="sentence-clue-label">Example Sentence</span>
+                        <button
+                          className="sentence-clue-regen"
+                          onClick={handleGenerateSentenceClue}
+                          disabled={isGeneratingSentence || !isOnline}
+                          title="Regenerate sentence"
+                        >
+                          {isGeneratingSentence ? '...' : '↻'}
+                        </button>
+                      </div>
+                      <div
+                        className="sentence-clue-row"
+                        style={{ cursor: showSentenceHanzi ? 'default' : 'pointer' }}
+                        onClick={() => !showSentenceHanzi && setShowSentenceHanzi(true)}
+                      >
+                        {showSentenceHanzi ? (
+                          <span className="hanzi" style={{ fontSize: '1.125rem' }}>{card.note.sentence_clue}</span>
+                        ) : (
+                          <span className="sentence-clue-tap">Tap to show Chinese</span>
+                        )}
                       </div>
                       {card.note.sentence_clue_pinyin && (
                         <div
-                          style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.25rem', cursor: showSentencePinyin ? 'default' : 'pointer' }}
+                          className="sentence-clue-row"
+                          style={{ cursor: showSentencePinyin ? 'default' : 'pointer' }}
                           onClick={() => !showSentencePinyin && setShowSentencePinyin(true)}
                         >
-                          {showSentencePinyin ? card.note.sentence_clue_pinyin : (
-                            <span style={{ opacity: 0.5, fontStyle: 'italic' }}>Tap to show pinyin</span>
+                          {showSentencePinyin ? (
+                            <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_pinyin}</span>
+                          ) : (
+                            <span className="sentence-clue-tap">Tap to show pinyin</span>
                           )}
                         </div>
                       )}
                       {card.note.sentence_clue_translation && (
                         <div
-                          style={{ fontSize: '0.85rem', opacity: 0.7, marginBottom: '0.5rem', cursor: showSentenceTranslation ? 'default' : 'pointer' }}
+                          className="sentence-clue-row"
+                          style={{ cursor: showSentenceTranslation ? 'default' : 'pointer' }}
                           onClick={() => !showSentenceTranslation && setShowSentenceTranslation(true)}
                         >
-                          {showSentenceTranslation ? card.note.sentence_clue_translation : (
-                            <span style={{ opacity: 0.5, fontStyle: 'italic' }}>Tap to show translation</span>
+                          {showSentenceTranslation ? (
+                            <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_translation}</span>
+                          ) : (
+                            <span className="sentence-clue-tap">Tap to show translation</span>
                           )}
                         </div>
                       )}
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.5rem' }}>
-                        {card.note.sentence_clue_audio_url && (
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={playSentenceClue}
-                            disabled={isPlaying}
-                          >
-                            Play Sentence
-                          </button>
-                        )}
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={handleGenerateSentenceClue}
-                          disabled={isGeneratingSentence || !isOnline}
-                          title="Regenerate sentence with pinyin and translation"
-                        >
-                          {isGeneratingSentence ? '...' : '↻'}
-                        </button>
-                      </div>
                     </div>
                   ) : (
                     <button
