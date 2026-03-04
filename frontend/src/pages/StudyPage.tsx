@@ -187,8 +187,7 @@ function RatingButtons({
   disabled: boolean;
 }) {
   return (
-    <div className="mt-2">
-      <p className="text-center text-light mb-1" style={{ fontSize: '0.8125rem' }}>How well did you know this?</p>
+    <div>
       <div className="rating-buttons">
         {([0, 1, 2, 3] as Rating[]).map((rating) => (
           <button
@@ -566,15 +565,16 @@ function StudyCard({
     }
   };
 
-  // Auto-show multiple choice for pinyin-only cards on meaning_to_hanzi
+  // Auto-show multiple choice for pinyin-only cards or audio_to_hanzi cards
   const autoMcTriggeredRef = useRef<string | null>(null);
+  const shouldAutoMC = (card.note.pinyin_only && card.card_type === 'meaning_to_hanzi') || card.card_type === 'audio_to_hanzi';
   useEffect(() => {
-    if (card.note.pinyin_only && card.card_type === 'meaning_to_hanzi' && !showMultipleChoice && autoMcTriggeredRef.current !== card.id) {
+    if (shouldAutoMC && !showMultipleChoice && autoMcTriggeredRef.current !== card.id) {
       autoMcTriggeredRef.current = card.id;
       handleShowMultipleChoice();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [card.id, card.note.pinyin_only, card.card_type]);
+  }, [card.id, shouldAutoMC]);
 
   const handleRegenerateMC = async () => {
     setIsGeneratingMC(true);
@@ -1410,12 +1410,6 @@ function StudyCard({
           >
             {showAskClaude ? 'Hide' : 'Ask Claude'}
           </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowEditModal(true)}
-          >
-            Edit
-          </button>
           {claudeRelationship && isOnline && (
             <button
               className="btn btn-secondary btn-sm"
@@ -1423,9 +1417,16 @@ function StudyCard({
               disabled={isInitiatingConversation}
               title="Practice this word in a conversation with Claude"
             >
-              {isInitiatingConversation ? 'Starting...' : 'Use in Chat'}
+              {isInitiatingConversation ? 'Starting...' : 'Roleplay Word'}
             </button>
           )}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowEditModal(true)}
+            title="Edit card"
+          >
+            ✏️
+          </button>
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setShowDebug(true)}
@@ -1435,39 +1436,39 @@ function StudyCard({
           </button>
         </div>
 
-        {/* Pinyin-only toggle */}
-        <label className="flex items-center justify-center gap-2 text-sm cursor-pointer" style={{ marginTop: '0.25rem' }}>
-          <input
-            type="checkbox"
-            checked={!!card.note.pinyin_only}
-            onChange={async (e) => {
-              const val = e.target.checked ? 1 : 0;
-              try {
-                await updateNote(card.note.id, { pinyin_only: val });
-                onUpdateNote({ pinyin_only: val });
-                await db.notes.update(card.note.id, { pinyin_only: val });
-              } catch (err) {
-                console.error('Failed to update pinyin_only:', err);
-              }
-            }}
-            className="form-checkbox"
-            disabled={!isOnline}
-          />
-          <span className="text-light">Pinyin only (auto multi-choice)</span>
-        </label>
-
-        {/* Flag for tutor review checkbox */}
-        {tutors.length > 0 && isOnline && (
-          <label className="flex items-center justify-center gap-2 text-sm cursor-pointer">
+        {/* Card options row */}
+        <div className="study-back-options">
+          <label className="study-back-option">
             <input
               type="checkbox"
-              checked={flagForTutor}
-              onChange={(e) => setFlagForTutor(e.target.checked)}
+              checked={!!card.note.pinyin_only}
+              onChange={async (e) => {
+                const val = e.target.checked ? 1 : 0;
+                try {
+                  await updateNote(card.note.id, { pinyin_only: val });
+                  onUpdateNote({ pinyin_only: val });
+                  await db.notes.update(card.note.id, { pinyin_only: val });
+                } catch (err) {
+                  console.error('Failed to update pinyin_only:', err);
+                }
+              }}
               className="form-checkbox"
+              disabled={!isOnline}
             />
-            <span className="text-light">Flag for tutor review</span>
+            <span>Multi-choice default</span>
           </label>
-        )}
+          {tutors.length > 0 && isOnline && (
+            <label className="study-back-option">
+              <input
+                type="checkbox"
+                checked={flagForTutor}
+                onChange={(e) => setFlagForTutor(e.target.checked)}
+                className="form-checkbox"
+              />
+              <span>Flag for tutor</span>
+            </label>
+          )}
+        </div>
       </div>
     );
   };
@@ -1859,15 +1860,19 @@ function StudyCard({
               </div>
               <div className="study-card-actions">
                 {renderBackActions()}
-                <RatingButtons
-                  intervalPreviews={intervalPreviews}
-                  onRate={handleRate}
-                  disabled={isRating}
-                />
               </div>
             </>
           )}
         </div>
+        {flipped && (
+          <div className="study-rating-sticky">
+            <RatingButtons
+              intervalPreviews={intervalPreviews}
+              onRate={handleRate}
+              disabled={isRating}
+            />
+          </div>
+        )}
       </div>
 
       {/* Ask Claude Modal */}
