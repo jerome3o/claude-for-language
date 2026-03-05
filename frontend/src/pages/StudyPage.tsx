@@ -20,6 +20,7 @@ import {
   generateMultipleChoice,
   updateNote,
   generateFunFact,
+  createNote,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -520,10 +521,18 @@ function StudyCard({
     }
   };
 
-  const handleGenerateSentenceClue = async () => {
+  const [showRegenMenu, setShowRegenMenu] = useState(false);
+  const [showCustomPrompt, setShowCustomPrompt] = useState(false);
+  const [customPromptText, setCustomPromptText] = useState('');
+
+  const handleGenerateSentenceClue = async (
+    options?: { modifier?: 'simple' | 'complex' | 'variation' | 'custom'; customPrompt?: string }
+  ) => {
     setIsGeneratingSentence(true);
+    setShowRegenMenu(false);
+    setShowCustomPrompt(false);
     try {
-      const updatedNote = await generateSentenceClue(card.note.id);
+      const updatedNote = await generateSentenceClue(card.note.id, options);
       // Update the local card with the new sentence clue
       onUpdateNote(updatedNote);
       // Also update IndexedDB
@@ -534,10 +543,35 @@ function StudyCard({
         sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
       });
       setShowSentenceClue(true);
+      // Reset progressive reveal states so regenerated content is hidden
+      setShowSentenceHanzi(false);
+      setShowSentencePinyin(false);
+      setShowSentenceTranslation(false);
+      setAddedSentenceAsCard(false);
     } catch (error) {
       console.error('Failed to generate sentence clue:', error);
     } finally {
       setIsGeneratingSentence(false);
+    }
+  };
+
+  const [addedSentenceAsCard, setAddedSentenceAsCard] = useState(false);
+  const [isAddingSentenceCard, setIsAddingSentenceCard] = useState(false);
+
+  const handleAddSentenceAsCard = async () => {
+    if (!card.note.sentence_clue || !card.note.sentence_clue_pinyin || !card.note.sentence_clue_translation) return;
+    setIsAddingSentenceCard(true);
+    try {
+      await createNote(card.note.deck_id, {
+        hanzi: card.note.sentence_clue,
+        pinyin: card.note.sentence_clue_pinyin,
+        english: card.note.sentence_clue_translation,
+      });
+      setAddedSentenceAsCard(true);
+    } catch (error) {
+      console.error('Failed to add sentence as card:', error);
+    } finally {
+      setIsAddingSentenceCard(false);
     }
   };
 
@@ -1943,7 +1977,7 @@ function StudyCard({
                         </button>
                         <button
                           className="btn btn-secondary btn-sm"
-                          onClick={handleGenerateSentenceClue}
+                          onClick={() => handleGenerateSentenceClue()}
                           disabled={isGeneratingSentence || !isOnline}
                           title="Regenerate sentence with pinyin and translation"
                         >
@@ -1988,15 +2022,85 @@ function StudyCard({
                           </button>
                         )}
                         <span className="sentence-clue-label">Example Sentence</span>
-                        <button
-                          className="sentence-clue-regen"
-                          onClick={handleGenerateSentenceClue}
-                          disabled={isGeneratingSentence || !isOnline}
-                          title="Regenerate sentence"
-                        >
-                          {isGeneratingSentence ? '...' : '↻'}
-                        </button>
+                        {card.note.sentence_clue_pinyin && card.note.sentence_clue_translation && (
+                          <button
+                            className="sentence-clue-add"
+                            onClick={handleAddSentenceAsCard}
+                            disabled={isAddingSentenceCard || addedSentenceAsCard || !isOnline}
+                            title={addedSentenceAsCard ? 'Added to deck' : 'Add sentence as a new card'}
+                          >
+                            {isAddingSentenceCard ? '...' : addedSentenceAsCard ? '✓' : '+'}
+                          </button>
+                        )}
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            className="sentence-clue-regen"
+                            onClick={() => setShowRegenMenu(!showRegenMenu)}
+                            disabled={isGeneratingSentence || !isOnline}
+                            title="Regenerate sentence"
+                          >
+                            {isGeneratingSentence ? '...' : '↻'}
+                          </button>
+                          {showRegenMenu && (
+                            <div className="regen-menu">
+                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue()}>
+                                New sentence
+                              </button>
+                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue({ modifier: 'simple' })}>
+                                Simple
+                              </button>
+                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue({ modifier: 'complex' })}>
+                                Complex
+                              </button>
+                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue({ modifier: 'variation' })}>
+                                Variation
+                              </button>
+                              <button className="regen-menu-item" onClick={() => { setShowRegenMenu(false); setShowCustomPrompt(true); }}>
+                                Custom...
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
+                      {showCustomPrompt && (
+                        <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.375rem' }}>
+                          <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            placeholder="Describe the sentence you want..."
+                            value={customPromptText}
+                            onChange={(e) => setCustomPromptText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && customPromptText.trim()) {
+                                handleGenerateSentenceClue({ modifier: 'custom', customPrompt: customPromptText.trim() });
+                                setCustomPromptText('');
+                              }
+                            }}
+                            autoFocus
+                            style={{ fontSize: '0.75rem' }}
+                          />
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => {
+                              if (customPromptText.trim()) {
+                                handleGenerateSentenceClue({ modifier: 'custom', customPrompt: customPromptText.trim() });
+                                setCustomPromptText('');
+                              }
+                            }}
+                            disabled={!customPromptText.trim()}
+                            style={{ fontSize: '0.7rem', padding: '0.125rem 0.5rem' }}
+                          >
+                            Go
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => { setShowCustomPrompt(false); setCustomPromptText(''); }}
+                            style={{ fontSize: '0.7rem', padding: '0.125rem 0.5rem' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                       <div
                         className="sentence-clue-row"
                         style={{ cursor: showSentenceHanzi ? 'default' : 'pointer' }}
@@ -2038,7 +2142,7 @@ function StudyCard({
                   ) : (
                     <button
                       className="btn btn-secondary btn-sm"
-                      onClick={handleGenerateSentenceClue}
+                      onClick={() => handleGenerateSentenceClue()}
                       disabled={isGeneratingSentence || !isOnline}
                       title={!isOnline ? 'Requires internet connection' : ''}
                     >
