@@ -1114,7 +1114,26 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     const userRow = await c.env.DB.prepare('SELECT bio FROM users WHERE id = ?').bind(userId).first<{ bio: string | null }>();
     const bioContext = userRow?.bio ? ` The learner describes themselves as: "${userRow.bio}". Try to make the sentence relevant to their life or interests when possible.` : '';
 
-    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones.${bioContext}`;
+    // Read optional modifier from request body
+    let modifier = '';
+    try {
+      const body = await c.req.json<{ modifier?: string; customPrompt?: string }>().catch(() => ({}));
+      if (body.modifier === 'simple') {
+        modifier = ' Make the sentence as simple as possible, using basic vocabulary suitable for a beginner.';
+      } else if (body.modifier === 'complex') {
+        modifier = ' Make the sentence more complex, using intermediate/advanced grammar and vocabulary.';
+      } else if (body.modifier === 'variation') {
+        modifier = note.sentence_clue
+          ? ` The current sentence is "${note.sentence_clue}". Create a different variation with slightly different grammar or vocabulary, but keep the same target word.`
+          : '';
+      } else if (body.modifier === 'custom' && body.customPrompt) {
+        modifier = ` Additional instructions from the learner: "${body.customPrompt}"`;
+      }
+    } catch {
+      // No body or invalid JSON — that's fine, use default
+    }
+
+    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones. IMPORTANT: Do NOT use commas or semicolons in the sentence — write a single clause with no internal punctuation breaks (only a final period/question mark is OK). This is critical because the text-to-speech system may cut off at commas.${bioContext}${modifier}`;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',

@@ -275,9 +275,13 @@ export async function regenerateNoteAudio(noteId: string): Promise<Note> {
   });
 }
 
-export async function generateSentenceClue(noteId: string): Promise<Note> {
+export async function generateSentenceClue(
+  noteId: string,
+  options?: { modifier?: 'simple' | 'complex' | 'variation' | 'custom'; customPrompt?: string }
+): Promise<Note> {
   return fetchJSON<Note>(`/notes/${noteId}/generate-sentence-clue`, {
     method: 'POST',
+    body: options ? JSON.stringify(options) : undefined,
   });
 }
 
