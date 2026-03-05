@@ -735,11 +735,40 @@ export async function getMessages(
 
 export async function sendMessage(
   conversationId: string,
-  content: string
+  content: string,
+  replyToMessageId?: string
 ): Promise<MessageWithSender> {
   return fetchJSON<MessageWithSender>(`/conversations/${conversationId}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, reply_to_message_id: replyToMessageId }),
+  });
+}
+
+export async function toggleMessageReaction(
+  messageId: string,
+  emoji: string
+): Promise<{ added: boolean }> {
+  return fetchJSON<{ added: boolean }>(`/messages/${messageId}/reactions`, {
+    method: 'POST',
+    body: JSON.stringify({ emoji }),
+  });
+}
+
+export async function getMessageDiscussion(
+  messageId: string
+): Promise<{ id: string; messages: Array<{ role: string; content: string }> }> {
+  return fetchJSON<{ id: string; messages: Array<{ role: string; content: string }> }>(
+    `/messages/${messageId}/discussion`
+  );
+}
+
+export async function saveMessageDiscussion(
+  messageId: string,
+  messages: Array<{ role: string; content: string }>
+): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/messages/${messageId}/discussion`, {
+    method: 'PUT',
+    body: JSON.stringify({ messages }),
   });
 }
 

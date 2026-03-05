@@ -69,6 +69,9 @@ import {
   getChatContext,
   buildFlashcardPrompt,
   buildResponseOptionsPrompt,
+  toggleReaction,
+  getMessageDiscussion,
+  saveMessageDiscussion,
 } from './services/conversations';
 import {
   createTutorReviewRequest,
@@ -3041,14 +3044,14 @@ app.get('/api/conversations/:id/messages', async (c) => {
 app.post('/api/conversations/:id/messages', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
-  const { content } = await c.req.json<SendMessageRequest>();
+  const { content, reply_to_message_id } = await c.req.json<SendMessageRequest>();
 
   if (!content || content.trim() === '') {
     return c.json({ error: 'Message content is required' }, 400);
   }
 
   try {
-    const message = await sendMessage(c.env.DB, convId, userId, content);
+    const message = await sendMessage(c.env.DB, convId, userId, content, reply_to_message_id);
 
     // Send email + in-app notification to the other user (non-blocking)
     // Must use waitUntil() so the worker stays alive for the SendGrid fetch
@@ -3510,6 +3513,85 @@ app.post('/api/messages/:id/discuss', async (c) => {
   } catch (error) {
     console.error('Discuss message error:', error);
     const errMsg = error instanceof Error ? error.message : 'Failed to discuss message';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
+// Toggle a reaction on a message
+app.post('/api/messages/:id/reactions', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+  const { emoji } = await c.req.json<{ emoji: string }>();
+
+  if (!emoji) {
+    return c.json({ error: 'Emoji is required' }, 400);
+  }
+
+  try {
+    // Verify message exists and user has access
+    const message = await c.env.DB
+      .prepare('SELECT conversation_id FROM messages WHERE id = ?')
+      .bind(msgId)
+      .first<{ conversation_id: string }>();
+
+    if (!message) {
+      return c.json({ error: 'Message not found' }, 404);
+    }
+
+    const conv = await c.env.DB
+      .prepare('SELECT relationship_id FROM conversations WHERE id = ?')
+      .bind(message.conversation_id)
+      .first<{ relationship_id: string }>();
+
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    const rel = await c.env.DB
+      .prepare('SELECT id FROM tutor_relationships WHERE id = ? AND status = ? AND (requester_id = ? OR recipient_id = ?)')
+      .bind(conv.relationship_id, 'active', userId, userId)
+      .first();
+
+    if (!rel) {
+      return c.json({ error: 'Access denied' }, 403);
+    }
+
+    const result = await toggleReaction(c.env.DB, msgId, userId, emoji);
+    return c.json(result);
+  } catch (error) {
+    console.error('Toggle reaction error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to toggle reaction';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
+// Get persistent discussion for a message
+app.get('/api/messages/:id/discussion', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+
+  try {
+    const discussion = await getMessageDiscussion(c.env.DB, msgId, userId);
+    return c.json(discussion);
+  } catch (error) {
+    console.error('Get discussion error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to get discussion';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
+// Save persistent discussion for a message
+app.put('/api/messages/:id/discussion', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+  const { messages } = await c.req.json<{ messages: Array<{ role: string; content: string }> }>();
+
+  try {
+    await saveMessageDiscussion(c.env.DB, msgId, userId, messages);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Save discussion error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to save discussion';
     return c.json({ error: errMsg }, 500);
   }
 });

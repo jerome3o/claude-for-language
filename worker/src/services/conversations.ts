@@ -3,6 +3,7 @@ import {
   ConversationWithLastMessage,
   Message,
   MessageWithSender,
+  MessageReaction,
   SharedDeck,
   SharedDeckWithDetails,
   StudentSharedDeckWithDetails,
@@ -83,6 +84,7 @@ export async function getConversations(
       check_status: null,
       check_feedback: null,
       recording_url: null,
+      reply_to_message_id: null,
     } : undefined,
   }));
 }
@@ -174,13 +176,19 @@ export async function getMessages(
 
   let query = `
     SELECT m.id, m.conversation_id, m.sender_id, m.content, m.created_at,
-           m.check_status, m.check_feedback, m.recording_url,
-           u.id as u_id, u.name as u_name, u.picture_url as u_picture
+           m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
+           u.id as u_id, u.name as u_name, u.picture_url as u_picture,
+           rm.id as reply_id, rm.content as reply_content, rm.sender_id as reply_sender_id,
+           ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
+           CASE WHEN md.id IS NOT NULL THEN 1 ELSE 0 END as has_discussion
     FROM messages m
     JOIN users u ON m.sender_id = u.id
+    LEFT JOIN messages rm ON m.reply_to_message_id = rm.id
+    LEFT JOIN users ru ON rm.sender_id = ru.id
+    LEFT JOIN message_discussions md ON md.message_id = m.id AND md.user_id = ?
     WHERE m.conversation_id = ?
   `;
-  const params: string[] = [conversationId];
+  const params: string[] = [userId, conversationId];
 
   if (since) {
     query += ` AND m.created_at > ?`;
@@ -198,10 +206,21 @@ export async function getMessages(
     check_status: string | null;
     check_feedback: string | null;
     recording_url: string | null;
+    reply_to_message_id: string | null;
     u_id: string;
     u_name: string | null;
     u_picture: string | null;
+    reply_id: string | null;
+    reply_content: string | null;
+    reply_sender_id: string | null;
+    reply_sender_name: string | null;
+    reply_sender_picture: string | null;
+    has_discussion: number;
   }>();
+
+  // Collect message IDs to fetch reactions in bulk
+  const messageIds = result.results.map(r => r.id);
+  const reactionsMap = await getReactionsForMessages(db, messageIds);
 
   const messages: MessageWithSender[] = result.results.map(row => ({
     id: row.id,
@@ -212,11 +231,23 @@ export async function getMessages(
     check_status: row.check_status as Message['check_status'],
     check_feedback: row.check_feedback,
     recording_url: row.recording_url,
+    reply_to_message_id: row.reply_to_message_id,
     sender: {
       id: row.u_id,
       name: row.u_name,
       picture_url: row.u_picture,
     },
+    reply_to: row.reply_id ? {
+      id: row.reply_id,
+      content: row.reply_content!,
+      sender: {
+        id: row.reply_sender_id!,
+        name: row.reply_sender_name,
+        picture_url: row.reply_sender_picture,
+      },
+    } : null,
+    reactions: reactionsMap.get(row.id) || [],
+    has_discussion: row.has_discussion === 1,
   }));
 
   const latest = messages.length > 0 ? messages[messages.length - 1].created_at : null;
@@ -231,7 +262,8 @@ export async function sendMessage(
   db: D1Database,
   conversationId: string,
   userId: string,
-  content: string
+  content: string,
+  replyToMessageId?: string
 ): Promise<MessageWithSender> {
   // Verify access
   const conv = await getConversationById(db, conversationId, userId);
@@ -244,10 +276,10 @@ export async function sendMessage(
 
   await db
     .prepare(`
-      INSERT INTO messages (id, conversation_id, sender_id, content, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id)
+      VALUES (?, ?, ?, ?, ?, ?)
     `)
-    .bind(id, conversationId, userId, content, now)
+    .bind(id, conversationId, userId, content, now, replyToMessageId || null)
     .run();
 
   // Update conversation's last_message_at
@@ -262,6 +294,26 @@ export async function sendMessage(
     .bind(userId)
     .first<{ id: string; name: string | null; picture_url: string | null }>();
 
+  // Get reply-to message if applicable
+  let replyTo = null;
+  if (replyToMessageId) {
+    const replyMsg = await db
+      .prepare(`
+        SELECT m.id, m.content, m.sender_id, u.name, u.picture_url
+        FROM messages m JOIN users u ON m.sender_id = u.id
+        WHERE m.id = ?
+      `)
+      .bind(replyToMessageId)
+      .first<{ id: string; content: string; sender_id: string; name: string | null; picture_url: string | null }>();
+    if (replyMsg) {
+      replyTo = {
+        id: replyMsg.id,
+        content: replyMsg.content,
+        sender: { id: replyMsg.sender_id, name: replyMsg.name, picture_url: replyMsg.picture_url },
+      };
+    }
+  }
+
   return {
     id,
     conversation_id: conversationId,
@@ -271,8 +323,136 @@ export async function sendMessage(
     check_status: null,
     check_feedback: null,
     recording_url: null,
+    reply_to_message_id: replyToMessageId || null,
     sender: sender || { id: userId, name: null, picture_url: null },
+    reply_to: replyTo,
+    reactions: [],
+    has_discussion: false,
   };
+}
+
+// ============ Reactions ============
+
+/**
+ * Fetch reactions for a batch of messages, grouped by emoji
+ */
+async function getReactionsForMessages(
+  db: D1Database,
+  messageIds: string[]
+): Promise<Map<string, MessageReaction[]>> {
+  const result = new Map<string, MessageReaction[]>();
+  if (messageIds.length === 0) return result;
+
+  const placeholders = messageIds.map(() => '?').join(',');
+  const rows = await db
+    .prepare(`
+      SELECT mr.message_id, mr.emoji, mr.user_id, u.name
+      FROM message_reactions mr
+      JOIN users u ON mr.user_id = u.id
+      WHERE mr.message_id IN (${placeholders})
+      ORDER BY mr.created_at ASC
+    `)
+    .bind(...messageIds)
+    .all<{ message_id: string; emoji: string; user_id: string; name: string | null }>();
+
+  // Group by message_id, then by emoji
+  for (const row of rows.results) {
+    if (!result.has(row.message_id)) {
+      result.set(row.message_id, []);
+    }
+    const reactions = result.get(row.message_id)!;
+    let reaction = reactions.find(r => r.emoji === row.emoji);
+    if (!reaction) {
+      reaction = { emoji: row.emoji, users: [], count: 0 };
+      reactions.push(reaction);
+    }
+    reaction.users.push({ id: row.user_id, name: row.name });
+    reaction.count++;
+  }
+  return result;
+}
+
+/**
+ * Toggle a reaction on a message (add if not present, remove if present)
+ */
+export async function toggleReaction(
+  db: D1Database,
+  messageId: string,
+  userId: string,
+  emoji: string
+): Promise<{ added: boolean }> {
+  // Check if reaction already exists
+  const existing = await db
+    .prepare('SELECT id FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?')
+    .bind(messageId, userId, emoji)
+    .first();
+
+  if (existing) {
+    await db
+      .prepare('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?')
+      .bind(messageId, userId, emoji)
+      .run();
+    return { added: false };
+  } else {
+    const id = generateId();
+    await db
+      .prepare('INSERT INTO message_reactions (id, message_id, user_id, emoji) VALUES (?, ?, ?, ?)')
+      .bind(id, messageId, userId, emoji)
+      .run();
+    return { added: true };
+  }
+}
+
+// ============ Message Discussions ============
+
+/**
+ * Get or create a persistent discussion for a message
+ */
+export async function getMessageDiscussion(
+  db: D1Database,
+  messageId: string,
+  userId: string
+): Promise<{ id: string; messages: Array<{ role: string; content: string }> }> {
+  const existing = await db
+    .prepare('SELECT id, messages_json FROM message_discussions WHERE message_id = ? AND user_id = ?')
+    .bind(messageId, userId)
+    .first<{ id: string; messages_json: string }>();
+
+  if (existing) {
+    return { id: existing.id, messages: JSON.parse(existing.messages_json) };
+  }
+  return { id: '', messages: [] };
+}
+
+/**
+ * Save a discussion thread for a message
+ */
+export async function saveMessageDiscussion(
+  db: D1Database,
+  messageId: string,
+  userId: string,
+  discussionMessages: Array<{ role: string; content: string }>
+): Promise<void> {
+  const json = JSON.stringify(discussionMessages);
+  const now = new Date().toISOString();
+
+  const existing = await db
+    .prepare('SELECT id FROM message_discussions WHERE message_id = ? AND user_id = ?')
+    .bind(messageId, userId)
+    .first();
+
+  if (existing) {
+    await db
+      .prepare('UPDATE message_discussions SET messages_json = ?, updated_at = ? WHERE message_id = ? AND user_id = ?')
+      .bind(json, now, messageId, userId)
+      .run();
+  } else {
+    const id = generateId();
+    await db
+      .prepare('INSERT INTO message_discussions (id, message_id, user_id, messages_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(id, messageId, userId, json, now, now)
+      .run();
+  }
 }
 
 // ============ Shared Decks ============
