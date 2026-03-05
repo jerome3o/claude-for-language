@@ -1296,9 +1296,19 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
 
     const input = toolUseBlock.input as { characters: Array<{ correct: string; alternatives: string[] }> };
 
-    // Build options arrays with correct answer shuffled in
+    // Build options arrays with correct answer shuffled in, deduplicating
     const multipleChoiceOptions = input.characters.map((charData) => {
-      const options = [...charData.alternatives.slice(0, 4)];
+      // Filter out duplicates and the correct character from alternatives
+      const seen = new Set<string>([charData.correct]);
+      const uniqueAlts: string[] = [];
+      for (const alt of charData.alternatives) {
+        if (!seen.has(alt)) {
+          seen.add(alt);
+          uniqueAlts.push(alt);
+        }
+        if (uniqueAlts.length >= 4) break;
+      }
+      const options = [...uniqueAlts];
       // Insert correct character at a random position
       const insertPos = Math.floor(Math.random() * (options.length + 1));
       options.splice(insertPos, 0, charData.correct);
