@@ -527,6 +527,7 @@ body:has(.chat-page) #root {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  position: relative;
 }
 
 .chat-message-actions {
@@ -944,7 +945,12 @@ body:has(.chat-page) #root {
   border: 1px solid var(--border-color, #e5e5e5);
   border-radius: 1.5rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  margin-top: 0.25rem;
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 0.25rem;
+  z-index: 10;
+  white-space: nowrap;
 }
 
 .reaction-picker-btn {
