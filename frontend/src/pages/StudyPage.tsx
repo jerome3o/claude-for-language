@@ -275,9 +275,10 @@ function StudyCard({
   const [recordingIndex, setRecordingIndex] = useState(0);
   const [isGeneratingStudyAudio, setIsGeneratingStudyAudio] = useState(false);
 
-  // Reset recording index when card changes
+  // Reset recording index and MC ready state when card changes
   useEffect(() => {
     setRecordingIndex(0);
+    setMcReady(false);
   }, [card.id]);
 
   // Debug modal state
@@ -306,6 +307,7 @@ function StudyCard({
 
   // Multiple choice state
   const [showMultipleChoice, setShowMultipleChoice] = useState(false);
+  const [mcReady, setMcReady] = useState(false); // MC loaded but hidden (for audio cards)
   const [isGeneratingMC, setIsGeneratingMC] = useState(false);
   const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
@@ -538,12 +540,53 @@ function StudyCard({
     }
   };
 
-  const handleShowMultipleChoice = async () => {
+  // Auto-generate fun facts and sentence clues in background when missing
+  const bgGenTriggeredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOnline || bgGenTriggeredRef.current === card.note.id) return;
+    bgGenTriggeredRef.current = card.note.id;
+
+    const bgGenerate = async () => {
+      // Generate fun fact if missing
+      if (!card.note.fun_facts) {
+        try {
+          const updatedNote = await generateFunFact(card.note.id);
+          onUpdateNote(updatedNote);
+          await db.notes.update(card.note.id, { fun_facts: updatedNote.fun_facts });
+        } catch (error) {
+          console.error('[bg] Failed to generate fun fact:', error);
+        }
+      }
+      // Generate sentence clue if missing
+      if (!card.note.sentence_clue) {
+        try {
+          const updatedNote = await generateSentenceClue(card.note.id);
+          onUpdateNote(updatedNote);
+          await db.notes.update(card.note.id, {
+            sentence_clue: updatedNote.sentence_clue,
+            sentence_clue_pinyin: updatedNote.sentence_clue_pinyin,
+            sentence_clue_translation: updatedNote.sentence_clue_translation,
+            sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
+          });
+        } catch (error) {
+          console.error('[bg] Failed to generate sentence clue:', error);
+        }
+      }
+    };
+    bgGenerate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.note.id, isOnline]);
+
+  const handleShowMultipleChoice = async (hideInitially = false) => {
     if (card.note.multiple_choice_options) {
       const options = JSON.parse(card.note.multiple_choice_options) as { correct: string; options: string[] }[];
       setMcSelections(new Array(options.length).fill(null));
       setMcSubmitted(false);
-      setShowMultipleChoice(true);
+      if (hideInitially) {
+        setMcReady(true);
+      } else {
+        setShowMultipleChoice(true);
+      }
       return;
     }
     setIsGeneratingMC(true);
@@ -557,7 +600,11 @@ function StudyCard({
         const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
         setMcSelections(new Array(options.length).fill(null));
         setMcSubmitted(false);
-        setShowMultipleChoice(true);
+        if (hideInitially) {
+          setMcReady(true);
+        } else {
+          setShowMultipleChoice(true);
+        }
       }
     } catch (error) {
       console.error('Failed to generate multiple choice options:', error);
@@ -566,13 +613,20 @@ function StudyCard({
     }
   };
 
+  const revealMultipleChoice = () => {
+    setMcReady(false);
+    setShowMultipleChoice(true);
+  };
+
   // Auto-show multiple choice for pinyin-only cards or audio_to_hanzi cards
   const autoMcTriggeredRef = useRef<string | null>(null);
-  const shouldAutoMC = (card.note.pinyin_only && card.card_type === 'meaning_to_hanzi') || card.card_type === 'audio_to_hanzi';
+  const isAudioCard = card.card_type === 'audio_to_hanzi';
+  const shouldAutoMC = (card.note.pinyin_only && card.card_type === 'meaning_to_hanzi') || isAudioCard;
   useEffect(() => {
-    if (shouldAutoMC && !showMultipleChoice && autoMcTriggeredRef.current !== card.id) {
+    if (shouldAutoMC && !showMultipleChoice && !mcReady && autoMcTriggeredRef.current !== card.id) {
       autoMcTriggeredRef.current = card.id;
-      handleShowMultipleChoice();
+      // Audio cards: load MC in background but keep hidden until user reveals
+      handleShowMultipleChoice(isAudioCard);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.id, shouldAutoMC]);
@@ -1650,8 +1704,19 @@ function StudyCard({
       );
     }
 
+    // Audio cards: MC is ready but hidden — show a reveal button
+    if (isAudioCard && mcReady && !showMultipleChoice) {
+      return (
+        <div className="study-card-actions" style={{ display: 'flex', justifyContent: 'center', padding: '1rem' }}>
+          <button className="btn btn-primary" onClick={revealMultipleChoice}>
+            Show Options
+          </button>
+        </div>
+      );
+    }
+
     // If this card will auto-show MC, don't flash the text input while loading
-    if (shouldAutoMC && !showMultipleChoice) {
+    if (shouldAutoMC && !showMultipleChoice && !mcReady) {
       return (
         <div className="study-card-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', padding: '1rem' }}>
           <div className="spinner" />
@@ -1727,7 +1792,7 @@ function StudyCard({
                       {(card.card_type === 'meaning_to_hanzi' || card.card_type === 'audio_to_hanzi') && (
                         <button
                           className="btn btn-secondary btn-sm"
-                          onClick={handleShowMultipleChoice}
+                          onClick={() => handleShowMultipleChoice()}
                           disabled={isGeneratingMC || !isOnline}
                           title={!isOnline ? 'Requires internet connection' : ''}
                         >
