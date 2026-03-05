@@ -1117,16 +1117,16 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     // Read optional modifier from request body
     let modifier = '';
     try {
-      const body = await c.req.json<{ modifier?: string; customPrompt?: string }>().catch(() => ({}));
-      if (body.modifier === 'simple') {
+      const body = await c.req.json<{ modifier?: string; customPrompt?: string }>();
+      if (body?.modifier === 'simple') {
         modifier = ' Make the sentence as simple as possible, using basic vocabulary suitable for a beginner.';
-      } else if (body.modifier === 'complex') {
+      } else if (body?.modifier === 'complex') {
         modifier = ' Make the sentence more complex, using intermediate/advanced grammar and vocabulary.';
-      } else if (body.modifier === 'variation') {
+      } else if (body?.modifier === 'variation') {
         modifier = note.sentence_clue
           ? ` The current sentence is "${note.sentence_clue}". Create a different variation with slightly different grammar or vocabulary, but keep the same target word.`
           : '';
-      } else if (body.modifier === 'custom' && body.customPrompt) {
+      } else if (body?.modifier === 'custom' && body?.customPrompt) {
         modifier = ` Additional instructions from the learner: "${body.customPrompt}"`;
       }
     } catch {
