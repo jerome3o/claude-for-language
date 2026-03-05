@@ -17,6 +17,7 @@ import {
   updateConversationVoiceSettings,
   getConversations,
   markNotificationsReadByConversation,
+  toggleMessageReaction,
 } from '../api/client';
 import type { TranslateFlashcardResponse } from '../api/client';
 import {
@@ -95,6 +96,12 @@ export function ChatPage() {
 
   // Voice settings state
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+
+  // Reply state
+  const [replyingTo, setReplyingTo] = useState<MessageWithSender | null>(null);
+
+  // Reaction picker state
+  const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
 
   // Reset state when conversation changes
   useEffect(() => {
@@ -196,7 +203,8 @@ export function ChatPage() {
   }, [messages.length]);
 
   const sendMutation = useMutation({
-    mutationFn: (content: string) => sendMessage(convId!, content),
+    mutationFn: ({ content, replyToId }: { content: string; replyToId?: string }) =>
+      sendMessage(convId!, content, replyToId),
     onSuccess: async (newMsg) => {
       // Add user's message, deduplicating in case poll already added it
       setNewMessages(prev => {
@@ -205,6 +213,7 @@ export function ChatPage() {
       });
       setLastTimestamp(newMsg.created_at);
       setNewMessage('');
+      setReplyingTo(null);
 
       // If AI conversation, auto-trigger AI response
       if (isAIConversation) {
@@ -234,8 +243,21 @@ export function ChatPage() {
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || sendMutation.isPending || isWaitingForAI) return;
-    sendMutation.mutate(newMessage.trim());
+    sendMutation.mutate({ content: newMessage.trim(), replyToId: replyingTo?.id });
   };
+
+  const handleReaction = async (messageId: string, emoji: string) => {
+    setShowReactionPicker(null);
+    try {
+      await toggleMessageReaction(messageId, emoji);
+      // Refetch messages to get updated reactions
+      queryClient.invalidateQueries({ queryKey: ['messages', convId] });
+    } catch (error) {
+      console.error('Failed to toggle reaction:', error);
+    }
+  };
+
+  const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '👏', '🔥'];
 
   // Audio playback functions
   const playBase64Audio = (base64: string, contentType: string, messageId: string) => {
@@ -628,6 +650,13 @@ export function ChatPage() {
                       </div>
                     )}
                     <div className="chat-message-content">
+                      {/* Reply preview */}
+                      {msg.reply_to && (
+                        <div className="reply-preview">
+                          <span className="reply-preview-name">{msg.reply_to.sender.name || 'Unknown'}</span>
+                          <span className="reply-preview-text">{msg.reply_to.content.length > 60 ? msg.reply_to.content.slice(0, 60) + '...' : msg.reply_to.content}</span>
+                        </div>
+                      )}
                       <div className="chat-bubble">
                         {msg.content}
                         {/* Check status indicator */}
@@ -637,10 +666,41 @@ export function ChatPage() {
                           </span>
                         )}
                       </div>
+                      {/* Reactions display */}
+                      {msg.reactions && msg.reactions.length > 0 && (
+                        <div className="message-reactions">
+                          {msg.reactions.map((r) => (
+                            <button
+                              key={r.emoji}
+                              className={`reaction-badge ${r.users.some(u => u.id === user!.id) ? 'mine' : ''}`}
+                              onClick={() => handleReaction(msg.id, r.emoji)}
+                              title={r.users.map(u => u.name || 'Unknown').join(', ')}
+                            >
+                              {r.emoji} {r.count > 1 ? r.count : ''}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <div className="chat-message-meta">
                         <span className="chat-time">{formatTime(msg.created_at)}</span>
                         {/* Message actions */}
                         <div className="chat-message-actions">
+                          {/* Reply button */}
+                          <button
+                            className="msg-action-btn"
+                            onClick={() => setReplyingTo(msg)}
+                            title="Reply"
+                          >
+                            ↩
+                          </button>
+                          {/* Reaction button */}
+                          <button
+                            className="msg-action-btn"
+                            onClick={() => setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id)}
+                            title="React"
+                          >
+                            +😊
+                          </button>
                           {/* Play audio button (for Chinese content) */}
                           {hasChineseContent && (
                             <button
@@ -692,13 +752,27 @@ export function ChatPage() {
                           )}
                           {/* Discuss with Claude button */}
                           <button
-                            className="msg-action-btn"
+                            className={`msg-action-btn ${msg.has_discussion ? 'has-discussion' : ''}`}
                             onClick={() => setDiscussingMessage(msg)}
-                            title="Discuss with Claude"
+                            title={msg.has_discussion ? 'Continue discussion' : 'Discuss with Claude'}
                           >
                             💬
                           </button>
                         </div>
+                        {/* Quick emoji picker */}
+                        {showReactionPicker === msg.id && (
+                          <div className="reaction-picker">
+                            {QUICK_EMOJIS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                className="reaction-picker-btn"
+                                onClick={() => handleReaction(msg.id, emoji)}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -723,6 +797,17 @@ export function ChatPage() {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Reply preview bar */}
+      {replyingTo && (
+        <div className="reply-bar">
+          <div className="reply-bar-content">
+            <span className="reply-bar-name">{replyingTo.sender.name || 'Unknown'}</span>
+            <span className="reply-bar-text">{replyingTo.content.length > 80 ? replyingTo.content.slice(0, 80) + '...' : replyingTo.content}</span>
+          </div>
+          <button className="reply-bar-close" onClick={() => setReplyingTo(null)}>x</button>
+        </div>
+      )}
 
       {/* Input */}
       <OfflineWarning message="You're offline. Messages can't be sent right now." />

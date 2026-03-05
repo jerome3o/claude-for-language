@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { discussMessage, createNote, createDeck, getDecks } from '../api/client';
+import { discussMessage, createNote, createDeck, getDecks, getMessageDiscussion, saveMessageDiscussion } from '../api/client';
 import { MessageWithSender, GeneratedNote } from '../types';
 import { Loading } from './Loading';
 import './MessageDiscussionModal.css';
@@ -22,12 +22,30 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
   const [input, setInput] = useState('');
   const [discussion, setDiscussion] = useState<DiscussionMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingDiscussion, setIsLoadingDiscussion] = useState(true);
   const [pendingFlashcards, setPendingFlashcards] = useState<GeneratedNote[] | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedCards, setSelectedCards] = useState<Set<number>>(new Set());
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const queryClient = useQueryClient();
+
+  // Load persisted discussion on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await getMessageDiscussion(message.id);
+        if (result.messages.length > 0) {
+          setDiscussion(result.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })));
+        }
+      } catch (error) {
+        console.error('Failed to load discussion:', error);
+      } finally {
+        setIsLoadingDiscussion(false);
+      }
+    })();
+  }, [message.id]);
 
   useEffect(() => {
     if (contentRef.current) {
@@ -36,8 +54,25 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
   }, [discussion.length, pendingFlashcards]);
 
   useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 100);
-  }, []);
+    if (!isLoadingDiscussion) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [isLoadingDiscussion]);
+
+  // Persist discussion when it changes (after initial load)
+  const persistDiscussion = async (msgs: DiscussionMessage[]) => {
+    if (msgs.length === 0) return;
+    try {
+      await saveMessageDiscussion(
+        message.id,
+        msgs.map(m => ({ role: m.role, content: m.content }))
+      );
+      // Invalidate messages query so has_discussion updates
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+    } catch (error) {
+      console.error('Failed to save discussion:', error);
+    }
+  };
 
   const quickActions = [
     { label: 'Explain this', question: 'Please explain what this message means, including the vocabulary and grammar used.' },
@@ -72,7 +107,9 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
         content: result.response,
         flashcards: result.flashcards,
       };
-      setDiscussion([...updatedDiscussion, assistantMsg]);
+      const newDiscussion = [...updatedDiscussion, assistantMsg];
+      setDiscussion(newDiscussion);
+      persistDiscussion(newDiscussion);
 
       if (result.flashcards && result.flashcards.length > 0) {
         setPendingFlashcards(result.flashcards);
@@ -141,8 +178,11 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
         </div>
 
         <div className="claude-modal-content" ref={contentRef}>
+          {isLoadingDiscussion && (
+            <div className="claude-loading">Loading discussion...</div>
+          )}
           {/* Quick actions when no conversation started */}
-          {discussion.length === 0 && !isLoading && (
+          {!isLoadingDiscussion && discussion.length === 0 && !isLoading && (
             <div className="claude-quick-actions">
               {quickActions.map((action) => (
                 <button

@@ -376,10 +376,20 @@ export interface Message {
   check_status: MessageCheckStatus | null;
   check_feedback: string | null;
   recording_url: string | null;
+  reply_to_message_id: string | null;
+}
+
+export interface MessageReaction {
+  emoji: string;
+  users: Array<{ id: string; name: string | null }>;
+  count: number;
 }
 
 export interface MessageWithSender extends Message {
   sender: Pick<User, 'id' | 'name' | 'picture_url'>;
+  reply_to?: Pick<MessageWithSender, 'id' | 'content' | 'sender'> | null;
+  reactions?: MessageReaction[];
+  has_discussion?: boolean;
 }
 
 export interface SharedDeck {
@@ -413,6 +423,7 @@ export interface CreateConversationRequest {
 
 export interface SendMessageRequest {
   content: string;
+  reply_to_message_id?: string;
 }
 
 export interface ShareDeckRequest {

@@ -266,6 +266,13 @@ export interface Message {
   check_status: MessageCheckStatus | null;
   check_feedback: string | null;
   recording_url: string | null;
+  reply_to_message_id: string | null;
+}
+
+export interface MessageReaction {
+  emoji: string;
+  users: Array<{ id: string; name: string | null }>;
+  count: number;
 }
 
 export interface MessageWithSender extends Message {
@@ -274,6 +281,13 @@ export interface MessageWithSender extends Message {
     name: string | null;
     picture_url: string | null;
   };
+  reply_to?: {
+    id: string;
+    content: string;
+    sender: { id: string; name: string | null; picture_url: string | null };
+  } | null;
+  reactions?: MessageReaction[];
+  has_discussion?: boolean;
 }
 
 export interface ConversationWithLastMessage extends Conversation {
