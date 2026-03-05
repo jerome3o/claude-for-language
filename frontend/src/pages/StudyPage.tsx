@@ -1650,6 +1650,16 @@ function StudyCard({
       );
     }
 
+    // If this card will auto-show MC, don't flash the text input while loading
+    if (shouldAutoMC && !showMultipleChoice) {
+      return (
+        <div className="study-card-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', padding: '1rem' }}>
+          <div className="spinner" />
+          <span className="text-light">{isGeneratingMC ? 'Generating options...' : 'Loading...'}</span>
+        </div>
+      );
+    }
+
     const placeholder = card.card_type === 'audio_to_hanzi' ? 'Type what you hear...' : 'Type in Chinese...';
     return (
       <div className="study-card-actions">
