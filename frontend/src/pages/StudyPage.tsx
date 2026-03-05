@@ -38,7 +38,7 @@ import {
   Note,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
-import { useTranscription } from '../hooks/useTranscription';
+import { useTranscription, usePronunciationAssessment } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
 import CardEditModal from '../components/CardEditModal';
@@ -325,6 +325,16 @@ function StudyCard({
     reset: resetTranscription,
   } = useTranscription();
 
+  // Azure pronunciation assessment
+  const {
+    isAssessing: isAzureAssessing,
+    result: azureResult,
+    error: azureError,
+    assess: azureAssess,
+    reset: resetAzure,
+  } = usePronunciationAssessment();
+  const [useAzure, setUseAzure] = useState(false);
+
   // Track initial 0.5s delay to prevent accidental stop clicks
   const [isRecordingDelayActive, setIsRecordingDelayActive] = useState(false);
   const recordingDelayTimeoutRef = useRef<number | null>(null);
@@ -486,8 +496,12 @@ function StudyCard({
   useEffect(() => {
     if (flipped && isSpeakingCard && audioBlob) {
       transcribe(audioBlob, card.note.hanzi, card.note.pinyin);
+      // Also run Azure pronunciation assessment if enabled
+      if (useAzure) {
+        azureAssess(audioBlob, card.note.hanzi);
+      }
     }
-  }, [flipped, isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe]);
+  }, [flipped, isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe, useAzure, azureAssess]);
 
   // Auto-play audio when answer is revealed
   useEffect(() => {
@@ -911,6 +925,7 @@ function StudyCard({
               className="btn btn-secondary btn-sm"
               onClick={() => {
                 resetTranscription();
+                resetAzure();
                 clearRecording();
                 setTimeout(() => startRecordingWithDelay(true), 100);
               }}
@@ -918,6 +933,84 @@ function StudyCard({
             >
               Try Again
             </button>
+          )}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const renderAzureResult = () => {
+    if (!useAzure || !isSpeakingCard || !audioBlob) return null;
+
+    if (isAzureAssessing) {
+      return (
+        <div style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: '6px',
+          backgroundColor: 'rgba(139, 92, 246, 0.1)',
+          fontSize: '0.875rem',
+          marginBottom: '0.5rem',
+        }}>
+          Azure assessing pronunciation...
+        </div>
+      );
+    }
+
+    if (azureError) {
+      return (
+        <div style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: '6px',
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          fontSize: '0.8125rem',
+          marginBottom: '0.5rem',
+        }}>
+          Azure: {azureError}
+        </div>
+      );
+    }
+
+    if (azureResult?.NBest?.[0]) {
+      const best = azureResult.NBest[0];
+      const scoreColor = (score: number) =>
+        score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#ef4444';
+
+      return (
+        <div style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: '6px',
+          backgroundColor: 'rgba(139, 92, 246, 0.08)',
+          border: '1px solid rgba(139, 92, 246, 0.2)',
+          fontSize: '0.8125rem',
+          marginBottom: '0.5rem',
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: '#7c3aed' }}>
+            Azure Pronunciation Assessment
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+            <span>Overall: <strong style={{ color: scoreColor(best.PronScore) }}>{Math.round(best.PronScore)}</strong></span>
+            <span>Accuracy: <strong style={{ color: scoreColor(best.AccuracyScore) }}>{Math.round(best.AccuracyScore)}</strong></span>
+            <span>Fluency: <strong style={{ color: scoreColor(best.FluencyScore) }}>{Math.round(best.FluencyScore)}</strong></span>
+            <span>Completeness: <strong style={{ color: scoreColor(best.CompletenessScore) }}>{Math.round(best.CompletenessScore)}</strong></span>
+          </div>
+          {best.Words && best.Words.length > 0 && (
+            <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+              {best.Words.map((w, i) => (
+                <span key={i} style={{
+                  padding: '0.125rem 0.375rem',
+                  borderRadius: '4px',
+                  backgroundColor: w.ErrorType === 'None'
+                    ? 'rgba(34, 197, 94, 0.15)'
+                    : 'rgba(239, 68, 68, 0.15)',
+                  fontSize: '0.8125rem',
+                }}>
+                  {w.Word} <span style={{ color: scoreColor(w.AccuracyScore), fontWeight: 600 }}>{Math.round(w.AccuracyScore)}</span>
+                  {w.ErrorType !== 'None' && <span style={{ color: '#ef4444', fontSize: '0.75rem' }}> ({w.ErrorType})</span>}
+                </span>
+              ))}
+            </div>
           )}
         </div>
       );
@@ -940,6 +1033,7 @@ function StudyCard({
         )}
 
         {renderTranscriptionResult()}
+        {renderAzureResult()}
 
         {/* Show recording controls on the answer screen when retrying */}
         {flipped && isSpeakingCard && !audioBlob && !transcriptionComparison && (
@@ -1521,6 +1615,17 @@ function StudyCard({
                 className="form-checkbox"
               />
               <span>Flag for tutor</span>
+            </label>
+          )}
+          {isSpeakingCard && isOnline && (
+            <label className="study-back-option">
+              <input
+                type="checkbox"
+                checked={useAzure}
+                onChange={(e) => setUseAzure(e.target.checked)}
+                className="form-checkbox"
+              />
+              <span>Azure pronunciation</span>
             </label>
           )}
         </div>

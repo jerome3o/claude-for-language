@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
-import { transcribeAudio, TranscriptionResult } from '../api/client';
+import { transcribeAudio, TranscriptionResult, pronunciationAssessment, PronunciationAssessmentResult } from '../api/client';
 import { pinyin } from 'pinyin-pro';
+import { convertToWav } from '../utils/audioConvert';
 
 export interface TranscriptionState {
   isTranscribing: boolean;
@@ -111,4 +112,45 @@ export function useTranscription() {
   }, []);
 
   return { ...state, transcribe, reset };
+}
+
+// ============ Azure Pronunciation Assessment Hook ============
+
+export interface PronunciationAssessmentState {
+  isAssessing: boolean;
+  result: PronunciationAssessmentResult | null;
+  error: string | null;
+}
+
+export function usePronunciationAssessment() {
+  const [state, setState] = useState<PronunciationAssessmentState>({
+    isAssessing: false,
+    result: null,
+    error: null,
+  });
+
+  const assess = useCallback(async (audioBlob: Blob, referenceText: string) => {
+    if (!navigator.onLine) {
+      setState({ isAssessing: false, result: null, error: 'Offline' });
+      return;
+    }
+
+    setState({ isAssessing: true, result: null, error: null });
+
+    try {
+      // Convert WebM to WAV PCM 16kHz for Azure
+      const wavBlob = await convertToWav(audioBlob);
+      const result = await pronunciationAssessment(wavBlob, referenceText);
+      setState({ isAssessing: false, result, error: null });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Assessment failed';
+      setState({ isAssessing: false, result: null, error: msg });
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    setState({ isAssessing: false, result: null, error: null });
+  }, []);
+
+  return { ...state, assess, reset };
 }
