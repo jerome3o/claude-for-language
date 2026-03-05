@@ -1979,6 +1979,70 @@ app.post('/api/transcribe', async (c) => {
   }
 });
 
+// ============ Azure Speech Pronunciation Assessment ============
+
+app.post('/api/pronunciation-assessment', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  if (!c.env.AZURE_SPEECH_KEY || !c.env.AZURE_SPEECH_REGION) {
+    return c.json({ error: 'Azure Speech is not configured' }, 501);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as unknown;
+  const referenceText = formData.get('referenceText') as string;
+
+  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+    return c.json({ error: 'file is required' }, 400);
+  }
+  if (!referenceText) {
+    return c.json({ error: 'referenceText is required' }, 400);
+  }
+
+  const blob = file as Blob;
+  const arrayBuffer = await blob.arrayBuffer();
+
+  try {
+    // Build pronunciation assessment params
+    const pronParams = JSON.stringify({
+      ReferenceText: referenceText,
+      GradingSystem: 'HundredMark',
+      Granularity: 'Phoneme',
+      Dimension: 'Comprehensive',
+    });
+    const pronHeader = btoa(pronParams);
+
+    const region = c.env.AZURE_SPEECH_REGION;
+    const url = `https://${region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=zh-CN&format=detailed`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': c.env.AZURE_SPEECH_KEY,
+        'Content-Type': 'audio/wav; codecs=audio/pcm; samplerate=16000',
+        'Pronunciation-Assessment': pronHeader,
+        'Accept': 'application/json',
+      },
+      body: arrayBuffer,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[pronunciation-assessment] Azure error:', response.status, errorText);
+      return c.json({ error: 'Pronunciation assessment failed', details: errorText }, 500);
+    }
+
+    const result = await response.json() as Record<string, any>;
+    return c.json(result);
+  } catch (err) {
+    console.error('[pronunciation-assessment] Error:', err);
+    return c.json({ error: 'Pronunciation assessment failed' }, 500);
+  }
+});
+
 // ============ AI Generation ============
 
 app.post('/api/ai/generate-deck', async (c) => {

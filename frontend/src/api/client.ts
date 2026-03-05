@@ -621,6 +621,63 @@ export async function transcribeAudio(audioBlob: Blob): Promise<TranscriptionRes
   return response.json();
 }
 
+// ============ Azure Pronunciation Assessment ============
+
+export interface PronunciationWord {
+  Word: string;
+  AccuracyScore: number;
+  ErrorType: 'None' | 'Omission' | 'Insertion' | 'Mispronunciation';
+}
+
+export interface PronunciationAssessmentResult {
+  RecognitionStatus: string;
+  DisplayText: string;
+  NBest?: Array<{
+    Display: string;
+    AccuracyScore: number;
+    FluencyScore: number;
+    CompletenessScore: number;
+    PronScore: number;
+    Words: PronunciationWord[];
+  }>;
+}
+
+export async function pronunciationAssessment(
+  audioBlob: Blob,
+  referenceText: string,
+): Promise<PronunciationAssessmentResult> {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.wav');
+  formData.append('referenceText', referenceText);
+
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/pronunciation-assessment`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+
+  if (response.status === 501) {
+    throw new Error('Azure Speech not configured');
+  }
+
+  if (!response.ok) {
+    throw new Error('Pronunciation assessment failed');
+  }
+
+  return response.json();
+}
+
 // ============ AI Generation ============
 
 export async function generateDeck(
