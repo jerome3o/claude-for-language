@@ -22,6 +22,7 @@ const PUBLIC_ROUTES = [
 // Routes that are public only for GET requests (e.g., serving audio files)
 const PUBLIC_GET_ROUTES = [
   '/api/audio/', // Audio files are public for playback, but upload requires auth
+  '/api/feature-requests/screenshot/', // Screenshots served via <img> tags which don't send auth headers
 ];
 
 function isPublicRoute(path: string, method: string): boolean {
