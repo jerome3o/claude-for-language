@@ -149,7 +149,14 @@ export function FeedbackFAB() {
 
     // Capture screenshot before showing modal
     try {
-      const canvas = await html2canvas(document.body);
+      const canvas = await html2canvas(document.body, {
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        x: window.scrollX,
+        y: window.scrollY,
+      });
       setScreenshotDataUrl(canvas.toDataURL('image/png'));
       setIncludeScreenshot(true);
     } catch (e) {
