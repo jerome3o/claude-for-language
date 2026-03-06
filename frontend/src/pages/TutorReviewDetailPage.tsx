@@ -159,7 +159,10 @@ export function TutorReviewDetailPage() {
                 {isPlaying ? 'Playing...' : 'Play Audio'}
               </button>
               <Link
-                to={`/decks/${request.deck.id}`}
+                to={isTutor
+                  ? `/connections/${request.relationship_id}/student-shared-decks/${request.deck.id}/progress`
+                  : `/decks/${request.deck.id}`
+                }
                 className="btn btn-secondary btn-sm"
               >
                 View in Deck: {request.deck.name}
