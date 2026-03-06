@@ -557,12 +557,17 @@ function StudyCard({
 
   const [addedSentenceAsCard, setAddedSentenceAsCard] = useState(false);
   const [isAddingSentenceCard, setIsAddingSentenceCard] = useState(false);
+  const [showDeckPicker, setShowDeckPicker] = useState(false);
 
-  const handleAddSentenceAsCard = async () => {
+  // Get all decks for the deck picker
+  const allDecks = useLiveQuery(() => db.decks.toArray(), []);
+
+  const handleAddSentenceAsCard = async (deckId: string) => {
     if (!card.note.sentence_clue || !card.note.sentence_clue_pinyin || !card.note.sentence_clue_translation) return;
     setIsAddingSentenceCard(true);
+    setShowDeckPicker(false);
     try {
-      await createNote(card.note.deck_id, {
+      await createNote(deckId, {
         hanzi: card.note.sentence_clue,
         pinyin: card.note.sentence_clue_pinyin,
         english: card.note.sentence_clue_translation,
@@ -2023,14 +2028,30 @@ function StudyCard({
                         )}
                         <span className="sentence-clue-label">Example Sentence</span>
                         {card.note.sentence_clue_pinyin && card.note.sentence_clue_translation && (
-                          <button
-                            className="sentence-clue-add"
-                            onClick={handleAddSentenceAsCard}
-                            disabled={isAddingSentenceCard || addedSentenceAsCard || !isOnline}
-                            title={addedSentenceAsCard ? 'Added to deck' : 'Add sentence as a new card'}
-                          >
-                            {isAddingSentenceCard ? '...' : addedSentenceAsCard ? '✓' : '+'}
-                          </button>
+                          <div style={{ position: 'relative' }}>
+                            <button
+                              className="sentence-clue-add"
+                              onClick={() => !addedSentenceAsCard && setShowDeckPicker(!showDeckPicker)}
+                              disabled={isAddingSentenceCard || addedSentenceAsCard || !isOnline}
+                              title={addedSentenceAsCard ? 'Added to deck' : 'Add sentence as a new card'}
+                            >
+                              {isAddingSentenceCard ? '...' : addedSentenceAsCard ? '✓' : '+'}
+                            </button>
+                            {showDeckPicker && allDecks && (
+                              <div className="regen-menu" style={{ left: '50%', right: 'auto', transform: 'translateX(-50%)' }}>
+                                <div style={{ padding: '0.25rem 0.75rem', fontSize: '0.7rem', opacity: 0.5, fontWeight: 600 }}>Add to deck</div>
+                                {allDecks.map((d) => (
+                                  <button
+                                    key={d.id}
+                                    className="regen-menu-item"
+                                    onClick={() => handleAddSentenceAsCard(d.id)}
+                                  >
+                                    {d.name}{d.id === card.note.deck_id ? ' (current)' : ''}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         )}
                         <div style={{ position: 'relative' }}>
                           <button
@@ -2101,43 +2122,53 @@ function StudyCard({
                           </button>
                         </div>
                       )}
-                      <div
-                        className="sentence-clue-row"
-                        style={{ cursor: showSentenceHanzi ? 'default' : 'pointer' }}
-                        onClick={() => !showSentenceHanzi && setShowSentenceHanzi(true)}
-                      >
-                        {showSentenceHanzi ? (
-                          <span className="hanzi" style={{ fontSize: '1.125rem' }}>{card.note.sentence_clue}</span>
-                        ) : (
-                          <span className="sentence-clue-tap">Tap to show Chinese</span>
+                      <div style={{ position: 'relative' }}>
+                        {isGeneratingSentence && (
+                          <div className="sentence-clue-loading">
+                            <div className="sentence-clue-spinner" />
+                            <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>Generating new sentence...</span>
+                          </div>
                         )}
+                        <div style={{ opacity: isGeneratingSentence ? 0.3 : 1, transition: 'opacity 0.2s', pointerEvents: isGeneratingSentence ? 'none' : 'auto' }}>
+                          <div
+                            className="sentence-clue-row"
+                            style={{ cursor: showSentenceHanzi ? 'default' : 'pointer' }}
+                            onClick={() => !showSentenceHanzi && setShowSentenceHanzi(true)}
+                          >
+                            {showSentenceHanzi ? (
+                              <span className="hanzi" style={{ fontSize: '1.125rem' }}>{card.note.sentence_clue}</span>
+                            ) : (
+                              <span className="sentence-clue-tap">Tap to show Chinese</span>
+                            )}
+                          </div>
+                          {card.note.sentence_clue_pinyin && (
+                            <div
+                              className="sentence-clue-row"
+                              style={{ cursor: showSentencePinyin ? 'default' : 'pointer' }}
+                              onClick={() => !showSentencePinyin && setShowSentencePinyin(true)}
+                            >
+                              {showSentencePinyin ? (
+                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_pinyin}</span>
+                              ) : (
+                                <span className="sentence-clue-tap">Tap to show pinyin</span>
+                              )}
+                            </div>
+                          )}
+                          {card.note.sentence_clue_translation && (
+                            <div
+                              className="sentence-clue-row"
+                              style={{ cursor: showSentenceTranslation ? 'default' : 'pointer' }}
+                              onClick={() => !showSentenceTranslation && setShowSentenceTranslation(true)}
+                            >
+                              {showSentenceTranslation ? (
+                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_translation}</span>
+                              ) : (
+                                <span className="sentence-clue-tap">Tap to show translation</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      {card.note.sentence_clue_pinyin && (
-                        <div
-                          className="sentence-clue-row"
-                          style={{ cursor: showSentencePinyin ? 'default' : 'pointer' }}
-                          onClick={() => !showSentencePinyin && setShowSentencePinyin(true)}
-                        >
-                          {showSentencePinyin ? (
-                            <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_pinyin}</span>
-                          ) : (
-                            <span className="sentence-clue-tap">Tap to show pinyin</span>
-                          )}
-                        </div>
-                      )}
-                      {card.note.sentence_clue_translation && (
-                        <div
-                          className="sentence-clue-row"
-                          style={{ cursor: showSentenceTranslation ? 'default' : 'pointer' }}
-                          onClick={() => !showSentenceTranslation && setShowSentenceTranslation(true)}
-                        >
-                          {showSentenceTranslation ? (
-                            <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_translation}</span>
-                          ) : (
-                            <span className="sentence-clue-tap">Tap to show translation</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <button
