@@ -85,6 +85,8 @@ export async function getConversations(
       check_feedback: null,
       recording_url: null,
       reply_to_message_id: null,
+      translation: null,
+      segmentation: null,
     } : undefined,
   }));
 }
@@ -177,6 +179,7 @@ export async function getMessages(
   let query = `
     SELECT m.id, m.conversation_id, m.sender_id, m.content, m.created_at,
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
+           m.translation, m.segmentation,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -232,6 +235,8 @@ export async function getMessages(
     check_feedback: row.check_feedback,
     recording_url: row.recording_url,
     reply_to_message_id: row.reply_to_message_id,
+    translation: row.translation,
+    segmentation: row.segmentation,
     sender: {
       id: row.u_id,
       name: row.u_name,
@@ -324,6 +329,8 @@ export async function sendMessage(
     check_feedback: null,
     recording_url: null,
     reply_to_message_id: replyToMessageId || null,
+    translation: null,
+    segmentation: null,
     sender: sender || { id: userId, name: null, picture_url: null },
     reply_to: replyTo,
     reactions: [],
