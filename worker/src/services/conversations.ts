@@ -210,6 +210,8 @@ export async function getMessages(
     check_feedback: string | null;
     recording_url: string | null;
     reply_to_message_id: string | null;
+    translation: string | null;
+    segmentation: string | null;
     u_id: string;
     u_name: string | null;
     u_picture: string | null;
