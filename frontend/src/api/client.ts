@@ -967,6 +967,33 @@ export async function translateMessageFlashcard(
   );
 }
 
+export interface VocabularyDefinition {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  fun_facts?: string;
+  example?: string;
+}
+
+export async function translateMessageSegmented(
+  messageId: string
+): Promise<{ translation: string; segmentation: SentenceBreakdown }> {
+  return fetchJSON<{ translation: string; segmentation: SentenceBreakdown }>(
+    `/messages/${messageId}/translate-segmented`,
+    { method: 'POST' }
+  );
+}
+
+export async function defineVocabulary(
+  hanzi: string,
+  context?: string
+): Promise<VocabularyDefinition> {
+  return fetchJSON<VocabularyDefinition>(`/vocabulary/define`, {
+    method: 'POST',
+    body: JSON.stringify({ hanzi, context }),
+  });
+}
+
 export async function updateConversationVoiceSettings(
   conversationId: string,
   voiceId?: string,

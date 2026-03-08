@@ -3786,6 +3786,140 @@ Respond with ONLY a JSON object in this exact format:
   }
 });
 
+// Translate and segment a message for interactive translation
+app.post('/api/messages/:id/translate-segmented', async (c) => {
+  const userId = c.get('user').id;
+  const msgId = c.req.param('id');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    // Get message and verify access (same auth as translate-flashcard)
+    const message = await c.env.DB
+      .prepare('SELECT * FROM messages WHERE id = ?')
+      .bind(msgId)
+      .first<{ id: string; conversation_id: string; content: string; translation: string | null; segmentation: string | null }>();
+
+    if (!message) {
+      return c.json({ error: 'Message not found' }, 404);
+    }
+
+    // Check conversation access
+    const conv = await c.env.DB
+      .prepare('SELECT * FROM conversations WHERE id = ?')
+      .bind(message.conversation_id)
+      .first<{ id: string; relationship_id: string }>();
+
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+
+    const rel = await c.env.DB
+      .prepare('SELECT * FROM tutor_relationships WHERE id = ? AND status = ? AND (requester_id = ? OR recipient_id = ?)')
+      .bind(conv.relationship_id, 'active', userId, userId)
+      .first();
+
+    if (!rel) {
+      return c.json({ error: 'Access denied' }, 403);
+    }
+
+    // Return cached if already translated
+    if (message.translation && message.segmentation) {
+      return c.json({
+        translation: message.translation,
+        segmentation: JSON.parse(message.segmentation)
+      });
+    }
+
+    // Translate and segment
+    const { translateAndSegment } = await import('./services/translation');
+    const result = await translateAndSegment(c.env.ANTHROPIC_API_KEY, message.content);
+
+    // Update message with translation
+    await c.env.DB
+      .prepare('UPDATE messages SET translation = ?, segmentation = ? WHERE id = ?')
+      .bind(result.translation, JSON.stringify(result.segmentation), msgId)
+      .run();
+
+    return c.json(result);
+  } catch (error) {
+    console.error('Translate segmented error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to translate message';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
+// Define a vocabulary word with context
+app.post('/api/vocabulary/define', async (c) => {
+  const userId = c.get('user').id;
+  const { hanzi, context } = await c.req.json<{ hanzi: string; context?: string }>();
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  if (!hanzi || hanzi.trim() === '') {
+    return c.json({ error: 'Hanzi is required' }, 400);
+  }
+
+  try {
+    const prompt = `You are a Mandarin Chinese language expert. Define this Chinese word/phrase: "${hanzi}"
+${context ? `\nContext sentence: "${context}"` : ''}
+
+IMPORTANT: Use tone marks for pinyin (nǐ hǎo) NOT tone numbers (ni3 hao3).
+
+Provide:
+1. Hanzi (the word/phrase itself)
+2. Pinyin with tone marks
+3. English definition
+4. A fun fact or usage note about the word
+5. An example sentence using the word (if not provided in context)
+
+Respond with ONLY a JSON object in this exact format:
+{
+  "hanzi": "...",
+  "pinyin": "...",
+  "english": "...",
+  "fun_facts": "...",
+  "example": "..."
+}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': c.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Anthropic API error: ${response.statusText}`);
+    }
+
+    const data = await response.json<any>();
+    const text = data.content[0].text;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Failed to parse AI response');
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+    return c.json(result);
+  } catch (error) {
+    console.error('Define vocabulary error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to define word';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
 // Upload recording for a message
 app.post('/api/messages/:id/recording', async (c) => {
   const userId = c.get('user').id;
