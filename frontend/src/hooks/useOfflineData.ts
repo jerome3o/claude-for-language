@@ -395,9 +395,12 @@ export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [
       // Cards due tomorrow or later have "graduated" - session is complete
       const now = new Date();
       const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+      // Include 1-hour buffer for studying near midnight
+      const oneHourFromNow = now.getTime() + 60 * 60 * 1000;
+      const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
 
       const dueToday = delayedLearningCards.filter(c =>
-        !c.due_timestamp || c.due_timestamp <= endOfToday
+        !c.due_timestamp || c.due_timestamp <= studyCutoff
       );
 
       if (dueToday.length === 0) {

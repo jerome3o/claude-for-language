@@ -502,7 +502,12 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
   // Get end of today (midnight tonight) for review cards
   const today = new Date();
   today.setHours(23, 59, 59, 999);
-  const endOfTodayIso = today.toISOString();
+  // Include cards due within the next hour to handle studying near midnight —
+  // cards due shortly after midnight should still appear in the current session
+  const oneHourFromNow = new Date(now + 60 * 60 * 1000);
+  const cutoff = oneHourFromNow > today ? oneHourFromNow : today;
+  const endOfTodayIso = cutoff.toISOString();
+  const cutoffTimestamp = cutoff.getTime();
 
   let cards: LocalCard[];
   if (deckId) {
@@ -534,7 +539,7 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
           newCardCount++;
         }
       } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-        if (!card.due_timestamp || card.due_timestamp <= now) {
+        if (!card.due_timestamp || card.due_timestamp <= cutoffTimestamp) {
           dueCards.push(card);
         }
       } else if (card.queue === CardQueue.REVIEW) {
@@ -569,7 +574,7 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
           deckNewCounts.set(card.deck_id, deckCurrentNew + 1);
         }
       } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-        if (!card.due_timestamp || card.due_timestamp <= now) {
+        if (!card.due_timestamp || card.due_timestamp <= cutoffTimestamp) {
           dueCards.push(card);
         }
       } else if (card.queue === CardQueue.REVIEW) {
@@ -632,10 +637,13 @@ export async function resetSyncTimestamps(): Promise<void> {
  *                        Pass Infinity to ignore the limit entirely
  */
 export async function getQueueCounts(deckId?: string, bonusNewCards = 0): Promise<{ new: number; learning: number; review: number }> {
-  // Get end of today for review cards
+  // Get end of today for review cards, with 1-hour buffer for studying near midnight
+  const now = Date.now();
   const today = new Date();
   today.setHours(23, 59, 59, 999);
-  const endOfTodayIso = today.toISOString();
+  const oneHourFromNow = new Date(now + 60 * 60 * 1000);
+  const cutoff = oneHourFromNow > today ? oneHourFromNow : today;
+  const endOfTodayIso = cutoff.toISOString();
 
   let cards: LocalCard[];
   if (deckId) {
