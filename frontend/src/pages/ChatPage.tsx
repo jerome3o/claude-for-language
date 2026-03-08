@@ -19,7 +19,7 @@ import {
   markNotificationsReadByConversation,
   toggleMessageReaction,
 } from '../api/client';
-import type { TranslateFlashcardResponse } from '../api/client';
+import type { TranslateFlashcardResponse, VocabularyDefinition } from '../api/client';
 import {
   MessageWithSender,
   getOtherUserInRelationship,
@@ -28,6 +28,7 @@ import {
   GeneratedNoteWithContext,
   CheckMessageResponse,
 } from '../types';
+import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -93,6 +94,11 @@ export function ChatPage() {
   const [translateResult, setTranslateResult] = useState<TranslateFlashcardResponse | null>(null);
   const [showTranslateModal, setShowTranslateModal] = useState(false);
   const [isSavingTranslateCard, setIsSavingTranslateCard] = useState(false);
+
+  // Interactive translation word save state
+  const [wordToSave, setWordToSave] = useState<VocabularyDefinition | null>(null);
+  const [showWordSaveModal, setShowWordSaveModal] = useState(false);
+  const [isSavingWord, setIsSavingWord] = useState(false);
 
   // Voice settings state
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
@@ -500,6 +506,33 @@ export function ChatPage() {
     }
   };
 
+  // Interactive translation word save handlers
+  const handleSaveWordFromChat = (definition: VocabularyDefinition) => {
+    setWordToSave(definition);
+    setShowWordSaveModal(true);
+  };
+
+  const handleSaveWord = async (deckId: string) => {
+    if (!wordToSave) return;
+    setIsSavingWord(true);
+    try {
+      await createNote(deckId, {
+        hanzi: wordToSave.hanzi,
+        pinyin: wordToSave.pinyin,
+        english: wordToSave.english,
+        fun_facts: wordToSave.fun_facts,
+      });
+      setShowWordSaveModal(false);
+      setWordToSave(null);
+      alert('Word saved to flashcards!');
+    } catch (error) {
+      console.error('Failed to save word:', error);
+      alert('Failed to save word');
+    } finally {
+      setIsSavingWord(false);
+    }
+  };
+
   // Voice settings handlers
   const handleVoiceChange = async (voiceId: string) => {
     if (!convId) return;
@@ -658,12 +691,21 @@ export function ChatPage() {
                         </div>
                       )}
                       <div className="chat-bubble">
-                        {msg.content}
-                        {/* Check status indicator */}
-                        {isMe && checkResult && (
-                          <span className={`check-status ${checkResult.status}`}>
-                            {checkResult.status === 'correct' ? '✓' : '⚠'}
-                          </span>
+                        {!isMe && hasChineseContent ? (
+                          <InteractiveMessage
+                            message={msg}
+                            onSaveWord={handleSaveWordFromChat}
+                          />
+                        ) : (
+                          <>
+                            {msg.content}
+                            {/* Check status indicator */}
+                            {isMe && checkResult && (
+                              <span className={`check-status ${checkResult.status}`}>
+                                {checkResult.status === 'correct' ? '✓' : '⚠'}
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
                       {/* Reactions display */}
@@ -1053,6 +1095,33 @@ export function ChatPage() {
             />
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowTranslateModal(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Word Save Modal from Interactive Translation */}
+      {showWordSaveModal && wordToSave && (
+        <div className="modal-overlay" onClick={() => setShowWordSaveModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Save Word to Flashcards</h3>
+            <div className="generated-card-preview">
+              <div className="preview-hanzi">{wordToSave.hanzi}</div>
+              <div className="preview-pinyin">{wordToSave.pinyin}</div>
+              <div className="preview-english">{wordToSave.english}</div>
+              {wordToSave.fun_facts && (
+                <div className="preview-funfacts">{wordToSave.fun_facts}</div>
+              )}
+            </div>
+            <DeckSelectorWithCreate
+              onSelect={(deckId) => handleSaveWord(deckId)}
+              isSaving={isSavingWord}
+              selectedCount={1}
+            />
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowWordSaveModal(false)}>
                 Cancel
               </button>
             </div>

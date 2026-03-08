@@ -267,6 +267,17 @@ export interface Message {
   check_feedback: string | null;
   recording_url: string | null;
   reply_to_message_id: string | null;
+  // Interactive translation fields
+  translation: string | null;
+  segmentation: string | null; // JSON-stringified SentenceBreakdown
+}
+
+export interface VocabularyDefinition {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  fun_facts?: string;
+  example?: string;
 }
 
 export interface MessageReaction {
