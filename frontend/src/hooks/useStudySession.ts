@@ -148,11 +148,14 @@ function selectNextCardFromQueue(
 
   // Priority 3: Learning cards on cooldown but due today — show immediately
   // User preference: drill all cards in one sitting, show same card right away if needed
+  // Include 1-hour buffer for studying near midnight
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
+  const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+  const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
   const cooldownCards = cardsToChooseFrom.filter(c =>
     (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-    (!c.due_timestamp || c.due_timestamp <= endOfToday.getTime())
+    (!c.due_timestamp || c.due_timestamp <= studyCutoff.getTime())
   );
   if (cooldownCards.length > 0) {
     cooldownCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
@@ -292,8 +295,10 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       if (delayedLearningCards.length > 0) {
         const endOfToday = new Date(now);
         endOfToday.setHours(23, 59, 59, 999);
+        const oneHourFromNow = new Date(now + 60 * 60 * 1000);
+        const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
         const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= endOfToday.getTime()
+          !c.due_timestamp || c.due_timestamp <= studyCutoff.getTime()
         );
 
         if (dueToday.length > 0) {
@@ -580,8 +585,10 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       if (delayedLearningCards.length > 0) {
         const endOfToday = new Date();
         endOfToday.setHours(23, 59, 59, 999);
+        const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+        const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
         const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= endOfToday.getTime()
+          !c.due_timestamp || c.due_timestamp <= studyCutoff.getTime()
         );
 
         if (dueToday.length > 0) {
