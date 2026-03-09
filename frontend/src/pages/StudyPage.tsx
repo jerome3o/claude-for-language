@@ -313,6 +313,7 @@ function StudyCard({
   const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
   const [mcSubmitted, setMcSubmitted] = useState(false);
+  const [shuffledMcOptions, setShuffledMcOptions] = useState<{ correct: string; options: string[] }[] | null>(null);
 
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
@@ -630,9 +631,22 @@ function StudyCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.note.id, isOnline]);
 
+  // Shuffle options for each row so users don't memorize positions
+  const shuffleOptions = (options: { correct: string; options: string[] }[]) => {
+    return options.map(charData => {
+      const shuffled = [...charData.options];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return { correct: charData.correct, options: shuffled };
+    });
+  };
+
   const handleShowMultipleChoice = async (hideInitially = false) => {
     if (card.note.multiple_choice_options) {
       const options = JSON.parse(card.note.multiple_choice_options) as { correct: string; options: string[] }[];
+      setShuffledMcOptions(shuffleOptions(options));
       setMcSelections(new Array(options.length).fill(null));
       setMcSubmitted(false);
       if (hideInitially) {
@@ -651,6 +665,7 @@ function StudyCard({
       });
       if (updatedNote.multiple_choice_options) {
         const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
+        setShuffledMcOptions(shuffleOptions(options));
         setMcSelections(new Array(options.length).fill(null));
         setMcSubmitted(false);
         if (hideInitially) {
@@ -694,6 +709,7 @@ function StudyCard({
       });
       if (updatedNote.multiple_choice_options) {
         const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
+        setShuffledMcOptions(shuffleOptions(options));
         setMcSelections(new Array(options.length).fill(null));
         setMcSubmitted(false);
       }
@@ -1737,8 +1753,8 @@ function StudyCard({
 
   // Render the multiple choice grid
   const renderMultipleChoiceGrid = () => {
-    if (!card.note.multiple_choice_options) return null;
-    const options = JSON.parse(card.note.multiple_choice_options) as { correct: string; options: string[] }[];
+    if (!shuffledMcOptions) return null;
+    const options = shuffledMcOptions;
 
     const allSelected = mcSelections.every(s => s !== null);
 
