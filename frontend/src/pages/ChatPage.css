@@ -160,6 +160,8 @@ body:has(.chat-page) #root {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .chat-message.sent .chat-message-content {
@@ -172,6 +174,8 @@ body:has(.chat-page) #root {
   font-size: 0.9375rem;
   line-height: 1.4;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .chat-message.sent .chat-bubble {
@@ -831,6 +835,7 @@ body:has(.chat-page) #root {
   border-radius: 0.25rem;
   font-size: 0.75rem;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .chat-message.sent .reply-preview {
