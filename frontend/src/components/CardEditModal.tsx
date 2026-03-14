@@ -392,7 +392,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
             <div className="card-edit-audio-actions">
               <button
                 className={`btn btn-secondary btn-sm${isRecording ? ' recording' : ''}`}
-                onClick={isRecording ? stopRecording : startRecording}
+                onClick={isRecording ? stopRecording : () => startRecording()}
               >
                 {isRecording ? 'Stop' : 'Record'}
               </button>

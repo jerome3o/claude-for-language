@@ -3,21 +3,62 @@ import { getAudioWithCache } from '../services/audioCache';
 
 /**
  * Hook for recording audio using MediaRecorder
+ * Supports device selection and real-time audio level monitoring.
  */
 export function useAudioRecorder() {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
-  const startRecording = useCallback(async () => {
+  const stopLevelMonitor = useCallback(() => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    setAudioLevel(0);
+  }, []);
+
+  const startRecording = useCallback(async (deviceId?: string) => {
     try {
       setError(null);
       setAudioBlob(null);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const constraints: MediaStreamConstraints = {
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      // Set up audio level monitoring
+      const audioCtx = new AudioContext();
+      audioContextRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateLevel = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((sum, v) => sum + v, 0) / dataArray.length;
+        setAudioLevel(avg / 255); // 0-1 range
+        animFrameRef.current = requestAnimationFrame(updateLevel);
+      };
+      updateLevel();
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
@@ -32,15 +73,25 @@ export function useAudioRecorder() {
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
+        stopLevelMonitor();
       };
 
       mediaRecorder.start();
       setIsRecording(true);
-    } catch (err) {
-      setError('Could not access microphone');
+    } catch (err: unknown) {
+      const e = err as DOMException;
+      if (e.name === 'NotAllowedError') {
+        setError('Microphone permission denied. Check browser settings.');
+      } else if (e.name === 'NotFoundError') {
+        setError('No microphone found. Please connect one.');
+      } else if (e.name === 'OverconstrainedError') {
+        setError('Selected microphone not available.');
+      } else {
+        setError('Could not access microphone.');
+      }
       console.error('Recording error:', err);
     }
-  }, []);
+  }, [stopLevelMonitor]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -57,6 +108,7 @@ export function useAudioRecorder() {
     isRecording,
     audioBlob,
     error,
+    audioLevel,
     startRecording,
     stopRecording,
     clearRecording,
