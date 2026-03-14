@@ -1007,7 +1007,7 @@ function DeckSettingsModal({
       await updateDeck(deck.id, { name, description: description || undefined });
       // Update SRS settings
       const updatedDeck = await updateDeckSettings(deck.id, {
-        new_cards_per_day: parseInt(newCardsPerDay, 10) || 20,
+        new_cards_per_day: isNaN(parseInt(newCardsPerDay, 10)) ? 20 : parseInt(newCardsPerDay, 10),
         learning_steps: learningSteps,
         graduating_interval: parseInt(graduatingInterval, 10) || 1,
         easy_interval: parseInt(easyInterval, 10) || 4,
