@@ -2585,8 +2585,12 @@ export function StudyPage() {
     }
   }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
+  // Counter to force StudyCard remount when the same card is shown again (e.g. learning card rated Again)
+  const [reviewCounter, setReviewCounter] = useState(0);
+
   // Handle rating a card (called from StudyCard or after flag modal)
   const handleRateCard = useCallback((rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
+    setReviewCounter(c => c + 1);
     rateCard(rating, timeSpentMs, userAnswer, recordingBlob);
   }, [rateCard]);
 
@@ -2812,7 +2816,7 @@ export function StudyPage() {
         <Loading />
       ) : currentCard && intervalPreviews ? (
         <StudyCard
-          key={currentCard.id}
+          key={`${currentCard.id}-${reviewCounter}`}
           card={currentCard}
           intervalPreviews={intervalPreviews}
           counts={counts}
