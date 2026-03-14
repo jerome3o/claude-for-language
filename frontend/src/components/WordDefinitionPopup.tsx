@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { VocabularyDefinition } from '../types';
 import { defineVocabulary } from '../api/client';
+import { db } from '../db/database';
 
 interface WordDefinitionPopupProps {
   hanzi: string;
@@ -13,14 +14,42 @@ export function WordDefinitionPopup({ hanzi, context, onSave, onClose }: WordDef
   const [definition, setDefinition] = useState<VocabularyDefinition | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
 
   useEffect(() => {
     const fetchDefinition = async () => {
       setIsLoading(true);
       setError(null);
+      setFromCache(false);
       try {
+        // Check local cache first
+        const cached = await db.characterDefinitions.get(hanzi);
+        if (cached) {
+          setDefinition({
+            hanzi: cached.hanzi,
+            pinyin: cached.pinyin,
+            english: cached.english,
+            fun_facts: cached.fun_facts || undefined,
+            example: cached.example || undefined,
+          });
+          setFromCache(true);
+          setIsLoading(false);
+          return;
+        }
+
+        // Cache miss - fetch from API
         const result = await defineVocabulary(hanzi, context);
         setDefinition(result);
+
+        // Store in cache for next time
+        await db.characterDefinitions.put({
+          hanzi: result.hanzi,
+          pinyin: result.pinyin,
+          english: result.english,
+          fun_facts: result.fun_facts || null,
+          example: result.example || null,
+          cached_at: Date.now(),
+        });
       } catch (err) {
         console.error('Failed to fetch definition:', err);
         setError('Failed to load definition. Please try again.');
@@ -58,6 +87,33 @@ export function WordDefinitionPopup({ hanzi, context, onSave, onClose }: WordDef
               >
                 Add to Flashcards
               </button>
+              {fromCache && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    setIsLoading(true);
+                    setFromCache(false);
+                    try {
+                      const result = await defineVocabulary(hanzi, context);
+                      setDefinition(result);
+                      await db.characterDefinitions.put({
+                        hanzi: result.hanzi,
+                        pinyin: result.pinyin,
+                        english: result.english,
+                        fun_facts: result.fun_facts || null,
+                        example: result.example || null,
+                        cached_at: Date.now(),
+                      });
+                    } catch {
+                      setError('Failed to refresh definition.');
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }}
+                >
+                  Refresh
+                </button>
+              )}
               <button className="btn btn-secondary" onClick={onClose}>
                 Close
               </button>

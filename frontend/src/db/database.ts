@@ -165,6 +165,16 @@ export interface SyncLogEntry {
   };
 }
 
+// Cached character definition for instant lookups
+export interface CachedCharacterDefinition {
+  hanzi: string; // Primary key - single character or word
+  pinyin: string;
+  english: string;
+  fun_facts: string | null;
+  example: string | null;
+  cached_at: number;
+}
+
 // Dexie database class
 export class ChineseLearningDB extends Dexie {
   // Core tables
@@ -183,6 +193,7 @@ export class ChineseLearningDB extends Dexie {
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
+  characterDefinitions!: Table<CachedCharacterDefinition, string>;
 
   // Debug tables
   syncLogs!: Table<SyncLogEntry, string>;
@@ -302,6 +313,23 @@ export class ChineseLearningDB extends Dexie {
       eventSyncMeta: 'id',
       dailyStats: 'id, date, deck_id, [date+deck_id]',
       syncLogs: 'id, timestamp',
+    });
+
+    // Version 7: Add characterDefinitions table for cached character lookups
+    this.version(7).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
     });
   }
 }
