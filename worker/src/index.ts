@@ -1264,7 +1264,14 @@ app.post('/api/notes/:id/generate-multiple-choice', async (c) => {
 
   try {
     const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
-    const characters = [...note.hanzi];
+    const allCharacters = [...note.hanzi];
+    // Filter out punctuation - only generate MC options for actual Chinese characters
+    const punctuationRegex = /[\u3000-\u303F\uFF00-\uFFEF\u2000-\u206F\u0020-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u007E]/;
+    const characters = allCharacters.filter(ch => !punctuationRegex.test(ch));
+
+    if (characters.length === 0) {
+      return c.json({ error: 'No characters to generate options for' }, 400);
+    }
 
     const prompt = `For each Chinese character below, generate exactly 4 tricky alternative characters that a learner might confuse with the correct one. Choose alternatives that are:
 - Visually similar (same radical, similar stroke count, similar shape)
@@ -1316,7 +1323,14 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
     const input = toolUseBlock.input as { characters: Array<{ correct: string; alternatives: string[] }> };
 
     // Build options arrays with correct answer shuffled in, deduplicating
-    const multipleChoiceOptions = input.characters.map((charData) => {
+    // Re-insert punctuation characters as pass-through (correct only, no alternatives)
+    let aiCharIndex = 0;
+    const multipleChoiceOptions = allCharacters.map((originalChar) => {
+      if (punctuationRegex.test(originalChar)) {
+        // Punctuation: no MC options, just the character itself
+        return { correct: originalChar, options: [originalChar] };
+      }
+      const charData = input.characters[aiCharIndex++];
       // Filter out duplicates and the correct character from alternatives
       const seen = new Set<string>([charData.correct]);
       const uniqueAlts: string[] = [];
