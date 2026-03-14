@@ -321,7 +321,7 @@ function StudyCard({
   const [shuffledMcOptions, setShuffledMcOptions] = useState<{ correct: string; options: string[] }[] | null>(null);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
 
-  const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
+  const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio } = useNoteAudio();
   const {
@@ -343,6 +343,12 @@ function StudyCard({
   } = usePronunciationAssessment();
   const [useAzure, setUseAzure] = useState(false);
 
+  // Microphone device selection (persisted in localStorage)
+  const [micDeviceId, setMicDeviceId] = useState<string>(() =>
+    localStorage.getItem('preferredMicDeviceId') || ''
+  );
+  const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
+
   // Track initial 0.5s delay to prevent accidental stop clicks
   const [isRecordingDelayActive, setIsRecordingDelayActive] = useState(false);
   const recordingDelayTimeoutRef = useRef<number | null>(null);
@@ -354,8 +360,8 @@ function StudyCard({
       clearTimeout(recordingDelayTimeoutRef.current);
     }
 
-    // Start recording
-    startRecording();
+    // Start recording with selected device
+    startRecording(micDeviceId || undefined);
 
     // Only enable delay flag if not skipping
     if (!skipDelay) {
@@ -367,7 +373,7 @@ function StudyCard({
         recordingDelayTimeoutRef.current = null;
       }, 500);
     }
-  }, [startRecording]);
+  }, [startRecording, micDeviceId]);
 
   // Enhanced stopRecording that clears delay state
   const stopRecordingWithDelay = useCallback(() => {
@@ -492,10 +498,14 @@ function StudyCard({
     }
   }, [card.note.id, card.note.audio_url, isOnline, onUpdateNote]);
 
-  // Load review history when debug modal opens
+  // Load review history and enumerate mics when debug modal opens
   useEffect(() => {
     if (showDebug) {
       getCardReviewEvents(card.id).then(setReviewHistory);
+      // Enumerate audio input devices
+      navigator.mediaDevices.enumerateDevices()
+        .then(devices => setAvailableMics(devices.filter(d => d.kind === 'audioinput')))
+        .catch(() => {});
     }
   }, [showDebug, card.id]);
 
@@ -1342,6 +1352,49 @@ function StudyCard({
               )}
             </div>
 
+            {/* Microphone Settings */}
+            {isSpeakingCard && (
+              <div style={{ padding: '0.75rem', backgroundColor: '#f0fdf4', borderRadius: '6px' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Microphone Settings</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label style={{ minWidth: '50px' }}>Device:</label>
+                    <select
+                      value={micDeviceId}
+                      onChange={(e) => {
+                        setMicDeviceId(e.target.value);
+                        localStorage.setItem('preferredMicDeviceId', e.target.value);
+                      }}
+                      style={{ flex: 1, padding: '0.25rem' }}
+                    >
+                      <option value="">System Default</option>
+                      {availableMics.map((device) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label || `Microphone ${device.deviceId.slice(0, 8)}...`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                      try {
+                        // Request permission first (needed for device labels)
+                        await navigator.mediaDevices.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t => t.stop()));
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        setAvailableMics(devices.filter(d => d.kind === 'audioinput'));
+                      } catch {
+                        setAvailableMics([]);
+                      }
+                    }}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    Refresh Devices
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Regenerate Audio */}
             {isOnline && (
               <div style={{ padding: '0.75rem', backgroundColor: '#e0f2fe', borderRadius: '6px' }}>
@@ -1786,9 +1839,27 @@ function StudyCard({
       }
 
       return (
-        <button className="btn btn-error" onClick={stopRecordingWithDelay}>
-          Stop Recording
-        </button>
+        <div className="flex flex-col gap-2 items-center" style={{ width: '100%' }}>
+          {/* Audio level indicator */}
+          <div style={{
+            width: '80%',
+            height: '6px',
+            backgroundColor: 'rgba(0,0,0,0.1)',
+            borderRadius: '3px',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              width: `${Math.min(audioLevel * 200, 100)}%`,
+              height: '100%',
+              backgroundColor: audioLevel > 0.4 ? '#ef4444' : audioLevel > 0.15 ? '#22c55e' : '#94a3b8',
+              transition: 'width 0.1s, background-color 0.2s',
+              borderRadius: '3px',
+            }} />
+          </div>
+          <button className="btn btn-error" onClick={stopRecordingWithDelay}>
+            Stop Recording
+          </button>
+        </div>
       );
     }
 
