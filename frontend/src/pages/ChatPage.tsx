@@ -1043,9 +1043,10 @@ export function ChatPage() {
                     </div>
                   ))}
                 </div>
-                <DeckSelector
+                <DeckSelectorWithCreate
                   onSelect={(deckId) => handleSaveCorrections(deckId)}
                   isSaving={isSaving}
+                  selectedCount={currentCheckResult.result.corrections?.length || 0}
                 />
               </>
             )}
