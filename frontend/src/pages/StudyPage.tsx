@@ -24,6 +24,7 @@ import {
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
+import { WordDefinitionPopup } from '../components/WordDefinitionPopup';
 import {
   CardWithNote,
   Rating,
@@ -98,7 +99,7 @@ function ToolCallsCollapsible({ calls }: { calls: ReadOnlyToolCall[] }) {
 }
 
 // Character diff component for typed answers (Anki-style)
-function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correctAnswer: string }) {
+function AnswerDiff({ userAnswer, correctAnswer, onCharacterClick }: { userAnswer: string; correctAnswer: string; onCharacterClick?: (char: string) => void }) {
   // Compare character by character
   const maxLen = Math.max(userAnswer.length, correctAnswer.length);
   const userChars: { char: string; correct: boolean }[] = [];
@@ -122,12 +123,14 @@ function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correct
   // Generate pinyin for user's answer
   const userPinyin = pinyin(userAnswer, { toneType: 'symbol', type: 'string' });
 
+  const clickable = onCharacterClick ? ' diff-char-clickable' : '';
+
   if (isFullyCorrect) {
     return (
       <div className="answer-diff">
         <div className="answer-diff-row">
           {userChars.map((c, i) => (
-            <span key={i} className="diff-char diff-correct">{c.char}</span>
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
           ))}
         </div>
         <div className="answer-diff-pinyin">{userPinyin}</div>
@@ -139,14 +142,14 @@ function AnswerDiff({ userAnswer, correctAnswer }: { userAnswer: string; correct
     <div className="answer-diff">
       <div className="answer-diff-row">
         {userChars.map((c, i) => (
-          <span key={i} className={`diff-char ${c.correct ? 'diff-correct' : 'diff-wrong'}`}>{c.char}</span>
+          <span key={i} className={`diff-char ${c.correct ? 'diff-correct' : 'diff-wrong'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
         ))}
       </div>
       <div className="answer-diff-pinyin">{userPinyin}</div>
       <div className="answer-diff-arrow">↓</div>
       <div className="answer-diff-row">
         {correctChars.map((c, i) => (
-          <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}`}>{c.char}</span>
+          <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
         ))}
       </div>
     </div>
@@ -314,6 +317,7 @@ function StudyCard({
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
   const [mcSubmitted, setMcSubmitted] = useState(false);
   const [shuffledMcOptions, setShuffledMcOptions] = useState<{ correct: string; options: string[] }[] | null>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
 
   const { isRecording, audioBlob, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
@@ -1080,17 +1084,51 @@ function StudyCard({
     return null;
   };
 
+  const handleCharacterClick = (char: string) => {
+    // Only look up actual Chinese characters, not punctuation or whitespace
+    if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(char)) {
+      setSelectedCharacter(char);
+    }
+  };
+
+  const handleSaveCharacterAsNote = async (definition: { hanzi: string; pinyin: string; english: string; fun_facts?: string }) => {
+    try {
+      await createNote(card.note.deck_id, {
+        hanzi: definition.hanzi,
+        pinyin: definition.pinyin,
+        english: definition.english,
+        fun_facts: definition.fun_facts,
+      });
+      setSelectedCharacter(null);
+    } catch (err) {
+      console.error('Failed to save character as note:', err);
+    }
+  };
+
   const renderBackMain = () => {
     return (
       <div className="text-center">
         {isTypingCard && userAnswer ? (
           // Show character-by-character diff for typed answers
           <div className="mb-3">
-            <AnswerDiff userAnswer={userAnswer.trim()} correctAnswer={card.note.hanzi} />
+            <AnswerDiff userAnswer={userAnswer.trim()} correctAnswer={card.note.hanzi} onCharacterClick={handleCharacterClick} />
           </div>
         ) : (
-          // Show just the hanzi for non-typing cards
-          <div className="hanzi hanzi-large mb-1">{card.note.hanzi}</div>
+          // Show just the hanzi for non-typing cards - each character is clickable
+          <div className="hanzi hanzi-large mb-1">
+            {[...card.note.hanzi].map((char, i) => (
+              <span key={i} className="hanzi-char-clickable" onClick={() => handleCharacterClick(char)}>{char}</span>
+            ))}
+          </div>
+        )}
+
+        {selectedCharacter && (
+          <WordDefinitionPopup
+            hanzi={selectedCharacter}
+            context={card.note.hanzi}
+            onSave={handleSaveCharacterAsNote}
+            onClose={() => setSelectedCharacter(null)}
+          />
         )}
 
         {renderTranscriptionResult()}
