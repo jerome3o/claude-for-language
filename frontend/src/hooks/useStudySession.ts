@@ -230,14 +230,16 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setIsLoading(true);
 
     try {
-      const dueCards = await getDueCards(deckId, bonusNewCards);
+      // Fetch due cards and total new card count in parallel
+      const [dueCards, allNewCards] = await Promise.all([
+        getDueCards(deckId, bonusNewCards),
+        db.cards
+          .filter(c => c.queue === CardQueue.NEW && (!deckId || c.deck_id === deckId))
+          .count(),
+      ]);
       console.log('[useStudySession] Loaded', dueCards.length, 'due cards');
       setQueue(dueCards);
 
-      // Check if there are more new cards beyond the limit
-      const allNewCards = await db.cards
-        .filter(c => c.queue === CardQueue.NEW && (!deckId || c.deck_id === deckId))
-        .count();
       const newInQueue = dueCards.filter(c => c.queue === CardQueue.NEW).length;
       setHasMoreNewCards(allNewCards > newInQueue);
 

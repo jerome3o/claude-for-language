@@ -2564,14 +2564,17 @@ export function StudyPage() {
     enabled: studyStarted,
   });
 
-  // Fetch day stats when study session completes
+  // Pre-fetch day stats when queue is nearly empty (3 or fewer cards) for instant "All Done" display
   const isAllDone = !isLoading && !currentCard && counts.new === 0 && counts.learning === 0 && counts.review === 0;
+  const isNearlyDone = counts.new + counts.learning + counts.review <= 3;
   const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
+  const dayStatsFetchedRef = useRef(false);
   useEffect(() => {
-    if (isAllDone && isOnline) {
+    if ((isAllDone || isNearlyDone) && isOnline && !dayStatsFetchedRef.current) {
+      dayStatsFetchedRef.current = true;
       getOverviewStats().then(setDayStats).catch(() => {});
     }
-  }, [isAllDone, isOnline]);
+  }, [isAllDone, isNearlyDone, isOnline]);
 
   // Auto-start session creation when autostart param is present
   useEffect(() => {
