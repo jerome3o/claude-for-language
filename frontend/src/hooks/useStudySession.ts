@@ -101,6 +101,7 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
 function selectNextCardFromQueue(
   queue: LocalCard[],
   recentNoteIds: string[],
+  lastRatedCardId?: string,
 ): LocalCard | null {
   const now = Date.now();
 
@@ -159,6 +160,11 @@ function selectNextCardFromQueue(
   );
   if (cooldownCards.length > 0) {
     cooldownCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+    // Prefer a different card from the one just rated, if alternatives exist
+    if (lastRatedCardId && cooldownCards.length > 1) {
+      const other = cooldownCards.find(c => c.id !== lastRatedCardId);
+      if (other) return other;
+    }
     return cooldownCards[0];
   }
 
@@ -533,7 +539,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const newRecentNoteIds = [...recentNoteIds.slice(-4), noteId];
 
     // Select the next card synchronously from the new queue
-    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds);
+    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, cardId);
 
     console.log('[useStudySession] Next card selected:', nextCard?.id, 'from queue of', newQueue.length);
 
