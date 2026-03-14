@@ -21,6 +21,7 @@ import {
   updateNote,
   generateFunFact,
   createNote,
+  getOverviewStats,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -38,6 +39,7 @@ import {
   MINIMAX_VOICES,
   DEFAULT_MINIMAX_VOICE,
   Note,
+  OverviewStats,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useTranscription, usePronunciationAssessment } from '../hooks/useTranscription';
@@ -2316,7 +2318,7 @@ function StudyCard({
   );
 }
 
-function SessionRecap({ stats }: { stats: SessionStats }) {
+function SessionRecap({ stats, dayStats }: { stats: SessionStats; dayStats?: OverviewStats | null }) {
   if (stats.totalReviews === 0) return null;
 
   const accuracy = Math.round((stats.correctCount / stats.totalReviews) * 100);
@@ -2353,6 +2355,21 @@ function SessionRecap({ stats }: { stats: SessionStats }) {
           </div>
         )}
       </div>
+      {dayStats && (
+        <>
+          <h3 style={{ marginTop: '1rem' }}>Today's Progress</h3>
+          <div className="recap-grid">
+            <div className="recap-stat">
+              <div className="recap-stat-value">{dayStats.cards_studied_today}</div>
+              <div className="recap-stat-label">Total Reviews Today</div>
+            </div>
+            <div className="recap-stat">
+              <div className="recap-stat-value">{dayStats.cards_due_today}</div>
+              <div className="recap-stat-label">Still Due</div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2441,6 +2458,14 @@ export function StudyPage() {
     enabled: studyStarted,
   });
 
+  // Fetch day stats when study session completes
+  const isAllDone = !isLoading && !currentCard && counts.new === 0 && counts.learning === 0 && counts.review === 0;
+  const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
+  useEffect(() => {
+    if (isAllDone && isOnline) {
+      getOverviewStats().then(setDayStats).catch(() => {});
+    }
+  }, [isAllDone, isOnline]);
 
   // Auto-start session creation when autostart param is present
   useEffect(() => {
@@ -2547,7 +2572,7 @@ export function StudyPage() {
                 ? `You've finished your daily limit${bonusNewCards > 0 ? ` (+${bonusNewCards} bonus)` : ''}. Want to study more?`
                 : "No more cards due right now."}
             </p>
-            <SessionRecap stats={sessionStats} />
+            <SessionRecap stats={sessionStats} dayStats={dayStats} />
             <div className="flex flex-col gap-3 items-center mt-4">
               {hasMoreNewCards ? (
                 <button
