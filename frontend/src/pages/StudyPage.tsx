@@ -1670,6 +1670,41 @@ function StudyCard({
               {isInitiatingConversation ? 'Starting...' : 'Roleplay Word'}
             </button>
           )}
+          {isOnline && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={async () => {
+                setIsRegeneratingAudio(true);
+                try {
+                  const options: GenerateAudioOptions = {
+                    speed: audioSpeed,
+                    provider: 'minimax',
+                    voiceId: selectedVoice || DEFAULT_MINIMAX_VOICE,
+                  };
+                  const updatedNote = await generateNoteAudio(card.note.id, options);
+                  await db.notes.update(card.note.id, {
+                    audio_url: updatedNote.audio_url,
+                    audio_provider: updatedNote.audio_provider,
+                    updated_at: updatedNote.updated_at,
+                  });
+                  onUpdateNote({
+                    audio_url: updatedNote.audio_url,
+                    audio_provider: updatedNote.audio_provider,
+                    updated_at: updatedNote.updated_at,
+                  });
+                  playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
+                } catch (error) {
+                  console.error('Failed to regenerate audio:', error);
+                } finally {
+                  setIsRegeneratingAudio(false);
+                }
+              }}
+              disabled={isRegeneratingAudio}
+              title="Regenerate audio with MiniMax"
+            >
+              {isRegeneratingAudio ? '...' : 'Regen Audio'}
+            </button>
+          )}
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setShowEditModal(true)}
