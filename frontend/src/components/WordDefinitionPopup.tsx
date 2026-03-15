@@ -94,7 +94,7 @@ export function WordDefinitionPopup({ hanzi, context, onSave, onClose }: WordDef
                     setIsLoading(true);
                     setFromCache(false);
                     try {
-                      const result = await defineVocabulary(hanzi, context);
+                      const result = await defineVocabulary(hanzi, context, true);
                       setDefinition(result);
                       await db.characterDefinitions.put({
                         hanzi: result.hanzi,

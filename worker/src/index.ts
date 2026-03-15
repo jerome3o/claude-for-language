@@ -3865,21 +3865,14 @@ app.post('/api/messages/:id/translate-segmented', async (c) => {
   }
 });
 
-// Define a vocabulary word with context
-app.post('/api/vocabulary/define', async (c) => {
-  const userId = c.get('user').id;
-  const { hanzi, context } = await c.req.json<{ hanzi: string; context?: string }>();
-
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ error: 'AI is not configured' }, 500);
-  }
-
-  if (!hanzi || hanzi.trim() === '') {
-    return c.json({ error: 'Hanzi is required' }, 400);
-  }
-
-  try {
-    const prompt = `You are a Mandarin Chinese language expert. Define this Chinese word/phrase: "${hanzi}"
+// Helper: fetch a character definition from Claude AI and cache it in D1
+async function fetchAndCacheDefinition(
+  db: D1Database,
+  hanzi: string,
+  context: string | undefined,
+  apiKey: string,
+): Promise<{ hanzi: string; pinyin: string; english: string; fun_facts?: string; example?: string }> {
+  const prompt = `You are a Mandarin Chinese language expert. Define this Chinese word/phrase: "${hanzi}"
 ${context ? `\nContext sentence: "${context}"` : ''}
 
 IMPORTANT: Use tone marks for pinyin (nǐ hǎo) NOT tone numbers (ni3 hao3).
@@ -3900,36 +3893,148 @@ Respond with ONLY a JSON object in this exact format:
   "example": "..."
 }`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': c.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
 
-    if (!response.ok) {
-      throw new Error(`Anthropic API error: ${response.statusText}`);
+  if (!response.ok) {
+    throw new Error(`Anthropic API error: ${response.statusText}`);
+  }
+
+  const data = await response.json<any>();
+  const text = data.content[0].text;
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Failed to parse AI response');
+  }
+
+  const result = JSON.parse(jsonMatch[0]);
+
+  // Cache in D1 (fire-and-forget, don't block response)
+  try {
+    await db.prepare(
+      `INSERT OR REPLACE INTO character_definitions (hanzi, pinyin, english, fun_facts, example, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(result.hanzi, result.pinyin, result.english, result.fun_facts || null, result.example || null).run();
+  } catch (e) {
+    console.error('Failed to cache definition:', e);
+  }
+
+  return result;
+}
+
+// Define a vocabulary word with context
+app.post('/api/vocabulary/define', async (c) => {
+  const userId = c.get('user').id;
+  const { hanzi, context, skipCache } = await c.req.json<{ hanzi: string; context?: string; skipCache?: boolean }>();
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  if (!hanzi || hanzi.trim() === '') {
+    return c.json({ error: 'Hanzi is required' }, 400);
+  }
+
+  try {
+    // Check global D1 cache first (unless skipCache is set for refresh)
+    if (!skipCache) {
+      const cached = await c.env.DB.prepare(
+        'SELECT hanzi, pinyin, english, fun_facts, example FROM character_definitions WHERE hanzi = ?'
+      ).bind(hanzi.trim()).first<{ hanzi: string; pinyin: string; english: string; fun_facts: string | null; example: string | null }>();
+
+      if (cached) {
+        return c.json({ ...cached, cached: true });
+      }
     }
 
-    const data = await response.json<any>();
-    const text = data.content[0].text;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Failed to parse AI response');
-    }
-
-    const result = JSON.parse(jsonMatch[0]);
+    const result = await fetchAndCacheDefinition(c.env.DB, hanzi.trim(), context, c.env.ANTHROPIC_API_KEY);
     return c.json(result);
   } catch (error) {
     console.error('Define vocabulary error:', error);
     const errMsg = error instanceof Error ? error.message : 'Failed to define word';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
+// Pre-populate character definitions for a user's learned vocabulary
+app.post('/api/vocabulary/populate', async (c) => {
+  const userId = c.get('user').id;
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  try {
+    // Get all unique hanzi from the user's notes
+    const notes = await c.env.DB.prepare(
+      `SELECT DISTINCT n.hanzi FROM notes n
+       JOIN decks d ON n.deck_id = d.id
+       WHERE d.user_id = ? AND n.hanzi IS NOT NULL AND n.hanzi != ''`
+    ).bind(userId).all<{ hanzi: string }>();
+
+    if (!notes.results || notes.results.length === 0) {
+      return c.json({ message: 'No vocabulary to populate', populated: 0, skipped: 0 });
+    }
+
+    // Extract individual characters from all hanzi phrases
+    const allChars = new Set<string>();
+    for (const note of notes.results) {
+      for (const ch of note.hanzi) {
+        if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(ch)) {
+          allChars.add(ch);
+        }
+      }
+    }
+
+    // Check which ones are already cached
+    const charArray = Array.from(allChars);
+    const placeholders = charArray.map(() => '?').join(',');
+    const existing = await c.env.DB.prepare(
+      `SELECT hanzi FROM character_definitions WHERE hanzi IN (${placeholders})`
+    ).bind(...charArray).all<{ hanzi: string }>();
+
+    const existingSet = new Set((existing.results || []).map(r => r.hanzi));
+    const uncached = charArray.filter(ch => !existingSet.has(ch));
+
+    if (uncached.length === 0) {
+      return c.json({ message: 'All characters already cached', populated: 0, skipped: charArray.length });
+    }
+
+    // Populate in batches of 10 (to avoid timeout)
+    const batchSize = 10;
+    const batch = uncached.slice(0, batchSize);
+    let populated = 0;
+
+    for (const ch of batch) {
+      try {
+        await fetchAndCacheDefinition(c.env.DB, ch, undefined, c.env.ANTHROPIC_API_KEY);
+        populated++;
+      } catch (e) {
+        console.error(`Failed to populate definition for ${ch}:`, e);
+      }
+    }
+
+    return c.json({
+      message: `Populated ${populated} definitions`,
+      populated,
+      skipped: existingSet.size,
+      remaining: uncached.length - populated,
+      total: charArray.length,
+    });
+  } catch (error) {
+    console.error('Populate vocabulary error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to populate vocabulary';
     return c.json({ error: errMsg }, 500);
   }
 });

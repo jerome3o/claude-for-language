@@ -986,11 +986,12 @@ export async function translateMessageSegmented(
 
 export async function defineVocabulary(
   hanzi: string,
-  context?: string
+  context?: string,
+  skipCache?: boolean
 ): Promise<VocabularyDefinition> {
   return fetchJSON<VocabularyDefinition>(`/vocabulary/define`, {
     method: 'POST',
-    body: JSON.stringify({ hanzi, context }),
+    body: JSON.stringify({ hanzi, context, skipCache }),
   });
 }
 
