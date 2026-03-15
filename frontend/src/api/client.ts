@@ -995,6 +995,15 @@ export async function defineVocabulary(
   });
 }
 
+export async function textToFlashcard(
+  text: string
+): Promise<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> {
+  return fetchJSON(`/text-to-flashcard`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
 export async function updateConversationVoiceSettings(
   conversationId: string,
   voiceId?: string,

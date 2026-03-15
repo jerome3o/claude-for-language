@@ -4039,6 +4039,70 @@ app.post('/api/vocabulary/populate', async (c) => {
   }
 });
 
+// Convert arbitrary text into a flashcard (for Ask Claude messages)
+app.post('/api/text-to-flashcard', async (c) => {
+  const userId = c.get('user').id;
+  const { text } = await c.req.json<{ text: string }>();
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI is not configured' }, 500);
+  }
+
+  if (!text || text.trim() === '') {
+    return c.json({ error: 'Text is required' }, 400);
+  }
+
+  try {
+    const prompt = `You are a Mandarin Chinese language expert. A student typed this message while studying Chinese:
+
+"${text}"
+
+Create a flashcard that helps them learn the Chinese way to express this. If the text is already in Chinese, use it directly. If it's in English or a question about Chinese, create a flashcard for the key Chinese word/phrase they should learn.
+
+IMPORTANT: Use tone marks for pinyin (nǐ hǎo) NOT tone numbers (ni3 hao3).
+
+Respond with ONLY a JSON object in this exact format:
+{
+  "hanzi": "The Chinese word or phrase",
+  "pinyin": "pīnyīn with tone marks",
+  "english": "English definition",
+  "fun_facts": "A helpful tip about this word"
+}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': c.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Anthropic API error: ${response.statusText}`);
+    }
+
+    const data = await response.json<any>();
+    const aiText = data.content[0].text;
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Failed to parse AI response');
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+    return c.json(result);
+  } catch (error) {
+    console.error('Text to flashcard error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to create flashcard';
+    return c.json({ error: errMsg }, 500);
+  }
+});
+
 // Upload recording for a message
 app.post('/api/messages/:id/recording', async (c) => {
   const userId = c.get('user').id;
