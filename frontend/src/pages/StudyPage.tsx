@@ -22,6 +22,7 @@ import {
   generateFunFact,
   createNote,
   getOverviewStats,
+  textToFlashcard,
 } from '../api/client';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
@@ -263,6 +264,12 @@ function StudyCard({
   const [cardDeleted, setCardDeleted] = useState(false);
   const [pendingToolResults, setPendingToolResults] = useState<AskToolResult[] | null>(null);
   const questionInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Message-to-flashcard state (for Ask Claude modal)
+  const [flashcardMsgIdx, setFlashcardMsgIdx] = useState<number | null>(null);
+  const [flashcardData, setFlashcardData] = useState<{ hanzi: string; pinyin: string; english: string; fun_facts?: string } | null>(null);
+  const [isGeneratingFlashcard, setIsGeneratingFlashcard] = useState(false);
+  const [flashcardSaved, setFlashcardSaved] = useState(false);
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -1534,9 +1541,75 @@ function StudyCard({
               const hasPending = isLatest && pendingToolResults !== null;
               return (
                 <div key={qa.id} className="claude-message-pair">
-                  <div className="claude-user-message">
-                    {qa.question}
+                  <div className="claude-user-message" style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <div style={{ flex: 1 }}>{qa.question}</div>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem', flexShrink: 0, lineHeight: 1 }}
+                      title="Create flashcard from this message"
+                      disabled={isGeneratingFlashcard}
+                      onClick={async () => {
+                        if (flashcardMsgIdx === qaIdx) {
+                          setFlashcardMsgIdx(null);
+                          setFlashcardData(null);
+                          setFlashcardSaved(false);
+                          return;
+                        }
+                        setFlashcardMsgIdx(qaIdx);
+                        setFlashcardData(null);
+                        setFlashcardSaved(false);
+                        setIsGeneratingFlashcard(true);
+                        try {
+                          const result = await textToFlashcard(qa.question);
+                          setFlashcardData(result);
+                        } catch (err) {
+                          console.error('Failed to generate flashcard:', err);
+                        } finally {
+                          setIsGeneratingFlashcard(false);
+                        }
+                      }}
+                    >+</button>
                   </div>
+                  {flashcardMsgIdx === qaIdx && (
+                    <div className="flashcard-from-message" style={{ padding: '0.5rem 0.75rem', margin: '0.25rem 0', background: 'var(--color-bg-secondary, #f8fafc)', borderRadius: '0.5rem', fontSize: '0.85rem' }}>
+                      {isGeneratingFlashcard ? (
+                        <div style={{ color: '#64748b' }}>Generating flashcard...</div>
+                      ) : flashcardSaved ? (
+                        <div style={{ color: '#22c55e' }}>Flashcard saved!</div>
+                      ) : flashcardData ? (
+                        <>
+                          <div><strong>{flashcardData.hanzi}</strong> ({flashcardData.pinyin}) — {flashcardData.english}</div>
+                          {flashcardData.fun_facts && <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '0.25rem' }}>{flashcardData.fun_facts}</div>}
+                          <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                            {allDecks?.map((d) => (
+                              <button
+                                key={d.id}
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '0.75rem' }}
+                                onClick={async () => {
+                                  try {
+                                    await createNote(d.id, {
+                                      hanzi: flashcardData.hanzi,
+                                      pinyin: flashcardData.pinyin,
+                                      english: flashcardData.english,
+                                      fun_facts: flashcardData.fun_facts,
+                                    });
+                                    setFlashcardSaved(true);
+                                  } catch (err) {
+                                    console.error('Failed to save flashcard:', err);
+                                  }
+                                }}
+                              >
+                                {d.name}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ color: '#ef4444' }}>Failed to generate flashcard. Try again.</div>
+                      )}
+                    </div>
+                  )}
                   {qa.readOnlyToolCalls && qa.readOnlyToolCalls.length > 0 && (
                     <ToolCallsCollapsible calls={qa.readOnlyToolCalls} />
                   )}
