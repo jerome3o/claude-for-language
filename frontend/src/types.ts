@@ -547,7 +547,6 @@ export const MINIMAX_VOICES = [
   { id: 'Chinese (Mandarin)_Cute_Spirit', name: 'Cute Spirit (Female)' },
   { id: 'Chinese (Mandarin)_Lyrical_Voice', name: 'Lyrical Voice (Female)' },
   { id: 'Chinese (Mandarin)_Kind-hearted_Antie', name: 'Kind-hearted Auntie' },
-  { id: 'Chinese (Mandarin)_HK_Flight_Attendant', name: 'HK Flight Attendant (Female)' },
   { id: 'Chinese (Mandarin)_News_Anchor', name: 'News Anchor' },
   { id: 'Chinese (Mandarin)_Radio_Host', name: 'Radio Host' },
 ] as const;
