@@ -199,6 +199,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Local queue state
   const [queue, setQueue] = useState<LocalCard[]>([]);
+  // Monotonic counter — incremented every time a new card is shown (even same ID)
+  const [cardVersion, setCardVersion] = useState(0);
   const [currentCardState, setCurrentCardState] = useState<CurrentCardState>({
     card: null,
     note: null,
@@ -553,6 +555,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       // Update ALL state at once to prevent intermediate renders
       setQueue(newQueue);
       setRecentNoteIds(newRecentNoteIds);
+      setCardVersion(v => v + 1);
       setCurrentCardState({ card: nextCard, note: note || null, deck: deck || null });
     } else {
       // No card from queue - need to check IndexedDB for delayed learning cards.
@@ -615,6 +618,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
             console.log('[useStudySession] Selected delayed learning card:', selected.id);
             setQueue(newQueue);
             setRecentNoteIds(newRecentNoteIds);
+            setCardVersion(v => v + 1);
             setCurrentCardState({ card: selected, note, deck: deck || null });
 
             // Submit review event in background (card already updated above)
@@ -736,6 +740,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // State
     isLoading,
     currentCard: cardWithNote,
+    cardVersion,
     counts,
     intervalPreviews,
     hasMoreNewCards,
