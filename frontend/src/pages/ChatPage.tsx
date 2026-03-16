@@ -252,18 +252,73 @@ export function ChatPage() {
     sendMutation.mutate({ content: newMessage.trim(), replyToId: replyingTo?.id });
   };
 
+  const [showFullEmojiPicker, setShowFullEmojiPicker] = useState(false);
+
+  const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '👏', '🔥'];
+  const FULL_EMOJI_LIST = [
+    // Smileys
+    '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😊',
+    '😇', '🥰', '😍', '🤩', '😘', '😗', '😋', '😛', '😜', '🤪',
+    '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '😐', '😑', '😶', '😏',
+    '😒', '🙄', '😬', '😮‍💨', '🤥', '😌', '😔', '😪', '🤤', '😴',
+    '😷', '🤒', '🤕', '🤢', '🤮', '🥵', '🥶', '🥴', '😵', '🤯',
+    '🤠', '🥳', '🥸', '😎', '🤓', '🧐', '😕', '😟', '🙁', '😮',
+    '😯', '😲', '😳', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬',
+    // Gestures & People
+    '👋', '🤚', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟',
+    '🤘', '🤙', '👈', '👉', '👆', '👇', '☝️', '👍', '👎', '✊',
+    '👊', '🤛', '🤜', '👏', '🙌', '🤲', '🤝', '🙏', '💪', '🦾',
+    // Hearts & Symbols
+    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔',
+    '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '♥️',
+    '💯', '💢', '💥', '💫', '💦', '💨', '🕳️', '💣', '💬', '💭',
+    // Objects & Nature
+    '🔥', '⭐', '🌟', '✨', '⚡', '🎉', '🎊', '🎈', '🎁', '🏆',
+    '🥇', '🥈', '🥉', '🏅', '🎯', '🎵', '🎶', '🔔', '📣', '📢',
+    '🌈', '☀️', '🌤️', '⛅', '🌙', '🌸', '🌺', '🌻', '🌹', '🍀',
+    // Food & Animals
+    '🐶', '🐱', '🐭', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁',
+    '🍎', '🍕', '🍔', '🍣', '🍜', '🍦', '🍰', '🧁', '☕', '🍵',
+  ];
+
+  const RECENT_EMOJIS_KEY = 'chat-recent-emojis';
+  const MAX_RECENT = 5;
+
+  const getRecentEmojis = (): string[] => {
+    try {
+      const stored = localStorage.getItem(RECENT_EMOJIS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  };
+
+  const saveRecentEmoji = (emoji: string) => {
+    const recent = getRecentEmojis().filter(e => e !== emoji);
+    recent.unshift(emoji);
+    localStorage.setItem(RECENT_EMOJIS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
+  };
+
+  const getQuickEmojis = (): string[] => {
+    const recent = getRecentEmojis();
+    if (recent.length === 0) return DEFAULT_EMOJIS;
+    // Merge: recent first, then fill with defaults that aren't in recent
+    const merged = [...recent];
+    for (const e of DEFAULT_EMOJIS) {
+      if (!merged.includes(e) && merged.length < 6) merged.push(e);
+    }
+    return merged.slice(0, 6);
+  };
+
   const handleReaction = async (messageId: string, emoji: string) => {
     setShowReactionPicker(null);
+    setShowFullEmojiPicker(false);
+    saveRecentEmoji(emoji);
     try {
       await toggleMessageReaction(messageId, emoji);
-      // Refetch messages to get updated reactions
       queryClient.invalidateQueries({ queryKey: ['messages', convId] });
     } catch (error) {
       console.error('Failed to toggle reaction:', error);
     }
   };
-
-  const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '👏', '🔥'];
 
   // Audio playback functions
   const playBase64Audio = (base64: string, contentType: string, messageId: string) => {
@@ -738,7 +793,7 @@ export function ChatPage() {
                           {/* Reaction button */}
                           <button
                             className="msg-action-btn"
-                            onClick={() => setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id)}
+                            onClick={() => { setShowFullEmojiPicker(false); setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id); }}
                             title="React"
                           >
                             +😊
@@ -803,16 +858,57 @@ export function ChatPage() {
                         </div>
                         {/* Quick emoji picker */}
                         {showReactionPicker === msg.id && (
-                          <div className="reaction-picker">
-                            {QUICK_EMOJIS.map((emoji) => (
+                          <div className="reaction-picker-container">
+                            <div className="reaction-picker">
+                              {getQuickEmojis().map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  className="reaction-picker-btn"
+                                  onClick={() => handleReaction(msg.id, emoji)}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
                               <button
-                                key={emoji}
-                                className="reaction-picker-btn"
-                                onClick={() => handleReaction(msg.id, emoji)}
+                                className="reaction-picker-btn reaction-picker-more"
+                                onClick={() => setShowFullEmojiPicker(!showFullEmojiPicker)}
+                                title="More emojis"
                               >
-                                {emoji}
+                                {showFullEmojiPicker ? '✕' : '+'}
                               </button>
-                            ))}
+                            </div>
+                            {showFullEmojiPicker && (
+                              <div className="full-emoji-picker">
+                                {getRecentEmojis().length > 0 && (
+                                  <>
+                                    <div className="emoji-picker-section-label">Recent</div>
+                                    <div className="emoji-picker-grid">
+                                      {getRecentEmojis().map((emoji) => (
+                                        <button
+                                          key={`recent-${emoji}`}
+                                          className="reaction-picker-btn"
+                                          onClick={() => handleReaction(msg.id, emoji)}
+                                        >
+                                          {emoji}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                                <div className="emoji-picker-section-label">All</div>
+                                <div className="emoji-picker-grid">
+                                  {FULL_EMOJI_LIST.map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      className="reaction-picker-btn"
+                                      onClick={() => handleReaction(msg.id, emoji)}
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

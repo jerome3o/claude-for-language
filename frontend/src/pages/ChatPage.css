@@ -950,11 +950,6 @@ body:has(.chat-page) #root {
   border: 1px solid var(--border-color, #e5e5e5);
   border-radius: 1.5rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  position: absolute;
-  bottom: 100%;
-  right: 0;
-  margin-bottom: 0.25rem;
-  z-index: 10;
   white-space: nowrap;
 }
 
@@ -971,6 +966,55 @@ body:has(.chat-page) #root {
 .reaction-picker-btn:hover {
   background: var(--muted-bg, #f0f0f0);
   transform: scale(1.2);
+}
+
+.reaction-picker-container {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 0.25rem;
+  z-index: 10;
+}
+
+.reaction-picker-more {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-light, #666);
+}
+
+/* Full emoji picker panel */
+.full-emoji-picker {
+  background: white;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  margin-top: 0.25rem;
+  padding: 0.5rem;
+  max-height: 15rem;
+  width: 16rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.emoji-picker-section-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-light, #999);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.25rem 0.125rem;
+}
+
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.0625rem;
+}
+
+.emoji-picker-grid .reaction-picker-btn {
+  padding: 0.25rem;
+  font-size: 1.125rem;
+  text-align: center;
 }
 
 /* ===== Discussion indicator ===== */
