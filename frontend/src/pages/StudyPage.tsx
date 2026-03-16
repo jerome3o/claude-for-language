@@ -322,6 +322,8 @@ function StudyCard({
   const [showMultipleChoice, setShowMultipleChoice] = useState(false);
   const [mcReady, setMcReady] = useState(false); // MC loaded but hidden (for audio cards)
   const [isGeneratingMC, setIsGeneratingMC] = useState(false);
+  const [mcLoadingTooLong, setMcLoadingTooLong] = useState(false);
+  const [skipMcForCard, setSkipMcForCard] = useState(false);
   const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
   const [mcSubmitted, setMcSubmitted] = useState(false);
@@ -725,6 +727,16 @@ function StudyCard({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.id, shouldAutoMC]);
+
+  // Show text fallback after 5s if MC generation is stuck
+  useEffect(() => {
+    if (!isGeneratingMC) {
+      setMcLoadingTooLong(false);
+      return;
+    }
+    const timer = setTimeout(() => setMcLoadingTooLong(true), 5000);
+    return () => clearTimeout(timer);
+  }, [isGeneratingMC]);
 
   const handleRegenerateMC = async () => {
     setIsGeneratingMC(true);
@@ -2114,11 +2126,19 @@ function StudyCard({
     }
 
     // If this card will auto-show MC, don't flash the text input while loading
-    if (shouldAutoMC && !showMultipleChoice && !mcReady) {
+    if (shouldAutoMC && !showMultipleChoice && !mcReady && !skipMcForCard) {
       return (
         <div className="study-card-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', padding: '1rem' }}>
           <div className="spinner" />
           <span className="text-light">{isGeneratingMC ? 'Generating options...' : 'Loading...'}</span>
+          {mcLoadingTooLong && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setSkipMcForCard(true)}
+            >
+              Type instead
+            </button>
+          )}
         </div>
       );
     }
