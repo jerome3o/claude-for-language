@@ -4057,16 +4057,20 @@ app.post('/api/text-to-flashcard', async (c) => {
 
 "${text}"
 
-Create a flashcard that helps them learn the Chinese way to express this. If the text is already in Chinese, use it directly. If it's in English or a question about Chinese, create a flashcard for the key Chinese word/phrase they should learn.
+Create a flashcard for the FULL sentence/message — not just a single keyword. The goal is that after learning this card, the student could reproduce the entire message in Chinese.
+
+- If the text is already in Chinese, use the full text as the hanzi.
+- If the text is in English, translate the full message into natural Chinese.
+- If the text is a question about Chinese (e.g. "please explain 相信"), create a flashcard for the full sentence that uses the word in context (e.g. "请解释一下相信是什么意思").
 
 IMPORTANT: Use tone marks for pinyin (nǐ hǎo) NOT tone numbers (ni3 hao3).
 
 Respond with ONLY a JSON object in this exact format:
 {
-  "hanzi": "The Chinese word or phrase",
-  "pinyin": "pīnyīn with tone marks",
-  "english": "English definition",
-  "fun_facts": "A helpful tip about this word"
+  "hanzi": "The full Chinese sentence",
+  "pinyin": "full pīnyīn with tone marks",
+  "english": "Full English translation",
+  "fun_facts": "A helpful tip about a key word or grammar point in this sentence"
 }`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
