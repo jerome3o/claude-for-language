@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { getDecks, createDeck, getDeckStats } from '../api/client';
@@ -188,9 +188,28 @@ export function HomePage() {
   const [bonusAll, setBonusAll] = useState(() => getStoredBonus());
 
   // Get total queue counts across all decks for the "Study All" button
-  const { counts: totalCounts } = useOfflineQueueCounts(undefined, bonusAll);
+  const COUNTS_CACHE_KEY = 'lastQueueCounts';
+  const { counts: liveCounts, isLoading: countsLoading } = useOfflineQueueCounts(undefined, bonusAll);
   const hasMoreNewCardsAll = useHasMoreNewCards(undefined, bonusAll);
+
+  // Use cached counts from localStorage while live counts are loading
+  const [cachedCounts] = useState(() => {
+    try {
+      const stored = localStorage.getItem(COUNTS_CACHE_KEY);
+      return stored ? JSON.parse(stored) as { new: number; learning: number; review: number } : null;
+    } catch { return null; }
+  });
+
+  // Once live counts load, cache them for next visit
+  useEffect(() => {
+    if (!countsLoading) {
+      localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(liveCounts));
+    }
+  }, [countsLoading, liveCounts]);
+
+  const totalCounts = countsLoading && cachedCounts ? cachedCounts : liveCounts;
   const totalDue = totalCounts.new + totalCounts.learning + totalCounts.review;
+  const showStudyLoading = countsLoading && !cachedCounts;
 
   // Handle "+10 More" button click for "All Decks" - add bonus cards and update state
   const handleAddMoreAll = () => {
@@ -235,7 +254,12 @@ export function HomePage() {
 
         {/* Study All Button */}
         <div className="card mb-4">
-          {totalDue > 0 ? (
+          {showStudyLoading ? (
+            <div className="text-center" style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+              <div className="spinner" style={{ width: '1rem', height: '1rem' }} />
+              <span className="text-light">Loading cards...</span>
+            </div>
+          ) : totalDue > 0 ? (
             <button onClick={handleStudyAll} className="btn btn-primary btn-lg btn-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
               <span>Study All</span>
               <QueueCountsBadge counts={totalCounts} />
