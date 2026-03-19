@@ -3294,12 +3294,12 @@ app.post('/api/conversations/:id/generate-flashcard', async (c) => {
     }
 
     // Parse the JSON response
-    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    const jsonStr = extractJSON(textContent.text);
+    if (!jsonStr) {
       throw new Error('Invalid AI response format');
     }
 
-    const flashcard = JSON.parse(jsonMatch[0]) as {
+    const flashcard = JSON.parse(jsonStr) as {
       hanzi: string;
       pinyin: string;
       english: string;
@@ -3794,12 +3794,12 @@ Respond with ONLY a JSON object in this exact format:
       throw new Error('No response from AI');
     }
 
-    const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    const jsonStr = extractJSON(textContent.text);
+    if (!jsonStr) {
       throw new Error('Invalid AI response format');
     }
 
-    const result = JSON.parse(jsonMatch[0]) as {
+    const result = JSON.parse(jsonStr) as {
       translation: string;
       flashcard: {
         hanzi: string;
@@ -3883,6 +3883,28 @@ app.post('/api/messages/:id/translate-segmented', async (c) => {
   }
 });
 
+// Helper: extract JSON object from AI text response using brace-depth tracking
+// Handles cases where AI wraps JSON in markdown code fences or adds extra text
+function extractJSON(text: string): string | null {
+  // Strip markdown code fences if present
+  const stripped = text.replace(/```(?:json)?\s*/g, '').replace(/```/g, '');
+  const start = stripped.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < stripped.length; i++) {
+    const ch = stripped[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return stripped.slice(start, i + 1); }
+  }
+  return null;
+}
+
 // Helper: fetch a character definition from Claude AI and cache it in D1
 async function fetchAndCacheDefinition(
   db: D1Database,
@@ -3931,12 +3953,12 @@ Respond with ONLY a JSON object in this exact format:
 
   const data = await response.json<any>();
   const text = data.content[0].text;
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const jsonStr = extractJSON(text);
+  if (!jsonStr) {
     throw new Error('Failed to parse AI response');
   }
 
-  const result = JSON.parse(jsonMatch[0]);
+  const result = JSON.parse(jsonStr);
 
   // Cache in D1 (fire-and-forget, don't block response)
   try {
@@ -4111,12 +4133,12 @@ Respond with ONLY a JSON object in this exact format:
 
     const data = await response.json<any>();
     const aiText = data.content[0].text;
-    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    const jsonStr = extractJSON(aiText);
+    if (!jsonStr) {
       throw new Error('Failed to parse AI response');
     }
 
-    const result = JSON.parse(jsonMatch[0]);
+    const result = JSON.parse(jsonStr);
     return c.json(result);
   } catch (error) {
     console.error('Text to flashcard error:', error);
