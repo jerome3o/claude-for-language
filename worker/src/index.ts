@@ -3221,6 +3221,24 @@ app.post('/api/conversations/:id/messages', async (c) => {
       }
     })());
 
+    // Auto-translate Chinese messages (non-blocking)
+    const hasChinese = /[\u4e00-\u9fff]/.test(content);
+    if (hasChinese && c.env.ANTHROPIC_API_KEY) {
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const { translateAndSegment } = await import('./services/translation');
+          const result = await translateAndSegment(c.env.ANTHROPIC_API_KEY, content);
+          await c.env.DB
+            .prepare('UPDATE messages SET translation = ?, segmentation = ? WHERE id = ?')
+            .bind(result.translation, JSON.stringify(result.segmentation), message.id)
+            .run();
+          console.log('[Translation] Auto-translated message', message.id);
+        } catch (err) {
+          console.error('[Translation] Auto-translate failed for message', message.id, err);
+        }
+      })());
+    }
+
     return c.json(message, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send message';
