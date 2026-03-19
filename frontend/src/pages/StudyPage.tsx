@@ -256,6 +256,9 @@ function StudyCard({
   const [startTime] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Error handling for orphaned cards (cards with missing notes)
+  const [dataError, setDataError] = useState<string | null>(null);
+
   // Ask Claude state
   const [showAskClaude, setShowAskClaude] = useState(false);
   const [question, setQuestion] = useState('');
@@ -576,6 +579,9 @@ function StudyCard({
       setAddedSentenceAsCard(false);
     } catch (error) {
       console.error('Failed to generate sentence clue:', error);
+      if (error instanceof Error && error.message === 'Note not found') {
+        setDataError('This card has a missing note in the database. Please skip this card.');
+      }
     } finally {
       setIsGeneratingSentence(false);
     }
@@ -614,6 +620,9 @@ function StudyCard({
       await db.notes.update(card.note.id, { fun_facts: updatedNote.fun_facts });
     } catch (error) {
       console.error('Failed to generate fun fact:', error);
+      if (error instanceof Error && error.message === 'Note not found') {
+        setDataError('This card has a missing note in the database. Please skip this card.');
+      }
     } finally {
       setIsGeneratingFunFact(false);
     }
@@ -634,6 +643,9 @@ function StudyCard({
           await db.notes.update(card.note.id, { fun_facts: updatedNote.fun_facts });
         } catch (error) {
           console.error('[bg] Failed to generate fun fact:', error);
+          if (error instanceof Error && error.message === 'Note not found') {
+            setDataError('This card has a missing note in the database. Please skip this card.');
+          }
         }
       }
       // Generate sentence clue if missing
@@ -649,6 +661,9 @@ function StudyCard({
           });
         } catch (error) {
           console.error('[bg] Failed to generate sentence clue:', error);
+          if (error instanceof Error && error.message === 'Note not found') {
+            setDataError('This card has a missing note in the database. Please skip this card.');
+          }
         }
       }
     };
@@ -705,6 +720,9 @@ function StudyCard({
       }
     } catch (error) {
       console.error('Failed to generate multiple choice options:', error);
+      if (error instanceof Error && error.message === 'Note not found') {
+        setDataError('This card has a missing note in the database. Please skip this card.');
+      }
     } finally {
       setIsGeneratingMC(false);
     }
@@ -2179,6 +2197,34 @@ function StudyCard({
           </button>
           <QueueCountsHeader counts={counts} activeQueue={card.queue} />
         </div>
+
+        {/* Data error banner */}
+        {dataError && (
+          <div style={{
+            background: '#fee2e2',
+            border: '1px solid #fca5a5',
+            borderRadius: '0.5rem',
+            padding: '1rem',
+            margin: '1rem',
+            color: '#991b1b'
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>⚠️ Data Error</div>
+            <div style={{ marginBottom: '0.75rem' }}>{dataError}</div>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => onRate(0, Date.now() - startTime)}
+              style={{ marginRight: '0.5rem' }}
+            >
+              Skip Card (Rate as "Again")
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setDataError(null)}
+            >
+              Dismiss Warning
+            </button>
+          </div>
+        )}
 
         {/* Card content */}
         <div className="study-card-content">
