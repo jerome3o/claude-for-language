@@ -295,6 +295,7 @@ function StudyCard({
   useEffect(() => {
     setRecordingIndex(0);
     setMcReady(false);
+    setMcError(null);
   }, [card.id]);
 
   // Debug modal state
@@ -325,6 +326,7 @@ function StudyCard({
   const [showMultipleChoice, setShowMultipleChoice] = useState(false);
   const [mcReady, setMcReady] = useState(false); // MC loaded but hidden (for audio cards)
   const [isGeneratingMC, setIsGeneratingMC] = useState(false);
+  const [mcError, setMcError] = useState<string | null>(null);
   const [skipMcForCard, setSkipMcForCard] = useState(false);
   const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
@@ -698,8 +700,16 @@ function StudyCard({
       return;
     }
     setIsGeneratingMC(true);
+    setMcError(null);
     try {
-      const updatedNote = await generateMultipleChoice(card.note.id);
+      // Add a 30-second timeout to prevent infinite loading
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Generation timed out')), 30000)
+      );
+      const updatedNote = await Promise.race([
+        generateMultipleChoice(card.note.id),
+        timeoutPromise,
+      ]);
       onUpdateNote(updatedNote);
       await db.notes.update(card.note.id, {
         multiple_choice_options: updatedNote.multiple_choice_options,
@@ -721,6 +731,10 @@ function StudyCard({
       console.error('Failed to generate multiple choice options:', error);
       if (error instanceof Error && error.message === 'Note not found') {
         setDataError('This card has a missing note in the database. Please skip this card.');
+      } else if (error instanceof Error && error.message === 'Generation timed out') {
+        setMcError('Generation timed out. You can retry or type instead.');
+      } else {
+        setMcError('Failed to generate options. You can retry or type instead.');
       }
     } finally {
       setIsGeneratingMC(false);
@@ -748,8 +762,15 @@ function StudyCard({
 
   const handleRegenerateMC = async () => {
     setIsGeneratingMC(true);
+    setMcError(null);
     try {
-      const updatedNote = await generateMultipleChoice(card.note.id);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Generation timed out')), 30000)
+      );
+      const updatedNote = await Promise.race([
+        generateMultipleChoice(card.note.id),
+        timeoutPromise,
+      ]);
       onUpdateNote(updatedNote);
       await db.notes.update(card.note.id, {
         multiple_choice_options: updatedNote.multiple_choice_options,
@@ -764,6 +785,11 @@ function StudyCard({
       }
     } catch (error) {
       console.error('Failed to regenerate multiple choice options:', error);
+      if (error instanceof Error && error.message === 'Generation timed out') {
+        setMcError('Regeneration timed out. Try again.');
+      } else {
+        setMcError('Failed to regenerate options. Try again.');
+      }
     } finally {
       setIsGeneratingMC(false);
     }
@@ -2137,14 +2163,37 @@ function StudyCard({
     if (shouldAutoMC && !showMultipleChoice && !mcReady && !skipMcForCard) {
       return (
         <div className="study-card-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', padding: '1rem' }}>
-          <div className="spinner" />
-          <span className="text-light">{isGeneratingMC ? 'Generating options...' : 'Loading...'}</span>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setSkipMcForCard(true)}
-          >
-            Type instead
-          </button>
+          {mcError ? (
+            <>
+              <span style={{ fontSize: '0.875rem', color: '#ef4444' }}>{mcError}</span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => { setMcError(null); handleShowMultipleChoice(isAudioCard); }}
+                  disabled={!isOnline}
+                >
+                  Retry
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setSkipMcForCard(true)}
+                >
+                  Type instead
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="spinner" />
+              <span className="text-light">{isGeneratingMC ? 'Generating options...' : 'Loading...'}</span>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSkipMcForCard(true)}
+              >
+                Type instead
+              </button>
+            </>
+          )}
         </div>
       );
     }
