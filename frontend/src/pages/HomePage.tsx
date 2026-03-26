@@ -193,17 +193,18 @@ export function HomePage() {
   const hasMoreNewCardsAll = useHasMoreNewCards(undefined, bonusAll);
 
   // Use cached counts from localStorage while live counts are loading
-  const [cachedCounts] = useState(() => {
+  const [cachedCounts, setCachedCounts] = useState(() => {
     try {
       const stored = localStorage.getItem(COUNTS_CACHE_KEY);
       return stored ? JSON.parse(stored) as { new: number; learning: number; review: number } : null;
     } catch { return null; }
   });
 
-  // Once live counts load, cache them for next visit
+  // Once live counts load, update both localStorage and cached state
   useEffect(() => {
     if (!countsLoading) {
       localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(liveCounts));
+      setCachedCounts(liveCounts);
     }
   }, [countsLoading, liveCounts]);
 
