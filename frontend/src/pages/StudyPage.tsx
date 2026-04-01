@@ -728,13 +728,14 @@ function StudyCard({
         }
       }
     } catch (error) {
-      console.error('Failed to generate multiple choice options:', error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error('Failed to generate multiple choice options:', errMsg);
       if (error instanceof Error && error.message === 'Note not found') {
         setDataError('This card has a missing note in the database. Please skip this card.');
       } else if (error instanceof Error && error.message === 'Generation timed out') {
         setMcError('Generation timed out. You can retry or type instead.');
       } else {
-        setMcError('Failed to generate options. You can retry or type instead.');
+        setMcError(`Failed to generate options: ${errMsg}. You can retry or type instead.`);
       }
     } finally {
       setIsGeneratingMC(false);
