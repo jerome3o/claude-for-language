@@ -1283,9 +1283,10 @@ ${characters.map((char, i) => `${i + 1}. ${char}`).join('\n')}
 
 The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
 
+    console.log(`[MC Generation] Starting for note ${id}, hanzi="${note.hanzi}", ${characters.length} characters`);
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 400,
+      max_tokens: 1024,
       tools: [{
         name: 'generate_character_alternatives',
         description: 'Generate tricky alternative characters for a multiple choice quiz',
@@ -1315,12 +1316,21 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
       messages: [{ role: 'user', content: prompt }],
     });
 
+    console.log(`[MC Generation] Response stop_reason=${response.stop_reason}, content blocks=${response.content.length}`);
+
+    if (response.stop_reason === 'max_tokens') {
+      console.error(`[MC Generation] Response truncated by max_tokens for note ${id}`);
+      return c.json({ error: 'Response was truncated - word may be too long' }, 500);
+    }
+
     const toolUseBlock = response.content.find(b => b.type === 'tool_use');
     if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
+      console.error(`[MC Generation] No tool_use block in response for note ${id}. Content types: ${response.content.map(b => b.type).join(', ')}`);
       return c.json({ error: 'Failed to generate alternatives' }, 500);
     }
 
     const input = toolUseBlock.input as { characters: Array<{ correct: string; alternatives: string[] }> };
+    console.log(`[MC Generation] Got ${input.characters?.length ?? 0} character alternatives from AI (expected ${characters.length})`);
 
     // Build options arrays with correct answer shuffled in, deduplicating
     // Re-insert punctuation characters as pass-through (correct only, no alternatives)
@@ -1331,6 +1341,11 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
         return { correct: originalChar, options: [originalChar] };
       }
       const charData = input.characters[aiCharIndex++];
+      if (!charData) {
+        console.error(`[MC Generation] AI returned fewer characters than expected at index ${aiCharIndex - 1} for note ${id}`);
+        // Fallback: just show the correct character
+        return { correct: originalChar, options: [originalChar] };
+      }
       // Filter out duplicates and the correct character from alternatives
       const seen = new Set<string>([charData.correct]);
       const uniqueAlts: string[] = [];
@@ -1360,8 +1375,14 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
     const updatedNote = await db.getNoteById(c.env.DB, id, userId);
     return c.json(updatedNote);
   } catch (error) {
-    console.error('Multiple choice generation error:', error);
-    return c.json({ error: 'Failed to generate multiple choice options' }, 500);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errName = error instanceof Error ? error.constructor.name : 'Unknown';
+    console.error(`[MC Generation] Error for note ${id}: [${errName}] ${errMsg}`);
+    if (error instanceof Error && error.stack) {
+      console.error(`[MC Generation] Stack: ${error.stack}`);
+    }
+    // Pass through a more descriptive error for debugging
+    return c.json({ error: `Failed to generate multiple choice options: ${errMsg}` }, 500);
   }
 });
 
