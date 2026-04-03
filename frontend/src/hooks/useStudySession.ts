@@ -12,6 +12,7 @@ import {
   db,
   LocalCard,
   getDueCards,
+  getQueueCounts,
   createLocalReviewEvent,
   storePendingRecording,
   incrementNewCardsStudiedToday,
@@ -56,29 +57,6 @@ function pickWeightedLearningCard(cards: LocalCard[], now: number): LocalCard | 
   return cards[cards.length - 1];
 }
 
-// Calculate queue counts from a list of cards
-function calculateQueueCounts(cards: LocalCard[]): QueueCounts {
-  let newCount = 0;
-  let learningCount = 0;
-  let reviewCount = 0;
-
-  for (const card of cards) {
-    switch (card.queue) {
-      case CardQueue.NEW:
-        newCount++;
-        break;
-      case CardQueue.LEARNING:
-      case CardQueue.RELEARNING:
-        learningCount++;
-        break;
-      case CardQueue.REVIEW:
-        reviewCount++;
-        break;
-    }
-  }
-
-  return { new: newCount, learning: learningCount, review: reviewCount };
-}
 
 // Get interval preview locally
 function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: DeckSettings): IntervalPreview {
@@ -209,6 +187,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
+  // Use the same getQueueCounts function as the home page for consistent counts
+  const [dbCounts, setDbCounts] = useState<QueueCounts>({ new: 0, learning: 0, review: 0 });
 
   // Session stats tracking
   const [sessionStats, setSessionStats] = useState<SessionStats>({
@@ -230,6 +210,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Track pending background DB writes so we can await them before fallback queries
   const pendingWritesRef = useRef<Promise<void>[]>([]);
 
+  // Refresh displayed counts from the DB (same function used by home page)
+  const refreshCounts = useCallback(async () => {
+    const counts = await getQueueCounts(deckId, bonusNewCards);
+    setDbCounts(counts);
+  }, [deckId, bonusNewCards]);
+
   // Load initial queue
   const loadQueue = useCallback(async () => {
     if (!enabled) return;
@@ -238,15 +224,17 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setIsLoading(true);
 
     try {
-      // Fetch due cards and total new card count in parallel
-      const [dueCards, allNewCards] = await Promise.all([
+      // Fetch due cards, total new card count, and queue counts in parallel
+      const [dueCards, allNewCards, counts] = await Promise.all([
         getDueCards(deckId, bonusNewCards),
         db.cards
           .filter(c => c.queue === CardQueue.NEW && (!deckId || c.deck_id === deckId))
           .count(),
+        getQueueCounts(deckId, bonusNewCards),
       ]);
       console.log('[useStudySession] Loaded', dueCards.length, 'due cards');
       setQueue(dueCards);
+      setDbCounts(counts);
 
       const newInQueue = dueCards.filter(c => c.queue === CardQueue.NEW).length;
       setHasMoreNewCards(allNewCards > newInQueue);
@@ -620,6 +608,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
             setRecentNoteIds(newRecentNoteIds);
             setCardVersion(v => v + 1);
             setCurrentCardState({ card: selected, note, deck: deck || null });
+            refreshCounts();
 
             // Submit review event in background (card already updated above)
             createLocalReviewEvent({
@@ -653,6 +642,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       setQueue(newQueue);
       setRecentNoteIds(newRecentNoteIds);
       setCurrentCardState({ card: null, note: null, deck: null });
+      refreshCounts();
 
       // Submit review event (card already updated in DB above)
       createLocalReviewEvent({
@@ -690,14 +680,16 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     }).then(() => {
       // Remove from pending list once complete
       pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
+      // Refresh counts from DB after write completes (matches home page logic)
+      refreshCounts();
     }).catch(() => {
       pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
     });
     pendingWritesRef.current.push(writePromise);
-  }, [currentCardState, queue, recentNoteIds, reviewMutation, selectNextCard]);
+  }, [currentCardState, queue, recentNoteIds, reviewMutation, selectNextCard, refreshCounts]);
 
-  // Calculate current state
-  const counts = calculateQueueCounts(queue);
+  // Use DB-sourced counts (same as home page) for consistent display
+  const counts = dbCounts;
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
 
   const intervalPreviews: Record<Rating, IntervalPreview> | null =
