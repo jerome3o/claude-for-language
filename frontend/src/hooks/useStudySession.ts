@@ -6,13 +6,15 @@
  * re-renders that happened with the previous useLiveQuery-based approach.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import {
   db,
   LocalCard,
   getDueCards,
   getQueueCounts,
+  getStudyCutoff,
+  ensureDailyStatsInitialized,
   createLocalReviewEvent,
   storePendingRecording,
   incrementNewCardsStudiedToday,
@@ -127,14 +129,10 @@ function selectNextCardFromQueue(
 
   // Priority 3: Learning cards on cooldown but due today — show immediately
   // User preference: drill all cards in one sitting, show same card right away if needed
-  // Include 1-hour buffer for studying near midnight
-  const endOfToday = new Date();
-  endOfToday.setHours(23, 59, 59, 999);
-  const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
-  const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
+  const studyCutoff = getStudyCutoff();
   const cooldownCards = cardsToChooseFrom.filter(c =>
     (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-    (!c.due_timestamp || c.due_timestamp <= studyCutoff.getTime())
+    (!c.due_timestamp || c.due_timestamp <= studyCutoff.ts)
   );
   if (cooldownCards.length > 0) {
     cooldownCards.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
@@ -187,8 +185,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
-  // Use the same getQueueCounts function as the home page for consistent counts
-  const [dbCounts, setDbCounts] = useState<QueueCounts>({ new: 0, learning: 0, review: 0 });
 
   // Session stats tracking
   const [sessionStats, setSessionStats] = useState<SessionStats>({
@@ -210,35 +206,18 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Track pending background DB writes so we can await them before fallback queries
   const pendingWritesRef = useRef<Promise<void>[]>([]);
 
-  // Refresh displayed counts from the DB (same function used by home page)
-  const refreshCounts = useCallback(async () => {
-    const counts = await getQueueCounts(deckId, bonusNewCards);
-    setDbCounts(counts);
-  }, [deckId, bonusNewCards]);
-
   // Load initial queue
   const loadQueue = useCallback(async () => {
     if (!enabled) return;
-
-    console.log('[useStudySession] Loading queue', { deckId, bonusNewCards });
     setIsLoading(true);
-
     try {
-      // Fetch due cards, total new card count, and queue counts in parallel
-      const [dueCards, allNewCards, counts] = await Promise.all([
+      await ensureDailyStatsInitialized();
+      const [dueCards, counts] = await Promise.all([
         getDueCards(deckId, bonusNewCards),
-        db.cards
-          .filter(c => c.queue === CardQueue.NEW && (!deckId || c.deck_id === deckId))
-          .count(),
         getQueueCounts(deckId, bonusNewCards),
       ]);
-      console.log('[useStudySession] Loaded', dueCards.length, 'due cards');
       setQueue(dueCards);
-      setDbCounts(counts);
-
-      const newInQueue = dueCards.filter(c => c.queue === CardQueue.NEW).length;
-      setHasMoreNewCards(allNewCards > newInQueue);
-
+      setHasMoreNewCards(counts.hasMoreNew);
       initializedRef.current = true;
     } catch (error) {
       console.error('[useStudySession] Failed to load queue:', error);
@@ -268,7 +247,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Select the next card from the queue (async version for fallback cases)
   const selectNextCard = useCallback(async () => {
-    const now = Date.now();
     console.log('[useStudySession] Selecting next card (async)', {
       queueLength: queue.length,
       recentNoteIds: recentNoteIds.length
@@ -291,12 +269,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       if (delayedLearningCards.length > 0) {
-        const endOfToday = new Date(now);
-        endOfToday.setHours(23, 59, 59, 999);
-        const oneHourFromNow = new Date(now + 60 * 60 * 1000);
-        const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
+        const studyCutoff = getStudyCutoff();
         const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= studyCutoff.getTime()
+          !c.due_timestamp || c.due_timestamp <= studyCutoff.ts
         );
 
         if (dueToday.length > 0) {
@@ -582,12 +557,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       if (delayedLearningCards.length > 0) {
-        const endOfToday = new Date();
-        endOfToday.setHours(23, 59, 59, 999);
-        const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
-        const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
+        const studyCutoff = getStudyCutoff();
         const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= studyCutoff.getTime()
+          !c.due_timestamp || c.due_timestamp <= studyCutoff.ts
         );
 
         if (dueToday.length > 0) {
@@ -608,7 +580,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
             setRecentNoteIds(newRecentNoteIds);
             setCardVersion(v => v + 1);
             setCurrentCardState({ card: selected, note, deck: deck || null });
-            refreshCounts();
 
             // Submit review event in background (card already updated above)
             createLocalReviewEvent({
@@ -642,7 +613,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       setQueue(newQueue);
       setRecentNoteIds(newRecentNoteIds);
       setCurrentCardState({ card: null, note: null, deck: null });
-      refreshCounts();
 
       // Submit review event (card already updated in DB above)
       createLocalReviewEvent({
@@ -678,18 +648,24 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       userAnswer,
       recordingBlob,
     }).then(() => {
-      // Remove from pending list once complete
       pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
-      // Refresh counts from DB after write completes (matches home page logic)
-      refreshCounts();
     }).catch(() => {
       pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
     });
     pendingWritesRef.current.push(writePromise);
-  }, [currentCardState, queue, recentNoteIds, reviewMutation, selectNextCard, refreshCounts]);
+  }, [currentCardState, queue, recentNoteIds, reviewMutation]);
 
-  // Use DB-sourced counts (same as home page) for consistent display
-  const counts = dbCounts;
+  // Derive counts directly from the in-memory queue so the header updates in the
+  // same render as the card transition (no DB round-trip).
+  const counts: QueueCounts = useMemo(() => {
+    let n = 0, l = 0, r = 0;
+    for (const c of queue) {
+      if (c.queue === CardQueue.NEW) n++;
+      else if (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) l++;
+      else if (c.queue === CardQueue.REVIEW) r++;
+    }
+    return { new: n, learning: l, review: r };
+  }, [queue]);
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
 
   const intervalPreviews: Record<Rating, IntervalPreview> | null =
