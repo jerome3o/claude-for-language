@@ -1,54 +1,12 @@
 import React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   db,
-  LocalCard,
-  getDueCards,
-  getQueueCounts,
-  getSyncMeta,
-  hasMoreNewCards as checkHasMoreNewCards,
-  createLocalReviewEvent,
-  storePendingRecording,
-  incrementNewCardsStudiedToday,
+  getRawQueueCounts,
+  DeckQueueRaw,
+  ensureDailyStatsInitialized,
 } from '../db/database';
-import { scheduleCard, deckSettingsFromDb, DeckSettings, DEFAULT_DECK_SETTINGS, getIntervalPreview } from '../services/anki-scheduler';
 import { syncService } from '../services/sync';
-import { Rating, CardQueue, CardWithNote, Note, IntervalPreview } from '../types';
-
-// Helper: Pick a random element from an array
-function pickRandom<T>(arr: T[]): T | null {
-  if (arr.length === 0) return null;
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-// Helper: Weighted random selection for learning cards
-// Cards that are more overdue get higher weight, but there's still randomness
-function pickWeightedLearningCard(cards: LocalCard[], now: number): LocalCard | null {
-  if (cards.length === 0) return null;
-  if (cards.length === 1) return cards[0];
-
-  // Calculate weights: base weight of 1, plus bonus for how overdue (in minutes)
-  // A card 10 minutes overdue has ~11x the weight of one just now due
-  const weights = cards.map(card => {
-    const overdueMs = Math.max(0, now - (card.due_timestamp || now));
-    const overdueMinutes = overdueMs / 60000;
-    return 1 + overdueMinutes;
-  });
-
-  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-  let random = Math.random() * totalWeight;
-
-  for (let i = 0; i < cards.length; i++) {
-    random -= weights[i];
-    if (random <= 0) {
-      return cards[i];
-    }
-  }
-
-  // Fallback (shouldn't happen)
-  return cards[cards.length - 1];
-}
 
 // Hook to get all decks from IndexedDB with background sync
 // Pass apiDecks to detect mismatches and auto-fix via full sync
@@ -140,518 +98,44 @@ export function useOfflineDecks(apiDecks?: { id: string }[]) {
   };
 }
 
-// Hook to get a single deck with its notes
-export function useOfflineDeck(deckId: string | undefined) {
-  const deck = useLiveQuery(
-    () => deckId ? db.decks.get(deckId) : undefined,
-    [deckId]
+// Seed today's dailyStats once per app load so count queries never hit the slow path.
+let dailyStatsInitDate: string | null = null;
+function ensureDailyStatsOnce() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (dailyStatsInitDate === today) return;
+  dailyStatsInitDate = today;
+  ensureDailyStatsInitialized().catch(err =>
+    console.error('[useOfflineData] ensureDailyStatsInitialized failed', err)
   );
+}
 
-  const notes = useLiveQuery(
-    () => deckId ? db.notes.where('deck_id').equals(deckId).toArray() : [],
-    [deckId]
-  );
-
+/**
+ * Single live query producing raw per-deck queue counts. Callers apply
+ * daily-limit/bonus themselves via applyNewCardBonus(), so one DB scan can
+ * serve every view on the page.
+ */
+export function useRawQueueCounts() {
+  ensureDailyStatsOnce();
+  const raw = useLiveQuery(() => getRawQueueCounts(), []);
   return {
-    deck,
-    notes: notes || [],
-    isLoading: deck === undefined && deckId !== undefined,
+    byDeck: raw ?? new Map<string, DeckQueueRaw>(),
+    isLoading: raw === undefined,
   };
 }
 
-// Hook to get due cards from IndexedDB
-export function useOfflineDueCards(deckId?: string) {
-  const dueCards = useLiveQuery(
-    () => getDueCards(deckId),
-    [deckId]
-  );
-
-  return {
-    cards: dueCards || [],
-    isLoading: dueCards === undefined,
-  };
-}
-
-// Hook to get queue counts
-export function useOfflineQueueCounts(deckId?: string, bonusNewCards = 0) {
-  const counts = useLiveQuery(
-    async () => {
-      console.log(`[useOfflineQueueCounts] Querying counts for deckId: ${deckId}, bonusNewCards: ${bonusNewCards}`);
-      const result = await getQueueCounts(deckId, bonusNewCards);
-      console.log(`[useOfflineQueueCounts] Result for deckId ${deckId}:`, result);
-      return result;
-    },
-    [deckId, bonusNewCards]
-  );
-
-  return {
-    counts: counts || { new: 0, learning: 0, review: 0 },
-    isLoading: counts === undefined,
-  };
-}
-
-// Hook to get pending (unsynced) review events count
 export function usePendingReviewsCount() {
   const count = useLiveQuery(
-    async () => {
-      // Count unsynced review events (new event-sourced architecture)
-      return db.reviewEvents.where('_synced').equals(0).count();
-    },
+    () => db.reviewEvents.where('_synced').equals(0).count(),
     []
   );
-
   return count || 0;
 }
 
-// Hook to check if there are more new cards beyond the daily limit (+ current bonus)
-export function useHasMoreNewCards(deckId?: string, currentBonus = 0) {
-  const result = useLiveQuery(
-    async () => {
-      const hasMore = await checkHasMoreNewCards(deckId, currentBonus);
-      console.log(`[useHasMoreNewCards] deckId: ${deckId}, currentBonus: ${currentBonus}, hasMore: ${hasMore}`);
-      return hasMore;
-    },
-    [deckId, currentBonus]
-  );
-
-  return result ?? false;
-}
-
-// Track the currently selected card to prevent flickering from random re-selection
-let currentSelectedCardId: string | null = null;
-
-// Clear the cached card ID (call this after submitting a review)
-export function clearCurrentSelectedCard(): void {
-  currentSelectedCardId = null;
-}
-
-// Hook to get the next card to study (offline-first)
-export function useOfflineNextCard(deckId?: string, excludeNoteIds: string[] = [], bonusNewCards = 0) {
-  const queryClient = useQueryClient();
-
-  // Get all due cards
-  const allDueCards = useLiveQuery(
-    () => getDueCards(deckId, bonusNewCards),
-    [deckId, bonusNewCards]
-  );
-
-  // Get queue counts
-  const counts = useLiveQuery(
-    () => getQueueCounts(deckId, bonusNewCards),
-    [deckId, bonusNewCards]
-  );
-
-  // Filter out excluded notes and pick the next card
-  // Priority: Current card (if still valid) > Learning due NOW > Mix(New, Review) proportionally > Learning with delay
-  // Note: Current card check is FIRST to prevent switching mid-review when learning cards become due
-  const nextCard = useLiveQuery(async () => {
-    const now = Date.now();
-    console.log('[useOfflineNextCard] Card selection running', {
-      allDueCardsLength: allDueCards?.length,
-      excludeNoteIdsLength: excludeNoteIds.length,
-      currentSelectedCardId,
-      deckId,
-      timestamp: new Date().toISOString(),
-    });
-
-    // IMPORTANT: Don't proceed if allDueCards hasn't loaded yet.
-    // This prevents race conditions where an older query execution with undefined allDueCards
-    // finishes after a newer one and incorrectly clears currentSelectedCardId.
-    if (allDueCards === undefined) {
-      console.log('[useOfflineNextCard] allDueCards not loaded yet, returning current card or null');
-      // Return the current card if we have one cached, otherwise null
-      // Don't modify currentSelectedCardId - let the next execution with real data handle it
-      if (currentSelectedCardId) {
-        const currentCard = await db.cards.get(currentSelectedCardId);
-        if (currentCard) {
-          return currentCard;
-        }
-      }
-      return null;
-    }
-
-    if (allDueCards.length > 0) {
-      // Filter out cards from excluded notes, BUT always include LEARNING/RELEARNING cards
-      // because they need to be shown when due (that's the whole point of the learning loop)
-      const availableCards = allDueCards.filter(card => {
-        // Learning cards should always be shown when due - don't exclude them
-        if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-          return true;
-        }
-        // For NEW/REVIEW cards, exclude recently-studied notes for variety
-        return !excludeNoteIds.includes(card.note_id);
-      });
-      console.log('[useOfflineNextCard] Available cards after filtering:', availableCards.length);
-
-      if (availableCards.length > 0) {
-        // 1. If we have a currently selected card and it's still available, keep it
-        // This prevents card switching mid-review (e.g., when a learning card becomes due)
-        if (currentSelectedCardId) {
-          const currentCard = availableCards.find(c => c.id === currentSelectedCardId);
-          if (currentCard) {
-            console.log('[useOfflineNextCard] Keeping current card:', {
-              cardId: currentCard.id,
-              noteId: currentCard.note_id,
-            });
-            return currentCard;
-          }
-          // Current card no longer available, clear it
-          console.log('[useOfflineNextCard] Current card no longer available, will select new');
-          currentSelectedCardId = null;
-        }
-
-        // 2. Learning/relearning cards due NOW have priority (they have timers)
-        // Use weighted random: more overdue cards have higher chance, but not deterministic
-        const learningDue = availableCards.filter(c =>
-          (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-          c.due_timestamp && c.due_timestamp <= now
-        );
-        if (learningDue.length > 0) {
-          const selected = pickWeightedLearningCard(learningDue, now)!;
-          currentSelectedCardId = selected.id;
-          console.log('[useOfflineNextCard] Selected LEARNING card (weighted random):', {
-            cardId: selected.id,
-            queue: selected.queue,
-            noteId: selected.note_id,
-            totalDue: learningDue.length,
-          });
-          return selected;
-        }
-
-        // 3. Mix new and review cards proportionally (Anki "Mix with reviews" mode)
-        const newCards = availableCards.filter(c => c.queue === CardQueue.NEW);
-        const reviewCards = availableCards.filter(c => c.queue === CardQueue.REVIEW);
-        const totalMixable = newCards.length + reviewCards.length;
-
-        if (totalMixable > 0) {
-          // Proportional selection: probability based on queue sizes
-          // Then random selection within the chosen queue
-          const newProbability = newCards.length / totalMixable;
-          const random = Math.random();
-          console.log('[useOfflineNextCard] Proportional selection:', {
-            newCards: newCards.length,
-            reviewCards: reviewCards.length,
-            newProbability,
-            random,
-            willSelectNew: random < newProbability,
-          });
-
-          let selectedCard: LocalCard | null = null;
-          if (random < newProbability && newCards.length > 0) {
-            selectedCard = pickRandom(newCards);
-            console.log('[useOfflineNextCard] Selected NEW card (random):', {
-              cardId: selectedCard?.id,
-              noteId: selectedCard?.note_id,
-              totalNew: newCards.length,
-            });
-          } else if (reviewCards.length > 0) {
-            selectedCard = pickRandom(reviewCards);
-            console.log('[useOfflineNextCard] Selected REVIEW card (random):', {
-              cardId: selectedCard?.id,
-              noteId: selectedCard?.note_id,
-              totalReview: reviewCards.length,
-            });
-          } else if (newCards.length > 0) {
-            selectedCard = pickRandom(newCards);
-            console.log('[useOfflineNextCard] Fallback to NEW card (random):', {
-              cardId: selectedCard?.id,
-              noteId: selectedCard?.note_id,
-            });
-          }
-
-          if (selectedCard) {
-            currentSelectedCardId = selectedCard.id;
-            return selectedCard;
-          }
-        }
-      }
-    }
-
-    // 4. If nothing immediately due, check for learning cards with delays.
-    // Serve them immediately so the user doesn't have to wait.
-    console.log('[useOfflineNextCard] Checking for delayed learning cards...', {
-      currentSelectedCardId,
-      timestamp: new Date().toISOString(),
-    });
-    let delayedLearningCards: LocalCard[];
-    if (deckId) {
-      delayedLearningCards = await db.cards
-        .where('deck_id').equals(deckId)
-        .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
-        .toArray();
-    } else {
-      delayedLearningCards = await db.cards
-        .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
-        .toArray();
-    }
-
-    // Note: We intentionally do NOT filter delayed learning cards by excludeNoteIds.
-    // Learning cards must be shown when due - that's the core of spaced repetition.
-    // The excludeNoteIds filter is only for NEW/REVIEW cards to provide variety.
-
-    if (delayedLearningCards.length > 0) {
-      // Check if any learning cards are due TODAY (same calendar day)
-      // Cards due today should be shown even if on cooldown - user wants to complete in one sitting
-      // Cards due tomorrow or later have "graduated" - session is complete
-      const now = new Date();
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
-      // Include 1-hour buffer for studying near midnight
-      const oneHourFromNow = now.getTime() + 60 * 60 * 1000;
-      const studyCutoff = oneHourFromNow > endOfToday ? oneHourFromNow : endOfToday;
-
-      const dueToday = delayedLearningCards.filter(c =>
-        !c.due_timestamp || c.due_timestamp <= studyCutoff
-      );
-
-      if (dueToday.length === 0) {
-        // All learning cards have graduated (due tomorrow or later)
-        console.log('[useOfflineNextCard] All learning cards graduated (due tomorrow+), session complete:', {
-          totalDelayed: delayedLearningCards.length,
-          soonestDue: delayedLearningCards[0]?.due_timestamp,
-        });
-        currentSelectedCardId = null;
-        return null;
-      }
-
-      // IMPORTANT: Use deterministic selection (sort by due_timestamp, then by id for stability)
-      // Random selection causes race conditions when multiple useLiveQuery calls run in parallel
-      const sorted = [...dueToday].sort((a, b) => {
-        // Sort by due_timestamp (soonest first), then by id for stability
-        const timestampDiff = (a.due_timestamp || 0) - (b.due_timestamp || 0);
-        if (timestampDiff !== 0) return timestampDiff;
-        return a.id.localeCompare(b.id);
-      });
-
-      // Don't keep the current card if it was just rated - we want to cycle through cards
-      // The card's updated_at will be newer than when we first selected it
-      // Instead, always pick the soonest due card to ensure fair rotation
-      const selected = sorted[0];
-
-      // Only update currentSelectedCardId if it's a different card
-      // This provides stability while still allowing rotation after rating
-      if (currentSelectedCardId !== selected.id) {
-        console.log('[useOfflineNextCard] Selected LEARNING card due today:', {
-          cardId: selected.id,
-          noteId: selected.note_id,
-          dueTimestamp: selected.due_timestamp,
-          totalDueToday: dueToday.length,
-          previousCardId: currentSelectedCardId,
-        });
-        currentSelectedCardId = selected.id;
-      }
-
-      return selected;
-    }
-
-    console.log('[useOfflineNextCard] No card selected');
-    currentSelectedCardId = null;
-    return null;
-  }, [allDueCards, excludeNoteIds, deckId]);
-
-  // Get note for the card
-  const note = useLiveQuery(
-    () => nextCard ? db.notes.get(nextCard.note_id) : undefined,
-    [nextCard?.note_id]
-  );
-
-  // Get deck settings for interval previews
-  const deck = useLiveQuery(
-    () => nextCard ? db.decks.get(nextCard.deck_id) : undefined,
-    [nextCard?.deck_id]
-  );
-
-  // Calculate interval previews
-  let intervalPreviews: Record<Rating, IntervalPreview> | null = null;
-  if (nextCard && deck) {
-    const settings = deckSettingsFromDb(deck);
-    intervalPreviews = {
-      0: getIntervalPreviewLocal(0, nextCard, settings),
-      1: getIntervalPreviewLocal(1, nextCard, settings),
-      2: getIntervalPreviewLocal(2, nextCard, settings),
-      3: getIntervalPreviewLocal(3, nextCard, settings),
-    };
-  }
-
-  // Combine card and note into CardWithNote format
-  // Only return when data is consistent (card.note_id matches note.id)
-  // This prevents returning stale note data when card changes
-  const dataIsConsistent = nextCard && note && nextCard.note_id === note.id;
-  const cardWithNote: CardWithNote | null = dataIsConsistent ? {
-    ...nextCard,
-    note: note as Note,
-  } : null;
-
-  // Consider "loading" if:
-  // 1. Due cards haven't loaded yet (initial load)
-  // 2. We have a card selected but note hasn't loaded yet (transitioning between cards)
-  // This prevents the "All Done!" screen from flashing during card transitions
-  const isTransitioning = nextCard !== null && !dataIsConsistent;
-  const isLoading = allDueCards === undefined || isTransitioning;
-
-  if (isTransitioning) {
-    console.log('[useOfflineNextCard] Transitioning - card selected but note not ready', {
-      nextCardId: nextCard?.id,
-      nextCardNoteId: nextCard?.note_id,
-      noteId: note?.id,
-      dataIsConsistent,
-    });
-  }
-
-  return {
-    card: cardWithNote,
-    counts: counts || { new: 0, learning: 0, review: 0 },
-    intervalPreviews,
-    isLoading,
-    refetch: () => queryClient.invalidateQueries({ queryKey: ['offlineDueCards'] }),
-  };
-}
-
-// Helper to get interval preview locally
-function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: DeckSettings): IntervalPreview {
-  return getIntervalPreview(
-    rating,
-    card.queue,
-    card.learning_step,
-    card.ease_factor,
-    card.interval,
-    card.repetitions,
-    settings,
-    card.stability,
-    card.difficulty,
-    card.lapses,
-    card.updated_at
-  );
-}
-
-// Hook to submit a review offline
-export function useSubmitReviewOffline() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      cardId,
-      rating,
-      timeSpentMs,
-      userAnswer,
-      sessionId: _sessionId, // Kept for API compatibility, no longer used in event-sourced architecture
-      recordingBlob,
-    }: {
-      cardId: string;
-      rating: Rating;
-      timeSpentMs?: number;
-      userAnswer?: string;
-      sessionId?: string;
-      recordingBlob?: Blob;
-    }) => {
-      // Get the card
-      const card = await db.cards.get(cardId);
-      if (!card) {
-        throw new Error('Card not found');
-      }
-
-      // If this card was NEW, increment the daily counter BEFORE updating the card
-      // This ensures the counter stays in sync with actual new cards studied
-      const wasNewCard = card.queue === CardQueue.NEW;
-      if (wasNewCard) {
-        await incrementNewCardsStudiedToday(card.deck_id);
-      }
-
-      // Get deck settings
-      const deck = await db.decks.get(card.deck_id);
-      const settings = deck ? deckSettingsFromDb(deck) : DEFAULT_DECK_SETTINGS;
-
-      // Calculate new scheduling state
-      const result = scheduleCard(
-        rating,
-        card.queue,
-        card.learning_step,
-        card.ease_factor,
-        card.interval,
-        card.repetitions,
-        settings,
-        card.stability,
-        card.difficulty,
-        card.lapses,
-        card.updated_at
-      );
-
-      const reviewId = crypto.randomUUID();
-      const reviewedAt = new Date().toISOString();
-
-      // Update card with new state (including FSRS fields) - this is the critical path for UI responsiveness
-      await db.cards.update(cardId, {
-        queue: result.queue,
-        learning_step: result.learning_step,
-        ease_factor: result.ease_factor,
-        interval: result.interval,
-        repetitions: result.repetitions,
-        next_review_at: result.next_review_at?.toISOString() || null,
-        due_timestamp: result.due_timestamp,
-        stability: result.stability,
-        difficulty: result.difficulty,
-        lapses: result.lapses,
-        updated_at: reviewedAt,
-      });
-
-      // Clear the cached card selection to force picking a new card
-      // This prevents the same card from being shown again before Dexie's live query updates
-      currentSelectedCardId = null;
-
-      // Create review event for event-sourced architecture
-      await createLocalReviewEvent({
-        id: reviewId,
-        card_id: cardId,
-        rating,
-        time_spent_ms: timeSpentMs || null,
-        user_answer: userAnswer || null,
-        reviewed_at: reviewedAt,
-        _synced: 0,
-      });
-
-      // Store recording blob separately (will be uploaded during sync)
-      if (recordingBlob) {
-        await storePendingRecording({
-          id: reviewId,
-          blob: recordingBlob,
-          uploaded: false,
-          created_at: reviewedAt,
-        });
-      }
-
-      // Trigger background sync if online
-      if (navigator.onLine) {
-        syncService.syncEvents().catch(console.error);
-      }
-
-      return {
-        queue: result.queue,
-        interval: result.interval,
-        next_due: result.due_timestamp || result.next_review_at?.toISOString(),
-      };
-    },
-    onSuccess: () => {
-      // Invalidate queries to refresh UI
-      queryClient.invalidateQueries({ queryKey: ['offlineDueCards'] });
-      queryClient.invalidateQueries({ queryKey: ['offlineQueueCounts'] });
-    },
-  });
-}
-
-// Hook to get sync status
-export function useSyncStatus() {
-  const syncMeta = useLiveQuery(() => getSyncMeta(), []);
-  const pendingCount = usePendingReviewsCount();
-
-  return {
-    lastFullSync: syncMeta?.last_full_sync ? new Date(syncMeta.last_full_sync) : null,
-    lastIncrementalSync: syncMeta?.last_incremental_sync ? new Date(syncMeta.last_incremental_sync) : null,
-    pendingReviewsCount: pendingCount,
-    hasPendingChanges: pendingCount > 0,
-  };
-}
 
 // Initialize offline data - call this on app start
 export async function initializeOfflineData(): Promise<void> {
+  ensureDailyStatsOnce();
+
   if (!navigator.onLine) {
     console.log('Offline - using cached data');
     return;
@@ -661,8 +145,8 @@ export async function initializeOfflineData(): Promise<void> {
   if (needsSync) {
     console.log('Performing initial full sync...');
     await syncService.fullSync();
+    ensureDailyStatsInitialized().catch(console.error);
   } else {
-    // Do a background incremental sync
     syncService.syncInBackground();
   }
 }

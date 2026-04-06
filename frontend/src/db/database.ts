@@ -361,16 +361,10 @@ export async function getCardsByDeckId(deckId: string): Promise<LocalCard[]> {
 
 // ============ Daily Limit Tracking ============
 
-/**
- * Get the daily stats ID for a given date and deck.
- */
 function getDailyStatsId(date: string, deckId: string): string {
   return `${date}:${deckId}`;
 }
 
-/**
- * Get the current date string in YYYY-MM-DD format.
- */
 function getTodayString(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -380,118 +374,120 @@ function getTodayString(): string {
 }
 
 /**
- * SLOW: Compute new cards studied today by scanning review events.
- * This is O(n) where n = cards reviewed today. Used as fallback when counter not cached.
- * This is READ-ONLY and safe to call from useLiveQuery contexts.
+ * Compute "new cards studied today" for ALL decks in one pass over today's review
+ * events. A card counts as "new today" if its first-ever review was today.
+ *
+ * Uses the `reviewed_at` index (range query) and a single bulkGet for cards, so
+ * cost is O(events_today) regardless of total history size.
  */
-async function _computeNewCardsStudiedTodaySlow(deckId: string): Promise<number> {
+async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, number>> {
   const today = getTodayString();
 
-  // Get all review events from today for this deck's cards
   const todayEvents = await db.reviewEvents
-    .filter(e => e.reviewed_at.startsWith(today))
+    .where('reviewed_at')
+    .between(today, today + '\uffff')
     .toArray();
 
-  if (todayEvents.length === 0) return 0;
+  const result = new Map<string, number>();
+  if (todayEvents.length === 0) return result;
 
-  // Group by card_id and find first review of each card
-  const cardFirstReview = new Map<string, LocalReviewEvent>();
-  for (const event of todayEvents) {
-    const existing = cardFirstReview.get(event.card_id);
-    if (!existing || event.reviewed_at < existing.reviewed_at) {
-      cardFirstReview.set(event.card_id, event);
-    }
+  const cardIds = [...new Set(todayEvents.map(e => e.card_id))];
+
+  // A card was NEW before today iff it has no review events before today.
+  // The [card_id+reviewed_at] index lets us fetch each card's first-ever event cheaply.
+  const [firstEventKeys, cards] = await Promise.all([
+    Promise.all(
+      cardIds.map(id =>
+        db.reviewEvents.where('[card_id+reviewed_at]').between([id, ''], [id, '\uffff']).limit(1).keys()
+      )
+    ),
+    db.cards.bulkGet(cardIds),
+  ]);
+
+  const deckByCard = new Map<string, string>();
+  for (const card of cards) {
+    if (card) deckByCard.set(card.id, card.deck_id);
   }
 
-  // For each card, check if it was NEW before today's first review
-  // A card was NEW if it had no reviews before today
-  let count = 0;
-
-  for (const [cardId] of cardFirstReview) {
-    // Check if card had any reviews before today
-    const priorReviews = await db.reviewEvents
-      .where('card_id')
-      .equals(cardId)
-      .filter(e => !e.reviewed_at.startsWith(today))
-      .count();
-
-    if (priorReviews === 0) {
-      // This was a NEW card - check deck filter
-      const card = await db.cards.get(cardId);
-      if (card && card.deck_id === deckId) {
-        count++;
-      }
-    }
+  for (let i = 0; i < cardIds.length; i++) {
+    const firstKey = firstEventKeys[i][0] as unknown as [string, string] | undefined;
+    if (!firstKey || firstKey[1] < today) continue; // had reviews before today
+    const deckId = deckByCard.get(cardIds[i]);
+    if (!deckId) continue;
+    result.set(deckId, (result.get(deckId) ?? 0) + 1);
   }
 
-  return count;
+  return result;
 }
 
 /**
- * Get new cards studied today - READ-ONLY version safe for useLiveQuery.
- * Uses cached counter if available, falls back to slow computation.
- * Does NOT write to the database.
+ * Seed today's dailyStats counters for every deck so that subsequent reads never
+ * fall through to event scanning. Call once on app load (and at day rollover).
+ * Safe to call repeatedly; only writes rows that don't already exist.
  */
-async function _getNewCardsStudiedTodayReadOnly(deckId: string): Promise<number> {
+export async function ensureDailyStatsInitialized(): Promise<void> {
   const today = getTodayString();
-  const id = getDailyStatsId(today, deckId);
+  const [decks, existing] = await Promise.all([
+    db.decks.toArray(),
+    db.dailyStats.where('date').equals(today).toArray(),
+  ]);
 
-  const existing = await db.dailyStats.get(id);
-  if (existing) {
-    return existing.new_cards_studied;
-  }
+  const have = new Set(existing.map(s => s.deck_id));
+  const missing = decks.filter(d => !have.has(d.id));
+  if (missing.length === 0) return;
 
-  // No cached counter - fall back to slow computation (but don't cache here)
-  // Caching will happen when incrementNewCardsStudiedToday is called
-  return _computeNewCardsStudiedTodaySlow(deckId);
+  const computed = await computeNewCardsStudiedTodayByDeck();
+  await db.dailyStats.bulkPut(
+    missing.map(d => ({
+      id: getDailyStatsId(today, d.id),
+      date: today,
+      deck_id: d.id,
+      new_cards_studied: computed.get(d.id) ?? 0,
+    }))
+  );
 }
 
 /**
- * Get new cards studied today.
- * READ-ONLY - safe to call from useLiveQuery contexts.
+ * Read today's new-cards-studied counters for all decks. Prefers the dailyStats
+ * cache; falls back to a single fast recompute for any decks not yet cached.
  */
-export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
-  if (!deckId) {
-    // "All Decks" mode - sum up all decks
-    const allDecks = await db.decks.toArray();
-    let total = 0;
-    for (const deck of allDecks) {
-      total += await _getNewCardsStudiedTodayReadOnly(deck.id);
-    }
-    return total;
-  }
+async function getNewCardsStudiedTodayMap(deckIds: string[]): Promise<Map<string, number>> {
+  const today = getTodayString();
+  const rows = await db.dailyStats.where('date').equals(today).toArray();
+  const result = new Map(rows.map(r => [r.deck_id, r.new_cards_studied]));
+  if (deckIds.every(id => result.has(id))) return result;
 
-  return _getNewCardsStudiedTodayReadOnly(deckId);
+  const computed = await computeNewCardsStudiedTodayByDeck();
+  for (const id of deckIds) {
+    if (!result.has(id)) result.set(id, computed.get(id) ?? 0);
+  }
+  return result;
+}
+
+/** Read-only. Safe for useLiveQuery. */
+export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
+  const decks = await db.decks.toArray();
+  const map = await getNewCardsStudiedTodayMap(decks.map(d => d.id));
+  if (deckId) return map.get(deckId) ?? 0;
+  let total = 0;
+  for (const v of map.values()) total += v;
+  return total;
 }
 
 /**
- * Increment the new cards studied counter for a deck.
- * Called when a NEW card is reviewed for the first time.
- * This WRITES to the database - only call outside of useLiveQuery contexts.
+ * Increment the new-cards-studied counter for a deck.
+ * Writes to the database; call outside useLiveQuery contexts.
  */
 export async function incrementNewCardsStudiedToday(deckId: string): Promise<void> {
   const today = getTodayString();
   const id = getDailyStatsId(today, deckId);
-
   const existing = await db.dailyStats.get(id);
-  if (existing) {
-    // Counter exists - increment it
-    await db.dailyStats.update(id, {
-      new_cards_studied: existing.new_cards_studied + 1,
-    });
-  } else {
-    // Counter doesn't exist - compute current count and add 1
-    const currentCount = await _computeNewCardsStudiedTodaySlow(deckId);
-    await db.dailyStats.put({
-      id,
-      date: today,
-      deck_id: deckId,
-      new_cards_studied: currentCount + 1,
-    });
-    console.log(`[dailyStats] Initialized counter for deck ${deckId} at ${currentCount + 1}`);
-  }
-
-  console.log(`[dailyStats] Incremented counter for deck ${deckId}`);
+  await db.dailyStats.put({
+    id,
+    date: today,
+    deck_id: deckId,
+    new_cards_studied: (existing?.new_cards_studied ?? 0) + 1,
+  });
 }
 
 /**
@@ -516,104 +512,147 @@ export async function cleanupOldDailyStats(): Promise<void> {
   }
 }
 
-// ============ Due Cards ============
+// ============ Due Cards & Queue Counts ============
 
 /**
- * Get cards that are due for study.
+ * "Due today" cutoff: end of today, or one hour from now if later (so studying
+ * near midnight still picks up cards due just after midnight).
+ */
+export function getStudyCutoff(): { iso: string; ts: number } {
+  const eod = new Date();
+  eod.setHours(23, 59, 59, 999);
+  const plus1h = Date.now() + 60 * 60 * 1000;
+  const ts = Math.max(eod.getTime(), plus1h);
+  return { iso: new Date(ts).toISOString(), ts };
+}
+
+async function loadCards(deckId?: string): Promise<LocalCard[]> {
+  return deckId ? db.cards.where('deck_id').equals(deckId).toArray() : db.cards.toArray();
+}
+
+/** Raw per-deck counts before applying the daily new-card limit/bonus. */
+export interface DeckQueueRaw {
+  learning: number;
+  review: number;
+  totalNew: number;
+  newCardsPerDay: number;
+  studiedToday: number;
+}
+
+export interface DeckQueueCounts {
+  new: number;
+  learning: number;
+  review: number;
+  hasMoreNew: boolean;
+}
+
+export const EMPTY_QUEUE_COUNTS: DeckQueueCounts = {
+  new: 0,
+  learning: 0,
+  review: 0,
+  hasMoreNew: false,
+};
+
+/** Apply a daily-limit + bonus to raw counts to get the displayable numbers. */
+export function applyNewCardBonus(raw: DeckQueueRaw, bonus: number): DeckQueueCounts {
+  const remaining = Math.max(0, raw.newCardsPerDay + bonus - raw.studiedToday);
+  const newCount = Math.min(raw.totalNew, remaining);
+  return {
+    new: newCount,
+    learning: raw.learning,
+    review: raw.review,
+    hasMoreNew: raw.totalNew > newCount,
+  };
+}
+
+export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCounts {
+  const total = { ...EMPTY_QUEUE_COUNTS };
+  for (const c of counts) {
+    total.new += c.new;
+    total.learning += c.learning;
+    total.review += c.review;
+    total.hasMoreNew ||= c.hasMoreNew;
+  }
+  return total;
+}
+
+/**
+ * Single scan of the cards table producing raw per-deck counts. Bonus/limit
+ * application is left to the caller (see applyNewCardBonus) so that one scan
+ * can serve multiple views with different bonuses.
+ */
+export async function getRawQueueCounts(deckId?: string): Promise<Map<string, DeckQueueRaw>> {
+  const cutoff = getStudyCutoff();
+  const decks = deckId
+    ? await db.decks.get(deckId).then(d => (d ? [d] : []))
+    : await db.decks.toArray();
+  const [cards, studied] = await Promise.all([
+    loadCards(deckId),
+    getNewCardsStudiedTodayMap(decks.map(d => d.id)),
+  ]);
+
+  const byDeck = new Map<string, DeckQueueRaw>();
+  for (const d of decks) {
+    byDeck.set(d.id, {
+      learning: 0,
+      review: 0,
+      totalNew: 0,
+      newCardsPerDay: d.new_cards_per_day,
+      studiedToday: studied.get(d.id) ?? 0,
+    });
+  }
+
+  for (const card of cards) {
+    const bucket = byDeck.get(card.deck_id);
+    if (!bucket) continue;
+    if (card.queue === CardQueue.NEW) {
+      bucket.totalNew++;
+    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+      bucket.learning++;
+    } else if (card.queue === CardQueue.REVIEW) {
+      if (!card.next_review_at || card.next_review_at <= cutoff.iso) bucket.review++;
+    }
+  }
+
+  return byDeck;
+}
+
+/**
+ * Get cards that are due for study, respecting per-deck new-card limits.
  *
- * @param deckId - Optional deck ID to filter by
- * @param bonusNewCards - Number of extra new cards to allow beyond the daily limit (default 0)
- *                        Pass Infinity to ignore the limit entirely
+ * @param bonusNewCards Extra new cards beyond the daily limit (Infinity = no limit).
  */
 export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<LocalCard[]> {
-  const now = Date.now();
-  // Get end of today (midnight tonight) for review cards
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
-  // Include cards due within the next hour to handle studying near midnight —
-  // cards due shortly after midnight should still appear in the current session
-  const oneHourFromNow = new Date(now + 60 * 60 * 1000);
-  const cutoff = oneHourFromNow > today ? oneHourFromNow : today;
-  const endOfTodayIso = cutoff.toISOString();
-  const cutoffTimestamp = cutoff.getTime();
+  const cutoff = getStudyCutoff();
+  const decks = deckId
+    ? await db.decks.get(deckId).then(d => (d ? [d] : []))
+    : await db.decks.toArray();
+  const [cards, studied] = await Promise.all([
+    loadCards(deckId),
+    getNewCardsStudiedTodayMap(decks.map(d => d.id)),
+  ]);
 
-  let cards: LocalCard[];
-  if (deckId) {
-    cards = await db.cards.where('deck_id').equals(deckId).toArray();
-  } else {
-    cards = await db.cards.toArray();
-  }
+  const remaining = new Map(
+    decks.map(d => [d.id, Math.max(0, d.new_cards_per_day + bonusNewCards - (studied.get(d.id) ?? 0))])
+  );
+  const newTaken = new Map<string, number>();
+  const due: LocalCard[] = [];
 
-  // Filter for due cards
-  const dueCards: LocalCard[] = [];
-
-  if (deckId) {
-    // Single deck mode - use that deck's limit
-    let newCardsPerDay = 30; // default
-    const deck = await db.decks.get(deckId);
-    if (deck) {
-      newCardsPerDay = deck.new_cards_per_day;
-    }
-    const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
-    // Apply bonus to the effective limit
-    const effectiveLimit = newCardsPerDay + bonusNewCards;
-    const remainingNewCards = Math.max(0, effectiveLimit - newCardsStudiedToday);
-    let newCardCount = 0;
-
-    for (const card of cards) {
-      if (card.queue === CardQueue.NEW) {
-        if (newCardCount < remainingNewCards) {
-          dueCards.push(card);
-          newCardCount++;
-        }
-      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-        if (!card.due_timestamp || card.due_timestamp <= cutoffTimestamp) {
-          dueCards.push(card);
-        }
-      } else if (card.queue === CardQueue.REVIEW) {
-        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
-          dueCards.push(card);
-        }
+  for (const card of cards) {
+    if (card.queue === CardQueue.NEW) {
+      const taken = newTaken.get(card.deck_id) ?? 0;
+      if (taken < (remaining.get(card.deck_id) ?? 0)) {
+        due.push(card);
+        newTaken.set(card.deck_id, taken + 1);
       }
-    }
-  } else {
-    // All Decks mode - respect per-deck new card limits
-    const allDecks = await db.decks.toArray();
-
-    // Build a map of deck_id -> remaining new cards for that deck
-    const deckLimits = new Map<string, number>();
-    const deckNewCounts = new Map<string, number>();
-
-    for (const deck of allDecks) {
-      const studiedToday = await getNewCardsStudiedToday(deck.id);
-      // Apply bonus proportionally across decks (or to total if not specified)
-      const effectiveLimit = deck.new_cards_per_day + bonusNewCards;
-      const remaining = Math.max(0, effectiveLimit - studiedToday);
-      deckLimits.set(deck.id, remaining);
-      deckNewCounts.set(deck.id, 0);
-    }
-
-    for (const card of cards) {
-      if (card.queue === CardQueue.NEW) {
-        const deckRemaining = deckLimits.get(card.deck_id) || 0;
-        const deckCurrentNew = deckNewCounts.get(card.deck_id) || 0;
-        if (deckCurrentNew < deckRemaining) {
-          dueCards.push(card);
-          deckNewCounts.set(card.deck_id, deckCurrentNew + 1);
-        }
-      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-        if (!card.due_timestamp || card.due_timestamp <= cutoffTimestamp) {
-          dueCards.push(card);
-        }
-      } else if (card.queue === CardQueue.REVIEW) {
-        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
-          dueCards.push(card);
-        }
-      }
+    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+      if (!card.due_timestamp || card.due_timestamp <= cutoff.ts) due.push(card);
+    } else if (card.queue === CardQueue.REVIEW) {
+      if (!card.next_review_at || card.next_review_at <= cutoff.iso) due.push(card);
     }
   }
 
-  return dueCards;
+  return due;
 }
 
 // ============ Sync Metadata ============
@@ -648,113 +687,14 @@ export async function resetSyncTimestamps(): Promise<void> {
   await db.syncMeta.clear();
 }
 
-// ============ Queue Counts ============
-
-/**
- * Get queue counts for the current study session.
- *
- * Unlike getDueCards (which only returns immediately available cards),
- * this includes ALL learning/relearning cards regardless of their delay.
- * This matches Anki behavior where failing a card increments the red count
- * immediately, even though the card won't be shown again for a few minutes.
- *
- * When all counts hit zero, the user is done studying for the day.
- *
- * @param deckId - Optional deck ID to filter by
- * @param bonusNewCards - Number of extra new cards to allow beyond the daily limit (default 0)
- *                        Pass Infinity to ignore the limit entirely
- */
-export async function getQueueCounts(deckId?: string, bonusNewCards = 0): Promise<{ new: number; learning: number; review: number }> {
-  // Get end of today for review cards, with 1-hour buffer for studying near midnight
-  const now = Date.now();
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
-  const oneHourFromNow = new Date(now + 60 * 60 * 1000);
-  const cutoff = oneHourFromNow > today ? oneHourFromNow : today;
-  const endOfTodayIso = cutoff.toISOString();
-
-  let cards: LocalCard[];
-  if (deckId) {
-    cards = await db.cards.where('deck_id').equals(deckId).toArray();
-  } else {
-    cards = await db.cards.toArray();
-  }
-
-  let newCount = 0;
-  let learningCount = 0;
-  let reviewCount = 0;
-
-  if (deckId) {
-    // Single deck mode - use that deck's limit
-    let newCardsPerDay = 30;
-    const deck = await db.decks.get(deckId);
-    if (deck) {
-      newCardsPerDay = deck.new_cards_per_day;
-    }
-    const newCardsStudiedToday = await getNewCardsStudiedToday(deckId);
-    const effectiveLimit = newCardsPerDay + bonusNewCards;
-    const remainingNewCards = Math.max(0, effectiveLimit - newCardsStudiedToday);
-
-    for (const card of cards) {
-      if (card.queue === CardQueue.NEW) {
-        if (newCount < remainingNewCards) {
-          newCount++;
-        }
-      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-        learningCount++;
-      } else if (card.queue === CardQueue.REVIEW) {
-        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
-          reviewCount++;
-        }
-      }
-    }
-  } else {
-    // All Decks mode - sum up per-deck limits
-    const allDecks = await db.decks.toArray();
-
-    // Build a map of deck_id -> remaining new cards for that deck
-    const deckLimits = new Map<string, number>();
-    const deckNewCounts = new Map<string, number>();
-
-    for (const deck of allDecks) {
-      const studiedToday = await getNewCardsStudiedToday(deck.id);
-      const effectiveLimit = deck.new_cards_per_day + bonusNewCards;
-      const remaining = Math.max(0, effectiveLimit - studiedToday);
-      deckLimits.set(deck.id, remaining);
-      deckNewCounts.set(deck.id, 0);
-    }
-
-    for (const card of cards) {
-      if (card.queue === CardQueue.NEW) {
-        const deckRemaining = deckLimits.get(card.deck_id) || 0;
-        const deckCurrentNew = deckNewCounts.get(card.deck_id) || 0;
-        if (deckCurrentNew < deckRemaining) {
-          newCount++;
-          deckNewCounts.set(card.deck_id, deckCurrentNew + 1);
-        }
-      } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-        learningCount++;
-      } else if (card.queue === CardQueue.REVIEW) {
-        if (!card.next_review_at || card.next_review_at <= endOfTodayIso) {
-          reviewCount++;
-        }
-      }
-    }
-  }
-
-  return {
-    new: newCount,
-    learning: learningCount,
-    review: reviewCount,
-  };
-}
-
-export async function hasMoreNewCards(deckId?: string, currentBonus = 0): Promise<boolean> {
-  const limitedCounts = await getQueueCounts(deckId, currentBonus);
-  const unlimitedCounts = await getQueueCounts(deckId, Infinity);
-  const hasMore = unlimitedCounts.new > limitedCounts.new;
-  console.log(`[hasMoreNewCards] deckId: ${deckId}, currentBonus: ${currentBonus}, limitedNew: ${limitedCounts.new}, unlimitedNew: ${unlimitedCounts.new}, hasMore: ${hasMore}`);
-  return hasMore;
+/** Convenience: counts for one deck (or all combined) with a flat bonus applied. */
+export async function getQueueCounts(
+  deckId?: string,
+  bonusNewCards = 0
+): Promise<DeckQueueCounts> {
+  const raw = await getRawQueueCounts(deckId);
+  const applied = [...raw.values()].map(r => applyNewCardBonus(r, bonusNewCards));
+  return deckId ? applied[0] ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied);
 }
 
 // ============ Database Stats ============

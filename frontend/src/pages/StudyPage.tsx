@@ -50,6 +50,7 @@ import CardEditModal from '../components/CardEditModal';
 import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
+import { readBonus, writeBonus } from '../utils/bonusNewCards';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -474,7 +475,7 @@ function StudyCard({
   }, [isTypingCard, flipped]);
 
   // Play audio for audio cards on front
-  // Note: useOfflineNextCard guarantees card.note_id === card.note.id (data consistency)
+  // Note: useStudySession guarantees card.note_id === card.note.id (data consistency)
   useEffect(() => {
     if (card.card_type === 'audio_to_hanzi' && !flipped) {
       // Only play if we haven't already played for this card
@@ -2685,29 +2686,15 @@ export function StudyPage() {
   const tutors = useMemo(() => relationships?.tutors || [], [relationships?.tutors]);
 
   // Bonus new cards - persisted in localStorage per deck, resets daily
-  const getTodayKey = (forDeckId?: string) =>
-    `bonusNewCards_${forDeckId || 'all'}_${new Date().toISOString().slice(0, 10)}`;
+  const [bonusNewCards, setBonusNewCards] = useState(() => readBonus(deckId));
 
-  const getStoredBonus = (forDeckId?: string): number => {
-    try {
-      const stored = localStorage.getItem(getTodayKey(forDeckId));
-      return stored ? parseInt(stored, 10) || 0 : 0;
-    } catch {
-      return 0;
-    }
-  };
-
-  const [bonusNewCards, setBonusNewCards] = useState(() => getStoredBonus(deckId));
-
-  // Re-read bonus when deckId changes
   useEffect(() => {
-    setBonusNewCards(getStoredBonus(deckId));
+    setBonusNewCards(readBonus(deckId));
   }, [deckId]);
 
-  // Persist bonus to localStorage whenever it changes
   useEffect(() => {
     try {
-      // Clean up old keys (from previous days)
+      // Clean up keys from previous days
       const todayDate = new Date().toISOString().slice(0, 10);
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
@@ -2715,8 +2702,7 @@ export function StudyPage() {
           localStorage.removeItem(key);
         }
       }
-      // Save current bonus for this deck
-      localStorage.setItem(getTodayKey(deckId), String(bonusNewCards));
+      writeBonus(deckId, bonusNewCards);
     } catch {
       // localStorage might be unavailable
     }

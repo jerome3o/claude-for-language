@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { getDecks, createDeck, getDeckStats } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
 import { Deck, DeckStats, QueueCounts } from '../types';
-import { useOfflineQueueCounts, useOfflineDecks, useHasMoreNewCards } from '../hooks/useOfflineData';
+import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
+import { applyNewCardBonus, sumQueueCounts, EMPTY_QUEUE_COUNTS, DeckQueueCounts } from '../db/database';
+import { readBonus, writeBonus } from '../utils/bonusNewCards';
 
 // Queue counts display component
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -58,49 +60,28 @@ function MasteryProgressBar({ stats }: { stats: DeckStats }) {
   );
 }
 
-function DeckCard({ deck }: { deck: Deck }) {
+function DeckCard({
+  deck,
+  counts,
+  onAddMore,
+}: {
+  deck: Deck;
+  counts: DeckQueueCounts;
+  onAddMore: () => void;
+}) {
   const navigate = useNavigate();
   // Stats are optional - don't block on this, queue counts work offline
   const statsQuery = useQuery({
     queryKey: ['deckStats', deck.id],
     queryFn: () => getDeckStats(deck.id),
     retry: false,
-    staleTime: 60000, // Cache for 1 minute
+    staleTime: 60000,
   });
 
-  // Track bonus for this specific deck
-  const getTodayKey = () =>
-    `bonusNewCards_${deck.id}_${new Date().toISOString().slice(0, 10)}`;
-
-  const getStoredBonus = (): number => {
-    try {
-      const stored = localStorage.getItem(getTodayKey());
-      return stored ? parseInt(stored, 10) || 0 : 0;
-    } catch {
-      return 0;
-    }
-  };
-
-  const [bonus, setBonus] = useState(() => getStoredBonus());
-
-  // Get offline queue counts for this specific deck
-  const { counts: offlineCounts } = useOfflineQueueCounts(deck.id, bonus);
-  const hasMoreNewCards = useHasMoreNewCards(deck.id, bonus);
-
   const stats = statsQuery.data;
-  const totalDue = offlineCounts.new + offlineCounts.learning + offlineCounts.review;
+  const totalDue = counts.new + counts.learning + counts.review;
 
-  const handleStudy = () => {
-    // Navigate directly to study with autostart
-    navigate(`/study?deck=${deck.id}&autostart=true`);
-  };
-
-  const handleAddMore = () => {
-    const currentBonus = parseInt(localStorage.getItem(getTodayKey()) || '0', 10);
-    const newBonus = currentBonus + 10;
-    localStorage.setItem(getTodayKey(), String(newBonus));
-    setBonus(newBonus);
-  };
+  const handleStudy = () => navigate(`/study?deck=${deck.id}&autostart=true`);
 
   return (
     <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
@@ -123,7 +104,7 @@ function DeckCard({ deck }: { deck: Deck }) {
 
       {/* Study button with offline queue counts */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #e5e7eb' }}>
-        <QueueCountsBadge counts={offlineCounts} />
+        <QueueCountsBadge counts={counts} />
         {totalDue > 0 ? (
           <button
             onClick={handleStudy}
@@ -132,9 +113,9 @@ function DeckCard({ deck }: { deck: Deck }) {
           >
             Study ({totalDue})
           </button>
-        ) : hasMoreNewCards ? (
+        ) : counts.hasMoreNew ? (
           <button
-            onClick={handleAddMore}
+            onClick={onAddMore}
             className="btn btn-secondary btn-sm"
             style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
           >
@@ -172,54 +153,53 @@ export function HomePage() {
   // Use offline decks as the source of truth
   const decks = offlineDecks;
 
-  // Track bonus new cards - read from localStorage, update state to trigger re-render
-  const getTodayKey = (forDeckId?: string) =>
-    `bonusNewCards_${forDeckId || 'all'}_${new Date().toISOString().slice(0, 10)}`;
-
-  const getStoredBonus = (forDeckId?: string): number => {
-    try {
-      const stored = localStorage.getItem(getTodayKey(forDeckId));
-      return stored ? parseInt(stored, 10) || 0 : 0;
-    } catch {
-      return 0;
-    }
-  };
-
-  const [bonusAll, setBonusAll] = useState(() => getStoredBonus());
-
-  // Get total queue counts across all decks for the "Study All" button
-  const COUNTS_CACHE_KEY = 'lastQueueCounts';
-  const { counts: liveCounts, isLoading: countsLoading } = useOfflineQueueCounts(undefined, bonusAll);
-  const hasMoreNewCardsAll = useHasMoreNewCards(undefined, bonusAll);
-
-  // Use cached counts from localStorage while live counts are loading
-  const [cachedCounts, setCachedCounts] = useState(() => {
-    try {
-      const stored = localStorage.getItem(COUNTS_CACHE_KEY);
-      return stored ? JSON.parse(stored) as { new: number; learning: number; review: number } : null;
-    } catch { return null; }
-  });
-
-  // Once live counts load, update both localStorage and cached state
+  // ---- Bonus tracking ("+10 more" buttons) ----
+  const deckIdsKey = decks.map(d => d.id).join(',');
+  const [bonusAll, setBonusAll] = useState(() => readBonus(undefined));
+  const [deckBonuses, setDeckBonuses] = useState<Record<string, number>>(() =>
+    Object.fromEntries(decks.map(d => [d.id, readBonus(d.id)]))
+  );
   useEffect(() => {
-    if (!countsLoading) {
-      localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(liveCounts));
-      setCachedCounts(liveCounts);
-    }
-  }, [countsLoading, liveCounts]);
+    setDeckBonuses(Object.fromEntries(decks.map(d => [d.id, readBonus(d.id)])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deckIdsKey]);
 
-  const totalCounts = countsLoading && cachedCounts ? cachedCounts : liveCounts;
-  const totalDue = totalCounts.new + totalCounts.learning + totalCounts.review;
-  const showStudyLoading = countsLoading && !cachedCounts;
-
-  // Handle "+10 More" button click for "All Decks" - add bonus cards and update state
-  const handleAddMoreAll = () => {
-    const todayKey = getTodayKey();
-    const currentBonus = parseInt(localStorage.getItem(todayKey) || '0', 10);
-    const newBonus = currentBonus + 10;
-    localStorage.setItem(todayKey, String(newBonus));
-    setBonusAll(newBonus);
+  const bumpBonus = (deckId: string | undefined) => {
+    const next = readBonus(deckId) + 10;
+    writeBonus(deckId, next);
+    if (deckId) setDeckBonuses(b => ({ ...b, [deckId]: next }));
+    else setBonusAll(next);
   };
+
+  // ---- Queue counts: ONE live query, bonuses applied in-memory ----
+  const { byDeck: rawByDeck, isLoading: countsLoading } = useRawQueueCounts();
+
+  const { perDeck, liveTotal } = useMemo(() => {
+    const perDeck = new Map<string, DeckQueueCounts>();
+    const headerCounts: DeckQueueCounts[] = [];
+    for (const [id, raw] of rawByDeck) {
+      perDeck.set(id, applyNewCardBonus(raw, deckBonuses[id] ?? 0));
+      headerCounts.push(applyNewCardBonus(raw, bonusAll));
+    }
+    return { perDeck, liveTotal: sumQueueCounts(headerCounts) };
+  }, [rawByDeck, deckBonuses, bonusAll]);
+
+  // Show last-known totals from localStorage while the live query loads.
+  const COUNTS_CACHE_KEY = 'lastQueueCounts';
+  const cachedCountsRef = useState<QueueCounts | null>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(COUNTS_CACHE_KEY) || 'null');
+    } catch {
+      return null;
+    }
+  })[0];
+  useEffect(() => {
+    if (!countsLoading) localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(liveTotal));
+  }, [countsLoading, liveTotal]);
+
+  const totalCounts = countsLoading && cachedCountsRef ? cachedCountsRef : liveTotal;
+  const totalDue = totalCounts.new + totalCounts.learning + totalCounts.review;
+  const showStudyLoading = countsLoading && !cachedCountsRef;
 
   const handleStudyAll = () => {
     navigate('/study?autostart=true');
@@ -265,8 +245,8 @@ export function HomePage() {
               <span>Study All</span>
               <QueueCountsBadge counts={totalCounts} />
             </button>
-          ) : hasMoreNewCardsAll ? (
-            <button onClick={handleAddMoreAll} className="btn btn-secondary btn-lg btn-block">
+          ) : liveTotal.hasMoreNew ? (
+            <button onClick={() => bumpBonus(undefined)} className="btn btn-secondary btn-lg btn-block">
               +10 More New Cards
             </button>
           ) : (
@@ -329,7 +309,12 @@ export function HomePage() {
             <>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 {decks.map((deck) => (
-                  <DeckCard key={deck.id} deck={deck} />
+                  <DeckCard
+                    key={deck.id}
+                    deck={deck}
+                    counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
+                    onAddMore={() => bumpBonus(deck.id)}
+                  />
                 ))}
               </div>
 
