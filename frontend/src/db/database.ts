@@ -410,7 +410,7 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, number>>
   }
 
   for (let i = 0; i < cardIds.length; i++) {
-    const firstKey = firstEventKeys[i][0] as [string, string] | undefined;
+    const firstKey = firstEventKeys[i][0] as unknown as [string, string] | undefined;
     if (!firstKey || firstKey[1] < today) continue; // had reviews before today
     const deckId = deckByCard.get(cardIds[i]);
     if (!deckId) continue;
