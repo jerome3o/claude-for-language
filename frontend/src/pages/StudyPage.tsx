@@ -51,6 +51,7 @@ import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
+import { DEFAULT_TTS_SPEED } from '../types';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -303,7 +304,7 @@ function StudyCard({
   const [showDebug, setShowDebug] = useState(false);
   const [reviewHistory, setReviewHistory] = useState<LocalReviewEvent[]>([]);
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
-  const [audioSpeed, setAudioSpeed] = useState(0.8);
+  const [audioSpeed, setAudioSpeed] = useState(DEFAULT_TTS_SPEED);
   const [audioProvider, setAudioProvider] = useState<'minimax' | 'gtts' | ''>('');
   const [selectedVoice, setSelectedVoice] = useState<string>(DEFAULT_MINIMAX_VOICE);
 
@@ -443,18 +444,16 @@ function StudyCard({
     }
   }, [recordingIndex, playRecordingAtIndex]);
 
-  // Generate new audio with random MiniMax voice and speed
+  // Generate new audio with a random MiniMax voice at the default speed
   const generateStudyAudio = useCallback(async () => {
     setIsGeneratingStudyAudio(true);
     try {
       const randomVoice = MINIMAX_VOICES[Math.floor(Math.random() * MINIMAX_VOICES.length)];
-      const randomSpeed = Math.round((0.8 + Math.random() * 0.2) * 100) / 100; // 0.8 to 1.0
       const voiceName = randomVoice.name.replace(/\s*\(.*\)$/, '');
-      const speedLabel = randomSpeed !== 1.0 ? ` ${randomSpeed.toFixed(1)}x` : '';
       const newRecording = await generateNoteAudioRecording(card.note.id, 'minimax', {
-        speed: randomSpeed,
+        speed: DEFAULT_TTS_SPEED,
         voiceId: randomVoice.id,
-        speakerName: `${voiceName}${speedLabel}`,
+        speakerName: voiceName,
       });
       // Invalidate and refetch recordings list so React re-renders with new data
       await queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });

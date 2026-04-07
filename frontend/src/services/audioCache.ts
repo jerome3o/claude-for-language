@@ -1,5 +1,6 @@
 import { db } from '../db/database';
 import { API_BASE } from '../api/client';
+import { DEFAULT_TTS_SPEED } from '../types';
 
 const MAX_CACHE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_CACHE_SIZE = 500; // Max number of cached audio files
@@ -194,7 +195,7 @@ export function speakWithBrowserTTS(text: string): Promise<void> {
     }
 
     utterance.lang = 'zh-CN';
-    utterance.rate = 0.9; // Slightly slower for learning
+    utterance.rate = DEFAULT_TTS_SPEED;
 
     utterance.onend = () => resolve();
     utterance.onerror = (event) => reject(new Error(event.error));

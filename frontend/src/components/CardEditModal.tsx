@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CardWithNote, NoteAudioRecording, MINIMAX_VOICES } from '../types';
+import { DEFAULT_TTS_SPEED } from '../types';
 import {
   getNoteAudioRecordings,
   addNoteAudioRecording,
@@ -45,7 +46,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   // MiniMax generation options
   const [showMiniMaxOptions, setShowMiniMaxOptions] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<string>('__random__');
-  const [audioSpeed, setAudioSpeed] = useState(0.8);
+  const [audioSpeed, setAudioSpeed] = useState(DEFAULT_TTS_SPEED);
 
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
   const {
