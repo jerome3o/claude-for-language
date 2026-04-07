@@ -16,6 +16,7 @@ import {
   CLAUDE_AI_USER_ID,
 } from '../types';
 import { verifyRelationshipAccess, getOtherUserId, getMyRole } from './relationships';
+import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from './audio';
 import { generateId, CARD_TYPES } from './cards';
 
 type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
@@ -121,8 +122,8 @@ export async function createConversation(
       options?.user_role || null,
       options?.ai_role || null,
       isAiConversation ? 1 : 0,
-      options?.voice_id || 'Chinese (Mandarin)_Gentleman',
-      options?.voice_speed || 0.8
+      options?.voice_id || DEFAULT_MINIMAX_VOICE,
+      options?.voice_speed ?? DEFAULT_TTS_SPEED
     )
     .run();
 

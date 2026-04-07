@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { getAudioWithCache } from '../services/audioCache';
+import { DEFAULT_TTS_SPEED } from '../types';
 
 /**
  * Hook for recording audio using MediaRecorder
@@ -195,7 +196,7 @@ export function useTTS() {
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = lang;
-    utterance.rate = 0.8; // Slightly slower for learning
+    utterance.rate = DEFAULT_TTS_SPEED;
 
     // Try to find a Chinese voice
     const voices = window.speechSynthesis.getVoices();
@@ -337,7 +338,7 @@ function speakWithBrowserTTS(
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'zh-CN';
-  utterance.rate = 0.8;
+  utterance.rate = DEFAULT_TTS_SPEED;
 
   const voices = window.speechSynthesis.getVoices();
   const chineseVoice = voices.find(

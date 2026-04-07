@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { DEFAULT_TTS_SPEED } from '../types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getGradedReader,
@@ -295,7 +296,7 @@ function PageView({
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(page.content_chinese);
     utterance.lang = 'zh-CN';
-    utterance.rate = 0.8;
+    utterance.rate = DEFAULT_TTS_SPEED;
 
     // Try to find a Chinese voice
     const voices = window.speechSynthesis.getVoices();

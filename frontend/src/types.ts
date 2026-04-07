@@ -554,6 +554,9 @@ export const MINIMAX_VOICES = [
 // Default voice ID - male voice for TTS generation
 export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Gentleman';
 
+// Default speaking rate for all TTS (MiniMax, Google, browser SpeechSynthesis).
+export const DEFAULT_TTS_SPEED = 0.6;
+
 export interface AIRespondResponse {
   message: MessageWithSender;
   audio_base64: string | null;

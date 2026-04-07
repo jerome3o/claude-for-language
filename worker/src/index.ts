@@ -14,7 +14,7 @@ import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversati
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generateStory, generatePageImage } from './services/graded-reader';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateMiniMaxTTS, generateConversationTTS } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -1077,10 +1077,9 @@ app.post('/api/notes/:id/regenerate-audio', async (c) => {
       }
     }
 
-    // Generate new audio with MiniMax
-    const audioKey = await generateMiniMaxTTS(c.env, note.hanzi, note.id);
-    if (audioKey) {
-      await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey, audioProvider: 'minimax' });
+    const result = await generateTTS(c.env, note.hanzi, note.id, { preferProvider: 'minimax' });
+    if (result) {
+      await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
     } else {
@@ -1178,7 +1177,7 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     let sentenceClueAudioUrl: string | null = null;
     if (c.env.GOOGLE_TTS_API_KEY || c.env.MINIMAX_API_KEY) {
       try {
-        const audioResult = await generateTTS(c.env, sentenceClue, `${id}-sentence`, { speed: 0.65 });
+        const audioResult = await generateTTS(c.env, sentenceClue, `${id}-sentence`);
         if (audioResult) {
           sentenceClueAudioUrl = audioResult.audioKey;
         }
@@ -1442,12 +1441,11 @@ app.post('/api/decks/:id/regenerate-all-audio', async (c) => {
           }
         }
 
-        // Generate new audio with MiniMax
-        const audioKey = await generateMiniMaxTTS(c.env, note.hanzi, note.id);
-        if (audioKey) {
-          await db.updateNote(c.env.DB, note.id, { audioUrl: audioKey, audioProvider: 'minimax' });
+        const result = await generateTTS(c.env, note.hanzi, note.id, { preferProvider: 'minimax' });
+        if (result) {
+          await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
           regenerated++;
-          console.log('[Regenerate All] Regenerated', note.hanzi, 'with MiniMax');
+          console.log('[Regenerate All] Regenerated', note.hanzi, 'with', result.provider);
         } else {
           errors.push(`Failed to generate audio for ${note.hanzi}`);
         }
@@ -2012,10 +2010,7 @@ app.post('/api/transcribe', async (c) => {
   try {
     // Use whisper-large-v3-turbo for better accuracy and Chinese language support
     // It supports language, initial_prompt, and prefix parameters unlike basic whisper
-    const uint8 = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
-    const base64 = btoa(binary);
+    const base64 = bytesToBase64(new Uint8Array(arrayBuffer));
     const result = await c.env.AI.run('@cf/openai/whisper-large-v3-turbo' as any, {
       audio: base64,
       language: 'zh',
@@ -3421,8 +3416,8 @@ app.post('/api/conversations/:id/ai-respond', async (c) => {
     let audioContentType: string | null = null;
 
     const ttsResult = await generateConversationTTS(c.env, aiResponse, {
-      voiceId: conv.voice_id || 'female-yujie',
-      speed: conv.voice_speed || 0.5,
+      voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
+      speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
     });
 
     if (ttsResult) {
@@ -3483,8 +3478,8 @@ app.post('/api/conversations/:id/ai-initiate', async (c) => {
     let audioContentType: string | null = null;
 
     const ttsResult = await generateConversationTTS(c.env, aiResponse, {
-      voiceId: conv.voice_id || 'Chinese (Mandarin)_Gentleman',
-      speed: conv.voice_speed || 0.8,
+      voiceId: conv.voice_id || DEFAULT_MINIMAX_VOICE,
+      speed: conv.voice_speed ?? DEFAULT_TTS_SPEED,
     });
 
     if (ttsResult) {
@@ -3523,8 +3518,8 @@ app.post('/api/conversations/:id/tts', async (c) => {
 
     // Generate TTS
     const ttsResult = await generateConversationTTS(c.env, text, {
-      voiceId: voice_id || conv.voice_id || 'female-yujie',
-      speed: voice_speed || conv.voice_speed || 0.5,
+      voiceId: voice_id || conv.voice_id || DEFAULT_MINIMAX_VOICE,
+      speed: voice_speed ?? conv.voice_speed ?? DEFAULT_TTS_SPEED,
     });
 
     if (!ttsResult) {

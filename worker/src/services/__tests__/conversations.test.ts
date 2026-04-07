@@ -40,6 +40,7 @@ import {
 
 import { verifyRelationshipAccess, getOtherUserId, getMyRole } from '../relationships';
 import { generateId } from '../cards';
+import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from '../audio';
 
 const mockVerifyAccess = vi.mocked(verifyRelationshipAccess);
 const mockGetOtherUserId = vi.mocked(getOtherUserId);
@@ -207,8 +208,8 @@ describe('conversations service', () => {
       const queries = db.getQueries();
       const insertQuery = queries.find(q => q.sql.includes('INSERT INTO conversations'));
       // The last two params should be the voice defaults
-      expect(insertQuery!.params).toContain('Chinese (Mandarin)_Gentleman');
-      expect(insertQuery!.params).toContain(0.8);
+      expect(insertQuery!.params).toContain(DEFAULT_MINIMAX_VOICE);
+      expect(insertQuery!.params).toContain(DEFAULT_TTS_SPEED);
     });
 
     it('throws when conversation creation fails', async () => {

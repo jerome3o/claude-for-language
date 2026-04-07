@@ -99,7 +99,7 @@ function speakChinese(text: string) {
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'zh-CN';
-    utterance.rate = 0.8; // Slightly slower for learning
+    utterance.rate = 0.6;
 
     // Try to find a Chinese voice
     const voices = speechSynthesis.getVoices();

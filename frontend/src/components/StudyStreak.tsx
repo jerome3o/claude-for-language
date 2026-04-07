@@ -26,19 +26,21 @@ export function StudyStreak() {
   // Get all review events from last 30 days
   const thirtyDaysAgo = getDateString(getDaysAgo(30));
 
-  const reviewEvents = useLiveQuery(async () => {
-    return db.reviewEvents
-      .filter(e => e.reviewed_at >= thirtyDaysAgo)
-      .toArray();
-  }, [thirtyDaysAgo]);
+  const reviewEvents = useLiveQuery(
+    () => db.reviewEvents.where('reviewed_at').aboveOrEqual(thirtyDaysAgo).toArray(),
+    [thirtyDaysAgo]
+  );
 
-  if (!reviewEvents || reviewEvents.length === 0) {
-    return null; // Don't show anything if no study history
+  // While the query is in flight render an empty card with the same structure so
+  // the Study button below doesn't jump when data arrives.
+  const isLoading = reviewEvents === undefined;
+  if (!isLoading && reviewEvents.length === 0) {
+    return null;
   }
 
   // Group events by date
-  const eventsByDate = new Map<string, typeof reviewEvents>();
-  for (const event of reviewEvents) {
+  const eventsByDate = new Map<string, NonNullable<typeof reviewEvents>>();
+  for (const event of reviewEvents ?? []) {
     const date = event.reviewed_at.slice(0, 10);
     if (!eventsByDate.has(date)) {
       eventsByDate.set(date, []);
@@ -91,7 +93,12 @@ export function StudyStreak() {
   const maxCount = Math.max(...heatmapDays.map(d => d.count), 1);
 
   return (
-    <Link to="/progress" className="study-streak-card" style={{ textDecoration: 'none', color: 'inherit' }}>
+    <Link
+      to="/progress"
+      className="study-streak-card"
+      style={{ textDecoration: 'none', color: 'inherit', visibility: isLoading ? 'hidden' : 'visible' }}
+      aria-hidden={isLoading}
+    >
       <div className="streak-header">
         <div className="streak-count">
           <span className="streak-fire">🔥</span>

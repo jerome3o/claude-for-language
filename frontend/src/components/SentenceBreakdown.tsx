@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { SentenceBreakdown as SentenceBreakdownType } from '../types';
+import { DEFAULT_TTS_SPEED } from '../types';
 
 interface SentenceBreakdownProps {
   breakdown: SentenceBreakdownType;
@@ -54,7 +55,7 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'zh-CN';
-    utterance.rate = 0.8;
+    utterance.rate = DEFAULT_TTS_SPEED;
 
     // Try to find a Chinese voice
     const voices = window.speechSynthesis.getVoices();
