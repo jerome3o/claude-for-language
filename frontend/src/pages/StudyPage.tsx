@@ -1251,6 +1251,12 @@ function StudyCard({
             {isGeneratingFunFact ? 'Generating...' : 'Generate Fun Fact'}
           </button>
         ) : null}
+
+        {card.note.created_at && (
+          <div style={{ fontSize: '0.6875rem', opacity: 0.4, marginTop: '0.75rem' }}>
+            Added {new Date(card.note.created_at + (card.note.created_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+          </div>
+        )}
       </div>
     );
   };
@@ -1689,6 +1695,22 @@ function StudyCard({
                                   <div>
                                     <span className="tool-approval-icon">&#43;</span>
                                     <strong>Create {(tr.data?.count as number) || 0} new card{(tr.data?.count as number) !== 1 ? 's' : ''}</strong>
+                                    {(() => {
+                                      const created = tr.data?.created;
+                                      if (!Array.isArray(created)) return null;
+                                      const notes = created as Array<{ hanzi: string; pinyin: string; english: string }>;
+                                      return (
+                                        <div className="tool-approval-card-preview">
+                                          {notes.map((note, noteIdx) => (
+                                            <div key={noteIdx} className="tool-approval-card-item">
+                                              <span className="hanzi" style={{ fontSize: '1.1rem' }}>{note.hanzi}</span>
+                                              <span style={{ fontSize: '0.8rem', opacity: 0.7, marginLeft: '0.5rem' }}>{note.pinyin}</span>
+                                              <span style={{ fontSize: '0.8rem', opacity: 0.7, marginLeft: '0.5rem' }}>— {note.english}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 )}
                                 {tr.tool === 'delete_current_card' && tr.success && (
