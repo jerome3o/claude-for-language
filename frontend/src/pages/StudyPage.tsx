@@ -22,6 +22,7 @@ import {
   generateFunFact,
   createNote,
   getOverviewStats,
+  getMyDailyProgress,
   textToFlashcard,
 } from '../api/client';
 import { Loading } from '../components/Loading';
@@ -2623,14 +2624,21 @@ function StudyCard({
   );
 }
 
-function SessionRecap({ stats, dayStats }: { stats: SessionStats; dayStats?: OverviewStats | null }) {
+function formatTimeMs(ms: number): string {
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.floor((ms % 60000) / 1000);
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function SessionRecap({ stats, dayStats, todayTotalTimeMs }: { stats: SessionStats; dayStats?: OverviewStats | null; todayTotalTimeMs?: number }) {
   if (stats.totalReviews === 0) return null;
 
   const accuracy = Math.round((stats.correctCount / stats.totalReviews) * 100);
-  const timeSpentMs = Date.now() - stats.timeStarted;
-  const minutes = Math.floor(timeSpentMs / 60000);
-  const seconds = Math.floor((timeSpentMs % 60000) / 1000);
-  const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  const sessionTimeMs = Date.now() - stats.timeStarted;
+  const sessionTimeStr = formatTimeMs(sessionTimeMs);
+  // Total today = previous time from backend + current session time
+  const totalTodayMs = (todayTotalTimeMs || 0) + sessionTimeMs;
+  const totalTodayStr = formatTimeMs(totalTodayMs);
   const leechCount = stats.cardsRatedAgainMultiple.size;
 
   return (
@@ -2646,8 +2654,12 @@ function SessionRecap({ stats, dayStats }: { stats: SessionStats; dayStats?: Ove
           <div className="recap-stat-label">Accuracy</div>
         </div>
         <div className="recap-stat">
-          <div className="recap-stat-value">{timeStr}</div>
-          <div className="recap-stat-label">Time Spent</div>
+          <div className="recap-stat-value">{totalTodayStr}</div>
+          <div className="recap-stat-label">Total Study Time Today</div>
+        </div>
+        <div className="recap-stat">
+          <div className="recap-stat-value">{sessionTimeStr}</div>
+          <div className="recap-stat-label">This Session</div>
         </div>
         <div className="recap-stat">
           <div className="recap-stat-value">{stats.bestStreak}</div>
@@ -2753,11 +2765,17 @@ export function StudyPage() {
   const isAllDone = !isLoading && !currentCard && counts.new === 0 && counts.learning === 0 && counts.review === 0;
   const isNearlyDone = counts.new + counts.learning + counts.review <= 3;
   const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
+  const [todayTotalTimeMs, setTodayTotalTimeMs] = useState<number>(0);
   const dayStatsFetchedRef = useRef(false);
   useEffect(() => {
     if ((isAllDone || isNearlyDone) && isOnline && !dayStatsFetchedRef.current) {
       dayStatsFetchedRef.current = true;
       getOverviewStats().then(setDayStats).catch(() => {});
+      getMyDailyProgress().then(progress => {
+        const today = new Date().toISOString().split('T')[0];
+        const todayEntry = progress.days.find(d => d.date === today);
+        setTodayTotalTimeMs(todayEntry?.time_spent_ms || 0);
+      }).catch(() => {});
     }
   }, [isAllDone, isNearlyDone, isOnline]);
 
@@ -2866,7 +2884,7 @@ export function StudyPage() {
                 ? `You've finished your daily limit${bonusNewCards > 0 ? ` (+${bonusNewCards} bonus)` : ''}. Want to study more?`
                 : "No more cards due right now."}
             </p>
-            <SessionRecap stats={sessionStats} dayStats={dayStats} />
+            <SessionRecap stats={sessionStats} dayStats={dayStats} todayTotalTimeMs={todayTotalTimeMs} />
             <div className="flex flex-col gap-3 items-center mt-4">
               {hasMoreNewCards ? (
                 <button
