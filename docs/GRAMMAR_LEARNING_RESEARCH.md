@@ -268,6 +268,50 @@ Phases 1–2 give you a working daily grammar session. Phase 3 makes it personal
 
 ---
 
+## Part 8: Additional Findings (Deep-Research Pass)
+
+A second, broader research pass (12 search angles → 18 sources → synthesis) surfaced material that **changes or sharpens** the proposal above:
+
+### Two exercise types I'd add
+
+**Pattern Flood (receptive warm-up)** — Before asking you to *produce* a structure, show 6–8 example sentences of it (all your vocab, TTS auto-plays). Tap "got it" or "show me 3 more." This is the gentle on-ramp that should *precede* Constrained Translation each day. Textbooks give 3–4 fixed examples with whatever vocab the author chose; Claude generates unlimited examples at *your* exact vocab level. Slot this before exercise #1.
+
+**Contrastive Pairs (disambiguation)** — Two near-identical sentences differing in one feature (了 vs 过, 在 vs 着, 把 vs plain SVO). Given an English context, pick which fits. Then one-line explanation of the semantic difference. This isolates "what does this particle actually *mean*" from production ability — different from cloze (which tests "what goes in the slot"). The hardest A2/B1 grammar (aspect markers, 是…的) is hard precisely because the meaning contribution is subtle; this targets that directly.
+
+### A better Shadowing design
+
+Replace plain shadowing with **Shadow + Produce**: (1) TTS plays a pattern sentence, (2) you record yourself repeating it, (3) prompt: "now say a *different* sentence using the same pattern," (4) you record, (5) Claude transcribes and checks whether you used the structure correctly. Shadowing first lowers the barrier (mimicry before creation); the novel-sentence step forces generative use. This is the spoken-output exercise that didn't exist before LLMs.
+
+### Cleaner architecture: grammar points as FSRS cards
+
+Instead of a separate new/learning/known tracker, make each grammar point an **FSRS card** in a "Grammar" deck. But the review is dynamic: front = English cue + pattern name → you produce a sentence (typed or spoken) → Claude grades → you self-rate. Same scheduler, same engine, but the *content* of each review is freshly generated. You produce 把 correctly 3/3 → it graduates to review queue like any vocab card. This reuses all existing FSRS infra and gives grammar the same long-term retention guarantees as vocab.
+
+### Implementation guidance from the research
+
+- **Minimal-diff corrections, not rewrites.** [Yang & Chen 2025](https://www.tandfonline.com/doi/full/10.1080/09588221.2025.2453205) validated LLM corrective feedback for L2 Chinese (expert teachers rated GPT-4 corrections reliably grammatical) but found **over-correction is the main failure mode**. Prompt must say: *"Correct only the grammatical error. Do not improve word choice. Do not rewrite for style. Preserve the learner's vocabulary."* Render feedback as inline diff (strikethrough + insertion), not a clean rewritten sentence — so you see exactly which 1–2 characters were wrong.
+- **Self-critique naturalness pass.** [A learner-run study](https://imlearningmandarin.com/2024/05/19/does-chatgpt-speak-authentic-chinese-the-results-of-my-study-may-surprise-you/) found ~89% of LLM-generated Chinese reads as native-natural; ~10% is slightly off. Before showing any generated sentence, run a second Claude call: "Would a native speaker say this? If awkward, regenerate." Pair with a **"flag as unnatural"** button that logs to a review queue.
+- **Examples before terminology.** Don't show "perfective aspect marker" before you've seen 了 in 10 sentences. Show examples → name it after. ([Hacking Chinese](https://www.hackingchinese.com/how-to-approach-chinese-grammar/) and AllSet both pattern-first.)
+- **Dynamic complexity within a pattern.** Once basic 把 sentences are solid, Claude starts generating 把 + resultative complement, then 把 + 给 + indirect object — same pattern, layered. No fixed curriculum can do this responsively.
+- **Conversational "why" on any example.** Tap any sentence mid-exercise → ask "why 着 not 在?" → explanation grounded in *that* sentence. Reuses the existing Ask Claude infra.
+
+### Phased rollout (gentler than my Part 6)
+
+The research suggests starting **receptive-only** to avoid the "graded readers got abandoned" failure mode repeating:
+
+- **Weeks 1–2:** Pattern Flood + Scramble + Contrastive Pairs only. One A2 pattern/day. No typing required. Low-stakes, fast, builds recognition.
+- **Week 3+:** Add Constrained Translation (5 on today's pattern + 2 interleaved from previous patterns).
+- **Week 4+:** Alternate days add Shadow+Produce or Dictogloss.
+- **Ongoing:** Patterns graduate into the Grammar FSRS deck; A2 → B1 once ~70% of A2 is in review rotation.
+
+### What NOT to do (sharper than Part 2)
+
+- **Don't make sessions long.** 8–10 min, one pattern × 3 exercise types. Grammar sessions covering 5 patterns will get abandoned like the readers did.
+- **Don't enforce a rigid syllabus.** Suggested A2→B1 sequence, but let yourself jump to any pattern (you saw 竟然 in the wild → drill it now). Gap-filling beats lockstep.
+- **Don't present generated Chinese as authoritative.** ~1 in 10 sentences is slightly off. Always show "flag this," always run self-critique.
+- **Don't separate grammar from the four skills.** A pattern isn't "known" until heard + read + typed + spoken. The exercise mix is designed so every pattern cycles through all four.
+
+---
+
 ## Sources
 
 - [Comprehensible Output Hypothesis — Wikipedia](https://en.wikipedia.org/wiki/Comprehensible_output)
@@ -283,3 +327,10 @@ Phases 1–2 give you a working daily grammar session. Phase 3 makes it personal
 - [AllSet Chinese Grammar Wiki — by level](https://resources.allsetlearning.com/chinese/grammar/Grammar_points_by_level)
 - [AllSet A2 grammar points (99)](https://resources.allsetlearning.com/chinese/grammar/A2_grammar_points)
 - [Duolingo alternative for intermediate plateau — Clozemaster](https://www.clozemaster.com/blog/duolingo-alternative-for-intermediate-learners/)
+- [Yang & Chen 2025 — LLM corrective feedback for L2 Chinese](https://www.tandfonline.com/doi/full/10.1080/09588221.2025.2453205)
+- [Does ChatGPT speak authentic Chinese? — I'm Learning Mandarin](https://imlearningmandarin.com/2024/05/19/does-chatgpt-speak-authentic-chinese-the-results-of-my-study-may-surprise-you/)
+- [How to approach Chinese grammar — Hacking Chinese](https://www.hackingchinese.com/how-to-approach-chinese-grammar/)
+- [Comprehensible input for Mandarin — Hacking Chinese](https://www.hackingchinese.com/learning-chinese-comprehensible-input/)
+- [Sentence mining — Chinese Boost](https://www.chineseboost.com/blog/sentence-mining/)
+- [Krashen — Principles and Practice in SLA (PDF)](https://www.sdkrashen.com/content/books/principles_and_practice.pdf)
+- [LLM-assisted language learning systematic review — Wiley](https://onlinelibrary.wiley.com/doi/full/10.1002/fer3.39)
