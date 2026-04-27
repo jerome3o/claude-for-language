@@ -13,6 +13,8 @@ import {
 import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
+import { generatePracticeSession, checkTranslation, checkScramble } from './services/practice';
+import type { PracticeSessionContent } from './services/practice';
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
@@ -5122,6 +5124,125 @@ app.get('/api/sync/changes', async (c) => {
     deleted,
     server_time: new Date().toISOString(),
   });
+});
+
+// ============ Grammar Practice ============
+
+app.get('/api/practice/points', async (c) => {
+  const userId = c.get('user').id;
+  const [points, progress] = await Promise.all([
+    db.listGrammarPoints(c.env.DB),
+    db.getGrammarProgress(c.env.DB, userId),
+  ]);
+  const progressByPoint = Object.fromEntries(progress.map((p) => [p.grammar_point_id, p]));
+  return c.json({
+    points: points.map((gp) => ({ ...gp, progress: progressByPoint[gp.id] ?? null })),
+  });
+});
+
+app.get('/api/practice/next', async (c) => {
+  const userId = c.get('user').id;
+  const point = await db.getNextGrammarPoint(c.env.DB, userId);
+  return c.json({ point });
+});
+
+app.post('/api/practice/sessions', async (c) => {
+  const userId = c.get('user').id;
+  const { grammar_point_id } = await c.req.json<{ grammar_point_id?: string }>();
+
+  const point = grammar_point_id
+    ? await db.getGrammarPoint(c.env.DB, grammar_point_id)
+    : await db.getNextGrammarPoint(c.env.DB, userId);
+  if (!point) return c.json({ error: 'No grammar point available' }, 404);
+
+  const vocab = await db.getLearnedVocabulary(c.env.DB, userId);
+  if (vocab.length < 10) {
+    return c.json({ error: 'Learn at least 10 vocabulary words before starting grammar practice' }, 400);
+  }
+
+  const content = await generatePracticeSession(c.env.ANTHROPIC_API_KEY, point, vocab);
+  const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, JSON.stringify(content));
+  return c.json({ session_id: sessionId, content });
+});
+
+app.get('/api/practice/sessions/:id', async (c) => {
+  const userId = c.get('user').id;
+  const session = await db.getPracticeSession(c.env.DB, c.req.param('id'), userId);
+  if (!session) return c.json({ error: 'Not found' }, 404);
+  return c.json({
+    session_id: session.id,
+    completed_at: session.completed_at,
+    content: JSON.parse(session.exercises_json) as PracticeSessionContent,
+  });
+});
+
+app.post('/api/practice/sessions/:id/attempts', async (c) => {
+  const userId = c.get('user').id;
+  const sessionId = c.req.param('id');
+  const session = await db.getPracticeSession(c.env.DB, sessionId, userId);
+  if (!session) return c.json({ error: 'Not found' }, 404);
+
+  const body = await c.req.json<{
+    exercise_type: 'flood' | 'scramble' | 'contrast' | 'translate';
+    exercise_index: number;
+    user_answer: string | string[];
+  }>();
+  const content = JSON.parse(session.exercises_json) as PracticeSessionContent;
+
+  let isCorrect: boolean | null = null;
+  let feedback: unknown = null;
+  let prompt: unknown;
+  const answerStr = Array.isArray(body.user_answer)
+    ? JSON.stringify(body.user_answer)
+    : body.user_answer;
+
+  if (body.exercise_type === 'translate') {
+    const ex = content.translates[body.exercise_index];
+    prompt = ex;
+    const fb = await checkTranslation(
+      c.env.ANTHROPIC_API_KEY,
+      content.grammar_point,
+      ex,
+      body.user_answer as string,
+    );
+    isCorrect = fb.is_correct && fb.uses_target_structure;
+    feedback = fb;
+  } else if (body.exercise_type === 'scramble') {
+    const ex = content.scrambles[body.exercise_index];
+    prompt = ex;
+    isCorrect = checkScramble(ex, body.user_answer as string[]);
+  } else if (body.exercise_type === 'contrast') {
+    const ex = content.contrasts[body.exercise_index];
+    prompt = ex;
+    isCorrect = body.user_answer === ex.correct;
+  } else {
+    prompt = content.flood[body.exercise_index];
+  }
+
+  await db.recordPracticeAttempt(c.env.DB, {
+    sessionId,
+    userId,
+    grammarPointId: content.grammar_point.id,
+    exerciseType: body.exercise_type,
+    exerciseIndex: body.exercise_index,
+    promptJson: JSON.stringify(prompt),
+    userAnswer: answerStr,
+    isCorrect,
+    feedbackJson: feedback ? JSON.stringify(feedback) : null,
+  });
+
+  return c.json({ is_correct: isCorrect, feedback });
+});
+
+app.post('/api/practice/sessions/:id/complete', async (c) => {
+  const userId = c.get('user').id;
+  const sessionId = c.req.param('id');
+  const session = await db.getPracticeSession(c.env.DB, sessionId, userId);
+  if (!session) return c.json({ error: 'Not found' }, 404);
+
+  const { correct, total } = await c.req.json<{ correct: number; total: number }>();
+  await db.completePracticeSession(c.env.DB, sessionId, userId, session.grammar_point_id, correct, total);
+  return c.json({ ok: true });
 });
 
 // ============ Feature Requests ============

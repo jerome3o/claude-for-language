@@ -33,6 +33,7 @@ const MyCardReviewDetailPage = lazy(() => import('./pages/MyCardReviewDetailPage
 const TutorReviewInboxPage = lazy(() => import('./pages/TutorReviewInboxPage').then(m => ({ default: m.TutorReviewInboxPage })));
 const TutorReviewDetailPage = lazy(() => import('./pages/TutorReviewDetailPage').then(m => ({ default: m.TutorReviewDetailPage })));
 const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => ({ default: m.ReadersListPage })));
+const PracticePage = lazy(() => import('./pages/PracticePage').then(m => ({ default: m.PracticePage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
 const ReaderEditorPage = lazy(() => import('./pages/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
@@ -281,6 +282,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/practice"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <PracticePage />
           </ProtectedRoute>
         }
       />

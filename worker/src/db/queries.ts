@@ -29,6 +29,7 @@ import {
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
+import type { GrammarPoint } from '../services/practice';
 
 // Default for new cards per day (not part of FSRS scheduling)
 const DEFAULT_NEW_CARDS_PER_DAY = 30;
@@ -1949,11 +1950,13 @@ export async function deleteGradedReader(
 export async function getLearnedVocabulary(
   db: D1Database,
   userId: string,
-  deckIds: string[]
+  deckIds?: string[]
 ): Promise<VocabularyItem[]> {
-  if (deckIds.length === 0) return [];
+  if (deckIds && deckIds.length === 0) return [];
 
-  const placeholders = deckIds.map(() => '?').join(',');
+  const deckFilter = deckIds
+    ? `AND d.id IN (${deckIds.map(() => '?').join(',')})`
+    : '';
 
   const result = await db.prepare(`
     SELECT DISTINCT n.hanzi, n.pinyin, n.english
@@ -1961,10 +1964,10 @@ export async function getLearnedVocabulary(
     JOIN decks d ON n.deck_id = d.id
     JOIN cards c ON c.note_id = n.id
     WHERE d.user_id = ?
-    AND d.id IN (${placeholders})
+    ${deckFilter}
     AND c.interval >= 1
     GROUP BY n.id
-  `).bind(userId, ...deckIds).all<{ hanzi: string; pinyin: string; english: string }>();
+  `).bind(userId, ...(deckIds ?? [])).all<{ hanzi: string; pinyin: string; english: string }>();
 
   return result.results;
 }
@@ -2505,4 +2508,167 @@ export async function markAllNotificationsRead(
     WHERE user_id = ? AND is_read = 0
   `).bind(userId).run();
   return result.meta?.changes ?? 0;
+}
+
+// ============ Grammar Practice ============
+
+function rowToGrammarPoint(r: {
+  id: string;
+  level: string;
+  title: string;
+  pattern: string;
+  explanation: string;
+  cgw_url: string | null;
+  seed_examples: string;
+  order_index: number;
+}): GrammarPoint {
+  return { ...r, seed_examples: JSON.parse(r.seed_examples) };
+}
+
+export async function listGrammarPoints(db: D1Database): Promise<GrammarPoint[]> {
+  const result = await db.prepare(`
+    SELECT id, level, title, pattern, explanation, cgw_url, seed_examples, order_index
+    FROM grammar_points ORDER BY level, order_index
+  `).all();
+  return result.results.map((r) => rowToGrammarPoint(r as any));
+}
+
+export async function getGrammarPoint(db: D1Database, id: string): Promise<GrammarPoint | null> {
+  const r = await db.prepare(`
+    SELECT id, level, title, pattern, explanation, cgw_url, seed_examples, order_index
+    FROM grammar_points WHERE id = ?
+  `).bind(id).first();
+  return r ? rowToGrammarPoint(r as any) : null;
+}
+
+export interface GrammarProgressRow {
+  grammar_point_id: string;
+  status: 'new' | 'learning' | 'known';
+  correct_count: number;
+  attempt_count: number;
+  introduced_at: string | null;
+  last_practiced_at: string | null;
+}
+
+export async function getGrammarProgress(
+  db: D1Database,
+  userId: string,
+): Promise<GrammarProgressRow[]> {
+  const result = await db.prepare(`
+    SELECT grammar_point_id, status, correct_count, attempt_count, introduced_at, last_practiced_at
+    FROM grammar_progress WHERE user_id = ?
+  `).bind(userId).all<GrammarProgressRow>();
+  return result.results;
+}
+
+export async function getNextGrammarPoint(
+  db: D1Database,
+  userId: string,
+): Promise<GrammarPoint | null> {
+  // Prefer the oldest 'learning' point not practiced today; otherwise the first 'new' point by order.
+  const learning = await db.prepare(`
+    SELECT gp.id, gp.level, gp.title, gp.pattern, gp.explanation, gp.cgw_url, gp.seed_examples, gp.order_index
+    FROM grammar_points gp
+    JOIN grammar_progress p ON p.grammar_point_id = gp.id
+    WHERE p.user_id = ? AND p.status = 'learning'
+      AND (p.last_practiced_at IS NULL OR date(p.last_practiced_at) < date('now'))
+    ORDER BY p.last_practiced_at ASC NULLS FIRST, gp.order_index ASC
+    LIMIT 1
+  `).bind(userId).first();
+  if (learning) return rowToGrammarPoint(learning as any);
+
+  const fresh = await db.prepare(`
+    SELECT gp.id, gp.level, gp.title, gp.pattern, gp.explanation, gp.cgw_url, gp.seed_examples, gp.order_index
+    FROM grammar_points gp
+    LEFT JOIN grammar_progress p ON p.grammar_point_id = gp.id AND p.user_id = ?
+    WHERE p.id IS NULL
+    ORDER BY gp.level, gp.order_index
+    LIMIT 1
+  `).bind(userId).first();
+  return fresh ? rowToGrammarPoint(fresh as any) : null;
+}
+
+export async function createPracticeSession(
+  db: D1Database,
+  userId: string,
+  grammarPointId: string,
+  exercisesJson: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO practice_sessions (id, user_id, grammar_point_id, exercises_json)
+    VALUES (?, ?, ?, ?)
+  `).bind(id, userId, grammarPointId, exercisesJson).run();
+  await db.prepare(`
+    INSERT INTO grammar_progress (id, user_id, grammar_point_id, status, introduced_at)
+    VALUES (?, ?, ?, 'learning', datetime('now'))
+    ON CONFLICT(user_id, grammar_point_id) DO NOTHING
+  `).bind(crypto.randomUUID(), userId, grammarPointId).run();
+  return id;
+}
+
+export async function getPracticeSession(
+  db: D1Database,
+  sessionId: string,
+  userId: string,
+): Promise<{ id: string; grammar_point_id: string; exercises_json: string; completed_at: string | null } | null> {
+  return await db.prepare(`
+    SELECT id, grammar_point_id, exercises_json, completed_at
+    FROM practice_sessions WHERE id = ? AND user_id = ?
+  `).bind(sessionId, userId).first();
+}
+
+export async function recordPracticeAttempt(
+  db: D1Database,
+  data: {
+    sessionId: string;
+    userId: string;
+    grammarPointId: string;
+    exerciseType: string;
+    exerciseIndex: number;
+    promptJson: string;
+    userAnswer: string | null;
+    isCorrect: boolean | null;
+    feedbackJson: string | null;
+  },
+): Promise<void> {
+  await db.prepare(`
+    INSERT INTO practice_attempts
+      (id, session_id, user_id, grammar_point_id, exercise_type, exercise_index, prompt_json, user_answer, is_correct, feedback_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    crypto.randomUUID(),
+    data.sessionId,
+    data.userId,
+    data.grammarPointId,
+    data.exerciseType,
+    data.exerciseIndex,
+    data.promptJson,
+    data.userAnswer,
+    data.isCorrect === null ? null : data.isCorrect ? 1 : 0,
+    data.feedbackJson,
+  ).run();
+}
+
+export async function completePracticeSession(
+  db: D1Database,
+  sessionId: string,
+  userId: string,
+  grammarPointId: string,
+  correctDelta: number,
+  attemptDelta: number,
+): Promise<void> {
+  await db.prepare(`
+    UPDATE practice_sessions SET completed_at = datetime('now') WHERE id = ? AND user_id = ?
+  `).bind(sessionId, userId).run();
+
+  // Mark known once 8 correct production attempts have accumulated.
+  await db.prepare(`
+    UPDATE grammar_progress
+    SET correct_count = correct_count + ?,
+        attempt_count = attempt_count + ?,
+        last_practiced_at = datetime('now'),
+        status = CASE WHEN correct_count + ? >= 8 THEN 'known' ELSE 'learning' END
+    WHERE user_id = ? AND grammar_point_id = ?
+  `).bind(correctDelta, attemptDelta, correctDelta, userId, grammarPointId).run();
 }
