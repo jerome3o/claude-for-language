@@ -48,6 +48,7 @@ import { useTranscription, usePronunciationAssessment } from '../hooks/useTransc
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
 import CardEditModal from '../components/CardEditModal';
+import { copyQueueCountsImage } from '../utils/queue-counts-image';
 import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
@@ -164,6 +165,9 @@ function AnswerDiff({ userAnswer, correctAnswer, onCharacterClick }: { userAnswe
 
 // Queue counts header component
 function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activeQueue?: number }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const resetTimer = useRef<ReturnType<typeof setTimeout>>();
+
   const total = counts.new + counts.learning + counts.review;
 
   if (total === 0) {
@@ -175,14 +179,36 @@ function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activ
   const isLearningActive = activeQueue === 1 || activeQueue === 3; // Learning or Relearning
   const isReviewActive = activeQueue === 2;
 
+  const handleCopy = async () => {
+    try {
+      await copyQueueCountsImage(counts);
+      setCopyState('copied');
+    } catch (err) {
+      console.error('Failed to copy queue counts image', err);
+      setCopyState('error');
+    }
+    clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => setCopyState('idle'), 1500);
+  };
+
   return (
-    <div className="queue-counts">
+    <button
+      type="button"
+      className="queue-counts"
+      onClick={handleCopy}
+      aria-label="Copy progress as image"
+    >
       <span className={`count-new ${isNewActive ? 'count-active' : ''}`} title="New cards">{counts.new}</span>
       <span className="count-separator">+</span>
       <span className={`count-learning ${isLearningActive ? 'count-active' : ''}`} title="Learning cards">{counts.learning}</span>
       <span className="count-separator">+</span>
       <span className={`count-review ${isReviewActive ? 'count-active' : ''}`} title="Review cards">{counts.review}</span>
-    </div>
+      {copyState !== 'idle' && (
+        <span className="queue-counts-toast">
+          {copyState === 'copied' ? 'Copied!' : 'Copy failed'}
+        </span>
+      )}
+    </button>
   );
 }
 
