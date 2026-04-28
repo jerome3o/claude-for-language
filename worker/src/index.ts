@@ -5128,6 +5128,14 @@ app.get('/api/sync/changes', async (c) => {
 
 // ============ Grammar Practice ============
 
+app.post('/api/practice/tts', async (c) => {
+  const { text } = await c.req.json<{ text: string }>();
+  if (!text) return c.json({ error: 'text required' }, 400);
+  const result = await generateConversationTTS(c.env, text, {});
+  if (!result) return c.json({ error: 'TTS failed' }, 502);
+  return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });
+});
+
 app.get('/api/practice/points', async (c) => {
   const userId = c.get('user').id;
   const [points, progress] = await Promise.all([

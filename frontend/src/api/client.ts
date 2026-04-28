@@ -1645,6 +1645,15 @@ export interface TranslateFeedback {
   explanation: string;
 }
 
+export async function generatePracticeTTS(
+  text: string,
+): Promise<{ audio_base64: string; content_type: string }> {
+  return fetchJSON('/practice/tts', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
 export async function listGrammarPoints(): Promise<{
   points: Array<GrammarPoint & { progress: GrammarProgressRow | null }>;
 }> {
