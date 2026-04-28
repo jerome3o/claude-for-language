@@ -2561,6 +2561,18 @@ export async function getGrammarProgress(
   return result.results;
 }
 
+export async function practiceCompletedToday(
+  db: D1Database,
+  userId: string,
+): Promise<boolean> {
+  const r = await db.prepare(`
+    SELECT 1 FROM practice_sessions
+    WHERE user_id = ? AND completed_at IS NOT NULL AND date(completed_at) = date('now')
+    LIMIT 1
+  `).bind(userId).first();
+  return !!r;
+}
+
 export async function getNextGrammarPoint(
   db: D1Database,
   userId: string,

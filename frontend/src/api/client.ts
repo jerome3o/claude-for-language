@@ -1660,7 +1660,10 @@ export async function listGrammarPoints(): Promise<{
   return fetchJSON('/practice/points');
 }
 
-export async function getNextGrammarPoint(): Promise<{ point: GrammarPoint | null }> {
+export async function getNextGrammarPoint(): Promise<{
+  point: GrammarPoint | null;
+  done_today: boolean;
+}> {
   return fetchJSON('/practice/next');
 }
 

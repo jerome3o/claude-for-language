@@ -5150,8 +5150,11 @@ app.get('/api/practice/points', async (c) => {
 
 app.get('/api/practice/next', async (c) => {
   const userId = c.get('user').id;
-  const point = await db.getNextGrammarPoint(c.env.DB, userId);
-  return c.json({ point });
+  const [point, doneToday] = await Promise.all([
+    db.getNextGrammarPoint(c.env.DB, userId),
+    db.practiceCompletedToday(c.env.DB, userId),
+  ]);
+  return c.json({ point, done_today: doneToday });
 });
 
 app.post('/api/practice/sessions', async (c) => {
