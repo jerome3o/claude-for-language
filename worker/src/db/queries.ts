@@ -2561,6 +2561,88 @@ export async function getGrammarProgress(
   return result.results;
 }
 
+// ---- Roleplay + daily activities ----
+
+export async function createRoleplaySession(
+  db: D1Database,
+  userId: string,
+  sit: { id: string; scenario: string; ai_role: string; user_role: string; goal: string },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO roleplay_sessions (id, user_id, situation_id, scenario, ai_role, user_role, goal)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, userId, sit.id, sit.scenario, sit.ai_role, sit.user_role, sit.goal).run();
+  return id;
+}
+
+export async function getRoleplaySession(
+  db: D1Database,
+  id: string,
+  userId: string,
+): Promise<{ id: string; situation_id: string; scenario: string; ai_role: string; user_role: string; goal: string; completed_at: string | null } | null> {
+  return await db.prepare(`
+    SELECT id, situation_id, scenario, ai_role, user_role, goal, completed_at
+    FROM roleplay_sessions WHERE id = ? AND user_id = ?
+  `).bind(id, userId).first();
+}
+
+export async function listRoleplayMessages(
+  db: D1Database,
+  sessionId: string,
+): Promise<Array<{ id: string; role: 'ai' | 'user'; hanzi: string; pinyin: string | null; english: string | null; revealed: number }>> {
+  const r = await db.prepare(`
+    SELECT id, role, hanzi, pinyin, english, revealed
+    FROM roleplay_messages WHERE session_id = ? ORDER BY created_at
+  `).bind(sessionId).all();
+  return r.results as any;
+}
+
+export async function addRoleplayMessage(
+  db: D1Database,
+  sessionId: string,
+  m: { role: 'ai' | 'user'; hanzi: string; pinyin?: string | null; english?: string | null },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO roleplay_messages (id, session_id, role, hanzi, pinyin, english)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(id, sessionId, m.role, m.hanzi, m.pinyin ?? null, m.english ?? null).run();
+  return id;
+}
+
+export async function markRoleplayRevealed(db: D1Database, messageId: string): Promise<void> {
+  await db.prepare(`UPDATE roleplay_messages SET revealed = 1 WHERE id = ?`).bind(messageId).run();
+}
+
+export async function completeRoleplaySession(db: D1Database, id: string, userId: string): Promise<void> {
+  await db.prepare(`UPDATE roleplay_sessions SET completed_at = datetime('now') WHERE id = ? AND user_id = ?`)
+    .bind(id, userId).run();
+}
+
+export async function recordDailyActivity(
+  db: D1Database,
+  userId: string,
+  activity: 'reader' | 'roleplay',
+  refId: string | null,
+): Promise<void> {
+  await db.prepare(`
+    INSERT INTO daily_activities (id, user_id, activity, ref_id) VALUES (?, ?, ?, ?)
+  `).bind(crypto.randomUUID(), userId, activity, refId).run();
+}
+
+export async function getDailyActivityStatus(
+  db: D1Database,
+  userId: string,
+): Promise<{ reader: boolean; roleplay: boolean }> {
+  const r = await db.prepare(`
+    SELECT activity FROM daily_activities
+    WHERE user_id = ? AND date(completed_at) = date('now')
+  `).bind(userId).all<{ activity: string }>();
+  const set = new Set(r.results.map((x) => x.activity));
+  return { reader: set.has('reader'), roleplay: set.has('roleplay') };
+}
+
 export async function practiceCompletedToday(
   db: D1Database,
   userId: string,
