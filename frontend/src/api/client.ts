@@ -1667,7 +1667,7 @@ export async function startPracticeSession(
 export async function submitPracticeAttempt(
   sessionId: string,
   body: {
-    exercise_type: 'flood' | 'scramble' | 'contrast' | 'translate';
+    exercise_type: 'flood' | 'scramble' | 'contrast' | 'translate' | 'speak';
     exercise_index: number;
     user_answer: string | string[];
   },

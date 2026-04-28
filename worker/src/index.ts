@@ -13,7 +13,7 @@ import {
 import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
-import { generatePracticeSession, checkTranslation, checkScramble } from './services/practice';
+import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent } from './services/practice';
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
@@ -5183,7 +5183,7 @@ app.post('/api/practice/sessions/:id/attempts', async (c) => {
   if (!session) return c.json({ error: 'Not found' }, 404);
 
   const body = await c.req.json<{
-    exercise_type: 'flood' | 'scramble' | 'contrast' | 'translate';
+    exercise_type: 'flood' | 'scramble' | 'contrast' | 'translate' | 'speak';
     exercise_index: number;
     user_answer: string | string[];
   }>();
@@ -5203,6 +5203,15 @@ app.post('/api/practice/sessions/:id/attempts', async (c) => {
       c.env.ANTHROPIC_API_KEY,
       content.grammar_point,
       ex,
+      body.user_answer as string,
+    );
+    isCorrect = fb.is_correct && fb.uses_target_structure;
+    feedback = fb;
+  } else if (body.exercise_type === 'speak') {
+    prompt = content.flood[body.exercise_index];
+    const fb = await checkProduction(
+      c.env.ANTHROPIC_API_KEY,
+      content.grammar_point,
       body.user_answer as string,
     );
     isCorrect = fb.is_correct && fb.uses_target_structure;
