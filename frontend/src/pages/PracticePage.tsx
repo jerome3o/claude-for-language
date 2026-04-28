@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getNextGrammarPoint,
@@ -13,13 +13,23 @@ import {
   type TranslateExercise,
   type TranslateFeedback,
   type ExampleSentence,
+  transcribeAudio,
 } from '../api/client';
-import { useTTS } from '../hooks/useAudio';
+import { useTTS, useAudioRecorder } from '../hooks/useAudio';
 import './PracticePage.css';
 
-type Phase = 'landing' | 'generating' | 'flood' | 'scramble' | 'contrast' | 'translate' | 'done';
+type Phase =
+  | 'landing'
+  | 'generating'
+  | 'flood'
+  | 'scramble'
+  | 'contrast'
+  | 'translate'
+  | 'speak'
+  | 'done';
 
-const PHASE_ORDER: Phase[] = ['flood', 'scramble', 'contrast', 'translate'];
+const PHASE_ORDER: Phase[] = ['flood', 'scramble', 'contrast', 'translate', 'speak'];
+const SPEAK_COUNT = 2;
 
 export function PracticePage() {
   const navigate = useNavigate();
@@ -61,6 +71,7 @@ export function PracticePage() {
             content.scrambles.length,
             content.contrasts.length,
             content.translates.length,
+            Math.min(SPEAK_COUNT, content.flood.length),
           ]
         : [],
     [content],
@@ -248,6 +259,30 @@ export function PracticePage() {
     );
   }
 
+  if (phase === 'speak') {
+    return (
+      <div className="practice-page">
+        {header}
+        <SpeakView
+          key={`sp-${idx}`}
+          gp={gp}
+          model={content.flood[idx]}
+          speak={speak}
+          onSubmit={async (transcript) => {
+            const r = await submitPracticeAttempt(sessionId, {
+              exercise_type: 'speak',
+              exercise_index: idx,
+              user_answer: transcript,
+            });
+            return r.feedback;
+          }}
+          onNext={(correct) => advance(correct)}
+          onSkip={() => advance(null)}
+        />
+      </div>
+    );
+  }
+
   if (phase === 'translate') {
     return (
       <div className="practice-page">
@@ -295,6 +330,43 @@ export function PracticePage() {
   );
 }
 
+function FeedbackPanel(props: {
+  feedback: TranslateFeedback;
+  pattern: string;
+  speak: (text: string) => void;
+  showCorrected?: boolean;
+}) {
+  const { feedback, pattern, speak, showCorrected } = props;
+  const correct = feedback.is_correct && feedback.uses_target_structure;
+  return (
+    <>
+      <div className={`result-banner ${correct ? 'correct' : 'wrong'}`}>
+        {correct
+          ? '✓ Correct'
+          : feedback.uses_target_structure
+            ? '✗ Close — small fix needed'
+            : `✗ Try using the pattern: ${pattern}`}
+      </div>
+      <div className="diff-display">
+        {feedback.diff_segments.map((seg, i) => (
+          <span key={i} className={`diff-${seg.status}`}>
+            {seg.text}
+          </span>
+        ))}
+      </div>
+      {showCorrected && (
+        <div className="translate-ref">
+          <div className="translate-ref-hanzi" onClick={() => speak(feedback.corrected_hanzi)}>
+            {feedback.corrected_hanzi} 🔊
+          </div>
+          <div className="translate-ref-pinyin">{feedback.corrected_pinyin}</div>
+        </div>
+      )}
+      <p className="result-explanation">{feedback.explanation}</p>
+    </>
+  );
+}
+
 // ============ Exercise sub-views ============
 
 function FloodView(props: {
@@ -306,11 +378,11 @@ function FloodView(props: {
   onNext: () => void;
 }) {
   const { gp, example, index, total, speak, onNext } = props;
-  const [showPinyin, setShowPinyin] = useState(false);
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
     speak(example.hanzi);
-    setShowPinyin(false);
+    setRevealed(false);
   }, [example.hanzi, speak]);
 
   return (
@@ -328,21 +400,23 @@ function FloodView(props: {
       <div className="flood-hanzi" onClick={() => speak(example.hanzi)}>
         {example.hanzi}
       </div>
-      {showPinyin ? (
+      <div className={`flood-reveal ${revealed ? '' : 'hidden'}`}>
         <div className="flood-pinyin">{example.pinyin}</div>
-      ) : (
-        <button className="practice-link" onClick={() => setShowPinyin(true)}>
-          show pinyin
-        </button>
-      )}
-      <div className="flood-english">{example.english}</div>
+        <div className="flood-english">{example.english}</div>
+      </div>
       <div className="exercise-actions">
         <button className="practice-btn" onClick={() => speak(example.hanzi)}>
           🔊 Replay
         </button>
-        <button className="practice-btn primary" onClick={onNext}>
-          {index + 1 < total ? 'Next example' : 'Continue'}
-        </button>
+        {revealed ? (
+          <button className="practice-btn primary" onClick={onNext}>
+            {index + 1 < total ? 'Next example' : 'Continue'}
+          </button>
+        ) : (
+          <button className="practice-btn primary" onClick={() => setRevealed(true)}>
+            Reveal
+          </button>
+        )}
       </div>
     </div>
   );
@@ -355,19 +429,12 @@ function ScrambleView(props: {
   onNext: (correct: boolean) => void;
 }) {
   const { exercise, speak, onSubmit, onNext } = props;
-  const [pool, setPool] = useState<string[]>(exercise.tiles);
-  const [picked, setPicked] = useState<string[]>([]);
+  const [pickedOrder, setPickedOrder] = useState<number[]>([]);
   const [result, setResult] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
 
-  function pick(i: number) {
-    setPicked([...picked, pool[i]]);
-    setPool(pool.filter((_, j) => j !== i));
-  }
-  function unpick(i: number) {
-    setPool([...pool, picked[i]]);
-    setPicked(picked.filter((_, j) => j !== i));
-  }
+  const picked = pickedOrder.map((i) => exercise.tiles[i]);
+  const allPicked = pickedOrder.length === exercise.tiles.length;
 
   async function check() {
     setChecking(true);
@@ -386,7 +453,9 @@ function ScrambleView(props: {
           <button
             key={i}
             className="tile"
-            onClick={() => result === null && unpick(i)}
+            onClick={() =>
+              result === null && setPickedOrder(pickedOrder.filter((_, j) => j !== i))
+            }
             disabled={result !== null}
           >
             {t}
@@ -395,18 +464,26 @@ function ScrambleView(props: {
         {picked.length === 0 && <div className="tile-placeholder">Tap tiles below</div>}
       </div>
       <div className="scramble-row pool">
-        {pool.map((t, i) => (
-          <button key={i} className="tile" onClick={() => pick(i)} disabled={result !== null}>
-            {t}
-          </button>
-        ))}
+        {exercise.tiles.map((t, i) => {
+          const isPicked = pickedOrder.includes(i);
+          return (
+            <button
+              key={i}
+              className={`tile ${isPicked ? 'ghost' : ''}`}
+              onClick={() => !isPicked && setPickedOrder([...pickedOrder, i])}
+              disabled={isPicked || result !== null}
+            >
+              {t}
+            </button>
+          );
+        })}
       </div>
       {result === null ? (
         <div className="exercise-actions">
           <button
             className="practice-btn primary"
             onClick={check}
-            disabled={pool.length > 0 || checking}
+            disabled={!allPicked || checking}
           >
             {checking ? 'Checking…' : 'Check'}
           </button>
@@ -540,29 +617,115 @@ function TranslateView(props: {
         </>
       ) : (
         <>
-          <div className={`result-banner ${correct ? 'correct' : 'wrong'}`}>
-            {correct
-              ? '✓ Correct'
-              : feedback.uses_target_structure
-                ? '✗ Close — small fix needed'
-                : `✗ Try using the pattern: ${gp.pattern}`}
-          </div>
-          <div className="diff-display">
-            {feedback.diff_segments.map((seg, i) => (
-              <span key={i} className={`diff-${seg.status}`}>
-                {seg.text}
-              </span>
-            ))}
-          </div>
-          <div className="translate-ref">
-            <div className="translate-ref-hanzi" onClick={() => speak(feedback.corrected_hanzi)}>
-              {feedback.corrected_hanzi} 🔊
-            </div>
-            <div className="translate-ref-pinyin">{feedback.corrected_pinyin}</div>
-          </div>
-          <p className="result-explanation">{feedback.explanation}</p>
+          <FeedbackPanel feedback={feedback} pattern={gp.pattern} speak={speak} showCorrected />
           <div className="exercise-actions">
             <button className="practice-btn primary" onClick={() => onNext(!!correct)}>
+              Continue
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SpeakView(props: {
+  gp: GrammarPoint;
+  model: ExampleSentence;
+  speak: (text: string) => void;
+  onSubmit: (transcript: string) => Promise<TranslateFeedback | null>;
+  onNext: (correct: boolean) => void;
+  onSkip: () => void;
+}) {
+  const { gp, model, speak, onSubmit, onNext, onSkip } = props;
+  const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
+    useAudioRecorder();
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<TranslateFeedback | null>(null);
+  const [busy, setBusy] = useState(false);
+  const processedRef = useRef<Blob | null>(null);
+  const submitRef = useRef(onSubmit);
+  submitRef.current = onSubmit;
+
+  useEffect(() => {
+    speak(model.hanzi);
+  }, [model.hanzi, speak]);
+
+  useEffect(() => {
+    if (!audioBlob || processedRef.current === audioBlob) return;
+    processedRef.current = audioBlob;
+    setBusy(true);
+    transcribeAudio(audioBlob)
+      .then(async (r) => {
+        setTranscript(r.text);
+        const fb = await submitRef.current(r.text);
+        setFeedback(fb);
+      })
+      .catch(() => setTranscript(''))
+      .finally(() => setBusy(false));
+  }, [audioBlob]);
+
+  function retry() {
+    clearRecording();
+    processedRef.current = null;
+    setTranscript(null);
+    setFeedback(null);
+  }
+
+  const correct = feedback ? feedback.is_correct && feedback.uses_target_structure : null;
+
+  return (
+    <div className="exercise">
+      <div className="phase-label">Say your own · {gp.pattern}</div>
+      <div className="speak-model">
+        <div className="speak-model-label">Listen, then say a different sentence with the same pattern</div>
+        <div className="speak-model-hanzi" onClick={() => speak(model.hanzi)}>
+          {model.hanzi} 🔊
+        </div>
+        <div className="flood-pinyin">{model.pinyin}</div>
+      </div>
+
+      {transcript === null ? (
+        <>
+          <button
+            className={`record-btn ${isRecording ? 'recording' : ''}`}
+            onClick={() => (isRecording ? stopRecording() : startRecording())}
+            disabled={busy}
+          >
+            {isRecording ? (
+              <>
+                <span
+                  className="record-pulse"
+                  style={{ transform: `scale(${1 + audioLevel * 0.6})` }}
+                />
+                Tap to stop
+              </>
+            ) : busy ? (
+              'Transcribing…'
+            ) : (
+              '🎤 Tap to record'
+            )}
+          </button>
+          <button className="practice-link" onClick={onSkip}>
+            Skip
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="speak-transcript">
+            <div className="speak-transcript-label">You said</div>
+            <div className="speak-transcript-text">{transcript || '(nothing detected)'}</div>
+          </div>
+          {feedback && <FeedbackPanel feedback={feedback} pattern={gp.pattern} speak={speak} />}
+          <div className="exercise-actions">
+            <button className="practice-btn" onClick={retry}>
+              Try again
+            </button>
+            <button
+              className="practice-btn primary"
+              onClick={() => onNext(!!correct)}
+              disabled={!feedback}
+            >
               Continue
             </button>
           </div>

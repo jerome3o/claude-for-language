@@ -278,24 +278,8 @@ RULES:
 - If the learner's sentence is grammatical but does NOT use the target structure, mark uses_target_structure=false and explain they should try again with the pattern.
 - The diff must be minimal: the smallest set of removals/insertions to get from the learner's sentence to your corrected version.`;
 
-export async function checkTranslation(
-  apiKey: string,
-  grammarPoint: GrammarPoint,
-  exercise: TranslateExercise,
-  userAnswer: string
-): Promise<TranslateFeedback> {
+async function runFeedback(apiKey: string, userPrompt: string): Promise<TranslateFeedback> {
   const client = new Anthropic({ apiKey });
-
-  const userPrompt = `Target grammar point:
-${grammarBlock(grammarPoint)}
-
-English prompt: ${exercise.english}
-Reference answer: ${exercise.reference_hanzi} (${exercise.reference_pinyin})
-
-Learner's answer: ${userAnswer}
-
-Give minimal-correction feedback.`;
-
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 1500,
@@ -304,12 +288,47 @@ Give minimal-correction feedback.`;
     tool_choice: { type: 'tool', name: 'give_feedback' },
     messages: [{ role: 'user', content: userPrompt }],
   });
-
   const toolUse = response.content.find((c): c is Anthropic.ToolUseBlock => c.type === 'tool_use');
-  if (!toolUse) {
-    throw new Error('Translation check returned no tool_use block');
-  }
+  if (!toolUse) throw new Error('Feedback check returned no tool_use block');
   return toolUse.input as TranslateFeedback;
+}
+
+export async function checkTranslation(
+  apiKey: string,
+  grammarPoint: GrammarPoint,
+  exercise: TranslateExercise,
+  userAnswer: string
+): Promise<TranslateFeedback> {
+  return runFeedback(
+    apiKey,
+    `Target grammar point:
+${grammarBlock(grammarPoint)}
+
+English prompt: ${exercise.english}
+Reference answer: ${exercise.reference_hanzi} (${exercise.reference_pinyin})
+
+Learner's answer: ${userAnswer}
+
+Give minimal-correction feedback.`,
+  );
+}
+
+export async function checkProduction(
+  apiKey: string,
+  grammarPoint: GrammarPoint,
+  userAnswer: string
+): Promise<TranslateFeedback> {
+  return runFeedback(
+    apiKey,
+    `Target grammar point:
+${grammarBlock(grammarPoint)}
+
+The learner was asked to produce ANY sentence using this pattern (no specific meaning required).
+
+Learner's answer (transcribed from speech): ${userAnswer}
+
+Judge whether the sentence is grammatical Chinese AND uses the target structure. Give minimal-correction feedback. If the structure is missing, set uses_target_structure=false and explain which part of the pattern is absent.`,
+  );
 }
 
 // Validate a learner's scramble ordering. Exact match against correct_order or any alt_orders.

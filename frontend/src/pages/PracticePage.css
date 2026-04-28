@@ -216,6 +216,17 @@
   cursor: pointer;
 }
 
+.flood-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 3.5rem;
+}
+
+.flood-reveal.hidden {
+  visibility: hidden;
+}
+
 .flood-pinyin {
   text-align: center;
   color: #666;
@@ -258,6 +269,10 @@
 
 .tile:disabled {
   cursor: default;
+}
+
+.tile.ghost {
+  visibility: hidden;
 }
 
 .tile-placeholder {
@@ -396,6 +411,75 @@
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0.5rem 0 1rem;
+}
+
+/* Speak */
+.speak-model {
+  background: #f6f8fc;
+  border-radius: 8px;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.speak-model-label {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.speak-model-hanzi {
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.record-btn {
+  position: relative;
+  border: 2px solid #3b82f6;
+  background: #fff;
+  color: #3b82f6;
+  border-radius: 12px;
+  padding: 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  min-height: 80px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.record-btn.recording {
+  background: #fee2e2;
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.record-pulse {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  margin-top: -8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #dc2626;
+  transition: transform 0.05s linear;
+}
+
+.speak-transcript {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.speak-transcript-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #888;
+}
+
+.speak-transcript-text {
+  font-size: 1.35rem;
+  margin-top: 0.25rem;
 }
 
 @media (min-width: 640px) {
