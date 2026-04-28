@@ -5213,7 +5213,8 @@ app.post('/api/roleplay/sessions/:id/reply', async (c) => {
 });
 
 app.post('/api/roleplay/messages/:id/reveal', async (c) => {
-  await db.markRoleplayRevealed(c.env.DB, c.req.param('id'));
+  const userId = c.get('user').id;
+  await db.markRoleplayRevealed(c.env.DB, c.req.param('id'), userId);
   return c.json({ ok: true });
 });
 

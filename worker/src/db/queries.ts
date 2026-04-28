@@ -2611,8 +2611,15 @@ export async function addRoleplayMessage(
   return id;
 }
 
-export async function markRoleplayRevealed(db: D1Database, messageId: string): Promise<void> {
-  await db.prepare(`UPDATE roleplay_messages SET revealed = 1 WHERE id = ?`).bind(messageId).run();
+export async function markRoleplayRevealed(
+  db: D1Database,
+  messageId: string,
+  userId: string,
+): Promise<void> {
+  await db.prepare(`
+    UPDATE roleplay_messages SET revealed = 1
+    WHERE id = ? AND session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?)
+  `).bind(messageId, userId).run();
 }
 
 export async function completeRoleplaySession(db: D1Database, id: string, userId: string): Promise<void> {
