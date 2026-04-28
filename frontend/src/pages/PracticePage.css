@@ -216,6 +216,10 @@
   cursor: pointer;
 }
 
+.flood-hanzi.hidden {
+  visibility: hidden;
+}
+
 .flood-reveal {
   display: flex;
   flex-direction: column;

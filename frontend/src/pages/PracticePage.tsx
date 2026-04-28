@@ -15,7 +15,8 @@ import {
   type ExampleSentence,
   transcribeAudio,
 } from '../api/client';
-import { useTTS, useAudioRecorder } from '../hooks/useAudio';
+import { useAudioRecorder } from '../hooks/useAudio';
+import { usePracticeTTS } from '../hooks/usePracticeTTS';
 import './PracticePage.css';
 
 type Phase =
@@ -33,7 +34,7 @@ const SPEAK_COUNT = 2;
 
 export function PracticePage() {
   const navigate = useNavigate();
-  const { speak } = useTTS();
+  const { speak, prefetch } = usePracticeTTS();
 
   const [phase, setPhase] = useState<Phase>('landing');
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +95,7 @@ export function PracticePage() {
       setIdx(0);
       setScore({ correct: 0, total: 0 });
       setPhase('flood');
+      void prefetch(res.content.flood.map((e) => e.hanzi));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPhase('landing');
@@ -378,12 +380,21 @@ function FloodView(props: {
   onNext: () => void;
 }) {
   const { gp, example, index, total, speak, onNext } = props;
-  const [revealed, setRevealed] = useState(false);
+  const [stage, setStage] = useState(0);
 
   useEffect(() => {
     speak(example.hanzi);
-    setRevealed(false);
+    setStage(0);
   }, [example.hanzi, speak]);
+
+  const advanceLabel =
+    stage === 0
+      ? 'Show characters'
+      : stage === 1
+        ? 'Show meaning'
+        : index + 1 < total
+          ? 'Next example'
+          : 'Continue';
 
   return (
     <div className="exercise">
@@ -395,12 +406,15 @@ function FloodView(props: {
         </div>
       )}
       <div className="phase-label">
-        Examples · {index + 1}/{total}
+        Listen · {index + 1}/{total}
       </div>
-      <div className="flood-hanzi" onClick={() => speak(example.hanzi)}>
+      <div
+        className={`flood-hanzi ${stage >= 1 ? '' : 'hidden'}`}
+        onClick={() => speak(example.hanzi)}
+      >
         {example.hanzi}
       </div>
-      <div className={`flood-reveal ${revealed ? '' : 'hidden'}`}>
+      <div className={`flood-reveal ${stage >= 2 ? '' : 'hidden'}`}>
         <div className="flood-pinyin">{example.pinyin}</div>
         <div className="flood-english">{example.english}</div>
       </div>
@@ -408,15 +422,12 @@ function FloodView(props: {
         <button className="practice-btn" onClick={() => speak(example.hanzi)}>
           🔊 Replay
         </button>
-        {revealed ? (
-          <button className="practice-btn primary" onClick={onNext}>
-            {index + 1 < total ? 'Next example' : 'Continue'}
-          </button>
-        ) : (
-          <button className="practice-btn primary" onClick={() => setRevealed(true)}>
-            Reveal
-          </button>
-        )}
+        <button
+          className="practice-btn primary"
+          onClick={() => (stage < 2 ? setStage(stage + 1) : onNext())}
+        >
+          {advanceLabel}
+        </button>
       </div>
     </div>
   );
