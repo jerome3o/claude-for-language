@@ -256,6 +256,12 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/practice')}
+                >
+                  🧩 Grammar Practice
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/readers')}
                 >
                   📚 Readers
