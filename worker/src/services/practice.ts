@@ -190,15 +190,20 @@ const SESSION_TOOL: Anthropic.Tool = {
 export async function generatePracticeSession(
   apiKey: string,
   grammarPoint: GrammarPoint,
-  vocabulary: VocabularyItem[]
+  vocabulary: VocabularyItem[],
+  lessonNotes?: string,
 ): Promise<PracticeSessionContent> {
   const client = new Anthropic({ apiKey });
+
+  const lessonContext = lessonNotes
+    ? `\n\nThe learner's tutor recently covered the material below. Prefer this vocabulary and these sentence patterns where they fit the target structure:\n${lessonNotes}\n`
+    : '';
 
   const userPrompt = `Target grammar point:
 ${grammarBlock(grammarPoint)}
 
 Learner's known vocabulary (use ONLY these plus basic function words):
-${vocabBlock(vocabulary)}
+${vocabBlock(vocabulary)}${lessonContext}
 
 Generate a practice session: 6 flood examples, 3 scrambles, 3 contrastive pairs, 5 translation prompts. Every sentence must demonstrate or test the target pattern "${grammarPoint.pattern}".`;
 

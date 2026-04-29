@@ -262,6 +262,12 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/lesson-notes')}
+                >
+                  📝 Lesson Notes
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/readers')}
                 >
                   📚 Readers

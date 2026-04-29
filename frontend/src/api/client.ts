@@ -1645,6 +1645,60 @@ export interface TranslateFeedback {
   explanation: string;
 }
 
+// ============ Lesson Notes ============
+
+export interface LessonNoteFile {
+  id: string;
+  r2_key: string;
+  filename: string;
+  content_type: string | null;
+  size: number | null;
+}
+
+export interface LessonNote {
+  id: string;
+  raw_text: string;
+  given_at: string | null;
+  created_at: string;
+  files: LessonNoteFile[];
+}
+
+export async function listLessonNotes(): Promise<{ notes: LessonNote[] }> {
+  return fetchJSON('/lesson-notes');
+}
+
+export async function createLessonNote(
+  rawText: string,
+  givenAt?: string,
+): Promise<{ id: string }> {
+  return fetchJSON('/lesson-notes', {
+    method: 'POST',
+    body: JSON.stringify({ raw_text: rawText, given_at: givenAt }),
+  });
+}
+
+export async function uploadLessonNoteFile(
+  noteId: string,
+  file: File,
+): Promise<{ id: string; r2_key: string; filename: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const headers: Record<string, string> = {};
+  if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+  const r = await fetch(`${API_PATH}/lesson-notes/${noteId}/files`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: fd,
+  });
+  if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
+  return r.json();
+}
+
+export async function deleteLessonNote(id: string): Promise<void> {
+  await fetchJSON(`/lesson-notes/${id}`, { method: 'DELETE' });
+}
+
 // ============ Daily activities / Roleplay ============
 
 export interface Situation {
