@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { SentenceBreakdown as SentenceBreakdownType } from '../types';
-import { DEFAULT_TTS_SPEED } from '../types';
+import { generatePracticeTTS } from '../api/client';
 
 interface SentenceBreakdownProps {
   breakdown: SentenceBreakdownType;
@@ -20,6 +20,7 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
   // Ref to track if we should continue playing all
   const playAllRef = useRef(false);
   const currentPlayIdRef = useRef(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const goToPrevious = useCallback(() => {
     setCurrentChunkIndex((prev) => Math.max(0, prev - 1));
@@ -35,58 +36,59 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
 
   const currentChunk = breakdown.chunks[currentChunkIndex];
 
-  // Stop any ongoing speech synthesis
+  // Stop any ongoing audio
   const stopSpeech = useCallback(() => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
     playAllRef.current = false;
     currentPlayIdRef.current++;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
     setIsPlaying(false);
     setIsPlayingAll(false);
   }, []);
 
-  // Speak a single chunk's hanzi
+  // Speak a single chunk's hanzi via MiniMax TTS API
   const speakChunk = useCallback((text: string, onEnd?: () => void) => {
-    if (!('speechSynthesis' in window)) return;
-
     const playId = ++currentPlayIdRef.current;
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-CN';
-    utterance.rate = DEFAULT_TTS_SPEED;
-
-    // Try to find a Chinese voice
-    const voices = window.speechSynthesis.getVoices();
-    const chineseVoice = voices.find(
-      (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
-    );
-    if (chineseVoice) {
-      utterance.voice = chineseVoice;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
     }
 
-    utterance.onstart = () => {
-      if (currentPlayIdRef.current === playId) {
-        setIsPlaying(true);
-      }
-    };
+    setIsPlaying(true);
 
-    utterance.onend = () => {
-      if (currentPlayIdRef.current === playId) {
-        setIsPlaying(false);
-        onEnd?.();
-      }
-    };
-
-    utterance.onerror = () => {
-      if (currentPlayIdRef.current === playId) {
-        setIsPlaying(false);
-        onEnd?.();
-      }
-    };
-
-    window.speechSynthesis.speak(utterance);
+    generatePracticeTTS(text)
+      .then((r) => {
+        if (currentPlayIdRef.current !== playId) return;
+        const url = `data:${r.content_type};base64,${r.audio_base64}`;
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => {
+          if (currentPlayIdRef.current === playId) {
+            setIsPlaying(false);
+            onEnd?.();
+          }
+        };
+        audio.onerror = () => {
+          if (currentPlayIdRef.current === playId) {
+            setIsPlaying(false);
+            onEnd?.();
+          }
+        };
+        void audio.play().catch(() => {
+          if (currentPlayIdRef.current === playId) {
+            setIsPlaying(false);
+            onEnd?.();
+          }
+        });
+      })
+      .catch(() => {
+        if (currentPlayIdRef.current === playId) {
+          setIsPlaying(false);
+          onEnd?.();
+        }
+      });
   }, []);
 
   // Play the current chunk
@@ -119,7 +121,6 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
     playChunkAtIndex(0);
   }, [speakChunk, breakdown.chunks, totalChunks]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopSpeech();
