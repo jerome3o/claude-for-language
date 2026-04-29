@@ -356,12 +356,13 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         deck_id: z.string().describe("The deck ID"),
         name: z.string().optional().describe("New name for the deck"),
         description: z.string().optional().describe("New description for the deck"),
+        new_cards_per_day: z.number().int().min(0).optional().describe("Maximum number of new cards introduced per day (default: 30)"),
         interval_modifier: z.number().optional().describe("Multiplier for review intervals as percentage (e.g., 100 = default, 110 = 10% longer)"),
         request_retention: z.number().optional().describe("Target retention rate (e.g., 0.85 = 85%). Range: 0.7 to 0.97"),
         easy_interval: z.number().optional().describe("Interval in days for cards rated easy"),
         maximum_interval: z.number().optional().describe("Maximum review interval in days"),
       },
-      async ({ deck_id, name, description, interval_modifier, request_retention, easy_interval, maximum_interval }) => {
+      async ({ deck_id, name, description, new_cards_per_day, interval_modifier, request_retention, easy_interval, maximum_interval }) => {
         const existing = await this.env.DB
           .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
           .bind(deck_id, userId)
@@ -384,6 +385,10 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         if (description !== undefined) {
           updates.push('description = ?');
           values.push(description);
+        }
+        if (new_cards_per_day !== undefined) {
+          updates.push('new_cards_per_day = ?');
+          values.push(new_cards_per_day);
         }
         if (interval_modifier !== undefined) {
           updates.push('interval_modifier = ?');
