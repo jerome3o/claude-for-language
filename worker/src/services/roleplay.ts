@@ -26,7 +26,7 @@ export async function generatePersona(apiKey: string, sit: Situation): Promise<P
   const client = new Anthropic({ apiKey });
   const voiceList = ROLEPLAY_VOICES.map((v) => `- ${v.id} (${v.label})`).join('\n');
   const r = await client.messages.create({
-    model: 'claude-opus-4-6',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 600,
     tools: [
       {
