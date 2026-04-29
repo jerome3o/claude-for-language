@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { DEFAULT_TTS_SPEED } from '../types';
+import { DEFAULT_TTS_SPEED, SentenceChunk } from '../types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getGradedReader,
@@ -263,6 +263,7 @@ function PageView({
   onTogglePinyin,
   onToggleTranslation,
   onAnalyzeSentence,
+  onAddChunk,
   homeworkId,
   pageRecording,
   isCompleted,
@@ -274,6 +275,7 @@ function PageView({
   onTogglePinyin: () => void;
   onToggleTranslation: () => void;
   onAnalyzeSentence: (sentence: string) => void;
+  onAddChunk: (chunk: { hanzi: string; pinyin: string; english: string }) => void;
   homeworkId?: string;
   pageRecording?: HomeworkRecording | null;
   isCompleted?: boolean;
@@ -282,6 +284,10 @@ function PageView({
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showChinese, setShowChinese] = useState(false);
+  const [segments, setSegments] = useState<SentenceChunk[] | null>(null);
+  const [isSegmenting, setIsSegmenting] = useState(false);
+  const segmentingRef = useRef(false);
 
   // Use the page's image_url or the generated one
   const imageKey = page.image_url || generatedImageUrl;
@@ -309,7 +315,26 @@ function PageView({
     setGeneratedImageUrl(null);
     setImageLoading(false);
     setImageError(false);
+    setShowChinese(false);
+    setSegments(null);
+    setIsSegmenting(false);
+    segmentingRef.current = false;
   }, [page.id]);
+
+  // Load word segmentation when Chinese is revealed
+  useEffect(() => {
+    if (!showChinese || segments !== null || segmentingRef.current) return;
+    segmentingRef.current = true;
+    setIsSegmenting(true);
+    const sents = page.content_chinese.split(/(?<=[。！？])/g).filter((s) => s.trim());
+    Promise.all(sents.map((s) => analyzeSentence(s)))
+      .then((breakdowns) => setSegments(breakdowns.flatMap((b) => b.chunks)))
+      .catch(() => {})
+      .finally(() => {
+        setIsSegmenting(false);
+        segmentingRef.current = false;
+      });
+  }, [showChinese, page.content_chinese, segments]);
 
   // Play Chinese audio using browser TTS
   const playAudio = useCallback(() => {
@@ -400,17 +425,43 @@ function PageView({
       <div className="reader-text-content">
         {/* Chinese text with play button */}
         <div className="reader-chinese-section">
-          <div className="reader-chinese-text">
-            {sentences.map((sentence, index) => (
-              <span
-                key={index}
-                onClick={() => onAnalyzeSentence(sentence)}
-                className="reader-sentence"
-              >
-                {sentence}
-              </span>
-            ))}
-          </div>
+          {!showChinese ? (
+            <div
+              className="reader-chinese-reveal-box"
+              onClick={() => setShowChinese(true)}
+            >
+              Tap to reveal Chinese
+            </div>
+          ) : (
+            <div className="reader-chinese-text">
+              {segments ? (
+                segments.map((chunk, i) => (
+                  <span
+                    key={i}
+                    className="reader-word-segment"
+                    onClick={() => onAddChunk({ hanzi: chunk.hanzi, pinyin: chunk.pinyin, english: chunk.english })}
+                  >
+                    {chunk.hanzi}
+                  </span>
+                ))
+              ) : (
+                sentences.map((sentence, index) => (
+                  <span
+                    key={index}
+                    onClick={() => onAnalyzeSentence(sentence)}
+                    className="reader-sentence"
+                  >
+                    {sentence}
+                  </span>
+                ))
+              )}
+              {isSegmenting && (
+                <span className="reader-segmenting-indicator" title="Loading word segments...">
+                  <span className="spinner" style={{ width: '14px', height: '14px', display: 'inline-block', verticalAlign: 'middle', marginLeft: '0.5rem' }} />
+                </span>
+              )}
+            </div>
+          )}
           <button
             className="reader-audio-btn"
             onClick={isPlaying ? stopAudio : playAudio}
@@ -637,6 +688,7 @@ export function ReaderPage() {
           onTogglePinyin={() => setShowPinyin(!showPinyin)}
           onToggleTranslation={() => setShowTranslation(!showTranslation)}
           onAnalyzeSentence={handleAnalyzeSentence}
+          onAddChunk={(c) => setAddingChunk(c)}
           homeworkId={homeworkId}
           pageRecording={pageRecording}
           isCompleted={false}

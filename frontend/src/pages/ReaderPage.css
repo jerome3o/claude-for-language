@@ -166,6 +166,44 @@ body:has(.reader-page) #root {
   border-bottom-color: #3b82f6;
 }
 
+.reader-chinese-reveal-box {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  color: #9ca3af;
+  font-size: 1rem;
+  transition: background-color 0.15s;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reader-chinese-reveal-box:hover,
+.reader-chinese-reveal-box:active {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.reader-word-segment {
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: border-color 0.15s, background-color 0.15s;
+  display: inline;
+}
+
+.reader-word-segment:hover,
+.reader-word-segment:active {
+  border-bottom-color: #3b82f6;
+  background-color: #eff6ff;
+}
+
 .reader-pinyin-box {
   padding: 0.75rem 1rem;
   border-radius: 8px;
