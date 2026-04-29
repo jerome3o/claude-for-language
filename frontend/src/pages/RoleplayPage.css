@@ -89,7 +89,9 @@
 .rp-msg {
   border-radius: 12px;
   padding: 0.7rem 0.9rem;
-  max-width: 85%;
+  max-width: 90%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .rp-msg.user {
@@ -99,13 +101,50 @@
   font-size: 1.1rem;
 }
 
-.rp-msg.ai {
+.rp-ai-block {
   align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 90%;
+}
+
+.rp-image {
+  width: 100%;
+  max-width: 280px;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  object-fit: cover;
+}
+
+.rp-image.placeholder {
+  background: linear-gradient(90deg, #f3f4f6 0%, #e5e7eb 50%, #f3f4f6 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.rp-msg.ai {
   background: #fff;
   border: 1px solid #e5e7eb;
   display: flex;
   gap: 0.6rem;
   align-items: flex-start;
+  max-width: 100%;
+}
+
+.rp-content {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .rp-msg.ai.pending {
@@ -127,15 +166,32 @@
   background: none;
   border: 1px dashed #cbd5e1;
   border-radius: 8px;
-  padding: 0.7rem 1rem;
+  padding: 0.6rem 0.9rem;
   color: #64748b;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 40px;
+  align-self: flex-start;
 }
 
 .rp-hanzi {
   font-size: 1.25rem;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.rp-chunk {
+  background: none;
+  border: none;
+  padding: 0.1rem 0.05rem;
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rp-chunk:active {
+  background: #eef3ff;
 }
 
 .rp-pinyin {
@@ -190,6 +246,38 @@
 .rp-stat {
   font-size: 0.8rem;
   color: #666;
+}
+
+.rp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 50;
+}
+
+.rp-modal {
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 1.25rem;
+  width: 100%;
+  max-width: 480px;
+}
+
+.rp-modal-hanzi {
+  font-size: 2rem;
+  text-align: center;
+}
+
+@media (min-width: 640px) {
+  .rp-modal-backdrop {
+    align-items: center;
+  }
+  .rp-modal {
+    border-radius: 16px;
+  }
 }
 
 .ln-form {

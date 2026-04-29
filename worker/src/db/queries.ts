@@ -2655,12 +2655,13 @@ export async function createRoleplaySession(
   db: D1Database,
   userId: string,
   sit: { id: string; scenario: string; ai_role: string; user_role: string; goal: string },
+  characterPrompt: string,
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO roleplay_sessions (id, user_id, situation_id, scenario, ai_role, user_role, goal)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, userId, sit.id, sit.scenario, sit.ai_role, sit.user_role, sit.goal).run();
+    INSERT INTO roleplay_sessions (id, user_id, situation_id, scenario, ai_role, user_role, goal, character_prompt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, userId, sit.id, sit.scenario, sit.ai_role, sit.user_role, sit.goal, characterPrompt).run();
   return id;
 }
 
@@ -2668,9 +2669,9 @@ export async function getRoleplaySession(
   db: D1Database,
   id: string,
   userId: string,
-): Promise<{ id: string; situation_id: string; scenario: string; ai_role: string; user_role: string; goal: string; completed_at: string | null } | null> {
+): Promise<{ id: string; situation_id: string; scenario: string; ai_role: string; user_role: string; goal: string; character_prompt: string | null; completed_at: string | null } | null> {
   return await db.prepare(`
-    SELECT id, situation_id, scenario, ai_role, user_role, goal, completed_at
+    SELECT id, situation_id, scenario, ai_role, user_role, goal, character_prompt, completed_at
     FROM roleplay_sessions WHERE id = ? AND user_id = ?
   `).bind(id, userId).first();
 }
@@ -2678,9 +2679,9 @@ export async function getRoleplaySession(
 export async function listRoleplayMessages(
   db: D1Database,
   sessionId: string,
-): Promise<Array<{ id: string; role: 'ai' | 'user'; hanzi: string; pinyin: string | null; english: string | null; revealed: number }>> {
+): Promise<Array<{ id: string; role: 'ai' | 'user'; hanzi: string; pinyin: string | null; english: string | null; chunks_json: string | null; image_url: string | null; revealed: number }>> {
   const r = await db.prepare(`
-    SELECT id, role, hanzi, pinyin, english, revealed
+    SELECT id, role, hanzi, pinyin, english, chunks_json, image_url, revealed
     FROM roleplay_messages WHERE session_id = ? ORDER BY created_at
   `).bind(sessionId).all();
   return r.results as any;
@@ -2689,14 +2690,22 @@ export async function listRoleplayMessages(
 export async function addRoleplayMessage(
   db: D1Database,
   sessionId: string,
-  m: { role: 'ai' | 'user'; hanzi: string; pinyin?: string | null; english?: string | null },
+  m: { role: 'ai' | 'user'; hanzi: string; pinyin?: string | null; english?: string | null; chunks_json?: string | null; image_url?: string | null },
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO roleplay_messages (id, session_id, role, hanzi, pinyin, english)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(id, sessionId, m.role, m.hanzi, m.pinyin ?? null, m.english ?? null).run();
+    INSERT INTO roleplay_messages (id, session_id, role, hanzi, pinyin, english, chunks_json, image_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, sessionId, m.role, m.hanzi, m.pinyin ?? null, m.english ?? null, m.chunks_json ?? null, m.image_url ?? null).run();
   return id;
+}
+
+export async function setRoleplayMessageImage(
+  db: D1Database,
+  messageId: string,
+  imageUrl: string,
+): Promise<void> {
+  await db.prepare(`UPDATE roleplay_messages SET image_url = ? WHERE id = ?`).bind(imageUrl, messageId).run();
 }
 
 export async function markRoleplayRevealed(
