@@ -1320,6 +1320,8 @@ app.post('/api/notes/:id/generate-multiple-choice', async (c) => {
 - Similar sounding (homophones or near-homophones)
 - Commonly confused with the correct character
 
+IMPORTANT: Only use characters from modern everyday simplified Chinese. Do NOT use classical, archaic, traditional-only, or rare characters that a modern Mandarin learner would not encounter in daily life or standard courses (HSK 1-6 vocabulary is a good reference). Every alternative must be a character a learner would plausibly see in modern contexts.
+
 Characters to generate alternatives for:
 ${characters.map((char, i) => `${i + 1}. ${char}`).join('\n')}
 
