@@ -1,0 +1,201 @@
+.roleplay-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.roleplay-page.chat {
+  height: calc(100vh - 60px);
+}
+
+.rp-sub {
+  color: #666;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.rp-error {
+  background: #fee;
+  border: 1px solid #f99;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: #900;
+}
+
+.rp-sit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rp-sit {
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  cursor: pointer;
+  min-height: 60px;
+}
+
+.rp-sit:active {
+  background: #f6f6f6;
+}
+
+.rp-sit-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.rp-sit-goal {
+  font-size: 0.85rem;
+  color: #666;
+  margin-top: 0.2rem;
+}
+
+.rp-context {
+  background: #f6f8fc;
+  border-radius: 10px;
+  padding: 0.85rem;
+  font-size: 0.9rem;
+}
+
+.rp-context-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.rp-context-scenario {
+  color: #444;
+  margin-bottom: 0.25rem;
+}
+
+.rp-context-goal {
+  color: #2952cc;
+}
+
+.rp-thread {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+}
+
+.rp-msg {
+  border-radius: 12px;
+  padding: 0.7rem 0.9rem;
+  max-width: 85%;
+}
+
+.rp-msg.user {
+  align-self: flex-end;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 1.1rem;
+}
+
+.rp-msg.ai {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.rp-msg.ai.pending {
+  color: #999;
+}
+
+.rp-replay {
+  background: #eef3ff;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.rp-reveal-btn {
+  background: none;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  color: #64748b;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.rp-hanzi {
+  font-size: 1.25rem;
+}
+
+.rp-pinyin {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.rp-english {
+  color: #444;
+  font-size: 0.9rem;
+  margin-top: 0.2rem;
+}
+
+.rp-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.rp-input {
+  flex: 1;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 0.6rem;
+  font-size: 1.1rem;
+  font-family: inherit;
+  resize: none;
+}
+
+.rp-send {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 1rem;
+  min-height: 48px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.rp-send:disabled {
+  opacity: 0.5;
+}
+
+.rp-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.25rem;
+}
+
+.rp-stat {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.rp-finish {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}

@@ -1,13 +1,41 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { getDecks, createDeck, getDeckStats, getNextGrammarPoint } from '../api/client';
+import { getDecks, createDeck, getDeckStats, getDailyStatus } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
 import { Deck, DeckStats, QueueCounts } from '../types';
 import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
 import { applyNewCardBonus, sumQueueCounts, EMPTY_QUEUE_COUNTS, DeckQueueCounts } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
+
+function DailyButton(props: {
+  done: boolean;
+  label: string;
+  icon: string;
+  sub?: string;
+  onClick: () => void;
+}) {
+  const { done, label, icon, sub, onClick } = props;
+  return (
+    <button
+      onClick={onClick}
+      className={`btn btn-lg btn-block ${done ? 'btn-secondary' : 'btn-primary'}`}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '0.5rem',
+        marginTop: '0.5rem',
+      }}
+    >
+      <span>{done ? `✓ ${label} done` : `${icon} ${label}`}</span>
+      {sub && (
+        <span style={{ fontSize: '0.85rem', opacity: 0.85, fontWeight: 400 }}>{sub}</span>
+      )}
+    </button>
+  );
+}
 
 // Queue counts display component
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -137,9 +165,9 @@ export function HomePage() {
   const [description, setDescription] = useState('');
 
   // Background API calls - fetches decks from server when online
-  const practiceQuery = useQuery({
-    queryKey: ['practice-next'],
-    queryFn: getNextGrammarPoint,
+  const dailyQuery = useQuery({
+    queryKey: ['daily-status'],
+    queryFn: getDailyStatus,
     staleTime: 60000,
     retry: false,
   });
@@ -252,35 +280,32 @@ export function HomePage() {
               <span>Study All</span>
               <QueueCountsBadge counts={totalCounts} />
             </button>
-          ) : liveTotal.hasMoreNew ? (
-            <button onClick={() => bumpBonus(undefined)} className="btn btn-secondary btn-lg btn-block">
-              +10 More New Cards
-            </button>
           ) : (
-            <div className="text-center text-light" style={{ padding: '0.5rem' }}>
-              All caught up!
-            </div>
-          )}
-          {practiceQuery.data?.point && (
-            <button
-              onClick={() => navigate('/practice')}
-              className={`btn btn-lg btn-block ${practiceQuery.data.done_today ? 'btn-secondary' : 'btn-primary'}`}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '0.5rem',
-                marginTop: '0.5rem',
-              }}
-            >
-              <span>
-                {practiceQuery.data.done_today ? '✓ Grammar done' : '🧩 Grammar'}
-              </span>
-              <span style={{ fontSize: '0.85rem', opacity: 0.85, fontWeight: 400 }}>
-                {practiceQuery.data.point.title}
-              </span>
+            <button onClick={handleStudyAll} className="btn btn-secondary btn-lg btn-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+              <span>✓ Flashcards done</span>
             </button>
           )}
+          <DailyButton
+            done={dailyQuery.data?.grammar.done_today ?? false}
+            label="Grammar"
+            icon="🧩"
+            sub={dailyQuery.data?.grammar.point?.title}
+            onClick={() => navigate('/practice')}
+          />
+          <DailyButton
+            done={dailyQuery.data?.reader_done ?? false}
+            label="Reader"
+            icon="📖"
+            sub="Pick a situation"
+            onClick={() => navigate('/daily-reader')}
+          />
+          <DailyButton
+            done={dailyQuery.data?.roleplay_done ?? false}
+            label="Role play"
+            icon="💬"
+            sub="Pick a situation"
+            onClick={() => navigate('/roleplay')}
+          />
         </div>
 
         {/* Your Decks */}

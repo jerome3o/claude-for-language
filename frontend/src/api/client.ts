@@ -1645,6 +1645,74 @@ export interface TranslateFeedback {
   explanation: string;
 }
 
+// ============ Daily activities / Roleplay ============
+
+export interface Situation {
+  id: string;
+  title: string;
+  scenario: string;
+  user_role: string;
+  ai_role: string;
+  goal: string;
+}
+
+export interface RoleplayMessage {
+  id: string;
+  role: 'ai' | 'user';
+  hanzi: string;
+  pinyin: string | null;
+  english: string | null;
+  revealed: boolean;
+}
+
+export interface DailyStatus {
+  grammar: { point: GrammarPoint | null; done_today: boolean };
+  reader_done: boolean;
+  roleplay_done: boolean;
+}
+
+export async function getSituations(): Promise<{ situations: Situation[] }> {
+  return fetchJSON('/situations');
+}
+
+export async function getDailyStatus(): Promise<DailyStatus> {
+  return fetchJSON('/daily/status');
+}
+
+export async function markDailyActivity(activity: 'reader' | 'roleplay', refId?: string): Promise<void> {
+  await fetchJSON('/daily/mark', {
+    method: 'POST',
+    body: JSON.stringify({ activity, ref_id: refId }),
+  });
+}
+
+export async function startRoleplay(
+  situationId: string,
+): Promise<{ session_id: string; situation: Situation; message: RoleplayMessage; audio_base64: string | null }> {
+  return fetchJSON('/roleplay/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ situation_id: situationId }),
+  });
+}
+
+export async function replyRoleplay(
+  sessionId: string,
+  text: string,
+): Promise<{ message: RoleplayMessage; audio_base64: string | null }> {
+  return fetchJSON(`/roleplay/sessions/${sessionId}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function revealRoleplayMessage(messageId: string): Promise<void> {
+  await fetchJSON(`/roleplay/messages/${messageId}/reveal`, { method: 'POST' });
+}
+
+export async function completeRoleplay(sessionId: string): Promise<void> {
+  await fetchJSON(`/roleplay/sessions/${sessionId}/complete`, { method: 'POST' });
+}
+
 export async function generatePracticeTTS(
   text: string,
 ): Promise<{ audio_base64: string; content_type: string }> {

@@ -15,6 +15,8 @@ import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent } from './services/practice';
+import { SITUATIONS, getSituation } from './services/situations';
+import { openRoleplay, replyRoleplay } from './services/roleplay';
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
@@ -5124,6 +5126,104 @@ app.get('/api/sync/changes', async (c) => {
     deleted,
     server_time: new Date().toISOString(),
   });
+});
+
+// ============ Daily activities (situations / roleplay / status) ============
+
+app.get('/api/situations', (c) => c.json({ situations: SITUATIONS }));
+
+app.get('/api/daily/status', async (c) => {
+  const userId = c.get('user').id;
+  const [grammarPoint, grammarDone, activities] = await Promise.all([
+    db.getNextGrammarPoint(c.env.DB, userId),
+    db.practiceCompletedToday(c.env.DB, userId),
+    db.getDailyActivityStatus(c.env.DB, userId),
+  ]);
+  return c.json({
+    grammar: { point: grammarPoint, done_today: grammarDone },
+    reader_done: activities.reader,
+    roleplay_done: activities.roleplay,
+  });
+});
+
+app.post('/api/daily/mark', async (c) => {
+  const userId = c.get('user').id;
+  const { activity, ref_id } = await c.req.json<{ activity: 'reader' | 'roleplay'; ref_id?: string }>();
+  await db.recordDailyActivity(c.env.DB, userId, activity, ref_id ?? null);
+  return c.json({ ok: true });
+});
+
+app.post('/api/roleplay/sessions', async (c) => {
+  const userId = c.get('user').id;
+  const { situation_id } = await c.req.json<{ situation_id: string }>();
+  const sit = getSituation(situation_id);
+  if (!sit) return c.json({ error: 'Unknown situation' }, 400);
+
+  const [sessionId, opener] = await Promise.all([
+    db.createRoleplaySession(c.env.DB, userId, sit),
+    openRoleplay(c.env.ANTHROPIC_API_KEY, sit),
+  ]);
+  const [msgId, tts] = await Promise.all([
+    db.addRoleplayMessage(c.env.DB, sessionId, { role: 'ai', ...opener }),
+    generateConversationTTS(c.env, opener.hanzi, {}),
+  ]);
+
+  return c.json({
+    session_id: sessionId,
+    situation: sit,
+    message: { id: msgId, role: 'ai', ...opener, revealed: false },
+    audio_base64: tts?.audioBase64 ?? null,
+  });
+});
+
+app.get('/api/roleplay/sessions/:id', async (c) => {
+  const userId = c.get('user').id;
+  const session = await db.getRoleplaySession(c.env.DB, c.req.param('id'), userId);
+  if (!session) return c.json({ error: 'Not found' }, 404);
+  const messages = await db.listRoleplayMessages(c.env.DB, session.id);
+  return c.json({ session, situation: getSituation(session.situation_id), messages });
+});
+
+app.post('/api/roleplay/sessions/:id/reply', async (c) => {
+  const userId = c.get('user').id;
+  const sessionId = c.req.param('id');
+  const session = await db.getRoleplaySession(c.env.DB, sessionId, userId);
+  if (!session) return c.json({ error: 'Not found' }, 404);
+  const sit = getSituation(session.situation_id)!;
+
+  const { text } = await c.req.json<{ text: string }>();
+  const history = await db.listRoleplayMessages(c.env.DB, sessionId);
+  await db.addRoleplayMessage(c.env.DB, sessionId, { role: 'user', hanzi: text });
+
+  const ai = await replyRoleplay(
+    c.env.ANTHROPIC_API_KEY,
+    sit,
+    history.map((m) => ({ ...m, revealed: !!m.revealed })),
+    text,
+  );
+  const [aiId, tts] = await Promise.all([
+    db.addRoleplayMessage(c.env.DB, sessionId, { role: 'ai', ...ai }),
+    generateConversationTTS(c.env, ai.hanzi, {}),
+  ]);
+
+  return c.json({
+    message: { id: aiId, role: 'ai', ...ai, revealed: false },
+    audio_base64: tts?.audioBase64 ?? null,
+  });
+});
+
+app.post('/api/roleplay/messages/:id/reveal', async (c) => {
+  const userId = c.get('user').id;
+  await db.markRoleplayRevealed(c.env.DB, c.req.param('id'), userId);
+  return c.json({ ok: true });
+});
+
+app.post('/api/roleplay/sessions/:id/complete', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  await db.completeRoleplaySession(c.env.DB, id, userId);
+  await db.recordDailyActivity(c.env.DB, userId, 'roleplay', id);
+  return c.json({ ok: true });
 });
 
 // ============ Grammar Practice ============
