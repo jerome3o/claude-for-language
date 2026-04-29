@@ -2803,6 +2803,21 @@ export async function practiceCompletedToday(
   return !!r;
 }
 
+export async function getTodayCompletedGrammarPoint(
+  db: D1Database,
+  userId: string,
+): Promise<GrammarPoint | null> {
+  const r = await db.prepare(`
+    SELECT gp.id, gp.level, gp.title, gp.pattern, gp.explanation, gp.cgw_url, gp.seed_examples, gp.order_index
+    FROM practice_sessions ps
+    JOIN grammar_points gp ON gp.id = ps.grammar_point_id
+    WHERE ps.user_id = ? AND ps.completed_at IS NOT NULL AND date(ps.completed_at) = date('now')
+    ORDER BY ps.completed_at DESC
+    LIMIT 1
+  `).bind(userId).first();
+  return r ? rowToGrammarPoint(r as any) : null;
+}
+
 export async function getNextGrammarPoint(
   db: D1Database,
   userId: string,
