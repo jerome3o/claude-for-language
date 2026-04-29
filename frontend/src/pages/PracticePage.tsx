@@ -29,8 +29,47 @@ type Phase =
   | 'speak'
   | 'done';
 
+type ActivePhase = Exclude<Phase, 'landing' | 'generating' | 'done'>;
+
 const PHASE_ORDER: Phase[] = ['flood', 'scramble', 'contrast', 'translate', 'speak'];
 const SPEAK_COUNT = 2;
+
+const PRACTICE_STATE_KEY = 'practice-session-state';
+const STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+interface PersistedState {
+  phase: ActivePhase;
+  sessionId: string;
+  content: PracticeSessionContent;
+  idx: number;
+  score: { correct: number; total: number };
+  savedAt: number;
+}
+
+function loadPersistedState(): PersistedState | null {
+  try {
+    const raw = localStorage.getItem(PRACTICE_STATE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as PersistedState;
+    if (Date.now() - s.savedAt > STATE_MAX_AGE_MS) {
+      localStorage.removeItem(PRACTICE_STATE_KEY);
+      return null;
+    }
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedState(s: PersistedState) {
+  try {
+    localStorage.setItem(PRACTICE_STATE_KEY, JSON.stringify(s));
+  } catch {}
+}
+
+function clearPersistedState() {
+  localStorage.removeItem(PRACTICE_STATE_KEY);
+}
 
 export function PracticePage() {
   const navigate = useNavigate();
@@ -48,12 +87,29 @@ export function PracticePage() {
   const [content, setContent] = useState<PracticeSessionContent | null>(null);
   const [idx, setIdx] = useState(0);
   const [score, setScore] = useState({ correct: 0, total: 0 });
+  const [resumeCandidate, setResumeCandidate] = useState<PersistedState | null>(loadPersistedState);
 
   useEffect(() => {
     getNextGrammarPoint()
       .then((r) => setNextPoint(r.point))
       .catch((e) => setError(String(e)));
   }, []);
+
+  useEffect(() => {
+    if (phase === 'done') {
+      clearPersistedState();
+      return;
+    }
+    if (phase === 'landing' || phase === 'generating' || !sessionId || !content) return;
+    savePersistedState({
+      phase: phase as ActivePhase,
+      sessionId,
+      content,
+      idx,
+      score,
+      savedAt: Date.now(),
+    });
+  }, [phase, idx, score, sessionId, content]);
 
   function togglePicker() {
     if (!showPicker && allPoints.length === 0) {
@@ -85,7 +141,24 @@ export function PracticePage() {
     return phaseLengths.slice(0, phaseIdx).reduce((a, b) => a + b, 0) + idx;
   }, [phaseLengths, phase, idx, totalExercises]);
 
+  function resumeSession(s: PersistedState) {
+    setSessionId(s.sessionId);
+    setContent(s.content);
+    setIdx(s.idx);
+    setScore(s.score);
+    setPhase(s.phase);
+    setResumeCandidate(null);
+    void prefetch(s.content.flood.map((e) => e.hanzi));
+  }
+
+  function discardResume() {
+    clearPersistedState();
+    setResumeCandidate(null);
+  }
+
   async function start(pointId?: string) {
+    setResumeCandidate(null);
+    clearPersistedState();
     setPhase('generating');
     setError(null);
     try {
@@ -137,6 +210,23 @@ export function PracticePage() {
           One pattern a day. Examples → word order → meaning → say it yourself. ~10 min.
         </p>
         {error && <div className="practice-error">{error}</div>}
+        {resumeCandidate && (
+          <div className="resume-card">
+            <div className="resume-label">Resume where you left off</div>
+            <div className="resume-point">{resumeCandidate.content.grammar_point.title}</div>
+            <div className="resume-meta">
+              {resumeCandidate.phase} · {resumeCandidate.score.correct}/{resumeCandidate.score.total} correct
+            </div>
+            <div className="resume-actions">
+              <button className="practice-btn primary" onClick={() => resumeSession(resumeCandidate)}>
+                Resume
+              </button>
+              <button className="practice-btn" onClick={discardResume}>
+                Start fresh
+              </button>
+            </div>
+          </div>
+        )}
         {nextPoint ? (
           <div className="gp-card">
             <div className="gp-level">{nextPoint.level}</div>
@@ -325,7 +415,7 @@ export function PracticePage() {
       <button className="practice-btn primary" onClick={() => navigate('/')}>
         Done
       </button>
-      <button className="practice-btn" onClick={() => setPhase('landing')}>
+      <button className="practice-btn" onClick={() => { clearPersistedState(); setPhase('landing'); }}>
         Another pattern
       </button>
     </div>

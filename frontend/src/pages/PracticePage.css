@@ -27,6 +27,43 @@
   color: #900;
 }
 
+/* Resume card */
+.resume-card {
+  border: 2px solid #4f7ef7;
+  border-radius: 12px;
+  padding: 1.25rem;
+  background: #f0f4ff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.resume-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #2952cc;
+}
+
+.resume-point {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #111;
+}
+
+.resume-meta {
+  font-size: 0.85rem;
+  color: #555;
+  text-transform: capitalize;
+}
+
+.resume-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 /* Landing card */
 .gp-card {
   border: 1px solid #e0e0e0;
