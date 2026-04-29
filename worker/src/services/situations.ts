@@ -110,3 +110,8 @@ export const SITUATIONS: Situation[] = [
 export function getSituation(id: string): Situation | undefined {
   return SITUATIONS.find((s) => s.id === id);
 }
+
+export function getTodaySituation(date = new Date()): Situation {
+  const day = Math.floor(date.getTime() / 86400000);
+  return SITUATIONS[day % SITUATIONS.length];
+}

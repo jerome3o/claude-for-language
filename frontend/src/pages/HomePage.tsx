@@ -296,14 +296,22 @@ export function HomePage() {
             done={dailyQuery.data?.reader_done ?? false}
             label="Reader"
             icon="📖"
-            sub="Pick a situation"
-            onClick={() => navigate('/daily-reader')}
+            sub={
+              dailyQuery.data?.today_reader?.status === 'generating'
+                ? `Preparing: ${dailyQuery.data.today_situation.title}…`
+                : dailyQuery.data?.today_situation.title
+            }
+            onClick={() =>
+              dailyQuery.data?.today_reader?.status === 'ready'
+                ? navigate(`/readers/${dailyQuery.data.today_reader.reader_id}`)
+                : navigate('/daily-reader')
+            }
           />
           <DailyButton
             done={dailyQuery.data?.roleplay_done ?? false}
             label="Role play"
             icon="💬"
-            sub="Pick a situation"
+            sub={dailyQuery.data?.today_situation.title}
             onClick={() => navigate('/roleplay')}
           />
         </div>

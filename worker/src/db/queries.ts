@@ -2739,6 +2739,46 @@ export async function recordDailyActivity(
   `).bind(crypto.randomUUID(), userId, activity, refId).run();
 }
 
+export async function getDailyReader(
+  db: D1Database,
+  userId: string,
+): Promise<{ reader_id: string; situation_id: string; status: string } | null> {
+  const r = await db.prepare(`
+    SELECT dr.reader_id, dr.situation_id, COALESCE(gr.status, 'generating') AS status
+    FROM daily_readers dr
+    LEFT JOIN graded_readers gr ON gr.id = dr.reader_id
+    WHERE dr.user_id = ? AND dr.date = date('now')
+  `).bind(userId).first<{ reader_id: string; situation_id: string; status: string }>();
+  return r ?? null;
+}
+
+export async function reserveDailyReader(
+  db: D1Database,
+  userId: string,
+  situationId: string,
+): Promise<boolean> {
+  const r = await db.prepare(`
+    INSERT OR IGNORE INTO daily_readers (user_id, date, situation_id, reader_id)
+    VALUES (?, date('now'), ?, '')
+  `).bind(userId, situationId).run();
+  return (r.meta?.changes ?? 0) > 0;
+}
+
+export async function setDailyReaderId(
+  db: D1Database,
+  userId: string,
+  readerId: string,
+): Promise<void> {
+  await db.prepare(`
+    UPDATE daily_readers SET reader_id = ? WHERE user_id = ? AND date = date('now')
+  `).bind(readerId, userId).run();
+}
+
+export async function getUserDeckIds(db: D1Database, userId: string): Promise<string[]> {
+  const r = await db.prepare(`SELECT id FROM decks WHERE user_id = ?`).bind(userId).all<{ id: string }>();
+  return r.results.map((d) => d.id);
+}
+
 export async function getDailyActivityStatus(
   db: D1Database,
   userId: string,

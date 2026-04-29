@@ -14,6 +14,8 @@ import {
 import { useAudioRecorder } from '../hooks/useAudio';
 import { Loading } from '../components/Loading';
 import { SentenceBreakdown } from '../components/SentenceBreakdown';
+import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
+import { markDailyActivity } from '../api/client';
 import {
   ReaderPage as ReaderPageType,
   SentenceBreakdown as SentenceBreakdownType,
@@ -33,10 +35,12 @@ function SentenceAnalysisModal({
   breakdown,
   isLoading,
   onClose,
+  onAddChunk,
 }: {
   breakdown: SentenceBreakdownType | null;
   isLoading: boolean;
   onClose: () => void;
+  onAddChunk: (c: Chunk) => void;
 }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -47,7 +51,25 @@ function SentenceAnalysisModal({
             <p className="text-light mt-2">Analyzing...</p>
           </div>
         ) : breakdown ? (
-          <SentenceBreakdown breakdown={breakdown} onClose={onClose} />
+          <>
+            <SentenceBreakdown breakdown={breakdown} onClose={onClose} />
+            <div style={{ padding: '0 1rem 1rem', borderTop: '1px solid #eee' }}>
+              <div style={{ fontSize: '0.8rem', color: '#666', margin: '0.75rem 0 0.5rem' }}>
+                Tap a word to add as a flashcard
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {breakdown.chunks.map((c, i) => (
+                  <button
+                    key={i}
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onAddChunk({ hanzi: c.hanzi, pinyin: c.pinyin, english: c.english })}
+                  >
+                    {c.hanzi}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
         ) : (
           <div style={{ padding: '1rem' }}>
             <div className="modal-header">
@@ -442,11 +464,16 @@ export function ReaderPage() {
     breakdown: SentenceBreakdownType | null;
     isLoading: boolean;
   } | null>(null);
+  const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
 
   const readerQuery = useQuery({
     queryKey: ['reader', id],
     queryFn: () => getGradedReader(id!),
     enabled: !!id,
+    refetchInterval: (q) =>
+      q.state.data?.status === 'generating' || (q.state.data && q.state.data.pages.length === 0)
+        ? 3000
+        : false,
   });
 
   const recordingsQuery = useQuery({
@@ -492,6 +519,11 @@ export function ReaderPage() {
     }
   };
 
+  const handleFinish = () => {
+    if (id) void markDailyActivity('reader', id).catch(() => {});
+    handleBack();
+  };
+
   if (readerQuery.isLoading) {
     return <Loading />;
   }
@@ -514,6 +546,19 @@ export function ReaderPage() {
   }
 
   const reader = readerQuery.data;
+
+  if (reader.status === 'generating' || reader.pages.length === 0) {
+    return (
+      <div className="page">
+        <div className="container" style={{ textAlign: 'center', paddingTop: '3rem' }}>
+          <span className="spinner" />
+          <p className="text-light mt-2">Generating your reader…</p>
+          <p className="text-light">{reader.title_english}</p>
+        </div>
+      </div>
+    );
+  }
+
   const page = reader.pages[currentPage];
   const difficultyStyle = DIFFICULTY_COLORS[reader.difficulty_level];
 
@@ -611,7 +656,7 @@ export function ReaderPage() {
         {currentPage === reader.pages.length - 1 ? (
           <button
             className="btn btn-primary reader-nav-btn"
-            onClick={handleBack}
+            onClick={homeworkId ? handleBack : handleFinish}
           >
             {homeworkId ? 'Back to Homework' : 'Finish'}
           </button>
@@ -631,7 +676,14 @@ export function ReaderPage() {
           breakdown={analysisModal.breakdown}
           isLoading={analysisModal.isLoading}
           onClose={() => setAnalysisModal(null)}
+          onAddChunk={(c) => {
+            setAnalysisModal(null);
+            setAddingChunk(c);
+          }}
         />
+      )}
+      {addingChunk && (
+        <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />
       )}
     </div>
   );

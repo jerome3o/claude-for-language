@@ -15,7 +15,7 @@ import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent } from './services/practice';
-import { SITUATIONS, getSituation } from './services/situations';
+import { SITUATIONS, getSituation, getTodaySituation } from './services/situations';
 import { openRoleplay, replyRoleplay, generatePersona, buildImagePrompt, type AnnotatedReply, type Persona } from './services/roleplay';
 
 async function persistAiRoleplayMessage(
@@ -5220,17 +5220,54 @@ app.delete('/api/lesson-notes/:id', async (c) => {
 
 app.get('/api/situations', (c) => c.json({ situations: SITUATIONS }));
 
+async function ensureDailyReader(
+  c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
+  userId: string,
+  sit: ReturnType<typeof getTodaySituation>,
+) {
+  const existing = await db.getDailyReader(c.env.DB, userId);
+  if (existing) return existing;
+
+  const won = await db.reserveDailyReader(c.env.DB, userId, sit.id);
+  if (!won) return await db.getDailyReader(c.env.DB, userId);
+
+  const deckIds = await db.getUserDeckIds(c.env.DB, userId);
+  const vocabulary = deckIds.length
+    ? await db.getLearnedVocabulary(c.env.DB, userId, deckIds)
+    : [];
+  if (vocabulary.length < 5) return null;
+
+  const topic = `A short conversation between ${sit.user_role} and ${sit.ai_role}. ${sit.scenario} The goal: ${sit.goal}`;
+  const pending = await db.createPendingReader(c.env.DB, userId, {
+    title_chinese: '生成中...',
+    title_english: sit.title,
+    difficulty_level: 'beginner' as DifficultyLevel,
+    topic,
+    source_deck_ids: deckIds,
+    vocabulary_used: vocabulary,
+  });
+  await db.setDailyReaderId(c.env.DB, userId, pending.id);
+  c.executionCtx.waitUntil(
+    c.env.STORY_QUEUE.send({ readerId: pending.id, vocabulary, topic, difficulty: 'beginner' }),
+  );
+  return { reader_id: pending.id, situation_id: sit.id, status: 'generating' };
+}
+
 app.get('/api/daily/status', async (c) => {
   const userId = c.get('user').id;
-  const [grammarPoint, grammarDone, activities] = await Promise.all([
+  const todaySit = getTodaySituation();
+  const [grammarPoint, grammarDone, activities, dailyReader] = await Promise.all([
     db.getNextGrammarPoint(c.env.DB, userId),
     db.practiceCompletedToday(c.env.DB, userId),
     db.getDailyActivityStatus(c.env.DB, userId),
+    ensureDailyReader(c, userId, todaySit),
   ]);
   return c.json({
     grammar: { point: grammarPoint, done_today: grammarDone },
     reader_done: activities.reader,
     roleplay_done: activities.roleplay,
+    today_situation: todaySit,
+    today_reader: dailyReader,
   });
 });
 
