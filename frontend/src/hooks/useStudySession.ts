@@ -14,6 +14,7 @@ import {
   getDueCards,
   getQueueCounts,
   getStudyCutoff,
+  getReviewedNoteIds,
   ensureDailyStatsInitialized,
   createLocalReviewEvent,
   storePendingRecording,
@@ -33,6 +34,22 @@ import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, De
 function pickRandom<T>(arr: T[]): T | null {
   if (arr.length === 0) return null;
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Helper: Pick a new card using priority tiers:
+//   1. Unreviewed note + hanzi_to_meaning  (user sees hanzi first for a brand-new word)
+//   2. Unreviewed note (any type)
+//   3. Reviewed note + hanzi_to_meaning
+//   4. Any new card (fallback)
+function pickPrioritizedNewCard(newCards: LocalCard[], reviewedNoteIds: Set<string>): LocalCard | null {
+  if (newCards.length === 0) return null;
+  const tier1 = newCards.filter(c => !reviewedNoteIds.has(c.note_id) && c.card_type === 'hanzi_to_meaning');
+  if (tier1.length > 0) return pickRandom(tier1);
+  const tier2 = newCards.filter(c => !reviewedNoteIds.has(c.note_id));
+  if (tier2.length > 0) return pickRandom(tier2);
+  const tier3 = newCards.filter(c => c.card_type === 'hanzi_to_meaning');
+  if (tier3.length > 0) return pickRandom(tier3);
+  return pickRandom(newCards);
 }
 
 // Helper: Weighted random selection for learning cards
@@ -81,6 +98,7 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
 function selectNextCardFromQueue(
   queue: LocalCard[],
   recentNoteIds: string[],
+  reviewedNoteIds: Set<string>,
   lastRatedCardId?: string,
 ): LocalCard | null {
   const now = Date.now();
@@ -119,11 +137,11 @@ function selectNextCardFromQueue(
     const random = Math.random();
 
     if (random < newProbability && newCards.length > 0) {
-      return pickRandom(newCards);
+      return pickPrioritizedNewCard(newCards, reviewedNoteIds);
     } else if (reviewCards.length > 0) {
       return pickRandom(reviewCards);
     } else if (newCards.length > 0) {
-      return pickRandom(newCards);
+      return pickPrioritizedNewCard(newCards, reviewedNoteIds);
     }
   }
 
@@ -206,18 +224,23 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Track pending background DB writes so we can await them before fallback queries
   const pendingWritesRef = useRef<Promise<void>[]>([]);
 
+  // Note IDs with at least one reviewed card — used to prioritize unreviewed notes in new card selection
+  const reviewedNoteIdsRef = useRef<Set<string>>(new Set());
+
   // Load initial queue
   const loadQueue = useCallback(async () => {
     if (!enabled) return;
     setIsLoading(true);
     try {
       await ensureDailyStatsInitialized();
-      const [dueCards, counts] = await Promise.all([
+      const [dueCards, counts, reviewedIds] = await Promise.all([
         getDueCards(deckId, bonusNewCards),
         getQueueCounts(deckId, bonusNewCards),
+        getReviewedNoteIds(deckId),
       ]);
       setQueue(dueCards);
       setHasMoreNewCards(counts.hasMoreNew);
+      reviewedNoteIdsRef.current = reviewedIds;
       initializedRef.current = true;
     } catch (error) {
       console.error('[useStudySession] Failed to load queue:', error);
@@ -299,7 +322,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     }
 
     // Use the pure selection function
-    const selected = selectNextCardFromQueue(queue, recentNoteIds);
+    const selected = selectNextCardFromQueue(queue, recentNoteIds, reviewedNoteIdsRef.current);
 
     if (selected) {
       // Load note and deck
@@ -504,7 +527,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const newRecentNoteIds = [...recentNoteIds.slice(-4), noteId];
 
     // Select the next card synchronously from the new queue
-    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, cardId);
+    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, reviewedNoteIdsRef.current, cardId);
 
     console.log('[useStudySession] Next card selected:', nextCard?.id, 'from queue of', newQueue.length);
 

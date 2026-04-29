@@ -620,6 +620,12 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
 /**
  * Get cards that are due for study, respecting per-deck new-card limits.
  *
+ * New cards are sorted by priority before the daily limit is applied:
+ *   1. Notes with no reviews yet + hanzi_to_meaning type (highest)
+ *   2. Notes with no reviews yet (any type)
+ *   3. Notes already reviewed + hanzi_to_meaning type
+ *   4. Notes already reviewed (any type)
+ *
  * @param bonusNewCards Extra new cards beyond the daily limit (Infinity = no limit).
  */
 export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<LocalCard[]> {
@@ -632,20 +638,38 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
     getNewCardsStudiedTodayMap(decks.map(d => d.id)),
   ]);
 
+  // Notes that have at least one card that's been reviewed (queue != NEW)
+  const reviewedNoteIds = new Set<string>();
+  for (const card of cards) {
+    if (card.queue !== CardQueue.NEW) reviewedNoteIds.add(card.note_id);
+  }
+
   const remaining = new Map(
     decks.map(d => [d.id, Math.max(0, d.new_cards_per_day + bonusNewCards - (studied.get(d.id) ?? 0))])
   );
   const newTaken = new Map<string, number>();
   const due: LocalCard[] = [];
 
+  // Sort new cards by priority before applying per-deck daily limits so that
+  // higher-priority cards make it into the session when the limit is tight.
+  const sortedNewCards = cards
+    .filter(c => c.queue === CardQueue.NEW)
+    .sort((a, b) => {
+      const ap = (!reviewedNoteIds.has(a.note_id) ? 0 : 2) + (a.card_type === 'hanzi_to_meaning' ? 0 : 1);
+      const bp = (!reviewedNoteIds.has(b.note_id) ? 0 : 2) + (b.card_type === 'hanzi_to_meaning' ? 0 : 1);
+      return ap - bp;
+    });
+
+  for (const card of sortedNewCards) {
+    const taken = newTaken.get(card.deck_id) ?? 0;
+    if (taken < (remaining.get(card.deck_id) ?? 0)) {
+      due.push(card);
+      newTaken.set(card.deck_id, taken + 1);
+    }
+  }
+
   for (const card of cards) {
-    if (card.queue === CardQueue.NEW) {
-      const taken = newTaken.get(card.deck_id) ?? 0;
-      if (taken < (remaining.get(card.deck_id) ?? 0)) {
-        due.push(card);
-        newTaken.set(card.deck_id, taken + 1);
-      }
-    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+    if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
       if (!card.due_timestamp || card.due_timestamp <= cutoff.ts) due.push(card);
     } else if (card.queue === CardQueue.REVIEW) {
       if (!card.next_review_at || card.next_review_at <= cutoff.iso) due.push(card);
@@ -653,6 +677,19 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
   }
 
   return due;
+}
+
+/**
+ * Returns the set of note IDs that have at least one reviewed card (queue != NEW).
+ * Used by the study session to prioritize unreviewed notes when selecting new cards.
+ */
+export async function getReviewedNoteIds(deckId?: string): Promise<Set<string>> {
+  const cards = await loadCards(deckId);
+  const ids = new Set<string>();
+  for (const card of cards) {
+    if (card.queue !== CardQueue.NEW) ids.add(card.note_id);
+  }
+  return ids;
 }
 
 // ============ Sync Metadata ============
