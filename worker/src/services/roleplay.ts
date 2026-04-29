@@ -43,9 +43,12 @@ async function annotate(
   return tu.input as { pinyin: string; english: string };
 }
 
-function asConversation(sit: Situation) {
+function asConversation(sit: Situation, lessonNotes?: string) {
+  const bias = lessonNotes
+    ? ` Where natural, weave in vocabulary the learner's tutor recently covered:\n${lessonNotes}`
+    : '';
   return {
-    scenario: `${sit.scenario} The conversation should stay simple (A2 level) and move toward this goal: ${sit.goal}`,
+    scenario: `${sit.scenario} The conversation should stay simple (A2 level) and move toward this goal: ${sit.goal}.${bias}`,
     ai_role: sit.ai_role,
     user_role: sit.user_role,
   };
@@ -54,8 +57,9 @@ function asConversation(sit: Situation) {
 export async function openRoleplay(
   apiKey: string,
   sit: Situation,
+  lessonNotes?: string,
 ): Promise<{ hanzi: string; pinyin: string; english: string }> {
-  const hanzi = await generateAIConversationOpener(apiKey, asConversation(sit) as any);
+  const hanzi = await generateAIConversationOpener(apiKey, asConversation(sit, lessonNotes) as any);
   const ann = await annotate(apiKey, hanzi);
   return { hanzi, ...ann };
 }

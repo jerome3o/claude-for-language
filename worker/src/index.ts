@@ -5128,6 +5128,55 @@ app.get('/api/sync/changes', async (c) => {
   });
 });
 
+// ============ Lesson Notes (external tutor homework) ============
+
+app.get('/api/lesson-notes', async (c) => {
+  const userId = c.get('user').id;
+  const notes = await db.listLessonNotes(c.env.DB, userId);
+  return c.json({ notes });
+});
+
+app.post('/api/lesson-notes', async (c) => {
+  const userId = c.get('user').id;
+  const { raw_text, given_at } = await c.req.json<{ raw_text: string; given_at?: string }>();
+  if (!raw_text?.trim()) return c.json({ error: 'raw_text required' }, 400);
+  const id = await db.createLessonNote(c.env.DB, userId, raw_text.trim(), given_at?.trim() || null);
+  return c.json({ id });
+});
+
+app.post('/api/lesson-notes/:id/files', async (c) => {
+  const userId = c.get('user').id;
+  const noteId = c.req.param('id');
+  if (!(await db.lessonNoteOwnedBy(c.env.DB, noteId, userId))) {
+    return c.json({ error: 'Not found' }, 404);
+  }
+
+  const form = await c.req.formData();
+  const file = form.get('file') as unknown;
+  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+    return c.json({ error: 'file required' }, 400);
+  }
+  const blob = file as Blob & { name?: string };
+  const filename = blob.name ?? 'upload';
+  const key = `lesson-notes/${noteId}/${crypto.randomUUID()}-${filename}`;
+  await c.env.AUDIO_BUCKET.put(key, await blob.arrayBuffer(), {
+    httpMetadata: { contentType: blob.type || 'application/octet-stream' },
+  });
+  const fileId = await db.addLessonNoteFile(c.env.DB, noteId, {
+    r2_key: key,
+    filename,
+    content_type: blob.type || null,
+    size: blob.size,
+  });
+  return c.json({ id: fileId, r2_key: key, filename });
+});
+
+app.delete('/api/lesson-notes/:id', async (c) => {
+  const userId = c.get('user').id;
+  await db.deleteLessonNote(c.env.DB, c.req.param('id'), userId);
+  return c.json({ ok: true });
+});
+
 // ============ Daily activities (situations / roleplay / status) ============
 
 app.get('/api/situations', (c) => c.json({ situations: SITUATIONS }));
@@ -5159,9 +5208,10 @@ app.post('/api/roleplay/sessions', async (c) => {
   const sit = getSituation(situation_id);
   if (!sit) return c.json({ error: 'Unknown situation' }, 400);
 
+  const lessonNotes = await db.getRecentLessonNotesText(c.env.DB, userId);
   const [sessionId, opener] = await Promise.all([
     db.createRoleplaySession(c.env.DB, userId, sit),
-    openRoleplay(c.env.ANTHROPIC_API_KEY, sit),
+    openRoleplay(c.env.ANTHROPIC_API_KEY, sit, lessonNotes || undefined),
   ]);
   const [msgId, tts] = await Promise.all([
     db.addRoleplayMessage(c.env.DB, sessionId, { role: 'ai', ...opener }),
@@ -5266,12 +5316,15 @@ app.post('/api/practice/sessions', async (c) => {
     : await db.getNextGrammarPoint(c.env.DB, userId);
   if (!point) return c.json({ error: 'No grammar point available' }, 404);
 
-  const vocab = await db.getLearnedVocabulary(c.env.DB, userId);
+  const [vocab, lessonNotes] = await Promise.all([
+    db.getLearnedVocabulary(c.env.DB, userId),
+    db.getRecentLessonNotesText(c.env.DB, userId),
+  ]);
   if (vocab.length < 10) {
     return c.json({ error: 'Learn at least 10 vocabulary words before starting grammar practice' }, 400);
   }
 
-  const content = await generatePracticeSession(c.env.ANTHROPIC_API_KEY, point, vocab);
+  const content = await generatePracticeSession(c.env.ANTHROPIC_API_KEY, point, vocab, lessonNotes || undefined);
   const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, JSON.stringify(content));
   return c.json({ session_id: sessionId, content });
 });

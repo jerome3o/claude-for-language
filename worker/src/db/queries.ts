@@ -2561,6 +2561,94 @@ export async function getGrammarProgress(
   return result.results;
 }
 
+// ---- Lesson notes (external tutor homework as generation context) ----
+
+export interface LessonNote {
+  id: string;
+  raw_text: string;
+  given_at: string | null;
+  created_at: string;
+  files: Array<{ id: string; r2_key: string; filename: string; content_type: string | null; size: number | null }>;
+}
+
+export async function createLessonNote(
+  db: D1Database,
+  userId: string,
+  rawText: string,
+  givenAt: string | null,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO lesson_notes (id, user_id, raw_text, given_at) VALUES (?, ?, ?, ?)
+  `).bind(id, userId, rawText, givenAt).run();
+  return id;
+}
+
+export async function addLessonNoteFile(
+  db: D1Database,
+  lessonNoteId: string,
+  file: { r2_key: string; filename: string; content_type: string | null; size: number | null },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO lesson_note_files (id, lesson_note_id, r2_key, filename, content_type, size)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(id, lessonNoteId, file.r2_key, file.filename, file.content_type, file.size).run();
+  return id;
+}
+
+export async function listLessonNotes(
+  db: D1Database,
+  userId: string,
+  limit = 20,
+): Promise<LessonNote[]> {
+  const notes = await db.prepare(`
+    SELECT id, raw_text, given_at, created_at FROM lesson_notes
+    WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
+  `).bind(userId, limit).all<{ id: string; raw_text: string; given_at: string | null; created_at: string }>();
+  if (notes.results.length === 0) return [];
+  const ids = notes.results.map((n) => n.id);
+  const files = await db.prepare(`
+    SELECT id, lesson_note_id, r2_key, filename, content_type, size FROM lesson_note_files
+    WHERE lesson_note_id IN (${ids.map(() => '?').join(',')})
+  `).bind(...ids).all<{ id: string; lesson_note_id: string; r2_key: string; filename: string; content_type: string | null; size: number | null }>();
+  const byNote = new Map<string, LessonNote['files']>();
+  for (const f of files.results) {
+    const arr = byNote.get(f.lesson_note_id) ?? [];
+    arr.push({ id: f.id, r2_key: f.r2_key, filename: f.filename, content_type: f.content_type, size: f.size });
+    byNote.set(f.lesson_note_id, arr);
+  }
+  return notes.results.map((n) => ({ ...n, files: byNote.get(n.id) ?? [] }));
+}
+
+export async function lessonNoteOwnedBy(
+  db: D1Database,
+  id: string,
+  userId: string,
+): Promise<boolean> {
+  const r = await db.prepare(`SELECT 1 FROM lesson_notes WHERE id = ? AND user_id = ?`)
+    .bind(id, userId).first();
+  return !!r;
+}
+
+export async function deleteLessonNote(db: D1Database, id: string, userId: string): Promise<void> {
+  await db.prepare(`DELETE FROM lesson_notes WHERE id = ? AND user_id = ?`).bind(id, userId).run();
+}
+
+export async function getRecentLessonNotesText(
+  db: D1Database,
+  userId: string,
+  limit = 3,
+): Promise<string> {
+  const r = await db.prepare(`
+    SELECT raw_text, given_at FROM lesson_notes
+    WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
+  `).bind(userId, limit).all<{ raw_text: string; given_at: string | null }>();
+  return r.results
+    .map((n) => (n.given_at ? `[${n.given_at}]\n${n.raw_text}` : n.raw_text))
+    .join('\n\n---\n\n');
+}
+
 // ---- Roleplay + daily activities ----
 
 export async function createRoleplaySession(

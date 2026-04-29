@@ -462,6 +462,50 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       }
     );
 
+    // ============ Lesson Notes (external tutor homework) ============
+
+    this.server.tool(
+      "add_lesson_note",
+      "Record raw lesson notes from the user's tutor (vocab lists, sentences, etc). The text is stored verbatim and used as context when generating grammar practice and roleplay sessions. Do NOT reformat or parse — paste exactly what the tutor sent.",
+      {
+        raw_text: z.string().describe("The tutor's notes verbatim — any format"),
+        given_at: z.string().optional().describe("Free-form date/label, e.g. 'Tue lesson' or '2026-04-28'"),
+      },
+      async ({ raw_text, given_at }) => {
+        const id = crypto.randomUUID();
+        await this.env.DB.prepare(
+          `INSERT INTO lesson_notes (id, user_id, raw_text, given_at) VALUES (?, ?, ?, ?)`
+        ).bind(id, userId, raw_text.trim(), given_at?.trim() || null).run();
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Saved lesson note (${raw_text.trim().length} chars)${given_at ? ` for ${given_at}` : ''}. id=${id}`,
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "list_lesson_notes",
+      "List recent lesson notes (most recent first).",
+      { limit: z.number().optional().describe("How many to return (default 5)") },
+      async ({ limit }) => {
+        const r = await this.env.DB.prepare(
+          `SELECT id, raw_text, given_at, created_at FROM lesson_notes WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`
+        ).bind(userId, limit ?? 5).all();
+        return {
+          content: [{
+            type: "text" as const,
+            text: r.results.length === 0
+              ? "No lesson notes yet."
+              : r.results
+                  .map((n: any) => `[${n.given_at || n.created_at}] (id=${n.id})\n${n.raw_text}`)
+                  .join("\n\n---\n\n"),
+          }],
+        };
+      }
+    );
+
     // ============ Note Tools ============
 
     this.server.tool(

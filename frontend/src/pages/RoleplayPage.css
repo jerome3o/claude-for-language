@@ -192,6 +192,12 @@
   color: #666;
 }
 
+.ln-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
 .rp-finish {
   background: #fff;
   border: 1px solid #ddd;
