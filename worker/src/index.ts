@@ -16,7 +16,46 @@ import { analyzeSentence } from './services/sentence';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent } from './services/practice';
 import { SITUATIONS, getSituation } from './services/situations';
-import { openRoleplay, replyRoleplay } from './services/roleplay';
+import { openRoleplay, replyRoleplay, buildCharacterPrompt, buildImagePrompt, type AnnotatedReply } from './services/roleplay';
+
+async function persistAiRoleplayMessage(
+  c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
+  sessionId: string,
+  characterPrompt: string,
+  reply: AnnotatedReply,
+) {
+  const msgId = await db.addRoleplayMessage(c.env.DB, sessionId, {
+    role: 'ai',
+    hanzi: reply.hanzi,
+    pinyin: reply.pinyin,
+    english: reply.english,
+    chunks_json: JSON.stringify(reply.chunks),
+  });
+  if (c.env.GEMINI_API_KEY) {
+    c.executionCtx.waitUntil(
+      generatePageImage(
+        c.env.GEMINI_API_KEY,
+        buildImagePrompt(characterPrompt, reply.english),
+        `roleplay-${msgId}`,
+        c.env.AUDIO_BUCKET,
+      ).then((url) => (url ? db.setRoleplayMessageImage(c.env.DB, msgId, url) : undefined)),
+    );
+  }
+  const tts = await generateConversationTTS(c.env, reply.hanzi, {});
+  return {
+    message: {
+      id: msgId,
+      role: 'ai' as const,
+      hanzi: reply.hanzi,
+      pinyin: reply.pinyin,
+      english: reply.english,
+      chunks: reply.chunks,
+      image_url: null,
+      revealed: false,
+    },
+    audio_base64: tts?.audioBase64 ?? null,
+  };
+}
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
@@ -5209,21 +5248,13 @@ app.post('/api/roleplay/sessions', async (c) => {
   if (!sit) return c.json({ error: 'Unknown situation' }, 400);
 
   const lessonNotes = await db.getRecentLessonNotesText(c.env.DB, userId);
+  const characterPrompt = buildCharacterPrompt(sit);
   const [sessionId, opener] = await Promise.all([
-    db.createRoleplaySession(c.env.DB, userId, sit),
+    db.createRoleplaySession(c.env.DB, userId, sit, characterPrompt),
     openRoleplay(c.env.ANTHROPIC_API_KEY, sit, lessonNotes || undefined),
   ]);
-  const [msgId, tts] = await Promise.all([
-    db.addRoleplayMessage(c.env.DB, sessionId, { role: 'ai', ...opener }),
-    generateConversationTTS(c.env, opener.hanzi, {}),
-  ]);
-
-  return c.json({
-    session_id: sessionId,
-    situation: sit,
-    message: { id: msgId, role: 'ai', ...opener, revealed: false },
-    audio_base64: tts?.audioBase64 ?? null,
-  });
+  const out = await persistAiRoleplayMessage(c, sessionId, characterPrompt, opener);
+  return c.json({ session_id: sessionId, situation: sit, ...out });
 });
 
 app.get('/api/roleplay/sessions/:id', async (c) => {
@@ -5248,18 +5279,27 @@ app.post('/api/roleplay/sessions/:id/reply', async (c) => {
   const ai = await replyRoleplay(
     c.env.ANTHROPIC_API_KEY,
     sit,
-    history.map((m) => ({ ...m, revealed: !!m.revealed })),
+    history.map((m) => ({
+      ...m,
+      revealed: !!m.revealed,
+      chunks: m.chunks_json ? JSON.parse(m.chunks_json) : null,
+      image_url: m.image_url,
+    })),
     text,
   );
-  const [aiId, tts] = await Promise.all([
-    db.addRoleplayMessage(c.env.DB, sessionId, { role: 'ai', ...ai }),
-    generateConversationTTS(c.env, ai.hanzi, {}),
-  ]);
+  const characterPrompt = session.character_prompt ?? buildCharacterPrompt(sit);
+  const out = await persistAiRoleplayMessage(c, sessionId, characterPrompt, ai);
+  return c.json(out);
+});
 
-  return c.json({
-    message: { id: aiId, role: 'ai', ...ai, revealed: false },
-    audio_base64: tts?.audioBase64 ?? null,
-  });
+app.get('/api/roleplay/messages/:id/image', async (c) => {
+  const userId = c.get('user').id;
+  const r = await c.env.DB.prepare(`
+    SELECT m.image_url FROM roleplay_messages m
+    JOIN roleplay_sessions s ON s.id = m.session_id
+    WHERE m.id = ? AND s.user_id = ?
+  `).bind(c.req.param('id'), userId).first<{ image_url: string | null }>();
+  return c.json({ image_url: r?.image_url ?? null });
 });
 
 app.post('/api/roleplay/messages/:id/reveal', async (c) => {

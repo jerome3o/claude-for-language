@@ -1,8 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { generateAIConversationOpener, generateAIConversationResponse } from './ai';
+import { analyzeSentence } from './sentence';
 import type { Situation } from './situations';
 
-const MODEL = 'claude-opus-4-6';
+export interface RoleplayChunk {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+}
 
 export interface RoleplayMessage {
   id: string;
@@ -10,37 +14,38 @@ export interface RoleplayMessage {
   hanzi: string;
   pinyin: string | null;
   english: string | null;
+  chunks: RoleplayChunk[] | null;
+  image_url: string | null;
   revealed: boolean;
 }
 
-const ANNOTATE_TOOL: Anthropic.Tool = {
-  name: 'annotate',
-  description: 'Provide pinyin and an English translation for a Chinese sentence.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      pinyin: { type: 'string', description: 'Tone-mark pinyin for the whole sentence.' },
-      english: { type: 'string', description: 'Natural English translation.' },
-    },
-    required: ['pinyin', 'english'],
-  },
-};
+export interface AnnotatedReply {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  chunks: RoleplayChunk[];
+}
 
-async function annotate(
-  apiKey: string,
-  hanzi: string,
-): Promise<{ pinyin: string; english: string }> {
-  const client = new Anthropic({ apiKey });
-  const r = await client.messages.create({
-    model: MODEL,
-    max_tokens: 500,
-    tools: [ANNOTATE_TOOL],
-    tool_choice: { type: 'tool', name: 'annotate' },
-    messages: [{ role: 'user', content: `Annotate this Chinese: ${hanzi}` }],
-  });
-  const tu = r.content.find((c): c is Anthropic.ToolUseBlock => c.type === 'tool_use');
-  if (!tu) throw new Error('annotate: no tool_use');
-  return tu.input as { pinyin: string; english: string };
+async function annotate(apiKey: string, hanzi: string): Promise<AnnotatedReply> {
+  const breakdown = await analyzeSentence(apiKey, hanzi);
+  return {
+    hanzi,
+    pinyin: breakdown.pinyin,
+    english: breakdown.english,
+    chunks: breakdown.chunks.map((c) => ({
+      hanzi: c.hanzi,
+      pinyin: c.pinyin,
+      english: c.english,
+    })),
+  };
+}
+
+export function buildCharacterPrompt(sit: Situation): string {
+  return `Digital illustration, warm friendly style, soft lighting. A ${sit.ai_role}, Chinese, in the setting: ${sit.scenario} Same character appearance in every frame — consistent face, hair, clothing.`;
+}
+
+export function buildImagePrompt(characterPrompt: string, english: string): string {
+  return `${characterPrompt} In this frame they are mid-conversation, expression matching what they are saying: "${english}". Waist-up shot, looking toward the viewer.`;
 }
 
 function asConversation(sit: Situation, lessonNotes?: string) {
@@ -58,10 +63,9 @@ export async function openRoleplay(
   apiKey: string,
   sit: Situation,
   lessonNotes?: string,
-): Promise<{ hanzi: string; pinyin: string; english: string }> {
+): Promise<AnnotatedReply> {
   const hanzi = await generateAIConversationOpener(apiKey, asConversation(sit, lessonNotes) as any);
-  const ann = await annotate(apiKey, hanzi);
-  return { hanzi, ...ann };
+  return annotate(apiKey, hanzi);
 }
 
 export async function replyRoleplay(
@@ -69,7 +73,7 @@ export async function replyRoleplay(
   sit: Situation,
   history: RoleplayMessage[],
   userMessage: string,
-): Promise<{ hanzi: string; pinyin: string; english: string }> {
+): Promise<AnnotatedReply> {
   const transcript = history
     .map((m) => `${m.role === 'ai' ? sit.ai_role : sit.user_role}: ${m.hanzi}`)
     .join('\n');
@@ -79,6 +83,5 @@ export async function replyRoleplay(
     transcript,
     userMessage,
   );
-  const ann = await annotate(apiKey, hanzi);
-  return { hanzi, ...ann };
+  return annotate(apiKey, hanzi);
 }

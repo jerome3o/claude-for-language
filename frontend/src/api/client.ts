@@ -1710,12 +1710,20 @@ export interface Situation {
   goal: string;
 }
 
+export interface RoleplayChunk {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+}
+
 export interface RoleplayMessage {
   id: string;
   role: 'ai' | 'user';
   hanzi: string;
   pinyin: string | null;
   english: string | null;
+  chunks: RoleplayChunk[] | null;
+  image_url: string | null;
   revealed: boolean;
 }
 
@@ -1757,6 +1765,12 @@ export async function replyRoleplay(
     method: 'POST',
     body: JSON.stringify({ text }),
   });
+}
+
+export async function getRoleplayMessageImage(
+  messageId: string,
+): Promise<{ image_url: string | null }> {
+  return fetchJSON(`/roleplay/messages/${messageId}/image`);
 }
 
 export async function revealRoleplayMessage(messageId: string): Promise<void> {
