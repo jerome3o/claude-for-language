@@ -1750,7 +1750,7 @@ export async function markDailyActivity(activity: 'reader' | 'roleplay', refId?:
 
 export async function startRoleplay(
   situationId: string,
-): Promise<{ session_id: string; situation: Situation; message: RoleplayMessage; audio_base64: string | null }> {
+): Promise<{ session_id: string; situation: Situation; persona_name: string; message: RoleplayMessage; audio_base64: string | null }> {
   return fetchJSON('/roleplay/sessions', {
     method: 'POST',
     body: JSON.stringify({ situation_id: situationId }),

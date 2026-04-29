@@ -16,12 +16,12 @@ import { analyzeSentence } from './services/sentence';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent } from './services/practice';
 import { SITUATIONS, getSituation } from './services/situations';
-import { openRoleplay, replyRoleplay, buildCharacterPrompt, buildImagePrompt, type AnnotatedReply } from './services/roleplay';
+import { openRoleplay, replyRoleplay, generatePersona, buildImagePrompt, type AnnotatedReply, type Persona } from './services/roleplay';
 
 async function persistAiRoleplayMessage(
   c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
   sessionId: string,
-  characterPrompt: string,
+  persona: Pick<Persona, 'appearance' | 'voice_id'>,
   reply: AnnotatedReply,
 ) {
   const msgId = await db.addRoleplayMessage(c.env.DB, sessionId, {
@@ -35,13 +35,13 @@ async function persistAiRoleplayMessage(
     c.executionCtx.waitUntil(
       generatePageImage(
         c.env.GEMINI_API_KEY,
-        buildImagePrompt(characterPrompt, reply.english),
+        buildImagePrompt(persona.appearance, reply.english),
         `roleplay-${msgId}`,
         c.env.AUDIO_BUCKET,
       ).then((url) => (url ? db.setRoleplayMessageImage(c.env.DB, msgId, url) : undefined)),
     );
   }
-  const tts = await generateConversationTTS(c.env, reply.hanzi, {});
+  const tts = await generateConversationTTS(c.env, reply.hanzi, { voiceId: persona.voice_id });
   return {
     message: {
       id: msgId,
@@ -5248,13 +5248,13 @@ app.post('/api/roleplay/sessions', async (c) => {
   if (!sit) return c.json({ error: 'Unknown situation' }, 400);
 
   const lessonNotes = await db.getRecentLessonNotesText(c.env.DB, userId);
-  const characterPrompt = buildCharacterPrompt(sit);
-  const [sessionId, opener] = await Promise.all([
-    db.createRoleplaySession(c.env.DB, userId, sit, characterPrompt),
+  const [persona, opener] = await Promise.all([
+    generatePersona(c.env.ANTHROPIC_API_KEY, sit),
     openRoleplay(c.env.ANTHROPIC_API_KEY, sit, lessonNotes || undefined),
   ]);
-  const out = await persistAiRoleplayMessage(c, sessionId, characterPrompt, opener);
-  return c.json({ session_id: sessionId, situation: sit, ...out });
+  const sessionId = await db.createRoleplaySession(c.env.DB, userId, sit, persona);
+  const out = await persistAiRoleplayMessage(c, sessionId, persona, opener);
+  return c.json({ session_id: sessionId, situation: sit, persona_name: persona.name, ...out });
 });
 
 app.get('/api/roleplay/sessions/:id', async (c) => {
@@ -5287,8 +5287,11 @@ app.post('/api/roleplay/sessions/:id/reply', async (c) => {
     })),
     text,
   );
-  const characterPrompt = session.character_prompt ?? buildCharacterPrompt(sit);
-  const out = await persistAiRoleplayMessage(c, sessionId, characterPrompt, ai);
+  const persona = {
+    appearance: session.character_prompt ?? sit.ai_role,
+    voice_id: session.voice_id ?? DEFAULT_MINIMAX_VOICE,
+  };
+  const out = await persistAiRoleplayMessage(c, sessionId, persona, ai);
   return c.json(out);
 });
 
