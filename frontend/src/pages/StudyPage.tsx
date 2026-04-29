@@ -716,8 +716,8 @@ function StudyCard({
       const options = JSON.parse(card.note.multiple_choice_options) as { correct: string; options: string[] }[];
       const shuffled = shuffleOptions(options);
       setShuffledMcOptions(shuffled);
-      // Auto-select punctuation (single-option entries)
-      setMcSelections(shuffled.map(o => o.options.length === 1 ? o.options[0] : null));
+      // Auto-select punctuation (single-option) and English entries
+      setMcSelections(shuffled.map(o => o.options.length === 1 || (/[a-zA-Z]/.test(o.correct) && !/[一-鿿㐀-䶿]/.test(o.correct)) ? o.correct : null));
       setMcSubmitted(false);
       if (hideInitially) {
         setMcReady(true);
@@ -745,8 +745,8 @@ function StudyCard({
         const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
         const shuffled = shuffleOptions(options);
         setShuffledMcOptions(shuffled);
-        // Auto-select punctuation (single-option entries)
-        setMcSelections(shuffled.map(o => o.options.length === 1 ? o.options[0] : null));
+        // Auto-select punctuation (single-option) and English entries
+        setMcSelections(shuffled.map(o => o.options.length === 1 || (/[a-zA-Z]/.test(o.correct) && !/[一-鿿㐀-䶿]/.test(o.correct)) ? o.correct : null));
         setMcSubmitted(false);
         if (hideInitially) {
           setMcReady(true);
@@ -807,8 +807,8 @@ function StudyCard({
         const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
         const shuffled = shuffleOptions(options);
         setShuffledMcOptions(shuffled);
-        // Auto-select punctuation (single-option entries)
-        setMcSelections(shuffled.map(o => o.options.length === 1 ? o.options[0] : null));
+        // Auto-select punctuation (single-option) and English entries
+        setMcSelections(shuffled.map(o => o.options.length === 1 || (/[a-zA-Z]/.test(o.correct) && !/[一-鿿㐀-䶿]/.test(o.correct)) ? o.correct : null));
         setMcSubmitted(false);
       }
     } catch (error) {
@@ -2078,6 +2078,7 @@ function StudyCard({
     const options = shuffledMcOptions;
 
     const allSelected = mcSelections.every(s => s !== null);
+    const isEnglishEntry = (correct: string) => /[a-zA-Z]/.test(correct) && !/[一-鿿㐀-䶿]/.test(correct);
 
     const handleMcSubmit = () => {
       setMcSubmitted(true);
@@ -2088,8 +2089,8 @@ function StudyCard({
     return (
       <div style={{ width: '100%' }}>
         {options.map((charData, rowIdx) => (
-          charData.options.length === 1 ? (
-            // Punctuation: render as plain text, no interactive button
+          charData.options.length === 1 || isEnglishEntry(charData.correct) ? (
+            // Punctuation or English text: render as plain text, no interactive button
             <div key={rowIdx} style={{
               display: 'flex',
               justifyContent: 'center',

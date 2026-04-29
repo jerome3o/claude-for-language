@@ -536,7 +536,6 @@ export const MINIMAX_VOICES = [
   { id: 'Chinese (Mandarin)_Kind-hearted_Elder', name: 'Kind-hearted Elder (Male)' },
   { id: 'Chinese (Mandarin)_Gentle_Senior', name: 'Gentle Senior (Male)' },
   // Female voices
-  { id: 'Chinese (Mandarin)_Mature_Woman', name: 'Mature Woman' },
   { id: 'Chinese (Mandarin)_Sweet_Lady', name: 'Sweet Lady' },
   { id: 'Chinese (Mandarin)_Wise_Women', name: 'Wise Woman' },
   { id: 'Chinese (Mandarin)_Warm_Bestie', name: 'Warm Bestie (Female)' },
