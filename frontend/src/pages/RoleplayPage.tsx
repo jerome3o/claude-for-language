@@ -23,6 +23,7 @@ export function RoleplayPage() {
   const navigate = useNavigate();
   const [situations, setSituations] = useState<Situation[]>([]);
   const [sit, setSit] = useState<Situation | null>(null);
+  const [personaName, setPersonaName] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AiBubble[]>([]);
   const [input, setInput] = useState('');
@@ -78,6 +79,7 @@ export function RoleplayPage() {
     try {
       const r = await startRoleplay(s.id);
       setSessionId(r.session_id);
+      setPersonaName(r.persona_name);
       const msg: AiBubble = { ...r.message, audio: r.audio_base64, revealStage: 0 };
       setMessages([msg]);
       playAudio(r.audio_base64);
@@ -158,7 +160,10 @@ export function RoleplayPage() {
   return (
     <div className="roleplay-page chat">
       <div className="rp-context">
-        <div className="rp-context-title">{sit.title}</div>
+        <div className="rp-context-title">
+          {sit.title}
+          {personaName && ` · with ${personaName}`}
+        </div>
         <div className="rp-context-scenario">{sit.scenario}</div>
         <div className="rp-context-goal">
           <strong>Goal:</strong> {sit.goal}

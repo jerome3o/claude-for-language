@@ -2655,13 +2655,17 @@ export async function createRoleplaySession(
   db: D1Database,
   userId: string,
   sit: { id: string; scenario: string; ai_role: string; user_role: string; goal: string },
-  characterPrompt: string,
+  persona: { name: string; voice_id: string; appearance: string },
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO roleplay_sessions (id, user_id, situation_id, scenario, ai_role, user_role, goal, character_prompt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, userId, sit.id, sit.scenario, sit.ai_role, sit.user_role, sit.goal, characterPrompt).run();
+    INSERT INTO roleplay_sessions
+      (id, user_id, situation_id, scenario, ai_role, user_role, goal, character_prompt, voice_id, persona_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    id, userId, sit.id, sit.scenario, sit.ai_role, sit.user_role, sit.goal,
+    persona.appearance, persona.voice_id, persona.name,
+  ).run();
   return id;
 }
 
@@ -2669,9 +2673,9 @@ export async function getRoleplaySession(
   db: D1Database,
   id: string,
   userId: string,
-): Promise<{ id: string; situation_id: string; scenario: string; ai_role: string; user_role: string; goal: string; character_prompt: string | null; completed_at: string | null } | null> {
+): Promise<{ id: string; situation_id: string; scenario: string; ai_role: string; user_role: string; goal: string; character_prompt: string | null; voice_id: string | null; persona_name: string | null; completed_at: string | null } | null> {
   return await db.prepare(`
-    SELECT id, situation_id, scenario, ai_role, user_role, goal, character_prompt, completed_at
+    SELECT id, situation_id, scenario, ai_role, user_role, goal, character_prompt, voice_id, persona_name, completed_at
     FROM roleplay_sessions WHERE id = ? AND user_id = ?
   `).bind(id, userId).first();
 }
