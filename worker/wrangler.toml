@@ -61,5 +61,8 @@ max_batch_timeout = 0
 [ai]
 binding = "AI"
 
+[observability]
+enabled = true
+
 # Frontend is deployed separately to Cloudflare Pages
 # See .github/workflows/deploy.yml
