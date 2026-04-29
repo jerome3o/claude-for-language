@@ -77,6 +77,8 @@ jobs:
           echo "${{ secrets.ADMIN_EMAIL }}" | npx wrangler secret put ADMIN_EMAIL
           echo "${{ secrets.NTFY_TOPIC }}" | npx wrangler secret put NTFY_TOPIC
           echo "${{ secrets.SENDGRID_API_KEY }}" | npx wrangler secret put SENDGRID_API_KEY
+          echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_URL }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_URL
+          echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_KEY }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_KEY
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}
