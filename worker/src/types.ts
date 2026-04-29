@@ -9,6 +9,8 @@ export interface Env {
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
   GEMINI_API_KEY: string;
+  CCR_FEATURE_REQUEST_ROUTINE_URL?: string;
+  CCR_FEATURE_REQUEST_ROUTINE_KEY?: string;
   ENVIRONMENT: string;
   // Auth secrets
   GOOGLE_CLIENT_ID: string;

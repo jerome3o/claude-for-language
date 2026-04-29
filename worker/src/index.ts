@@ -5565,6 +5565,43 @@ app.post('/api/feature-requests', async (c) => {
     VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
   `).bind(id, user.id, content.trim(), pageContext || null, consoleLogs || null, screenshotUrl || null, approvalStatus, now, now).run();
 
+  if (c.env.CCR_FEATURE_REQUEST_ROUTINE_URL && c.env.CCR_FEATURE_REQUEST_ROUTINE_KEY) {
+    const text = [
+      `Feature request ${id} from ${user.name || user.email}`,
+      `Page: ${pageContext || 'unknown'}`,
+      '',
+      content.trim(),
+      consoleLogs ? `\n--- Console logs ---\n${consoleLogs}` : '',
+      screenshotUrl ? `\nScreenshot: ${screenshotUrl}` : '',
+    ].join('\n').slice(0, 65000);
+
+    c.executionCtx.waitUntil(
+      fetch(c.env.CCR_FEATURE_REQUEST_ROUTINE_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.CCR_FEATURE_REQUEST_ROUTINE_KEY}`,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'experimental-cc-routine-2026-04-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text }),
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            console.error('CCR routine fire failed', r.status, await r.text());
+            return;
+          }
+          const data = await r.json() as { claude_code_session_url?: string };
+          if (data.claude_code_session_url) {
+            await c.env.DB.prepare(
+              `UPDATE feature_requests SET ccr_session_url = ? WHERE id = ?`
+            ).bind(data.claude_code_session_url, id).run();
+          }
+        })
+        .catch((e) => console.error('CCR routine fire error', e)),
+    );
+  }
+
   return c.json({ id, status: 'new', approval_status: approvalStatus, created_at: now });
 });
 
