@@ -1731,6 +1731,8 @@ export interface DailyStatus {
   grammar: { point: GrammarPoint | null; done_today: boolean };
   reader_done: boolean;
   roleplay_done: boolean;
+  today_situation: Situation;
+  today_reader: { reader_id: string; situation_id: string; status: string } | null;
 }
 
 export async function getSituations(): Promise<{ situations: Situation[] }> {
