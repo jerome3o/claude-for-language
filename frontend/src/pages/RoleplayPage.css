@@ -190,6 +190,10 @@
   border-radius: 4px;
 }
 
+.rp-chunk:hover {
+  background: #f0f4ff;
+}
+
 .rp-chunk:active {
   background: #eef3ff;
 }
