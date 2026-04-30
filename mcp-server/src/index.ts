@@ -1823,6 +1823,50 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     );
 
     this.server.tool(
+      "claim_feature_request",
+      "Claim a feature request to signal that an agent is working on it. Call this BEFORE starting implementation to prevent other agents from working on the same request. Sets agent_session_url and changes status to 'in_progress'. Returns an error if already claimed by a different agent session.",
+      {
+        request_id: z.string().describe("The feature request ID to claim"),
+        session_url: z.string().describe("The Claude Code session URL of the agent claiming this request (e.g. https://claude.ai/code/session_...)"),
+      },
+      async ({ request_id, session_url }) => {
+        if (!await isAdmin()) {
+          return { content: [{ type: "text" as const, text: "Admin access required" }] };
+        }
+
+        const existing = await this.env.DB
+          .prepare('SELECT id, status, agent_session_url FROM feature_requests WHERE id = ?')
+          .bind(request_id)
+          .first<{ id: string; status: string; agent_session_url: string | null }>();
+
+        if (!existing) {
+          return { content: [{ type: "text" as const, text: "Feature request not found" }] };
+        }
+
+        if (existing.agent_session_url && existing.agent_session_url !== session_url) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Feature request already claimed by another agent session: ${existing.agent_session_url}. Choose a different feature request.`,
+            }],
+          };
+        }
+
+        await this.env.DB
+          .prepare("UPDATE feature_requests SET agent_session_url = ?, status = 'in_progress', updated_at = datetime('now') WHERE id = ?")
+          .bind(session_url, request_id)
+          .run();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Feature request ${request_id} claimed by session ${session_url} and status set to 'in_progress'.`,
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
       "add_feature_request_comment",
       "Add a comment to a feature request. Admin only — users comment through the app UI.",
       {
