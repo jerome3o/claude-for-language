@@ -24,6 +24,7 @@ function timeAgo(iso: string): string {
 const STATUS_LABELS: Record<string, string> = {
   new: 'New',
   in_progress: 'In Progress',
+  agent_working: 'Agent Working',
   done: 'Done',
   declined: 'Declined',
 };
