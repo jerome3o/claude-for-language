@@ -2,6 +2,20 @@
 
 This is a Chinese language learning app with spaced repetition. This document is for AI agents working on this codebase.
 
+## Agent Workflow: Feature Requests
+
+**IMPORTANT — read before implementing anything.**
+
+When asked to implement feature requests, use the MCP server tools in this order:
+
+1. **List approved requests**: Call `list_feature_requests(approval_status: "approved")` to see what needs doing. Check the `agent_session_url` field — if it is set, another agent is already working on that request; skip it.
+
+2. **Claim before you code**: Call `claim_feature_request(request_id, session_url)` using your CCR session URL (available in the system prompt as `ccr_session_url`, or find it in the conversation URL) **before** implementing. This prevents two agents from duplicating work. If the tool returns an error saying it's already claimed, skip that request.
+
+3. **Only work on one request per session**: Implement one feature request per agent session. Do not claim or implement multiple requests in the same session unless they are trivially related.
+
+4. **Mark done when finished**: Call `update_feature_request_status(request_id, "done")` after a successful deploy/PR.
+
 ## User Preferences (Jerome)
 
 These are Jerome's stated preferences — respect them in all implementations:

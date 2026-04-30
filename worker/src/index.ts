@@ -5707,19 +5707,39 @@ app.patch('/api/feature-requests/:id', async (c) => {
   }
 
   const id = c.req.param('id');
-  const { status } = await c.req.json<{ status: string }>();
+  const body = await c.req.json<{ status?: string; agent_session_url?: string | null }>();
 
-  const validStatuses = ['new', 'in_progress', 'done', 'declined'];
-  if (!validStatuses.includes(status)) {
-    return c.json({ error: `Invalid status. Valid: ${validStatuses.join(', ')}` }, 400);
+  const setClauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (body.status !== undefined) {
+    const validStatuses = ['new', 'in_progress', 'done', 'declined'];
+    if (!validStatuses.includes(body.status)) {
+      return c.json({ error: `Invalid status. Valid: ${validStatuses.join(', ')}` }, 400);
+    }
+    setClauses.push('status = ?');
+    params.push(body.status);
+  }
+
+  if ('agent_session_url' in body) {
+    setClauses.push('agent_session_url = ?');
+    params.push(body.agent_session_url ?? null);
+  }
+
+  if (setClauses.length === 0) {
+    return c.json({ error: 'No fields to update' }, 400);
   }
 
   const now = new Date().toISOString();
-  await c.env.DB.prepare(`
-    UPDATE feature_requests SET status = ?, updated_at = ? WHERE id = ?
-  `).bind(status, now, id).run();
+  setClauses.push('updated_at = ?');
+  params.push(now);
+  params.push(id);
 
-  return c.json({ success: true, status });
+  await c.env.DB.prepare(
+    `UPDATE feature_requests SET ${setClauses.join(', ')} WHERE id = ?`
+  ).bind(...params).run();
+
+  return c.json({ success: true, ...body });
 });
 
 // Approve or decline a feature request (admin only)
