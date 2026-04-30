@@ -1703,9 +1703,9 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "list_feature_requests",
-      "List feature requests submitted by users. Admins see all requests; non-admins see only their own. IMPORTANT: Only act on requests where approval_status is 'approved'. Requests with 'pending' approval_status have not been reviewed by the admin yet and should not be worked on.",
+      "List feature requests submitted by users. Admins see all requests; non-admins see only their own. IMPORTANT: Only act on requests where approval_status is 'approved'. Requests with 'pending' approval_status have not been reviewed by the admin yet and should not be worked on. Before starting work on a feature request, call update_feature_request_status with status='agent_working' to claim it and prevent other agents from duplicating the effort.",
       {
-        status: z.enum(['new', 'in_progress', 'done', 'declined']).optional()
+        status: z.enum(['new', 'in_progress', 'agent_working', 'done', 'declined']).optional()
           .describe("Filter by status"),
         approval_status: z.enum(['pending', 'approved', 'declined']).optional()
           .describe("Filter by approval status"),
@@ -1798,10 +1798,10 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "update_feature_request_status",
-      "Update the status of a feature request. Admin only.",
+      "Update the status of a feature request. Admin only. Use 'agent_working' when you are about to start implementing a feature request — this signals to other agents that it is already being handled and prevents duplicate work. Set to 'done' when implementation is complete.",
       {
         request_id: z.string().describe("The feature request ID"),
-        status: z.enum(['new', 'in_progress', 'done', 'declined']).describe("The new status"),
+        status: z.enum(['new', 'in_progress', 'agent_working', 'done', 'declined']).describe("The new status. Use 'agent_working' to claim a request before implementing it."),
       },
       async ({ request_id, status }) => {
         if (!await isAdmin()) {

@@ -3097,6 +3097,11 @@ textarea {
   color: #92400e;
 }
 
+.feature-request-status.status-agent_working {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
 .feature-request-status.status-done {
   background: #d1fae5;
   color: #065f46;

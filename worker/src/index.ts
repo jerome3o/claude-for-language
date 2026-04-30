@@ -5709,7 +5709,7 @@ app.patch('/api/feature-requests/:id', async (c) => {
   const id = c.req.param('id');
   const { status } = await c.req.json<{ status: string }>();
 
-  const validStatuses = ['new', 'in_progress', 'done', 'declined'];
+  const validStatuses = ['new', 'in_progress', 'agent_working', 'done', 'declined'];
   if (!validStatuses.includes(status)) {
     return c.json({ error: `Invalid status. Valid: ${validStatuses.join(', ')}` }, 400);
   }
