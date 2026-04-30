@@ -5294,14 +5294,19 @@ app.post('/api/roleplay/sessions', async (c) => {
   const sit = getSituation(situation_id);
   if (!sit) return c.json({ error: 'Unknown situation' }, 400);
 
-  const lessonNotes = await db.getRecentLessonNotesText(c.env.DB, userId);
-  const [persona, opener] = await Promise.all([
-    generatePersona(c.env.ANTHROPIC_API_KEY, sit),
-    openRoleplay(c.env.ANTHROPIC_API_KEY, sit, lessonNotes || undefined),
-  ]);
-  const sessionId = await db.createRoleplaySession(c.env.DB, userId, sit, persona);
-  const out = await persistAiRoleplayMessage(c, sessionId, persona, opener);
-  return c.json({ session_id: sessionId, situation: sit, persona_name: persona.name, ...out });
+  try {
+    const lessonNotes = await db.getRecentLessonNotesText(c.env.DB, userId);
+    const [persona, opener] = await Promise.all([
+      generatePersona(c.env.ANTHROPIC_API_KEY, sit),
+      openRoleplay(c.env.ANTHROPIC_API_KEY, sit, lessonNotes || undefined),
+    ]);
+    const sessionId = await db.createRoleplaySession(c.env.DB, userId, sit, persona);
+    const out = await persistAiRoleplayMessage(c, sessionId, persona, opener);
+    return c.json({ session_id: sessionId, situation: sit, persona_name: persona.name, ...out });
+  } catch (e) {
+    console.error('Failed to start roleplay session:', e);
+    return c.json({ error: e instanceof Error ? e.message : 'Failed to start roleplay session' }, 500);
+  }
 });
 
 app.get('/api/roleplay/sessions/:id', async (c) => {
@@ -5323,23 +5328,28 @@ app.post('/api/roleplay/sessions/:id/reply', async (c) => {
   const history = await db.listRoleplayMessages(c.env.DB, sessionId);
   await db.addRoleplayMessage(c.env.DB, sessionId, { role: 'user', hanzi: text });
 
-  const ai = await replyRoleplay(
-    c.env.ANTHROPIC_API_KEY,
-    sit,
-    history.map((m) => ({
-      ...m,
-      revealed: !!m.revealed,
-      chunks: m.chunks_json ? JSON.parse(m.chunks_json) : null,
-      image_url: m.image_url,
-    })),
-    text,
-  );
-  const persona = {
-    appearance: session.character_prompt ?? sit.ai_role,
-    voice_id: session.voice_id ?? DEFAULT_MINIMAX_VOICE,
-  };
-  const out = await persistAiRoleplayMessage(c, sessionId, persona, ai);
-  return c.json(out);
+  try {
+    const ai = await replyRoleplay(
+      c.env.ANTHROPIC_API_KEY,
+      sit,
+      history.map((m) => ({
+        ...m,
+        revealed: !!m.revealed,
+        chunks: m.chunks_json ? JSON.parse(m.chunks_json) : null,
+        image_url: m.image_url,
+      })),
+      text,
+    );
+    const persona = {
+      appearance: session.character_prompt ?? sit.ai_role,
+      voice_id: session.voice_id ?? DEFAULT_MINIMAX_VOICE,
+    };
+    const out = await persistAiRoleplayMessage(c, sessionId, persona, ai);
+    return c.json(out);
+  } catch (e) {
+    console.error('Failed to generate roleplay reply:', e);
+    return c.json({ error: e instanceof Error ? e.message : 'Failed to generate reply' }, 500);
+  }
 });
 
 app.get('/api/roleplay/messages/:id/image', async (c) => {

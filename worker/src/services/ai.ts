@@ -950,7 +950,7 @@ Keep it short (1-2 sentences) and conversational — invite a response from the 
 Remember: respond ONLY in Chinese characters. No English, no pinyin.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 200,
     messages: [
       { role: 'user', content: userPrompt }
@@ -997,7 +997,7 @@ The student just said: "${latestUserMessage}"
 Respond naturally in Chinese, staying in character. Remember: respond ONLY in Chinese characters.`;
 
   const response = await client.messages.create({
-    model: 'claude-opus-4-6',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 500,
     messages: [
       { role: 'user', content: userPrompt }
