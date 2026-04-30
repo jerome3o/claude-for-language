@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { DEFAULT_TTS_SPEED, SentenceChunk } from '../types';
+import { SentenceChunk } from '../types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getGradedReader,
@@ -10,6 +10,7 @@ import {
   getHomeworkRecordings,
   uploadHomeworkRecording,
   getHomeworkRecordingUrl,
+  generatePracticeTTS,
 } from '../api/client';
 import { useAudioRecorder } from '../hooks/useAudio';
 import { Loading } from '../components/Loading';
@@ -288,6 +289,8 @@ function PageView({
   const [segments, setSegments] = useState<SentenceChunk[] | null>(null);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const segmentingRef = useRef(false);
+  const pageAudioRef = useRef<HTMLAudioElement | null>(null);
+  const pagePlayIdRef = useRef(0);
 
   // Use the page's image_url or the generated one
   const imageKey = page.image_url || generatedImageUrl;
@@ -336,40 +339,46 @@ function PageView({
       });
   }, [showChinese, page.content_chinese, segments]);
 
-  // Play Chinese audio using browser TTS
+  // Play Chinese audio via MiniMax TTS API
   const playAudio = useCallback(() => {
-    if (!('speechSynthesis' in window) || isPlaying) return;
+    if (isPlaying) return;
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(page.content_chinese);
-    utterance.lang = 'zh-CN';
-    utterance.rate = DEFAULT_TTS_SPEED;
-
-    // Try to find a Chinese voice
-    const voices = window.speechSynthesis.getVoices();
-    const chineseVoice = voices.find(
-      (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
-    );
-    if (chineseVoice) {
-      utterance.voice = chineseVoice;
+    const playId = ++pagePlayIdRef.current;
+    if (pageAudioRef.current) {
+      pageAudioRef.current.pause();
+      pageAudioRef.current = null;
     }
 
-    utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => setIsPlaying(false);
-    utterance.onerror = () => setIsPlaying(false);
-
-    window.speechSynthesis.speak(utterance);
+    setIsPlaying(true);
+    generatePracticeTTS(page.content_chinese)
+      .then((r) => {
+        if (pagePlayIdRef.current !== playId) return;
+        const url = `data:${r.content_type};base64,${r.audio_base64}`;
+        const audio = new Audio(url);
+        pageAudioRef.current = audio;
+        audio.onended = () => pagePlayIdRef.current === playId && setIsPlaying(false);
+        audio.onerror = () => pagePlayIdRef.current === playId && setIsPlaying(false);
+        void audio.play().catch(() => pagePlayIdRef.current === playId && setIsPlaying(false));
+      })
+      .catch(() => pagePlayIdRef.current === playId && setIsPlaying(false));
   }, [page.content_chinese, isPlaying]);
 
   const stopAudio = useCallback(() => {
-    window.speechSynthesis.cancel();
+    pagePlayIdRef.current++;
+    if (pageAudioRef.current) {
+      pageAudioRef.current.pause();
+      pageAudioRef.current = null;
+    }
     setIsPlaying(false);
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      window.speechSynthesis.cancel();
+      if (pageAudioRef.current) {
+        pageAudioRef.current.pause();
+        pageAudioRef.current = null;
+      }
     };
   }, []);
 
