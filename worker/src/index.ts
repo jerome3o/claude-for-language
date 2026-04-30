@@ -5256,12 +5256,20 @@ async function ensureDailyReader(
 app.get('/api/daily/status', async (c) => {
   const userId = c.get('user').id;
   const todaySit = getTodaySituation();
-  const [grammarPoint, grammarDone, activities, dailyReader] = await Promise.all([
+  const [nextGrammarPoint, grammarDone, activities, dailyReader] = await Promise.all([
     db.getNextGrammarPoint(c.env.DB, userId),
     db.practiceCompletedToday(c.env.DB, userId),
     db.getDailyActivityStatus(c.env.DB, userId),
     ensureDailyReader(c, userId, todaySit),
   ]);
+  // When done today, show the lesson that was actually completed, not the next one.
+  // getNextGrammarPoint returns the next lesson to study (which may be different from
+  // the completed one if it graduated to 'known'), creating a misleading "done: [next lesson]" display.
+  let grammarPoint = nextGrammarPoint;
+  if (grammarDone) {
+    const completedPoint = await db.getTodayCompletedGrammarPoint(c.env.DB, userId);
+    if (completedPoint) grammarPoint = completedPoint;
+  }
   return c.json({
     grammar: { point: grammarPoint, done_today: grammarDone },
     reader_done: activities.reader,
@@ -5380,10 +5388,15 @@ app.get('/api/practice/points', async (c) => {
 
 app.get('/api/practice/next', async (c) => {
   const userId = c.get('user').id;
-  const [point, doneToday] = await Promise.all([
+  const [nextPoint, doneToday] = await Promise.all([
     db.getNextGrammarPoint(c.env.DB, userId),
     db.practiceCompletedToday(c.env.DB, userId),
   ]);
+  let point = nextPoint;
+  if (doneToday) {
+    const completedPoint = await db.getTodayCompletedGrammarPoint(c.env.DB, userId);
+    if (completedPoint) point = completedPoint;
+  }
   return c.json({ point, done_today: doneToday });
 });
 

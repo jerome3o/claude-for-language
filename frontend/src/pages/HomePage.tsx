@@ -172,6 +172,20 @@ export function HomePage() {
     retry: false,
   });
 
+  // Invalidate daily status when the local date changes (e.g. crossing midnight).
+  // Without this, the "done" indicators stay stale if the app is left open overnight.
+  useEffect(() => {
+    let lastDate = new Date().toDateString();
+    const interval = setInterval(() => {
+      const today = new Date().toDateString();
+      if (today !== lastDate) {
+        lastDate = today;
+        queryClient.invalidateQueries({ queryKey: ['daily-status'] });
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [queryClient]);
+
   const decksQuery = useQuery({
     queryKey: ['decks'],
     queryFn: getDecks,
