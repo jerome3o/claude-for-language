@@ -5713,7 +5713,7 @@ app.patch('/api/feature-requests/:id', async (c) => {
   const params: unknown[] = [];
 
   if (body.status !== undefined) {
-    const validStatuses = ['new', 'in_progress', 'done', 'declined'];
+    const validStatuses = ['new', 'in_progress', 'agent_working', 'done', 'declined'];
     if (!validStatuses.includes(body.status)) {
       return c.json({ error: `Invalid status. Valid: ${validStatuses.join(', ')}` }, 400);
     }
