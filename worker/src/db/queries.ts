@@ -2929,3 +2929,68 @@ export async function completePracticeSession(
     WHERE user_id = ? AND grammar_point_id = ?
   `).bind(correctDelta, attemptDelta, correctDelta, userId, grammarPointId).run();
 }
+
+// ---- Audio Lessons ----
+
+export interface AudioLesson {
+  id: string;
+  user_id: string;
+  deck_id: string | null;
+  lesson_note_id: string | null;
+  title: string;
+  status: 'pending' | 'generating' | 'done' | 'error';
+  audio_key: string | null;
+  duration_seconds: number | null;
+  segment_count: number | null;
+  error: string | null;
+  created_at: string;
+}
+
+export async function createAudioLesson(
+  db: D1Database,
+  userId: string,
+  title: string,
+  deckId: string | null,
+  lessonNoteId: string | null,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO audio_lessons (id, user_id, deck_id, lesson_note_id, title, status)
+    VALUES (?, ?, ?, ?, ?, 'pending')
+  `).bind(id, userId, deckId, lessonNoteId, title).run();
+  return id;
+}
+
+export async function updateAudioLessonStatus(
+  db: D1Database,
+  id: string,
+  status: AudioLesson['status'],
+  updates: { audio_key?: string; duration_seconds?: number; segment_count?: number; error?: string } = {},
+): Promise<void> {
+  const sets: string[] = ['status = ?'];
+  const vals: unknown[] = [status];
+  if (updates.audio_key !== undefined) { sets.push('audio_key = ?'); vals.push(updates.audio_key); }
+  if (updates.duration_seconds !== undefined) { sets.push('duration_seconds = ?'); vals.push(updates.duration_seconds); }
+  if (updates.segment_count !== undefined) { sets.push('segment_count = ?'); vals.push(updates.segment_count); }
+  if (updates.error !== undefined) { sets.push('error = ?'); vals.push(updates.error); }
+  vals.push(id);
+  await db.prepare(`UPDATE audio_lessons SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+}
+
+export async function listAudioLessons(db: D1Database, userId: string): Promise<AudioLesson[]> {
+  const r = await db.prepare(`
+    SELECT * FROM audio_lessons WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
+  `).bind(userId).all<AudioLesson>();
+  return r.results;
+}
+
+export async function getAudioLesson(db: D1Database, id: string, userId: string): Promise<AudioLesson | null> {
+  const r = await db.prepare(`
+    SELECT * FROM audio_lessons WHERE id = ? AND user_id = ?
+  `).bind(id, userId).first<AudioLesson>();
+  return r ?? null;
+}
+
+export async function deleteAudioLesson(db: D1Database, id: string, userId: string): Promise<void> {
+  await db.prepare(`DELETE FROM audio_lessons WHERE id = ? AND user_id = ?`).bind(id, userId).run();
+}

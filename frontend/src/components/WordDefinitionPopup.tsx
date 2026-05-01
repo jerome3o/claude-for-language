@@ -15,6 +15,7 @@ export function WordDefinitionPopup({ hanzi, context, onSave, onClose }: WordDef
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
+  const [existingDeckName, setExistingDeckName] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDefinition = async () => {
@@ -61,6 +62,19 @@ export function WordDefinitionPopup({ hanzi, context, onSave, onClose }: WordDef
     fetchDefinition();
   }, [hanzi, context]);
 
+  useEffect(() => {
+    const checkDuplicate = async () => {
+      const existing = await db.notes.filter((n) => n.hanzi === hanzi).first();
+      if (existing) {
+        const deck = await db.decks.get(existing.deck_id);
+        setExistingDeckName(deck?.name ?? 'a deck');
+      } else {
+        setExistingDeckName(null);
+      }
+    };
+    checkDuplicate().catch(() => {});
+  }, [hanzi]);
+
   return (
     <div className="word-definition-popup" onClick={onClose}>
       <div className="popup-content" onClick={(e) => e.stopPropagation()}>
@@ -80,12 +94,18 @@ export function WordDefinitionPopup({ hanzi, context, onSave, onClose }: WordDef
               <div className="definition-example">{definition.example}</div>
             )}
 
+            {existingDeckName && (
+              <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', background: '#fff3cd', color: '#856404', borderRadius: '6px', fontSize: '0.85rem' }}>
+                Already in "{existingDeckName}"
+              </div>
+            )}
+
             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
               <button
                 className="btn btn-primary"
                 onClick={() => onSave(definition)}
               >
-                Add to Flashcards
+                {existingDeckName ? 'Add anyway' : 'Add to Flashcards'}
               </button>
               {fromCache && (
                 <button

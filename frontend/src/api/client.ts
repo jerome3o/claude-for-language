@@ -1838,3 +1838,39 @@ export async function completePracticeSession(
     body: JSON.stringify({ correct, total }),
   });
 }
+
+// ---- Audio Lessons ----
+
+export interface AudioLesson {
+  id: string;
+  deck_id: string | null;
+  lesson_note_id: string | null;
+  title: string;
+  status: 'pending' | 'generating' | 'done' | 'error';
+  audio_key: string | null;
+  segment_count: number | null;
+  error: string | null;
+  created_at: string;
+}
+
+export async function listAudioLessons(): Promise<AudioLesson[]> {
+  const r = await fetchJSON<{ lessons: AudioLesson[] }>('/audio-lessons');
+  return r.lessons;
+}
+
+export async function createAudioLesson(params: { deck_id?: string; lesson_note_id?: string }): Promise<{ id: string; title: string; status: string }> {
+  return fetchJSON('/audio-lessons', { method: 'POST', body: JSON.stringify(params) });
+}
+
+export async function getAudioLesson(id: string): Promise<AudioLesson> {
+  const r = await fetchJSON<{ lesson: AudioLesson }>(`/audio-lessons/${id}`);
+  return r.lesson;
+}
+
+export async function deleteAudioLesson(id: string): Promise<void> {
+  await fetchJSON(`/audio-lessons/${id}`, { method: 'DELETE' });
+}
+
+export function getAudioLessonDownloadUrl(id: string): string {
+  return `${API_PATH}/audio-lessons/${id}/download`;
+}
