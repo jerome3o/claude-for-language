@@ -24,7 +24,11 @@ import {
   getOverviewStats,
   getMyDailyProgress,
   textToFlashcard,
+  analyzeSentence,
 } from '../api/client';
+import { AddChunkModal, Chunk } from '../components/AddChunkModal';
+import { SentenceChunk } from '../types';
+import './RoleplayPage.css';
 import { Loading } from '../components/Loading';
 import { Confetti } from '../components/Confetti';
 import { WordDefinitionPopup } from '../components/WordDefinitionPopup';
@@ -350,6 +354,8 @@ function StudyCard({
   const [showSentenceHanzi, setShowSentenceHanzi] = useState(false);
   const [showSentencePinyin, setShowSentencePinyin] = useState(false);
   const [showSentenceTranslation, setShowSentenceTranslation] = useState(false);
+  const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
+  const [sentenceChunkCache, setSentenceChunkCache] = useState<Record<string, SentenceChunk[]>>({});
 
   // Multiple choice state
   const [showMultipleChoice, setShowMultipleChoice] = useState(false);
@@ -618,6 +624,21 @@ function StudyCard({
   const [addedSentenceAsCard, setAddedSentenceAsCard] = useState(false);
   const [isAddingSentenceCard, setIsAddingSentenceCard] = useState(false);
   const [showDeckPicker, setShowDeckPicker] = useState(false);
+
+  // Fetch sentence chunks for clickable words whenever sentence_clue changes
+  const sentenceClueForChunks = card.note.sentence_clue;
+  const noteIdForChunks = card.note.id;
+  useEffect(() => {
+    if (!sentenceClueForChunks || !isOnline) return;
+    const cacheKey = `${noteIdForChunks}:${sentenceClueForChunks}`;
+    if (sentenceChunkCache[cacheKey]) return;
+    analyzeSentence(sentenceClueForChunks)
+      .then((breakdown) => {
+        setSentenceChunkCache((prev) => ({ ...prev, [cacheKey]: breakdown.chunks }));
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteIdForChunks, sentenceClueForChunks, isOnline]);
 
   // Get all decks for the deck picker
   const allDecks = useLiveQuery(() => db.decks.toArray(), []);
@@ -2367,7 +2388,17 @@ function StudyCard({
                           - meaning_to_hanzi / audio_to_hanzi: answer is hanzi → show audio only (text reveals the answer) */}
                       {card.card_type === 'hanzi_to_meaning' && (
                         <div className="hanzi" style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
-                          {card.note.sentence_clue}
+                          {(() => {
+                            const cacheKey = `${card.note.id}:${card.note.sentence_clue}`;
+                            const chunks = sentenceChunkCache[cacheKey];
+                            return chunks && chunks.length > 0
+                              ? chunks.map((c, i) => (
+                                  <button key={i} className="rp-chunk" onClick={() => setAddingChunk(c)}>
+                                    {c.hanzi}
+                                  </button>
+                                ))
+                              : card.note.sentence_clue;
+                          })()}
                         </div>
                       )}
                       {card.card_type !== 'hanzi_to_meaning' && card.note.sentence_clue_audio_url && (
@@ -2544,7 +2575,19 @@ function StudyCard({
                             onClick={() => !showSentenceHanzi && setShowSentenceHanzi(true)}
                           >
                             {showSentenceHanzi ? (
-                              <span className="hanzi" style={{ fontSize: '1.125rem' }}>{card.note.sentence_clue}</span>
+                              <span className="hanzi" style={{ fontSize: '1.125rem' }}>
+                                {(() => {
+                                  const cacheKey = `${card.note.id}:${card.note.sentence_clue}`;
+                                  const chunks = sentenceChunkCache[cacheKey];
+                                  return chunks && chunks.length > 0
+                                    ? chunks.map((c, i) => (
+                                        <button key={i} className="rp-chunk" onClick={() => setAddingChunk(c)}>
+                                          {c.hanzi}
+                                        </button>
+                                      ))
+                                    : card.note.sentence_clue;
+                                })()}
+                              </span>
                             ) : (
                               <span className="sentence-clue-tap">Tap to show Chinese</span>
                             )}
@@ -2606,6 +2649,11 @@ function StudyCard({
           </div>
         )}
       </div>
+
+      {/* Add word to deck modal */}
+      {addingChunk && (
+        <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />
+      )}
 
       {/* Ask Claude Modal */}
       {renderAskClaudeModal()}
