@@ -720,6 +720,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const updateCurrentNote = useCallback((updatedNote: Partial<Note>) => {
     setCurrentCardState(prev => {
       if (!prev.note) return prev;
+      // Guard against stale async updates from a previous card: if the update
+      // carries an explicit note id that doesn't match the current note, ignore it.
+      // This happens when background generation (fun facts, sentence clue, etc.)
+      // resolves after the user has already moved on to the next card.
+      if (updatedNote.id && updatedNote.id !== prev.note.id) return prev;
       return {
         ...prev,
         note: { ...prev.note, ...updatedNote },
