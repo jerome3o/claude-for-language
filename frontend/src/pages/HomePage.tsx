@@ -50,40 +50,18 @@ function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
   );
 }
 
-function MasteryProgressBar({ stats }: { stats: DeckStats }) {
+
+function CompactMasteryBar({ stats }: { stats: DeckStats }) {
   const { total_cards, cards_mastered, cards_learning } = stats;
   if (total_cards === 0) return null;
-
-  const newCards = total_cards - cards_mastered - cards_learning;
   const masteredPct = (cards_mastered / total_cards) * 100;
   const learningPct = (cards_learning / total_cards) * 100;
-
+  const newPct = 100 - masteredPct - learningPct;
   return (
-    <div className="mastery-progress">
-      <div className="mastery-bar">
-        {masteredPct > 0 && (
-          <div
-            className="mastery-segment mastery-mastered"
-            style={{ width: `${masteredPct}%` }}
-          />
-        )}
-        {learningPct > 0 && (
-          <div
-            className="mastery-segment mastery-learning"
-            style={{ width: `${learningPct}%` }}
-          />
-        )}
-        {newCards > 0 && (
-          <div
-            className="mastery-segment mastery-new"
-            style={{ width: `${(newCards / total_cards) * 100}%` }}
-          />
-        )}
-      </div>
-      <div className="mastery-label">
-        <span>{Math.round(masteredPct)}% mastered</span>
-        <span className="text-light">{cards_mastered}/{total_cards} cards</span>
-      </div>
+    <div style={{ flex: 1, height: '4px', background: '#e5e7eb', borderRadius: '2px', overflow: 'hidden', display: 'flex' }}>
+      {masteredPct > 0 && <div style={{ width: `${masteredPct}%`, background: '#22c55e' }} />}
+      {learningPct > 0 && <div style={{ width: `${learningPct}%`, background: '#f97316' }} />}
+      {newPct > 0 && <div style={{ width: `${newPct}%`, background: '#d1d5db' }} />}
     </div>
   );
 }
@@ -92,13 +70,16 @@ function DeckCard({
   deck,
   counts,
   onAddMore,
+  pinned,
+  onTogglePin,
 }: {
   deck: Deck;
   counts: DeckQueueCounts;
   onAddMore: () => void;
+  pinned: boolean;
+  onTogglePin: () => void;
 }) {
   const navigate = useNavigate();
-  // Stats are optional - don't block on this, queue counts work offline
   const statsQuery = useQuery({
     queryKey: ['deckStats', deck.id],
     queryFn: () => getDeckStats(deck.id),
@@ -112,32 +93,42 @@ function DeckCard({
   const handleStudy = () => navigate(`/study?deck=${deck.id}&autostart=true`);
 
   return (
-    <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-      <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0 }}>
-        <div className="deck-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deck.name}</div>
-        {deck.description && (
-          <p className="text-light mb-2" style={{ fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
-            {deck.description}
-          </p>
-        )}
+    <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative' }}>
+      {/* Pin button */}
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(); }}
+        style={{
+          position: 'absolute', top: '0.375rem', right: '0.375rem',
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '0.125rem', fontSize: '0.8rem',
+          opacity: pinned ? 1 : 0.3, lineHeight: 1,
+          minHeight: 'unset', minWidth: 'unset',
+        }}
+        title={pinned ? 'Unpin deck' : 'Pin to top'}
+        aria-label={pinned ? 'Unpin deck' : 'Pin to top'}
+      >
+        📌
+      </button>
+
+      <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, paddingRight: '1.25rem' }}>
+        <div className="deck-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem', marginBottom: 0 }}>
+          {deck.name}
+        </div>
         {stats && (
-          <>
-            <div className="deck-card-stats">
-              <span>{stats.total_notes} notes</span>
-            </div>
-            {stats.total_cards > 0 && <MasteryProgressBar stats={stats} />}
-          </>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', color: '#9ca3af', whiteSpace: 'nowrap' }}>{stats.total_notes}n</span>
+            {stats.total_cards > 0 && <CompactMasteryBar stats={stats} />}
+          </div>
         )}
       </Link>
 
-      {/* Study button with offline queue counts */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.25rem', paddingTop: '0.25rem', borderTop: '1px solid #e5e7eb' }}>
         <QueueCountsBadge counts={counts} />
         {totalDue > 0 ? (
           <button
             onClick={handleStudy}
             className="btn btn-primary btn-sm"
-            style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            style={{ padding: '0.25rem 0.625rem', fontSize: '0.8rem' }}
           >
             Study ({totalDue})
           </button>
@@ -145,17 +136,20 @@ function DeckCard({
           <button
             onClick={onAddMore}
             className="btn btn-secondary btn-sm"
-            style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            style={{ padding: '0.25rem 0.625rem', fontSize: '0.8rem' }}
           >
             +10 More
           </button>
         ) : (
-          <span className="text-light" style={{ fontSize: '0.75rem' }}>All done</span>
+          <span className="text-light" style={{ fontSize: '0.7rem' }}>Done ✓</span>
         )}
       </div>
     </div>
   );
 }
+
+const PINNED_DECKS_KEY = 'pinnedDeckIds';
+const UNPINNED_COLLAPSED_KEY = 'unpinnedDecksCollapsed';
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -163,6 +157,38 @@ export function HomePage() {
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+
+  const [pinnedDeckIds, setPinnedDeckIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(PINNED_DECKS_KEY);
+      return new Set(stored ? JSON.parse(stored) : []);
+    } catch { return new Set(); }
+  });
+
+  const [unpinnedCollapsed, setUnpinnedCollapsed] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(UNPINNED_COLLAPSED_KEY);
+      return stored !== null ? JSON.parse(stored) : true;
+    } catch { return true; }
+  });
+
+  const togglePin = (deckId: string) => {
+    setPinnedDeckIds(prev => {
+      const next = new Set(prev);
+      if (next.has(deckId)) next.delete(deckId);
+      else next.add(deckId);
+      localStorage.setItem(PINNED_DECKS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const handleToggleUnpinned = () => {
+    setUnpinnedCollapsed(c => {
+      const next = !c;
+      localStorage.setItem(UNPINNED_COLLAPSED_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   // Background API calls - fetches decks from server when online
   const dailyQuery = useQuery({
@@ -379,33 +405,86 @@ export function HomePage() {
                 </div>
               }
             />
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                {decks.map((deck) => (
-                  <DeckCard
-                    key={deck.id}
-                    deck={deck}
-                    counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
-                    onAddMore={() => bumpBonus(deck.id)}
-                  />
-                ))}
-              </div>
+          ) : (() => {
+            const pinnedDecks = decks.filter(d => pinnedDeckIds.has(d.id));
+            const unpinnedDecks = decks.filter(d => !pinnedDeckIds.has(d.id));
+            // If nothing is pinned, always show all decks expanded so the list isn't empty
+            const unpinnedVisible = pinnedDecks.length === 0 || !unpinnedCollapsed;
+            return (
+              <>
+                {/* Pinned decks */}
+                {pinnedDecks.length > 0 && (
+                  <div className="grid grid-cols-2 gap-1 mb-2">
+                    {pinnedDecks.map((deck) => (
+                      <DeckCard
+                        key={deck.id}
+                        deck={deck}
+                        counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
+                        onAddMore={() => bumpBonus(deck.id)}
+                        pinned={true}
+                        onTogglePin={() => togglePin(deck.id)}
+                      />
+                    ))}
+                  </div>
+                )}
 
-              {/* Action buttons at bottom of deck list */}
-              <div className="flex gap-2 justify-center flex-wrap" style={{ paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
-                <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-                  New Deck
-                </button>
-                <Link to="/generate" className="btn btn-secondary">
-                  Generate
-                </Link>
-                <Link to="/analyze" className="btn btn-secondary">
-                  Analyze
-                </Link>
-              </div>
-            </>
-          )}
+                {/* Unpinned decks with collapse toggle */}
+                {unpinnedDecks.length > 0 && (
+                  <div>
+                    {pinnedDecks.length > 0 && (
+                      <button
+                        onClick={handleToggleUnpinned}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '0.375rem',
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          padding: '0.375rem 0', fontSize: '0.8rem', color: '#6b7280',
+                          width: '100%', marginBottom: unpinnedVisible ? '0.5rem' : 0,
+                          minHeight: 'unset',
+                        }}
+                      >
+                        <span style={{
+                          display: 'inline-block',
+                          transform: unpinnedVisible ? 'rotate(0deg)' : 'rotate(-90deg)',
+                          transition: 'transform 0.15s',
+                          fontSize: '0.7rem',
+                        }}>▾</span>
+                        {unpinnedVisible
+                          ? `Other decks (${unpinnedDecks.length})`
+                          : `${unpinnedDecks.length} more deck${unpinnedDecks.length === 1 ? '' : 's'}`}
+                      </button>
+                    )}
+                    {unpinnedVisible && (
+                      <div className="grid grid-cols-2 gap-1">
+                        {unpinnedDecks.map((deck) => (
+                          <DeckCard
+                            key={deck.id}
+                            deck={deck}
+                            counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
+                            onAddMore={() => bumpBonus(deck.id)}
+                            pinned={false}
+                            onTogglePin={() => togglePin(deck.id)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex gap-2 justify-center flex-wrap" style={{ paddingTop: '0.75rem', marginTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                  <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+                    New Deck
+                  </button>
+                  <Link to="/generate" className="btn btn-secondary">
+                    Generate
+                  </Link>
+                  <Link to="/analyze" className="btn btn-secondary">
+                    Analyze
+                  </Link>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Create Deck Modal */}
