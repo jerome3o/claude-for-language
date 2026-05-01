@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getDecks, createNote } from '../api/client';
+import { db } from '../db/database';
 import '../pages/RoleplayPage.css';
 
 export interface Chunk {
@@ -15,6 +16,7 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [isDuplicate, setIsDuplicate] = useState(false);
 
   useEffect(() => {
     getDecks()
@@ -24,6 +26,19 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!deckId) {
+      setIsDuplicate(false);
+      return;
+    }
+    db.notes
+      .where('deck_id').equals(deckId)
+      .filter((n) => n.hanzi === chunk.hanzi)
+      .count()
+      .then((count) => setIsDuplicate(count > 0))
+      .catch(() => setIsDuplicate(false));
+  }, [deckId, chunk.hanzi]);
 
   async function add() {
     if (!deckId) return;
@@ -51,6 +66,11 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
         <div className="rp-pinyin">{chunk.pinyin}</div>
         <div className="rp-english">{chunk.english}</div>
         {err && <div className="rp-error" style={{ marginTop: '0.5rem' }}>{err}</div>}
+        {isDuplicate && (
+          <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: '#fff3cd', color: '#856404', borderRadius: '6px', fontSize: '0.85rem' }}>
+            This word is already in the selected deck.
+          </div>
+        )}
         <select
           value={deckId}
           onChange={(e) => setDeckId(e.target.value)}
@@ -68,7 +88,7 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
             Cancel
           </button>
           <button className="rp-send" onClick={add} disabled={busy || !deckId}>
-            {done ? '✓ Added' : busy ? 'Adding…' : 'Add to deck'}
+            {done ? '✓ Added' : busy ? 'Adding…' : isDuplicate ? 'Add anyway' : 'Add to deck'}
           </button>
         </div>
       </div>

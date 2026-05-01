@@ -303,8 +303,6 @@ export function HomePage() {
   return (
     <div className="page">
       <div className="container">
-        <h1 className="mb-4">Welcome to 汉语学习</h1>
-
         {/* Study Streak */}
         <StudyStreak />
 

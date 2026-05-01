@@ -58,6 +58,7 @@ async function persistAiRoleplayMessage(
 }
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
+import { buildLessonScript, generateLessonAudio } from './services/audio-lesson';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -5215,6 +5216,123 @@ app.post('/api/lesson-notes/:id/files', async (c) => {
 app.delete('/api/lesson-notes/:id', async (c) => {
   const userId = c.get('user').id;
   await db.deleteLessonNote(c.env.DB, c.req.param('id'), userId);
+  return c.json({ ok: true });
+});
+
+// ============ Audio Lessons ============
+
+app.get('/api/audio-lessons', async (c) => {
+  const userId = c.get('user').id;
+  const lessons = await db.listAudioLessons(c.env.DB, userId);
+  return c.json({ lessons });
+});
+
+app.post('/api/audio-lessons', async (c) => {
+  const userId = c.get('user').id;
+  const { deck_id, lesson_note_id } = await c.req.json<{ deck_id?: string; lesson_note_id?: string }>();
+
+  if (!deck_id && !lesson_note_id) {
+    return c.json({ error: 'deck_id or lesson_note_id required' }, 400);
+  }
+
+  let notes: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string | null }> = [];
+  let title = 'Vocabulary Lesson';
+
+  if (deck_id) {
+    const deck = await db.getDeckWithNotes(c.env.DB, deck_id, userId);
+    if (!deck) return c.json({ error: 'Deck not found' }, 404);
+    title = `${deck.name} – Audio Lesson`;
+    notes = deck.notes.map((n) => ({
+      hanzi: n.hanzi,
+      pinyin: n.pinyin,
+      english: n.english,
+      fun_facts: n.fun_facts,
+    }));
+  } else if (lesson_note_id) {
+    const lessonNotes = await db.listLessonNotes(c.env.DB, userId);
+    const lessonNote = lessonNotes.find((n) => n.id === lesson_note_id);
+    if (!lessonNote) return c.json({ error: 'Lesson note not found' }, 404);
+    title = `Lesson Note Audio${lessonNote.given_at ? ` – ${lessonNote.given_at}` : ''}`;
+    // Parse lesson note text as simple lines of vocab (hanzi english)
+    const lines = lessonNote.raw_text.split('\n').filter((l) => l.trim());
+    notes = lines.slice(0, 30).map((line) => {
+      const parts = line.trim().split(/\s+/);
+      return { hanzi: parts[0] ?? line, pinyin: '', english: parts.slice(1).join(' ') || line };
+    });
+  }
+
+  if (notes.length === 0) {
+    return c.json({ error: 'No vocabulary items found' }, 400);
+  }
+
+  // Limit to 30 notes to keep generation time reasonable
+  notes = notes.slice(0, 30);
+
+  const lessonId = await db.createAudioLesson(c.env.DB, userId, title, deck_id ?? null, lesson_note_id ?? null);
+
+  // Generate audio in background
+  c.executionCtx.waitUntil((async () => {
+    try {
+      await db.updateAudioLessonStatus(c.env.DB, lessonId, 'generating');
+      const segments = buildLessonScript(notes, title.replace(' – Audio Lesson', '').replace('Lesson Note Audio – ', ''));
+      const { audio, successCount } = await generateLessonAudio(c.env, segments);
+
+      if (audio.length === 0) {
+        await db.updateAudioLessonStatus(c.env.DB, lessonId, 'error', { error: 'No audio generated – check TTS API keys' });
+        return;
+      }
+
+      const audioKey = `audio-lessons/${lessonId}.mp3`;
+      await c.env.AUDIO_BUCKET.put(audioKey, audio.buffer as ArrayBuffer, { httpMetadata: { contentType: 'audio/mpeg' } });
+
+      await db.updateAudioLessonStatus(c.env.DB, lessonId, 'done', {
+        audio_key: audioKey,
+        segment_count: successCount,
+      });
+    } catch (err) {
+      console.error('[AudioLesson] generation failed:', err);
+      await db.updateAudioLessonStatus(c.env.DB, lessonId, 'error', {
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  })());
+
+  return c.json({ id: lessonId, title, status: 'pending' }, 202);
+});
+
+app.get('/api/audio-lessons/:id', async (c) => {
+  const userId = c.get('user').id;
+  const lesson = await db.getAudioLesson(c.env.DB, c.req.param('id'), userId);
+  if (!lesson) return c.json({ error: 'Not found' }, 404);
+  return c.json({ lesson });
+});
+
+app.get('/api/audio-lessons/:id/download', async (c) => {
+  const userId = c.get('user').id;
+  const lesson = await db.getAudioLesson(c.env.DB, c.req.param('id'), userId);
+  if (!lesson || lesson.status !== 'done' || !lesson.audio_key) {
+    return c.json({ error: 'Audio not ready' }, 404);
+  }
+  const obj = await c.env.AUDIO_BUCKET.get(lesson.audio_key);
+  if (!obj) return c.json({ error: 'Audio file not found' }, 404);
+  const filename = `${lesson.title.replace(/[^a-zA-Z0-9一-鿿 ]/g, '_')}.mp3`;
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': 'audio/mpeg',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'private, max-age=3600',
+    },
+  });
+});
+
+app.delete('/api/audio-lessons/:id', async (c) => {
+  const userId = c.get('user').id;
+  const lesson = await db.getAudioLesson(c.env.DB, c.req.param('id'), userId);
+  if (!lesson) return c.json({ error: 'Not found' }, 404);
+  if (lesson.audio_key) {
+    await c.env.AUDIO_BUCKET.delete(lesson.audio_key).catch(() => {});
+  }
+  await db.deleteAudioLesson(c.env.DB, c.req.param('id'), userId);
   return c.json({ ok: true });
 });
 

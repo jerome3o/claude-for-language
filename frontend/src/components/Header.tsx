@@ -268,6 +268,12 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/audio-lessons')}
+                >
+                  🎧 Audio Lessons
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/readers')}
                 >
                   📚 Readers

@@ -44,6 +44,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ defa
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
 const HomeworkReviewPage = lazy(() => import('./pages/HomeworkReviewPage').then(m => ({ default: m.HomeworkReviewPage })));
+const AudioLessonsPage = lazy(() => import('./pages/AudioLessonsPage').then(m => ({ default: m.AudioLessonsPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -373,6 +374,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <HomeworkPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/audio-lessons"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <AudioLessonsPage />
           </ProtectedRoute>
         }
       />
