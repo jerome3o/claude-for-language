@@ -2828,7 +2828,6 @@ export function StudyPage() {
     sessionStats,
     rateCard,
     reloadQueue,
-    selectNextCard,
     removeNoteFromSession,
     updateCurrentNote,
   } = useStudySession({
