@@ -709,6 +709,82 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     note: currentNote,
   } : null;
 
+  // Remove a deleted note's cards from the session and advance to the next card.
+  // Call this after deleting a note from IndexedDB so the in-memory queue stays
+  // consistent and we don't try to display a card whose note no longer exists.
+  const removeNoteFromSession = useCallback(async (noteId: string) => {
+    const newQueue = queue.filter(c => c.note_id !== noteId);
+    const newRecentNoteIds = recentNoteIds.filter(id => id !== noteId);
+
+    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, reviewedNoteIdsRef.current);
+
+    if (nextCard) {
+      const [note, deck] = await Promise.all([
+        db.notes.get(nextCard.note_id),
+        db.decks.get(nextCard.deck_id),
+      ]);
+
+      if (note) {
+        setQueue(newQueue);
+        setRecentNoteIds(newRecentNoteIds);
+        setCardVersion(v => v + 1);
+        setCurrentCardState({ card: nextCard, note, deck: deck || null });
+        return;
+      }
+    }
+
+    // No card in the filtered queue — check for delayed learning cards in IndexedDB
+    if (newQueue.length === 0) {
+      let delayedLearningCards: LocalCard[];
+      if (deckId) {
+        delayedLearningCards = await db.cards
+          .where('deck_id').equals(deckId)
+          .filter(c =>
+            (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+            c.note_id !== noteId
+          )
+          .toArray();
+      } else {
+        delayedLearningCards = await db.cards
+          .filter(c =>
+            (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+            c.note_id !== noteId
+          )
+          .toArray();
+      }
+
+      if (delayedLearningCards.length > 0) {
+        const studyCutoff = getStudyCutoff();
+        const dueToday = delayedLearningCards.filter(c =>
+          !c.due_timestamp || c.due_timestamp <= studyCutoff.ts
+        );
+
+        if (dueToday.length > 0) {
+          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+          const selected = dueToday[0];
+
+          const [note, deck] = await Promise.all([
+            db.notes.get(selected.note_id),
+            db.decks.get(selected.deck_id),
+          ]);
+
+          if (note) {
+            setQueue(newQueue);
+            setRecentNoteIds(newRecentNoteIds);
+            setCardVersion(v => v + 1);
+            setCurrentCardState({ card: selected, note, deck: deck || null });
+            return;
+          }
+        }
+      }
+    }
+
+    // Session is complete
+    setQueue(newQueue);
+    setRecentNoteIds(newRecentNoteIds);
+    setCurrentCardState({ card: null, note: null, deck: null });
+  }, [queue, recentNoteIds, deckId]);
+
   // Reload queue (for "Study More" button)
   const reloadQueue = useCallback(() => {
     initializedRef.current = false;
@@ -747,6 +823,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     rateCard,
     reloadQueue,
     selectNextCard,
+    removeNoteFromSession,
     updateCurrentNote,
   };
 }

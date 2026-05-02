@@ -2829,6 +2829,7 @@ export function StudyPage() {
     rateCard,
     reloadQueue,
     selectNextCard,
+    removeNoteFromSession,
     updateCurrentNote,
   } = useStudySession({
     deckId,
@@ -3100,7 +3101,7 @@ export function StudyPage() {
           onEnd={handleEndSession}
           onShowFlagModal={handleShowFlagModal}
           onUpdateNote={updateCurrentNote}
-          onDeleteCurrentCard={selectNextCard}
+          onDeleteCurrentCard={() => removeNoteFromSession(currentCard.note.id)}
         />
       ) : null}
 
