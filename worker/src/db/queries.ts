@@ -2930,6 +2930,61 @@ export async function completePracticeSession(
   `).bind(correctDelta, attemptDelta, correctDelta, userId, grammarPointId).run();
 }
 
+// ---- Pre-generated practice sessions ----
+
+export async function getPregenPracticeSession(
+  db: D1Database,
+  userId: string,
+  grammarPointId: string,
+): Promise<{ id: string; exercises_json: string } | null> {
+  return await db.prepare(`
+    SELECT id, exercises_json FROM pregenerated_practice_sessions
+    WHERE user_id = ? AND grammar_point_id = ? AND claimed_at IS NULL
+    ORDER BY created_at DESC LIMIT 1
+  `).bind(userId, grammarPointId).first();
+}
+
+export async function hasPregenPracticeSession(
+  db: D1Database,
+  userId: string,
+  grammarPointId: string,
+): Promise<boolean> {
+  const row = await db.prepare(`
+    SELECT 1 FROM pregenerated_practice_sessions
+    WHERE user_id = ? AND grammar_point_id = ? AND claimed_at IS NULL
+    LIMIT 1
+  `).bind(userId, grammarPointId).first();
+  return row !== null;
+}
+
+export async function savePregenPracticeSession(
+  db: D1Database,
+  userId: string,
+  grammarPointId: string,
+  exercisesJson: string,
+): Promise<void> {
+  await db.prepare(`
+    INSERT INTO pregenerated_practice_sessions (id, user_id, grammar_point_id, exercises_json)
+    VALUES (?, ?, ?, ?)
+  `).bind(crypto.randomUUID(), userId, grammarPointId, exercisesJson).run();
+}
+
+export async function claimPregenPracticeSession(
+  db: D1Database,
+  id: string,
+  userId: string,
+): Promise<string | null> {
+  await db.prepare(`
+    UPDATE pregenerated_practice_sessions
+    SET claimed_at = datetime('now')
+    WHERE id = ? AND user_id = ? AND claimed_at IS NULL
+  `).bind(id, userId).run();
+  const row = await db.prepare(`
+    SELECT exercises_json FROM pregenerated_practice_sessions WHERE id = ? AND user_id = ?
+  `).bind(id, userId).first<{ exercises_json: string }>();
+  return row?.exercises_json ?? null;
+}
+
 // ---- Audio Lessons ----
 
 export interface AudioLesson {

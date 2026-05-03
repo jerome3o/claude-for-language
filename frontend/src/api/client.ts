@@ -1805,6 +1805,14 @@ export async function getNextGrammarPoint(): Promise<{
   return fetchJSON('/practice/next');
 }
 
+export async function getPregeneratedPracticeSession(): Promise<{
+  ready: boolean;
+  pregen_id: string | null;
+  grammar_point: GrammarPoint | null;
+}> {
+  return fetchJSON('/practice/pregenerated');
+}
+
 export async function startPracticeSession(
   grammarPointId?: string,
 ): Promise<{ session_id: string; content: PracticeSessionContent }> {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getNextGrammarPoint,
+  getPregeneratedPracticeSession,
   startPracticeSession,
   submitPracticeAttempt,
   completePracticeSession,
@@ -88,11 +89,15 @@ export function PracticePage() {
   const [idx, setIdx] = useState(0);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [resumeCandidate, setResumeCandidate] = useState<PersistedState | null>(loadPersistedState);
+  const [pregenReady, setPregenReady] = useState(false);
 
   useEffect(() => {
     getNextGrammarPoint()
       .then((r) => setNextPoint(r.point))
       .catch((e) => setError(String(e)));
+    getPregeneratedPracticeSession()
+      .then((r) => setPregenReady(r.ready))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -159,7 +164,9 @@ export function PracticePage() {
   async function start(pointId?: string) {
     setResumeCandidate(null);
     clearPersistedState();
-    setPhase('generating');
+    // Only show the generating spinner if we know there's no pre-generated session ready
+    // (or if a specific point was picked from the picker, which bypasses pre-gen)
+    if (!pregenReady || pointId) setPhase('generating');
     setError(null);
     try {
       const res = await startPracticeSession(pointId);
@@ -169,6 +176,8 @@ export function PracticePage() {
       setScore({ correct: 0, total: 0 });
       setPhase('flood');
       void prefetch(res.content.flood.map((e) => e.hanzi));
+      // After consuming the pre-gen, mark as no longer ready
+      setPregenReady(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPhase('landing');
@@ -233,8 +242,9 @@ export function PracticePage() {
             <h2>{nextPoint.title}</h2>
             <div className="gp-pattern">{nextPoint.pattern}</div>
             <p>{nextPoint.explanation}</p>
-            <button className="practice-btn primary" onClick={() => start(nextPoint.id)}>
+            <button className="practice-btn primary" onClick={() => start()}>
               Start practice
+              {pregenReady && <span className="pregen-ready-badge">Ready</span>}
             </button>
           </div>
         ) : (
