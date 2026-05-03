@@ -14,7 +14,7 @@ import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversati
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
-import type { PracticeSessionContent } from './services/practice';
+import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { SITUATIONS, getSituation, getTodaySituation } from './services/situations';
 import { openRoleplay, replyRoleplay, generatePersona, buildImagePrompt, type AnnotatedReply, type Persona } from './services/roleplay';
 
@@ -1394,7 +1394,7 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
       // Filter out duplicates and the correct character from alternatives
       const seen = new Set<string>([charData.correct]);
       const uniqueAlts: string[] = [];
-      for (const alt of charData.alternatives) {
+      for (const alt of (charData.alternatives ?? [])) {
         if (!seen.has(alt)) {
           seen.add(alt);
           uniqueAlts.push(alt);
@@ -5373,6 +5373,34 @@ async function ensureDailyReader(
   return { reader_id: pending.id, situation_id: sit.id, status: 'generating' };
 }
 
+function triggerPracticePregen(
+  c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
+  userId: string,
+  point: GrammarPoint,
+) {
+  c.executionCtx.waitUntil((async () => {
+    try {
+      const alreadyReady = await db.hasPregenPracticeSession(c.env.DB, userId, point.id);
+      if (alreadyReady) return;
+      const [vocab, lessonNotes] = await Promise.all([
+        db.getLearnedVocabulary(c.env.DB, userId),
+        db.getRecentLessonNotesText(c.env.DB, userId),
+      ]);
+      if (vocab.length < 10) return;
+      const content = await generatePracticeSession(
+        c.env.ANTHROPIC_API_KEY,
+        point,
+        vocab,
+        lessonNotes || undefined,
+      );
+      await db.savePregenPracticeSession(c.env.DB, userId, point.id, JSON.stringify(content));
+      console.log('[Practice pregen] Pre-generated session for grammar point:', point.id);
+    } catch (e) {
+      console.error('[Practice pregen] Background generation failed:', e);
+    }
+  })());
+}
+
 app.get('/api/daily/status', async (c) => {
   const userId = c.get('user').id;
   const todaySit = getTodaySituation();
@@ -5382,6 +5410,9 @@ app.get('/api/daily/status', async (c) => {
     db.getDailyActivityStatus(c.env.DB, userId),
     ensureDailyReader(c, userId, todaySit),
   ]);
+  if (!grammarDone && nextGrammarPoint) {
+    triggerPracticePregen(c, userId, nextGrammarPoint);
+  }
   // When done today, show the lesson that was actually completed, not the next one.
   // getNextGrammarPoint returns the next lesson to study (which may be different from
   // the completed one if it graduated to 'known'), creating a misleading "done: [next lesson]" display.
@@ -5527,7 +5558,19 @@ app.get('/api/practice/next', async (c) => {
     const completedPoint = await db.getTodayCompletedGrammarPoint(c.env.DB, userId);
     if (completedPoint) point = completedPoint;
   }
+  // Trigger background pre-generation when the user visits the practice page
+  if (!doneToday && nextPoint) {
+    triggerPracticePregen(c, userId, nextPoint);
+  }
   return c.json({ point, done_today: doneToday });
+});
+
+app.get('/api/practice/pregenerated', async (c) => {
+  const userId = c.get('user').id;
+  const point = await db.getNextGrammarPoint(c.env.DB, userId);
+  if (!point) return c.json({ ready: false });
+  const pregen = await db.getPregenPracticeSession(c.env.DB, userId, point.id);
+  return c.json({ ready: !!pregen, pregen_id: pregen?.id ?? null, grammar_point: point });
 });
 
 app.post('/api/practice/sessions', async (c) => {
@@ -5538,6 +5581,20 @@ app.post('/api/practice/sessions', async (c) => {
     ? await db.getGrammarPoint(c.env.DB, grammar_point_id)
     : await db.getNextGrammarPoint(c.env.DB, userId);
   if (!point) return c.json({ error: 'No grammar point available' }, 404);
+
+  // Use pre-generated content if available (instant start, no AI wait)
+  if (!grammar_point_id) {
+    const pregen = await db.getPregenPracticeSession(c.env.DB, userId, point.id);
+    if (pregen) {
+      const exercisesJson = await db.claimPregenPracticeSession(c.env.DB, pregen.id, userId);
+      if (exercisesJson) {
+        const content = JSON.parse(exercisesJson) as PracticeSessionContent;
+        const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, exercisesJson);
+        triggerPracticePregen(c, userId, point);
+        return c.json({ session_id: sessionId, content });
+      }
+    }
+  }
 
   const [vocab, lessonNotes] = await Promise.all([
     db.getLearnedVocabulary(c.env.DB, userId),
