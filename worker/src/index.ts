@@ -5346,10 +5346,14 @@ async function ensureDailyReader(
   sit: ReturnType<typeof getTodaySituation>,
 ) {
   const existing = await db.getDailyReader(c.env.DB, userId);
-  if (existing) return existing;
+  // Return immediately if already generating or ready
+  if (existing && existing.status !== 'failed') return existing;
 
-  const won = await db.reserveDailyReader(c.env.DB, userId, sit.id);
-  if (!won) return await db.getDailyReader(c.env.DB, userId);
+  // No reader yet — atomically reserve the slot (skip if already reserved for retry)
+  if (!existing) {
+    const won = await db.reserveDailyReader(c.env.DB, userId, sit.id);
+    if (!won) return await db.getDailyReader(c.env.DB, userId);
+  }
 
   const deckIds = await db.getUserDeckIds(c.env.DB, userId);
   const vocabulary = deckIds.length
