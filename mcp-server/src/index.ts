@@ -632,14 +632,13 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .bind(deck_id)
           .run();
 
-        // Generate TTS audio for all notes (with proper authentication)
-        // Process sequentially to avoid creating too many sessions
-        for (let i = 0; i < noteIds.length; i++) {
-          const generated = await this.generateAudioForNote(noteIds[i], userId);
-          if (generated) {
-            results[i].audioGenerated = true;
-          }
-        }
+        // Generate TTS audio for all notes in parallel
+        const audioResults = await Promise.all(
+          noteIds.map(noteId => this.generateAudioForNote(noteId, userId))
+        );
+        audioResults.forEach((generated, i) => {
+          if (generated) results[i].audioGenerated = true;
+        });
 
         const successful = results.filter(r => r.success);
         const withAudio = results.filter(r => r.audioGenerated);
