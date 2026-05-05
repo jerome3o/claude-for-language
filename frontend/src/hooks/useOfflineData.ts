@@ -43,15 +43,18 @@ export function useOfflineDecks(apiDecks?: { id: string }[]) {
 
       console.log(`[useOfflineDecks] Mismatch detected! Missing decks: [${missingDecks.map(d => d.id).join(', ')}] (attempt ${attempt}/${MAX_RETRIES})`);
 
+      const missingIds = missingDecks.map(d => d.id);
       const timeoutId = setTimeout(async () => {
         setIsAutoSyncing(true);
         retryCountRef.current = attempt;
         try {
-          // First attempt: try incremental sync (lightweight)
-          // Subsequent attempts: use full sync (guaranteed to find new decks)
+          // First attempt: directly fetch the specific missing decks by ID.
+          // Incremental sync won't help here because these decks' updated_at
+          // predates the last incremental sync timestamp.
+          // Subsequent attempts: full sync as a guaranteed fallback.
           if (attempt === 1) {
-            console.log('[useOfflineDecks] Trying incremental sync...');
-            await syncService.incrementalSync();
+            console.log('[useOfflineDecks] Fetching missing decks by ID...');
+            await syncService.syncSpecificDecks(missingIds);
           } else {
             console.log('[useOfflineDecks] Trying full sync (fallback)...');
             await syncService.fullSync();

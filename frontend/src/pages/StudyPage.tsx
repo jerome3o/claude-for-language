@@ -692,9 +692,8 @@ function StudyCard({
           await db.notes.update(card.note.id, { fun_facts: updatedNote.fun_facts });
         } catch (error) {
           console.error('[bg] Failed to generate fun fact:', error);
-          if (error instanceof Error && error.message === 'Note not found') {
-            setDataError('This card has a missing note in the database. Please skip this card.');
-          }
+          // Silently skip Note not found — note may have been deleted on server.
+          // The card still works; it just won't have a fun fact.
         }
       }
       // Generate sentence clue if missing
@@ -710,9 +709,7 @@ function StudyCard({
           });
         } catch (error) {
           console.error('[bg] Failed to generate sentence clue:', error);
-          if (error instanceof Error && error.message === 'Note not found') {
-            setDataError('This card has a missing note in the database. Please skip this card.');
-          }
+          // Silently skip Note not found — note may have been deleted on server.
         }
       }
     };

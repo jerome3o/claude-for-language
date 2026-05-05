@@ -615,6 +615,51 @@ class SyncService {
   }
 
   /**
+   * Fetch specific decks by ID and save them to local IndexedDB.
+   * Used when the API returns decks that aren't in local cache — these decks may
+   * not appear in incremental sync because their updated_at predates the last sync.
+   */
+  async syncSpecificDecks(deckIds: string[]): Promise<void> {
+    if (deckIds.length === 0) return;
+    console.log('[Sync] Fetching', deckIds.length, 'missing decks by ID');
+
+    for (const deckId of deckIds) {
+      try {
+        const response = await fetch(`${API_PATH}/decks/${deckId}`, {
+          headers: getAuthHeaders(),
+        });
+        if (!response.ok) {
+          console.warn('[Sync] Failed to fetch missing deck:', deckId, response.status);
+          continue;
+        }
+        const deck = await response.json() as DeckWithNotesAndCards;
+
+        await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
+          await db.decks.put(deckToLocal(deck));
+
+          for (const note of deck.notes) {
+            const { cards, ...noteData } = note as NoteWithCards;
+            await db.notes.put(noteToLocal(noteData as Note));
+
+            if (cards) {
+              for (const card of cards) {
+                const existing = await db.cards.get(card.id);
+                if (!existing) {
+                  await db.cards.put(cardToLocal(card, deck.id));
+                }
+              }
+            }
+          }
+        });
+
+        console.log('[Sync] Saved missing deck:', deckId);
+      } catch (err) {
+        console.error('[Sync] Error fetching missing deck:', deckId, err);
+      }
+    }
+  }
+
+  /**
    * Fix all card states by recomputing from review events.
    * Use this to recover from sync corruption where card scheduling
    * state doesn't match the review event history.
