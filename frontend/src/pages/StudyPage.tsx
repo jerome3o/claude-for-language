@@ -324,12 +324,13 @@ function StudyCard({
   const [recordingIndex, setRecordingIndex] = useState(0);
   const [isGeneratingStudyAudio, setIsGeneratingStudyAudio] = useState(false);
 
-  // Reset recording index and MC ready state when card changes
+  // Reset recording index and MC ready state when card changes; stop any in-progress audio
   useEffect(() => {
+    stopAudio();
     setRecordingIndex(0);
     setMcReady(false);
     setMcError(null);
-  }, [card.id]);
+  }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debug modal state
   const [showDebug, setShowDebug] = useState(false);
@@ -371,7 +372,7 @@ function StudyCard({
 
   const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
-  const { isPlaying, play: playAudio } = useNoteAudio();
+  const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
   const {
     isTranscribing,
     comparison: transcriptionComparison,
