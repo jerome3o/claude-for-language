@@ -17,7 +17,7 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 interface CardEditModalProps {
   card: CardWithNote;
   onClose: () => void;
-  onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null; sentence_clue: string | null; sentence_clue_pinyin: string | null; sentence_clue_translation: string | null; sentence_clue_audio_url: string | null }) => void;
+  onSave: (updatedNote: { hanzi: string; pinyin: string; english: string; fun_facts: string | null; audio_url: string | null; sentence_clue: string | null; sentence_clue_pinyin: string | null; sentence_clue_translation: string | null; sentence_clue_audio_url: string | null; alternatives: string | null }) => void;
   onDeleteCard?: () => void;
 }
 
@@ -30,6 +30,11 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const [sentenceCluePinyin, setSentenceCluePinyin] = useState(card.note.sentence_clue_pinyin || '');
   const [sentenceClueTranslation, setSentenceClueTranslation] = useState(card.note.sentence_clue_translation || '');
   const [sentenceClueAudioUrl, setSentenceClueAudioUrl] = useState(card.note.sentence_clue_audio_url || null);
+  // Alternatives: stored as JSON array, edited as one alternative per line
+  const [alternativesText, setAlternativesText] = useState(() => {
+    if (!card.note.alternatives) return '';
+    try { return (JSON.parse(card.note.alternatives) as string[]).join('\n'); } catch { return ''; }
+  });
 
   const [recordings, setRecordings] = useState<NoteAudioRecording[]>([]);
   const [loadingRecordings, setLoadingRecordings] = useState(true);
@@ -95,6 +100,11 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
       const sentenceClueValue = sentenceClue.trim() || null;
       const sentenceCluePinyinValue = sentenceCluePinyin.trim() || null;
       const sentenceClueTranslationValue = sentenceClueTranslation.trim() || null;
+      const alternativesList = alternativesText
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean);
+      const alternativesJson = alternativesList.length > 0 ? JSON.stringify(alternativesList) : null;
       await updateNote(card.note.id, {
         hanzi,
         pinyin,
@@ -104,6 +114,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
         sentence_clue_pinyin: sentenceClueValue ? sentenceCluePinyinValue : null,
         sentence_clue_translation: sentenceClueValue ? sentenceClueTranslationValue : null,
         sentence_clue_audio_url: sentenceClueValue ? sentenceClueAudioUrl : null,
+        alternatives: alternativesJson,
       });
       const primary = recordings.find(r => r.is_primary);
       onSave({
@@ -116,6 +127,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
         sentence_clue_pinyin: sentenceClueValue ? sentenceCluePinyinValue : null,
         sentence_clue_translation: sentenceClueValue ? sentenceClueTranslationValue : null,
         sentence_clue_audio_url: sentenceClueValue ? sentenceClueAudioUrl : null,
+        alternatives: alternativesJson,
       });
       onClose();
     } catch (err) {
@@ -255,6 +267,19 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
                 className="form-input"
                 rows={2}
               />
+            </div>
+            <div className="card-edit-field">
+              <label>Acceptable Alternatives</label>
+              <textarea
+                value={alternativesText}
+                onChange={e => setAlternativesText(e.target.value)}
+                className="form-input"
+                rows={2}
+                placeholder="One alternative per line, e.g. 我很高兴"
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-light)' }}>
+                Other valid hanzi answers (one per line). Marked correct during review.
+              </span>
             </div>
           </div>
 

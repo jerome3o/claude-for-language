@@ -530,6 +530,7 @@ export async function updateNote(
     sentenceClueAudioUrl?: string;
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
+    alternatives?: string | null;
   },
   updates?: {
     hanzi?: string;
@@ -544,6 +545,7 @@ export async function updateNote(
     sentenceClueAudioUrl?: string;
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
+    alternatives?: string | null;
   }
 ): Promise<Note | null> {
   // Handle overloaded function signature
@@ -561,6 +563,7 @@ export async function updateNote(
     sentenceClueAudioUrl?: string;
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
+    alternatives?: string | null;
   };
 
   if (typeof userIdOrUpdates === 'string') {
@@ -626,6 +629,10 @@ export async function updateNote(
   if (actualUpdates.pinyinOnly !== undefined) {
     fields.push('pinyin_only = ?');
     values.push(String(actualUpdates.pinyinOnly));
+  }
+  if (actualUpdates.alternatives !== undefined) {
+    fields.push('alternatives = ?');
+    values.push(actualUpdates.alternatives ?? null);
   }
 
   if (fields.length === 0) {
