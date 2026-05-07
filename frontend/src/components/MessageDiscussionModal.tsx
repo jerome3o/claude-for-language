@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { discussMessage, createNote, createDeck, getDecks, getMessageDiscussion, saveMessageDiscussion } from '../api/client';
 import { MessageWithSender, GeneratedNote } from '../types';
 import { Loading } from './Loading';
+import { usePinnedDecks } from '../hooks/usePinnedDecks';
 import './MessageDiscussionModal.css';
 
 interface DiscussionMessage {
@@ -301,6 +302,7 @@ function DiscussionDeckSelector({
   const [showNewDeckInput, setShowNewDeckInput] = useState(false);
   const [newDeckName, setNewDeckName] = useState('');
   const [isCreatingDeck, setIsCreatingDeck] = useState(false);
+  const { isPinned, togglePin, sortWithPinnedFirst } = usePinnedDecks();
 
   const decksQuery = useQuery({
     queryKey: ['decks'],
@@ -324,21 +326,40 @@ function DiscussionDeckSelector({
     return <Loading message="Loading decks..." />;
   }
 
-  const decks = decksQuery.data || [];
+  const decks = sortWithPinnedFirst(decksQuery.data || []);
 
   return (
     <div className="deck-selector">
       <label>Save {selectedCount} card{selectedCount !== 1 ? 's' : ''} to:</label>
       <div className="deck-options">
         {decks.map((deck) => (
-          <button
-            key={deck.id}
-            className="deck-option"
-            onClick={() => onSelect(deck.id)}
-            disabled={isSaving || isCreatingDeck}
-          >
-            {deck.name}
-          </button>
+          <div key={deck.id} style={{ display: 'flex', gap: '0.25rem', alignItems: 'stretch' }}>
+            <button
+              className="deck-option"
+              style={{ flex: 1 }}
+              onClick={() => onSelect(deck.id)}
+              disabled={isSaving || isCreatingDeck}
+            >
+              {isPinned(deck.id) && <span style={{ marginRight: '0.25rem' }}>📌</span>}
+              {deck.name}
+            </button>
+            <button
+              onClick={() => togglePin(deck.id)}
+              title={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
+              disabled={isSaving || isCreatingDeck}
+              style={{
+                padding: '0 0.5rem',
+                borderRadius: '6px',
+                border: '1px solid #e5e7eb',
+                background: isPinned(deck.id) ? '#fef3c7' : '#f9fafb',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                opacity: isPinned(deck.id) ? 1 : 0.4,
+              }}
+            >
+              📌
+            </button>
+          </div>
         ))}
         {!showNewDeckInput ? (
           <button
