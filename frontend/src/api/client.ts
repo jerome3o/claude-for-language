@@ -248,7 +248,7 @@ export async function createNote(
 
 export async function updateNote(
   id: string,
-  updates: { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string | null; sentence_clue_pinyin?: string | null; sentence_clue_translation?: string | null; sentence_clue_audio_url?: string | null; pinyin_only?: number }
+  updates: { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string | null; sentence_clue_pinyin?: string | null; sentence_clue_translation?: string | null; sentence_clue_audio_url?: string | null; pinyin_only?: number; alternatives?: string | null }
 ): Promise<NoteWithCards> {
   return fetchJSON<NoteWithCards>(`/notes/${id}`, {
     method: 'PUT',

@@ -90,6 +90,7 @@ export interface LocalNote {
   sentence_clue_audio_url: string | null;
   multiple_choice_options: string | null;
   pinyin_only: number;
+  alternatives: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;

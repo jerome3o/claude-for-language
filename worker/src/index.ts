@@ -854,6 +854,7 @@ app.put('/api/notes/:id', async (c) => {
     sentence_clue_translation?: string | null;
     sentence_clue_audio_url?: string | null;
     pinyin_only?: number;
+    alternatives?: string | null;
   }>();
 
   const note = await db.updateNote(c.env.DB, id, userId, {
@@ -866,6 +867,7 @@ app.put('/api/notes/:id', async (c) => {
     sentenceClueTranslation: updates.sentence_clue_translation ?? undefined,
     sentenceClueAudioUrl: updates.sentence_clue_audio_url ?? undefined,
     pinyinOnly: updates.pinyin_only,
+    alternatives: updates.alternatives,
   });
 
   if (!note) {

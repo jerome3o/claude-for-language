@@ -155,6 +155,7 @@ export interface Note {
   sentence_clue_audio_url: string | null;  // Audio for sentence clue
   multiple_choice_options: string | null;  // JSON: per-character multiple choice alternatives
   pinyin_only: number;  // 0 or 1 — when set, meaning_to_hanzi cards auto-show multiple choice
+  alternatives: string | null;  // JSON array of acceptable alternative hanzi answers
   created_at: string;
   updated_at: string;
 }

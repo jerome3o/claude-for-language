@@ -678,6 +678,12 @@ html:has(.study-page-fullscreen) .header {
   color: var(--color-text);
 }
 
+.answer-diff-alternative-label {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  margin-top: 0.25rem;
+}
+
 /* Claude response markdown styling */
 .claude-response {
   background-color: #f9fafb;

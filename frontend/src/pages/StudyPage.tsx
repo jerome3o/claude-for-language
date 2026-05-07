@@ -109,30 +109,41 @@ function ToolCallsCollapsible({ calls }: { calls: ReadOnlyToolCall[] }) {
   );
 }
 
+function normalizeHanzi(s: string) { return s.trim().toLowerCase(); }
+
 // Character diff component for typed answers (Anki-style)
-function AnswerDiff({ userAnswer, correctAnswer, onCharacterClick }: { userAnswer: string; correctAnswer: string; onCharacterClick?: (char: string) => void }) {
-  // Compare character by character
-  const maxLen = Math.max(userAnswer.length, correctAnswer.length);
+function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick }: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void }) {
+  const normalizedUser = normalizeHanzi(userAnswer);
+  const normalizedCorrect = normalizeHanzi(correctAnswer);
+  const isFullyCorrect = normalizedUser === normalizedCorrect;
+
+  // Check if user matched an acceptable alternative
+  const matchedAlternative = !isFullyCorrect && alternatives
+    ? alternatives.find(alt => normalizeHanzi(alt) === normalizedUser) ?? null
+    : null;
+
+  // Compare character by character (against correct or matched alternative)
+  const compareTarget = matchedAlternative ?? correctAnswer;
+  const maxLen = Math.max(userAnswer.length, compareTarget.length);
   const userChars: { char: string; correct: boolean }[] = [];
   const correctChars: { char: string; matched: boolean }[] = [];
 
   for (let i = 0; i < maxLen; i++) {
     const userChar = userAnswer[i] || '';
-    const correctChar = correctAnswer[i] || '';
+    const correctChar = compareTarget[i] || '';
     const isMatch = userChar === correctChar;
 
     if (i < userAnswer.length) {
       userChars.push({ char: userChar, correct: isMatch });
     }
-    if (i < correctAnswer.length) {
+    if (i < compareTarget.length) {
       correctChars.push({ char: correctChar, matched: isMatch });
     }
   }
 
-  const isFullyCorrect = userAnswer === correctAnswer;
-
   // Generate pinyin for user's answer
   const userPinyin = pinyin(userAnswer, { toneType: 'symbol', type: 'string' });
+  const canonicalPinyin = pinyin(correctAnswer, { toneType: 'symbol', type: 'string' });
 
   const clickable = onCharacterClick ? ' diff-char-clickable' : '';
 
@@ -145,6 +156,28 @@ function AnswerDiff({ userAnswer, correctAnswer, onCharacterClick }: { userAnswe
           ))}
         </div>
         <div className="answer-diff-pinyin">{userPinyin}</div>
+      </div>
+    );
+  }
+
+  if (matchedAlternative !== null) {
+    // User answered with an accepted alternative — show all-green + canonical below
+    const canonicalChars = [...correctAnswer];
+    return (
+      <div className="answer-diff">
+        <div className="answer-diff-row">
+          {userChars.map((c, i) => (
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
+          ))}
+        </div>
+        <div className="answer-diff-pinyin">{userPinyin}</div>
+        <div className="answer-diff-alternative-label">Also accepted — canonical answer:</div>
+        <div className="answer-diff-row">
+          {canonicalChars.map((c, i) => (
+            <span key={i} className={`diff-char diff-expected${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
+          ))}
+        </div>
+        <div className="answer-diff-pinyin">{canonicalPinyin}</div>
       </div>
     );
   }
@@ -1223,7 +1256,12 @@ function StudyCard({
         {isTypingCard && userAnswer ? (
           // Show character-by-character diff for typed answers
           <div className="mb-3">
-            <AnswerDiff userAnswer={userAnswer.trim()} correctAnswer={card.note.hanzi} onCharacterClick={handleCharacterClick} />
+            <AnswerDiff
+                userAnswer={userAnswer.trim()}
+                correctAnswer={card.note.hanzi}
+                alternatives={card.note.alternatives ? JSON.parse(card.note.alternatives) : undefined}
+                onCharacterClick={handleCharacterClick}
+              />
           </div>
         ) : (
           // Show just the hanzi for non-typing cards - each character is clickable
@@ -2681,6 +2719,7 @@ function StudyCard({
               sentence_clue_pinyin: updatedNote.sentence_clue_pinyin,
               sentence_clue_translation: updatedNote.sentence_clue_translation,
               sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
+              alternatives: updatedNote.alternatives,
             });
             // Refresh recordings list
             queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
