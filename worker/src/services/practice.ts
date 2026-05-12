@@ -221,7 +221,9 @@ Generate a practice session: 6 flood examples, 3 scrambles, 3 contrastive pairs,
     throw new Error('Practice generation returned no tool_use block');
   }
   const input = toolUse.input as Omit<PracticeSessionContent, 'grammar_point'>;
-  return { grammar_point: grammarPoint, ...input };
+  // Shuffle tiles server-side so they're never in correct order regardless of AI output
+  const scrambles = input.scrambles.map((s) => ({ ...s, tiles: shuffleArray(s.tiles) }));
+  return { grammar_point: grammarPoint, ...input, scrambles };
 }
 
 const FEEDBACK_TOOL: Anthropic.Tool = {
@@ -336,10 +338,21 @@ Judge whether the sentence is grammatical Chinese AND uses the target structure.
   );
 }
 
-// Validate a learner's scramble ordering. Exact match against correct_order or any alt_orders.
+function shuffleArray<T>(arr: T[]): T[] {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+// Validate a learner's scramble ordering.
+// Uses joined-sentence comparison to handle cases where the AI segments tiles differently
+// in 'tiles' vs 'correct_order' (e.g. tiles=['我','喜欢'] vs correct_order=['我喜欢']).
 export function checkScramble(exercise: ScrambleExercise, userOrder: string[]): boolean {
-  const eq = (a: string[], b: string[]) =>
-    a.length === b.length && a.every((x, i) => x === b[i]);
-  if (eq(userOrder, exercise.correct_order)) return true;
-  return (exercise.alt_orders ?? []).some((alt) => eq(userOrder, alt));
+  const join = (arr: string[]) => arr.join('').replace(/\s/g, '');
+  const userSentence = join(userOrder);
+  if (userSentence === join(exercise.correct_order)) return true;
+  return (exercise.alt_orders ?? []).some((alt) => userSentence === join(alt));
 }
