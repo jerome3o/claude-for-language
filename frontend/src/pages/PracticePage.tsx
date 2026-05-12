@@ -652,6 +652,7 @@ function ContrastView(props: {
       >
         <div className="contrast-hanzi">{s.hanzi}</div>
         <div className="contrast-pinyin">{s.pinyin}</div>
+        {result !== null && <div className="contrast-english">{s.english}</div>}
       </button>
     );
   }

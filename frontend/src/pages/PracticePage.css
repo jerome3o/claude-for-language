@@ -374,6 +374,13 @@
   font-size: 0.9rem;
 }
 
+.contrast-english {
+  color: #444;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+  font-style: italic;
+}
+
 /* Translate */
 .translate-prompt {
   font-size: 1.2rem;
