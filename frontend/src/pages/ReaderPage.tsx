@@ -291,6 +291,7 @@ function PageView({
   const segmentingRef = useRef(false);
   const pageAudioRef = useRef<HTMLAudioElement | null>(null);
   const pagePlayIdRef = useRef(0);
+  const ttsCache = useRef<Map<string, string>>(new Map());
 
   // Use the page's image_url or the generated one
   const imageKey = page.image_url || generatedImageUrl;
@@ -339,7 +340,7 @@ function PageView({
       });
   }, [showChinese, page.content_chinese, segments]);
 
-  // Play Chinese audio via MiniMax TTS API
+  // Play Chinese audio via MiniMax TTS API, with in-memory caching to avoid regenerating
   const playAudio = useCallback(() => {
     if (isPlaying) return;
 
@@ -350,15 +351,28 @@ function PageView({
     }
 
     setIsPlaying(true);
+
+    const playUrl = (url: string) => {
+      if (pagePlayIdRef.current !== playId) return;
+      const audio = new Audio(url);
+      pageAudioRef.current = audio;
+      audio.onended = () => pagePlayIdRef.current === playId && setIsPlaying(false);
+      audio.onerror = () => pagePlayIdRef.current === playId && setIsPlaying(false);
+      void audio.play().catch(() => pagePlayIdRef.current === playId && setIsPlaying(false));
+    };
+
+    const cached = ttsCache.current.get(page.content_chinese);
+    if (cached) {
+      playUrl(cached);
+      return;
+    }
+
     generatePracticeTTS(page.content_chinese)
       .then((r) => {
         if (pagePlayIdRef.current !== playId) return;
         const url = `data:${r.content_type};base64,${r.audio_base64}`;
-        const audio = new Audio(url);
-        pageAudioRef.current = audio;
-        audio.onended = () => pagePlayIdRef.current === playId && setIsPlaying(false);
-        audio.onerror = () => pagePlayIdRef.current === playId && setIsPlaying(false);
-        void audio.play().catch(() => pagePlayIdRef.current === playId && setIsPlaying(false));
+        ttsCache.current.set(page.content_chinese, url);
+        playUrl(url);
       })
       .catch(() => pagePlayIdRef.current === playId && setIsPlaying(false));
   }, [page.content_chinese, isPlaying]);
