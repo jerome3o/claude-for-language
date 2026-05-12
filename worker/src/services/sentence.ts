@@ -82,8 +82,16 @@ function detectLanguage(input: string): 'chinese' | 'english' {
   return chineseRegex.test(input) ? 'chinese' : 'english';
 }
 
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Anthropic.APIError) {
+    return error.status === 429 || error.status === 503 || error.status === 529;
+  }
+  return false;
+}
+
 /**
- * Analyze a sentence and break it down into aligned chunks
+ * Analyze a sentence and break it down into aligned chunks.
+ * Retries up to 3 times on transient Anthropic API errors.
  */
 export async function analyzeSentence(
   apiKey: string,
@@ -93,52 +101,67 @@ export async function analyzeSentence(
 
   const userPrompt = USER_PROMPT_TEMPLATE.replace(/\{input\}/g, sentence.trim());
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 2000,
-    messages: [
-      { role: 'user', content: userPrompt }
-    ],
-    system: SENTENCE_ANALYSIS_SYSTEM_PROMPT,
-  });
-
-  // Extract text from response
-  const textContent = response.content.find(c => c.type === 'text');
-  if (!textContent || textContent.type !== 'text') {
-    throw new Error('No text content in AI response');
-  }
-
-  // Extract JSON from response
-  const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('Could not find JSON in AI response');
-  }
-
-  const result = JSON.parse(jsonMatch[0]) as SentenceBreakdown;
-
-  // Validate the structure
-  if (!result.hanzi || !result.pinyin || !result.english || !Array.isArray(result.chunks)) {
-    throw new Error('Invalid sentence breakdown structure from AI');
-  }
-
-  // Validate chunks and ensure indices exist
-  for (const chunk of result.chunks) {
-    if (!chunk.hanzi || !chunk.pinyin || !chunk.english) {
-      throw new Error('Invalid chunk structure from AI: each chunk must have hanzi, pinyin, and english');
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
-    // Ensure English indices are present (default to 0,0 if missing for backwards compatibility)
-    if (typeof chunk.englishStart !== 'number') {
-      chunk.englishStart = 0;
-    }
-    if (typeof chunk.englishEnd !== 'number') {
-      chunk.englishEnd = chunk.english.length;
+    try {
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [
+          { role: 'user', content: userPrompt }
+        ],
+        system: SENTENCE_ANALYSIS_SYSTEM_PROMPT,
+      });
+
+      // Extract text from response
+      const textContent = response.content.find(c => c.type === 'text');
+      if (!textContent || textContent.type !== 'text') {
+        throw new Error('No text content in AI response');
+      }
+
+      // Extract JSON from response
+      const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('Could not find JSON in AI response');
+      }
+
+      const result = JSON.parse(jsonMatch[0]) as SentenceBreakdown;
+
+      // Validate the structure
+      if (!result.hanzi || !result.pinyin || !result.english || !Array.isArray(result.chunks)) {
+        throw new Error('Invalid sentence breakdown structure from AI');
+      }
+
+      // Validate chunks and ensure indices exist
+      for (const chunk of result.chunks) {
+        if (!chunk.hanzi || !chunk.pinyin || !chunk.english) {
+          throw new Error('Invalid chunk structure from AI: each chunk must have hanzi, pinyin, and english');
+        }
+        // Ensure English indices are present (default to 0,0 if missing for backwards compatibility)
+        if (typeof chunk.englishStart !== 'number') {
+          chunk.englishStart = 0;
+        }
+        if (typeof chunk.englishEnd !== 'number') {
+          chunk.englishEnd = chunk.english.length;
+        }
+      }
+
+      // Ensure inputLanguage is set correctly
+      if (!result.inputLanguage) {
+        result.inputLanguage = detectLanguage(sentence);
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableError(error)) {
+        break;
+      }
     }
   }
 
-  // Ensure inputLanguage is set correctly
-  if (!result.inputLanguage) {
-    result.inputLanguage = detectLanguage(sentence);
-  }
-
-  return result;
+  throw lastError;
 }

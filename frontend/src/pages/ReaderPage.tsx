@@ -37,11 +37,13 @@ function SentenceAnalysisModal({
   isLoading,
   onClose,
   onAddChunk,
+  onRetry,
 }: {
   breakdown: SentenceBreakdownType | null;
   isLoading: boolean;
   onClose: () => void;
   onAddChunk: (c: Chunk) => void;
+  onRetry?: () => void;
 }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -79,7 +81,12 @@ function SentenceAnalysisModal({
                 &times;
               </button>
             </div>
-            <p className="text-light">Failed to analyze sentence. Please try again.</p>
+            <p className="text-light">Failed to analyze sentence.</p>
+            {onRetry && (
+              <button className="btn btn-primary btn-sm" onClick={onRetry} style={{ marginTop: '0.5rem' }}>
+                Try Again
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -555,6 +562,12 @@ export function ReaderPage() {
     }
   };
 
+  const handleRetryAnalysis = () => {
+    if (analysisModal) {
+      void handleAnalyzeSentence(analysisModal.sentence);
+    }
+  };
+
   const goToNextPage = () => {
     if (readerQuery.data && currentPage < readerQuery.data.pages.length - 1) {
       setCurrentPage((p) => p + 1);
@@ -741,6 +754,7 @@ export function ReaderPage() {
             setAnalysisModal(null);
             setAddingChunk(c);
           }}
+          onRetry={!analysisModal.isLoading && !analysisModal.breakdown ? handleRetryAnalysis : undefined}
         />
       )}
       {addingChunk && (
