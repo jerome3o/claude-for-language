@@ -21,6 +21,7 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
   const playAllRef = useRef(false);
   const currentPlayIdRef = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsCache = useRef<Map<string, string>>(new Map());
 
   const goToPrevious = useCallback(() => {
     setCurrentChunkIndex((prev) => Math.max(0, prev - 1));
@@ -48,7 +49,7 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
     setIsPlayingAll(false);
   }, []);
 
-  // Speak a single chunk's hanzi via MiniMax TTS API
+  // Speak a single chunk's hanzi via MiniMax TTS API, with in-memory caching
   const speakChunk = useCallback((text: string, onEnd?: () => void) => {
     const playId = ++currentPlayIdRef.current;
     if (audioRef.current) {
@@ -58,30 +59,42 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
 
     setIsPlaying(true);
 
+    const playUrl = (url: string) => {
+      if (currentPlayIdRef.current !== playId) return;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        if (currentPlayIdRef.current === playId) {
+          setIsPlaying(false);
+          onEnd?.();
+        }
+      };
+      audio.onerror = () => {
+        if (currentPlayIdRef.current === playId) {
+          setIsPlaying(false);
+          onEnd?.();
+        }
+      };
+      void audio.play().catch(() => {
+        if (currentPlayIdRef.current === playId) {
+          setIsPlaying(false);
+          onEnd?.();
+        }
+      });
+    };
+
+    const cached = ttsCache.current.get(text);
+    if (cached) {
+      playUrl(cached);
+      return;
+    }
+
     generatePracticeTTS(text)
       .then((r) => {
         if (currentPlayIdRef.current !== playId) return;
         const url = `data:${r.content_type};base64,${r.audio_base64}`;
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = () => {
-          if (currentPlayIdRef.current === playId) {
-            setIsPlaying(false);
-            onEnd?.();
-          }
-        };
-        audio.onerror = () => {
-          if (currentPlayIdRef.current === playId) {
-            setIsPlaying(false);
-            onEnd?.();
-          }
-        };
-        void audio.play().catch(() => {
-          if (currentPlayIdRef.current === playId) {
-            setIsPlaying(false);
-            onEnd?.();
-          }
-        });
+        ttsCache.current.set(text, url);
+        playUrl(url);
       })
       .catch(() => {
         if (currentPlayIdRef.current === playId) {
