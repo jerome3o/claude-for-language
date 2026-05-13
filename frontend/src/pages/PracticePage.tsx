@@ -325,13 +325,20 @@ export function PracticePage() {
           key={`sc-${idx}`}
           exercise={content.scrambles[idx]}
           speak={speak}
-          onSubmit={async (order) => {
-            const r = await submitPracticeAttempt(sessionId, {
+          onSubmit={(order) => {
+            const ex = content.scrambles[idx];
+            const join = (arr: string[]) => arr.join('').replace(/\s/g, '');
+            const userSentence = join(order);
+            const correct =
+              userSentence === join(ex.correct_order) ||
+              (ex.alt_orders ?? []).some((alt) => userSentence === join(alt));
+            // Record in background — don't await
+            void submitPracticeAttempt(sessionId, {
               exercise_type: 'scramble',
               exercise_index: idx,
               user_answer: order,
             });
-            return r.is_correct ?? false;
+            return Promise.resolve(correct);
           }}
           onNext={(correct) => advance(correct)}
         />
@@ -347,13 +354,16 @@ export function PracticePage() {
           key={`ct-${idx}`}
           exercise={content.contrasts[idx]}
           speak={speak}
-          onSubmit={async (choice) => {
-            const r = await submitPracticeAttempt(sessionId, {
+          onSubmit={(choice) => {
+            const ex = content.contrasts[idx];
+            const correct = choice === ex.correct;
+            // Record in background — don't await
+            void submitPracticeAttempt(sessionId, {
               exercise_type: 'contrast',
               exercise_index: idx,
               user_answer: choice,
             });
-            return r.is_correct ?? false;
+            return Promise.resolve(correct);
           }}
           onNext={(correct) => advance(correct)}
         />
