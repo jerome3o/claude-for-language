@@ -2697,6 +2697,19 @@ function StudyCard({
       {/* Debug Modal */}
       {renderDebugModal()}
 
+      {/* Floating audio replay button for thumb-reach on audio cards */}
+      {isAudioCard && !flipped && (
+        <button
+          className={`audio-replay-fab${isPlaying ? ' audio-replay-fab--playing' : ''}`}
+          onClick={cycleAndPlay}
+          disabled={isPlaying}
+          aria-label="Replay audio"
+          title="Replay audio"
+        >
+          🔊
+        </button>
+      )}
+
       {/* Card Edit Modal */}
       {showEditModal && (
         <CardEditModal

@@ -2738,6 +2738,43 @@ textarea {
 
 /* ============ Feedback FAB ============ */
 
+.audio-replay-fab {
+  position: fixed;
+  bottom: 5rem;
+  right: 1.5rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  z-index: 490;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+  transition: opacity 0.2s, transform 0.2s;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.audio-replay-fab:hover {
+  transform: scale(1.08);
+}
+
+.audio-replay-fab:active {
+  transform: scale(0.93);
+}
+
+.audio-replay-fab--playing {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .feedback-fab {
   position: fixed;
   width: 48px;
