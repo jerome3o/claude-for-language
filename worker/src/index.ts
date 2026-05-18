@@ -5225,6 +5225,7 @@ app.delete('/api/lesson-notes/:id', async (c) => {
 
 app.get('/api/audio-lessons', async (c) => {
   const userId = c.get('user').id;
+  await db.markStaleAudioLessons(c.env.DB, userId);
   const lessons = await db.listAudioLessons(c.env.DB, userId);
   return c.json({ lessons });
 });

@@ -3059,3 +3059,14 @@ export async function getAudioLesson(db: D1Database, id: string, userId: string)
 export async function deleteAudioLesson(db: D1Database, id: string, userId: string): Promise<void> {
   await db.prepare(`DELETE FROM audio_lessons WHERE id = ? AND user_id = ?`).bind(id, userId).run();
 }
+
+/** Reset lessons stuck in pending/generating for longer than maxAgeSeconds to error state. */
+export async function markStaleAudioLessons(db: D1Database, userId: string, maxAgeSeconds = 900): Promise<void> {
+  await db.prepare(`
+    UPDATE audio_lessons
+    SET status = 'error', error = 'Generation timed out – please delete and try again'
+    WHERE user_id = ?
+      AND status IN ('pending', 'generating')
+      AND created_at <= datetime('now', '-' || ? || ' seconds')
+  `).bind(userId, maxAgeSeconds).run();
+}
