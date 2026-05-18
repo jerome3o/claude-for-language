@@ -5304,6 +5304,28 @@ app.get('/api/practice/next', async (c) => {
     db.getNextGrammarPoint(c.env.DB, userId),
     db.practiceCompletedToday(c.env.DB, userId),
   ]);
+
+  // Kick off background pre-generation for the next session so the user
+  // doesn't wait when they click "Start Practice".
+  if (point && !doneToday) {
+    c.executionCtx.waitUntil((async () => {
+      try {
+        const alreadyQueued = await db.hasActivePregenerationJob(c.env.DB, userId, point.id);
+        if (alreadyQueued) return;
+        const [vocab, lessonNotes] = await Promise.all([
+          db.getLearnedVocabulary(c.env.DB, userId),
+          db.getRecentLessonNotesText(c.env.DB, userId),
+        ]);
+        if (vocab.length < 10) return;
+        const sessionId = await db.createPendingPracticeSession(c.env.DB, userId, point.id);
+        const content = await generatePracticeSession(c.env.ANTHROPIC_API_KEY, point, vocab, lessonNotes || undefined);
+        await db.markPracticeSessionReady(c.env.DB, sessionId, JSON.stringify(content));
+      } catch (err) {
+        console.error('[Practice] Background pre-generation failed:', err);
+      }
+    })());
+  }
+
   return c.json({ point, done_today: doneToday });
 });
 
@@ -5315,6 +5337,20 @@ app.post('/api/practice/sessions', async (c) => {
     ? await db.getGrammarPoint(c.env.DB, grammar_point_id)
     : await db.getNextGrammarPoint(c.env.DB, userId);
   if (!point) return c.json({ error: 'No grammar point available' }, 404);
+
+  // Check for a pre-generated (ready) session first for instant response.
+  const pregenerated = await db.getPreGeneratedPracticeSession(c.env.DB, userId, point.id);
+  if (pregenerated?.status === 'ready' && pregenerated.exercises_json) {
+    await c.env.DB.prepare(`
+      UPDATE practice_sessions SET is_pregenerated = 0 WHERE id = ?
+    `).bind(pregenerated.id).run();
+    await c.env.DB.prepare(`
+      INSERT INTO grammar_progress (id, user_id, grammar_point_id, status, introduced_at)
+      VALUES (?, ?, ?, 'learning', datetime('now'))
+      ON CONFLICT(user_id, grammar_point_id) DO NOTHING
+    `).bind(crypto.randomUUID(), userId, point.id).run();
+    return c.json({ session_id: pregenerated.id, content: JSON.parse(pregenerated.exercises_json) as PracticeSessionContent });
+  }
 
   const [vocab, lessonNotes] = await Promise.all([
     db.getLearnedVocabulary(c.env.DB, userId),

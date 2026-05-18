@@ -2785,8 +2785,8 @@ export async function createPracticeSession(
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO practice_sessions (id, user_id, grammar_point_id, exercises_json)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO practice_sessions (id, user_id, grammar_point_id, exercises_json, status, is_pregenerated)
+    VALUES (?, ?, ?, ?, 'ready', 0)
   `).bind(id, userId, grammarPointId, exercisesJson).run();
   await db.prepare(`
     INSERT INTO grammar_progress (id, user_id, grammar_point_id, status, introduced_at)
@@ -2794,6 +2794,58 @@ export async function createPracticeSession(
     ON CONFLICT(user_id, grammar_point_id) DO NOTHING
   `).bind(crypto.randomUUID(), userId, grammarPointId).run();
   return id;
+}
+
+export async function createPendingPracticeSession(
+  db: D1Database,
+  userId: string,
+  grammarPointId: string,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO practice_sessions (id, user_id, grammar_point_id, exercises_json, status, is_pregenerated)
+    VALUES (?, ?, ?, '', 'generating', 1)
+  `).bind(id, userId, grammarPointId).run();
+  return id;
+}
+
+export async function markPracticeSessionReady(
+  db: D1Database,
+  sessionId: string,
+  exercisesJson: string,
+): Promise<void> {
+  await db.prepare(`
+    UPDATE practice_sessions SET exercises_json = ?, status = 'ready' WHERE id = ?
+  `).bind(exercisesJson, sessionId).run();
+}
+
+export async function getPreGeneratedPracticeSession(
+  db: D1Database,
+  userId: string,
+  grammarPointId: string,
+): Promise<{ id: string; status: string; exercises_json: string } | null> {
+  return await db.prepare(`
+    SELECT id, status, exercises_json
+    FROM practice_sessions
+    WHERE user_id = ? AND grammar_point_id = ? AND is_pregenerated = 1
+      AND completed_at IS NULL
+    ORDER BY started_at DESC
+    LIMIT 1
+  `).bind(userId, grammarPointId).first() as { id: string; status: string; exercises_json: string } | null;
+}
+
+export async function hasActivePregenerationJob(
+  db: D1Database,
+  userId: string,
+  grammarPointId: string,
+): Promise<boolean> {
+  const row = await db.prepare(`
+    SELECT 1 FROM practice_sessions
+    WHERE user_id = ? AND grammar_point_id = ? AND is_pregenerated = 1
+      AND status IN ('generating', 'ready') AND completed_at IS NULL
+    LIMIT 1
+  `).bind(userId, grammarPointId).first();
+  return row !== null;
 }
 
 export async function getPracticeSession(
