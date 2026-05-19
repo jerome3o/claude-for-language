@@ -178,17 +178,28 @@ function concatUint8Arrays(arrays: Uint8Array[]): Uint8Array {
 
 /**
  * Generate the full lesson audio, concatenate all segments, and return as Uint8Array.
+ * Generates segments in parallel batches to stay within Cloudflare Worker time limits.
  * Skips segments that fail TTS gracefully.
  */
 export async function generateLessonAudio(
   env: Env,
   segments: LessonSegment[],
+  concurrency = 8,
 ): Promise<{ audio: Uint8Array; successCount: number }> {
+  const results: (Uint8Array | null)[] = new Array(segments.length).fill(null);
+
+  for (let i = 0; i < segments.length; i += concurrency) {
+    const batch = segments.slice(i, i + concurrency);
+    const batchResults = await Promise.allSettled(batch.map((seg) => generateSegmentAudio(env, seg)));
+    for (let j = 0; j < batchResults.length; j++) {
+      const r = batchResults[j];
+      results[i + j] = r.status === 'fulfilled' ? r.value : null;
+    }
+  }
+
   const chunks: Uint8Array[] = [];
   let successCount = 0;
-
-  for (const segment of segments) {
-    const bytes = await generateSegmentAudio(env, segment);
+  for (const bytes of results) {
     if (bytes && bytes.length > 0) {
       chunks.push(bytes);
       successCount++;
