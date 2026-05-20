@@ -56,6 +56,16 @@ jobs:
           workingDirectory: worker
           command: d1 migrations apply chinese-learning-db --remote
 
+      - name: Ensure Queues Exist
+        working-directory: worker
+        run: |
+          npx wrangler queues create story-generation-queue || true
+          npx wrangler queues create image-generation-queue || true
+          npx wrangler queues create audio-lesson-queue || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}
+
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
