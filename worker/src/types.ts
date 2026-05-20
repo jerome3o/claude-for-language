@@ -5,6 +5,7 @@ export interface Env {
   AI: Ai;
   IMAGE_QUEUE: Queue<ImageGenerationMessage>;
   STORY_QUEUE: Queue<StoryGenerationMessage>;
+  AUDIO_LESSON_QUEUE: Queue<AudioLessonMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
@@ -40,6 +41,12 @@ export interface ImageGenerationMessage {
   pageId: string;
   imagePrompt: string;
   totalPages: number;
+}
+
+export interface AudioLessonMessage {
+  lessonId: string;
+  title: string;
+  notes: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string | null }>;
 }
 
 // Audio provider types

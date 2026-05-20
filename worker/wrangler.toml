@@ -57,6 +57,18 @@ queue = "image-generation-queue"
 max_batch_size = 1
 max_batch_timeout = 0
 
+# Queue for background audio lesson generation (long-running TTS, can take several minutes)
+# Create with: `wrangler queues create audio-lesson-queue`
+[[queues.producers]]
+queue = "audio-lesson-queue"
+binding = "AUDIO_LESSON_QUEUE"
+
+[[queues.consumers]]
+queue = "audio-lesson-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"
