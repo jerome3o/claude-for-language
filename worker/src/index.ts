@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage } from './types';
+import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -5273,32 +5273,8 @@ app.post('/api/audio-lessons', async (c) => {
 
   const lessonId = await db.createAudioLesson(c.env.DB, userId, title, deck_id ?? null, lesson_note_id ?? null);
 
-  // Generate audio in background
-  c.executionCtx.waitUntil((async () => {
-    try {
-      await db.updateAudioLessonStatus(c.env.DB, lessonId, 'generating');
-      const segments = buildLessonScript(notes, title.replace(' – Audio Lesson', '').replace('Lesson Note Audio – ', ''));
-      const { audio, successCount } = await generateLessonAudio(c.env, segments);
-
-      if (audio.length === 0) {
-        await db.updateAudioLessonStatus(c.env.DB, lessonId, 'error', { error: 'No audio generated – check TTS API keys' });
-        return;
-      }
-
-      const audioKey = `audio-lessons/${lessonId}.mp3`;
-      await c.env.AUDIO_BUCKET.put(audioKey, audio.buffer as ArrayBuffer, { httpMetadata: { contentType: 'audio/mpeg' } });
-
-      await db.updateAudioLessonStatus(c.env.DB, lessonId, 'done', {
-        audio_key: audioKey,
-        segment_count: successCount,
-      });
-    } catch (err) {
-      console.error('[AudioLesson] generation failed:', err);
-      await db.updateAudioLessonStatus(c.env.DB, lessonId, 'error', {
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
-  })());
+  // Queue audio generation — queue consumers run much longer than waitUntil (up to 15 min)
+  await c.env.AUDIO_LESSON_QUEUE.send({ lessonId, title, notes });
 
   return c.json({ id: lessonId, title, status: 'pending' }, 202);
 });
@@ -6008,8 +5984,8 @@ app.get('*', async (c) => {
 export default {
   fetch: app.fetch,
 
-  // Queue handler for background processing (story and image generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage>, env: Env): Promise<void> {
+  // Queue handler for background processing (story, image, and audio lesson generation)
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | AudioLessonMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6118,6 +6094,41 @@ export default {
           console.error('[Queue] Image generation failed for page:', pageId, err);
           // Retry the message
           message.retry();
+        }
+      }
+    } else if (queueName === 'audio-lesson-queue') {
+      // Handle audio lesson generation — runs here because it can take several minutes
+      for (const message of batch.messages) {
+        const { lessonId, title, notes } = message.body as AudioLessonMessage;
+        console.log('[Queue] Processing audio lesson:', lessonId, 'with', notes.length, 'notes');
+
+        try {
+          await db.updateAudioLessonStatus(env.DB, lessonId, 'generating');
+          const deckName = title.replace(' – Audio Lesson', '').replace('Lesson Note Audio – ', '');
+          const segments = buildLessonScript(notes, deckName);
+          const { audio, successCount } = await generateLessonAudio(env, segments);
+
+          if (audio.length === 0) {
+            await db.updateAudioLessonStatus(env.DB, lessonId, 'error', { error: 'No audio generated – check TTS API keys' });
+            message.ack();
+            continue;
+          }
+
+          const audioKey = `audio-lessons/${lessonId}.mp3`;
+          await env.AUDIO_BUCKET.put(audioKey, audio.buffer as ArrayBuffer, { httpMetadata: { contentType: 'audio/mpeg' } });
+
+          await db.updateAudioLessonStatus(env.DB, lessonId, 'done', {
+            audio_key: audioKey,
+            segment_count: successCount,
+          });
+          console.log('[Queue] Audio lesson done:', lessonId, 'segments:', successCount);
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] Audio lesson generation failed:', lessonId, err);
+          await db.updateAudioLessonStatus(env.DB, lessonId, 'error', {
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+          message.ack(); // Don't retry — partial state may be inconsistent
         }
       }
     } else {
