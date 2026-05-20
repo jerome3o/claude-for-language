@@ -1879,6 +1879,29 @@ export async function deleteAudioLesson(id: string): Promise<void> {
   await fetchJSON(`/audio-lessons/${id}`, { method: 'DELETE' });
 }
 
-export function getAudioLessonDownloadUrl(id: string): string {
-  return `${API_PATH}/audio-lessons/${id}/download`;
+export async function downloadAudioLesson(id: string, filename: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+  const response = await fetch(`${API_PATH}/audio-lessons/${id}/download`, {
+    credentials: 'include',
+    headers,
+  });
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+  if (!response.ok) {
+    throw new Error(`Download failed: HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
