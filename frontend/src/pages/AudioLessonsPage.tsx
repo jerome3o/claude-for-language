@@ -5,7 +5,7 @@ import {
   listAudioLessons,
   createAudioLesson,
   deleteAudioLesson,
-  getAudioLessonDownloadUrl,
+  downloadAudioLesson,
   type AudioLesson,
 } from '../api/client';
 
@@ -47,8 +47,20 @@ function LessonRow({
   lesson: AudioLesson;
   onDelete: (id: string) => void;
 }) {
-  const downloadUrl = lesson.status === 'done' ? getAudioLessonDownloadUrl(lesson.id) : null;
+  const [downloading, setDownloading] = useState(false);
   const date = new Date(lesson.created_at).toLocaleDateString();
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const filename = `${lesson.title.replace(/[^a-zA-Z0-9一-鿿 ]/g, '_')}.mp3`;
+      await downloadAudioLesson(lesson.id, filename);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div
@@ -68,15 +80,15 @@ function LessonRow({
         )}
       </div>
       <StatusBadge status={lesson.status} />
-      {downloadUrl && (
-        <a
-          href={downloadUrl}
-          download
+      {lesson.status === 'done' && (
+        <button
           className="btn btn-primary"
           style={{ whiteSpace: 'nowrap', fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}
+          onClick={handleDownload}
+          disabled={downloading}
         >
-          Download
-        </a>
+          {downloading ? 'Downloading…' : 'Download'}
+        </button>
       )}
       <button
         className="btn btn-secondary"
