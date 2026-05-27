@@ -31,7 +31,9 @@ export interface ContrastExercise {
   context: string;
   option_a: ExampleSentence;
   option_b: ExampleSentence;
-  correct: 'a' | 'b';
+  option_c?: ExampleSentence;
+  option_d?: ExampleSentence;
+  correct: 'a' | 'b' | 'c' | 'd';
   explanation: string;
 }
 
@@ -132,7 +134,7 @@ const SESSION_TOOL: Anthropic.Tool = {
       contrasts: {
         type: 'array',
         description:
-          '3 contrastive-pair exercises. Two near-identical sentences differing in ONE grammatical feature (the target structure vs an alternative). Given the English context, exactly one option fits.',
+          '3 multiple-choice exercises. Four Chinese sentences where only ONE correctly fits the given English context. The three distractors must be plausible but wrong (using the wrong grammatical structure, wrong aspect, or wrong word order). Given the English context, exactly one option fits.',
         items: {
           type: 'object',
           properties: {
@@ -159,13 +161,31 @@ const SESSION_TOOL: Anthropic.Tool = {
               },
               required: ['hanzi', 'pinyin', 'english'],
             },
-            correct: { type: 'string', enum: ['a', 'b'] },
+            option_c: {
+              type: 'object',
+              properties: {
+                hanzi: { type: 'string' },
+                pinyin: { type: 'string' },
+                english: { type: 'string' },
+              },
+              required: ['hanzi', 'pinyin', 'english'],
+            },
+            option_d: {
+              type: 'object',
+              properties: {
+                hanzi: { type: 'string' },
+                pinyin: { type: 'string' },
+                english: { type: 'string' },
+              },
+              required: ['hanzi', 'pinyin', 'english'],
+            },
+            correct: { type: 'string', enum: ['a', 'b', 'c', 'd'] },
             explanation: {
               type: 'string',
-              description: 'One sentence on why the correct option fits and the other does not.',
+              description: 'One sentence on why the correct option fits and the others do not.',
             },
           },
-          required: ['context', 'option_a', 'option_b', 'correct', 'explanation'],
+          required: ['context', 'option_a', 'option_b', 'option_c', 'option_d', 'correct', 'explanation'],
         },
       },
       translates: {
@@ -205,7 +225,7 @@ ${grammarBlock(grammarPoint)}
 Learner's known vocabulary (use ONLY these plus basic function words):
 ${vocabBlock(vocabulary)}${lessonContext}
 
-Generate a practice session: 6 flood examples, 3 scrambles, 3 contrastive pairs, 5 translation prompts. Every sentence must demonstrate or test the target pattern "${grammarPoint.pattern}".`;
+Generate a practice session: 6 flood examples, 3 scrambles, 3 multiple-choice exercises (each with 4 options — one correct and three plausible distractors), 5 translation prompts. Every sentence must demonstrate or test the target pattern "${grammarPoint.pattern}".`;
 
   const response = await client.messages.create({
     model: MODEL,

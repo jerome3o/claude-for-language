@@ -1613,7 +1613,9 @@ export interface ContrastExercise {
   context: string;
   option_a: ExampleSentence;
   option_b: ExampleSentence;
-  correct: 'a' | 'b';
+  option_c?: ExampleSentence;
+  option_d?: ExampleSentence;
+  correct: 'a' | 'b' | 'c' | 'd';
   explanation: string;
 }
 

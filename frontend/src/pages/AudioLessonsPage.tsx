@@ -194,7 +194,7 @@ export function AudioLessonsPage() {
             </p>
           )}
           <p style={{ fontSize: '0.8rem', color: '#888', marginTop: '0.75rem', marginBottom: 0 }}>
-            Lesson format: each word is spoken 3× slowly in Chinese, then the English meaning, then a review.
+            Lesson format: a conversational dialogue using your vocabulary (played twice), sentence-by-sentence translation, then individual word drills.
             Generation takes 1–3 minutes. Download the MP3 and listen in any podcast app.
           </p>
         </div>
