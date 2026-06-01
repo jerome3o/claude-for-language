@@ -153,7 +153,11 @@ export function PracticePage() {
     setScore(s.score);
     setPhase(s.phase);
     setResumeCandidate(null);
-    void prefetch(s.content.flood.map((e) => e.hanzi));
+    void prefetch([
+      ...s.content.flood.map((e) => e.hanzi),
+      ...s.content.scrambles.map((e) => e.correct_order.join('')),
+      ...s.content.contrasts.flatMap((e) => [e.option_a.hanzi, e.option_b.hanzi, ...(e.option_c ? [e.option_c.hanzi] : []), ...(e.option_d ? [e.option_d.hanzi] : [])]),
+    ]);
   }
 
   function discardResume() {
@@ -175,7 +179,11 @@ export function PracticePage() {
       setIdx(0);
       setScore({ correct: 0, total: 0 });
       setPhase('flood');
-      void prefetch(res.content.flood.map((e) => e.hanzi));
+      void prefetch([
+        ...res.content.flood.map((e) => e.hanzi),
+        ...res.content.scrambles.map((e) => e.correct_order.join('')),
+        ...res.content.contrasts.flatMap((e) => [e.option_a.hanzi, e.option_b.hanzi, ...(e.option_c ? [e.option_c.hanzi] : []), ...(e.option_d ? [e.option_d.hanzi] : [])]),
+      ]);
       // After consuming the pre-gen, mark as no longer ready
       setPregenReady(false);
     } catch (e) {
@@ -631,21 +639,22 @@ function ScrambleView(props: {
 function ContrastView(props: {
   exercise: ContrastExercise;
   speak: (text: string) => void;
-  onSubmit: (choice: 'a' | 'b') => Promise<boolean>;
+  onSubmit: (choice: 'a' | 'b' | 'c' | 'd') => Promise<boolean>;
   onNext: (correct: boolean) => void;
 }) {
   const { exercise, speak, onSubmit, onNext } = props;
-  const [choice, setChoice] = useState<'a' | 'b' | null>(null);
+  const [choice, setChoice] = useState<'a' | 'b' | 'c' | 'd' | null>(null);
   const [result, setResult] = useState<boolean | null>(null);
 
-  async function pick(c: 'a' | 'b') {
+  async function pick(c: 'a' | 'b' | 'c' | 'd') {
     setChoice(c);
     const ok = await onSubmit(c);
     setResult(ok);
-    speak((c === 'a' ? exercise.option_a : exercise.option_b).hanzi);
+    const selected = c === 'a' ? exercise.option_a : c === 'b' ? exercise.option_b : c === 'c' ? exercise.option_c! : exercise.option_d!;
+    speak(selected.hanzi);
   }
 
-  function opt(key: 'a' | 'b', s: ExampleSentence) {
+  function opt(key: 'a' | 'b' | 'c' | 'd', s: ExampleSentence) {
     const cls =
       result === null
         ? ''
@@ -656,6 +665,7 @@ function ContrastView(props: {
             : '';
     return (
       <button
+        key={key}
         className={`contrast-option ${cls}`}
         onClick={() => result === null && pick(key)}
         disabled={result !== null}
@@ -667,12 +677,18 @@ function ContrastView(props: {
     );
   }
 
+  const allOptions: Array<['a' | 'b' | 'c' | 'd', ExampleSentence]> = [
+    ['a', exercise.option_a],
+    ['b', exercise.option_b],
+    ...(exercise.option_c ? [['c', exercise.option_c] as ['c', ExampleSentence]] : []),
+    ...(exercise.option_d ? [['d', exercise.option_d] as ['d', ExampleSentence]] : []),
+  ];
+
   return (
     <div className="exercise">
       <div className="phase-label">Which one fits?</div>
       <div className="contrast-context">{exercise.context}</div>
-      {opt('a', exercise.option_a)}
-      {opt('b', exercise.option_b)}
+      {allOptions.map(([key, s]) => opt(key, s))}
       {result !== null && (
         <>
           <div className={`result-banner ${result ? 'correct' : 'wrong'}`}>

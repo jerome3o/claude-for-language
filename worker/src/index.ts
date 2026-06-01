@@ -58,7 +58,7 @@ async function persistAiRoleplayMessage(
 }
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
-import { buildLessonScript, generateLessonAudio } from './services/audio-lesson';
+import { buildLessonScript, generateLessonAudio, generateDialogueScript } from './services/audio-lesson';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -6105,7 +6105,13 @@ export default {
         try {
           await db.updateAudioLessonStatus(env.DB, lessonId, 'generating');
           const deckName = title.replace(' – Audio Lesson', '').replace('Lesson Note Audio – ', '');
-          const segments = buildLessonScript(notes, deckName);
+          const dialogue = env.ANTHROPIC_API_KEY
+            ? await generateDialogueScript(env.ANTHROPIC_API_KEY, notes).catch((e) => {
+                console.warn('[Queue] Dialogue generation failed, proceeding without dialogue:', e);
+                return [];
+              })
+            : [];
+          const segments = buildLessonScript(notes, deckName, dialogue);
           const { audio, successCount } = await generateLessonAudio(env, segments);
 
           if (audio.length === 0) {
