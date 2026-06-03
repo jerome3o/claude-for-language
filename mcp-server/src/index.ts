@@ -150,6 +150,43 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     }
   }
 
+  /**
+   * Generate TTS audio for many notes using a SINGLE shared session token.
+   *
+   * Designed to run in the background (via ctx.waitUntil) after notes are
+   * already inserted, so the tool response is not blocked by TTS latency.
+   * Each TTS call hits an external provider (~1-2s); with large batches the
+   * cumulative time easily exceeds the request timeout, which is exactly the
+   * bug this avoids by decoupling audio generation from note insertion.
+   */
+  private async generateAudioForNotes(noteIds: string[], userId: string): Promise<void> {
+    const ids = noteIds.filter(Boolean);
+    if (ids.length === 0) return;
+
+    let sessionToken: string | null = null;
+    try {
+      sessionToken = await this.getApiSessionToken(userId);
+      const apiUrl = this.getApiUrl();
+      // Sequential to avoid hammering the TTS provider / creating many sessions.
+      for (const noteId of ids) {
+        try {
+          await fetch(`${apiUrl}/api/notes/${noteId}/generate-audio`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${sessionToken}` },
+          });
+        } catch (e) {
+          console.error(`Background audio generation failed for note ${noteId}:`, e);
+        }
+      }
+    } catch (e) {
+      console.error('Background audio generation failed to start:', e);
+    } finally {
+      if (sessionToken) {
+        await this.cleanupSessionToken(sessionToken);
+      }
+    }
+  }
+
   async init() {
     const userId = this.props!.userId;
 
@@ -616,66 +653,82 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .all();
         const duplicateHanziSet = new Set((existingRows.results as { hanzi: string }[]).map(r => r.hanzi));
 
-        const results: { hanzi: string; pinyin: string; success: boolean; audioGenerated: boolean; skipped?: boolean }[] = [];
+        const results: { hanzi: string; pinyin: string; success: boolean; skipped?: boolean }[] = [];
         const noteIds: string[] = [];
+        // Track hanzi inserted within THIS batch so repeated hanzi in the same
+        // call don't create duplicates (the pre-check above only catches hanzi
+        // that already existed in the DB before this call).
+        const seenInBatch = new Set<string>();
 
-        // Insert all notes and cards
+        // Build all insert statements first, then commit them in a single
+        // atomic D1 batch. This (a) is much faster than awaiting each statement
+        // sequentially, and (b) is transactional — either every note in the
+        // batch is committed or none are, so a failure can't leave a partial
+        // batch behind. TTS audio is generated AFTERWARDS in the background, so
+        // the request never blocks on external TTS latency and can't time out
+        // mid-batch (which previously left notes committed while the caller saw
+        // an error and retried, creating duplicates).
+        const statements: D1PreparedStatement[] = [];
         for (const note of notes) {
-          if (duplicateHanziSet.has(note.hanzi)) {
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, audioGenerated: false, skipped: true });
-            noteIds.push(''); // placeholder to keep index alignment
+          if (duplicateHanziSet.has(note.hanzi) || seenInBatch.has(note.hanzi)) {
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, skipped: true });
             continue;
           }
-          try {
-            const noteId = generateId();
-            noteIds.push(noteId);
+          const noteId = generateId();
+          seenInBatch.add(note.hanzi);
+          noteIds.push(noteId);
 
-            await this.env.DB
-              .prepare(
-                'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts) VALUES (?, ?, ?, ?, ?, ?)'
-              )
+          statements.push(
+            this.env.DB
+              .prepare('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts) VALUES (?, ?, ?, ?, ?, ?)')
               .bind(noteId, deck_id, note.hanzi, note.pinyin, note.english, note.fun_facts || null)
-              .run();
-
-            for (const cardType of CARD_TYPES) {
-              const cardId = generateId();
-              await this.env.DB
+          );
+          for (const cardType of CARD_TYPES) {
+            statements.push(
+              this.env.DB
                 .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
-                .bind(cardId, noteId, cardType)
-                .run();
-            }
-
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: true, audioGenerated: false });
-          } catch (e) {
-            console.error(`Failed to add note ${note.hanzi}:`, e);
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, audioGenerated: false });
-            noteIds.push('');
+                .bind(generateId(), noteId, cardType)
+            );
           }
+
+          results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: true });
         }
 
-        // Update deck timestamp
-        await this.env.DB
-          .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-          .bind(deck_id)
-          .run();
-
-        // Generate TTS audio for all notes (with proper authentication)
-        // Process sequentially to avoid creating too many sessions
-        for (let i = 0; i < noteIds.length; i++) {
-          if (!noteIds[i]) continue; // skip placeholders (duplicates/failures)
-          const generated = await this.generateAudioForNote(noteIds[i], userId);
-          if (generated) {
-            results[i].audioGenerated = true;
+        if (statements.length > 0) {
+          // Bump the deck timestamp as part of the same atomic batch.
+          statements.push(
+            this.env.DB
+              .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
+              .bind(deck_id)
+          );
+          try {
+            await this.env.DB.batch(statements);
+          } catch (e) {
+            console.error('Failed to insert note batch:', e);
+            return {
+              content: [{
+                type: "text" as const,
+                text: `Failed to add notes (database error, nothing was saved): ${e instanceof Error ? e.message : String(e)}`,
+              }],
+              isError: true,
+            };
           }
+
+          // Kick off TTS generation in the background. ctx.waitUntil keeps the
+          // Durable Object alive until it finishes, without blocking this
+          // response. Notes are usable immediately; audio_url fills in shortly.
+          this.ctx.waitUntil(this.generateAudioForNotes(noteIds, userId));
         }
 
         const successful = results.filter(r => r.success);
         const skipped = results.filter(r => r.skipped);
-        const withAudio = results.filter(r => r.audioGenerated);
 
-        let summary = `Added ${successful.length}/${notes.length} notes (${withAudio.length} with audio):\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})${r.audioGenerated ? ' 🔊' : ''}`).join('\n')}`;
+        let summary = `Added ${successful.length}/${notes.length} notes:\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
+        if (successful.length > 0) {
+          summary += `\n\nAudio is being generated in the background and will be available shortly.`;
+        }
         if (skipped.length > 0) {
-          summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
+          summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks or appeared more than once in this request):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
         }
 
         return {
