@@ -73,6 +73,14 @@ function generateId(): string {
 
 const CARD_TYPES = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const;
 
+// Background TTS queue tuning (see processTtsQueue).
+const TTS_CHUNK_SIZE = 8;          // notes processed per scheduled alarm run
+const TTS_MAX_ATTEMPTS = 5;        // per-note retries before giving up
+const TTS_RETRY_DELAY_SECONDS = 2; // delay before processing the next chunk
+
+type TtsQueueItem = { id: string; attempts: number };
+type TtsQueuePayload = { userId: string; items: TtsQueueItem[] };
+
 // Legacy class (non-SQLite) - kept for migration compatibility
 export class ChineseLearningMCP extends McpAgent<Env, Record<string, never>, Props> {
   server = new McpServer({ name: "Legacy", version: "1.0.0" });
@@ -151,39 +159,74 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
   }
 
   /**
-   * Generate TTS audio for many notes using a SINGLE shared session token.
+   * Durable background TTS generation, driven by the Agents scheduler.
    *
-   * Designed to run in the background (via ctx.waitUntil) after notes are
-   * already inserted, so the tool response is not blocked by TTS latency.
-   * Each TTS call hits an external provider (~1-2s); with large batches the
-   * cumulative time easily exceeds the request timeout, which is exactly the
-   * bug this avoids by decoupling audio generation from note insertion.
+   * `batch_add_notes` enqueues the inserted note IDs via `this.schedule(...)`,
+   * which persists the task in the Durable Object's storage and fires it via
+   * an alarm — so it survives eviction and never blocks (or times out) the
+   * tool response.
+   *
+   * The Agents runtime catches exceptions thrown by a scheduled callback and
+   * then deletes the schedule, so it does NOT retry a failed callback on its
+   * own. We therefore drive retries ourselves: each run processes a small
+   * chunk (bounded so a single alarm stays well within limits) and
+   * re-schedules whatever is left plus any failures, up to a per-note attempt
+   * cap. Notes that never succeed are left with audio_url = null and can be
+   * backfilled via the existing "generate audio" (🔊+) button.
    */
-  private async generateAudioForNotes(noteIds: string[], userId: string): Promise<void> {
-    const ids = noteIds.filter(Boolean);
-    if (ids.length === 0) return;
+  async processTtsQueue(payload: TtsQueuePayload): Promise<void> {
+    const items = payload?.items ?? [];
+    if (items.length === 0) return;
+
+    const chunk = items.slice(0, TTS_CHUNK_SIZE);
+    const rest = items.slice(TTS_CHUNK_SIZE);
+    const retry: TtsQueueItem[] = [];
+
+    const requeueOnFailure = (item: TtsQueueItem) => {
+      const attempts = item.attempts + 1;
+      if (attempts < TTS_MAX_ATTEMPTS) {
+        retry.push({ id: item.id, attempts });
+      } else {
+        console.error(`Giving up on TTS for note ${item.id} after ${attempts} attempts`);
+      }
+    };
 
     let sessionToken: string | null = null;
     try {
-      sessionToken = await this.getApiSessionToken(userId);
+      sessionToken = await this.getApiSessionToken(payload.userId);
       const apiUrl = this.getApiUrl();
-      // Sequential to avoid hammering the TTS provider / creating many sessions.
-      for (const noteId of ids) {
+      // Sequential to avoid hammering the TTS provider with one shared session.
+      for (const item of chunk) {
+        let ok = false;
         try {
-          await fetch(`${apiUrl}/api/notes/${noteId}/generate-audio`, {
+          const res = await fetch(`${apiUrl}/api/notes/${item.id}/generate-audio`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${sessionToken}` },
           });
+          ok = res.ok;
         } catch (e) {
-          console.error(`Background audio generation failed for note ${noteId}:`, e);
+          console.error(`TTS generation errored for note ${item.id}:`, e);
         }
+        if (!ok) requeueOnFailure(item);
       }
     } catch (e) {
-      console.error('Background audio generation failed to start:', e);
+      // Couldn't even get a session token — retry the whole chunk later.
+      console.error('TTS queue processing failed to start:', e);
+      for (const item of chunk) requeueOnFailure(item);
     } finally {
       if (sessionToken) {
         await this.cleanupSessionToken(sessionToken);
       }
+    }
+
+    const remaining = [...rest, ...retry];
+    if (remaining.length > 0) {
+      // Re-schedule the remainder. This new task is persisted independently,
+      // so progress is never lost if the DO is evicted between chunks.
+      await this.schedule(TTS_RETRY_DELAY_SECONDS, "processTtsQueue", {
+        userId: payload.userId,
+        items: remaining,
+      });
     }
   }
 
@@ -714,10 +757,16 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
             };
           }
 
-          // Kick off TTS generation in the background. ctx.waitUntil keeps the
-          // Durable Object alive until it finishes, without blocking this
-          // response. Notes are usable immediately; audio_url fills in shortly.
-          this.ctx.waitUntil(this.generateAudioForNotes(noteIds, userId));
+          // Durably enqueue TTS generation. The Agents scheduler persists this
+          // task in the Durable Object's storage and runs it via an alarm, so
+          // it survives eviction and is processed in chunks with retries —
+          // even large batches eventually get audio without blocking (or
+          // timing out) this response. Notes are usable immediately; audio_url
+          // fills in shortly after.
+          await this.schedule(0, "processTtsQueue", {
+            userId,
+            items: noteIds.map((id) => ({ id, attempts: 0 })),
+          } satisfies TtsQueuePayload);
         }
 
         const successful = results.filter(r => r.success);
