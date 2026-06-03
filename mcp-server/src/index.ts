@@ -536,6 +536,18 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           };
         }
 
+        const existing = await this.env.DB
+          .prepare('SELECT n.id FROM notes n JOIN decks d ON n.deck_id = d.id WHERE d.user_id = ? AND n.hanzi = ?')
+          .bind(userId, hanzi)
+          .first();
+
+        if (existing) {
+          return {
+            content: [{ type: "text" as const, text: `Duplicate hanzi: "${hanzi}" already exists in your decks. Skipping to avoid duplicates.` }],
+            isError: true,
+          };
+        }
+
         const noteId = generateId();
 
         await this.env.DB
@@ -595,11 +607,25 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           };
         }
 
-        const results: { hanzi: string; pinyin: string; success: boolean; audioGenerated: boolean }[] = [];
+        // Find which hanzi already exist across all user decks
+        const incomingHanzi = notes.map(n => n.hanzi);
+        const placeholders = incomingHanzi.map(() => '?').join(', ');
+        const existingRows = await this.env.DB
+          .prepare(`SELECT n.hanzi FROM notes n JOIN decks d ON n.deck_id = d.id WHERE d.user_id = ? AND n.hanzi IN (${placeholders})`)
+          .bind(userId, ...incomingHanzi)
+          .all();
+        const duplicateHanziSet = new Set((existingRows.results as { hanzi: string }[]).map(r => r.hanzi));
+
+        const results: { hanzi: string; pinyin: string; success: boolean; audioGenerated: boolean; skipped?: boolean }[] = [];
         const noteIds: string[] = [];
 
         // Insert all notes and cards
         for (const note of notes) {
+          if (duplicateHanziSet.has(note.hanzi)) {
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, audioGenerated: false, skipped: true });
+            noteIds.push(''); // placeholder to keep index alignment
+            continue;
+          }
           try {
             const noteId = generateId();
             noteIds.push(noteId);
@@ -623,6 +649,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           } catch (e) {
             console.error(`Failed to add note ${note.hanzi}:`, e);
             results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, audioGenerated: false });
+            noteIds.push('');
           }
         }
 
@@ -635,6 +662,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         // Generate TTS audio for all notes (with proper authentication)
         // Process sequentially to avoid creating too many sessions
         for (let i = 0; i < noteIds.length; i++) {
+          if (!noteIds[i]) continue; // skip placeholders (duplicates/failures)
           const generated = await this.generateAudioForNote(noteIds[i], userId);
           if (generated) {
             results[i].audioGenerated = true;
@@ -642,12 +670,18 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         }
 
         const successful = results.filter(r => r.success);
+        const skipped = results.filter(r => r.skipped);
         const withAudio = results.filter(r => r.audioGenerated);
+
+        let summary = `Added ${successful.length}/${notes.length} notes (${withAudio.length} with audio):\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})${r.audioGenerated ? ' 🔊' : ''}`).join('\n')}`;
+        if (skipped.length > 0) {
+          summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
+        }
 
         return {
           content: [{
             type: "text" as const,
-            text: `Added ${successful.length}/${notes.length} notes (${withAudio.length} with audio):\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})${r.audioGenerated ? ' 🔊' : ''}`).join('\n')}`,
+            text: summary,
           }],
         };
       }
