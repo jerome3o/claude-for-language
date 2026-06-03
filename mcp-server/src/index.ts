@@ -73,6 +73,14 @@ function generateId(): string {
 
 const CARD_TYPES = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const;
 
+// Background TTS queue tuning (see processTtsQueue).
+const TTS_CHUNK_SIZE = 8;          // notes processed per scheduled alarm run
+const TTS_MAX_ATTEMPTS = 5;        // per-note retries before giving up
+const TTS_RETRY_DELAY_SECONDS = 2; // delay before processing the next chunk
+
+type TtsQueueItem = { id: string; attempts: number };
+type TtsQueuePayload = { userId: string; items: TtsQueueItem[] };
+
 // Legacy class (non-SQLite) - kept for migration compatibility
 export class ChineseLearningMCP extends McpAgent<Env, Record<string, never>, Props> {
   server = new McpServer({ name: "Legacy", version: "1.0.0" });
@@ -147,6 +155,78 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       if (sessionToken) {
         await this.cleanupSessionToken(sessionToken);
       }
+    }
+  }
+
+  /**
+   * Durable background TTS generation, driven by the Agents scheduler.
+   *
+   * `batch_add_notes` enqueues the inserted note IDs via `this.schedule(...)`,
+   * which persists the task in the Durable Object's storage and fires it via
+   * an alarm — so it survives eviction and never blocks (or times out) the
+   * tool response.
+   *
+   * The Agents runtime catches exceptions thrown by a scheduled callback and
+   * then deletes the schedule, so it does NOT retry a failed callback on its
+   * own. We therefore drive retries ourselves: each run processes a small
+   * chunk (bounded so a single alarm stays well within limits) and
+   * re-schedules whatever is left plus any failures, up to a per-note attempt
+   * cap. Notes that never succeed are left with audio_url = null and can be
+   * backfilled via the existing "generate audio" (🔊+) button.
+   */
+  async processTtsQueue(payload: TtsQueuePayload): Promise<void> {
+    const items = payload?.items ?? [];
+    if (items.length === 0) return;
+
+    const chunk = items.slice(0, TTS_CHUNK_SIZE);
+    const rest = items.slice(TTS_CHUNK_SIZE);
+    const retry: TtsQueueItem[] = [];
+
+    const requeueOnFailure = (item: TtsQueueItem) => {
+      const attempts = item.attempts + 1;
+      if (attempts < TTS_MAX_ATTEMPTS) {
+        retry.push({ id: item.id, attempts });
+      } else {
+        console.error(`Giving up on TTS for note ${item.id} after ${attempts} attempts`);
+      }
+    };
+
+    let sessionToken: string | null = null;
+    try {
+      sessionToken = await this.getApiSessionToken(payload.userId);
+      const apiUrl = this.getApiUrl();
+      // Sequential to avoid hammering the TTS provider with one shared session.
+      for (const item of chunk) {
+        let ok = false;
+        try {
+          const res = await fetch(`${apiUrl}/api/notes/${item.id}/generate-audio`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${sessionToken}` },
+          });
+          ok = res.ok;
+        } catch (e) {
+          console.error(`TTS generation errored for note ${item.id}:`, e);
+        }
+        if (!ok) requeueOnFailure(item);
+      }
+    } catch (e) {
+      // Couldn't even get a session token — retry the whole chunk later.
+      console.error('TTS queue processing failed to start:', e);
+      for (const item of chunk) requeueOnFailure(item);
+    } finally {
+      if (sessionToken) {
+        await this.cleanupSessionToken(sessionToken);
+      }
+    }
+
+    const remaining = [...rest, ...retry];
+    if (remaining.length > 0) {
+      // Re-schedule the remainder. This new task is persisted independently,
+      // so progress is never lost if the DO is evicted between chunks.
+      await this.schedule(TTS_RETRY_DELAY_SECONDS, "processTtsQueue", {
+        userId: payload.userId,
+        items: remaining,
+      });
     }
   }
 
@@ -616,66 +696,88 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .all();
         const duplicateHanziSet = new Set((existingRows.results as { hanzi: string }[]).map(r => r.hanzi));
 
-        const results: { hanzi: string; pinyin: string; success: boolean; audioGenerated: boolean; skipped?: boolean }[] = [];
+        const results: { hanzi: string; pinyin: string; success: boolean; skipped?: boolean }[] = [];
         const noteIds: string[] = [];
+        // Track hanzi inserted within THIS batch so repeated hanzi in the same
+        // call don't create duplicates (the pre-check above only catches hanzi
+        // that already existed in the DB before this call).
+        const seenInBatch = new Set<string>();
 
-        // Insert all notes and cards
+        // Build all insert statements first, then commit them in a single
+        // atomic D1 batch. This (a) is much faster than awaiting each statement
+        // sequentially, and (b) is transactional — either every note in the
+        // batch is committed or none are, so a failure can't leave a partial
+        // batch behind. TTS audio is generated AFTERWARDS in the background, so
+        // the request never blocks on external TTS latency and can't time out
+        // mid-batch (which previously left notes committed while the caller saw
+        // an error and retried, creating duplicates).
+        const statements: D1PreparedStatement[] = [];
         for (const note of notes) {
-          if (duplicateHanziSet.has(note.hanzi)) {
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, audioGenerated: false, skipped: true });
-            noteIds.push(''); // placeholder to keep index alignment
+          if (duplicateHanziSet.has(note.hanzi) || seenInBatch.has(note.hanzi)) {
+            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, skipped: true });
             continue;
           }
-          try {
-            const noteId = generateId();
-            noteIds.push(noteId);
+          const noteId = generateId();
+          seenInBatch.add(note.hanzi);
+          noteIds.push(noteId);
 
-            await this.env.DB
-              .prepare(
-                'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts) VALUES (?, ?, ?, ?, ?, ?)'
-              )
+          statements.push(
+            this.env.DB
+              .prepare('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts) VALUES (?, ?, ?, ?, ?, ?)')
               .bind(noteId, deck_id, note.hanzi, note.pinyin, note.english, note.fun_facts || null)
-              .run();
-
-            for (const cardType of CARD_TYPES) {
-              const cardId = generateId();
-              await this.env.DB
+          );
+          for (const cardType of CARD_TYPES) {
+            statements.push(
+              this.env.DB
                 .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
-                .bind(cardId, noteId, cardType)
-                .run();
-            }
-
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: true, audioGenerated: false });
-          } catch (e) {
-            console.error(`Failed to add note ${note.hanzi}:`, e);
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, audioGenerated: false });
-            noteIds.push('');
+                .bind(generateId(), noteId, cardType)
+            );
           }
+
+          results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: true });
         }
 
-        // Update deck timestamp
-        await this.env.DB
-          .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-          .bind(deck_id)
-          .run();
-
-        // Generate TTS audio for all notes (with proper authentication)
-        // Process sequentially to avoid creating too many sessions
-        for (let i = 0; i < noteIds.length; i++) {
-          if (!noteIds[i]) continue; // skip placeholders (duplicates/failures)
-          const generated = await this.generateAudioForNote(noteIds[i], userId);
-          if (generated) {
-            results[i].audioGenerated = true;
+        if (statements.length > 0) {
+          // Bump the deck timestamp as part of the same atomic batch.
+          statements.push(
+            this.env.DB
+              .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
+              .bind(deck_id)
+          );
+          try {
+            await this.env.DB.batch(statements);
+          } catch (e) {
+            console.error('Failed to insert note batch:', e);
+            return {
+              content: [{
+                type: "text" as const,
+                text: `Failed to add notes (database error, nothing was saved): ${e instanceof Error ? e.message : String(e)}`,
+              }],
+              isError: true,
+            };
           }
+
+          // Durably enqueue TTS generation. The Agents scheduler persists this
+          // task in the Durable Object's storage and runs it via an alarm, so
+          // it survives eviction and is processed in chunks with retries —
+          // even large batches eventually get audio without blocking (or
+          // timing out) this response. Notes are usable immediately; audio_url
+          // fills in shortly after.
+          await this.schedule(0, "processTtsQueue", {
+            userId,
+            items: noteIds.map((id) => ({ id, attempts: 0 })),
+          } satisfies TtsQueuePayload);
         }
 
         const successful = results.filter(r => r.success);
         const skipped = results.filter(r => r.skipped);
-        const withAudio = results.filter(r => r.audioGenerated);
 
-        let summary = `Added ${successful.length}/${notes.length} notes (${withAudio.length} with audio):\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})${r.audioGenerated ? ' 🔊' : ''}`).join('\n')}`;
+        let summary = `Added ${successful.length}/${notes.length} notes:\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
+        if (successful.length > 0) {
+          summary += `\n\nAudio is being generated in the background and will be available shortly.`;
+        }
         if (skipped.length > 0) {
-          summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
+          summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks or appeared more than once in this request):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
         }
 
         return {
