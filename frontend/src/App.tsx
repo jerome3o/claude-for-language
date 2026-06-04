@@ -45,6 +45,7 @@ const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default:
 const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
 const HomeworkReviewPage = lazy(() => import('./pages/HomeworkReviewPage').then(m => ({ default: m.HomeworkReviewPage })));
 const AudioLessonsPage = lazy(() => import('./pages/AudioLessonsPage').then(m => ({ default: m.AudioLessonsPage })));
+const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -383,6 +384,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <AudioLessonsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/duplicate-finder"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <DuplicateFinderPage />
           </ProtectedRoute>
         }
       />
