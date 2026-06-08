@@ -3841,7 +3841,7 @@ Respond with ONLY a JSON object in this exact format:
     "hanzi": "汉字",
     "pinyin": "hànzì",
     "english": "Chinese characters",
-    "fun_facts": "A helpful tip or interesting fact about this word or phrase",
+    "fun_facts": "Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words",
     "context": "The original sentence this appeared in"
   }
 }`;
@@ -3985,7 +3985,7 @@ Provide:
 1. Hanzi (the word/phrase itself)
 2. Pinyin with tone marks
 3. English definition
-4. A fun fact or usage note about the word
+4. A substantive learning note: explain grammar patterns, cultural context, common mistakes, or disambiguation from similar characters/words
 5. An example sentence using the word (if not provided in context)
 
 Respond with ONLY a JSON object in this exact format:
@@ -4174,7 +4174,7 @@ Respond with ONLY a JSON object in this exact format:
   "hanzi": "The full Chinese sentence",
   "pinyin": "full pīnyīn with tone marks",
   "english": "Full English translation",
-  "fun_facts": "A helpful tip about a key word or grammar point in this sentence"
+  "fun_facts": "Substantive learning note about a key word or grammar point: explain usage, cultural context, common mistakes, or disambiguation"
 }`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {

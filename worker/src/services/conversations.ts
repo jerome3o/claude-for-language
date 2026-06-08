@@ -867,7 +867,7 @@ Generate a flashcard with:
 - hanzi: The Chinese characters
 - pinyin: The pronunciation with tone marks (NOT tone numbers)
 - english: English translation
-- fun_facts: A helpful tip or context about this word (optional)
+- fun_facts: Substantive learning note — grammar patterns, cultural context, common mistakes, or disambiguation from similar words (optional)
 
 IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).
 
@@ -876,7 +876,7 @@ Respond with ONLY a JSON object in this exact format:
   "hanzi": "汉字",
   "pinyin": "hànzì",
   "english": "Chinese characters",
-  "fun_facts": "Used to refer to the Chinese writing system"
+  "fun_facts": "汉字 refers specifically to the logographic script, distinguishing it from 拼音 (pīnyīn), the romanization system"
 }`;
 }
 
@@ -906,13 +906,13 @@ Respond with ONLY a JSON array in this exact format:
     "hanzi": "我明白了",
     "pinyin": "wǒ míngbái le",
     "english": "I understand",
-    "fun_facts": "A common way to show comprehension"
+    "fun_facts": "明白 (míngbái) means to understand/be clear about something; 了 (le) marks a change of state — you've now understood"
   },
   {
     "hanzi": "可以再说一遍吗？",
     "pinyin": "kěyǐ zài shuō yī biàn ma?",
     "english": "Can you say that again?",
-    "fun_facts": "Useful when you need something repeated"
+    "fun_facts": "一遍 (yī biàn) means 'once through' — use 遍 for complete actions, vs 次 (cì) for general occurrences"
   }
 ]`;
 }

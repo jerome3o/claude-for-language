@@ -7,7 +7,7 @@ For each vocabulary item, provide:
 - hanzi: Chinese characters (simplified)
 - pinyin: Romanized pronunciation with tone marks/accents (e.g., "nǐ hǎo" for 你好, "māmā" for 妈妈)
 - english: Clear, concise English translation
-- fun_facts: Optional cultural context, usage notes, memory aids, or interesting tidbits (can be empty string)
+- fun_facts: Substantive learning note — explain grammar patterns, cultural context, common mistakes, disambiguation from similar-sounding words, or what makes this word/phrase distinctive. Focus on what helps the learner understand and remember correctly. NOT trivial trivia. (can be empty string)
 
 Important guidelines:
 - Use simplified Chinese characters
@@ -18,7 +18,7 @@ Important guidelines:
   - WRONG: "wǒ xiǎng mǎi zhè ge" - splits "zhège" incorrectly
   - WRONG: "qǐng wèn xǐ shǒu jiān zài nǎ lǐ" - splits every syllable
 - Prefer practical sentences and phrases over single words - things the learner would actually say or hear in real conversations
-- Keep fun_facts brief but informative
+- In fun_facts, prioritize: grammar explanations, cultural nuance, common errors learners make, and disambiguation — not amusing trivia
 
 Always respond with valid JSON.`;
 
@@ -54,7 +54,7 @@ Respond with JSON in this exact format:
       "hanzi": "Chinese characters",
       "pinyin": "pīnyīn with tone marks",
       "english": "English meaning",
-      "fun_facts": "Optional cultural note or memory aid"
+      "fun_facts": "Grammar explanation, cultural context, common mistakes, or disambiguation note"
     }
   ]
 }`;
@@ -112,7 +112,7 @@ Respond with JSON in this exact format:
       "hanzi": "Chinese characters",
       "pinyin": "pīnyīn with tone marks",
       "english": "English meaning",
-      "fun_facts": "Optional cultural note or memory aid"
+      "fun_facts": "Grammar explanation, cultural context, common mistakes, or disambiguation note"
     }
   ]
 }`;
@@ -312,7 +312,7 @@ function getAskNoteTools(note: Note) {
           hanzi: { type: 'string', description: 'Updated Chinese characters (simplified)' },
           pinyin: { type: 'string', description: 'Updated pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers.' },
           english: { type: 'string', description: 'Updated English translation' },
-          fun_facts: { type: 'string', description: 'Updated cultural context, usage notes, or memory aids' },
+          fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words' },
           sentence_clue: { type: 'string', description: 'A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words. Useful for homophones.' },
           sentence_clue_pinyin: { type: 'string', description: 'Pinyin for the sentence clue' },
           sentence_clue_translation: { type: 'string', description: 'English translation of the sentence clue' },
@@ -335,7 +335,7 @@ function getAskNoteTools(note: Note) {
                 hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
                 pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
                 english: { type: 'string', description: 'Clear, concise English translation' },
-                fun_facts: { type: 'string', description: 'Optional cultural context, usage notes, or memory aids' },
+                fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words' },
               },
               required: ['hanzi', 'pinyin', 'english'],
             },
@@ -1029,7 +1029,7 @@ Respond with JSON in this exact format:
       "hanzi": "Corrected Chinese",
       "pinyin": "pinyin with tone marks",
       "english": "English meaning",
-      "fun_facts": "Brief explanation of the correction"
+      "fun_facts": "Explanation of the grammatical rule or usage pattern behind this correction"
     }
   ]
 }
@@ -1098,7 +1098,7 @@ Respond with JSON in this exact format:
       "hanzi": "Chinese characters",
       "pinyin": "pinyin with tone marks",
       "english": "English meaning",
-      "fun_facts": "Brief note about usage or grammar pattern",
+      "fun_facts": "Explanation of grammar patterns, cultural context, when/how to use this phrase, or common mistakes to avoid",
       "context": "The conversation context that led to this suggestion"
     }
   ]
@@ -1126,7 +1126,7 @@ ${chatContext}
     if (guess) {
       userPrompt += `Their attempt in Chinese: "${guess}"\n`;
     }
-    userPrompt += `\nGenerate 3-5 ways to express this in Chinese, with varying difficulty levels. If the student provided a guess, give feedback on it in the fun_facts field.\nInclude the relevant conversation context with each option.`;
+    userPrompt += `\nGenerate 3-5 ways to express this in Chinese, with varying difficulty levels. If the student provided a guess, explain in the fun_facts field what they got right/wrong and the grammar rule involved.\nInclude the relevant conversation context with each option.`;
   } else {
     userPrompt += `The student doesn't know what to say next. Generate 3-5 options they could say, with varying difficulty levels.\nInclude the relevant conversation context with each option.`;
   }
@@ -1193,7 +1193,7 @@ const CREATE_FLASHCARDS_TOOL = {
             hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
             pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use proper tone marks, NOT tone numbers. Put spaces between words, not syllables.' },
             english: { type: 'string', description: 'Clear, concise English translation' },
-            fun_facts: { type: 'string', description: 'Optional cultural context, usage notes, memory aids, or grammar tips' },
+            fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words. Focus on what helps the learner understand and remember correctly.' },
           },
           required: ['hanzi', 'pinyin', 'english'],
         },

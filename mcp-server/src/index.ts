@@ -601,7 +601,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         hanzi: z.string().describe("Chinese characters (simplified)"),
         pinyin: z.string().describe("Pinyin with tone marks (e.g., nǐ hǎo)"),
         english: z.string().describe("English translation"),
-        fun_facts: z.string().optional().describe("Cultural notes, memory aids, etc."),
+        fun_facts: z.string().optional().describe("Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words. Focus on what helps the learner understand and remember correctly."),
       },
       async ({ deck_id, hanzi, pinyin, english, fun_facts }) => {
         const deck = await this.env.DB
@@ -671,7 +671,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           hanzi: z.string().describe("Chinese characters (simplified)"),
           pinyin: z.string().describe("Pinyin with tone marks (e.g., nǐ hǎo)"),
           english: z.string().describe("English translation"),
-          fun_facts: z.string().optional().describe("Cultural notes, memory aids, etc."),
+          fun_facts: z.string().optional().describe("Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words. Focus on what helps the learner understand and remember correctly."),
         })).describe("Array of notes to add"),
       },
       async ({ deck_id, notes }) => {
@@ -797,7 +797,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         hanzi: z.string().optional().describe("New Chinese characters"),
         pinyin: z.string().optional().describe("New pinyin"),
         english: z.string().optional().describe("New English translation"),
-        fun_facts: z.string().optional().describe("New fun facts/notes"),
+        fun_facts: z.string().optional().describe("Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words"),
         sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
         sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
         sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
