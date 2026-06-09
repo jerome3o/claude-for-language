@@ -5325,8 +5325,22 @@ async function ensureDailyReader(
   sit: ReturnType<typeof getTodaySituation>,
 ) {
   const existing = await db.getDailyReader(c.env.DB, userId);
-  // Return immediately if already generating or ready
-  if (existing && existing.status !== 'failed') return existing;
+
+  // Return immediately if already generating or ready — but treat as failed if stuck for > 30 min
+  if (existing && existing.status !== 'failed') {
+    // A reader stuck in 'generating' with a valid reader_id for > 30 min needs to be retried
+    const isStuckGenerating =
+      existing.status === 'generating' &&
+      existing.reader_id &&
+      existing.created_at &&
+      Date.now() - new Date(existing.created_at).getTime() > 30 * 60 * 1000;
+
+    if (!isStuckGenerating) return existing;
+
+    // Mark the stuck reader as failed so generation is retried
+    console.log('[ensureDailyReader] Reader stuck generating > 30 min, marking failed:', existing.reader_id);
+    await db.updateReaderStatus(c.env.DB, existing.reader_id, 'failed');
+  }
 
   // No reader yet — atomically reserve the slot (skip if already reserved for retry)
   if (!existing) {
@@ -6074,25 +6088,38 @@ export default {
             console.error('[Queue] Image generation returned null for page:', pageId);
           }
 
-          // Check if all images are done for this reader
+          // Check if all images are done (or reader has been generating too long)
           const reader = await db.getGradedReaderById(env.DB, readerId);
           if (reader) {
             const pagesWithImages = reader.pages.filter(p => p.image_url).length;
             const pagesNeedingImages = reader.pages.filter(p => p.image_prompt).length;
+            const readerAge = Date.now() - new Date(reader.created_at).getTime();
 
             console.log('[Queue] Progress for reader', readerId, ':', pagesWithImages, '/', pagesNeedingImages);
 
-            if (pagesWithImages >= pagesNeedingImages) {
-              // All images done, mark reader as ready
+            // Mark ready when all images are done, or give up after 20 min with partial images
+            if (pagesWithImages >= pagesNeedingImages || readerAge > 20 * 60 * 1000) {
               await db.updateReaderStatus(env.DB, readerId, 'ready');
-              console.log('[Queue] Reader ready:', readerId);
+              console.log('[Queue] Reader ready:', readerId, pagesWithImages < pagesNeedingImages ? '(partial images - timeout)' : '');
             }
           }
 
           message.ack();
         } catch (err) {
           console.error('[Queue] Image generation failed for page:', pageId, err);
-          // Retry the message
+
+          // If the reader has been generating for > 20 min, give up and mark ready with partial images
+          const reader = await db.getGradedReaderById(env.DB, readerId).catch(() => null);
+          if (reader) {
+            const readerAge = Date.now() - new Date(reader.created_at).getTime();
+            if (readerAge > 20 * 60 * 1000) {
+              console.log('[Queue] Reader stuck too long, marking ready with partial images:', readerId);
+              await db.updateReaderStatus(env.DB, readerId, 'ready');
+              message.ack();
+              continue;
+            }
+          }
+
           message.retry();
         }
       }

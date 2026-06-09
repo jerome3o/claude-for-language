@@ -2752,13 +2752,13 @@ export async function recordDailyActivity(
 export async function getDailyReader(
   db: D1Database,
   userId: string,
-): Promise<{ reader_id: string; situation_id: string; status: string } | null> {
+): Promise<{ reader_id: string; situation_id: string; status: string; created_at: string | null } | null> {
   const r = await db.prepare(`
-    SELECT dr.reader_id, dr.situation_id, COALESCE(gr.status, 'generating') AS status
+    SELECT dr.reader_id, dr.situation_id, COALESCE(gr.status, 'generating') AS status, gr.created_at
     FROM daily_readers dr
     LEFT JOIN graded_readers gr ON gr.id = dr.reader_id
     WHERE dr.user_id = ? AND dr.date = date('now')
-  `).bind(userId).first<{ reader_id: string; situation_id: string; status: string }>();
+  `).bind(userId).first<{ reader_id: string; situation_id: string; status: string; created_at: string | null }>();
   return r ?? null;
 }
 
