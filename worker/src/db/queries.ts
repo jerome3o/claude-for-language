@@ -1546,6 +1546,7 @@ export async function updateDeckSettings(
   userId: string,
   settings: Partial<{
     new_cards_per_day: number;
+    secondary_cards_per_day: number;
     learning_steps: string;
     graduating_interval: number;
     easy_interval: number;
@@ -1568,6 +1569,10 @@ export async function updateDeckSettings(
   if (settings.new_cards_per_day !== undefined) {
     updates.push('new_cards_per_day = ?');
     values.push(settings.new_cards_per_day);
+  }
+  if (settings.secondary_cards_per_day !== undefined) {
+    updates.push('secondary_cards_per_day = ?');
+    values.push(settings.secondary_cards_per_day);
   }
   if (settings.learning_steps !== undefined) {
     updates.push('learning_steps = ?');

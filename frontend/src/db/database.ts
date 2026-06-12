@@ -54,6 +54,10 @@ export interface LocalDeck {
   name: string;
   description: string | null;
   new_cards_per_day: number;
+  // Daily quota for secondary new cards (note already has a reviewed card).
+  // Additive to new_cards_per_day. Optional: rows synced before this field
+  // existed won't have it — read with DEFAULT_SECONDARY_CARDS_PER_DAY fallback.
+  secondary_cards_per_day?: number;
   // FSRS settings
   request_retention: number;    // Target retention (0.7-0.97), default 0.9
   fsrs_weights: string | null;  // JSON array of 21 weights, null = use defaults
@@ -146,6 +150,9 @@ export interface DailyStats {
   date: string; // YYYY-MM-DD
   deck_id: string;
   new_cards_studied: number;
+  // Secondary new cards studied (note already had a reviewed card when this
+  // card was introduced). Optional: rows written before this field existed.
+  secondary_cards_studied?: number;
 }
 
 // Sync debug log entry
@@ -374,14 +381,36 @@ function getTodayString(): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Default daily quota for secondary new cards (kept in sync with the D1 column default). */
+export const DEFAULT_SECONDARY_CARDS_PER_DAY = 10;
+
+/** Per-deck split of new cards introduced today. */
+export interface NewCardsStudiedToday {
+  primary: number;   // First card of a note ever reviewed
+  secondary: number; // Note already had a reviewed card when this one was introduced
+}
+
+/** Fetch a card's first-ever review timestamp via the [card_id+reviewed_at] index. */
+async function getFirstReviewedAt(cardId: string): Promise<string | undefined> {
+  const keys = await db.reviewEvents
+    .where('[card_id+reviewed_at]')
+    .between([cardId, ''], [cardId, '\uffff'])
+    .limit(1)
+    .keys();
+  const firstKey = keys[0] as unknown as [string, string] | undefined;
+  return firstKey?.[1];
+}
+
 /**
  * Compute "new cards studied today" for ALL decks in one pass over today's review
- * events. A card counts as "new today" if its first-ever review was today.
+ * events. A card counts as "new today" if its first-ever review was today. It
+ * counts as SECONDARY if a sibling card of the same note was first reviewed
+ * earlier (i.e. the note was already in circulation when it was introduced).
  *
  * Uses the `reviewed_at` index (range query) and a single bulkGet for cards, so
  * cost is O(events_today) regardless of total history size.
  */
-async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, number>> {
+async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCardsStudiedToday>> {
   const today = getTodayString();
 
   const todayEvents = await db.reviewEvents
@@ -389,33 +418,53 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, number>>
     .between(today, today + '\uffff')
     .toArray();
 
-  const result = new Map<string, number>();
+  const result = new Map<string, NewCardsStudiedToday>();
   if (todayEvents.length === 0) return result;
 
   const cardIds = [...new Set(todayEvents.map(e => e.card_id))];
 
   // A card was NEW before today iff it has no review events before today.
-  // The [card_id+reviewed_at] index lets us fetch each card's first-ever event cheaply.
-  const [firstEventKeys, cards] = await Promise.all([
-    Promise.all(
-      cardIds.map(id =>
-        db.reviewEvents.where('[card_id+reviewed_at]').between([id, ''], [id, '\uffff']).limit(1).keys()
-      )
-    ),
+  const [firstEventTimes, cards] = await Promise.all([
+    Promise.all(cardIds.map(getFirstReviewedAt)),
     db.cards.bulkGet(cardIds),
   ]);
 
-  const deckByCard = new Map<string, string>();
-  for (const card of cards) {
-    if (card) deckByCard.set(card.id, card.deck_id);
+  const firstReviewedAt = new Map<string, string>();
+  for (let i = 0; i < cardIds.length; i++) {
+    if (firstEventTimes[i]) firstReviewedAt.set(cardIds[i], firstEventTimes[i]!);
   }
 
-  for (let i = 0; i < cardIds.length; i++) {
-    const firstKey = firstEventKeys[i][0] as unknown as [string, string] | undefined;
-    if (!firstKey || firstKey[1] < today) continue; // had reviews before today
-    const deckId = deckByCard.get(cardIds[i]);
-    if (!deckId) continue;
-    result.set(deckId, (result.get(deckId) ?? 0) + 1);
+  const introduced = cards.filter(
+    (card): card is LocalCard => !!card && (firstReviewedAt.get(card.id) ?? '') >= today
+  );
+  if (introduced.length === 0) return result;
+
+  // Load sibling cards of the introduced notes and their first-review times so
+  // each introduced card can be classified as primary or secondary.
+  const noteIds = [...new Set(introduced.map(c => c.note_id))];
+  const siblings = await db.cards.where('note_id').anyOf(noteIds).toArray();
+  const unknownFirst = siblings.filter(s => !firstReviewedAt.has(s.id));
+  const siblingTimes = await Promise.all(unknownFirst.map(s => getFirstReviewedAt(s.id)));
+  for (let i = 0; i < unknownFirst.length; i++) {
+    if (siblingTimes[i]) firstReviewedAt.set(unknownFirst[i].id, siblingTimes[i]!);
+  }
+
+  const siblingsByNote = new Map<string, LocalCard[]>();
+  for (const s of siblings) {
+    const arr = siblingsByNote.get(s.note_id);
+    if (arr) arr.push(s);
+    else siblingsByNote.set(s.note_id, [s]);
+  }
+
+  for (const card of introduced) {
+    const first = firstReviewedAt.get(card.id)!;
+    const isSecondary = (siblingsByNote.get(card.note_id) ?? []).some(
+      s => s.id !== card.id && (firstReviewedAt.get(s.id) ?? '\uffff') < first
+    );
+    const bucket = result.get(card.deck_id) ?? { primary: 0, secondary: 0 };
+    if (isSecondary) bucket.secondary++;
+    else bucket.primary++;
+    result.set(card.deck_id, bucket);
   }
 
   return result;
@@ -443,7 +492,8 @@ export async function ensureDailyStatsInitialized(): Promise<void> {
       id: getDailyStatsId(today, d.id),
       date: today,
       deck_id: d.id,
-      new_cards_studied: computed.get(d.id) ?? 0,
+      new_cards_studied: computed.get(d.id)?.primary ?? 0,
+      secondary_cards_studied: computed.get(d.id)?.secondary ?? 0,
     }))
   );
 }
@@ -452,34 +502,37 @@ export async function ensureDailyStatsInitialized(): Promise<void> {
  * Read today's new-cards-studied counters for all decks. Prefers the dailyStats
  * cache; falls back to a single fast recompute for any decks not yet cached.
  */
-async function getNewCardsStudiedTodayMap(deckIds: string[]): Promise<Map<string, number>> {
+async function getNewCardsStudiedTodayMap(deckIds: string[]): Promise<Map<string, NewCardsStudiedToday>> {
   const today = getTodayString();
   const rows = await db.dailyStats.where('date').equals(today).toArray();
-  const result = new Map(rows.map(r => [r.deck_id, r.new_cards_studied]));
+  const result = new Map<string, NewCardsStudiedToday>(
+    rows.map(r => [r.deck_id, { primary: r.new_cards_studied, secondary: r.secondary_cards_studied ?? 0 }])
+  );
   if (deckIds.every(id => result.has(id))) return result;
 
   const computed = await computeNewCardsStudiedTodayByDeck();
   for (const id of deckIds) {
-    if (!result.has(id)) result.set(id, computed.get(id) ?? 0);
+    if (!result.has(id)) result.set(id, computed.get(id) ?? { primary: 0, secondary: 0 });
   }
   return result;
 }
 
-/** Read-only. Safe for useLiveQuery. */
+/** Read-only. Safe for useLiveQuery. Returns primary (blue) new cards studied today. */
 export async function getNewCardsStudiedToday(deckId?: string): Promise<number> {
   const decks = await db.decks.toArray();
   const map = await getNewCardsStudiedTodayMap(decks.map(d => d.id));
-  if (deckId) return map.get(deckId) ?? 0;
+  if (deckId) return map.get(deckId)?.primary ?? 0;
   let total = 0;
-  for (const v of map.values()) total += v;
+  for (const v of map.values()) total += v.primary;
   return total;
 }
 
 /**
- * Increment the new-cards-studied counter for a deck.
+ * Increment the new-cards-studied counter for a deck. Pass secondary=true when
+ * the introduced card's note already had a reviewed card.
  * Writes to the database; call outside useLiveQuery contexts.
  */
-export async function incrementNewCardsStudiedToday(deckId: string): Promise<void> {
+export async function incrementNewCardsStudiedToday(deckId: string, secondary = false): Promise<void> {
   const today = getTodayString();
   const id = getDailyStatsId(today, deckId);
   const existing = await db.dailyStats.get(id);
@@ -487,7 +540,8 @@ export async function incrementNewCardsStudiedToday(deckId: string): Promise<voi
     id,
     date: today,
     deck_id: deckId,
-    new_cards_studied: (existing?.new_cards_studied ?? 0) + 1,
+    new_cards_studied: (existing?.new_cards_studied ?? 0) + (secondary ? 0 : 1),
+    secondary_cards_studied: (existing?.secondary_cards_studied ?? 0) + (secondary ? 1 : 0),
   });
 }
 
@@ -535,13 +589,17 @@ async function loadCards(deckId?: string): Promise<LocalCard[]> {
 export interface DeckQueueRaw {
   learning: number;
   review: number;
-  totalNew: number;
+  totalNew: number;          // NEW cards on unseen notes (primary pool)
+  totalSecondaryNew: number; // NEW cards whose note already has a reviewed card
   newCardsPerDay: number;
-  studiedToday: number;
+  secondaryCardsPerDay: number;
+  studiedToday: number;          // primary new cards introduced today
+  secondaryStudiedToday: number; // secondary new cards introduced today
 }
 
 export interface DeckQueueCounts {
   new: number;
+  secondaryNew: number;
   learning: number;
   review: number;
   hasMoreNew: boolean;
@@ -549,20 +607,42 @@ export interface DeckQueueCounts {
 
 export const EMPTY_QUEUE_COUNTS: DeckQueueCounts = {
   new: 0,
+  secondaryNew: 0,
   learning: 0,
   review: 0,
   hasMoreNew: false,
 };
 
+/**
+ * Remaining daily budgets for new-card admission. Secondary cards studied
+ * beyond their own quota were funded by the primary budget (spillover), so the
+ * excess counts against it.
+ */
+export function newCardBudgets(
+  raw: Pick<DeckQueueRaw, 'newCardsPerDay' | 'secondaryCardsPerDay' | 'studiedToday' | 'secondaryStudiedToday'>,
+  bonus: number
+): { primary: number; secondary: number } {
+  const overflow = Math.max(0, raw.secondaryStudiedToday - raw.secondaryCardsPerDay);
+  return {
+    primary: Math.max(0, raw.newCardsPerDay + bonus - raw.studiedToday - overflow),
+    secondary: Math.max(0, raw.secondaryCardsPerDay - raw.secondaryStudiedToday),
+  };
+}
+
 /** Apply a daily-limit + bonus to raw counts to get the displayable numbers. */
 export function applyNewCardBonus(raw: DeckQueueRaw, bonus: number): DeckQueueCounts {
-  const remaining = Math.max(0, raw.newCardsPerDay + bonus - raw.studiedToday);
-  const newCount = Math.min(raw.totalNew, remaining);
+  const budgets = newCardBudgets(raw, bonus);
+  const newCount = Math.min(raw.totalNew, budgets.primary);
+  // Secondary cards draw from their own quota first, then spill into whatever
+  // primary budget is left (e.g. when there are no unseen notes remaining).
+  const spill = budgets.primary - newCount;
+  const secondaryCount = Math.min(raw.totalSecondaryNew, budgets.secondary + spill);
   return {
     new: newCount,
+    secondaryNew: secondaryCount,
     learning: raw.learning,
     review: raw.review,
-    hasMoreNew: raw.totalNew > newCount,
+    hasMoreNew: raw.totalNew + raw.totalSecondaryNew > newCount + secondaryCount,
   };
 }
 
@@ -570,6 +650,7 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
   const total = { ...EMPTY_QUEUE_COUNTS };
   for (const c of counts) {
     total.new += c.new;
+    total.secondaryNew += c.secondaryNew;
     total.learning += c.learning;
     total.review += c.review;
     total.hasMoreNew ||= c.hasMoreNew;
@@ -594,20 +675,31 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
 
   const byDeck = new Map<string, DeckQueueRaw>();
   for (const d of decks) {
+    const s = studied.get(d.id) ?? { primary: 0, secondary: 0 };
     byDeck.set(d.id, {
       learning: 0,
       review: 0,
       totalNew: 0,
+      totalSecondaryNew: 0,
       newCardsPerDay: d.new_cards_per_day,
-      studiedToday: studied.get(d.id) ?? 0,
+      secondaryCardsPerDay: d.secondary_cards_per_day ?? DEFAULT_SECONDARY_CARDS_PER_DAY,
+      studiedToday: s.primary,
+      secondaryStudiedToday: s.secondary,
     });
+  }
+
+  // Notes with at least one reviewed card — their remaining NEW cards are "secondary"
+  const reviewedNoteIds = new Set<string>();
+  for (const card of cards) {
+    if (card.queue !== CardQueue.NEW) reviewedNoteIds.add(card.note_id);
   }
 
   for (const card of cards) {
     const bucket = byDeck.get(card.deck_id);
     if (!bucket) continue;
     if (card.queue === CardQueue.NEW) {
-      bucket.totalNew++;
+      if (reviewedNoteIds.has(card.note_id)) bucket.totalSecondaryNew++;
+      else bucket.totalNew++;
     } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
       bucket.learning++;
     } else if (card.queue === CardQueue.REVIEW) {
@@ -621,11 +713,18 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
 /**
  * Get cards that are due for study, respecting per-deck new-card limits.
  *
- * New cards are sorted by priority before the daily limit is applied:
+ * New cards are sorted by priority before the daily limits are applied:
  *   1. Notes with no reviews yet + hanzi_to_meaning type (highest)
  *   2. Notes with no reviews yet (any type)
  *   3. Notes already reviewed + hanzi_to_meaning type
  *   4. Notes already reviewed (any type)
+ *
+ * Two daily budgets are applied per deck:
+ *   - Primary (new_cards_per_day + bonus): admits cards of unseen notes
+ *     (tiers 1-2). Leftover primary budget can also admit secondary cards.
+ *   - Secondary (secondary_cards_per_day): reserved for cards whose note is
+ *     already in circulation (tiers 3-4), so they keep flowing even when
+ *     unseen notes alone would exhaust the primary limit.
  *
  * @param bonusNewCards Extra new cards beyond the daily limit (Infinity = no limit).
  */
@@ -645,14 +744,29 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
     if (card.queue !== CardQueue.NEW) reviewedNoteIds.add(card.note_id);
   }
 
-  const remaining = new Map(
-    decks.map(d => [d.id, Math.max(0, d.new_cards_per_day + bonusNewCards - (studied.get(d.id) ?? 0))])
+  const budgets = new Map(
+    decks.map(d => {
+      const s = studied.get(d.id) ?? { primary: 0, secondary: 0 };
+      return [
+        d.id,
+        newCardBudgets(
+          {
+            newCardsPerDay: d.new_cards_per_day,
+            secondaryCardsPerDay: d.secondary_cards_per_day ?? DEFAULT_SECONDARY_CARDS_PER_DAY,
+            studiedToday: s.primary,
+            secondaryStudiedToday: s.secondary,
+          },
+          bonusNewCards
+        ),
+      ];
+    })
   );
-  const newTaken = new Map<string, number>();
   const due: LocalCard[] = [];
 
   // Sort new cards by priority before applying per-deck daily limits so that
   // higher-priority cards make it into the session when the limit is tight.
+  // Primary-pool cards (unseen notes) sort first, so they get first claim on
+  // the primary budget before secondary cards can spill into it.
   const sortedNewCards = cards
     .filter(c => c.queue === CardQueue.NEW)
     .sort((a, b) => {
@@ -662,10 +776,20 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
     });
 
   for (const card of sortedNewCards) {
-    const taken = newTaken.get(card.deck_id) ?? 0;
-    if (taken < (remaining.get(card.deck_id) ?? 0)) {
+    const budget = budgets.get(card.deck_id);
+    if (!budget) continue;
+    if (reviewedNoteIds.has(card.note_id)) {
+      // Secondary: own quota first, then spill into leftover primary budget
+      if (budget.secondary > 0) {
+        budget.secondary--;
+        due.push(card);
+      } else if (budget.primary > 0) {
+        budget.primary--;
+        due.push(card);
+      }
+    } else if (budget.primary > 0) {
+      budget.primary--;
       due.push(card);
-      newTaken.set(card.deck_id, taken + 1);
     }
   }
 

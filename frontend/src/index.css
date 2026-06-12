@@ -1076,6 +1076,10 @@ button.queue-counts:active {
   color: #3b82f6; /* Blue */
 }
 
+.count-secondary {
+  color: #8b5cf6; /* Purple - secondary new cards */
+}
+
 .count-learning {
   color: #ef4444; /* Red */
 }

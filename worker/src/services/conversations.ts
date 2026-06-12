@@ -502,10 +502,10 @@ export async function shareDeck(
 
   await db
     .prepare(`
-      INSERT INTO decks (id, user_id, name, description, new_cards_per_day, learning_steps,
+      INSERT INTO decks (id, user_id, name, description, new_cards_per_day, secondary_cards_per_day, learning_steps,
         graduating_interval, easy_interval, relearning_steps, starting_ease,
         minimum_ease, maximum_ease, interval_modifier, hard_multiplier, easy_bonus)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .bind(
       targetDeckId,
@@ -513,6 +513,7 @@ export async function shareDeck(
       targetDeckName,
       sourceDeck.description,
       sourceDeck.new_cards_per_day,
+      sourceDeck.secondary_cards_per_day,
       sourceDeck.learning_steps,
       sourceDeck.graduating_interval,
       sourceDeck.easy_interval,

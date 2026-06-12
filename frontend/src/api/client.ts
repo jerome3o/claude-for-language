@@ -208,6 +208,7 @@ export async function updateDeckSettings(
   id: string,
   settings: {
     new_cards_per_day?: number;
+    secondary_cards_per_day?: number;
     learning_steps?: string;
     graduating_interval?: number;
     easy_interval?: number;

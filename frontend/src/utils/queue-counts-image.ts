@@ -2,6 +2,7 @@ import { QueueCounts } from '../types';
 
 const COLORS = {
   new: '#3b82f6',
+  secondaryNew: '#8b5cf6',
   learning: '#ef4444',
   review: '#22c55e',
   separator: '#6b7280',
@@ -9,12 +10,14 @@ const COLORS = {
 };
 
 /**
- * Render the new+learning+review queue counts to a PNG and write it to the
- * system clipboard so it can be pasted into chat apps.
+ * Render the new+secondary+learning+review queue counts to a PNG and write it
+ * to the system clipboard so it can be pasted into chat apps.
  */
 export async function copyQueueCountsImage(counts: QueueCounts): Promise<void> {
   const segments = [
     { text: String(counts.new), color: COLORS.new, weight: 600 },
+    { text: ' + ', color: COLORS.separator, weight: 400 },
+    { text: String(counts.secondaryNew), color: COLORS.secondaryNew, weight: 600 },
     { text: ' + ', color: COLORS.separator, weight: 400 },
     { text: String(counts.learning), color: COLORS.learning, weight: 600 },
     { text: ' + ', color: COLORS.separator, weight: 400 },

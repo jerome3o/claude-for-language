@@ -1710,6 +1710,7 @@ app.put('/api/decks/:id/settings', async (c) => {
   const deckId = c.req.param('id');
   const settings = await c.req.json<{
     new_cards_per_day?: number;
+    secondary_cards_per_day?: number;
     learning_steps?: string;
     graduating_interval?: number;
     easy_interval?: number;
@@ -4640,7 +4641,7 @@ app.get('/api/export', async (c) => {
     // Query all user data in parallel
     const [decksResult, notesResult, cardsResult, reviewEventsResult] = await Promise.all([
       c.env.DB.prepare(
-        'SELECT id, name, description, new_cards_per_day, created_at, updated_at FROM decks WHERE user_id = ? ORDER BY created_at'
+        'SELECT id, name, description, new_cards_per_day, secondary_cards_per_day, created_at, updated_at FROM decks WHERE user_id = ? ORDER BY created_at'
       ).bind(userId).all(),
       c.env.DB.prepare(
         `SELECT n.id, n.deck_id, n.hanzi, n.pinyin, n.english, n.fun_facts, n.audio_url, n.created_at, n.updated_at

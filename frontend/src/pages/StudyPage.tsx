@@ -201,18 +201,19 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
 }
 
 // Queue counts header component
-function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activeQueue?: number }) {
+function QueueCountsHeader({ counts, activeQueue, activeIsSecondary }: { counts: QueueCounts; activeQueue?: number; activeIsSecondary?: boolean }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const resetTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const total = counts.new + counts.learning + counts.review;
+  const total = counts.new + counts.secondaryNew + counts.learning + counts.review;
 
   if (total === 0) {
     return null;
   }
 
   // CardQueue.NEW = 0, CardQueue.LEARNING = 1, CardQueue.REVIEW = 2, CardQueue.RELEARNING = 3
-  const isNewActive = activeQueue === 0;
+  const isNewActive = activeQueue === 0 && !activeIsSecondary;
+  const isSecondaryActive = activeQueue === 0 && !!activeIsSecondary;
   const isLearningActive = activeQueue === 1 || activeQueue === 3; // Learning or Relearning
   const isReviewActive = activeQueue === 2;
 
@@ -236,6 +237,8 @@ function QueueCountsHeader({ counts, activeQueue }: { counts: QueueCounts; activ
       aria-label="Copy progress as image"
     >
       <span className={`count-new ${isNewActive ? 'count-active' : ''}`} title="New cards">{counts.new}</span>
+      <span className="count-separator">+</span>
+      <span className={`count-secondary ${isSecondaryActive ? 'count-active' : ''}`} title="Secondary new cards (word already started)">{counts.secondaryNew}</span>
       <span className="count-separator">+</span>
       <span className={`count-learning ${isLearningActive ? 'count-active' : ''}`} title="Learning cards">{counts.learning}</span>
       <span className="count-separator">+</span>
@@ -294,6 +297,7 @@ interface FlagModalData {
 
 function StudyCard({
   card,
+  cardIsSecondaryNew,
   intervalPreviews,
   counts,
   tutors,
@@ -305,6 +309,7 @@ function StudyCard({
   onDeleteCurrentCard,
 }: {
   card: CardWithNote;
+  cardIsSecondaryNew: boolean;
   intervalPreviews: Record<Rating, IntervalPreview>;
   counts: QueueCounts;
   tutors: TutorRelationshipWithUsers[];
@@ -2340,7 +2345,7 @@ function StudyCard({
           >
             ✕
           </button>
-          <QueueCountsHeader counts={counts} activeQueue={card.queue} />
+          <QueueCountsHeader counts={counts} activeQueue={card.queue} activeIsSecondary={cardIsSecondaryNew} />
         </div>
 
         {/* Data error banner */}
@@ -2870,6 +2875,7 @@ export function StudyPage() {
   const {
     isLoading,
     currentCard,
+    currentCardIsSecondaryNew,
     cardVersion,
     counts,
     intervalPreviews,
@@ -2887,8 +2893,8 @@ export function StudyPage() {
   });
 
   // Pre-fetch day stats when queue is nearly empty (3 or fewer cards) for instant "All Done" display
-  const isAllDone = !isLoading && !currentCard && counts.new === 0 && counts.learning === 0 && counts.review === 0;
-  const isNearlyDone = counts.new + counts.learning + counts.review <= 3;
+  const isAllDone = !isLoading && !currentCard && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
+  const isNearlyDone = counts.new + counts.secondaryNew + counts.learning + counts.review <= 3;
   const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
   const [todayTotalTimeMs, setTodayTotalTimeMs] = useState<number>(0);
   const dayStatsFetchedRef = useRef(false);
@@ -2983,7 +2989,7 @@ export function StudyPage() {
   }
 
   // Study complete - check that ALL queues are empty, not just that currentCard is null
-  if (!isLoading && !currentCard && counts.new === 0 && counts.learning === 0 && counts.review === 0) {
+  if (!isLoading && !currentCard && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0) {
     // Number of bonus cards to add each time the user clicks "Study More"
     const BONUS_NEW_CARDS_INCREMENT = 10;
 
@@ -3142,6 +3148,7 @@ export function StudyPage() {
         <StudyCard
           key={`${currentCard.id}-${cardVersion}`}
           card={currentCard}
+          cardIsSecondaryNew={currentCardIsSecondaryNew}
           intervalPreviews={intervalPreviews}
           counts={counts}
           tutors={tutors}

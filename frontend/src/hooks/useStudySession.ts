@@ -369,9 +369,13 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       const card = await db.cards.get(cardId);
       if (!card) throw new Error('Card not found');
 
-      // Increment daily counter for new cards
+      // Increment daily counter for new cards. A card is "secondary" if its
+      // note already has another reviewed card — it counts against the
+      // secondary (purple) quota instead of the primary (blue) one.
       if (card.queue === CardQueue.NEW) {
-        await incrementNewCardsStudiedToday(card.deck_id);
+        const siblings = await db.cards.where('note_id').equals(card.note_id).toArray();
+        const isSecondary = siblings.some(s => s.id !== card.id && s.queue !== CardQueue.NEW);
+        await incrementNewCardsStudiedToday(card.deck_id, isSecondary);
       }
 
       // Get deck settings and calculate new state
@@ -526,6 +530,10 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // Update recent notes for variety filtering
     const newRecentNoteIds = [...recentNoteIds.slice(-4), noteId];
 
+    // The rated card is no longer NEW, so its note is now "in circulation" —
+    // its remaining NEW siblings count as secondary cards from here on.
+    reviewedNoteIdsRef.current.add(noteId);
+
     // Select the next card synchronously from the new queue
     const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, reviewedNoteIdsRef.current, cardId);
 
@@ -550,6 +558,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         console.log('[useStudySession] Awaiting', pendingWritesRef.current.length, 'pending DB writes before fallback query');
         await Promise.all(pendingWritesRef.current);
         pendingWritesRef.current = [];
+      }
+
+      // reviewMutation isn't used on this path, so bump the daily new-card
+      // counter here (same classification as in reviewMutation).
+      if (currentCard.queue === CardQueue.NEW) {
+        const siblings = await db.cards.where('note_id').equals(noteId).toArray();
+        const isSecondary = siblings.some(s => s.id !== cardId && s.queue !== CardQueue.NEW);
+        await incrementNewCardsStudiedToday(currentCard.deck_id, isSecondary);
       }
 
       // Then update IndexedDB with the current card's new state,
@@ -681,15 +697,25 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Derive counts directly from the in-memory queue so the header updates in the
   // same render as the card transition (no DB round-trip).
   const counts: QueueCounts = useMemo(() => {
-    let n = 0, l = 0, r = 0;
+    let n = 0, s = 0, l = 0, r = 0;
     for (const c of queue) {
-      if (c.queue === CardQueue.NEW) n++;
+      if (c.queue === CardQueue.NEW) {
+        if (reviewedNoteIdsRef.current.has(c.note_id)) s++;
+        else n++;
+      }
       else if (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) l++;
       else if (c.queue === CardQueue.REVIEW) r++;
     }
-    return { new: n, learning: l, review: r };
+    return { new: n, secondaryNew: s, learning: l, review: r };
   }, [queue]);
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
+
+  // Whether the current card is a "secondary" new card (purple): NEW, but its
+  // note already has a reviewed card. Used to highlight the right header count.
+  const currentCardIsSecondaryNew =
+    !!currentCard &&
+    currentCard.queue === CardQueue.NEW &&
+    reviewedNoteIdsRef.current.has(currentCard.note_id);
 
   const intervalPreviews: Record<Rating, IntervalPreview> | null =
     currentCard && currentDeck ? {
@@ -812,6 +838,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // State
     isLoading,
     currentCard: cardWithNote,
+    currentCardIsSecondaryNew,
     cardVersion,
     counts,
     intervalPreviews,
