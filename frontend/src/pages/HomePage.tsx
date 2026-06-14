@@ -196,6 +196,11 @@ export function HomePage() {
     queryFn: getDailyStatus,
     staleTime: 60000,
     retry: false,
+    // Poll every 5s while the reader is still generating so the button updates when ready
+    refetchInterval: (q) => {
+      const status = q.state.data?.today_reader?.status;
+      return status === 'generating' ? 5000 : false;
+    },
   });
 
   // Invalidate daily status when the local date changes (e.g. crossing midnight).
