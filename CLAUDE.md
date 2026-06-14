@@ -281,6 +281,10 @@ For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md).
 2. Mix of new + review cards (proportional selection)
 3. Learning cards on cooldown but due today (shown immediately when nothing else available)
 
+**New Card Daily Budgets:**
+- **Primary (blue)** — `new_cards_per_day`: cards of unseen notes, hanzi_to_meaning preferred
+- **Secondary (purple)** — `secondary_cards_per_day` (additive, default 10): NEW cards whose note already has a reviewed card, so other card types of started words keep flowing even when brand-new words would fill the primary limit. Leftover primary budget can also admit secondary cards. See docs/STUDY_SESSION.md.
+
 **Session Flow:**
 1. User selects a deck (or "All Decks") and starts a study session
 2. Three card types test different skills:

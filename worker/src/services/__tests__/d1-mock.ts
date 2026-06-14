@@ -198,6 +198,7 @@ export function createTestDeck(overrides: Partial<{
     name: overrides.name ?? 'Test Deck',
     description: overrides.description ?? null,
     new_cards_per_day: 30,
+    secondary_cards_per_day: 10,
     learning_steps: '1 10',
     graduating_interval: 1,
     easy_interval: 4,

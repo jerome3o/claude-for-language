@@ -17,9 +17,10 @@ export enum CardQueue {
 
 // Queue counts for Anki-style display
 export interface QueueCounts {
-  new: number;      // Blue - new cards
-  learning: number; // Red - learning + relearning cards
-  review: number;   // Green - review cards
+  new: number;          // Blue - new cards on unseen notes
+  secondaryNew: number; // Purple - new cards whose note already has a reviewed card
+  learning: number;     // Red - learning + relearning cards
+  review: number;       // Green - review cards
 }
 
 // Interval preview for rating buttons
@@ -57,6 +58,10 @@ export interface Deck {
   name: string;
   description: string | null;
   new_cards_per_day: number;
+  // Daily quota for secondary new cards (note already has a reviewed card).
+  // Additive to new_cards_per_day. Optional: decks cached before this field
+  // existed won't have it — read with DEFAULT_SECONDARY_CARDS_PER_DAY fallback.
+  secondary_cards_per_day?: number;
   // FSRS settings
   request_retention: number;    // Target retention (0.7-0.97), default 0.9
   fsrs_weights: string | null;  // JSON array of 21 weights, null = use defaults

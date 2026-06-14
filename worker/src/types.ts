@@ -127,6 +127,7 @@ export interface Deck {
   name: string;
   description: string | null;
   new_cards_per_day: number;
+  secondary_cards_per_day: number;  // Daily quota for new cards whose note already has a reviewed card (additive to new_cards_per_day)
   // FSRS settings
   request_retention: number;    // Target retention (0.7-0.97), default 0.9
   fsrs_weights: string | null;  // JSON array of 21 weights, null = use defaults

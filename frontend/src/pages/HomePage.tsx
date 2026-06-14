@@ -43,6 +43,8 @@ function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
     <div className="queue-counts" style={{ fontSize: '0.875rem' }}>
       <span style={{ color: '#3b82f6', fontWeight: 600 }}>{counts.new}</span>
       <span style={{ color: '#9ca3af' }}>+</span>
+      <span style={{ color: '#8b5cf6', fontWeight: 600 }}>{counts.secondaryNew ?? 0}</span>
+      <span style={{ color: '#9ca3af' }}>+</span>
       <span style={{ color: '#f97316', fontWeight: 600 }}>{counts.learning}</span>
       <span style={{ color: '#9ca3af' }}>+</span>
       <span style={{ color: '#22c55e', fontWeight: 600 }}>{counts.review}</span>
@@ -88,7 +90,7 @@ function DeckCard({
   });
 
   const stats = statsQuery.data;
-  const totalDue = counts.new + counts.learning + counts.review;
+  const totalDue = counts.new + (counts.secondaryNew ?? 0) + counts.learning + counts.review;
 
   const handleStudy = () => navigate(`/study?deck=${deck.id}&autostart=true`);
 
@@ -278,7 +280,8 @@ export function HomePage() {
   }, [countsLoading, liveTotal]);
 
   const totalCounts = countsLoading && cachedCountsRef ? cachedCountsRef : liveTotal;
-  const totalDue = totalCounts.new + totalCounts.learning + totalCounts.review;
+  // secondaryNew may be missing from counts cached by an older app version
+  const totalDue = totalCounts.new + (totalCounts.secondaryNew ?? 0) + totalCounts.learning + totalCounts.review;
   const showStudyLoading = countsLoading && !cachedCountsRef;
 
   const handleStudyAll = () => {

@@ -60,9 +60,12 @@ Once graduated, the card's next review is typically 1+ days away, which ends its
 
 ## Daily Limits
 
-- **New cards per day**: Configurable per deck (default: 20)
+- **New cards per day** (blue): Configurable per deck (default: 20). Reserved for cards of unseen notes, preferring the hanzi_to_meaning card so a brand-new word is introduced by its characters first.
+- **Secondary cards per day** (purple): Configurable per deck (default: 10), additive to the new card limit. Reserved for NEW cards whose note already has at least one reviewed card (e.g. meaning_to_hanzi after hanzi_to_meaning is in circulation). Without this quota, a steady inflow of brand-new words would consume the entire daily limit and the other card types of started words would never be introduced.
 - **Review cards**: No limit - all due reviews are shown
 - **Learning cards**: No limit - always shown when due
+
+The two new-card budgets are complementary: leftover primary (blue) budget can admit secondary cards when no unseen notes remain, so with no unseen notes both numbers draw from the same pool. Secondary cards studied beyond their own quota count against the primary budget.
 
 When the daily new card limit is reached, the "All Done!" screen offers a **"Study More"** button to add 10 bonus new cards.
 

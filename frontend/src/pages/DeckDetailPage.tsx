@@ -7,7 +7,7 @@ import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherU
 import { CompletionSection, CardTypeBreakdownSection, ActivitySection } from '../components/DeckProgress';
 import CardEditModal from '../components/CardEditModal';
 import { useAuth } from '../contexts/AuthContext';
-import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent } from '../db/database';
+import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent, DEFAULT_SECONDARY_CARDS_PER_DAY } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import './SharedDeckProgressPage.css';
 
@@ -988,6 +988,9 @@ function DeckSettingsModal({
 
   // Basic settings
   const [newCardsPerDay, setNewCardsPerDay] = useState(deck.new_cards_per_day?.toString() || '20');
+  const [secondaryCardsPerDay, setSecondaryCardsPerDay] = useState(
+    (deck.secondary_cards_per_day ?? DEFAULT_SECONDARY_CARDS_PER_DAY).toString()
+  );
   const [learningSteps, setLearningSteps] = useState(deck.learning_steps || '1 10');
   const [graduatingInterval, setGraduatingInterval] = useState(deck.graduating_interval?.toString() || '1');
   const [easyInterval, setEasyInterval] = useState(deck.easy_interval?.toString() || '4');
@@ -1008,6 +1011,9 @@ function DeckSettingsModal({
       // Update SRS settings
       const updatedDeck = await updateDeckSettings(deck.id, {
         new_cards_per_day: isNaN(parseInt(newCardsPerDay, 10)) ? 20 : parseInt(newCardsPerDay, 10),
+        secondary_cards_per_day: isNaN(parseInt(secondaryCardsPerDay, 10))
+          ? DEFAULT_SECONDARY_CARDS_PER_DAY
+          : parseInt(secondaryCardsPerDay, 10),
         learning_steps: learningSteps,
         graduating_interval: parseInt(graduatingInterval, 10) || 1,
         easy_interval: parseInt(easyInterval, 10) || 4,
@@ -1025,6 +1031,7 @@ function DeckSettingsModal({
         name,
         description: description || null,
         new_cards_per_day: updatedDeck.new_cards_per_day,
+        secondary_cards_per_day: updatedDeck.secondary_cards_per_day,
         learning_steps: updatedDeck.learning_steps,
         graduating_interval: updatedDeck.graduating_interval,
         easy_interval: updatedDeck.easy_interval,
@@ -1115,6 +1122,22 @@ function DeckSettingsModal({
             />
             <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
               Maximum new cards introduced each day. Set to 0 to only review.
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Secondary cards per day</label>
+            <input
+              type="number"
+              className="form-input"
+              value={secondaryCardsPerDay}
+              onChange={(e) => setSecondaryCardsPerDay(e.target.value)}
+              min="0"
+              max="1000"
+            />
+            <p className="text-light mt-1" style={{ fontSize: '0.8rem' }}>
+              Extra new cards (purple) reserved for words you've already started — e.g. typing a
+              word you can already say. Added on top of the daily new card limit.
             </p>
           </div>
 
