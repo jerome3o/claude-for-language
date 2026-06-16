@@ -683,6 +683,53 @@ export async function pronunciationAssessment(
   return response.json();
 }
 
+// ============ SpeechSuper Pronunciation Assessment (Mandarin tone) — spike ============
+
+// SpeechSuper returns a rich, nested result. We keep the type loose for the spike
+// and parse defensively in the UI.
+export interface SpeechSuperResult {
+  coreType?: string;
+  result?: Record<string, any>;
+  error?: string;
+  [key: string]: any;
+}
+
+export async function assessSpeechSuper(
+  audioBlob: Blob,
+  refText: string,
+): Promise<SpeechSuperResult> {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.wav');
+  formData.append('refText', refText);
+
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['Authorization'] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_PATH}/pronunciation/speechsuper`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw new Error('Unauthorized');
+  }
+
+  if (response.status === 501) {
+    throw new Error('SpeechSuper not configured');
+  }
+
+  if (!response.ok) {
+    throw new Error('SpeechSuper assessment failed');
+  }
+
+  return response.json();
+}
+
 // ============ AI Generation ============
 
 export async function generateDeck(

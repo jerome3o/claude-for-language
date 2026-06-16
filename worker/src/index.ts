@@ -2141,6 +2141,99 @@ app.post('/api/pronunciation-assessment', async (c) => {
   }
 });
 
+// ============ SpeechSuper Pronunciation Assessment (Mandarin tone) — spike ============
+
+async function sha1Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-1', data);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+app.post('/api/pronunciation/speechsuper', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const appKey = c.env.SPEECHSUPER_APP_KEY;
+  const secretKey = c.env.SPEECHSUPER_SECRET_KEY;
+  if (!appKey || !secretKey) {
+    return c.json({ error: 'SpeechSuper is not configured' }, 501);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as unknown;
+  const refText = (formData.get('refText') as string) || '';
+  const coreTypeInput = (formData.get('coreType') as string) || '';
+
+  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
+    return c.json({ error: 'file is required' }, 400);
+  }
+  if (!refText) {
+    return c.json({ error: 'refText is required' }, 400);
+  }
+
+  // Pick a coreType: a single Chinese character uses word eval, otherwise sentence
+  // eval (which also handles multi-character words/phrases). Both score tones for Mandarin.
+  const hanziChars = (refText.match(/[一-鿿㐀-䶿]/g) || []).length;
+  const coreType = coreTypeInput || (hanziChars <= 1 ? 'word.eval.cn' : 'sent.eval.cn');
+
+  const userId = 'guest';
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const connectSig = await sha1Hex(appKey + timestamp + secretKey);
+  const startSig = await sha1Hex(appKey + timestamp + userId + secretKey);
+
+  const params = {
+    connect: {
+      cmd: 'connect',
+      param: {
+        sdk: { version: 16777472, source: 9, protocol: 2 },
+        app: { applicationId: appKey, sig: connectSig, timestamp },
+      },
+    },
+    start: {
+      cmd: 'start',
+      param: {
+        app: { userId, applicationId: appKey, timestamp, sig: startSig },
+        audio: { audioType: 'wav', channel: 1, sampleBytes: 2, sampleRate: 16000 },
+        request: { coreType, refText, tokenId: crypto.randomUUID() },
+      },
+    },
+  };
+
+  try {
+    const audioBlob = file as Blob;
+    const upstream = new FormData();
+    upstream.append('text', JSON.stringify(params));
+    upstream.append('audio', audioBlob, 'recording.wav');
+
+    const response = await fetch(`https://api.speechsuper.com/${coreType}`, {
+      method: 'POST',
+      headers: { 'Request-Index': '0' },
+      body: upstream,
+    });
+
+    const text = await response.text();
+    let result: Record<string, any>;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      result = { raw: text };
+    }
+
+    if (!response.ok) {
+      console.error('[speechsuper] HTTP error:', response.status, text);
+      return c.json({ error: 'SpeechSuper request failed', details: result }, 502);
+    }
+
+    // Surface the coreType we used so the UI can label the report.
+    return c.json({ coreType, ...result });
+  } catch (err) {
+    console.error('[speechsuper] Error:', err);
+    return c.json({ error: 'SpeechSuper request failed' }, 500);
+  }
+});
+
 // ============ AI Generation ============
 
 app.post('/api/ai/generate-deck', async (c) => {
