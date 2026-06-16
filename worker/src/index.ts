@@ -2302,10 +2302,11 @@ app.post('/api/readers/generate', async (c) => {
 
     console.log('[Readers] Pending reader created:', pendingReader.id);
 
-    // Queue story generation (runs in background with 15 min timeout)
+    // Queue story generation (runs in background with 15 min timeout).
+    // Only the readerId is sent — the consumer loads vocabulary_used from the
+    // reader record to stay under the 128 KB Queues message limit.
     await c.env.STORY_QUEUE.send({
       readerId: pendingReader.id,
-      vocabulary,
       topic,
       difficulty: difficulty as DifficultyLevel,
     });
@@ -5397,8 +5398,10 @@ async function startDailyReader(
     vocabulary_used: vocabulary,
   });
   await db.setDailyReaderId(c.env.DB, userId, pending.id);
+  // Only the readerId is sent — the consumer loads vocabulary_used from the
+  // reader record to stay under the 128 KB Queues message limit.
   c.executionCtx.waitUntil(
-    c.env.STORY_QUEUE.send({ readerId: pending.id, vocabulary, topic, difficulty: 'beginner' }),
+    c.env.STORY_QUEUE.send({ readerId: pending.id, topic, difficulty: 'beginner' }),
   );
   return { reader_id: pending.id, situation_id: sit.id, status: 'generating' };
 }
@@ -6056,10 +6059,18 @@ export default {
     if (queueName === 'story-generation-queue') {
       // Handle story generation
       for (const message of batch.messages) {
-        const { readerId, vocabulary, topic, difficulty } = message.body as StoryGenerationMessage;
+        const { readerId, topic, difficulty } = message.body as StoryGenerationMessage;
         console.log('[Queue] Processing story generation for reader:', readerId);
 
         try {
+          // Load the vocabulary from the reader record rather than the queue
+          // message — the full list can exceed the 128 KB Queues message limit.
+          const pendingReader = await db.getGradedReaderById(env.DB, readerId);
+          if (!pendingReader) {
+            throw new Error(`Reader not found for story generation: ${readerId}`);
+          }
+          const vocabulary = pendingReader.vocabulary_used;
+
           // Generate the story using Claude with tool use
           const story = await generateStory(
             env.ANTHROPIC_API_KEY,
