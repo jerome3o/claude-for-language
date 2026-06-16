@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getDailyStatus } from '../api/client';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { getDailyStatus, generateDailyReader } from '../api/client';
 import './RoleplayPage.css';
 
 export function DailyReaderPage() {
@@ -20,13 +20,34 @@ export function DailyReaderPage() {
   const sit = data?.today_situation;
   const isFailed = reader?.status === 'failed';
 
+  // Generation is on-demand. Kick it off when this page is shown and there's no
+  // reader in flight yet (e.g. the user navigated here directly, or is retrying).
+  const generateMutation = useMutation({
+    mutationFn: generateDailyReader,
+    onSuccess: (r) => {
+      queryClient.setQueryData<typeof data>(['daily-status'], (old) =>
+        old ? { ...old, today_reader: r } : old
+      );
+      queryClient.invalidateQueries({ queryKey: ['daily-status'] });
+    },
+  });
+
   useEffect(() => {
     if (reader?.status === 'ready') navigate(`/readers/${reader.reader_id}`);
   }, [reader, navigate]);
 
+  // Auto-start generation once the status has loaded and nothing is pending.
+  useEffect(() => {
+    if (!data) return; // wait for status to load
+    const status = data.today_reader?.status;
+    const needsGeneration = !data.today_reader || status === 'failed';
+    if (needsGeneration && generateMutation.isIdle) {
+      generateMutation.mutate();
+    }
+  }, [data, generateMutation]);
+
   function handleRetry() {
-    // Invalidate triggers a refetch; backend will re-queue generation for failed readers
-    queryClient.invalidateQueries({ queryKey: ['daily-status'] });
+    generateMutation.mutate();
   }
 
   return (

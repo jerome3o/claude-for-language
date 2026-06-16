@@ -5320,16 +5320,47 @@ app.delete('/api/audio-lessons/:id', async (c) => {
 
 app.get('/api/situations', (c) => c.json({ situations: SITUATIONS }));
 
-async function ensureDailyReader(
+// Read-only status of today's reader. NEVER kicks off generation — that only
+// happens on demand when the user taps the Reader button (see startDailyReader).
+// This keeps the home screen's /api/daily/status cheap and avoids generating a
+// graded reader every day for every user (which was rate-limiting the AI API).
+async function getDailyReaderStatus(
+  c: { env: Env },
+  userId: string,
+) {
+  const existing = await db.getDailyReader(c.env.DB, userId);
+  if (!existing) return null;
+
+  // Surface a generation that's been stuck > 30 min as failed so the UI can
+  // offer a retry — but do not re-queue it here. Retry happens on demand.
+  const isStuckGenerating =
+    existing.status === 'generating' &&
+    existing.reader_id &&
+    existing.created_at &&
+    Date.now() - new Date(existing.created_at).getTime() > 30 * 60 * 1000;
+
+  if (isStuckGenerating) {
+    console.log('[getDailyReaderStatus] Reader stuck generating > 30 min, marking failed:', existing.reader_id);
+    await db.updateReaderStatus(c.env.DB, existing.reader_id, 'failed');
+    return { ...existing, status: 'failed' };
+  }
+
+  return existing;
+}
+
+// On-demand generation of today's reader. Idempotent: if one is already
+// generating or ready, it's returned as-is rather than regenerated. A failed
+// reader (or no reader yet) is (re)queued for generation. Returns null when the
+// user doesn't have enough learned vocabulary yet.
+async function startDailyReader(
   c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
   userId: string,
   sit: ReturnType<typeof getTodaySituation>,
 ) {
   const existing = await db.getDailyReader(c.env.DB, userId);
 
-  // Return immediately if already generating or ready — but treat as failed if stuck for > 30 min
+  // Already generating or ready — return immediately, but treat as failed if stuck > 30 min.
   if (existing && existing.status !== 'failed') {
-    // A reader stuck in 'generating' with a valid reader_id for > 30 min needs to be retried
     const isStuckGenerating =
       existing.status === 'generating' &&
       existing.reader_id &&
@@ -5338,22 +5369,23 @@ async function ensureDailyReader(
 
     if (!isStuckGenerating) return existing;
 
-    // Mark the stuck reader as failed so generation is retried
-    console.log('[ensureDailyReader] Reader stuck generating > 30 min, marking failed:', existing.reader_id);
+    console.log('[startDailyReader] Reader stuck generating > 30 min, marking failed:', existing.reader_id);
     await db.updateReaderStatus(c.env.DB, existing.reader_id, 'failed');
   }
 
-  // No reader yet — atomically reserve the slot (skip if already reserved for retry)
-  if (!existing) {
-    const won = await db.reserveDailyReader(c.env.DB, userId, sit.id);
-    if (!won) return await db.getDailyReader(c.env.DB, userId);
-  }
-
+  // Check vocabulary before reserving a slot, so we never leave a phantom
+  // reservation behind when the user can't have a reader yet.
   const deckIds = await db.getUserDeckIds(c.env.DB, userId);
   const vocabulary = deckIds.length
     ? await db.getLearnedVocabulary(c.env.DB, userId, deckIds)
     : [];
   if (vocabulary.length < 5) return null;
+
+  // No reservation yet — atomically reserve the slot (skip if already reserved for a retry).
+  if (!existing) {
+    const won = await db.reserveDailyReader(c.env.DB, userId, sit.id);
+    if (!won) return await db.getDailyReader(c.env.DB, userId);
+  }
 
   const topic = `A short conversation between ${sit.user_role} and ${sit.ai_role}. ${sit.scenario} The goal: ${sit.goal}`;
   const pending = await db.createPendingReader(c.env.DB, userId, {
@@ -5406,7 +5438,7 @@ app.get('/api/daily/status', async (c) => {
     db.getNextGrammarPoint(c.env.DB, userId),
     db.practiceCompletedToday(c.env.DB, userId),
     db.getDailyActivityStatus(c.env.DB, userId),
-    ensureDailyReader(c, userId, todaySit),
+    getDailyReaderStatus(c, userId),
   ]);
   if (!grammarDone && nextGrammarPoint) {
     triggerPracticePregen(c, userId, nextGrammarPoint);
@@ -5433,6 +5465,23 @@ app.post('/api/daily/mark', async (c) => {
   const { activity, ref_id } = await c.req.json<{ activity: 'reader' | 'roleplay'; ref_id?: string }>();
   await db.recordDailyActivity(c.env.DB, userId, activity, ref_id ?? null);
   return c.json({ ok: true });
+});
+
+// Kick off generation of today's reader on demand (only when the user taps the
+// Reader button). Idempotent — safe to call repeatedly; returns the current
+// reader status. This replaces the old behaviour of auto-generating on every
+// home-screen load.
+app.post('/api/daily/reader/generate', async (c) => {
+  const userId = c.get('user').id;
+  const todaySit = getTodaySituation();
+  const reader = await startDailyReader(c, userId, todaySit);
+  if (!reader) {
+    return c.json(
+      { error: 'Not enough learned vocabulary yet. Study some cards first, then try again.' },
+      400,
+    );
+  }
+  return c.json(reader);
 });
 
 app.post('/api/roleplay/sessions', async (c) => {
