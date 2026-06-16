@@ -1746,6 +1746,12 @@ export async function getDailyStatus(): Promise<DailyStatus> {
   return fetchJSON('/daily/status');
 }
 
+// Kick off generation of today's reader. Only called when the user taps the
+// Reader button — the server no longer auto-generates on home-screen load.
+export async function generateDailyReader(): Promise<NonNullable<DailyStatus['today_reader']>> {
+  return fetchJSON('/daily/reader/generate', { method: 'POST' });
+}
+
 export async function markDailyActivity(activity: 'reader' | 'roleplay', refId?: string): Promise<void> {
   await fetchJSON('/daily/mark', {
     method: 'POST',

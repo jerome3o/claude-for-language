@@ -1844,43 +1844,57 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "list_feature_requests",
-      "List feature requests submitted by users. Admins see all requests; non-admins see only their own. IMPORTANT: Only act on requests where approval_status is 'approved'. Requests with 'pending' approval_status have not been reviewed by the admin yet and should not be worked on. Before starting work on a feature request, call update_feature_request_status with status='agent_working' to claim it and prevent other agents from duplicating the effort.",
+      "List feature requests submitted by users. Admins see all requests; non-admins see only their own. IMPORTANT: Only act on requests where approval_status is 'approved'. Requests with 'pending' approval_status have not been reviewed by the admin yet and should not be worked on. To find work that still needs doing, pass unimplemented_only=true — it returns only requests that are approved, not done/declined, and not already claimed by another agent (agent_session_url IS NULL), so you won't duplicate another agent's effort. Before starting work, call claim_feature_request to atomically claim it. NOTE: the large console_logs field is omitted from this list to keep responses small — use get_feature_request to fetch a single request's full detail.",
       {
         status: z.enum(['new', 'in_progress', 'agent_working', 'done', 'declined']).optional()
           .describe("Filter by status"),
         approval_status: z.enum(['pending', 'approved', 'declined']).optional()
           .describe("Filter by approval status"),
+        unimplemented_only: z.boolean().optional()
+          .describe("If true, return only requests still needing work: approved, status not in (done, declined), and not yet claimed by an agent. Shortcut to avoid wading through completed requests and to prevent double-claiming."),
       },
-      async ({ status, approval_status }) => {
+      async ({ status, approval_status, unimplemented_only }) => {
         const admin = await isAdmin();
 
-        let query: string;
+        // Explicit column list (omits the large console_logs blob — fetch it via
+        // get_feature_request when actually debugging a single request).
+        const cols = `
+          fr.id, fr.user_id, fr.content, fr.page_context, fr.status,
+          fr.approval_status, fr.screenshot_url, fr.ccr_session_url,
+          fr.agent_session_url, fr.created_at, fr.updated_at,
+          (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
+        `;
+
         const params: (string | number)[] = [];
         const conditions: string[] = [];
 
+        let query: string;
         if (admin) {
           query = `
-            SELECT fr.*, u.name as user_name, u.email as user_email,
-              (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
+            SELECT ${cols}, u.name as user_name, u.email as user_email
             FROM feature_requests fr
             LEFT JOIN users u ON fr.user_id = u.id
           `;
-          if (status) { conditions.push('fr.status = ?'); params.push(status); }
-          if (approval_status) { conditions.push('fr.approval_status = ?'); params.push(approval_status); }
-          if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
-          query += ' ORDER BY fr.created_at DESC';
         } else {
           query = `
-            SELECT fr.*,
-              (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
+            SELECT ${cols}
             FROM feature_requests fr
-            WHERE fr.user_id = ?
           `;
+          conditions.push('fr.user_id = ?');
           params.push(userId);
-          if (status) { query += ' AND fr.status = ?'; params.push(status); }
-          if (approval_status) { query += ' AND fr.approval_status = ?'; params.push(approval_status); }
-          query += ' ORDER BY fr.created_at DESC';
         }
+
+        if (unimplemented_only) {
+          conditions.push("fr.approval_status = 'approved'");
+          conditions.push("fr.status NOT IN ('done', 'declined')");
+          conditions.push('fr.agent_session_url IS NULL');
+        } else {
+          if (approval_status) { conditions.push('fr.approval_status = ?'); params.push(approval_status); }
+        }
+        if (status) { conditions.push('fr.status = ?'); params.push(status); }
+
+        if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
+        query += ' ORDER BY fr.created_at DESC';
 
         const stmt = this.env.DB.prepare(query);
         const results = params.length > 0
@@ -1975,33 +1989,43 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           return { content: [{ type: "text" as const, text: "Admin access required" }] };
         }
 
+        // Atomic claim: only succeeds if the request is currently unclaimed, or
+        // already claimed by THIS same session (idempotent re-claim). Doing the
+        // check and the write in a single conditional UPDATE closes the
+        // race window where two agents could both read "unclaimed" and then
+        // both write — i.e. it prevents double-claiming.
+        const claim = await this.env.DB
+          .prepare(`
+            UPDATE feature_requests
+            SET agent_session_url = ?, status = 'in_progress', updated_at = datetime('now')
+            WHERE id = ? AND (agent_session_url IS NULL OR agent_session_url = ?)
+          `)
+          .bind(session_url, request_id, session_url)
+          .run();
+
+        if ((claim.meta?.changes ?? 0) > 0) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Feature request ${request_id} claimed by session ${session_url} and status set to 'in_progress'.`,
+            }],
+          };
+        }
+
+        // Claim didn't take — determine why so the agent gets a clear message.
         const existing = await this.env.DB
-          .prepare('SELECT id, status, agent_session_url FROM feature_requests WHERE id = ?')
+          .prepare('SELECT id, agent_session_url FROM feature_requests WHERE id = ?')
           .bind(request_id)
-          .first<{ id: string; status: string; agent_session_url: string | null }>();
+          .first<{ id: string; agent_session_url: string | null }>();
 
         if (!existing) {
           return { content: [{ type: "text" as const, text: "Feature request not found" }] };
         }
 
-        if (existing.agent_session_url && existing.agent_session_url !== session_url) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: `Feature request already claimed by another agent session: ${existing.agent_session_url}. Choose a different feature request.`,
-            }],
-          };
-        }
-
-        await this.env.DB
-          .prepare("UPDATE feature_requests SET agent_session_url = ?, status = 'in_progress', updated_at = datetime('now') WHERE id = ?")
-          .bind(session_url, request_id)
-          .run();
-
         return {
           content: [{
             type: "text" as const,
-            text: `Feature request ${request_id} claimed by session ${session_url} and status set to 'in_progress'.`,
+            text: `Feature request already claimed by another agent session: ${existing.agent_session_url}. Choose a different feature request.`,
           }],
         };
       }
