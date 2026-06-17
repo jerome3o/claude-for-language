@@ -229,21 +229,44 @@ Generate a practice session: 6 flood examples, 3 scrambles, 3 multiple-choice ex
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 4000,
+    // A full session (6 flood + 3 scramble + 3 four-option contrast + 5 translate, each with
+    // hanzi/pinyin/english) is large; keep generous headroom so the tool_use JSON is never
+    // truncated mid-output (a truncated tool call yields partial, unusable input).
+    max_tokens: 8000,
     system: GENERATION_SYSTEM_PROMPT,
     tools: [SESSION_TOOL],
     tool_choice: { type: 'tool', name: 'create_practice_session' },
     messages: [{ role: 'user', content: userPrompt }],
   });
 
+  // If the model hits the token ceiling, the tool_use block is cut off and its JSON is partial,
+  // leaving required arrays undefined. Fail with a clear message instead of crashing downstream.
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error('Practice generation was cut off before it finished. Please try again.');
+  }
+
   const toolUse = response.content.find((c): c is Anthropic.ToolUseBlock => c.type === 'tool_use');
   if (!toolUse) {
     throw new Error('Practice generation returned no tool_use block');
   }
-  const input = toolUse.input as Omit<PracticeSessionContent, 'grammar_point'>;
+  const input = toolUse.input as Partial<Omit<PracticeSessionContent, 'grammar_point'>>;
+  if (
+    !Array.isArray(input.flood) ||
+    !Array.isArray(input.scrambles) ||
+    !Array.isArray(input.contrasts) ||
+    !Array.isArray(input.translates)
+  ) {
+    throw new Error('Practice generation returned incomplete exercises. Please try again.');
+  }
   // Shuffle tiles server-side so they're never in correct order regardless of AI output
   const scrambles = input.scrambles.map((s) => ({ ...s, tiles: shuffleArray(s.tiles) }));
-  return { grammar_point: grammarPoint, ...input, scrambles };
+  return {
+    grammar_point: grammarPoint,
+    flood: input.flood,
+    scrambles,
+    contrasts: input.contrasts,
+    translates: input.translates,
+  };
 }
 
 const FEEDBACK_TOOL: Anthropic.Tool = {

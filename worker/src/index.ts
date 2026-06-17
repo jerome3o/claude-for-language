@@ -5635,10 +5635,18 @@ app.post('/api/practice/sessions', async (c) => {
     if (pregen) {
       const exercisesJson = await db.claimPregenPracticeSession(c.env.DB, pregen.id, userId);
       if (exercisesJson) {
-        const content = JSON.parse(exercisesJson) as PracticeSessionContent;
-        const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, exercisesJson);
-        triggerPracticePregen(c, userId, point);
-        return c.json({ session_id: sessionId, content });
+        // A corrupt pre-gen shouldn't break Start — fall through to fresh generation if it won't parse.
+        let content: PracticeSessionContent | null = null;
+        try {
+          content = JSON.parse(exercisesJson) as PracticeSessionContent;
+        } catch (e) {
+          console.error('[Practice] Discarding corrupt pre-generated session:', e);
+        }
+        if (content) {
+          const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, exercisesJson);
+          triggerPracticePregen(c, userId, point);
+          return c.json({ session_id: sessionId, content });
+        }
       }
     }
   }
@@ -5651,7 +5659,15 @@ app.post('/api/practice/sessions', async (c) => {
     return c.json({ error: 'Learn at least 10 vocabulary words before starting grammar practice' }, 400);
   }
 
-  const content = await generatePracticeSession(c.env.ANTHROPIC_API_KEY, point, vocab, lessonNotes || undefined);
+  let content: PracticeSessionContent;
+  try {
+    content = await generatePracticeSession(c.env.ANTHROPIC_API_KEY, point, vocab, lessonNotes || undefined);
+  } catch (e) {
+    // Surface a meaningful message instead of an opaque 500 so the UI can tell the user what happened.
+    console.error('[Practice] Session generation failed:', e);
+    const message = e instanceof Error ? e.message : 'Failed to generate practice session';
+    return c.json({ error: `Couldn't build a practice session right now: ${message}` }, 502);
+  }
   const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, JSON.stringify(content));
   return c.json({ session_id: sessionId, content });
 });
