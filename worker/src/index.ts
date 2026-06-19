@@ -2155,8 +2155,8 @@ app.post('/api/pronunciation/speechsuper', async (c) => {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
-  const appKey = c.env.SPEECHSUPER_APP_KEY;
-  const secretKey = c.env.SPEECHSUPER_SECRET_KEY;
+  const appKey = c.env.SPEECH_SUPER_APP_KEY;
+  const secretKey = c.env.SPEECH_SUPER_SECRET_KEY;
   if (!appKey || !secretKey) {
     return c.json({ error: 'SpeechSuper is not configured' }, 501);
   }

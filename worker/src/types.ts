@@ -25,8 +25,8 @@ export interface Env {
   AZURE_SPEECH_KEY?: string;
   AZURE_SPEECH_REGION?: string;
   // SpeechSuper (Mandarin pronunciation + tone assessment) — spike
-  SPEECHSUPER_APP_KEY?: string;
-  SPEECHSUPER_SECRET_KEY?: string;
+  SPEECH_SUPER_APP_KEY?: string;
+  SPEECH_SUPER_SECRET_KEY?: string;
   // E2E testing - enables test auth endpoints (NEVER set in production)
   E2E_TEST_MODE?: string;
 }
