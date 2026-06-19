@@ -89,6 +89,8 @@ jobs:
           echo "${{ secrets.SENDGRID_API_KEY }}" | npx wrangler secret put SENDGRID_API_KEY
           echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_URL }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_URL
           echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_KEY }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_KEY
+          echo "${{ secrets.SPEECH_SUPER_APP_KEY }}" | npx wrangler secret put SPEECH_SUPER_APP_KEY
+          echo "${{ secrets.SPEECH_SUPER_SECRET_KEY }}" | npx wrangler secret put SPEECH_SUPER_SECRET_KEY
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}
