@@ -2,6 +2,26 @@
 
 This is a Chinese language learning app with spaced repetition. This document is for AI agents working on this codebase.
 
+## Development Environment (IMPORTANT)
+
+**Jerome has no local development environment.** All development happens through
+Claude Code (remote) — i.e. you, the agent, working in the ephemeral cloud
+container. Practical implications:
+
+- **You are the only one who can run anything.** Jerome cannot run `npm run dev`,
+  apply migrations, inspect logs, or test locally. Don't ask him to run commands
+  or "try it locally" — run the checks yourself in this container (typecheck,
+  `npm test`, `vite build`, `wrangler deploy --dry-run`) before reporting done.
+- **Secrets live in GitHub Actions secrets**, not a local `.dev.vars`. To make a
+  new secret reach the deployed Worker, add it to the "Set Worker Secrets" step
+  in `.github/workflows/deploy.yml` (`echo "${{ secrets.NAME }}" | npx wrangler
+  secret put NAME`). Setting it in the GitHub UI alone is not enough — the
+  workflow must push it to Cloudflare.
+- **The only path to a running/deployed app is merging to `main`** (CI in
+  `deploy.yml` deploys on push to main). A feature on a branch is not live until
+  it lands on main. Demos/verification of deployed behaviour therefore require
+  the change to be merged.
+
 ## Agent Workflow: Feature Requests
 
 **IMPORTANT — read before implementing anything.**
