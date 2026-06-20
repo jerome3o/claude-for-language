@@ -32,9 +32,11 @@ export interface Env {
 }
 
 // Queue message types
+// NOTE: Keep this message small. Cloudflare Queues enforce a 128 KB per-message
+// limit, so we pass only the readerId — the vocabulary list is loaded from the
+// reader record (vocabulary_used) in the queue consumer rather than embedded here.
 export interface StoryGenerationMessage {
   readerId: string;
-  vocabulary: VocabularyItem[];
   topic?: string;
   difficulty: DifficultyLevel;
 }
