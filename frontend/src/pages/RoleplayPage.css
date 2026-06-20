@@ -425,11 +425,71 @@
   align-items: center;
   gap: 3px;
   padding: 0.3rem 0.4rem;
-  min-width: 38px;
+  min-width: 40px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid rgba(120, 120, 120, 0.18);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
+.ss-char:hover { border-color: rgba(16, 185, 129, 0.5); }
+.ss-char:active { transform: scale(0.96); }
+.ss-char-selected {
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);
+}
+
+/* Expanded per-character detail panel */
+.ss-detail {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  animation: ss-fade 0.25s ease-out;
+}
+.ss-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.ss-detail-hanzi { font-size: 1.6rem; font-weight: 700; line-height: 1; }
+.ss-detail-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex: 1;
+  font-size: 0.8rem;
+  color: #475569;
+}
+.ss-detail-close {
+  border: none;
+  background: transparent;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+.ss-phones { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.ss-phone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 0.25rem 0.45rem;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(120, 120, 120, 0.18);
+  min-width: 34px;
+}
+.ss-phone-sound { font-weight: 600; font-size: 0.95rem; }
+.ss-phone-sub { font-size: 0.6rem; color: #ef4444; white-space: nowrap; }
+.ss-phone-score { font-weight: 700; font-size: 0.8rem; }
 .ss-char-hanzi { font-size: 1.25rem; font-weight: 600; line-height: 1; }
 .ss-char-tone { font-size: 0.62rem; color: #0d9488; font-weight: 600; white-space: nowrap; }
 .ss-char-track {

@@ -440,6 +440,8 @@ function StudyCard({
     assess: speechSuperAssess,
     reset: resetSpeechSuper,
   } = useSpeechSuper();
+  // Which per-character chip is expanded in the SpeechSuper report (null = none).
+  const [ssSelectedChar, setSsSelectedChar] = useState<number | null>(null);
 
   // Microphone device selection (persisted in localStorage)
   const [micDeviceId, setMicDeviceId] = useState<string>(() =>
@@ -1276,6 +1278,90 @@ function StudyCard({
   const ssCharScore = (item: any): number | undefined =>
     ssNum(item?.scores?.pronunciation ?? item?.scores?.overall ?? item?.overall ?? item?.pronunciation ?? item?.score);
 
+  // Expanded detail for a single character: every numeric sub-score + the
+  // phoneme/sound-level breakdown (initials/finals). Defensive about field names.
+  const renderCharDetail = (ch: any) => {
+    const label = ch.word ?? ch.char ?? ch.name ?? '?';
+    const tone = ssToneDigit(ch);
+
+    const scoreObj: Record<string, any> = ch.scores && typeof ch.scores === 'object' ? ch.scores : {};
+    const scoreEntries: { key: string; val: number }[] = [];
+    const seen = new Set<string>();
+    const pushScore = (key: string, raw: any) => {
+      const v = ssNum(raw);
+      if (v != null && !seen.has(key)) {
+        seen.add(key);
+        scoreEntries.push({ key, val: v });
+      }
+    };
+    ['overall', 'pronunciation', 'tone'].forEach((k) => pushScore(k, ch[k]));
+    Object.keys(scoreObj).forEach((k) => pushScore(k, scoreObj[k]));
+
+    const phones: any[] = Array.isArray(ch.phonemes) ? ch.phonemes
+      : Array.isArray(ch.phones) ? ch.phones
+      : Array.isArray(ch.sounds) ? ch.sounds
+      : Array.isArray(ch.details) ? ch.details
+      : [];
+
+    return (
+      <div className="ss-detail">
+        <div className="ss-detail-head">
+          <span className="ss-detail-hanzi">{label}</span>
+          <div className="ss-detail-meta">
+            {ch.pinyin && <span>{ch.pinyin}</span>}
+            {tone != null && <span className="ss-char-tone">声调 {tone}</span>}
+          </div>
+          <button type="button" className="ss-detail-close" onClick={() => setSsSelectedChar(null)} aria-label="Close">×</button>
+        </div>
+
+        {scoreEntries.length > 0 ? (
+          <div className="ss-metrics">
+            {scoreEntries.map((m) => (
+              <div key={m.key}>
+                <div className="ss-metric-head">
+                  <span className="ss-metric-label">{m.key}</span>
+                  <span className="ss-metric-val" style={{ color: ssColor(m.val) }}>{Math.round(m.val)}</span>
+                </div>
+                <div className="ss-track">
+                  <div className="ss-fill" style={{ width: `${ssClamp(m.val)}%`, background: ssColor(m.val) }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ color: '#6b7280', fontSize: '0.78rem' }}>No numeric sub-scores for this character.</div>
+        )}
+
+        {phones.length > 0 && (
+          <>
+            <div className="ss-section-label" style={{ marginTop: '0.5rem' }}>Sounds</div>
+            <div className="ss-phones">
+              {phones.map((p, i) => {
+                const sound = p.phone ?? p.sound ?? p.name ?? p.char ?? p.spell ?? '?';
+                const target = p.target ?? p.ref ?? p.expected ?? p.tgt;
+                const detected = p.detected ?? p.predict ?? p.actual ?? p.dtc;
+                const ps = ssNum(p.overall ?? p.score ?? p.pronunciation ?? p.scores?.overall ?? p.scores?.pronunciation);
+                const mismatch = target != null && detected != null && String(target) !== String(detected);
+                return (
+                  <div className="ss-phone" key={i}>
+                    <span className="ss-phone-sound">{sound}</span>
+                    {mismatch && <span className="ss-phone-sub">heard “{String(detected)}”</span>}
+                    {ps != null && <span className="ss-phone-score" style={{ color: ssColor(ps) }}>{Math.round(ps)}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <details className="ss-raw" style={{ marginTop: '0.5rem' }}>
+          <summary>Raw character data</summary>
+          <pre>{JSON.stringify(ch, null, 2)}</pre>
+        </details>
+      </div>
+    );
+  };
+
   const renderSpeechSuperReport = (data: SpeechSuperResult) => {
     const r: Record<string, any> = data.result ?? data;
     const overall = ssNum(r.overall);
@@ -1298,7 +1384,7 @@ function StudyCard({
           <span className="ss-title">🎯 SpeechSuper{data.coreType ? ` · ${data.coreType}` : ''}</span>
           <button
             className="ss-rerun"
-            onClick={() => { resetSpeechSuper(); if (audioBlob) speechSuperAssess(audioBlob, card.note.hanzi); }}
+            onClick={() => { setSsSelectedChar(null); resetSpeechSuper(); if (audioBlob) speechSuperAssess(audioBlob, card.note.hanzi); }}
           >
             ↻ Re-run
           </button>
@@ -1334,14 +1420,21 @@ function StudyCard({
 
         {chars.length > 0 && (
           <>
-            <div className="ss-section-label">Per-character</div>
+            <div className="ss-section-label">Per-character · tap for details</div>
             <div className="ss-chars">
               {chars.map((ch, i) => {
                 const label = ch.word ?? ch.char ?? ch.name ?? '?';
                 const score = ssCharScore(ch);
                 const tone = ssToneDigit(ch);
+                const selected = ssSelectedChar === i;
                 return (
-                  <div className="ss-char" key={i}>
+                  <button
+                    type="button"
+                    className={`ss-char${selected ? ' ss-char-selected' : ''}`}
+                    key={i}
+                    onClick={() => setSsSelectedChar(selected ? null : i)}
+                    aria-expanded={selected}
+                  >
                     <span className="ss-char-hanzi">{label}</span>
                     {tone != null && <span className="ss-char-tone">声调 {tone}</span>}
                     {score != null && (
@@ -1349,10 +1442,11 @@ function StudyCard({
                         <div className="ss-char-fill" style={{ width: `${ssClamp(score)}%`, background: ssColor(score) }} />
                       </div>
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
+            {ssSelectedChar != null && chars[ssSelectedChar] && renderCharDetail(chars[ssSelectedChar])}
           </>
         )}
 
@@ -1374,7 +1468,7 @@ function StudyCard({
         {!speechSuperResult && !isSpeechSuperAssessing && !speechSuperError && (
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => speechSuperAssess(audioBlob, card.note.hanzi)}
+            onClick={() => { setSsSelectedChar(null); speechSuperAssess(audioBlob, card.note.hanzi); }}
             style={{ fontSize: '0.8125rem' }}
             title="Analyse your pronunciation and tones with SpeechSuper"
           >
@@ -1399,7 +1493,7 @@ function StudyCard({
             SpeechSuper: {speechSuperError}{' '}
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => { resetSpeechSuper(); speechSuperAssess(audioBlob, card.note.hanzi); }}
+              onClick={() => { setSsSelectedChar(null); resetSpeechSuper(); speechSuperAssess(audioBlob, card.note.hanzi); }}
               style={{ fontSize: '0.7rem', padding: '0.125rem 0.5rem', marginLeft: '0.25rem' }}
             >
               Retry
