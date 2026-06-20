@@ -1247,128 +1247,119 @@ function StudyCard({
   };
 
   // ===== SpeechSuper (spike): on-demand Mandarin pronunciation + tone report =====
-  const ssScoreColor = (s?: number) =>
-    s == null || isNaN(s) ? '#6b7280' : s >= 80 ? '#22c55e' : s >= 60 ? '#f59e0b' : '#ef4444';
+  // Continuous red -> amber -> green scale (red at 0, green at 100) for smooth bars.
+  const ssColor = (s?: number) => {
+    if (s == null || isNaN(s)) return '#9ca3af';
+    const v = Math.max(0, Math.min(100, s));
+    return `hsl(${Math.round(v * 1.25)}, 68%, 44%)`;
+  };
+  const ssClamp = (s: number) => Math.max(0, Math.min(100, s));
 
   const ssNum = (v: any): number | undefined =>
     typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)) ? Number(v) : undefined;
 
-  // SpeechSuper nests tone in various shapes across coreTypes; pull a readable label.
-  const ssToneLabel = (tone: any): string | null => {
-    if (tone == null) return null;
-    if (typeof tone === 'number' || typeof tone === 'string') return String(tone);
-    if (typeof tone === 'object') {
-      const ref = tone.ref ?? tone.refTone ?? tone.expect;
-      const got = tone.char ?? tone.tone ?? tone.predict ?? tone.detected;
-      if (ref != null && got != null) return `${got}${String(got) === String(ref) ? ' ✓' : ` (want ${ref})`}`;
-      if (got != null) return String(got);
+  // Predicted-tone digit for a character (SpeechSuper exposes `tone` and/or `scores.tone`).
+  // A small value (0–5) is a tone category; a larger one is a 0–100 tone score.
+  const ssToneDigit = (item: any): string | null => {
+    const t = item?.tone ?? item?.scores?.tone;
+    if (t == null) return null;
+    if (typeof t === 'object') {
+      const got = t.char ?? t.tone ?? t.predict ?? t.detected ?? t.value;
+      return got != null ? String(got) : null;
     }
+    const n = ssNum(t);
+    if (n != null && n <= 5) return String(n); // looks like a tone category
     return null;
   };
 
+  // Per-character pronunciation score (0–100), checking the common field locations.
+  const ssCharScore = (item: any): number | undefined =>
+    ssNum(item?.scores?.pronunciation ?? item?.scores?.overall ?? item?.overall ?? item?.pronunciation ?? item?.score);
+
   const renderSpeechSuperReport = (data: SpeechSuperResult) => {
     const r: Record<string, any> = data.result ?? data;
-    const metricKeys = ['overall', 'pronunciation', 'tone', 'fluency', 'integrity', 'rhythm', 'speed'];
+    const overall = ssNum(r.overall);
+
+    // Metric bars (overall is shown separately as the badge).
+    const metricKeys = ['pronunciation', 'tone', 'fluency', 'integrity', 'rhythm'];
     const metrics = metricKeys
       .map((k) => ({ key: k, val: ssNum(r[k]) }))
-      .filter((m) => m.val != null);
+      .filter((m): m is { key: string; val: number } => m.val != null);
 
-    // SpeechSuper returns words[] for sentence eval; word eval may put chars/phones at top level.
-    const words: any[] = Array.isArray(r.words) ? r.words : [];
-    const topChars: any[] = Array.isArray(r.details) ? r.details
-      : Array.isArray(r.phones) ? r.phones
+    // For Mandarin, each entry in result.words[] is a character with its own tone/score.
+    const chars: any[] = Array.isArray(r.words) ? r.words
+      : Array.isArray(r.details) ? r.details
       : Array.isArray(r.chars) ? r.chars
       : [];
 
-    const renderChar = (ch: any, i: number) => {
-      const label = ch.char ?? ch.word ?? ch.phone ?? ch.name ?? '?';
-      const score = ssNum(ch.overall ?? ch.scores?.overall ?? ch.score ?? ch.pronunciation);
-      const tone = ssToneLabel(ch.tone ?? ch.scores?.tone);
-      return (
-        <span key={i} style={{
-          padding: '0.125rem 0.375rem',
-          borderRadius: '4px',
-          backgroundColor: 'rgba(16, 185, 129, 0.12)',
-          fontSize: '0.8125rem',
-          display: 'inline-flex',
-          gap: '0.25rem',
-          alignItems: 'baseline',
-        }}>
-          <span style={{ fontWeight: 600 }}>{label}</span>
-          {score != null && <span style={{ color: ssScoreColor(score), fontWeight: 600 }}>{Math.round(score)}</span>}
-          {tone != null && <span style={{ color: '#0d9488', fontSize: '0.75rem' }}>声调 {tone}</span>}
-        </span>
-      );
-    };
-
     return (
-      <div style={{
-        padding: '0.5rem 0.75rem',
-        borderRadius: '6px',
-        backgroundColor: 'rgba(16, 185, 129, 0.08)',
-        border: '1px solid rgba(16, 185, 129, 0.25)',
-        fontSize: '0.8125rem',
-        marginBottom: '0.5rem',
-        textAlign: 'left',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-          <span style={{ fontWeight: 600, color: '#059669' }}>
-            🎯 SpeechSuper{data.coreType ? ` (${data.coreType})` : ''}
-          </span>
+      <div className="ss-report">
+        <div className="ss-head">
+          <span className="ss-title">🎯 SpeechSuper{data.coreType ? ` · ${data.coreType}` : ''}</span>
           <button
-            className="btn btn-secondary btn-sm"
+            className="ss-rerun"
             onClick={() => { resetSpeechSuper(); if (audioBlob) speechSuperAssess(audioBlob, card.note.hanzi); }}
-            style={{ fontSize: '0.7rem', padding: '0.125rem 0.5rem' }}
           >
-            Re-run
+            ↻ Re-run
           </button>
         </div>
 
-        {metrics.length > 0 ? (
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.375rem' }}>
-            {metrics.map((m) => (
-              <span key={m.key} style={{ textTransform: 'capitalize' }}>
-                {m.key}: <strong style={{ color: ssScoreColor(m.val) }}>{Math.round(m.val as number)}</strong>
-              </span>
-            ))}
+        {(overall != null || metrics.length > 0) ? (
+          <div className="ss-summary">
+            {overall != null && (
+              <div className="ss-overall" style={{ background: ssColor(overall) }}>
+                <span className="ss-overall-num">{Math.round(overall)}</span>
+                <span className="ss-overall-cap">overall</span>
+              </div>
+            )}
+            <div className="ss-metrics">
+              {metrics.map((m) => (
+                <div key={m.key}>
+                  <div className="ss-metric-head">
+                    <span className="ss-metric-label">{m.key}</span>
+                    <span className="ss-metric-val" style={{ color: ssColor(m.val) }}>{Math.round(m.val)}</span>
+                  </div>
+                  <div className="ss-track">
+                    <div className="ss-fill" style={{ width: `${ssClamp(m.val)}%`, background: ssColor(m.val) }} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
-          <div style={{ color: '#6b7280', marginBottom: '0.375rem' }}>
+          <div style={{ color: '#6b7280', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
             No top-level scores parsed — see raw response below.
           </div>
         )}
 
-        {words.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '0.375rem' }}>
-            {words.map((w, wi) => {
-              const chars: any[] = Array.isArray(w.chars) ? w.chars : Array.isArray(w.phones) ? w.phones : [];
-              return (
-                <div key={wi} style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
-                  <span style={{ fontWeight: 600 }}>{w.word ?? ''}</span>
-                  {chars.map((ch, ci) => renderChar(ch, ci))}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {words.length === 0 && topChars.length > 0 && (
-          <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', marginBottom: '0.375rem' }}>
-            {topChars.map((ch, i) => renderChar(ch, i))}
-          </div>
+        {chars.length > 0 && (
+          <>
+            <div className="ss-section-label">Per-character</div>
+            <div className="ss-chars">
+              {chars.map((ch, i) => {
+                const label = ch.word ?? ch.char ?? ch.name ?? '?';
+                const score = ssCharScore(ch);
+                const tone = ssToneDigit(ch);
+                return (
+                  <div className="ss-char" key={i}>
+                    <span className="ss-char-hanzi">{label}</span>
+                    {tone != null && <span className="ss-char-tone">声调 {tone}</span>}
+                    {score != null && (
+                      <div className="ss-char-track" title={`Pronunciation ${Math.round(score)}`}>
+                        <div className="ss-char-fill" style={{ width: `${ssClamp(score)}%`, background: ssColor(score) }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
 
         {/* Spike: surface the full payload so we can see exactly what SpeechSuper returns. */}
-        <details>
-          <summary style={{ cursor: 'pointer', color: '#6b7280', fontSize: '0.75rem' }}>Raw response</summary>
-          <pre style={{
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            fontSize: '0.7rem',
-            maxHeight: '12rem',
-            overflow: 'auto',
-            marginTop: '0.25rem',
-          }}>{JSON.stringify(data, null, 2)}</pre>
+        <details className="ss-raw" style={{ marginTop: '0.5rem' }}>
+          <summary>Raw response</summary>
+          <pre>{JSON.stringify(data, null, 2)}</pre>
         </details>
       </div>
     );
@@ -1392,13 +1383,9 @@ function StudyCard({
         )}
 
         {isSpeechSuperAssessing && (
-          <div style={{
-            padding: '0.5rem 0.75rem',
-            borderRadius: '6px',
-            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-            fontSize: '0.875rem',
-          }}>
+          <div className="ss-loading">
             Analysing tones with SpeechSuper…
+            <div className="ss-loading-track" />
           </div>
         )}
 
