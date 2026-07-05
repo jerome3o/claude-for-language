@@ -86,9 +86,16 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
             Generating story and illustrations...
           </p>
         ) : isFailed ? (
-          <p style={{ color: '#dc2626', margin: 0, fontSize: '0.75rem' }}>
-            Generation failed
-          </p>
+          <div style={{ margin: 0 }}>
+            <p style={{ color: '#dc2626', margin: 0, fontSize: '0.75rem', fontWeight: 600 }}>
+              Generation failed
+            </p>
+            {reader.error_message && (
+              <p style={{ color: '#991b1b', margin: '0.25rem 0 0 0', fontSize: '0.75rem', wordBreak: 'break-word' }}>
+                {reader.error_message}
+              </p>
+            )}
+          </div>
         ) : (
           <p style={{ color: '#9ca3af', margin: 0, fontSize: '0.75rem' }}>
             {reader.vocabulary_used.length} vocabulary items &middot; {formatDate(reader.created_at)}

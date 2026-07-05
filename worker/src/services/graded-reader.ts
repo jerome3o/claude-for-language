@@ -36,6 +36,10 @@ IMAGE PROMPTS:
 
 Use the create_story tool to return the story.`;
 
+// Model for story generation. The previous 'claude-sonnet-4-20250514' was
+// retired by Anthropic (API now returns 404 not_found_error for it).
+const STORY_MODEL = 'claude-sonnet-5';
+
 // Tool definition for structured output
 const CREATE_STORY_TOOL: Anthropic.Tool = {
   name: 'create_story',
@@ -135,9 +139,16 @@ Remember:
 
 Use the create_story tool to return your story.`;
 
+  console.log('[Story] Generating story:', JSON.stringify({
+    model: STORY_MODEL,
+    difficulty,
+    topic: topic || null,
+    vocabulary_count: vocabulary.length,
+  }));
+
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
+    model: STORY_MODEL,
+    max_tokens: 8000,
     messages: [
       { role: 'user', content: userPrompt }
     ],
@@ -146,16 +157,25 @@ Use the create_story tool to return your story.`;
     tool_choice: { type: 'tool', name: 'create_story' },
   });
 
+  console.log('[Story] AI response:', JSON.stringify({
+    stop_reason: response.stop_reason,
+    content_blocks: response.content.map(c => c.type),
+    input_tokens: response.usage?.input_tokens,
+    output_tokens: response.usage?.output_tokens,
+  }));
+
   // Find the tool use block
   const toolUse = response.content.find(c => c.type === 'tool_use');
   if (!toolUse || toolUse.type !== 'tool_use') {
-    throw new Error('No tool use in AI response');
+    console.error('[Story] No tool_use block in response; stop_reason:', response.stop_reason);
+    throw new Error(`No tool use in AI response (stop_reason: ${response.stop_reason})`);
   }
 
   const result = toolUse.input as GeneratedStory;
 
   // Validate structure
   if (!result.title_chinese || !result.title_english || !result.pages || !Array.isArray(result.pages)) {
+    console.error('[Story] Invalid story structure; keys present:', Object.keys(result || {}).join(', '));
     throw new Error('Invalid story structure from AI');
   }
 
