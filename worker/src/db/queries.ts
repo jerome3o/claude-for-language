@@ -1924,11 +1924,14 @@ export async function addReaderPages(
 export async function updateReaderStatus(
   db: D1Database,
   readerId: string,
-  status: 'generating' | 'ready' | 'failed'
+  status: 'generating' | 'ready' | 'failed',
+  errorMessage?: string | null
 ): Promise<void> {
+  // error_message is only meaningful for failed readers; clear it otherwise
+  // so a retry that succeeds doesn't keep showing a stale error.
   await db.prepare(`
-    UPDATE graded_readers SET status = ? WHERE id = ?
-  `).bind(status, readerId).run();
+    UPDATE graded_readers SET status = ?, error_message = ? WHERE id = ?
+  `).bind(status, status === 'failed' ? (errorMessage ?? null) : null, readerId).run();
 }
 
 /**
@@ -2757,13 +2760,13 @@ export async function recordDailyActivity(
 export async function getDailyReader(
   db: D1Database,
   userId: string,
-): Promise<{ reader_id: string; situation_id: string; status: string; created_at: string | null } | null> {
+): Promise<{ reader_id: string; situation_id: string; status: string; created_at: string | null; error_message: string | null } | null> {
   const r = await db.prepare(`
-    SELECT dr.reader_id, dr.situation_id, COALESCE(gr.status, 'generating') AS status, gr.created_at
+    SELECT dr.reader_id, dr.situation_id, COALESCE(gr.status, 'generating') AS status, gr.created_at, gr.error_message
     FROM daily_readers dr
     LEFT JOIN graded_readers gr ON gr.id = dr.reader_id
     WHERE dr.user_id = ? AND dr.date = date('now')
-  `).bind(userId).first<{ reader_id: string; situation_id: string; status: string; created_at: string | null }>();
+  `).bind(userId).first<{ reader_id: string; situation_id: string; status: string; created_at: string | null; error_message: string | null }>();
   return r ?? null;
 }
 

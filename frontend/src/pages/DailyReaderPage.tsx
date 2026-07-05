@@ -67,6 +67,11 @@ export function DailyReaderPage() {
       {isFailed && (
         <div className="rp-error" style={{ marginTop: '1rem' }}>
           <p style={{ margin: '0 0 0.75rem' }}>Something went wrong generating today's story.</p>
+          {reader?.error_message && (
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#991b1b', wordBreak: 'break-word' }}>
+              {reader.error_message}
+            </p>
+          )}
           <button
             onClick={handleRetry}
             style={{

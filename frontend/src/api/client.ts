@@ -1782,7 +1782,7 @@ export interface DailyStatus {
   reader_done: boolean;
   roleplay_done: boolean;
   today_situation: Situation;
-  today_reader: { reader_id: string; situation_id: string; status: string } | null;
+  today_reader: { reader_id: string; situation_id: string; status: string; error_message?: string | null } | null;
 }
 
 export async function getSituations(): Promise<{ situations: Situation[] }> {

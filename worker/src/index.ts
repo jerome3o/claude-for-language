@@ -5435,8 +5435,9 @@ async function getDailyReaderStatus(
 
   if (isStuckGenerating) {
     console.log('[getDailyReaderStatus] Reader stuck generating > 30 min, marking failed:', existing.reader_id);
-    await db.updateReaderStatus(c.env.DB, existing.reader_id, 'failed');
-    return { ...existing, status: 'failed' };
+    const timeoutMsg = 'Generation timed out after 30 minutes';
+    await db.updateReaderStatus(c.env.DB, existing.reader_id, 'failed', timeoutMsg);
+    return { ...existing, status: 'failed', error_message: timeoutMsg };
   }
 
   return existing;
@@ -5464,7 +5465,7 @@ async function startDailyReader(
     if (!isStuckGenerating) return existing;
 
     console.log('[startDailyReader] Reader stuck generating > 30 min, marking failed:', existing.reader_id);
-    await db.updateReaderStatus(c.env.DB, existing.reader_id, 'failed');
+    await db.updateReaderStatus(c.env.DB, existing.reader_id, 'failed', 'Generation timed out after 30 minutes');
   }
 
   // Check vocabulary before reserving a slot, so we never leave a phantom
@@ -6229,9 +6230,11 @@ export default {
 
           message.ack();
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
           console.error('[Queue] Story generation failed for reader:', readerId, err);
-          // Mark as failed and don't retry (story generation is expensive)
-          await db.updateReaderStatus(env.DB, readerId, 'failed');
+          // Mark as failed with the reason so the frontend can show it, and
+          // don't retry (story generation is expensive)
+          await db.updateReaderStatus(env.DB, readerId, 'failed', errMsg);
           message.ack(); // Don't retry, mark as failed instead
         }
       }
