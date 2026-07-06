@@ -639,6 +639,49 @@ export interface AnalyzeSentenceRequest {
 // Response from the API
 export interface AnalyzeSentenceResponse extends SentenceBreakdown {}
 
+// ============ Sentence Coach ============
+
+export type SentenceIssueType = 'grammar' | 'word_choice' | 'word_order' | 'naturalness' | 'typo';
+
+export interface SentenceIssue {
+  type: SentenceIssueType;
+  original: string;
+  suggestion: string;
+  explanation: string;
+}
+
+export interface SentenceAlternative {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  note?: string;
+}
+
+export interface VocabSuggestion {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  reason?: string;
+}
+
+export interface SentenceCoachResult {
+  originalInput: string;
+  inputLanguage: 'chinese' | 'english';
+  // True when the learner's sentence was already correct and natural
+  isCorrect: boolean;
+  corrected: {
+    hanzi: string;
+    pinyin: string;
+    english: string;
+  };
+  // Overall assessment in English
+  critique: string;
+  issues: SentenceIssue[];
+  alternatives: SentenceAlternative[];
+  // Words worth adding to a flashcard deck
+  vocabSuggestions: VocabSuggestion[];
+}
+
 // ============ Graded Readers ============
 
 export type DifficultyLevel = 'beginner' | 'elementary' | 'intermediate' | 'advanced';

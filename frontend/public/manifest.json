@@ -26,5 +26,28 @@
   ],
   "categories": ["education"],
   "lang": "en",
-  "orientation": "any"
+  "orientation": "any",
+  "shortcuts": [
+    {
+      "name": "Study",
+      "short_name": "Study",
+      "description": "Start a study session",
+      "url": "/study",
+      "icons": [{ "src": "/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Sentence Coach",
+      "short_name": "Coach",
+      "description": "Get a sentence corrected and critiqued",
+      "url": "/coach",
+      "icons": [{ "src": "/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Sentence Analysis",
+      "short_name": "Analyze",
+      "description": "Break down a sentence",
+      "url": "/analyze",
+      "icons": [{ "src": "/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    }
+  ]
 }

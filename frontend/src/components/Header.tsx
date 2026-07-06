@@ -292,6 +292,12 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/coach')}
+                >
+                  🧑‍🏫 Sentence Coach
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/duplicate-finder')}
                 >
                   🪞 Duplicate Finder

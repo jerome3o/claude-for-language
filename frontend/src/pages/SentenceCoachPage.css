@@ -1,0 +1,134 @@
+.coach-corrected-hanzi {
+  font-size: 1.75rem;
+  line-height: 1.4;
+  margin-bottom: 0.25rem;
+}
+
+.coach-corrected-pinyin {
+  color: var(--color-text-light);
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.coach-corrected-english {
+  font-size: 1rem;
+}
+
+.coach-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.coach-badge-correct {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.coach-badge-needs-work {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.coach-issue {
+  border-left: 3px solid #f59e0b;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: var(--color-bg, #f9fafb);
+  border-radius: 0 8px 8px 0;
+}
+
+.coach-issue-type {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #92400e;
+  margin-bottom: 0.25rem;
+}
+
+.coach-issue-change {
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.coach-issue-original {
+  text-decoration: line-through;
+  color: #b91c1c;
+}
+
+.coach-issue-suggestion {
+  color: #166534;
+  font-weight: 600;
+}
+
+.coach-issue-explanation {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.coach-vocab-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.coach-vocab-item:last-child {
+  border-bottom: none;
+}
+
+.coach-vocab-hanzi {
+  font-size: 1.25rem;
+}
+
+.coach-vocab-detail {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.coach-vocab-reason {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin-top: 0.125rem;
+}
+
+.coach-alternative {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.coach-alternative:last-child {
+  border-bottom: none;
+}
+
+.coach-deck-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 8px;
+  background: var(--color-card-bg, #fff);
+  margin-bottom: 0.75rem;
+}
+
+.coach-error {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+}
+
+@media (min-width: 640px) {
+  .coach-corrected-hanzi {
+    font-size: 2rem;
+  }
+}
