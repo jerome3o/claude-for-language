@@ -218,7 +218,10 @@ export function useTTS() {
   }, []);
 
   const stop = useCallback(() => {
-    window.speechSynthesis.cancel();
+    // Not available in Android WebView (the native app)
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     setIsSpeaking(false);
   }, []);
 
@@ -247,7 +250,10 @@ export function useNoteAudio() {
       audioRef.current.pause();
       audioRef.current = null;
     }
-    window.speechSynthesis.cancel();
+    // Not available in Android WebView (the native app)
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
   }, []);
 
   const play = useCallback((audioUrl: string | null, text: string, apiBase: string, cacheBuster?: string) => {
