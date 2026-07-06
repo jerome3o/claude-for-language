@@ -19,6 +19,7 @@ import {
   markReviewEventsSynced,
   getCardCheckpoint,
   upsertCardCheckpoint,
+  deleteCardCheckpoint,
   getEventSyncMeta,
   updateEventSyncMeta,
 } from '../db/database';
@@ -407,16 +408,18 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
 export async function reconcileAllEvents(authToken: string | null): Promise<{
   local_events: number;
   uploaded_to_server: number;
+  orphaned: number;
   downloaded: number;
   errors: string[];
 }> {
   if (!authToken) {
-    return { local_events: 0, uploaded_to_server: 0, downloaded: 0, errors: ['Not authenticated'] };
+    return { local_events: 0, uploaded_to_server: 0, orphaned: 0, downloaded: 0, errors: ['Not authenticated'] };
   }
 
   const errors: string[] = [];
   const allEvents = await db.reviewEvents.toArray();
   let uploadedToServer = 0;
+  let orphaned = 0;
 
   const UPLOAD_BATCH = 400;
   for (let i = 0; i < allEvents.length; i += UPLOAD_BATCH) {
@@ -443,8 +446,11 @@ export async function reconcileAllEvents(authToken: string | null): Promise<{
         errors.push(`Upload batch ${i / UPLOAD_BATCH + 1} failed: ${await response.text()}`);
         continue;
       }
-      const result = await response.json() as { created: number };
+      const result = await response.json() as { created: number; skipped_orphans?: number };
       uploadedToServer += result.created;
+      // Events for cards deleted server-side — the server refuses them and
+      // they have no card to affect; they just stay local.
+      orphaned += result.skipped_orphans ?? 0;
     } catch (err) {
       errors.push(`Upload batch ${i / UPLOAD_BATCH + 1} failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -463,6 +469,7 @@ export async function reconcileAllEvents(authToken: string | null): Promise<{
   return {
     local_events: allEvents.length,
     uploaded_to_server: uploadedToServer,
+    orphaned,
     downloaded: download.downloaded,
     errors,
   };
@@ -524,6 +531,12 @@ export async function verifyCardState(cardId: string): Promise<{
  */
 export async function fixCardState(cardId: string): Promise<ComputedCardState> {
   const computed = await recomputeCardState(cardId);
+
+  // Drop the card's checkpoint: it may predate backfilled (older) events, and
+  // checkpoint replay skips events at or before checkpoint_at — so a stale
+  // checkpoint would re-bake the wrong baseline on the next review. It's a
+  // pure cache; the next review recreates it from the full-replay state.
+  await deleteCardCheckpoint(cardId);
 
   // Safety check: don't reset a card to NEW if it already has progress.
   // This can happen if events haven't been written to IndexedDB yet

@@ -920,6 +920,10 @@ export async function upsertCardCheckpoint(checkpoint: LocalCardCheckpoint): Pro
   await db.cardCheckpoints.put(checkpoint);
 }
 
+export async function deleteCardCheckpoint(cardId: string): Promise<void> {
+  await db.cardCheckpoints.delete(cardId);
+}
+
 // ============ Event Sync Metadata ============
 
 export async function getEventSyncMeta(): Promise<EventSyncMeta | undefined> {
