@@ -253,11 +253,10 @@ export async function syncReviewEvents(authToken: string | null): Promise<{
     // Mark all events as synced
     await markReviewEventsSynced(unsyncedEvents.map(e => e.id));
 
-    // Update sync metadata
-    const latestEvent = unsyncedEvents.reduce((latest, e) =>
-      e.reviewed_at > latest.reviewed_at ? e : latest
-    );
-    await updateEventSyncMeta(latestEvent.reviewed_at);
+    // NOTE: deliberately NOT updating the event sync cursor here. The cursor
+    // tracks which server events we've DOWNLOADED (by server created_at);
+    // advancing it on upload (by client reviewed_at) skipped server events
+    // that hadn't been downloaded yet.
 
     return {
       synced: result.created + result.skipped,
@@ -273,6 +272,21 @@ export async function syncReviewEvents(authToken: string | null): Promise<{
 /**
  * Download new review events from the server
  */
+interface ServerReviewEvent {
+  id: string;
+  card_id: string;
+  rating: Rating;
+  reviewed_at: string;
+  time_spent_ms: number | null;
+  user_answer: string | null;
+  // Server insert time — the field the server pages/filters on. Older
+  // deployments may omit it, so fall back to reviewed_at when absent.
+  created_at?: string;
+}
+
+// Safety cap on pagination: 500 pages x 1000 events = 500k events per sync.
+const MAX_DOWNLOAD_PAGES = 500;
+
 export async function downloadReviewEvents(authToken: string | null): Promise<{
   downloaded: number;
   errors: string[];
@@ -281,58 +295,89 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
     return { downloaded: 0, errors: ['Not authenticated'] };
   }
 
-  // Get last sync timestamp
+  // Cursor = server created_at of the last downloaded event (plus event id as
+  // a tie-break within this sync, since batch uploads share created_at).
   const syncMeta = await getEventSyncMeta();
-  const since = syncMeta?.last_event_synced_at || '1970-01-01T00:00:00.000Z';
+  let since = syncMeta?.last_event_synced_at || '1970-01-01T00:00:00.000Z';
+  // Legacy cursors were stored as reviewed_at in ISO format
+  // ("2026-07-06T17:45:35.000Z"), which string-compares AHEAD of the server's
+  // SQL-format created_at ("2026-07-06 17:45:35") and skipped same-day events.
+  // Normalize to SQL format; duplicates are deduped by id below.
+  if (since.includes('T')) {
+    since = since.replace('T', ' ').replace(/(\.\d+)?Z?$/, '');
+  }
+  let afterId = '';
+
+  let downloaded = 0;
+  const affectedCardIds = new Set<string>();
 
   try {
-    const response = await fetch(`${API_BASE}/api/reviews?since=${encodeURIComponent(since)}`, {
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-      },
-    });
+    // A fresh device must page through the FULL event history (tens of
+    // thousands of events) — a single page produces card state computed from
+    // a months-old prefix of reviews and wildly inflated due counts.
+    for (let page = 0; page < MAX_DOWNLOAD_PAGES; page++) {
+      const params = new URLSearchParams({ since });
+      if (afterId) {
+        params.set('after_id', afterId);
+      }
+      const response = await fetch(`${API_BASE}/api/reviews?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+        },
+      });
 
-    if (!response.ok) {
-      const error = await response.text();
-      return { downloaded: 0, errors: [error] };
-    }
+      if (!response.ok) {
+        const error = await response.text();
+        return { downloaded, errors: [error] };
+      }
 
-    const result = await response.json() as {
-      events: Array<{
-        id: string;
-        card_id: string;
-        rating: Rating;
-        reviewed_at: string;
-        time_spent_ms: number | null;
-        user_answer: string | null;
-      }>;
-      has_more: boolean;
-      server_time: string;
-    };
+      const result = await response.json() as {
+        events: ServerReviewEvent[];
+        has_more: boolean;
+        server_time: string;
+      };
 
-    // Store events locally (skip if already exists)
-    let downloaded = 0;
-    const affectedCardIds = new Set<string>();
+      if (result.events.length === 0) {
+        break;
+      }
 
-    for (const serverEvent of result.events) {
-      const exists = await db.reviewEvents.get(serverEvent.id);
-      if (!exists) {
-        await createLocalReviewEvent({
-          id: serverEvent.id,
-          card_id: serverEvent.card_id,
-          rating: serverEvent.rating,
-          reviewed_at: serverEvent.reviewed_at,
-          time_spent_ms: serverEvent.time_spent_ms,
-          user_answer: serverEvent.user_answer,
-          _synced: 1, // Already on server
-        });
-        downloaded++;
-        affectedCardIds.add(serverEvent.card_id);
+      // Store events locally (skip if already exists)
+      for (const serverEvent of result.events) {
+        const exists = await db.reviewEvents.get(serverEvent.id);
+        if (!exists) {
+          await createLocalReviewEvent({
+            id: serverEvent.id,
+            card_id: serverEvent.card_id,
+            rating: serverEvent.rating,
+            reviewed_at: serverEvent.reviewed_at,
+            time_spent_ms: serverEvent.time_spent_ms,
+            user_answer: serverEvent.user_answer,
+            _synced: 1, // Already on server
+          });
+          downloaded++;
+          affectedCardIds.add(serverEvent.card_id);
+        }
+      }
+
+      // Advance the cursor to the last event of the page (server orders by
+      // created_at, id). Persist per page so an interrupted sync resumes.
+      const last = result.events[result.events.length - 1];
+      const cursor = last.created_at || last.reviewed_at;
+      if (cursor === since && last.id === afterId) {
+        // No forward progress — bail rather than loop forever
+        break;
+      }
+      since = cursor;
+      afterId = last.id;
+      await updateEventSyncMeta(since);
+
+      if (!result.has_more) {
+        break;
       }
     }
 
-    // Recompute card state for all affected cards
-    // This ensures downloaded events are reflected in card scheduling
+    // Recompute card state for all affected cards (once, after all pages).
+    // This ensures downloaded events are reflected in card scheduling.
     if (affectedCardIds.size > 0) {
       console.log('[downloadReviewEvents] Recomputing state for', affectedCardIds.size, 'cards with new events');
       for (const cardId of affectedCardIds) {
@@ -344,18 +389,10 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
       }
     }
 
-    // Update sync metadata
-    if (result.events.length > 0) {
-      const latestEvent = result.events.reduce((latest, e) =>
-        e.reviewed_at > latest.reviewed_at ? e : latest
-      );
-      await updateEventSyncMeta(latestEvent.reviewed_at);
-    }
-
     return { downloaded, errors: [] };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    return { downloaded: 0, errors: [errorMessage] };
+    return { downloaded, errors: [errorMessage] };
   }
 }
 

@@ -5094,13 +5094,14 @@ app.post('/api/reviews', async (c) => {
 app.get('/api/reviews', async (c) => {
   const userId = c.get('user').id;
   const since = c.req.query('since');
+  const afterId = c.req.query('after_id') || '';
   const limit = parseInt(c.req.query('limit') || '1000', 10);
 
   if (!since) {
     return c.json({ error: 'since parameter is required (ISO timestamp)' }, 400);
   }
 
-  const events = await db.getReviewEventsSince(c.env.DB, userId, since, limit);
+  const events = await db.getReviewEventsSince(c.env.DB, userId, since, limit, afterId);
 
   // Get sync metadata
   const metadata = await db.getSyncMetadata(c.env.DB, userId);
