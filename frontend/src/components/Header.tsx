@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { syncService } from '../services/sync';
 import { fixAllCardStates } from '../services/review-events';
 import { isDebugConsoleEnabled, setDebugConsoleEnabled } from '../utils/debugConsole';
+import { copyDebugDump } from '../utils/debugDump';
 import { recomputeCardStates, getPendingFeatureRequestCount, getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/client';
 import type { AppNotification } from '../types';
 import './Header.css';
@@ -16,6 +17,7 @@ export function Header() {
   const [isClearing, setIsClearing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRecomputing, setIsRecomputing] = useState(false);
+  const [isDumping, setIsDumping] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -141,6 +143,20 @@ export function Header() {
   const handleToggleDebugConsole = useCallback(() => {
     setDebugConsoleEnabled(!isDebugConsoleEnabled());
     window.location.reload();
+  }, []);
+
+  const handleCopyDebugDump = useCallback(async () => {
+    setIsDumping(true);
+    setShowUserMenu(false);
+    try {
+      const message = await copyDebugDump();
+      alert(message);
+    } catch (err) {
+      console.error('Failed to build debug dump:', err);
+      alert(`Failed to build debug dump: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setIsDumping(false);
+    }
   }, []);
 
   const handleClearCache = useCallback(async () => {
@@ -348,6 +364,13 @@ export function Header() {
                   onClick={handleToggleDebugConsole}
                 >
                   {isDebugConsoleEnabled() ? '🐞 Debug Console: On' : '🐞 Debug Console: Off'}
+                </button>
+                <button
+                  className="user-menu-item"
+                  onClick={handleCopyDebugDump}
+                  disabled={isDumping}
+                >
+                  {isDumping ? '🧪 Building Dump...' : '🧪 Copy Debug Dump'}
                 </button>
                 {user.is_admin && (
                   <>
