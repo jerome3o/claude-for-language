@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Chinese Learning</string>
+    <string name="title_activity_main">Chinese Learning</string>
+    <string name="package_name">dev.jeromeswannack.chineselearning</string>
+    <string name="custom_url_scheme">dev.jeromeswannack.chineselearning</string>
+
+    <string name="process_text_label">Sentence Coach</string>
+
+    <string name="widget_description">Quick shortcuts: study, sentence coach, and decks</string>
+    <string name="widget_study_icon">学</string>
+    <string name="widget_study_label">Study</string>
+    <string name="widget_coach_icon">✏️</string>
+    <string name="widget_coach_label">Coach</string>
+    <string name="widget_decks_icon">📚</string>
+    <string name="widget_decks_label">Decks</string>
+
+    <string name="shortcut_study_long">Start a study session</string>
+    <string name="shortcut_coach_long">Correct &amp; critique a sentence</string>
+    <string name="shortcut_analyze_label">Analyze</string>
+    <string name="shortcut_analyze_long">Break down a sentence</string>
+</resources>

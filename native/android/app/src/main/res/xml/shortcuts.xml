@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="study"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/widget_study_label"
+        android:shortcutLongLabel="@string/shortcut_study_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chineselearning:///study"
+            android:targetPackage="dev.jeromeswannack.chineselearning"
+            android:targetClass="dev.jeromeswannack.chineselearning.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="coach"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/widget_coach_label"
+        android:shortcutLongLabel="@string/shortcut_coach_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chineselearning:///coach"
+            android:targetPackage="dev.jeromeswannack.chineselearning"
+            android:targetClass="dev.jeromeswannack.chineselearning.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="analyze"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_analyze_label"
+        android:shortcutLongLabel="@string/shortcut_analyze_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chineselearning:///analyze"
+            android:targetPackage="dev.jeromeswannack.chineselearning"
+            android:targetClass="dev.jeromeswannack.chineselearning.MainActivity" />
+    </shortcut>
+</shortcuts>

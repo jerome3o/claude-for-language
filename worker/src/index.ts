@@ -13,6 +13,7 @@ import {
 import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
+import { coachSentence } from './services/sentence-coach';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { SITUATIONS, getSituation, getTodaySituation } from './services/situations';
@@ -2331,6 +2332,28 @@ app.post('/api/sentence/analyze', async (c) => {
   } catch (error) {
     console.error('Sentence analysis error:', error);
     return c.json({ error: 'Failed to analyze sentence' }, 500);
+  }
+});
+
+// ============ Sentence Coach (correct & critique) ============
+
+app.post('/api/sentence/coach', async (c) => {
+  const { sentence } = await c.req.json<{ sentence: string }>();
+
+  if (!sentence || typeof sentence !== 'string' || !sentence.trim()) {
+    return c.json({ error: 'sentence is required' }, 400);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI coaching is not configured' }, 500);
+  }
+
+  try {
+    const result = await coachSentence(c.env.ANTHROPIC_API_KEY, sentence.trim());
+    return c.json(result);
+  } catch (error) {
+    console.error('Sentence coach error:', error);
+    return c.json({ error: 'Failed to coach sentence' }, 500);
   }
 });
 

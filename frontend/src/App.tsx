@@ -19,6 +19,7 @@ const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m
 const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
 const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
 const SentenceAnalysisPage = lazy(() => import('./pages/SentenceAnalysisPage').then(m => ({ default: m.SentenceAnalysisPage })));
+const SentenceCoachPage = lazy(() => import('./pages/SentenceCoachPage').then(m => ({ default: m.SentenceCoachPage })));
 const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })));
 const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
 const ConnectionDetailPage = lazy(() => import('./pages/ConnectionDetailPage').then(m => ({ default: m.ConnectionDetailPage })));
@@ -142,6 +143,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <SentenceAnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/coach"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <SentenceCoachPage />
           </ProtectedRoute>
         }
       />

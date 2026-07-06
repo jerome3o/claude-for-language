@@ -1,0 +1,20 @@
+{
+  "appId": "dev.jeromeswannack.chineselearning",
+  "appName": "Chinese Learning",
+  "webDir": "www",
+  "server": {
+    "url": "https://chinese-learning-2x9.pages.dev",
+    "allowNavigation": [
+      "chinese-learning-2x9.pages.dev",
+      "chinese-learning-api.jeromeswannack.workers.dev",
+      "accounts.google.com",
+      "*.google.com",
+      "*.googleusercontent.com",
+      "*.gstatic.com"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "overrideUserAgent": "Mozilla/5.0 (Linux; Android 14; Pixel Fold) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+  }
+}

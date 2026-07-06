@@ -1,0 +1,60 @@
+name: Android App Build
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'native/**'
+      - '.github/workflows/android-build.yml'
+  pull_request:
+    paths:
+      - 'native/**'
+      - '.github/workflows/android-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    name: Build Android APK
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: native/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Capacitor dependencies
+        run: npm ci
+        working-directory: native
+
+      - name: Sync Capacitor config into Android project
+        run: npx cap copy android
+        working-directory: native
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: native/android
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chinese-learning-debug-apk
+          path: native/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30

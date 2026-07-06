@@ -114,6 +114,11 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── wrangler.toml      # Separate worker config (shares D1 database)
 │   └── package.json
 │
+├── native/                # Capacitor Android wrapper (see native/README.md)
+│   ├── capacitor.config.json  # Remote server.url points at the deployed PWA
+│   ├── android/           # Native project: widget, PROCESS_TEXT, deep links
+│   └── www/               # Placeholder only (app loads the live site)
+│
 ├── docs/                  # Documentation
 │   ├── SPEC.md           # Feature specification
 │   ├── ARCHITECTURE.md   # Technical architecture
@@ -127,7 +132,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │
 ├── .github/workflows/     # GitHub Actions
 │   ├── deploy.yml        # Auto-deploy all services on push to main
-│   └── e2e-tests.yml     # E2E tests on PRs and main
+│   ├── e2e-tests.yml     # E2E tests on PRs and main
+│   └── android-build.yml # Builds the sideloadable Android APK (native/)
 │
 └── package.json          # Root package.json (workspaces)
 ```
@@ -513,6 +519,8 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 ### AI
 - `POST /api/ai/generate-deck` - Generate deck from prompt
 - `POST /api/ai/suggest-cards` - Get card suggestions
+- `POST /api/sentence/analyze` - Break a sentence into aligned chunks
+- `POST /api/sentence/coach` - Correct/critique a learner-written sentence (Sentence Coach page at `/coach`, supports `?text=` deep link)
 
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
