@@ -9,7 +9,7 @@ import android.widget.RemoteViews;
 
 /**
  * Home-screen widget with shortcuts that deep-link into the app:
- * Study, Sentence Coach, and Decks (home).
+ * Study and Sentence Coach.
  */
 public class ShortcutsWidgetProvider extends AppWidgetProvider {
 
@@ -20,7 +20,6 @@ public class ShortcutsWidgetProvider extends AppWidgetProvider {
 
             views.setOnClickPendingIntent(R.id.widget_button_study, routeIntent(context, 0, "/study"));
             views.setOnClickPendingIntent(R.id.widget_button_coach, routeIntent(context, 1, "/coach"));
-            views.setOnClickPendingIntent(R.id.widget_button_decks, routeIntent(context, 2, "/"));
 
             appWidgetManager.updateAppWidget(appWidgetId, views);
         }
