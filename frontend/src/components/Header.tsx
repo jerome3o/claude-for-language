@@ -2,11 +2,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { syncService } from '../services/sync';
-import { fixAllCardStates, reconcileAllEvents } from '../services/review-events';
-import { getAuthToken } from '../api/client';
 import { isDebugConsoleEnabled, setDebugConsoleEnabled } from '../utils/debugConsole';
 import { copyDebugDump } from '../utils/debugDump';
-import { recomputeCardStates, getPendingFeatureRequestCount, getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/client';
+import { checkForUpdateNow, BUILD_TIME } from '../utils/appUpdates';
+import { getPendingFeatureRequestCount, getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/client';
 import type { AppNotification } from '../types';
 import './Header.css';
 
@@ -15,11 +14,9 @@ export function Header() {
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [isClearing, setIsClearing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isRecomputing, setIsRecomputing] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [isDumping, setIsDumping] = useState(false);
-  const [isReconciling, setIsReconciling] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -108,72 +105,78 @@ export function Header() {
     navigate(path);
   };
 
-  const handleForceSync = useCallback(async () => {
+  // The one sync button: two-way event reconciliation, server + local card
+  // state recompute, recordings upload, and a full deck/note refresh.
+  const handleFullSync = useCallback(async () => {
+    if (!confirm(
+      'Run a full sync?\n\n' +
+      'This reconciles your complete review history with the server, refreshes all decks ' +
+      'and notes, and recomputes every card. It can take a minute or two — keep the app open.'
+    )) {
+      return;
+    }
     setIsSyncing(true);
     setShowUserMenu(false);
     try {
-      await syncService.forceFullResync();
+      const result = await syncService.deepSync();
+      console.log('Full sync result:', result);
+      const errorNote = result.errors.length > 0 ? `\nErrors: ${result.errors.join('; ')}` : '';
+      alert(
+        `Full sync complete.\n` +
+        `Reviews: ${result.events_local} local, ${result.events_uploaded} new on server, ` +
+        `${result.events_downloaded} downloaded` +
+        (result.events_orphaned > 0 ? ` (${result.events_orphaned} orphans of deleted cards stay local)` : '') + `\n` +
+        `Recordings uploaded: ${result.recordings_uploaded}\n` +
+        `Cards recomputed: ${result.cards_recomputed}${errorNote}`
+      );
       window.location.reload();
     } catch (err) {
-      console.error('Failed to force sync:', err);
+      console.error('Full sync failed:', err);
+      alert(`Full sync failed: ${err instanceof Error ? err.message : err}`);
       setIsSyncing(false);
     }
   }, []);
 
-  const handleRecomputeStates = useCallback(async () => {
-    setIsRecomputing(true);
-    setShowUserMenu(false);
+  const handleUpdateApp = useCallback(async () => {
+    setIsUpdating(true);
     try {
-      // The state the user sees is LOCAL (IndexedDB) — fix that first
-      const local = await fixAllCardStates();
-      console.log('Recomputed local card states:', local);
-      // Then refresh the server's cached card state
-      const server = await recomputeCardStates();
-      console.log('Recomputed server card states:', server);
-      alert(
-        `Local: fixed ${local.fixed} of ${local.total} cards (${local.errors.length} errors)\n` +
-        `Server: updated ${server.updated} of ${server.total_cards} cards (${server.errors} errors)`
-      );
+      const outcome = await checkForUpdateNow();
+      if (outcome === 'updating') {
+        alert('New version found — updating now...');
+        // The page reloads automatically when the new service worker takes
+        // over (see utils/appUpdates.ts); this is just a fallback.
+        setTimeout(() => window.location.reload(), 4000);
+        return;
+      }
+      if (outcome === 'latest') {
+        alert(`You're on the latest version.\nBuilt: ${BUILD_TIME}`);
+        setIsUpdating(false);
+        return;
+      }
+      // No service worker — fall back to a hard cache clear
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          await registration.unregister();
+        }
+      }
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        for (const cacheName of cacheNames) {
+          await caches.delete(cacheName);
+        }
+      }
       window.location.reload();
     } catch (err) {
-      console.error('Failed to recompute card states:', err);
-      alert(`Failed to recompute card states: ${err instanceof Error ? err.message : err}`);
-      setIsRecomputing(false);
+      console.error('Failed to update app:', err);
+      alert(`Update check failed: ${err instanceof Error ? err.message : err}`);
+      setIsUpdating(false);
     }
   }, []);
 
   const handleToggleDebugConsole = useCallback(() => {
     setDebugConsoleEnabled(!isDebugConsoleEnabled());
     window.location.reload();
-  }, []);
-
-  const handleReconcileEvents = useCallback(async () => {
-    if (!confirm(
-      'Reconcile all review events with the server?\n\n' +
-      'This re-uploads your full local history (the server skips duplicates) and re-downloads ' +
-      'anything this device is missing. It can take a minute or two — keep the app open.'
-    )) {
-      return;
-    }
-    setIsReconciling(true);
-    setShowUserMenu(false);
-    try {
-      const result = await reconcileAllEvents(getAuthToken());
-      console.log('Reconciled events:', result);
-      const errorNote = result.errors.length > 0 ? `\nErrors: ${result.errors.join('; ')}` : '';
-      alert(
-        `Reconcile complete.\n` +
-        `Local events: ${result.local_events}\n` +
-        `New on server: ${result.uploaded_to_server}\n` +
-        `Orphans (deleted cards, stay local): ${result.orphaned}\n` +
-        `Downloaded here: ${result.downloaded}${errorNote}`
-      );
-      window.location.reload();
-    } catch (err) {
-      console.error('Failed to reconcile events:', err);
-      alert(`Failed to reconcile events: ${err instanceof Error ? err.message : err}`);
-      setIsReconciling(false);
-    }
   }, []);
 
   const handleCopyDebugDump = useCallback(async () => {
@@ -187,33 +190,6 @@ export function Header() {
       alert(`Failed to build debug dump: ${err instanceof Error ? err.message : err}`);
     } finally {
       setIsDumping(false);
-    }
-  }, []);
-
-  const handleClearCache = useCallback(async () => {
-    setIsClearing(true);
-    try {
-      // Unregister service workers
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          await registration.unregister();
-        }
-      }
-
-      // Clear all caches
-      if ('caches' in window) {
-        const cacheNames = await caches.keys();
-        for (const cacheName of cacheNames) {
-          await caches.delete(cacheName);
-        }
-      }
-
-      // Reload the page
-      window.location.reload();
-    } catch (err) {
-      console.error('Failed to clear cache:', err);
-      setIsClearing(false);
     }
   }, []);
 
@@ -378,17 +354,17 @@ export function Header() {
                 <div className="user-menu-divider" />
                 <button
                   className="user-menu-item"
-                  onClick={handleForceSync}
+                  onClick={handleFullSync}
                   disabled={isSyncing}
                 >
-                  {isSyncing ? '🔄 Syncing...' : '🔄 Force Full Sync'}
+                  {isSyncing ? '🔄 Syncing...' : '🔄 Full Sync'}
                 </button>
                 <button
                   className="user-menu-item"
-                  onClick={handleRecomputeStates}
-                  disabled={isRecomputing}
+                  onClick={handleUpdateApp}
+                  disabled={isUpdating}
                 >
-                  {isRecomputing ? '🔧 Recomputing...' : '🔧 Fix Card States'}
+                  {isUpdating ? '⬇️ Checking...' : '⬇️ Update App'}
                 </button>
                 <button
                   className="user-menu-item"
@@ -402,13 +378,6 @@ export function Header() {
                   disabled={isDumping}
                 >
                   {isDumping ? '🧪 Building Dump...' : '🧪 Copy Debug Dump'}
-                </button>
-                <button
-                  className="user-menu-item"
-                  onClick={handleReconcileEvents}
-                  disabled={isReconciling}
-                >
-                  {isReconciling ? '♻️ Reconciling...' : '♻️ Reconcile Events'}
                 </button>
                 {user.is_admin && (
                   <>
@@ -426,13 +395,6 @@ export function Header() {
                       onClick={() => handleMenuItemClick('/admin')}
                     >
                       ⚙️ Admin
-                    </button>
-                    <button
-                      className="user-menu-item"
-                      onClick={handleClearCache}
-                      disabled={isClearing}
-                    >
-                      {isClearing ? '🔄 Clearing...' : '🗑️ Clear Cache & Refresh'}
                     </button>
                   </>
                 )}
