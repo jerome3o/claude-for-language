@@ -397,6 +397,78 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
 }
 
 /**
+ * Full two-way reconciliation with the server. Fixes cross-device drift:
+ * 1. Re-uploads ALL local events (server dedups by id, so this only fills
+ *    server-side gaps, e.g. events once marked synced that never landed).
+ * 2. Rewinds the download cursor to the epoch and re-runs the paginated
+ *    download (local dedup fills any events this device skipped in the past).
+ * Card states for cards that gained events are recomputed by the download.
+ */
+export async function reconcileAllEvents(authToken: string | null): Promise<{
+  local_events: number;
+  uploaded_to_server: number;
+  downloaded: number;
+  errors: string[];
+}> {
+  if (!authToken) {
+    return { local_events: 0, uploaded_to_server: 0, downloaded: 0, errors: ['Not authenticated'] };
+  }
+
+  const errors: string[] = [];
+  const allEvents = await db.reviewEvents.toArray();
+  let uploadedToServer = 0;
+
+  const UPLOAD_BATCH = 400;
+  for (let i = 0; i < allEvents.length; i += UPLOAD_BATCH) {
+    const chunk = allEvents.slice(i, i + UPLOAD_BATCH);
+    try {
+      const response = await fetch(`${API_BASE}/api/reviews`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          events: chunk.map(e => ({
+            id: e.id,
+            card_id: e.card_id,
+            rating: e.rating,
+            reviewed_at: e.reviewed_at,
+            time_spent_ms: e.time_spent_ms,
+            user_answer: e.user_answer,
+          })),
+        }),
+      });
+      if (!response.ok) {
+        errors.push(`Upload batch ${i / UPLOAD_BATCH + 1} failed: ${await response.text()}`);
+        continue;
+      }
+      const result = await response.json() as { created: number };
+      uploadedToServer += result.created;
+    } catch (err) {
+      errors.push(`Upload batch ${i / UPLOAD_BATCH + 1} failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Everything local is now on the server (or was already)
+  if (errors.length === 0) {
+    await db.reviewEvents.toCollection().modify({ _synced: 1 });
+  }
+
+  // Rewind the cursor and pull the full history; dedup keeps this cheap
+  await updateEventSyncMeta('1970-01-01 00:00:00');
+  const download = await downloadReviewEvents(authToken);
+  errors.push(...download.errors);
+
+  return {
+    local_events: allEvents.length,
+    uploaded_to_server: uploadedToServer,
+    downloaded: download.downloaded,
+    errors,
+  };
+}
+
+/**
  * Verify card state matches computed state from events
  * Returns true if they match, false if there's a mismatch
  */

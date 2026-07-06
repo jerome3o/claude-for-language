@@ -136,38 +136,42 @@ export async function createReviewEventsBatch(
   let created = 0;
   let skipped = 0;
 
-  for (const event of events) {
+  // INSERT OR IGNORE via db.batch: one D1 call per chunk instead of two
+  // queries per event, so large reconcile uploads stay under the Workers
+  // subrequest cap. Duplicates are skipped by the primary key (changes = 0).
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO review_events (
+      id, card_id, user_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const CHUNK_SIZE = 100;
+  for (let i = 0; i < events.length; i += CHUNK_SIZE) {
+    const chunk = events.slice(i, i + CHUNK_SIZE);
     try {
-      // Check if event already exists (idempotency)
-      const existing = await db.prepare('SELECT id FROM review_events WHERE id = ?')
-        .bind(event.id)
-        .first();
-
-      if (existing) {
-        skipped++;
-        continue;
-      }
-
-      await db.prepare(`
-        INSERT INTO review_events (
-          id, card_id, user_id, rating, time_spent_ms, user_answer, recording_url, reviewed_at
+      const results = await db.batch(chunk.map(event =>
+        stmt.bind(
+          event.id,
+          event.card_id,
+          event.user_id,
+          event.rating,
+          event.time_spent_ms || null,
+          event.user_answer || null,
+          event.recording_url || null,
+          event.reviewed_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        event.id,
-        event.card_id,
-        event.user_id,
-        event.rating,
-        event.time_spent_ms || null,
-        event.user_answer || null,
-        event.recording_url || null,
-        event.reviewed_at
-      ).run();
-
-      created++;
+      ));
+      for (const r of results) {
+        if (r.meta.changes > 0) {
+          created++;
+        } else {
+          skipped++;
+        }
+      }
     } catch (err) {
-      console.error('[createReviewEventsBatch] Error creating event:', event.id, err);
-      skipped++;
+      console.error('[createReviewEventsBatch] Batch insert failed at offset', i, err);
+      skipped += chunk.length;
     }
   }
 
