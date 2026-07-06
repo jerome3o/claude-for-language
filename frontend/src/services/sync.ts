@@ -15,8 +15,8 @@ import {
 } from '../db/database';
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
-import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording } from '../api/client';
-import { syncReviewEvents, downloadReviewEvents, fixAllCardStates } from './review-events';
+import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates } from '../api/client';
+import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents } from './review-events';
 import { preCacheAudio } from './audioCache';
 
 const API_PATH = `${API_BASE}/api`;
@@ -608,6 +608,67 @@ class SyncService {
     console.log('[SyncService] Forcing full resync (preserving local data)...');
     await resetSyncTimestamps();
     await this.fullSync();
+  }
+
+  /**
+   * Comprehensive sync — the one button that does everything the scattered
+   * recovery actions (Force Full Sync / Fix Card States / Reconcile Events)
+   * used to do, in the right order:
+   * 1. Two-way event reconciliation: ALL local events uploaded (server dedups
+   *    by id — heals uploads that were lost), download cursor rewound to the
+   *    epoch and the full history re-downloaded (local dedup — heals skipped
+   *    events).
+   * 2. Server-side card state recompute (refreshes the server's cached view).
+   * 3. Regular event sync: uploads pending recordings, cleanup.
+   * 4. Full deck/note/card refresh from the server.
+   * 5. Local full-replay recompute of EVERY card (also drops stale
+   *    checkpoints, so the corrected state sticks).
+   */
+  async deepSync(): Promise<{
+    events_local: number;
+    events_uploaded: number;
+    events_orphaned: number;
+    events_downloaded: number;
+    recordings_uploaded: number;
+    cards_recomputed: number;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+
+    this.notifyProgress({ phase: 'starting', message: 'Reconciling reviews with server...' });
+    const reconcile = await reconcileAllEvents(getAuthToken());
+    errors.push(...reconcile.errors);
+
+    this.notifyProgress({ phase: 'events-up', message: 'Refreshing server card states...' });
+    try {
+      await recomputeCardStates();
+    } catch (err) {
+      errors.push(`Server recompute failed: ${err instanceof Error ? err.message : err}`);
+    }
+
+    // Recordings upload + cleanup (events themselves were just reconciled)
+    const events = await this.syncEvents();
+    errors.push(...events.errors);
+
+    this.notifyProgress({ phase: 'decks', message: 'Refreshing decks and notes...' });
+    await resetSyncTimestamps();
+    await this.fullSync();
+
+    this.notifyProgress({ phase: 'cards', message: 'Recomputing all card states...' });
+    const cardFix = await fixAllCardStates();
+    errors.push(...cardFix.errors);
+
+    this.notifyProgress({ phase: 'done', message: 'Full sync complete' });
+
+    return {
+      events_local: reconcile.local_events,
+      events_uploaded: reconcile.uploaded_to_server,
+      events_orphaned: reconcile.orphaned,
+      events_downloaded: reconcile.downloaded,
+      recordings_uploaded: events.recordings_uploaded,
+      cards_recomputed: cardFix.fixed,
+      errors,
+    };
   }
 
   get isSyncingNow(): boolean {
