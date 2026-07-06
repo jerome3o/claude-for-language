@@ -10,9 +10,8 @@ Capacitor config, app icon, etc.).
 
 ## What the native shell adds
 
-- **Home-screen widget** ("Chinese Learning" in the widget picker): three buttons
-  that deep-link into the app — 学 Study (`/study`), ✏️ Coach (`/coach`),
-  📚 Decks (`/`).
+- **Home-screen widget** ("Chinese Learning" in the widget picker): two buttons
+  that deep-link into the app — 学 Study (`/study`) and ✏️ Coach (`/coach`).
 - **Launcher shortcuts**: long-press the app icon for Study / Coach / Analyze.
 - **Text-selection entry point**: select text in ANY app, open the selection
   toolbar (⋮ overflow), choose **Sentence Coach** — the app opens on
