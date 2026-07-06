@@ -181,14 +181,18 @@ export async function getReviewEventsSince(
   db: D1Database,
   userId: string,
   since: string,
-  limit: number = 1000
+  limit: number = 1000,
+  afterId: string = ''
 ): Promise<ReviewEvent[]> {
+  // Tuple cursor (created_at, id): batch uploads insert many events with the
+  // same created_at second, so a plain created_at > ? cursor would skip events
+  // that share the second at a page boundary.
   const result = await db.prepare(`
     SELECT * FROM review_events
-    WHERE user_id = ? AND created_at > ?
-    ORDER BY created_at ASC
+    WHERE user_id = ? AND (created_at > ? OR (created_at = ? AND id > ?))
+    ORDER BY created_at ASC, id ASC
     LIMIT ?
-  `).bind(userId, since, limit).all<ReviewEvent>();
+  `).bind(userId, since, since, afterId, limit).all<ReviewEvent>();
 
   return result.results;
 }
