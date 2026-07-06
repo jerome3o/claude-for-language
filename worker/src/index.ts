@@ -4985,20 +4985,24 @@ app.post('/api/reviews', async (c) => {
     }
   }
 
-  // Verify which cards belong to this user
+  // Verify which cards belong to this user — chunked IN queries instead of
+  // one query per card, so large reconcile uploads stay under the Workers
+  // subrequest cap.
   const cardIds = [...new Set(events.map(e => e.card_id))];
-  const verificationPromises = cardIds.map(cardId =>
-    db.getCardById(c.env.DB, cardId, userId)
-  );
-  const cards = await Promise.all(verificationPromises);
-
-  // Build set of valid card IDs (cards that exist and belong to user)
   const validCardIds = new Set<string>();
-  cardIds.forEach((cardId, index) => {
-    if (cards[index]) {
-      validCardIds.add(cardId);
+  const CARD_CHECK_CHUNK = 90;
+  for (let i = 0; i < cardIds.length; i += CARD_CHECK_CHUNK) {
+    const chunk = cardIds.slice(i, i + CARD_CHECK_CHUNK);
+    const rows = await c.env.DB.prepare(`
+      SELECT c.id FROM cards c
+      JOIN notes n ON c.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND c.id IN (${chunk.map(() => '?').join(',')})
+    `).bind(userId, ...chunk).all<{ id: string }>();
+    for (const row of rows.results) {
+      validCardIds.add(row.id);
     }
-  });
+  }
 
   // Filter events to only include valid cards, skip orphaned events
   const validEvents = events.filter(e => validCardIds.has(e.card_id));
@@ -5027,44 +5031,55 @@ app.post('/api/reviews', async (c) => {
   }
 
   // Recompute card state for all affected cards
-  // This ensures the cards table reflects the latest state after sync
+  // This ensures the cards table reflects the latest state after sync.
+  // Bulk reads + batched writes, like /api/cards/recompute-states — the old
+  // 2-queries-per-card loop broke large reconcile uploads.
   if (result.created > 0) {
     const affectedCardIds = [...new Set(validEvents.map(e => e.card_id))];
     console.log(`[API reviews] Recomputing state for ${affectedCardIds.length} cards`);
 
-    for (const cardId of affectedCardIds) {
+    // Fetch full event history for the affected cards in chunked IN queries
+    const eventsByCard = new Map<string, SchedulerReviewEvent[]>();
+    const EVENT_FETCH_CHUNK = 50;
+    for (let i = 0; i < affectedCardIds.length; i += EVENT_FETCH_CHUNK) {
+      const chunk = affectedCardIds.slice(i, i + EVENT_FETCH_CHUNK);
+      const rows = await c.env.DB.prepare(`
+        SELECT id, card_id, rating, reviewed_at FROM review_events
+        WHERE user_id = ? AND card_id IN (${chunk.map(() => '?').join(',')})
+        ORDER BY reviewed_at ASC
+      `).bind(userId, ...chunk).all<{ id: string; card_id: string; rating: number; reviewed_at: string }>();
+      for (const e of rows.results) {
+        let list = eventsByCard.get(e.card_id);
+        if (!list) {
+          list = [];
+          eventsByCard.set(e.card_id, list);
+        }
+        list.push({ id: e.id, card_id: e.card_id, rating: e.rating as 0 | 1 | 2 | 3, reviewed_at: e.reviewed_at });
+      }
+    }
+
+    // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
+    // but not all FSRS columns (scheduled_days, reps). Map accordingly.
+    const updateStmt = c.env.DB.prepare(`
+      UPDATE cards SET
+        queue = ?,
+        stability = ?,
+        difficulty = ?,
+        lapses = ?,
+        ease_factor = ?,
+        interval = ?,
+        repetitions = ?,
+        next_review_at = ?,
+        due_timestamp = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `);
+
+    const statements: D1PreparedStatement[] = [];
+    for (const [cardId, cardEvents] of eventsByCard) {
       try {
-        // Get all review events for this card
-        const cardEvents = await db.getCardReviewEvents(c.env.DB, cardId, userId);
-
-        // Convert to scheduler format
-        const schedulerEvents: SchedulerReviewEvent[] = cardEvents.map(e => ({
-          id: e.id,
-          card_id: e.card_id,
-          rating: e.rating as 0 | 1 | 2 | 3,
-          reviewed_at: e.reviewed_at,
-        }));
-
-        // Compute new state from all events
-        const newState = computeCardState(schedulerEvents, FSRS_DEFAULT_SETTINGS);
-
-        // Update the card with the computed state
-        // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
-        // but not all FSRS columns (scheduled_days, reps). Map accordingly.
-        await c.env.DB.prepare(`
-          UPDATE cards SET
-            queue = ?,
-            stability = ?,
-            difficulty = ?,
-            lapses = ?,
-            ease_factor = ?,
-            interval = ?,
-            repetitions = ?,
-            next_review_at = ?,
-            due_timestamp = ?,
-            updated_at = datetime('now')
-          WHERE id = ?
-        `).bind(
+        const newState = computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS);
+        statements.push(updateStmt.bind(
           newState.queue,
           newState.stability,
           newState.difficulty,
@@ -5075,10 +5090,19 @@ app.post('/api/reviews', async (c) => {
           newState.next_review_at,
           newState.due_timestamp,
           cardId
-        ).run();
+        ));
       } catch (err) {
         console.error(`[API reviews] Failed to recompute state for card ${cardId}:`, err);
         // Continue with other cards even if one fails
+      }
+    }
+
+    const UPDATE_BATCH = 100;
+    for (let i = 0; i < statements.length; i += UPDATE_BATCH) {
+      try {
+        await c.env.DB.batch(statements.slice(i, i + UPDATE_BATCH));
+      } catch (err) {
+        console.error(`[API reviews] Card state batch update failed at offset ${i}:`, err);
       }
     }
   }

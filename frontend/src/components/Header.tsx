@@ -2,7 +2,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { syncService } from '../services/sync';
-import { fixAllCardStates } from '../services/review-events';
+import { fixAllCardStates, reconcileAllEvents } from '../services/review-events';
+import { getAuthToken } from '../api/client';
 import { isDebugConsoleEnabled, setDebugConsoleEnabled } from '../utils/debugConsole';
 import { copyDebugDump } from '../utils/debugDump';
 import { recomputeCardStates, getPendingFeatureRequestCount, getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/client';
@@ -18,6 +19,7 @@ export function Header() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRecomputing, setIsRecomputing] = useState(false);
   const [isDumping, setIsDumping] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -143,6 +145,34 @@ export function Header() {
   const handleToggleDebugConsole = useCallback(() => {
     setDebugConsoleEnabled(!isDebugConsoleEnabled());
     window.location.reload();
+  }, []);
+
+  const handleReconcileEvents = useCallback(async () => {
+    if (!confirm(
+      'Reconcile all review events with the server?\n\n' +
+      'This re-uploads your full local history (the server skips duplicates) and re-downloads ' +
+      'anything this device is missing. It can take a minute or two — keep the app open.'
+    )) {
+      return;
+    }
+    setIsReconciling(true);
+    setShowUserMenu(false);
+    try {
+      const result = await reconcileAllEvents(getAuthToken());
+      console.log('Reconciled events:', result);
+      const errorNote = result.errors.length > 0 ? `\nErrors: ${result.errors.join('; ')}` : '';
+      alert(
+        `Reconcile complete.\n` +
+        `Local events: ${result.local_events}\n` +
+        `New on server: ${result.uploaded_to_server}\n` +
+        `Downloaded here: ${result.downloaded}${errorNote}`
+      );
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to reconcile events:', err);
+      alert(`Failed to reconcile events: ${err instanceof Error ? err.message : err}`);
+      setIsReconciling(false);
+    }
   }, []);
 
   const handleCopyDebugDump = useCallback(async () => {
@@ -371,6 +401,13 @@ export function Header() {
                   disabled={isDumping}
                 >
                   {isDumping ? '🧪 Building Dump...' : '🧪 Copy Debug Dump'}
+                </button>
+                <button
+                  className="user-menu-item"
+                  onClick={handleReconcileEvents}
+                  disabled={isReconciling}
+                >
+                  {isReconciling ? '♻️ Reconciling...' : '♻️ Reconcile Events'}
                 </button>
                 {user.is_admin && (
                   <>
