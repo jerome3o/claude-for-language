@@ -165,6 +165,7 @@ export function Header() {
         `Reconcile complete.\n` +
         `Local events: ${result.local_events}\n` +
         `New on server: ${result.uploaded_to_server}\n` +
+        `Orphans (deleted cards, stay local): ${result.orphaned}\n` +
         `Downloaded here: ${result.downloaded}${errorNote}`
       );
       window.location.reload();
