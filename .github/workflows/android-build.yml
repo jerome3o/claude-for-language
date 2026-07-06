@@ -44,8 +44,8 @@ jobs:
         run: npm ci
         working-directory: native
 
-      - name: Sync Capacitor config into Android project
-        run: npx cap copy android
+      - name: Sync Capacitor project (config + generated plugin project)
+        run: npx cap sync android
         working-directory: native
 
       - name: Build debug APK

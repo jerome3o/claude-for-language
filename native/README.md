@@ -36,7 +36,7 @@ It is a debug-signed APK — fine for personal sideloading, not for Play Store.
 ```bash
 cd native
 npm install
-npx cap copy android          # sync capacitor.config.json into the project
+npx cap sync android          # copies config + regenerates gitignored plugin project
 cd android && ./gradlew assembleDebug
 # APK at android/app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -61,9 +61,10 @@ can't download its distribution, a system Gradle >= 8.11 works too.
 
 ## Gotchas
 
-- `capacitor.config.json` changes are only picked up after `npx cap copy android`
+- `capacitor.config.json` changes are only picked up after `npx cap sync android`
   (CI does this automatically) — the config is baked into
-  `android/app/src/main/assets/capacitor.config.json`.
+  `android/app/src/main/assets/capacitor.config.json`. Sync also regenerates
+  `android/capacitor-cordova-android-plugins/`, which is gitignored on purpose.
 - The widget/shortcut routes are plain web routes; if a page path changes in the
   frontend, update the constants in `ShortcutsWidgetProvider.java`,
   `shortcuts.xml`, and `ProcessTextActivity.java`.
