@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+// CI overrides these so every release has an increasing versionCode
+// (required for installers like Obtainium to apply updates in place).
+def appVersionCode = (System.getenv("APP_VERSION_CODE") ?: "1").toInteger()
+def appVersionName = System.getenv("APP_VERSION_NAME") ?: "1.0"
+
+// Release signing comes from CI secrets (see .github/workflows/android-build.yml).
+// Without ANDROID_KEYSTORE_FILE set, release builds fall back to unsigned.
+def releaseKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+
 android {
     namespace "dev.jeromeswannack.chineselearning"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +16,8 @@ android {
         applicationId "dev.jeromeswannack.chineselearning"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +25,21 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (releaseKeystoreFile) {
+            release {
+                storeFile file(releaseKeystoreFile)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "chineselearning"
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (releaseKeystoreFile) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

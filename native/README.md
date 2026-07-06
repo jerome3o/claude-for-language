@@ -21,15 +21,35 @@ Capacitor config, app icon, etc.).
 - **Deep-link scheme**: `chineselearning:///<route>` opens the app at that route
   (e.g. `chineselearning:///study`). Usable from other apps, Tasker, etc.
 
-## Getting the APK
+## Getting the APK / updates (Obtainium)
 
 CI builds it: the **Android App Build** workflow
 (`.github/workflows/android-build.yml`) runs on pushes/PRs touching `native/`
-and on manual dispatch. Download the `chinese-learning-debug-apk` artifact from
-the workflow run, copy `app-debug.apk` to the phone, and sideload it (you may
-need to allow "install unknown apps" for your browser/Files app).
+and on manual dispatch.
 
-It is a debug-signed APK — fine for personal sideloading, not for Play Store.
+- **On `main`** (with signing secrets configured): builds a **signed release
+  APK** and publishes it as a GitHub Release (`android-v1.<run>` tags, asset
+  `chinese-learning.apk`). `versionCode` is the workflow run number, so every
+  release is installable *over* the previous one — no uninstall needed.
+- **On branches/PRs**: builds a debug APK and uploads it as the
+  `chinese-learning-debug-apk` workflow artifact (throwaway signature; you must
+  uninstall before switching between debug and release builds).
+
+**Auto-updates**: install [Obtainium](https://github.com/ImranR98/Obtainium)
+on the phone, Add App → paste `https://github.com/jerome3o/claude-for-language`.
+Obtainium watches the GitHub Releases and notifies/installs each new version.
+
+**Required GitHub Actions secrets** (repo Settings → Secrets and variables →
+Actions):
+
+- `ANDROID_KEYSTORE_BASE64` — base64 of the release keystore
+  (alias `chineselearning`)
+- `ANDROID_KEYSTORE_PASSWORD` — its store/key password
+
+If the secrets are missing, main builds fall back to the debug artifact rather
+than failing. The keystore is precious: if it's lost, the next build can't
+update over installed copies (uninstall/reinstall required) — keep a copy in a
+password manager.
 
 ## Local development
 

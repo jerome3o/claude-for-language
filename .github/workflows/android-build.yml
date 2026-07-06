@@ -19,6 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     name: Build Android APK
     timeout-minutes: 30
+    permissions:
+      contents: write # create releases
+    env:
+      # Signed release published to GitHub Releases (for Obtainium) on main;
+      # every other build produces a debug APK workflow artifact.
+      IS_RELEASE: ${{ github.ref == 'refs/heads/main' && secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      APP_VERSION_CODE: ${{ github.run_number }}
+      APP_VERSION_NAME: 1.${{ github.run_number }}
 
     steps:
       - name: Checkout
@@ -48,13 +56,48 @@ jobs:
         run: npx cap sync android
         working-directory: native
 
+      # ---- Debug build (branches / PRs, or main before signing secrets exist) ----
+
       - name: Build debug APK
+        if: env.IS_RELEASE != 'true'
         run: ./gradlew assembleDebug --no-daemon
         working-directory: native/android
 
-      - name: Upload APK artifact
+      - name: Upload debug APK artifact
+        if: env.IS_RELEASE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: chinese-learning-debug-apk
           path: native/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+      # ---- Signed release build published to GitHub Releases (main only) ----
+
+      - name: Decode signing keystore
+        if: env.IS_RELEASE == 'true'
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Build signed release APK
+        if: env.IS_RELEASE == 'true'
+        run: ./gradlew assembleRelease --no-daemon
+        working-directory: native/android
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: chineselearning
+
+      - name: Rename APK for release
+        if: env.IS_RELEASE == 'true'
+        run: cp native/android/app/build/outputs/apk/release/app-release.apk chinese-learning.apk
+
+      - name: Publish GitHub Release (Obtainium picks this up)
+        if: env.IS_RELEASE == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ env.APP_VERSION_NAME }}
+          name: Android v${{ env.APP_VERSION_NAME }}
+          body: |
+            Signed Android APK (versionCode ${{ env.APP_VERSION_CODE }}), built from ${{ github.sha }}.
+
+            Install via [Obtainium](https://github.com/ImranR98/Obtainium) pointed at this repo, or sideload directly.
+          files: chinese-learning.apk
