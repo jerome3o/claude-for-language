@@ -2,6 +2,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { syncService } from '../services/sync';
+import { fixAllCardStates } from '../services/review-events';
+import { isDebugConsoleEnabled, setDebugConsoleEnabled } from '../utils/debugConsole';
 import { recomputeCardStates, getPendingFeatureRequestCount, getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/client';
 import type { AppNotification } from '../types';
 import './Header.css';
@@ -118,15 +120,27 @@ export function Header() {
     setIsRecomputing(true);
     setShowUserMenu(false);
     try {
-      const result = await recomputeCardStates();
-      console.log('Recomputed card states:', result);
-      alert(`Updated ${result.updated} cards (${result.errors} errors)`);
+      // The state the user sees is LOCAL (IndexedDB) — fix that first
+      const local = await fixAllCardStates();
+      console.log('Recomputed local card states:', local);
+      // Then refresh the server's cached card state
+      const server = await recomputeCardStates();
+      console.log('Recomputed server card states:', server);
+      alert(
+        `Local: fixed ${local.fixed} of ${local.total} cards (${local.errors.length} errors)\n` +
+        `Server: updated ${server.updated} of ${server.total_cards} cards (${server.errors} errors)`
+      );
       window.location.reload();
     } catch (err) {
       console.error('Failed to recompute card states:', err);
-      alert('Failed to recompute card states. Check console for details.');
+      alert(`Failed to recompute card states: ${err instanceof Error ? err.message : err}`);
       setIsRecomputing(false);
     }
+  }, []);
+
+  const handleToggleDebugConsole = useCallback(() => {
+    setDebugConsoleEnabled(!isDebugConsoleEnabled());
+    window.location.reload();
   }, []);
 
   const handleClearCache = useCallback(async () => {
@@ -328,6 +342,12 @@ export function Header() {
                   disabled={isRecomputing}
                 >
                   {isRecomputing ? '🔧 Recomputing...' : '🔧 Fix Card States'}
+                </button>
+                <button
+                  className="user-menu-item"
+                  onClick={handleToggleDebugConsole}
+                >
+                  {isDebugConsoleEnabled() ? '🐞 Debug Console: On' : '🐞 Debug Console: Off'}
                 </button>
                 {user.is_admin && (
                   <>

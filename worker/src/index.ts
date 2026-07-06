@@ -5134,57 +5134,78 @@ app.get('/api/cards/:id/events', async (c) => {
 app.post('/api/cards/recompute-states', async (c) => {
   const userId = c.get('user').id;
 
-  // Get all cards belonging to this user that have review events
-  const cardsWithEvents = await c.env.DB.prepare(`
-    SELECT DISTINCT c.id
-    FROM cards c
-    JOIN notes n ON c.note_id = n.id
-    JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ?
-    AND EXISTS (SELECT 1 FROM review_events re WHERE re.card_id = c.id AND re.user_id = ?)
-  `).bind(userId, userId).all<{ id: string }>();
+  // Workers cap subrequests (each D1 call counts) at ~1000 per request, so
+  // this must NOT query per card — with thousands of reviewed cards the old
+  // per-card loop got the request canceled mid-flight. Instead: page all
+  // events in a handful of SELECTs, group in memory, write in batches.
 
-  const cardIds = cardsWithEvents.results.map(c => c.id);
-  console.log(`[API recompute-states] Recomputing state for ${cardIds.length} cards for user ${userId}`);
+  // 1. Page through every review event for the user (only the columns the
+  //    scheduler needs), grouping by card.
+  const eventsByCard = new Map<string, SchedulerReviewEvent[]>();
+  const PAGE_SIZE = 5000;
+  let cursorId = '';
+  for (;;) {
+    const page = await c.env.DB.prepare(`
+      SELECT id, card_id, rating, reviewed_at FROM review_events
+      WHERE user_id = ? AND id > ?
+      ORDER BY id ASC
+      LIMIT ?
+    `).bind(userId, cursorId, PAGE_SIZE).all<{
+      id: string;
+      card_id: string;
+      rating: number;
+      reviewed_at: string;
+    }>();
 
-  let updated = 0;
-  let errors = 0;
-
-  for (const cardId of cardIds) {
-    try {
-      // Get all review events for this card
-      const cardEvents = await db.getCardReviewEvents(c.env.DB, cardId, userId);
-
-      if (cardEvents.length === 0) continue;
-
-      // Convert to scheduler format
-      const schedulerEvents: SchedulerReviewEvent[] = cardEvents.map(e => ({
+    for (const e of page.results) {
+      let list = eventsByCard.get(e.card_id);
+      if (!list) {
+        list = [];
+        eventsByCard.set(e.card_id, list);
+      }
+      list.push({
         id: e.id,
         card_id: e.card_id,
         rating: e.rating as 0 | 1 | 2 | 3,
         reviewed_at: e.reviewed_at,
-      }));
+      });
+    }
 
-      // Compute new state from all events
-      const newState = computeCardState(schedulerEvents, FSRS_DEFAULT_SETTINGS);
+    if (page.results.length < PAGE_SIZE) break;
+    cursorId = page.results[page.results.length - 1].id;
+  }
 
-      // Update the card with the computed state
+  console.log(`[API recompute-states] Recomputing state for ${eventsByCard.size} cards for user ${userId}`);
+
+  // 2. Compute new state per card (pure CPU, no queries)
+  const updateStmt = c.env.DB.prepare(`
+    UPDATE cards SET
+      queue = ?,
+      stability = ?,
+      difficulty = ?,
+      lapses = ?,
+      ease_factor = ?,
+      interval = ?,
+      repetitions = ?,
+      next_review_at = ?,
+      due_timestamp = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `);
+
+  let updated = 0;
+  let errors = 0;
+  const statements: D1PreparedStatement[] = [];
+
+  for (const [cardId, cardEvents] of eventsByCard) {
+    try {
+      // computeCardState expects events sorted by reviewed_at ascending
+      cardEvents.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
+      const newState = computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS);
+
       // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
       // but not all FSRS columns (scheduled_days, reps). Map accordingly.
-      await c.env.DB.prepare(`
-        UPDATE cards SET
-          queue = ?,
-          stability = ?,
-          difficulty = ?,
-          lapses = ?,
-          ease_factor = ?,
-          interval = ?,
-          repetitions = ?,
-          next_review_at = ?,
-          due_timestamp = ?,
-          updated_at = datetime('now')
-        WHERE id = ?
-      `).bind(
+      statements.push(updateStmt.bind(
         newState.queue,
         newState.stability,
         newState.difficulty,
@@ -5195,17 +5216,28 @@ app.post('/api/cards/recompute-states', async (c) => {
         newState.next_review_at,
         newState.due_timestamp,
         cardId
-      ).run();
-
-      updated++;
+      ));
     } catch (err) {
       console.error(`[API recompute-states] Failed to recompute state for card ${cardId}:`, err);
       errors++;
     }
   }
 
+  // 3. Apply updates in batches (each batch is a single D1 call)
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < statements.length; i += BATCH_SIZE) {
+    const chunk = statements.slice(i, i + BATCH_SIZE);
+    try {
+      await c.env.DB.batch(chunk);
+      updated += chunk.length;
+    } catch (err) {
+      console.error(`[API recompute-states] Batch update failed at offset ${i}:`, err);
+      errors += chunk.length;
+    }
+  }
+
   return c.json({
-    total_cards: cardIds.length,
+    total_cards: eventsByCard.size,
     updated,
     errors,
   });
