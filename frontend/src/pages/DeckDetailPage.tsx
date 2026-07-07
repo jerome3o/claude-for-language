@@ -280,6 +280,7 @@ function DeckDebugModal({
           repetitions: 0,
           next_review_at: null,
           due_timestamp: null,
+          last_reviewed_at: null,
           updated_at: new Date().toISOString(),
         });
       }

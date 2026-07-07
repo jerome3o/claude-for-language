@@ -77,6 +77,24 @@ function pickWeightedLearningCard(cards: LocalCard[], now: number): LocalCard | 
 }
 
 
+/**
+ * True last-review time for FSRS elapsed_days credit.
+ *
+ * card.updated_at must NOT be used here: syncs and state fixes bump it, so an
+ * 85-days-overdue card can look freshly reviewed — FSRS then sees ~0 elapsed
+ * days and gives no overdue stability bonus (intervals come out far too short).
+ *
+ * Cards written before last_reviewed_at existed fall back to due − interval,
+ * which is exactly when the last review happened for a normally scheduled card.
+ */
+function getCardLastReviewTime(card: LocalCard): string | null {
+  if (card.last_reviewed_at) return card.last_reviewed_at;
+  if (card.queue !== CardQueue.NEW && card.due_timestamp && card.interval > 0) {
+    return new Date(card.due_timestamp - card.interval * 86_400_000).toISOString();
+  }
+  return null;
+}
+
 // Get interval preview locally
 function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: DeckSettings): IntervalPreview {
   return getIntervalPreview(
@@ -90,7 +108,7 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
     card.stability,
     card.difficulty,
     card.lapses,
-    card.updated_at
+    getCardLastReviewTime(card)
   );
 }
 
@@ -393,7 +411,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         card.stability,
         card.difficulty,
         card.lapses,
-        card.updated_at
+        getCardLastReviewTime(card)
       );
 
       const reviewId = crypto.randomUUID();
@@ -411,6 +429,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         stability: result.stability,
         difficulty: result.difficulty,
         lapses: result.lapses,
+        last_reviewed_at: reviewedAt,
         updated_at: reviewedAt,
       });
 
@@ -504,7 +523,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       currentCard.stability,
       currentCard.difficulty,
       currentCard.lapses,
-      currentCard.updated_at
+      getCardLastReviewTime(currentCard)
     );
 
     // Build the new queue
@@ -523,6 +542,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         stability: result.stability,
         difficulty: result.difficulty,
         lapses: result.lapses,
+        last_reviewed_at: new Date().toISOString(),
       };
       newQueue.push(updatedCard);
     }
@@ -579,6 +599,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         repetitions: result.repetitions,
         next_review_at: result.next_review_at?.toISOString() || null,
         due_timestamp: result.due_timestamp,
+        last_reviewed_at: reviewedAt,
         updated_at: reviewedAt,
       });
 
