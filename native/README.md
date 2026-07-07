@@ -19,6 +19,13 @@ Capacitor config, app icon, etc.).
   Implemented via Android's `ACTION_PROCESS_TEXT`.
 - **Deep-link scheme**: `chineselearning:///<route>` opens the app at that route
   (e.g. `chineselearning:///study`). Usable from other apps, Tasker, etc.
+- **Homework notifications**: an hourly background check (WorkManager) posts a
+  notification when a review card is due — hanzi on the front, **Show answer**
+  reveals pinyin/English, and **Again / Good / Easy** record the review through
+  `POST /api/reviews` without opening the app (other devices pick the event up
+  on sync). Silent when nothing is due, when signed out, and during quiet hours
+  (22:00–08:00). Auth reuses the WebView's session cookie; hanzi→meaning cards
+  only. Tapping the notification body opens a full study session.
 
 ## Getting the APK / updates (Obtainium)
 

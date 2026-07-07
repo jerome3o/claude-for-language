@@ -1,8 +1,11 @@
 package dev.jeromeswannack.chineselearning;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -13,8 +16,15 @@ import android.widget.FrameLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 
 import com.getcapacitor.BridgeActivity;
+
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends BridgeActivity {
 
@@ -35,6 +45,24 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         setUpStatusBarBackground();
         handleRouteIntent(getIntent());
+        setUpHomeworkNotifications();
+    }
+
+    /** Hourly due-card notifications (see HomeworkWorker). */
+    private void setUpHomeworkNotifications() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 100);
+        }
+        PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
+                HomeworkWorker.class, 1, TimeUnit.HOURS)
+            .setConstraints(new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build())
+            .build();
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            HomeworkWorker.UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request);
     }
 
     /**
