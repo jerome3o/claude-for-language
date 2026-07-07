@@ -3,6 +3,7 @@ import { AuthUser } from '../types';
 import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
 
 const SESSION_TOKEN_KEY = 'session_token';
+const CACHED_USER_KEY = 'cached_user';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -23,8 +24,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userData = await getCurrentUser();
       setUser(userData);
-    } catch {
-      setUser(null);
+      localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
+    } catch (err) {
+      // Only sign out on a real 401 — a network error must not log the user
+      // out (offline-first: study on the train stays signed in)
+      if (err instanceof Error && err.message === 'Unauthorized') {
+        localStorage.removeItem(CACHED_USER_KEY);
+        setUser(null);
+      }
     }
   }, []);
 
@@ -49,14 +56,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Optimistic boot: render immediately from the cached user instead of
+      // blocking first paint on /api/auth/me (which can hang ~10s on a bad
+      // connection before the service worker cache kicks in). The real check
+      // still runs below and corrects the cache.
+      const cachedUser = localStorage.getItem(CACHED_USER_KEY);
+      if (cachedUser) {
+        try {
+          setUser(JSON.parse(cachedUser) as AuthUser);
+          setIsLoading(false);
+        } catch {
+          localStorage.removeItem(CACHED_USER_KEY);
+        }
+      }
+
       try {
         const userData = await getCurrentUser();
         setUser(userData);
-      } catch {
-        // Clear invalid token
-        localStorage.removeItem(SESSION_TOKEN_KEY);
-        clearSessionToken();
-        setUser(null);
+        localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
+      } catch (err) {
+        // Only clear the session on a real 401. Network failures keep the
+        // cached user — signing the user out because the train has bad
+        // reception would defeat the offline-first design.
+        if (err instanceof Error && err.message === 'Unauthorized') {
+          localStorage.removeItem(SESSION_TOKEN_KEY);
+          localStorage.removeItem(CACHED_USER_KEY);
+          clearSessionToken();
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -82,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await apiLogout();
     localStorage.removeItem(SESSION_TOKEN_KEY);
+    localStorage.removeItem(CACHED_USER_KEY);
     clearSessionToken();
     setUser(null);
     window.location.href = '/';

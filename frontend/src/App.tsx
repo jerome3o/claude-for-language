@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NetworkProvider } from './contexts/NetworkContext';
@@ -90,6 +90,26 @@ function HomeOrSplash() {
 
 function LazyFallback() {
   return <Loading message="Loading page..." />;
+}
+
+/**
+ * Lets the native Android shell navigate the SPA without a full page reload.
+ * MainActivity dispatches a 'native-navigate' CustomEvent (detail = route)
+ * when the widget/shortcut fires while the app is already loaded.
+ */
+function NativeNavigationListener() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const route = (e as CustomEvent<string>).detail;
+      if (typeof route === 'string' && route.startsWith('/')) {
+        navigate(route);
+      }
+    };
+    window.addEventListener('native-navigate', handler);
+    return () => window.removeEventListener('native-navigate', handler);
+  }, [navigate]);
+  return null;
 }
 
 function AppRoutes() {
@@ -417,6 +437,7 @@ function App() {
       <AuthProvider>
         <NetworkProvider>
           <BrowserRouter>
+            <NativeNavigationListener />
             <AppRoutes />
             <OfflineBanner />
             <FeedbackFAB />

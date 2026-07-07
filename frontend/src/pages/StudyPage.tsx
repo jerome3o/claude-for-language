@@ -3105,6 +3105,14 @@ export function StudyPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [studyStarted, setStudyStarted] = useState(autostart);
 
+  // In-SPA navigation to /study?autostart=true (e.g. from the Android widget
+  // while the app is warm) changes the param without remounting — honor it.
+  useEffect(() => {
+    if (autostart) {
+      setStudyStarted(true);
+    }
+  }, [autostart]);
+
   // Flag modal state (lifted here to survive card transitions)
   const [flagModalData, setFlagModalData] = useState<FlagModalData | null>(null);
   const [selectedTutor, setSelectedTutor] = useState<TutorRelationshipWithUsers | null>(null);
