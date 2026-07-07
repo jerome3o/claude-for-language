@@ -111,8 +111,20 @@ public class MainActivity extends BridgeActivity {
         }
         String base = bridge != null && bridge.getServerUrl() != null ? bridge.getServerUrl() : APP_URL;
         final String url = base + route;
+        final String finalRoute = route;
         final WebView webView = bridge.getWebView();
-        webView.post(() -> webView.loadUrl(url));
+        webView.post(() -> {
+            String current = webView.getUrl();
+            if (current != null && current.startsWith(base)) {
+                // App already loaded — navigate inside the SPA instead of a
+                // full reload (which re-boots React and re-runs auth/sync).
+                String js = "window.dispatchEvent(new CustomEvent('native-navigate',{detail:"
+                    + org.json.JSONObject.quote(finalRoute) + "}))";
+                webView.evaluateJavascript(js, null);
+            } else {
+                webView.loadUrl(url);
+            }
+        });
     }
 
     private String extractRoute(Intent intent) {
