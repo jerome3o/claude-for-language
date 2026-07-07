@@ -84,8 +84,13 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Recording cards: Capacitor grants the WebView's getUserMedia request
-         after the OS runtime prompt, but only for permissions declared here -->
+    <!-- Declare every permission the app could plausibly use: Android
+         auto-denies runtime requests for undeclared permissions, which broke
+         recording cards. Declaring is inert — each one still only prompts the
+         user when a feature first needs it. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>
