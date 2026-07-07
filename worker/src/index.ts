@@ -14,6 +14,7 @@ import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversati
 import type { ToolAction } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
+import { explainSentence } from './services/sentence-explain';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { SITUATIONS, getSituation, getTodaySituation } from './services/situations';
@@ -2354,6 +2355,27 @@ app.post('/api/sentence/coach', async (c) => {
   } catch (error) {
     console.error('Sentence coach error:', error);
     return c.json({ error: 'Failed to coach sentence' }, 500);
+  }
+});
+
+// Thorough explanation of a sentence (Sentence Coach "Explain" mode)
+app.post('/api/sentence/explain', async (c) => {
+  const { sentence } = await c.req.json<{ sentence: string }>();
+
+  if (!sentence || typeof sentence !== 'string' || !sentence.trim()) {
+    return c.json({ error: 'sentence is required' }, 400);
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI explanation is not configured' }, 500);
+  }
+
+  try {
+    const result = await explainSentence(c.env.ANTHROPIC_API_KEY, sentence.trim());
+    return c.json(result);
+  } catch (error) {
+    console.error('Sentence explain error:', error);
+    return c.json({ error: 'Failed to explain sentence' }, 500);
   }
 });
 

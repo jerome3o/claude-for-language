@@ -38,6 +38,7 @@ import {
   GeneratedNoteWithContext,
   SentenceBreakdown,
   SentenceCoachResult,
+  SentenceExplanation,
   CreateRelationshipResult,
   GradedReader,
   GradedReaderWithPages,
@@ -1242,6 +1243,13 @@ export async function analyzeSentence(sentence: string): Promise<SentenceBreakdo
 
 export async function coachSentence(sentence: string): Promise<SentenceCoachResult> {
   return fetchJSON<SentenceCoachResult>('/sentence/coach', {
+    method: 'POST',
+    body: JSON.stringify({ sentence }),
+  });
+}
+
+export async function explainSentence(sentence: string): Promise<SentenceExplanation> {
+  return fetchJSON<SentenceExplanation>('/sentence/explain', {
     method: 'POST',
     body: JSON.stringify({ sentence }),
   });
