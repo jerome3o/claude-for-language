@@ -732,6 +732,14 @@ cd mcp-server && npx wrangler deploy --dry-run --outdir=.wrangler/tmp
 
 Do NOT skip these steps. CI failures on main break production deploys for everyone.
 
+### PR Merge Policy (Jerome's standing preference)
+
+Once the pre-merge checklist passes locally, open the PR and **merge it
+without asking** (squash) as soon as CI is green — enable GitHub auto-merge
+right after opening when possible, otherwise merge when checks pass. Jerome
+has pre-approved this flow; only pause for genuinely destructive or
+ambiguous changes.
+
 ### To Deploy
 
 Simply push to main:
