@@ -8,7 +8,7 @@
         android:shortcutLongLabel="@string/shortcut_study_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:data="chineselearning:///study"
+            android:data="chineselearning:///study?autostart=true"
             android:targetPackage="dev.jeromeswannack.chineselearning"
             android:targetClass="dev.jeromeswannack.chineselearning.MainActivity" />
     </shortcut>
