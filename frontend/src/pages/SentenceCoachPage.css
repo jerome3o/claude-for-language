@@ -119,6 +119,54 @@
   margin-bottom: 0.75rem;
 }
 
+.coach-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.coach-mode-button {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9375rem;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 8px;
+  background: var(--color-card-bg, #fff);
+  cursor: pointer;
+}
+
+.coach-mode-active {
+  border-color: var(--color-primary, #dc2626);
+  color: var(--color-primary, #dc2626);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-primary, #dc2626) 8%, transparent);
+}
+
+.coach-word-role {
+  margin-left: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-light);
+  background: var(--color-bg, #f3f4f6);
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+  vertical-align: middle;
+}
+
+.coach-grammar-point {
+  border-left-color: #6366f1;
+}
+
+.coach-grammar-point .coach-issue-type {
+  color: #4338ca;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.9375rem;
+}
+
 .coach-error {
   background: #fee2e2;
   color: #991b1b;

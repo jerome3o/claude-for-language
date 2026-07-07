@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { coachSentence, createNote, getDecks } from '../api/client';
-import { SentenceCoachResult, VocabSuggestion } from '../types';
+import { coachSentence, explainSentence, createNote, getDecks } from '../api/client';
+import { SentenceCoachResult, SentenceExplanation, VocabSuggestion, ExplainedWord } from '../types';
 import './SentenceCoachPage.css';
+
+type CoachMode = 'check' | 'explain';
 
 const LAST_DECK_KEY = 'coach-last-deck-id';
 
@@ -18,7 +20,11 @@ const ISSUE_TYPE_LABELS: Record<string, string> = {
 export function SentenceCoachPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [sentence, setSentence] = useState(() => searchParams.get('text') ?? '');
+  const [mode, setMode] = useState<CoachMode>(
+    () => (searchParams.get('mode') === 'explain' ? 'explain' : 'check')
+  );
   const [result, setResult] = useState<SentenceCoachResult | null>(null);
+  const [explanation, setExplanation] = useState<SentenceExplanation | null>(null);
   const [selectedDeckId, setSelectedDeckId] = useState<string>(
     () => localStorage.getItem(LAST_DECK_KEY) ?? ''
   );
@@ -38,14 +44,27 @@ export function SentenceCoachPage() {
     },
   });
 
-  // Deep links (widget / text selection) arrive as /coach?text=...
-  // Auto-submit once so the user lands straight on their critique.
+  const explainMutation = useMutation({
+    mutationFn: (text: string) => explainSentence(text),
+    onSuccess: (res) => {
+      setExplanation(res);
+      setAddedKeys(new Set());
+      setAddError(null);
+    },
+  });
+
+  // Deep links (widget / text selection) arrive as /coach?text=...&mode=...
+  // Auto-submit once so the user lands straight on the result.
   useEffect(() => {
     const text = searchParams.get('text');
     if (text && text.trim() && !autoSubmittedRef.current) {
       autoSubmittedRef.current = true;
       setSentence(text);
-      coachMutation.mutate(text.trim());
+      if (searchParams.get('mode') === 'explain') {
+        explainMutation.mutate(text.trim());
+      } else {
+        coachMutation.mutate(text.trim());
+      }
       // Clear the param so refresh/back doesn't re-trigger
       setSearchParams({}, { replace: true });
     }
@@ -61,15 +80,20 @@ export function SentenceCoachPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (sentence.trim()) {
+    if (!sentence.trim()) return;
+    if (mode === 'explain') {
+      explainMutation.mutate(sentence.trim());
+    } else {
       coachMutation.mutate(sentence.trim());
     }
   };
 
   const handleNewSentence = () => {
     setResult(null);
+    setExplanation(null);
     setSentence('');
     coachMutation.reset();
+    explainMutation.reset();
   };
 
   const handleDeckChange = (deckId: string) => {
@@ -113,6 +137,15 @@ export function SentenceCoachPage() {
     });
   };
 
+  const handleAddWord = (word: ExplainedWord, index: number) => {
+    addToDeck(`word-${index}`, {
+      hanzi: word.hanzi,
+      pinyin: word.pinyin,
+      english: word.english,
+      fun_facts: word.notes || undefined,
+    });
+  };
+
   const renderAddButton = (key: string, onClick: () => void) => {
     const added = addedKeys.has(key);
     return (
@@ -126,6 +159,107 @@ export function SentenceCoachPage() {
       </button>
     );
   };
+
+  // Explanation result view
+  if (explanation) {
+    return (
+      <div className="page">
+        <div className="container">
+          <div className="mb-3">
+            <button className="btn btn-secondary" onClick={handleNewSentence}>
+              Explain Another Sentence
+            </button>
+          </div>
+
+          <div className="card">
+            <div className="coach-corrected-hanzi">{explanation.hanzi}</div>
+            <div className="coach-corrected-pinyin">{explanation.pinyin}</div>
+            <div className="coach-corrected-english">{explanation.english}</div>
+          </div>
+
+          <div className="card mt-3">
+            <h3 className="mb-2">Overview</h3>
+            <p>{explanation.overview}</p>
+          </div>
+
+          {explanation.words.length > 0 && (
+            <div className="card mt-3">
+              <h3 className="mb-2">Word by word</h3>
+              {explanation.words.map((word, i) => (
+                <div key={i} className="coach-vocab-item">
+                  <div style={{ minWidth: 0 }}>
+                    <div className="coach-vocab-hanzi">
+                      {word.hanzi}
+                      {word.role && <span className="coach-word-role">{word.role}</span>}
+                    </div>
+                    <div className="coach-vocab-detail">
+                      {word.pinyin} — {word.english}
+                    </div>
+                    {word.notes && <div className="coach-vocab-reason">{word.notes}</div>}
+                  </div>
+                  {decks && decks.length > 0 &&
+                    renderAddButton(`word-${i}`, () => handleAddWord(word, i))}
+                </div>
+              ))}
+              {decks && decks.length > 0 && (
+                <select
+                  className="coach-deck-select"
+                  style={{ marginTop: '0.75rem', marginBottom: 0 }}
+                  value={selectedDeckId}
+                  onChange={(e) => handleDeckChange(e.target.value)}
+                >
+                  {decks.map((deck) => (
+                    <option key={deck.id} value={deck.id}>
+                      Add words to: {deck.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {addError && <div className="coach-error mt-3">{addError}</div>}
+            </div>
+          )}
+
+          {explanation.grammar_points.length > 0 && (
+            <div className="card mt-3">
+              <h3 className="mb-2">Grammar</h3>
+              {explanation.grammar_points.map((point, i) => (
+                <div key={i} className="coach-issue coach-grammar-point">
+                  <span className="coach-issue-type">{point.pattern}</span>
+                  <div className="coach-issue-explanation">{point.explanation}</div>
+                  {point.example && (
+                    <div className="coach-vocab-reason" style={{ marginTop: '0.25rem' }}>
+                      e.g. {point.example}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {explanation.nuance && (
+            <div className="card mt-3">
+              <h3 className="mb-2">Nuance &amp; usage</h3>
+              <p>{explanation.nuance}</p>
+            </div>
+          )}
+
+          {explanation.similar_examples.length > 0 && (
+            <div className="card mt-3">
+              <h3 className="mb-2">Similar sentences</h3>
+              {explanation.similar_examples.map((ex, i) => (
+                <div key={i} className="coach-alternative">
+                  <div className="coach-vocab-hanzi">{ex.hanzi}</div>
+                  <div className="coach-vocab-detail">
+                    {ex.pinyin} — {ex.english}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // Result view
   if (result) {
@@ -247,25 +381,45 @@ export function SentenceCoachPage() {
       <div className="container">
         <h1 className="mb-2">Sentence Coach</h1>
         <p className="text-light mb-4">
-          Write a Chinese sentence and get it corrected and critiqued. You can then add the
-          sentence or new words to one of your decks.
+          {mode === 'check'
+            ? 'Write a Chinese sentence and get it corrected and critiqued. You can then add the sentence or new words to one of your decks.'
+            : 'Paste any Chinese sentence and get a thorough explanation: word by word, grammar patterns, and nuance.'}
         </p>
+
+        <div className="coach-mode-toggle">
+          <button
+            type="button"
+            className={`coach-mode-button ${mode === 'check' ? 'coach-mode-active' : ''}`}
+            onClick={() => setMode('check')}
+          >
+            ✏️ Check my sentence
+          </button>
+          <button
+            type="button"
+            className={`coach-mode-button ${mode === 'explain' ? 'coach-mode-active' : ''}`}
+            onClick={() => setMode('explain')}
+          >
+            🔬 Explain a sentence
+          </button>
+        </div>
 
         <div className="card">
           <form onSubmit={handleSubmit} className="sentence-input-form">
             <div className="form-group">
-              <label className="form-label">Your sentence</label>
+              <label className="form-label">
+                {mode === 'check' ? 'Your sentence' : 'Sentence to explain'}
+              </label>
               <textarea
                 className="form-textarea"
                 value={sentence}
                 onChange={(e) => setSentence(e.target.value)}
-                placeholder="e.g., 我昨天去了商店买苹果"
+                placeholder={mode === 'check' ? 'e.g., 我昨天去了商店买苹果' : 'e.g., 他把书放在桌子上了'}
                 required
                 rows={3}
               />
             </div>
 
-            {coachMutation.error && (
+            {(coachMutation.error || explainMutation.error) && (
               <div className="coach-error mb-3">
                 Couldn't reach the coach. Check your connection and try again.
               </div>
@@ -275,26 +429,30 @@ export function SentenceCoachPage() {
               <button
                 type="submit"
                 className="btn btn-primary flex-1"
-                disabled={!sentence.trim() || coachMutation.isPending}
+                disabled={!sentence.trim() || coachMutation.isPending || explainMutation.isPending}
               >
-                {coachMutation.isPending ? (
+                {coachMutation.isPending || explainMutation.isPending ? (
                   <>
                     <span className="spinner" style={{ width: '20px', height: '20px' }} />
-                    Checking...
+                    {mode === 'check' ? 'Checking...' : 'Explaining...'}
                   </>
                 ) : (
-                  'Check My Sentence'
+                  mode === 'check' ? 'Check My Sentence' : 'Explain Sentence'
                 )}
               </button>
             </div>
           </form>
         </div>
 
-        {coachMutation.isPending && (
+        {(coachMutation.isPending || explainMutation.isPending) && (
           <div className="card mt-4">
             <div className="sentence-loading">
               <div className="sentence-loading-spinner" />
-              <p>Correcting and critiquing your sentence...</p>
+              <p>
+                {mode === 'check'
+                  ? 'Correcting and critiquing your sentence...'
+                  : 'Breaking down the sentence in detail...'}
+              </p>
             </div>
           </div>
         )}

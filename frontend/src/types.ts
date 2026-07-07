@@ -656,6 +656,32 @@ export interface VocabSuggestion {
   reason?: string;
 }
 
+export interface ExplainedWord {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  role?: string;
+  notes?: string;
+}
+
+export interface GrammarPointExplanation {
+  pattern: string;
+  explanation: string;
+  example?: string;
+}
+
+export interface SentenceExplanation {
+  originalInput: string;
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  overview: string;
+  words: ExplainedWord[];
+  grammar_points: GrammarPointExplanation[];
+  nuance?: string;
+  similar_examples: SentenceAlternative[];
+}
+
 export interface SentenceCoachResult {
   originalInput: string;
   inputLanguage: 'chinese' | 'english';
