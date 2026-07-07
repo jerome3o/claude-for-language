@@ -18,7 +18,8 @@ public class ShortcutsWidgetProvider extends AppWidgetProvider {
         for (int appWidgetId : appWidgetIds) {
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_shortcuts);
 
-            views.setOnClickPendingIntent(R.id.widget_button_study, routeIntent(context, 0, "/study"));
+            // autostart=true jumps straight into an all-decks session with a card up
+            views.setOnClickPendingIntent(R.id.widget_button_study, routeIntent(context, 0, "/study?autostart=true"));
             views.setOnClickPendingIntent(R.id.widget_button_coach, routeIntent(context, 1, "/coach"));
 
             appWidgetManager.updateAppWidget(appWidgetId, views);
