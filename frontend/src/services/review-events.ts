@@ -288,7 +288,13 @@ interface ServerReviewEvent {
 // Safety cap on pagination: 500 pages x 1000 events = 500k events per sync.
 const MAX_DOWNLOAD_PAGES = 500;
 
-export async function downloadReviewEvents(authToken: string | null): Promise<{
+/** Progress callback for long-running sync operations (feeds the sync badge). */
+export type SyncProgressReporter = (message: string, current?: number, total?: number) => void;
+
+export async function downloadReviewEvents(
+  authToken: string | null,
+  onProgress?: SyncProgressReporter
+): Promise<{
   downloaded: number;
   errors: string[];
 }> {
@@ -317,6 +323,7 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
     // thousands of events) — a single page produces card state computed from
     // a months-old prefix of reviews and wildly inflated due counts.
     for (let page = 0; page < MAX_DOWNLOAD_PAGES; page++) {
+      onProgress?.(downloaded > 0 ? `Downloading reviews (${downloaded} new)` : 'Downloading reviews...');
       const params = new URLSearchParams({ since });
       if (afterId) {
         params.set('after_id', afterId);
@@ -381,12 +388,17 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
     // This ensures downloaded events are reflected in card scheduling.
     if (affectedCardIds.size > 0) {
       console.log('[downloadReviewEvents] Recomputing state for', affectedCardIds.size, 'cards with new events');
+      let done = 0;
       for (const cardId of affectedCardIds) {
+        if (done % 20 === 0) {
+          onProgress?.('Updating changed cards', done, affectedCardIds.size);
+        }
         try {
           await fixCardState(cardId);
         } catch (err) {
           console.error('[downloadReviewEvents] Failed to recompute card state:', cardId, err);
         }
+        done++;
       }
     }
 
@@ -405,7 +417,10 @@ export async function downloadReviewEvents(authToken: string | null): Promise<{
  *    download (local dedup fills any events this device skipped in the past).
  * Card states for cards that gained events are recomputed by the download.
  */
-export async function reconcileAllEvents(authToken: string | null): Promise<{
+export async function reconcileAllEvents(
+  authToken: string | null,
+  onProgress?: SyncProgressReporter
+): Promise<{
   local_events: number;
   uploaded_to_server: number;
   orphaned: number;
@@ -422,7 +437,9 @@ export async function reconcileAllEvents(authToken: string | null): Promise<{
   let orphaned = 0;
 
   const UPLOAD_BATCH = 400;
+  const totalBatches = Math.ceil(allEvents.length / UPLOAD_BATCH);
   for (let i = 0; i < allEvents.length; i += UPLOAD_BATCH) {
+    onProgress?.('Uploading review history', i / UPLOAD_BATCH + 1, totalBatches);
     const chunk = allEvents.slice(i, i + UPLOAD_BATCH);
     try {
       const response = await fetch(`${API_BASE}/api/reviews`, {
@@ -463,7 +480,7 @@ export async function reconcileAllEvents(authToken: string | null): Promise<{
 
   // Rewind the cursor and pull the full history; dedup keeps this cheap
   await updateEventSyncMeta('1970-01-01 00:00:00');
-  const download = await downloadReviewEvents(authToken);
+  const download = await downloadReviewEvents(authToken, onProgress);
   errors.push(...download.errors);
 
   return {
@@ -574,7 +591,7 @@ export async function fixCardState(cardId: string): Promise<ComputedCardState> {
  * Fix ALL card states by recomputing from events.
  * Use this to recover from sync corruption or other issues.
  */
-export async function fixAllCardStates(): Promise<{
+export async function fixAllCardStates(onProgress?: SyncProgressReporter): Promise<{
   total: number;
   fixed: number;
   errors: string[];
@@ -585,7 +602,12 @@ export async function fixAllCardStates(): Promise<{
 
   console.log('[fixAllCardStates] Starting to recompute', allCards.length, 'cards');
 
+  let done = 0;
   for (const card of allCards) {
+    if (done % 100 === 0) {
+      onProgress?.('Recomputing cards', done, allCards.length);
+    }
+    done++;
     try {
       const { matches, stored, computed } = await verifyCardState(card.id);
       if (!matches) {

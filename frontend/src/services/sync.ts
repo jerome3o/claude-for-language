@@ -634,41 +634,54 @@ class SyncService {
     errors: string[];
   }> {
     const errors: string[] = [];
+    // The sync badge only renders while isSyncing — hold it for the whole run
+    this.notifySyncListeners(true);
 
-    this.notifyProgress({ phase: 'starting', message: 'Reconciling reviews with server...' });
-    const reconcile = await reconcileAllEvents(getAuthToken());
-    errors.push(...reconcile.errors);
+    // Forwards fine-grained progress from the long stages to the sync badge
+    const report = (phase: SyncProgress['phase']) =>
+      (message: string, current?: number, total?: number) =>
+        this.notifyProgress({ phase, message, current, total });
 
-    this.notifyProgress({ phase: 'events-up', message: 'Refreshing server card states...' });
     try {
-      await recomputeCardStates();
-    } catch (err) {
-      errors.push(`Server recompute failed: ${err instanceof Error ? err.message : err}`);
+      this.notifyProgress({ phase: 'starting', message: 'Reconciling reviews with server...' });
+      const reconcile = await reconcileAllEvents(getAuthToken(), report('events-up'));
+      errors.push(...reconcile.errors);
+
+      this.notifyProgress({ phase: 'events-up', message: 'Refreshing server card states...' });
+      try {
+        await recomputeCardStates();
+      } catch (err) {
+        errors.push(`Server recompute failed: ${err instanceof Error ? err.message : err}`);
+      }
+
+      // Recordings upload + cleanup (events themselves were just reconciled)
+      const events = await this.syncEvents();
+      errors.push(...events.errors);
+
+      this.notifyProgress({ phase: 'decks', message: 'Refreshing decks and notes...' });
+      await resetSyncTimestamps();
+      await this.fullSync();
+      // fullSync clears the syncing flag in its finally — re-assert for the last stage
+      this.notifySyncListeners(true);
+
+      this.notifyProgress({ phase: 'cards', message: 'Recomputing all card states...' });
+      const cardFix = await fixAllCardStates(report('cards'));
+      errors.push(...cardFix.errors);
+
+      this.notifyProgress({ phase: 'done', message: 'Full sync complete' });
+
+      return {
+        events_local: reconcile.local_events,
+        events_uploaded: reconcile.uploaded_to_server,
+        events_orphaned: reconcile.orphaned,
+        events_downloaded: reconcile.downloaded,
+        recordings_uploaded: events.recordings_uploaded,
+        cards_recomputed: cardFix.fixed,
+        errors,
+      };
+    } finally {
+      this.notifySyncListeners(false);
     }
-
-    // Recordings upload + cleanup (events themselves were just reconciled)
-    const events = await this.syncEvents();
-    errors.push(...events.errors);
-
-    this.notifyProgress({ phase: 'decks', message: 'Refreshing decks and notes...' });
-    await resetSyncTimestamps();
-    await this.fullSync();
-
-    this.notifyProgress({ phase: 'cards', message: 'Recomputing all card states...' });
-    const cardFix = await fixAllCardStates();
-    errors.push(...cardFix.errors);
-
-    this.notifyProgress({ phase: 'done', message: 'Full sync complete' });
-
-    return {
-      events_local: reconcile.local_events,
-      events_uploaded: reconcile.uploaded_to_server,
-      events_orphaned: reconcile.orphaned,
-      events_downloaded: reconcile.downloaded,
-      recordings_uploaded: events.recordings_uploaded,
-      cards_recomputed: cardFix.fixed,
-      errors,
-    };
   }
 
   get isSyncingNow(): boolean {
