@@ -359,6 +359,51 @@ describe('getIntervalPreviews', () => {
     expect(easyDays).toBeLessThan(4);
     expect(previews[3].nextState).toBe(CardQueue.REVIEW);
   });
+
+  it('overdue review cards get longer intervals than on-time ones (needs last_reviewed_at)', () => {
+    // Regression test: a card 58 days overdue (interval 27d, last review 85d ago)
+    // must preview a much longer Easy interval than a freshly-reviewed card.
+    // This only works when last_reviewed_at carries the TRUE last review time —
+    // callers must never substitute a recently-bumped timestamp like updated_at.
+    const now = new Date('2026-07-07T12:00:00Z');
+    const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString();
+
+    const baseState = {
+      queue: CardQueue.REVIEW,
+      stability: 27,
+      difficulty: 6,
+      scheduled_days: 27,
+      reps: 18,
+      lapses: 3,
+      next_review_at: daysAgo(58),
+      due_timestamp: now.getTime() - 58 * 86_400_000,
+      ease_factor: 2.44,
+      interval: 27,
+      repetitions: 18,
+      learning_step: 0,
+    };
+
+    const overdue = getIntervalPreviews(
+      { ...baseState, last_reviewed_at: daysAgo(85) },
+      DEFAULT_DECK_SETTINGS,
+      now
+    );
+    // What the buggy caller produced: FSRS sees ~0 elapsed days
+    const looksFreshlyReviewed = getIntervalPreviews(
+      { ...baseState, last_reviewed_at: now.toISOString() },
+      DEFAULT_DECK_SETTINGS,
+      now
+    );
+
+    const overdueEasy = overdue[3].intervalDays;
+    const freshEasy = looksFreshlyReviewed[3].intervalDays;
+
+    // Overdue recall is strong evidence — Easy should be several months,
+    // clearly more than the ~1 month the zero-elapsed bug produced.
+    expect(overdueEasy).toBeGreaterThan(freshEasy * 1.5);
+    expect(overdueEasy).toBeGreaterThan(60);
+    expect(overdue[2].intervalDays).toBeGreaterThan(looksFreshlyReviewed[2].intervalDays);
+  });
 });
 
 describe('getRetrievability', () => {

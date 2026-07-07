@@ -117,6 +117,11 @@ export interface LocalCard {
   repetitions: number;
   next_review_at: string | null;
   due_timestamp: number | null;
+  // When this card was last actually reviewed, for FSRS elapsed_days.
+  // updated_at is NOT a substitute: syncs and state fixes bump it, which
+  // makes overdue cards look freshly reviewed. Optional because cards
+  // written before this field existed won't have it.
+  last_reviewed_at?: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;

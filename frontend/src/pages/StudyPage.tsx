@@ -375,6 +375,7 @@ function StudyCard({
   // Debug modal state
   const [showDebug, setShowDebug] = useState(false);
   const [reviewHistory, setReviewHistory] = useState<LocalReviewEvent[]>([]);
+  const [debugCopyMsg, setDebugCopyMsg] = useState<string | null>(null);
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
   const [audioSpeed, setAudioSpeed] = useState(DEFAULT_TTS_SPEED);
   const [audioProvider, setAudioProvider] = useState<'minimax' | 'gtts' | ''>('');
@@ -599,6 +600,7 @@ function StudyCard({
   // Load review history and enumerate mics when debug modal opens
   useEffect(() => {
     if (showDebug) {
+      setDebugCopyMsg(null);
       getCardReviewEvents(card.id).then(setReviewHistory);
       // Enumerate audio input devices
       navigator.mediaDevices.enumerateDevices()
@@ -1671,6 +1673,62 @@ function StudyCard({
     // Calculate what interval each rating would give from the CURRENT state
     const currentPreviews = intervalPreviews;
 
+    // Copy the full card debug info (state, previews, review history) as JSON
+    const copyCardDebugInfo = async () => {
+      const info = {
+        generated_at: new Date().toISOString(),
+        note: {
+          id: card.note.id,
+          hanzi: card.note.hanzi,
+          pinyin: card.note.pinyin,
+          english: card.note.english,
+        },
+        card: {
+          id: card.id,
+          card_type: card.card_type,
+          deck: deckInfo?.name || null,
+          queue: queueNames[card.queue],
+          learning_step: card.learning_step,
+          stability: card.stability,
+          difficulty: card.difficulty,
+          lapses: card.lapses,
+          ease_factor: card.ease_factor,
+          interval: card.interval,
+          repetitions: card.repetitions,
+          next_review_at: card.next_review_at,
+          due_timestamp: card.due_timestamp ? new Date(card.due_timestamp).toISOString() : null,
+          last_reviewed_at: card.last_reviewed_at ?? null,
+          created_at: card.created_at,
+          updated_at: card.updated_at,
+        },
+        rating_previews: currentPreviews
+          ? Object.fromEntries(([0, 1, 2, 3] as Rating[]).map(r => [
+              ratingNames[r],
+              { interval: currentPreviews[r].intervalText, queue: queueNames[currentPreviews[r].queue] },
+            ]))
+          : null,
+        review_history: reviewHistory.map(e => ({
+          reviewed_at: e.reviewed_at,
+          rating: ratingNames[e.rating],
+          time_spent_ms: e.time_spent_ms,
+          user_answer: e.user_answer,
+        })),
+      };
+      const text = JSON.stringify(info, null, 1);
+      try {
+        await navigator.clipboard.writeText(text);
+        setDebugCopyMsg('Copied to clipboard ✓');
+      } catch {
+        try {
+          await navigator.share({ text });
+          setDebugCopyMsg('Sent to share sheet ✓');
+        } catch {
+          console.log('[cardDebugInfo]', text);
+          setDebugCopyMsg('Clipboard unavailable — printed to console');
+        }
+      }
+    };
+
     return (
       <div className="modal-overlay" onClick={() => setShowDebug(false)}>
         <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
@@ -1680,6 +1738,16 @@ function StudyCard({
           </div>
 
           <div className="modal-body" style={{ fontSize: '0.8125rem' }}>
+            {/* Copy everything for debugging */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <button className="btn btn-sm" onClick={copyCardDebugInfo}>
+                📋 Copy Info
+              </button>
+              {debugCopyMsg && (
+                <span style={{ fontSize: '0.75rem', color: '#16a34a' }}>{debugCopyMsg}</span>
+              )}
+            </div>
+
             {/* Current Card State */}
             <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f3f4f6', borderRadius: '6px' }}>
               <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.875rem' }}>Current Card State</h4>
@@ -1695,6 +1763,10 @@ function StudyCard({
                 <div><strong>Ease:</strong> {(card.ease_factor * 100).toFixed(0)}%</div>
                 <div><strong>Interval:</strong> {card.interval}d</div>
                 <div><strong>Reps:</strong> {card.repetitions}</div>
+                <div><strong>Stability:</strong> {card.stability?.toFixed(1)}d</div>
+                <div><strong>Difficulty:</strong> {card.difficulty?.toFixed(1)}</div>
+                <div><strong>Lapses:</strong> {card.lapses}</div>
+                <div><strong>Last Review:</strong> {card.last_reviewed_at ? formatTime(card.last_reviewed_at) : 'unknown'}</div>
                 <div><strong>Due:</strong> {card.due_timestamp
                   ? formatTime(new Date(card.due_timestamp).toISOString())
                   : card.next_review_at

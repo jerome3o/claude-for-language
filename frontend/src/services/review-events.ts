@@ -138,6 +138,7 @@ export async function recordReviewEvent(
     repetitions: newState.repetitions,
     next_review_at: newState.next_review_at,
     due_timestamp: newState.due_timestamp,
+    last_reviewed_at: now,
     updated_at: now,
   });
 
@@ -520,7 +521,7 @@ export async function verifyCardState(cardId: string): Promise<{
     scheduled_days: card.interval,
     reps: card.repetitions,
     lapses: card.lapses || 0,
-    last_reviewed_at: null, // Not stored in card, only in computed state
+    last_reviewed_at: card.last_reviewed_at ?? null,
     // Legacy fields
     learning_step: card.learning_step,
     ease_factor: card.ease_factor,
@@ -530,13 +531,16 @@ export async function verifyCardState(cardId: string): Promise<{
     due_timestamp: card.due_timestamp,
   };
 
-  // Compare key fields (focus on FSRS fields)
+  // Compare key fields (focus on FSRS fields). last_reviewed_at is included
+  // so cards persisted before the field existed get backfilled by fixCardState
+  // on the next Full Sync — without it, interval previews lose the overdue bonus.
   const matches =
     stored.queue === computed.queue &&
     Math.abs(stored.stability - computed.stability) < 0.1 &&
     Math.abs(stored.difficulty - computed.difficulty) < 0.1 &&
     stored.reps === computed.reps &&
-    stored.lapses === computed.lapses;
+    stored.lapses === computed.lapses &&
+    stored.last_reviewed_at === computed.last_reviewed_at;
 
   return { matches, stored, computed };
 }
@@ -581,6 +585,7 @@ export async function fixCardState(cardId: string): Promise<ComputedCardState> {
     repetitions: computed.repetitions,
     next_review_at: computed.next_review_at,
     due_timestamp: computed.due_timestamp,
+    last_reviewed_at: computed.last_reviewed_at,
     updated_at: new Date().toISOString(),
   });
 

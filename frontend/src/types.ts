@@ -118,6 +118,7 @@ export interface Card {
   queue: CardQueue;
   learning_step: number;
   due_timestamp: number | null;
+  last_reviewed_at?: string | null; // When the card was last reviewed (present on local cards)
   created_at: string;
   updated_at: string;
 }
