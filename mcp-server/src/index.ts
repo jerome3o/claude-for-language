@@ -931,6 +931,48 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     );
 
     this.server.tool(
+      "search_notes",
+      "Search notes by hanzi, pinyin, or english across all decks (or one deck). Use this before adding a note to check whether the word is already covered anywhere, instead of fetching entire decks.",
+      {
+        query: z.string().describe("Text to search for (matched against hanzi, pinyin, and english with substring matching)"),
+        deck_id: z.string().optional().describe("Restrict the search to a single deck ID. If omitted, searches across all of the user's decks."),
+        limit: z.number().optional().describe("Maximum number of results (default 50)"),
+      },
+      async ({ query, deck_id, limit }) => {
+        const like = `%${query}%`;
+        const cap = limit && limit > 0 ? limit : 50;
+
+        const sql = deck_id
+          ? `SELECT n.*, d.name as deck_name FROM notes n
+             JOIN decks d ON n.deck_id = d.id
+             WHERE d.user_id = ? AND n.deck_id = ?
+               AND (n.hanzi LIKE ? OR n.pinyin LIKE ? OR n.english LIKE ?)
+             ORDER BY n.created_at DESC LIMIT ?`
+          : `SELECT n.*, d.name as deck_name FROM notes n
+             JOIN decks d ON n.deck_id = d.id
+             WHERE d.user_id = ?
+               AND (n.hanzi LIKE ? OR n.pinyin LIKE ? OR n.english LIKE ?)
+             ORDER BY n.created_at DESC LIMIT ?`;
+
+        const params = deck_id
+          ? [userId, deck_id, like, like, like, cap]
+          : [userId, like, like, like, cap];
+
+        const results = await this.env.DB
+          .prepare(sql)
+          .bind(...params)
+          .all<Note & { deck_name: string }>();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ query, count: results.results.length, notes: results.results }, null, 2),
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
       "move_notes",
       "Move one or more notes to a different deck. Cards keep all their SRS state, review history, and scheduling. Useful for reorganizing decks.",
       {
