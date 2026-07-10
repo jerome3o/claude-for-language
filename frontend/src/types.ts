@@ -701,6 +701,55 @@ export interface SentenceCoachResult {
   vocabSuggestions: VocabSuggestion[];
 }
 
+// English -> Chinese translation with explanation (Sentence Coach)
+export interface SentenceTranslation {
+  originalInput: string;
+  primary: SentenceAlternative;
+  alternatives: SentenceAlternative[];
+  words: ExplainedWord[];
+  grammar_points: GrammarPointExplanation[];
+  usage_note?: string;
+}
+
+// ============ Sentence Coach conversations ============
+
+export type CoachInputLanguage = 'zh' | 'en';
+
+// Structured payload stored in the first assistant message of a conversation
+export type CoachAnalysis =
+  | { kind: 'chinese'; coach: SentenceCoachResult; explanation: SentenceExplanation }
+  | { kind: 'english'; translation: SentenceTranslation };
+
+export interface CoachConversation {
+  id: string;
+  user_id: string;
+  title: string;
+  input_language: CoachInputLanguage;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CoachConversationListItem extends CoachConversation {
+  message_count: number;
+}
+
+export interface CoachMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content_type: 'text' | 'analysis';
+  content: string;
+  tool_results: string | null;
+  created_at: string;
+}
+
+export interface CoachToolResult {
+  tool: string;
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
 // ============ Graded Readers ============
 
 export type DifficultyLevel = 'beginner' | 'elementary' | 'intermediate' | 'advanced';

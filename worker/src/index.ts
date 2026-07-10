@@ -10,11 +10,12 @@ import {
   DEFAULT_DECK_SETTINGS,
   parseLearningSteps,
 } from './services/anki-scheduler';
-import { generateDeck, suggestCards, askAboutNoteWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
-import type { ToolAction } from './services/ai';
+import { generateDeck, suggestCards, askAboutNoteWithTools, coachChatWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
+import type { ToolAction, CoachChatTurn } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { explainSentence } from './services/sentence-explain';
+import { translateSentence } from './services/sentence-translate';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { SITUATIONS, getSituation, getTodaySituation } from './services/situations';
@@ -2376,6 +2377,189 @@ app.post('/api/sentence/explain', async (c) => {
   } catch (error) {
     console.error('Sentence explain error:', error);
     return c.json({ error: 'Failed to explain sentence' }, 500);
+  }
+});
+
+// ============ Sentence Coach Conversations ============
+
+// Any Han character means the input is (at least partly) Chinese — treat it
+// as a sentence to coach/explain. Pure English gets translated instead.
+function containsChinese(text: string): boolean {
+  return /[㐀-䶿一-鿿豈-﫿]/.test(text);
+}
+
+// Start a conversation from a sentence: detect the language, run the right
+// analysis, persist the thread. Chinese → coach + explain; English → translate.
+app.post('/api/coach/conversations', async (c) => {
+  const userId = c.get('user').id;
+  const { text } = await c.req.json<{ text: string }>();
+
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return c.json({ error: 'text is required' }, 400);
+  }
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI coaching is not configured' }, 500);
+  }
+
+  const input = text.trim();
+  const isChinese = containsChinese(input);
+
+  try {
+    let analysis: import('./types').CoachAnalysis;
+    if (isChinese) {
+      const [coach, explanation] = await Promise.all([
+        coachSentence(c.env.ANTHROPIC_API_KEY, input),
+        explainSentence(c.env.ANTHROPIC_API_KEY, input),
+      ]);
+      analysis = { kind: 'chinese', coach, explanation };
+    } else {
+      const translation = await translateSentence(c.env.ANTHROPIC_API_KEY, input);
+      analysis = { kind: 'english', translation };
+    }
+
+    const conversation = await db.createCoachConversation(
+      c.env.DB, userId, input.slice(0, 120), isChinese ? 'zh' : 'en'
+    );
+    const userMsg = await db.addCoachMessage(c.env.DB, conversation.id, 'user', 'text', input);
+    const assistantMsg = await db.addCoachMessage(
+      c.env.DB, conversation.id, 'assistant', 'analysis', JSON.stringify(analysis)
+    );
+
+    return c.json({ conversation, messages: [userMsg, assistantMsg] });
+  } catch (error) {
+    console.error('Coach conversation start error:', error);
+    return c.json({ error: 'Failed to analyze the sentence' }, 500);
+  }
+});
+
+app.get('/api/coach/conversations', async (c) => {
+  const userId = c.get('user').id;
+  const conversations = await db.getCoachConversations(c.env.DB, userId);
+  return c.json(conversations);
+});
+
+app.get('/api/coach/conversations/:id', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
+  if (!conversation) {
+    return c.json({ error: 'Conversation not found' }, 404);
+  }
+  const messages = await db.getCoachMessages(c.env.DB, id);
+  return c.json({ conversation, messages });
+});
+
+app.delete('/api/coach/conversations/:id', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const deleted = await db.deleteCoachConversation(c.env.DB, id, userId);
+  if (!deleted) {
+    return c.json({ error: 'Conversation not found' }, 404);
+  }
+  return c.json({ success: true });
+});
+
+// Follow-up message in a coach conversation (agent loop with tools)
+app.post('/api/coach/conversations/:id/messages', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const { message } = await c.req.json<{ message: string }>();
+
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    return c.json({ error: 'message is required' }, 400);
+  }
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI coaching is not configured' }, 500);
+  }
+
+  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
+  if (!conversation) {
+    return c.json({ error: 'Conversation not found' }, 404);
+  }
+
+  try {
+    const stored = await db.getCoachMessages(c.env.DB, id);
+    const decks = await db.getAllDecks(c.env.DB, userId);
+    const deckList = decks.length > 0
+      ? decks.map(d => `${d.name} (id: ${d.id})`).join(', ')
+      : 'none';
+
+    // Rebuild the model conversation: context header on the first user turn,
+    // the stored analysis JSON as the first assistant turn, then follow-ups.
+    const history: CoachChatTurn[] = [];
+    for (const m of stored) {
+      if (m.role === 'user' && history.length === 0) {
+        history.push({
+          role: 'user',
+          content: [
+            `The user's decks: ${deckList}`,
+            '',
+            `The user submitted this sentence to the Sentence Coach: "${m.content}"`,
+          ].join('\n'),
+        });
+      } else if (m.content_type === 'analysis') {
+        history.push({
+          role: 'assistant',
+          content: `Here is the structured analysis I gave the user (rendered as rich UI):\n${m.content}`,
+        });
+      } else {
+        history.push({ role: m.role, content: m.content });
+      }
+    }
+    history.push({ role: 'user', content: message.trim() });
+
+    const { answer, toolActions } = await coachChatWithTools(
+      c.env.ANTHROPIC_API_KEY, history, { db: c.env.DB, userId }
+    );
+
+    // Execute mutating tool actions (create_flashcards is the only one)
+    const toolResults: Array<{
+      tool: string;
+      success: boolean;
+      data?: Record<string, unknown>;
+      error?: string;
+    }> = [];
+
+    for (const action of toolActions) {
+      if (action.tool !== 'create_flashcards') {
+        toolResults.push({ tool: action.tool, success: false, error: 'Unsupported tool' });
+        continue;
+      }
+      try {
+        const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
+        const targetDeck = input.deck_id ? await db.getDeckById(c.env.DB, input.deck_id, userId) : null;
+        if (!targetDeck) {
+          toolResults.push({ tool: 'create_flashcards', success: false, error: 'Target deck not found' });
+          continue;
+        }
+        const createdNotes = [];
+        for (const fc of input.flashcards || []) {
+          const newNote = await db.createNote(
+            c.env.DB, targetDeck.id, fc.hanzi, fc.pinyin, fc.english, undefined, fc.fun_facts
+          );
+          createdNotes.push(newNote);
+        }
+        toolResults.push({
+          tool: 'create_flashcards',
+          success: true,
+          data: { deck_name: targetDeck.name, notes: createdNotes.map(n => ({ hanzi: n.hanzi, pinyin: n.pinyin, english: n.english })) },
+        });
+      } catch (err) {
+        console.error('Coach create_flashcards error:', err);
+        toolResults.push({ tool: 'create_flashcards', success: false, error: 'Failed to create flashcards' });
+      }
+    }
+
+    const userMsg = await db.addCoachMessage(c.env.DB, id, 'user', 'text', message.trim());
+    const assistantMsg = await db.addCoachMessage(
+      c.env.DB, id, 'assistant', 'text', answer,
+      toolResults.length > 0 ? JSON.stringify(toolResults) : null
+    );
+
+    return c.json({ messages: [userMsg, assistantMsg], toolResults });
+  } catch (error) {
+    console.error('Coach conversation message error:', error);
+    return c.json({ error: 'Failed to get a response' }, 500);
   }
 });
 

@@ -520,7 +520,16 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `POST /api/ai/generate-deck` - Generate deck from prompt
 - `POST /api/ai/suggest-cards` - Get card suggestions
 - `POST /api/sentence/analyze` - Break a sentence into aligned chunks
-- `POST /api/sentence/coach` - Correct/critique a learner-written sentence (Sentence Coach page at `/coach`, supports `?text=` deep link)
+- `POST /api/sentence/coach` - Correct/critique a learner-written sentence
+- `POST /api/sentence/explain` - Thoroughly explain a Chinese sentence
+
+### Sentence Coach conversations (page at `/coach`, supports `?text=` deep link)
+The Coach page auto-detects input language: Chinese → coach + explain, English → translate + explain. Conversations persist (`coach_conversations` / `coach_messages` tables) and support follow-up chat with agent tools (create_flashcards, search_cards, etc.).
+- `POST /api/coach/conversations` - Start a conversation from a sentence (auto-detects language, runs analysis)
+- `GET /api/coach/conversations` - List conversations
+- `GET /api/coach/conversations/:id` - Get conversation with messages
+- `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools)
+- `DELETE /api/coach/conversations/:id` - Delete a conversation
 
 ### Stats
 - `GET /api/stats/overview` - Overall statistics

@@ -26,6 +26,8 @@ import {
   HomeworkFeedbackType,
   AppNotification,
   NotificationType,
+  CoachConversation,
+  CoachMessage,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -3137,4 +3139,91 @@ export async function markStaleAudioLessons(db: D1Database, userId: string, maxA
       AND status IN ('pending', 'generating')
       AND created_at <= datetime('now', '-' || ? || ' seconds')
   `).bind(userId, maxAgeSeconds).run();
+}
+
+// ============ Sentence Coach Conversations ============
+
+export async function createCoachConversation(
+  db: D1Database,
+  userId: string,
+  title: string,
+  inputLanguage: 'zh' | 'en',
+): Promise<CoachConversation> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO coach_conversations (id, user_id, title, input_language)
+    VALUES (?, ?, ?, ?)
+  `).bind(id, userId, title, inputLanguage).run();
+  const conv = await db.prepare(`SELECT * FROM coach_conversations WHERE id = ?`)
+    .bind(id).first<CoachConversation>();
+  return conv!;
+}
+
+export async function getCoachConversations(
+  db: D1Database,
+  userId: string,
+  limit = 50,
+): Promise<(CoachConversation & { message_count: number })[]> {
+  const r = await db.prepare(`
+    SELECT c.*, (SELECT COUNT(*) FROM coach_messages m WHERE m.conversation_id = c.id) as message_count
+    FROM coach_conversations c
+    WHERE c.user_id = ?
+    ORDER BY c.updated_at DESC
+    LIMIT ?
+  `).bind(userId, limit).all<CoachConversation & { message_count: number }>();
+  return r.results;
+}
+
+export async function getCoachConversation(
+  db: D1Database,
+  id: string,
+  userId: string,
+): Promise<CoachConversation | null> {
+  const r = await db.prepare(`
+    SELECT * FROM coach_conversations WHERE id = ? AND user_id = ?
+  `).bind(id, userId).first<CoachConversation>();
+  return r ?? null;
+}
+
+export async function getCoachMessages(
+  db: D1Database,
+  conversationId: string,
+): Promise<CoachMessage[]> {
+  const r = await db.prepare(`
+    SELECT * FROM coach_messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC
+  `).bind(conversationId).all<CoachMessage>();
+  return r.results;
+}
+
+export async function addCoachMessage(
+  db: D1Database,
+  conversationId: string,
+  role: 'user' | 'assistant',
+  contentType: 'text' | 'analysis',
+  content: string,
+  toolResults: string | null = null,
+): Promise<CoachMessage> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO coach_messages (id, conversation_id, role, content_type, content, tool_results)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(id, conversationId, role, contentType, content, toolResults).run();
+  await db.prepare(`
+    UPDATE coach_conversations SET updated_at = datetime('now') WHERE id = ?
+  `).bind(conversationId).run();
+  const msg = await db.prepare(`SELECT * FROM coach_messages WHERE id = ?`)
+    .bind(id).first<CoachMessage>();
+  return msg!;
+}
+
+export async function deleteCoachConversation(
+  db: D1Database,
+  id: string,
+  userId: string,
+): Promise<boolean> {
+  const conv = await getCoachConversation(db, id, userId);
+  if (!conv) return false;
+  await db.prepare(`DELETE FROM coach_messages WHERE conversation_id = ?`).bind(id).run();
+  await db.prepare(`DELETE FROM coach_conversations WHERE id = ?`).bind(id).run();
+  return true;
 }
