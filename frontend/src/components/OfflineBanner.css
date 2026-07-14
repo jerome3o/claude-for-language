@@ -105,3 +105,15 @@
     font-size: 0.6875rem;
   }
 }
+
+/* Inline variant - rendered in the study topbar instead of floating */
+.sync-badge-inline,
+.sync-badge-inline.sync-badge {
+  position: static;
+  bottom: auto;
+  right: auto;
+  box-shadow: none;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}

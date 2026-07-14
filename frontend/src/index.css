@@ -548,6 +548,29 @@ html:has(.study-page-fullscreen) .header {
   color: var(--color-text);
 }
 
+/* Right-side cluster in the study topbar: sync badge, offline toggle, close */
+.study-topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.study-offline-toggle {
+  font-size: 1rem;
+}
+
+.study-offline-toggle--active {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.study-offline-toggle--active:hover {
+  background-color: #fde68a;
+  color: #92400e;
+}
+
 .study-card-content {
   flex: 1;
   display: flex;

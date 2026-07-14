@@ -171,6 +171,22 @@ export async function getAudioCacheStats(): Promise<{
 }
 
 /**
+ * Pick the best Chinese voice for speech synthesis.
+ * Prefers voices synthesized on-device (localService) so playback works
+ * offline — network-backed voices stall on spotty connections.
+ */
+export function pickChineseVoice(): SpeechSynthesisVoice | undefined {
+  if (!('speechSynthesis' in window)) return undefined;
+  const voices = window.speechSynthesis.getVoices();
+  const chineseVoices = voices.filter(v =>
+    v.lang.startsWith('zh') ||
+    v.lang.toLowerCase().includes('chinese') ||
+    v.name.toLowerCase().includes('chinese')
+  );
+  return chineseVoices.find(v => v.localService) || chineseVoices[0];
+}
+
+/**
  * Use browser's Web Speech API as fallback for TTS
  */
 export function speakWithBrowserTTS(text: string): Promise<void> {
@@ -182,14 +198,8 @@ export function speakWithBrowserTTS(text: string): Promise<void> {
 
     const utterance = new SpeechSynthesisUtterance(text);
 
-    // Try to find a Chinese voice
-    const voices = window.speechSynthesis.getVoices();
-    const chineseVoice = voices.find(v =>
-      v.lang.startsWith('zh') ||
-      v.lang.includes('chinese') ||
-      v.name.toLowerCase().includes('chinese')
-    );
-
+    // Try to find a Chinese voice (prefer on-device voices)
+    const chineseVoice = pickChineseVoice();
     if (chineseVoice) {
       utterance.voice = chineseVoice;
     }

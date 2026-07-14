@@ -52,6 +52,8 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useTranscription, usePronunciationAssessment } from '../hooks/useTranscription';
 import { useSpeechSuper } from '../hooks/useSpeechSuper';
 import { useNetwork } from '../contexts/NetworkContext';
+import { useManualOfflineMode, toggleManualOfflineMode } from '../services/offlineMode';
+import { SyncBadge } from '../components/OfflineBanner';
 import { useAuth } from '../contexts/AuthContext';
 import CardEditModal from '../components/CardEditModal';
 import { copyQueueCountsImage } from '../utils/queue-counts-image';
@@ -414,6 +416,7 @@ function StudyCard({
   const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
+  const manualOffline = useManualOfflineMode();
   const {
     isTranscribing,
     comparison: transcriptionComparison,
@@ -2681,16 +2684,30 @@ function StudyCard({
   return (
     <>
       <div className="study-fullscreen">
-        {/* Top bar with close button and queue counts */}
+        {/* Top bar with close button, queue counts, sync status, and offline toggle */}
         <div className="study-topbar">
-          <button
-            className="study-close-btn"
-            onClick={onEnd}
-            aria-label="End session"
-          >
-            ✕
-          </button>
           <QueueCountsHeader counts={counts} activeQueue={card.queue} activeIsSecondary={cardIsSecondaryNew} />
+          <div className="study-topbar-controls">
+            <SyncBadge inline />
+            <button
+              className={`study-close-btn study-offline-toggle ${manualOffline ? 'study-offline-toggle--active' : ''}`}
+              onClick={() => toggleManualOfflineMode()}
+              aria-label={manualOffline ? 'Offline mode on — audio uses device TTS' : 'Offline mode off — audio streams from server'}
+              aria-pressed={manualOffline}
+              title={manualOffline
+                ? 'Offline mode ON: audio plays from cache or device TTS (no network)'
+                : 'Offline mode OFF: tap when your connection is spotty'}
+            >
+              ✈
+            </button>
+            <button
+              className="study-close-btn"
+              onClick={onEnd}
+              aria-label="End session"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Data error banner */}
