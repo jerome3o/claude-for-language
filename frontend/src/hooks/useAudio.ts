@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
-import { getAudioWithCache } from '../services/audioCache';
+import { getAudioWithCache, getCachedAudio, pickChineseVoice } from '../services/audioCache';
+import { getManualOfflineMode } from '../services/offlineMode';
 import { DEFAULT_TTS_SPEED } from '../types';
 
 /**
@@ -198,11 +199,8 @@ export function useTTS() {
     utterance.lang = lang;
     utterance.rate = DEFAULT_TTS_SPEED;
 
-    // Try to find a Chinese voice
-    const voices = window.speechSynthesis.getVoices();
-    const chineseVoice = voices.find(
-      (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
-    );
+    // Try to find a Chinese voice (prefer on-device voices)
+    const chineseVoice = pickChineseVoice();
     if (chineseVoice) {
       utterance.voice = chineseVoice;
     }
@@ -297,6 +295,25 @@ export function useNoteAudio() {
       });
     };
 
+    // Manual offline mode: never touch the network. On spotty connections
+    // (e.g. on the train) network audio requests stall, queue up, and then
+    // all play at once. Play from the IndexedDB cache if available,
+    // otherwise fall back to on-device speech synthesis immediately.
+    if (getManualOfflineMode()) {
+      getCachedAudio(audioUrl).then((blob) => {
+        if (playIdRef.current !== currentPlayId) return; // Superseded
+        if (blob) {
+          playFromUrl(URL.createObjectURL(blob));
+        } else {
+          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
+        }
+      }).catch(() => {
+        if (playIdRef.current !== currentPlayId) return;
+        speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
+      });
+      return;
+    }
+
     // Try IndexedDB cache first (works offline), then fall back to network
     // Skip cache if cacheBuster is set (audio was just regenerated)
     if (cacheBuster) {
@@ -346,10 +363,7 @@ function speakWithBrowserTTS(
   utterance.lang = 'zh-CN';
   utterance.rate = DEFAULT_TTS_SPEED;
 
-  const voices = window.speechSynthesis.getVoices();
-  const chineseVoice = voices.find(
-    (v) => v.lang.startsWith('zh') || v.lang.includes('Chinese')
-  );
+  const chineseVoice = pickChineseVoice();
   if (chineseVoice) {
     utterance.voice = chineseVoice;
   }
