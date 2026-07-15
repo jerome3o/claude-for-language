@@ -1,18 +1,24 @@
 package dev.jeromeswannack.chineselearning;
 
 import android.Manifest;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Base64;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 
+import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -25,7 +31,11 @@ import androidx.work.WorkManager;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends BridgeActivity {
 
@@ -46,8 +56,82 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         setUpStatusBarBackground();
         setUpKeyboardAwareInsets();
+        setUpClipboardBridge();
         handleRouteIntent(getIntent());
         setUpHomeworkNotifications();
+    }
+
+    /**
+     * The WebView's async clipboard API (navigator.clipboard.write/writeText)
+     * can resolve WITHOUT writing anything, so web-side copy buttons show
+     * "Copied!" while the clipboard stays empty. Expose the real Android
+     * clipboard to the page as window.AndroidClipboard; the frontend prefers
+     * it whenever present (see frontend/src/utils/clipboard.ts).
+     */
+    private void setUpClipboardBridge() {
+        bridge.getWebView().addJavascriptInterface(new ClipboardBridge(), "AndroidClipboard");
+    }
+
+    private class ClipboardBridge {
+
+        /** Runs on the JS bridge thread; hop to main for ClipboardManager. */
+        private boolean setClip(ClipData clip) {
+            AtomicBoolean ok = new AtomicBoolean(false);
+            CountDownLatch done = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(clip);
+                    ok.set(true);
+                } catch (Exception e) {
+                    Log.e("ClipboardBridge", "setPrimaryClip failed", e);
+                } finally {
+                    done.countDown();
+                }
+            });
+            try {
+                done.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return ok.get();
+        }
+
+        @JavascriptInterface
+        public boolean writeText(String text) {
+            if (text == null) {
+                return false;
+            }
+            return setClip(ClipData.newPlainText("Chinese Learning", text));
+        }
+
+        @JavascriptInterface
+        public boolean writeImageBase64(String base64Png) {
+            if (base64Png == null || base64Png.isEmpty()) {
+                return false;
+            }
+            try {
+                byte[] bytes = Base64.decode(base64Png, Base64.DEFAULT);
+                File dir = new File(getCacheDir(), "clipboard");
+                if (!dir.exists() && !dir.mkdirs()) {
+                    return false;
+                }
+                File file = new File(dir, "clipboard.png");
+                try (FileOutputStream out = new FileOutputStream(file)) {
+                    out.write(bytes);
+                }
+                // Reuse the app's existing FileProvider (its cache-path entry
+                // in res/xml/file_paths.xml covers getCacheDir()).
+                Uri uri = FileProvider.getUriForFile(
+                        MainActivity.this,
+                        getPackageName() + ".fileprovider",
+                        file);
+                return setClip(ClipData.newUri(getContentResolver(), "Chinese Learning", uri));
+            } catch (Exception e) {
+                Log.e("ClipboardBridge", "writeImageBase64 failed", e);
+                return false;
+            }
+        }
     }
 
     /**
