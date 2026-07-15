@@ -39,6 +39,10 @@ import {
   SentenceBreakdown,
   SentenceCoachResult,
   SentenceExplanation,
+  CoachConversation,
+  CoachConversationListItem,
+  CoachMessage,
+  CoachToolResult,
   CreateRelationshipResult,
   GradedReader,
   GradedReaderWithPages,
@@ -1253,6 +1257,43 @@ export async function explainSentence(sentence: string): Promise<SentenceExplana
     method: 'POST',
     body: JSON.stringify({ sentence }),
   });
+}
+
+// ============ Sentence Coach Conversations ============
+
+export async function startCoachConversation(text: string): Promise<{
+  conversation: CoachConversation;
+  messages: CoachMessage[];
+}> {
+  return fetchJSON('/coach/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function getCoachConversations(): Promise<CoachConversationListItem[]> {
+  return fetchJSON('/coach/conversations');
+}
+
+export async function getCoachConversation(id: string): Promise<{
+  conversation: CoachConversation;
+  messages: CoachMessage[];
+}> {
+  return fetchJSON(`/coach/conversations/${id}`);
+}
+
+export async function sendCoachMessage(id: string, message: string): Promise<{
+  messages: CoachMessage[];
+  toolResults: CoachToolResult[];
+}> {
+  return fetchJSON(`/coach/conversations/${id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
+export async function deleteCoachConversation(id: string): Promise<void> {
+  await fetchJSON(`/coach/conversations/${id}`, { method: 'DELETE' });
 }
 
 // ============ Graded Readers ============

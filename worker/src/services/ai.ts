@@ -701,7 +701,7 @@ async function executeReadOnlyTool(
   toolName: string,
   input: Record<string, unknown>,
   ctx: AskDbContext,
-  currentNote: Note
+  _currentNote?: Note
 ): Promise<Record<string, unknown>> {
   try {
     switch (toolName) {
@@ -905,6 +905,187 @@ async function executeReadOnlyTool(
     console.error(`Read-only tool ${toolName} error:`, error);
     return { error: `Failed to execute ${toolName}` };
   }
+}
+
+// ============ Sentence Coach Chat (Agent Loop) ============
+
+const COACH_CHAT_SYSTEM_PROMPT = `You are a friendly, expert Chinese language tutor inside a flashcard app's Sentence Coach. The user submitted a sentence, received an analysis (correction/explanation or translation), and is now asking follow-up questions about it.
+
+Guidelines:
+- Answer in clear English, using Chinese characters WITH pinyin (tone marks: nǐ hǎo, never tone numbers) for any Chinese you include.
+- Keep responses focused and mobile-friendly: get to the point, use short paragraphs or bullets.
+- Ground answers in the analyzed sentence when relevant, but happily go deeper: grammar, alternatives, register, related vocabulary, example sentences, mnemonics.
+
+You have tools. Read-only tools run automatically; use them freely.
+- The user asks to save words/sentences to a deck → use create_flashcards with a deck_id chosen from the user's decks listed in the context (ask which deck ONLY if genuinely ambiguous and the user has several plausible ones — otherwise pick the most relevant and say which you chose).
+- Use search_cards to check what the user already knows or avoid duplicate cards.
+- Use get_note_cards / get_note_history for details on specific existing cards.
+- Use get_overall_stats for study-progress questions.
+After using a tool, briefly confirm what you did. When creating cards, pinyin uses tone marks, NOT tone numbers.`;
+
+function getCoachChatTools() {
+  return [
+    {
+      name: 'create_flashcards',
+      description: "Create new flashcards in one of the user's decks. The user's decks (with ids) are listed in the conversation context.",
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          deck_id: { type: 'string', description: 'Target deck ID (required — pick from the decks listed in the context).' },
+          flashcards: {
+            type: 'array',
+            description: 'Array of flashcards to create',
+            items: {
+              type: 'object',
+              properties: {
+                hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
+                pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
+                english: { type: 'string', description: 'Clear, concise English translation' },
+                fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words' },
+              },
+              required: ['hanzi', 'pinyin', 'english'],
+            },
+          },
+        },
+        required: ['deck_id', 'flashcards'],
+      },
+    },
+    {
+      name: 'search_cards',
+      description: 'Search through all flashcards across all decks. Use this to find related vocabulary, check for duplicates, or answer questions about what cards exist.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'Search query — matches against hanzi, pinyin, and english fields' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'get_note_cards',
+      description: 'Get all cards for a specific note with their current SRS state. Use after search_cards to check detailed scheduling data.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          note_id: { type: 'string', description: 'The note ID (find via search_cards).' },
+        },
+        required: ['note_id'],
+      },
+    },
+    {
+      name: 'get_note_history',
+      description: 'Get review history for a note. Use this to understand how well the user knows a word.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          note_id: { type: 'string', description: 'The note ID (find via search_cards).' },
+        },
+        required: ['note_id'],
+      },
+    },
+    {
+      name: 'get_overall_stats',
+      description: 'Get overall study statistics: total decks, total cards, cards due today, cards studied today.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {},
+      },
+    },
+  ];
+}
+
+export interface CoachChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * Continue a Sentence Coach conversation with tool use (agent loop).
+ * `history` must already include the analysis context as its first turns;
+ * mutating tool calls (create_flashcards) are collected for the route to
+ * execute, read-only tools run inline.
+ */
+export async function coachChatWithTools(
+  apiKey: string,
+  history: CoachChatTurn[],
+  dbContext: { db: D1Database; userId: string }
+): Promise<AskWithToolsResponse> {
+  const client = new Anthropic({ apiKey });
+  const tools = getCoachChatTools();
+  const ctx: AskDbContext = { db: dbContext.db, userId: dbContext.userId, deckId: '' };
+
+  const messages: Anthropic.MessageParam[] = history.map(t => ({
+    role: t.role,
+    content: t.content,
+  }));
+
+  const collectedToolActions: ToolAction[] = [];
+  const collectedReadOnlyToolCalls: ReadOnlyToolCall[] = [];
+  const textParts: string[] = [];
+  const MAX_ITERATIONS = 5;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const response = await client.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 1500,
+      messages,
+      system: COACH_CHAT_SYSTEM_PROMPT,
+      tools: tools as Anthropic.Tool[],
+    });
+
+    const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
+
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        textParts.push(block.text);
+      } else if (block.type === 'tool_use') {
+        toolUseBlocks.push(block);
+        if (!READ_ONLY_TOOLS.has(block.name)) {
+          collectedToolActions.push({
+            tool: block.name as ToolAction['tool'],
+            input: block.input as Record<string, unknown>,
+          });
+        }
+      }
+    }
+
+    if (response.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
+      break;
+    }
+
+    messages.push({ role: 'assistant', content: response.content });
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of toolUseBlocks) {
+      if (READ_ONLY_TOOLS.has(block.name)) {
+        const result = await executeReadOnlyTool(block.name, block.input as Record<string, unknown>, ctx);
+        collectedReadOnlyToolCalls.push({
+          tool: block.name,
+          input: block.input as Record<string, unknown>,
+          result,
+        });
+        toolResults.push({
+          type: 'tool_result' as const,
+          tool_use_id: block.id,
+          content: JSON.stringify(result),
+        });
+      } else {
+        toolResults.push({
+          type: 'tool_result' as const,
+          tool_use_id: block.id,
+          content: JSON.stringify({ success: true, message: `Tool ${block.name} was executed` }),
+        });
+      }
+    }
+
+    messages.push({ role: 'user', content: toolResults });
+  }
+
+  return {
+    answer: textParts.join('\n'),
+    toolActions: collectedToolActions,
+    readOnlyToolCalls: collectedReadOnlyToolCalls,
+  };
 }
 
 // ============ AI Conversation Functions ============
