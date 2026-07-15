@@ -57,6 +57,7 @@ import { SyncBadge } from '../components/OfflineBanner';
 import { useAuth } from '../contexts/AuthContext';
 import CardEditModal from '../components/CardEditModal';
 import { copyQueueCountsImage } from '../utils/queue-counts-image';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
@@ -1718,17 +1719,16 @@ function StudyCard({
         })),
       };
       const text = JSON.stringify(info, null, 1);
-      try {
-        await navigator.clipboard.writeText(text);
+      if (await copyTextToClipboard(text)) {
         setDebugCopyMsg('Copied to clipboard ✓');
+        return;
+      }
+      try {
+        await navigator.share({ text });
+        setDebugCopyMsg('Sent to share sheet ✓');
       } catch {
-        try {
-          await navigator.share({ text });
-          setDebugCopyMsg('Sent to share sheet ✓');
-        } catch {
-          console.log('[cardDebugInfo]', text);
-          setDebugCopyMsg('Clipboard unavailable — printed to console');
-        }
+        console.log('[cardDebugInfo]', text);
+        setDebugCopyMsg('Clipboard unavailable — printed to console');
       }
     };
 

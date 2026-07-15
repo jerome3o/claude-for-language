@@ -1,4 +1,5 @@
 import { QueueCounts } from '../types';
+import { copyImageToClipboard, copyTextToClipboard } from './clipboard';
 
 const COLORS = {
   new: '#3b82f6',
@@ -11,9 +12,11 @@ const COLORS = {
 
 /**
  * Render the new+secondary+learning+review queue counts to a PNG and write it
- * to the system clipboard so it can be pasted into chat apps.
+ * to the system clipboard so it can be pasted into chat apps. Falls back to
+ * copying the counts as plain text where image clipboard isn't available.
+ * Returns which form landed on the clipboard.
  */
-export async function copyQueueCountsImage(counts: QueueCounts): Promise<void> {
+export async function copyQueueCountsImage(counts: QueueCounts): Promise<'image' | 'text'> {
   const segments = [
     { text: String(counts.new), color: COLORS.new, weight: 600 },
     { text: ' + ', color: COLORS.separator, weight: 400 },
@@ -67,5 +70,13 @@ export async function copyQueueCountsImage(counts: QueueCounts): Promise<void> {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'),
   );
 
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+  try {
+    await copyImageToClipboard(blob);
+    return 'image';
+  } catch (err) {
+    console.warn('[queue-counts] image copy failed, falling back to text', err);
+    const text = `${counts.new} + ${counts.secondaryNew} + ${counts.learning} + ${counts.review}`;
+    if (await copyTextToClipboard(text)) return 'text';
+    throw err;
+  }
 }

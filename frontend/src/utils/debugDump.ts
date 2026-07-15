@@ -14,6 +14,7 @@ import {
   getStudyCutoff,
 } from '../db/database';
 import { CardQueue } from '../types';
+import { copyTextToClipboard } from './clipboard';
 
 const QUEUE_NAMES: Record<number, string> = {
   [CardQueue.NEW]: 'new',
@@ -121,16 +122,14 @@ export async function buildDebugDump(): Promise<string> {
 /** Copy the dump to the clipboard, falling back to the Android share sheet. */
 export async function copyDebugDump(): Promise<string> {
   const dump = await buildDebugDump();
-  try {
-    await navigator.clipboard.writeText(dump);
+  if (await copyTextToClipboard(dump)) {
     return `Debug dump copied to clipboard (${(dump.length / 1024).toFixed(1)} KB). Paste it into the Claude chat.`;
+  }
+  try {
+    await navigator.share({ text: dump });
+    return 'Debug dump sent to the share sheet.';
   } catch {
-    try {
-      await navigator.share({ text: dump });
-      return 'Debug dump sent to the share sheet.';
-    } catch {
-      console.log('[debugDump]', dump);
-      return 'Could not access clipboard — the dump was printed to the console (enable the Debug Console to copy it from there).';
-    }
+    console.log('[debugDump]', dump);
+    return 'Could not access clipboard — the dump was printed to the console (enable the Debug Console to copy it from there).';
   }
 }
