@@ -207,7 +207,7 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
 
 // Queue counts header component
 function QueueCountsHeader({ counts, activeQueue, activeIsSecondary }: { counts: QueueCounts; activeQueue?: number; activeIsSecondary?: boolean }) {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [copyState, setCopyState] = useState<'idle' | 'image' | 'text' | 'error'>('idle');
   const resetTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const total = counts.new + counts.secondaryNew + counts.learning + counts.review;
@@ -224,8 +224,9 @@ function QueueCountsHeader({ counts, activeQueue, activeIsSecondary }: { counts:
 
   const handleCopy = async () => {
     try {
-      await copyQueueCountsImage(counts);
-      setCopyState('copied');
+      // 'image' or 'text' depending on which form landed on the clipboard —
+      // show the real outcome so a fallback never reads as an image copy.
+      setCopyState(await copyQueueCountsImage(counts));
     } catch (err) {
       console.error('Failed to copy queue counts image', err);
       setCopyState('error');
@@ -250,7 +251,9 @@ function QueueCountsHeader({ counts, activeQueue, activeIsSecondary }: { counts:
       <span className={`count-review ${isReviewActive ? 'count-active' : ''}`} title="Review cards">{counts.review}</span>
       {copyState !== 'idle' && (
         <span className="queue-counts-toast">
-          {copyState === 'copied' ? 'Copied!' : 'Copy failed'}
+          {copyState === 'image' && 'Copied!'}
+          {copyState === 'text' && 'Copied as text'}
+          {copyState === 'error' && 'Copy failed'}
         </span>
       )}
     </button>

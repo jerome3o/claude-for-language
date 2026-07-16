@@ -74,7 +74,10 @@ can't download its distribution, a system Gradle >= 8.11 works too.
 
 - `capacitor.config.json` — app id/name, remote `server.url`, allowed navigation
   hosts, and a Chrome-like `overrideUserAgent` (without it Google OAuth refuses
-  to run in a WebView with a `disallowed_useragent` error).
+  to run in a WebView with a `disallowed_useragent` error). The exact UA string
+  is also how the frontend detects it's running in the app
+  (`frontend/src/utils/clipboard.ts` `isNativeApp()`) — keep the two in sync if
+  it ever changes.
 - `android/app/src/main/java/.../MainActivity.java` — routes intents
   (`route` extra or `chineselearning://` data URI) to the corresponding page by
   loading `server.url + route` in the WebView.
