@@ -556,20 +556,32 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "add_lesson_note",
-      "Record raw lesson notes from the user's tutor (vocab lists, sentences, etc). The text is stored verbatim and used as context when generating grammar practice and roleplay sessions. Do NOT reformat or parse — paste exactly what the tutor sent.",
+      "Record raw lesson notes from the user's tutor (vocab lists, sentences, etc). The text is stored verbatim and used as context when generating grammar practice and roleplay sessions. Do NOT reformat or parse — paste exactly what the tutor sent. Safe to call from a scheduled/recurring job: if a note with identical text already exists for this user, no duplicate is created — the existing note's id is returned instead.",
       {
         raw_text: z.string().describe("The tutor's notes verbatim — any format"),
         given_at: z.string().optional().describe("Free-form date/label, e.g. 'Tue lesson' or '2026-04-28'"),
       },
       async ({ raw_text, given_at }) => {
+        const trimmed = raw_text.trim();
+        const existing = await this.env.DB.prepare(
+          `SELECT id, given_at FROM lesson_notes WHERE user_id = ? AND raw_text = ? LIMIT 1`
+        ).bind(userId, trimmed).first<{ id: string; given_at: string | null }>();
+        if (existing) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Skipped — identical lesson note already exists${existing.given_at ? ` for ${existing.given_at}` : ''}. id=${existing.id}`,
+            }],
+          };
+        }
         const id = crypto.randomUUID();
         await this.env.DB.prepare(
           `INSERT INTO lesson_notes (id, user_id, raw_text, given_at) VALUES (?, ?, ?, ?)`
-        ).bind(id, userId, raw_text.trim(), given_at?.trim() || null).run();
+        ).bind(id, userId, trimmed, given_at?.trim() || null).run();
         return {
           content: [{
             type: "text" as const,
-            text: `Saved lesson note (${raw_text.trim().length} chars)${given_at ? ` for ${given_at}` : ''}. id=${id}`,
+            text: `Saved lesson note (${trimmed.length} chars)${given_at ? ` for ${given_at}` : ''}. id=${id}`,
           }],
         };
       }
