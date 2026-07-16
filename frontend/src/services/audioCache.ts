@@ -2,25 +2,36 @@ import { db } from '../db/database';
 import { API_BASE } from '../api/client';
 import { DEFAULT_TTS_SPEED } from '../types';
 
-const MAX_CACHE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const MAX_CACHE_SIZE = 500; // Max number of cached audio files
+// Size budget for the audio cache. Audio clips are small (~30-60KB), so this
+// comfortably fits every clip the user owns (Jerome is fine with ~1GB).
+// Eviction is least-recently-used and only kicks in if the budget is hit.
+export const MAX_CACHE_BYTES = 1024 * 1024 * 1024; // 1GB
 
 /**
- * Cache audio blob in IndexedDB
+ * Cache audio blob in IndexedDB.
+ * A lightweight metadata row (size, timestamps) is kept in cachedAudioMeta so
+ * stats and eviction never need to load the blobs.
  */
 export async function cacheAudio(audioUrl: string, blob: Blob): Promise<void> {
+  const now = Date.now();
   await db.cachedAudio.put({
     key: audioUrl,
     blob,
-    cached_at: Date.now(),
+    cached_at: now,
+  });
+  await db.cachedAudioMeta.put({
+    key: audioUrl,
+    size: blob.size,
+    cached_at: now,
+    last_used_at: now,
   });
 
-  // Clean up old entries if we exceed max size
-  await cleanupOldCache();
+  await evictIfOverBudget();
 }
 
 /**
- * Get cached audio blob from IndexedDB
+ * Get cached audio blob from IndexedDB.
+ * Cached audio never expires; playback refreshes its LRU timestamp.
  */
 export async function getCachedAudio(audioUrl: string): Promise<Blob | null> {
   const cached = await db.cachedAudio.get(audioUrl);
@@ -28,30 +39,42 @@ export async function getCachedAudio(audioUrl: string): Promise<Blob | null> {
     return null;
   }
 
-  // Check if cache is expired
-  if (Date.now() - cached.cached_at > MAX_CACHE_AGE_MS) {
-    await db.cachedAudio.delete(audioUrl);
-    return null;
-  }
+  // Refresh last-used for LRU eviction (fire and forget)
+  db.cachedAudioMeta.update(audioUrl, { last_used_at: Date.now() }).catch(() => {});
 
   return cached.blob;
 }
 
 /**
- * Check if audio is cached
+ * Check if audio is cached (metadata only — never loads the blob)
  */
 export async function isAudioCached(audioUrl: string): Promise<boolean> {
+  const meta = await db.cachedAudioMeta.get(audioUrl);
+  if (meta) {
+    return true;
+  }
+  // Entries cached before the meta table existed: fall back to the blob
+  // table and backfill the missing meta row.
   const cached = await db.cachedAudio.get(audioUrl);
   if (!cached) {
     return false;
   }
-
-  // Check if cache is expired
-  if (Date.now() - cached.cached_at > MAX_CACHE_AGE_MS) {
-    return false;
-  }
-
+  await db.cachedAudioMeta.put({
+    key: audioUrl,
+    size: cached.blob?.size ?? 0,
+    cached_at: cached.cached_at,
+    last_used_at: Date.now(),
+  });
   return true;
+}
+
+/**
+ * Set of all cached audio keys (cheap — primary keys only, no blobs).
+ * Used to diff the server's audio manifest against what's already local.
+ */
+export async function getCachedAudioKeys(): Promise<Set<string>> {
+  const keys = await db.cachedAudio.toCollection().primaryKeys();
+  return new Set(keys);
 }
 
 /**
@@ -98,17 +121,8 @@ export async function preCacheAudio(audioUrls: string[]): Promise<void> {
     return;
   }
 
-  const uncachedUrls: string[] = [];
-
-  // Check which URLs are not cached
-  for (const url of audioUrls) {
-    if (url) {
-      const isCached = await isAudioCached(url);
-      if (!isCached) {
-        uncachedUrls.push(url);
-      }
-    }
-  }
+  const cachedKeys = await getCachedAudioKeys();
+  const uncachedUrls = audioUrls.filter((url) => url && !cachedKeys.has(url));
 
   // Fetch and cache uncached URLs (in parallel, but limited)
   const BATCH_SIZE = 5;
@@ -119,21 +133,32 @@ export async function preCacheAudio(audioUrls: string[]): Promise<void> {
 }
 
 /**
- * Clean up old cache entries
+ * Evict least-recently-used entries if the cache exceeds its size budget.
+ * Works entirely off the metadata table (no blobs loaded).
  */
-export async function cleanupOldCache(): Promise<void> {
-  const count = await db.cachedAudio.count();
+export async function evictIfOverBudget(budgetBytes: number = MAX_CACHE_BYTES): Promise<number> {
+  const metas = await db.cachedAudioMeta.toArray();
+  let totalSize = metas.reduce((sum, m) => sum + (m.size || 0), 0);
 
-  if (count <= MAX_CACHE_SIZE) {
-    return;
+  if (totalSize <= budgetBytes) {
+    return 0;
   }
 
-  // Get all entries sorted by cached_at
-  const entries = await db.cachedAudio.orderBy('cached_at').toArray();
+  // Oldest last_used_at first
+  metas.sort((a, b) => a.last_used_at - b.last_used_at);
 
-  // Delete oldest entries to get under the limit
-  const toDelete = entries.slice(0, count - MAX_CACHE_SIZE);
-  await db.cachedAudio.bulkDelete(toDelete.map(e => e.key));
+  const toDelete: string[] = [];
+  for (const meta of metas) {
+    if (totalSize <= budgetBytes) break;
+    toDelete.push(meta.key);
+    totalSize -= meta.size || 0;
+  }
+
+  if (toDelete.length > 0) {
+    await db.cachedAudio.bulkDelete(toDelete);
+    await db.cachedAudioMeta.bulkDelete(toDelete);
+  }
+  return toDelete.length;
 }
 
 /**
@@ -141,30 +166,31 @@ export async function cleanupOldCache(): Promise<void> {
  */
 export async function clearAudioCache(): Promise<void> {
   await db.cachedAudio.clear();
+  await db.cachedAudioMeta.clear();
 }
 
 /**
- * Get cache statistics
+ * Get cache statistics (metadata only — never loads blobs)
  */
 export async function getAudioCacheStats(): Promise<{
   count: number;
   totalSize: number;
   oldestEntry: Date | null;
 }> {
-  const entries = await db.cachedAudio.toArray();
+  const metas = await db.cachedAudioMeta.toArray();
 
   let totalSize = 0;
   let oldest: number | null = null;
 
-  for (const entry of entries) {
-    totalSize += entry.blob.size;
-    if (oldest === null || entry.cached_at < oldest) {
-      oldest = entry.cached_at;
+  for (const meta of metas) {
+    totalSize += meta.size || 0;
+    if (oldest === null || meta.cached_at < oldest) {
+      oldest = meta.cached_at;
     }
   }
 
   return {
-    count: entries.length,
+    count: metas.length,
     totalSize,
     oldestEntry: oldest ? new Date(oldest) : null,
   };

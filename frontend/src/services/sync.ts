@@ -18,6 +18,7 @@ import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates } from '../api/client';
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents } from './review-events';
 import { preCacheAudio } from './audioCache';
+import { prefetchAllAudio } from './audioPrefetch';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -323,6 +324,12 @@ class SyncService {
         console.error('[Sync] Audio pre-cache failed:', err)
       );
     }
+
+    // Prefetch ALL owned audio (recordings, sentence clues, everything) in
+    // the background so study works fully offline. Throttled internally.
+    prefetchAllAudio().catch(err =>
+      console.error('[Sync] Full audio prefetch failed:', err)
+    );
   }
 
   /**
@@ -480,6 +487,11 @@ class SyncService {
         );
       }
     }
+
+    // Prefetch ALL owned audio in the background (throttled internally)
+    prefetchAllAudio().catch(err =>
+      console.error('[Sync] Full audio prefetch failed:', err)
+    );
   }
 
   /**

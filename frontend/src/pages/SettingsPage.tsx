@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio } from '../api/client';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
+import { getAudioCacheStats, getCachedAudioKeys } from '../services/audioCache';
+import { fetchAudioManifest, prefetchAllAudio, useAudioPrefetchProgress } from '../services/audioPrefetch';
+import { useNetwork } from '../contexts/NetworkContext';
 import './SettingsPage.css';
 
 function formatBytes(bytes: number): string {
@@ -127,6 +130,114 @@ function FeatureRequestDetail({ requestId, onClose }: { requestId: string; onClo
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function OfflineAudioSection() {
+  const { isOnline } = useNetwork();
+  const progress = useAudioPrefetchProgress();
+  const [cachedCount, setCachedCount] = useState<number | null>(null);
+  const [cachedBytes, setCachedBytes] = useState(0);
+  const [manifestTotal, setManifestTotal] = useState<number | null>(null);
+  const [missingCount, setMissingCount] = useState<number | null>(null);
+
+  const isDownloading = progress.status === 'running';
+
+  const loadStats = useCallback(async () => {
+    const stats = await getAudioCacheStats();
+    setCachedCount(stats.count);
+    setCachedBytes(stats.totalSize);
+
+    // Manifest requires network — fail gracefully offline
+    try {
+      const [manifest, cachedKeys] = await Promise.all([
+        fetchAudioManifest(),
+        getCachedAudioKeys(),
+      ]);
+      setManifestTotal(manifest.length);
+      setMissingCount(manifest.filter((url) => !cachedKeys.has(url)).length);
+    } catch {
+      setManifestTotal(null);
+      setMissingCount(null);
+    }
+  }, []);
+
+  useEffect(() => { loadStats(); }, [loadStats]);
+
+  // Refresh stats when a download run finishes
+  useEffect(() => {
+    if (progress.status === 'done' || progress.status === 'error') {
+      loadStats();
+    }
+  }, [progress.status, loadStats]);
+
+  const handleDownloadAll = async () => {
+    await prefetchAllAudio({ force: true });
+  };
+
+  const summary = (() => {
+    if (cachedCount === null) return 'Loading…';
+    const size = formatBytes(cachedBytes);
+    if (manifestTotal !== null && missingCount !== null) {
+      const cachedOfManifest = manifestTotal - missingCount;
+      return `${cachedOfManifest} of ${manifestTotal} clips stored on this device (${size})`;
+    }
+    return `${cachedCount} clips stored on this device (${size})`;
+  })();
+
+  return (
+    <div className="settings-section">
+      <h2>Offline Audio</h2>
+      <p className="settings-section-desc">
+        Card audio is downloaded to this device so study works without a
+        connection (use the ✈ toggle in the study screen on the train).
+        Audio also downloads automatically in the background after each sync.
+      </p>
+
+      <p style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>{summary}</p>
+
+      {isDownloading && (
+        <div style={{ marginBottom: '0.75rem' }}>
+          <div style={{
+            height: '8px',
+            background: 'var(--color-background, #f3f4f6)',
+            border: '1px solid var(--color-border, #e5e7eb)',
+            borderRadius: '4px',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              height: '100%',
+              width: progress.total > 0 ? `${Math.round((progress.done / progress.total) * 100)}%` : '100%',
+              background: '#3b82f6',
+              transition: 'width 0.3s',
+            }} />
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-light)', marginTop: '0.25rem' }}>
+            Downloading {progress.done} / {progress.total}
+            {progress.failed > 0 ? ` (${progress.failed} failed)` : ''}
+          </div>
+        </div>
+      )}
+
+      <button
+        className="btn btn-primary"
+        onClick={handleDownloadAll}
+        disabled={isDownloading || !isOnline}
+        title={!isOnline ? 'Requires internet connection' : ''}
+      >
+        {isDownloading
+          ? 'Downloading…'
+          : missingCount !== null && missingCount > 0
+            ? `Download ${missingCount} Missing Clips`
+            : 'Download All Audio'}
+      </button>
+
+      {progress.status === 'done' && progress.failed > 0 && (
+        <div style={{ fontSize: '0.8rem', color: '#b45309', marginTop: '0.5rem' }}>
+          {progress.failed} clips failed to download — try again later.
+        </div>
+      )}
     </div>
   );
 }
@@ -284,6 +395,8 @@ export function SettingsPage() {
             </div>
           )}
         </div>
+
+        <OfflineAudioSection />
 
         <div className="settings-section">
           <h2>Export Data</h2>

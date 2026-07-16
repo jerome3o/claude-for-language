@@ -357,11 +357,15 @@ function StudyCard({
   const [isInitiatingConversation, setIsInitiatingConversation] = useState(false);
   const navigate = useNavigate();
 
+  // Manual offline mode: no network audio calls of any kind during study
+  const manualOffline = useManualOfflineMode();
+
   // Audio recording cycling state
   const queryClient = useQueryClient();
   const recordingsQuery = useQuery({
     queryKey: ['noteRecordings', card.note.id],
     queryFn: () => getNoteAudioRecordings(card.note.id),
+    enabled: !manualOffline,
   });
   const recordings = recordingsQuery.data || [];
   const [recordingIndex, setRecordingIndex] = useState(0);
@@ -417,7 +421,6 @@ function StudyCard({
   const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
-  const manualOffline = useManualOfflineMode();
   const {
     isTranscribing,
     comparison: transcriptionComparison,
@@ -586,10 +589,11 @@ function StudyCard({
     };
   }, [card.id]);
 
-  // Auto-generate audio if note has no audio_url
+  // Auto-generate audio if note has no audio_url (skipped in manual offline
+  // mode — no network audio calls while studying on a spotty connection)
   const generatingAudioForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!card.note.audio_url && isOnline && generatingAudioForRef.current !== card.note.id) {
+    if (!card.note.audio_url && isOnline && !manualOffline && generatingAudioForRef.current !== card.note.id) {
       generatingAudioForRef.current = card.note.id;
       generateNoteAudio(card.note.id).then((updatedNote) => {
         if (updatedNote.audio_url) {
@@ -599,7 +603,7 @@ function StudyCard({
         console.error('[StudyCard] Auto-generate audio failed:', err);
       });
     }
-  }, [card.note.id, card.note.audio_url, isOnline, onUpdateNote]);
+  }, [card.note.id, card.note.audio_url, isOnline, manualOffline, onUpdateNote]);
 
   // Load review history and enumerate mics when debug modal opens
   useEffect(() => {

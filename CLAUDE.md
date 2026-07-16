@@ -515,6 +515,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 ### Audio
 - `POST /api/audio/upload` - Upload user recording
 - `GET /api/audio/*` - Get audio file from R2
+- `GET /api/audio-manifest` - All audio URLs the user owns (note audio, sentence clues, recordings) for offline prefetch
 
 ### AI
 - `POST /api/ai/generate-deck` - Generate deck from prompt

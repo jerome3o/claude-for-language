@@ -133,6 +133,15 @@ export interface CachedAudio {
   cached_at: number;
 }
 
+// Lightweight per-entry metadata for the audio cache, kept in a separate
+// table so stats and LRU eviction never have to load the blobs themselves.
+export interface CachedAudioMeta {
+  key: string; // audio_url (same key as cachedAudio)
+  size: number; // blob size in bytes
+  cached_at: number;
+  last_used_at: number;
+}
+
 export interface SyncMeta {
   id: string;
   last_full_sync: number | null;
@@ -195,6 +204,7 @@ export class ChineseLearningDB extends Dexie {
   notes!: Table<LocalNote, string>;
   cards!: Table<LocalCard, string>;
   cachedAudio!: Table<CachedAudio, string>;
+  cachedAudioMeta!: Table<CachedAudioMeta, string>;
   syncMeta!: Table<SyncMeta, string>;
   studySessions!: Table<LocalStudySession, string>;
 
@@ -343,6 +353,36 @@ export class ChineseLearningDB extends Dexie {
       dailyStats: 'id, date, deck_id, [date+deck_id]',
       syncLogs: 'id, timestamp',
       characterDefinitions: 'hanzi, cached_at',
+    });
+
+    // Version 8: Add cachedAudioMeta table (size/LRU tracking for the audio
+    // cache) and backfill it from existing cachedAudio entries.
+    this.version(8).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
+    }).upgrade(async tx => {
+      const entries = await tx.table('cachedAudio').toArray();
+      const now = Date.now();
+      await tx.table('cachedAudioMeta').bulkPut(
+        entries.map((e: CachedAudio) => ({
+          key: e.key,
+          size: e.blob?.size ?? 0,
+          cached_at: e.cached_at,
+          last_used_at: e.cached_at || now,
+        }))
+      );
     });
   }
 }
