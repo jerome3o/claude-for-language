@@ -9,7 +9,9 @@
  *
  * Fallback order:
  *   1. AndroidClipboard bridge (native app, trustworthy)
- *   2. navigator.clipboard (real browsers — Chrome PWA etc.)
+ *   2. navigator.clipboard (real browsers — Chrome PWA etc.; NEVER used
+ *      inside the native app, even on old APKs without the bridge, because
+ *      the WebView implementation lies)
  *   3. document.execCommand('copy') (legacy, works inside a user gesture,
  *      including in WebViews)
  */
@@ -22,12 +24,38 @@ interface AndroidClipboardBridge {
 declare global {
   interface Window {
     AndroidClipboard?: AndroidClipboardBridge;
+    /** Injected by the Capacitor runtime inside the native app's WebView. */
+    Capacitor?: unknown;
   }
 }
+
+/**
+ * The frozen UA the APK reports. Must stay in sync with
+ * android.overrideUserAgent in native/capacitor.config.json. Real Chrome on
+ * any device never reports this exact string (reduced UA uses "Android 10; K"
+ * and a current major version), so an exact match means we're in the app —
+ * this catches old APKs where neither the bridge nor Capacitor is available.
+ */
+const NATIVE_APP_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel Fold) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
 
 /** True when running inside the Android app with the clipboard bridge. */
 export function hasNativeClipboard(): boolean {
   return typeof window !== 'undefined' && !!window.AndroidClipboard;
+}
+
+/**
+ * True when running inside the Android app's WebView at all (with or without
+ * the clipboard bridge). In that environment navigator.clipboard must never
+ * be trusted.
+ */
+export function isNativeApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    !!window.AndroidClipboard ||
+    !!window.Capacitor ||
+    navigator.userAgent === NATIVE_APP_USER_AGENT
+  );
 }
 
 function copyViaExecCommand(text: string): boolean {
@@ -62,9 +90,10 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     }
   }
 
-  // In the WebView (old APK without the bridge) this can lie; nothing more we
-  // can do web-side there. In real browsers it's reliable.
-  if (!hasNativeClipboard() && navigator.clipboard?.writeText) {
+  // navigator.clipboard is reliable in real browsers, but inside the app's
+  // WebView (old APK without the bridge) it can report success while writing
+  // nothing — skip it there and use execCommand, which works in a gesture.
+  if (!isNativeApp() && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
       return true;
@@ -95,6 +124,13 @@ export async function copyImageToClipboard(blob: Blob): Promise<void> {
     const base64 = await blobToBase64(blob);
     if (native.writeImageBase64(base64)) return;
     throw new Error('Native clipboard rejected the image');
+  }
+
+  // Old APK without the bridge: navigator.clipboard.write would resolve
+  // without writing anything. Throw so callers fall back (e.g. to text)
+  // instead of showing "Copied!" over an empty clipboard.
+  if (isNativeApp()) {
+    throw new Error('Image clipboard unavailable in the app — update the APK');
   }
 
   if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
