@@ -11,6 +11,7 @@ beforeEach(async () => {
   await db.syncMeta.clear();
   await db.studySessions.clear();
   await db.cachedAudio.clear();
+  await db.cachedAudioMeta.clear();
   await db.reviewEvents.clear();
   await db.cardCheckpoints.clear();
   await db.pendingRecordings.clear();

@@ -2020,6 +2020,14 @@ app.post('/api/audio/upload', async (c) => {
   return c.json({ key, url: `/api/audio/${key}` }, 201);
 });
 
+// All audio URLs the user owns, for offline prefetch. Distinct path so it
+// can't collide with the /api/audio/* file-serving wildcard below.
+app.get('/api/audio-manifest', async (c) => {
+  const userId = c.get('user').id;
+  const urls = await db.getAudioManifest(c.env.DB, userId);
+  return c.json({ urls });
+});
+
 app.get('/api/audio/*', async (c) => {
   const key = c.req.path.replace('/api/audio/', '');
   const object = await getAudio(c.env.AUDIO_BUCKET, key);

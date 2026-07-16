@@ -2063,6 +2063,40 @@ export async function reorderReaderPages(db: D1Database, readerId: string, userI
 
 // ============ Note Audio Recordings ============
 
+/**
+ * All audio URLs owned by a user, for offline prefetching:
+ * note primary audio, sentence clue audio, and note audio recordings.
+ * URLs are R2 keys relative to /api/audio/ (e.g. "generated/abc.mp3").
+ */
+export async function getAudioManifest(db: D1Database, userId: string): Promise<string[]> {
+  const [noteAudio, clueAudio, recordings] = await Promise.all([
+    db.prepare(`
+      SELECT n.audio_url AS url FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.audio_url IS NOT NULL
+    `).bind(userId).all<{ url: string }>(),
+    db.prepare(`
+      SELECT n.sentence_clue_audio_url AS url FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.sentence_clue_audio_url IS NOT NULL
+    `).bind(userId).all<{ url: string }>(),
+    db.prepare(`
+      SELECT nar.audio_url AS url FROM note_audio_recordings nar
+      JOIN notes n ON nar.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND nar.audio_url IS NOT NULL
+    `).bind(userId).all<{ url: string }>(),
+  ]);
+
+  const urls = new Set<string>();
+  for (const rows of [noteAudio.results, clueAudio.results, recordings.results]) {
+    for (const row of rows) {
+      if (row.url) urls.add(row.url);
+    }
+  }
+  return [...urls];
+}
+
 export async function getNoteAudioRecordings(
   db: D1Database,
   noteId: string

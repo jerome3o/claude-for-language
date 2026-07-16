@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { syncService, SyncProgress } from '../services/sync';
+import { requestPersistentStorage } from '../services/audioPrefetch';
 import { usePendingReviewsCount, initializeOfflineData } from '../hooks/useOfflineData';
 import { useAuth } from './AuthContext';
 
@@ -80,6 +81,9 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       setIsInitialized(true); // Mark as initialized even if not authenticated
       return;
     }
+
+    // Ask the browser to protect our storage (audio cache) from eviction
+    requestPersistentStorage();
 
     initializeOfflineData()
       .then(() => {
