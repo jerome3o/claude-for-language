@@ -3111,6 +3111,10 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  /* Long history shouldn't stretch the settings page — scroll inside the card */
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .feature-request-card {

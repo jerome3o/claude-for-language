@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio } from '../api/client';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
 import { getAudioCacheStats, getCachedAudioKeys } from '../services/audioCache';
+import { saveBlobAs } from '../utils/download';
 import { fetchAudioManifest, prefetchAllAudio, useAudioPrefetchProgress } from '../services/audioPrefetch';
 import { useNetwork } from '../contexts/NetworkContext';
 import './SettingsPage.css';
@@ -307,16 +308,9 @@ export function SettingsPage() {
       localStorage.setItem('lastExportDate', new Date().toISOString());
       localStorage.setItem('lastExportSize', String(blob.size));
 
-      // Trigger download
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      // Native app: opens the system "Save as" dialog. Browsers: normal download.
       const today = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `chinese-learning-backup-${today}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await saveBlobAs(blob, `chinese-learning-backup-${today}.json`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed');
     } finally {
@@ -359,6 +353,39 @@ export function SettingsPage() {
           )}
         </div>
 
+        <OfflineAudioSection />
+
+        <div className="settings-section">
+          <h2>Export Data</h2>
+          <p className="settings-section-desc">
+            Download a backup of all your data as a JSON file. Includes decks,
+            notes, cards, and review history.
+          </p>
+
+          <button
+            className="btn btn-primary export-btn"
+            onClick={handleExport}
+            disabled={isExporting}
+          >
+            {isExporting ? 'Preparing backup...' : 'Download Backup'}
+          </button>
+
+          {error && <div className="export-error">{error}</div>}
+
+          <div className="export-meta">
+            {lastExport && (
+              <div className="export-meta-item">
+                Last export: {new Date(lastExport).toLocaleDateString()}
+              </div>
+            )}
+            {lastExportSize && (
+              <div className="export-meta-item">
+                Last file size: {formatBytes(parseInt(lastExportSize, 10))}
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="settings-section">
           <h2>Feature Requests</h2>
           <p className="settings-section-desc">
@@ -394,39 +421,6 @@ export function SettingsPage() {
               ))}
             </div>
           )}
-        </div>
-
-        <OfflineAudioSection />
-
-        <div className="settings-section">
-          <h2>Export Data</h2>
-          <p className="settings-section-desc">
-            Download a backup of all your data as a JSON file. Includes decks,
-            notes, cards, and review history.
-          </p>
-
-          <button
-            className="btn btn-primary export-btn"
-            onClick={handleExport}
-            disabled={isExporting}
-          >
-            {isExporting ? 'Preparing backup...' : 'Download Backup'}
-          </button>
-
-          {error && <div className="export-error">{error}</div>}
-
-          <div className="export-meta">
-            {lastExport && (
-              <div className="export-meta-item">
-                Last export: {new Date(lastExport).toLocaleDateString()}
-              </div>
-            )}
-            {lastExportSize && (
-              <div className="export-meta-item">
-                Last file size: {formatBytes(parseInt(lastExportSize, 10))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 

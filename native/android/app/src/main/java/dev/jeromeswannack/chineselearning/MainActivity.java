@@ -17,7 +17,11 @@ import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
+import android.widget.Toast;
 
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -33,6 +37,7 @@ import com.getcapacitor.BridgeActivity;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -54,9 +59,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        saveFileLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                this::writePendingDownload);
         setUpStatusBarBackground();
         setUpKeyboardAwareInsets();
         setUpClipboardBridge();
+        setUpDownloadBridge();
         handleRouteIntent(getIntent());
         setUpHomeworkNotifications();
     }
@@ -131,6 +140,77 @@ public class MainActivity extends BridgeActivity {
                 Log.e("ClipboardBridge", "writeImageBase64 failed", e);
                 return false;
             }
+        }
+    }
+
+    /**
+     * Blob downloads (<a download> with a blob: URL) silently do nothing in
+     * the WebView — there's no download handler — so "Download Backup" in
+     * Settings never produced a file. Expose window.AndroidDownload to the
+     * page: it opens the system "Save as" dialog (Storage Access Framework)
+     * so the user picks where the file goes, then writes the bytes there.
+     * The frontend prefers it whenever present (see
+     * frontend/src/utils/download.ts).
+     */
+    private void setUpDownloadBridge() {
+        bridge.getWebView().addJavascriptInterface(new DownloadBridge(), "AndroidDownload");
+    }
+
+    /** Bytes waiting for the user to pick a save location in the SAF dialog. */
+    private byte[] pendingDownloadBytes;
+    private ActivityResultLauncher<Intent> saveFileLauncher;
+
+    private void writePendingDownload(ActivityResult result) {
+        byte[] bytes = pendingDownloadBytes;
+        pendingDownloadBytes = null;
+        if (bytes == null
+                || result.getResultCode() != RESULT_OK
+                || result.getData() == null
+                || result.getData().getData() == null) {
+            return;
+        }
+        Uri uri = result.getData().getData();
+        try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+            out.write(bytes);
+            Toast.makeText(this, "File saved", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e("DownloadBridge", "writing picked file failed", e);
+            Toast.makeText(this, "Failed to save file", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private class DownloadBridge {
+
+        /** Returns true when the save dialog was launched (write happens after the pick). */
+        @JavascriptInterface
+        public boolean saveFile(String filename, String mimeType, String base64Data) {
+            if (filename == null || filename.isEmpty()
+                    || base64Data == null || base64Data.isEmpty()) {
+                return false;
+            }
+            final byte[] bytes;
+            try {
+                bytes = Base64.decode(base64Data, Base64.DEFAULT);
+            } catch (IllegalArgumentException e) {
+                Log.e("DownloadBridge", "invalid base64 payload", e);
+                return false;
+            }
+            String type = mimeType == null || mimeType.isEmpty()
+                    ? "application/octet-stream" : mimeType;
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(type)
+                    .putExtra(Intent.EXTRA_TITLE, filename);
+            runOnUiThread(() -> {
+                pendingDownloadBytes = bytes;
+                try {
+                    saveFileLauncher.launch(intent);
+                } catch (Exception e) {
+                    Log.e("DownloadBridge", "launching save dialog failed", e);
+                    pendingDownloadBytes = null;
+                }
+            });
+            return true;
         }
     }
 
