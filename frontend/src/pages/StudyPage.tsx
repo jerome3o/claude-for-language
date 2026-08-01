@@ -307,7 +307,9 @@ function StudyCard({
   counts,
   tutors,
   isRating,
+  canUndo,
   onRate,
+  onUndo,
   onEnd,
   onShowFlagModal,
   onUpdateNote,
@@ -319,7 +321,9 @@ function StudyCard({
   counts: QueueCounts;
   tutors: TutorRelationshipWithUsers[];
   isRating: boolean;
+  canUndo: boolean;
   onRate: (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => void;
+  onUndo: () => void;
   onEnd: () => void;
   onShowFlagModal: (data: FlagModalData) => void;
   onUpdateNote: (updatedNote: Partial<Note>) => void;
@@ -2694,6 +2698,15 @@ function StudyCard({
           <div className="study-topbar-controls">
             <SyncBadge inline />
             <button
+              className="study-close-btn study-undo-btn"
+              onClick={onUndo}
+              disabled={!canUndo}
+              aria-label="Undo last review"
+              title="Undo last review"
+            >
+              ↺
+            </button>
+            <button
               className={`study-close-btn study-offline-toggle ${manualOffline ? 'study-offline-toggle--active' : ''}`}
               onClick={() => toggleManualOfflineMode()}
               aria-label={manualOffline ? 'Offline mode on — audio uses device TTS' : 'Offline mode off — audio streams from server'}
@@ -3256,7 +3269,9 @@ export function StudyPage() {
     hasMoreNewCards,
     isRating,
     sessionStats,
+    canUndo,
     rateCard,
+    undoLastReview,
     reloadQueue,
     removeNoteFromSession,
     updateCurrentNote,
@@ -3391,6 +3406,14 @@ export function StudyPage() {
             </p>
             <SessionRecap stats={sessionStats} dayStats={dayStats} todayTotalTimeMs={todayTotalTimeMs} />
             <div className="flex flex-col gap-3 items-center mt-4">
+              {canUndo && (
+                <button
+                  className="btn btn-secondary btn-block"
+                  onClick={undoLastReview}
+                >
+                  ↺ Undo Last Review
+                </button>
+              )}
               {hasMoreNewCards ? (
                 <button
                   className="btn btn-primary btn-block"
@@ -3527,7 +3550,9 @@ export function StudyPage() {
           counts={counts}
           tutors={tutors}
           isRating={isRating}
+          canUndo={canUndo}
           onRate={handleRateCard}
+          onUndo={undoLastReview}
           onEnd={handleEndSession}
           onShowFlagModal={handleShowFlagModal}
           onUpdateNote={updateCurrentNote}

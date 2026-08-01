@@ -22,6 +22,9 @@ import {
   deleteCardCheckpoint,
   getEventSyncMeta,
   updateEventSyncMeta,
+  getPendingReviewDeletions,
+  getPendingReviewDeletionIds,
+  removePendingReviewDeletion,
 } from '../db/database';
 import {
   computeCardState,
@@ -209,6 +212,48 @@ export async function recomputeCardState(
 }
 
 /**
+ * Push review deletions queued by Undo to the server. Each pending deletion
+ * is cleared once the server confirms — including the "event never reached
+ * the server" case, which the server reports as deleted: false.
+ */
+export async function processPendingReviewDeletions(authToken: string | null): Promise<{
+  processed: number;
+  errors: string[];
+}> {
+  if (!authToken) {
+    return { processed: 0, errors: [] };
+  }
+
+  const pending = await getPendingReviewDeletions();
+  if (pending.length === 0) {
+    return { processed: 0, errors: [] };
+  }
+
+  let processed = 0;
+  const errors: string[] = [];
+  for (const deletion of pending) {
+    try {
+      const response = await fetch(`${API_BASE}/api/reviews/${encodeURIComponent(deletion.id)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+        },
+      });
+      if (response.ok || response.status === 404) {
+        await removePendingReviewDeletion(deletion.id);
+        processed++;
+      } else {
+        errors.push(`Failed to delete review ${deletion.id}: ${await response.text()}`);
+      }
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : 'Unknown error');
+    }
+  }
+
+  return { processed, errors };
+}
+
+/**
  * Sync unsynced review events to the server
  */
 export async function syncReviewEvents(authToken: string | null): Promise<{
@@ -350,8 +395,14 @@ export async function downloadReviewEvents(
         break;
       }
 
+      // Events undone locally but not yet deleted on the server must not be
+      // re-added — that would resurrect the undone review. Re-read per page to
+      // keep the window for races with a concurrent undo small.
+      const pendingDeletions = await getPendingReviewDeletionIds();
+
       // Store events locally (skip if already exists)
       for (const serverEvent of result.events) {
+        if (pendingDeletions.has(serverEvent.id)) continue;
         const exists = await db.reviewEvents.get(serverEvent.id);
         if (!exists) {
           await createLocalReviewEvent({

@@ -548,6 +548,12 @@ html:has(.study-page-fullscreen) .header {
   color: var(--color-text);
 }
 
+.study-undo-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
 /* Right-side cluster in the study topbar: sync badge, offline toggle, close */
 .study-topbar-controls {
   display: flex;

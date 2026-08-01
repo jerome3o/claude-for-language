@@ -46,6 +46,14 @@ export interface EventSyncMeta {
   last_sync_at: string | null;
 }
 
+// A review event removed locally by Undo that must also be removed from the
+// server. Kept until the server confirms the deletion, so event downloads
+// know to skip it and a full sync can't resurrect the undone review.
+export interface PendingReviewDeletion {
+  id: string; // review event id
+  deleted_at: string;
+}
+
 // ============ Core Types ============
 
 export interface LocalDeck {
@@ -213,6 +221,7 @@ export class ChineseLearningDB extends Dexie {
   cardCheckpoints!: Table<LocalCardCheckpoint, string>;
   pendingRecordings!: Table<PendingRecording, string>;
   eventSyncMeta!: Table<EventSyncMeta, string>;
+  pendingReviewDeletions!: Table<PendingReviewDeletion, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -383,6 +392,25 @@ export class ChineseLearningDB extends Dexie {
           last_used_at: e.cached_at || now,
         }))
       );
+    });
+
+    // Version 9: Add pendingReviewDeletions (server-side deletes queued by Undo)
+    this.version(9).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      pendingReviewDeletions: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
     });
   }
 }
@@ -587,6 +615,22 @@ export async function incrementNewCardsStudiedToday(deckId: string, secondary = 
     deck_id: deckId,
     new_cards_studied: (existing?.new_cards_studied ?? 0) + (secondary ? 0 : 1),
     secondary_cards_studied: (existing?.secondary_cards_studied ?? 0) + (secondary ? 1 : 0),
+  });
+}
+
+/**
+ * Decrement the new-cards-studied counter for a deck (Undo of a NEW-card
+ * review). Pass the same secondary flag the increment used.
+ */
+export async function decrementNewCardsStudiedToday(deckId: string, secondary = false): Promise<void> {
+  const today = getTodayString();
+  const id = getDailyStatsId(today, deckId);
+  const existing = await db.dailyStats.get(id);
+  if (!existing) return;
+  await db.dailyStats.put({
+    ...existing,
+    new_cards_studied: Math.max(0, (existing.new_cards_studied ?? 0) - (secondary ? 0 : 1)),
+    secondary_cards_studied: Math.max(0, (existing.secondary_cards_studied ?? 0) - (secondary ? 1 : 0)),
   });
 }
 
@@ -967,6 +1011,25 @@ export async function upsertCardCheckpoint(checkpoint: LocalCardCheckpoint): Pro
 
 export async function deleteCardCheckpoint(cardId: string): Promise<void> {
   await db.cardCheckpoints.delete(cardId);
+}
+
+// ============ Pending Review Deletions (Undo) ============
+
+export async function addPendingReviewDeletion(eventId: string): Promise<void> {
+  await db.pendingReviewDeletions.put({ id: eventId, deleted_at: new Date().toISOString() });
+}
+
+export async function getPendingReviewDeletions(): Promise<PendingReviewDeletion[]> {
+  return db.pendingReviewDeletions.toArray();
+}
+
+export async function removePendingReviewDeletion(eventId: string): Promise<void> {
+  await db.pendingReviewDeletions.delete(eventId);
+}
+
+export async function getPendingReviewDeletionIds(): Promise<Set<string>> {
+  const rows = await db.pendingReviewDeletions.toArray();
+  return new Set(rows.map(r => r.id));
 }
 
 // ============ Event Sync Metadata ============
