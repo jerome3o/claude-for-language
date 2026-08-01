@@ -28,6 +28,7 @@ function makeReader(overrides: Partial<LocalReader> = {}): LocalReader {
         content_pinyin: 'xiǎo míng zǎo shang qī diǎn qǐ chuáng.',
         content_english: 'Xiao Ming gets up at seven in the morning.',
         image_url: 'reader-images/p1.png',
+        image_prompt: 'A boy waking up in the morning',
       },
     ],
     queue: CardQueue.NEW,
