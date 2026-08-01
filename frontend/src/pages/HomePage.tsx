@@ -4,10 +4,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getDecks, createDeck, getDeckStats, getDailyStatus, generateDailyReader } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
-import { Deck, DeckStats, QueueCounts } from '../types';
+import { Deck, DeckStats, QueueCounts, CardQueue } from '../types';
 import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
 import { applyNewCardBonus, sumQueueCounts, EMPTY_QUEUE_COUNTS, DeckQueueCounts } from '../db/database';
+import { getDueReaders } from '../services/reader-study';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 function DailyButton(props: {
   done: boolean;
@@ -256,6 +258,9 @@ export function HomePage() {
   // ---- Queue counts: ONE live query, bonuses applied in-memory ----
   const { byDeck: rawByDeck, isLoading: countsLoading } = useRawQueueCounts();
 
+  // Due graded readers join "Study All" sessions, so count them in the badge
+  const dueReaders = useLiveQuery(() => getDueReaders(), []) ?? [];
+
   const { perDeck, liveTotal } = useMemo(() => {
     const perDeck = new Map<string, DeckQueueCounts>();
     const headerCounts: DeckQueueCounts[] = [];
@@ -263,8 +268,14 @@ export function HomePage() {
       perDeck.set(id, applyNewCardBonus(raw, deckBonuses[id] ?? 0));
       headerCounts.push(applyNewCardBonus(raw, bonusAll));
     }
-    return { perDeck, liveTotal: sumQueueCounts(headerCounts) };
-  }, [rawByDeck, deckBonuses, bonusAll]);
+    const liveTotal = sumQueueCounts(headerCounts);
+    for (const reader of dueReaders) {
+      if (reader.queue === CardQueue.NEW) liveTotal.new++;
+      else if (reader.queue === CardQueue.LEARNING || reader.queue === CardQueue.RELEARNING) liveTotal.learning++;
+      else liveTotal.review++;
+    }
+    return { perDeck, liveTotal };
+  }, [rawByDeck, deckBonuses, bonusAll, dueReaders]);
 
   // Show last-known totals from localStorage while the live query loads.
   const COUNTS_CACHE_KEY = 'lastQueueCounts';

@@ -17,6 +17,8 @@ import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates } from '../api/client';
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions } from './review-events';
+import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
+import { syncReadersFromServer, prefetchReaderMedia } from './readerSync';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 
@@ -315,6 +317,10 @@ class SyncService {
       });
     });
 
+    // Sync graded readers (content + pages) so they can be studied offline
+    this.notifyProgress({ phase: 'decks', message: 'Syncing readers...' });
+    await this.syncReaders();
+
     // Pre-cache audio for all notes in background (don't block sync)
     const audioUrls = allNotes
       .map(n => n.audio_url)
@@ -330,6 +336,22 @@ class SyncService {
     prefetchAllAudio().catch(err =>
       console.error('[Sync] Full audio prefetch failed:', err)
     );
+  }
+
+  /**
+   * Sync reader content and kick off the media prefetch (images + TTS for due
+   * readers) in the background. Reader sync failures never fail the outer
+   * sync — readers are additive to the core deck/note/card data.
+   */
+  private async syncReaders(): Promise<void> {
+    try {
+      await syncReadersFromServer();
+      prefetchReaderMedia().catch(err =>
+        console.error('[Sync] Reader media prefetch failed:', err)
+      );
+    } catch (err) {
+      console.error('[Sync] Reader sync failed:', err);
+    }
   }
 
   /**
@@ -488,6 +510,9 @@ class SyncService {
       }
     }
 
+    // Sync graded readers (content + pages) so they can be studied offline
+    await this.syncReaders();
+
     // Prefetch ALL owned audio in the background (throttled internally)
     prefetchAllAudio().catch(err =>
       console.error('[Sync] Full audio prefetch failed:', err)
@@ -533,6 +558,10 @@ class SyncService {
       this.notifyProgress({ phase: 'events-down', message: `Downloaded ${downloadResult.downloaded} reviews` });
     }
 
+    // Reader review events (same event-sourced model, separate endpoint)
+    const readerUpload = await syncReaderReviewEvents(token);
+    const readerDownload = await downloadReaderReviewEvents(token);
+
     // Upload pending recordings
     let recordingsUploaded = 0;
     const pendingRecordings = await getPendingRecordings();
@@ -564,10 +593,16 @@ class SyncService {
     await cleanupUploadedRecordings();
 
     return {
-      uploaded: uploadResult.synced,
-      downloaded: downloadResult.downloaded,
+      uploaded: uploadResult.synced + readerUpload.synced,
+      downloaded: downloadResult.downloaded + readerDownload.downloaded,
       recordings_uploaded: recordingsUploaded,
-      errors: [...deletionResult.errors, ...uploadResult.errors, ...downloadResult.errors],
+      errors: [
+        ...deletionResult.errors,
+        ...uploadResult.errors,
+        ...downloadResult.errors,
+        ...readerUpload.errors,
+        ...readerDownload.errors,
+      ],
     };
   }
 

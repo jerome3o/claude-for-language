@@ -135,6 +135,55 @@ export interface LocalCard {
   _synced_at: number | null;
 }
 
+// ============ Graded Readers (offline study) ============
+
+export interface LocalReaderPage {
+  id: string;
+  page_number: number;
+  content_chinese: string;
+  content_pinyin: string;
+  content_english: string;
+  // R2 key served from /api/audio/<key>, cacheable via the media blob cache
+  image_url: string | null;
+}
+
+/**
+ * A graded reader cached for offline study. Readers join the FSRS rotation
+ * like cards: the scheduling fields below are a cache computed from
+ * readerReviewEvents (events are the source of truth, same as cards).
+ */
+export interface LocalReader {
+  id: string;
+  title_chinese: string;
+  title_english: string;
+  difficulty_level: string;
+  status: string; // 'generating' | 'ready' | 'failed'
+  created_at: string;
+  pages: LocalReaderPage[];
+  // FSRS scheduling state (computed from readerReviewEvents)
+  queue: CardQueue;
+  stability: number;
+  difficulty: number;
+  lapses: number;
+  interval: number;
+  repetitions: number;
+  next_review_at: string | null;
+  due_timestamp: number | null;
+  last_reviewed_at: string | null;
+  _synced_at: number | null;
+}
+
+export interface LocalReaderReviewEvent {
+  id: string;
+  reader_id: string;
+  rating: Rating;
+  time_spent_ms: number | null;
+  reviewed_at: string;
+  // Sync metadata (0 = unsynced, 1 = synced)
+  _synced: number;
+  _created_at: string;
+}
+
 export interface CachedAudio {
   key: string; // audio_url
   blob: Blob;
@@ -222,6 +271,10 @@ export class ChineseLearningDB extends Dexie {
   pendingRecordings!: Table<PendingRecording, string>;
   eventSyncMeta!: Table<EventSyncMeta, string>;
   pendingReviewDeletions!: Table<PendingReviewDeletion, string>;
+
+  // Graded readers (offline study + FSRS rotation)
+  readers!: Table<LocalReader, string>;
+  readerReviewEvents!: Table<LocalReaderReviewEvent, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -411,6 +464,28 @@ export class ChineseLearningDB extends Dexie {
       dailyStats: 'id, date, deck_id, [date+deck_id]',
       syncLogs: 'id, timestamp',
       characterDefinitions: 'hanzi, cached_at',
+    });
+
+    // Version 10: Graded readers join the study rotation (offline content +
+    // event-sourced reader reviews)
+    this.version(10).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      pendingReviewDeletions: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
+      readers: 'id, status, queue, next_review_at',
+      readerReviewEvents: 'id, reader_id, reviewed_at, _synced, [reader_id+reviewed_at]',
     });
   }
 }
@@ -917,7 +992,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -926,6 +1001,8 @@ export async function clearAllData(): Promise<void> {
     await db.reviewEvents.clear();
     await db.cardCheckpoints.clear();
     await db.eventSyncMeta.clear();
+    await db.readers.clear();
+    await db.readerReviewEvents.clear();
   });
 }
 
@@ -1034,13 +1111,18 @@ export async function getPendingReviewDeletionIds(): Promise<Set<string>> {
 
 // ============ Event Sync Metadata ============
 
-export async function getEventSyncMeta(): Promise<EventSyncMeta | undefined> {
-  return db.eventSyncMeta.get('event_sync_state');
+// Separate download cursors: card review events and reader review events are
+// paged from different server endpoints.
+export const CARD_EVENT_SYNC_ID = 'event_sync_state';
+export const READER_EVENT_SYNC_ID = 'reader_event_sync_state';
+
+export async function getEventSyncMeta(id: string = CARD_EVENT_SYNC_ID): Promise<EventSyncMeta | undefined> {
+  return db.eventSyncMeta.get(id);
 }
 
-export async function updateEventSyncMeta(lastEventSyncedAt: string): Promise<void> {
+export async function updateEventSyncMeta(lastEventSyncedAt: string, id: string = CARD_EVENT_SYNC_ID): Promise<void> {
   await db.eventSyncMeta.put({
-    id: 'event_sync_state',
+    id,
     last_event_synced_at: lastEventSyncedAt,
     last_sync_at: new Date().toISOString(),
   });
