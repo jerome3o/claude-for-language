@@ -18,6 +18,8 @@ beforeEach(async () => {
   await db.eventSyncMeta.clear();
   await db.pendingReviewDeletions.clear();
   await db.dailyStats.clear();
+  await db.readers.clear();
+  await db.readerReviewEvents.clear();
 });
 
 // Clean up after each test

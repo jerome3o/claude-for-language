@@ -2574,11 +2574,97 @@ app.post('/api/coach/conversations/:id/messages', async (c) => {
 
 // ============ Graded Readers ============
 
-// List all graded readers for the user
+// List all graded readers for the user.
+// ?include_pages=true returns each reader with its pages (used by offline sync).
 app.get('/api/readers', async (c) => {
   const userId = c.get('user').id;
+  if (c.req.query('include_pages') === 'true') {
+    const readers = await db.getGradedReadersWithPages(c.env.DB, userId);
+    return c.json(readers);
+  }
   const readers = await db.getGradedReaders(c.env.DB, userId);
   return c.json(readers);
+});
+
+// ============ Reader Review Events (Event-Sourced Sync) ============
+// Readers are scheduled with FSRS like cards. Events are the source of truth;
+// the client computes reader state from them. These endpoints mirror
+// POST/GET /api/reviews.
+
+// Upload batch of reader review events (from offline sync)
+app.post('/api/reader-reviews', async (c) => {
+  const userId = c.get('user').id;
+  const { events } = await c.req.json<{
+    events: Array<{
+      id: string;
+      reader_id: string;
+      rating: Rating;
+      reviewed_at: string;
+      time_spent_ms?: number | null;
+    }>;
+  }>();
+
+  if (!events || !Array.isArray(events)) {
+    return c.json({ error: 'events array is required' }, 400);
+  }
+  if (events.length === 0) {
+    return c.json({ created: 0, skipped: 0, skipped_orphans: 0 });
+  }
+  for (const event of events) {
+    if (!event.id || !event.reader_id || event.rating === undefined || !event.reviewed_at) {
+      return c.json({ error: 'Each event must have id, reader_id, rating, and reviewed_at' }, 400);
+    }
+  }
+
+  // Verify which readers belong to this user; skip orphans (deleted readers)
+  const readerIds = [...new Set(events.map(e => e.reader_id))];
+  const validReaderIds = new Set<string>();
+  const CHECK_CHUNK = 90;
+  for (let i = 0; i < readerIds.length; i += CHECK_CHUNK) {
+    const chunk = readerIds.slice(i, i + CHECK_CHUNK);
+    const rows = await c.env.DB.prepare(`
+      SELECT id FROM graded_readers
+      WHERE user_id = ? AND id IN (${chunk.map(() => '?').join(',')})
+    `).bind(userId, ...chunk).all<{ id: string }>();
+    for (const row of rows.results) {
+      validReaderIds.add(row.id);
+    }
+  }
+
+  const validEvents = events.filter(e => validReaderIds.has(e.reader_id));
+  const skippedOrphans = events.length - validEvents.length;
+  if (skippedOrphans > 0) {
+    console.log(`[API reader-reviews] Skipping ${skippedOrphans} events for deleted/missing readers`);
+  }
+
+  const result = validEvents.length > 0
+    ? await db.createReaderReviewEventsBatch(
+        c.env.DB,
+        validEvents.map(e => ({ ...e, user_id: userId }))
+      )
+    : { created: 0, skipped: 0 };
+
+  return c.json({ ...result, skipped_orphans: skippedOrphans });
+});
+
+// Get reader review events since a timestamp (for sync)
+app.get('/api/reader-reviews', async (c) => {
+  const userId = c.get('user').id;
+  const since = c.req.query('since');
+  const afterId = c.req.query('after_id') || '';
+  const limit = parseInt(c.req.query('limit') || '1000', 10);
+
+  if (!since) {
+    return c.json({ error: 'since parameter is required (ISO timestamp)' }, 400);
+  }
+
+  const events = await db.getReaderReviewEventsSince(c.env.DB, userId, since, limit, afterId);
+
+  return c.json({
+    events,
+    has_more: events.length >= limit,
+    server_time: new Date().toISOString(),
+  });
 });
 
 // Get a specific graded reader with pages

@@ -203,6 +203,93 @@ export async function getReviewEventsSince(
   return result.results;
 }
 
+// ============ Reader Review Events ============
+
+// Readers follow the same event-sourced FSRS model as cards, in their own
+// table (review_events.card_id has a FK to cards).
+export interface ReaderReviewEvent {
+  id: string;
+  reader_id: string;
+  user_id: string;
+  rating: Rating;
+  time_spent_ms: number | null;
+  reviewed_at: string;
+  created_at: string;
+}
+
+/**
+ * Batch-insert reader review events, deduplicating by id.
+ * Mirrors createReviewEventsBatch: INSERT OR IGNORE via db.batch.
+ */
+export async function createReaderReviewEventsBatch(
+  db: D1Database,
+  events: Array<{
+    id: string;
+    reader_id: string;
+    user_id: string;
+    rating: Rating;
+    reviewed_at: string;
+    time_spent_ms?: number | null;
+  }>
+): Promise<{ created: number; skipped: number }> {
+  let created = 0;
+  let skipped = 0;
+
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO reader_review_events (
+      id, reader_id, user_id, rating, time_spent_ms, reviewed_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  const CHUNK_SIZE = 100;
+  for (let i = 0; i < events.length; i += CHUNK_SIZE) {
+    const chunk = events.slice(i, i + CHUNK_SIZE);
+    try {
+      const results = await db.batch(chunk.map(event =>
+        stmt.bind(
+          event.id,
+          event.reader_id,
+          event.user_id,
+          event.rating,
+          event.time_spent_ms ?? null,
+          event.reviewed_at
+        )
+      ));
+      for (const r of results) {
+        if (r.meta.changes > 0) created++;
+        else skipped++;
+      }
+    } catch (err) {
+      console.error('[createReaderReviewEventsBatch] Batch insert failed at offset', i, err);
+      skipped += chunk.length;
+    }
+  }
+
+  return { created, skipped };
+}
+
+/**
+ * Page through a user's reader review events for sync.
+ * Same tuple cursor (created_at, id) as getReviewEventsSince.
+ */
+export async function getReaderReviewEventsSince(
+  db: D1Database,
+  userId: string,
+  since: string,
+  limit: number = 1000,
+  afterId: string = ''
+): Promise<ReaderReviewEvent[]> {
+  const result = await db.prepare(`
+    SELECT * FROM reader_review_events
+    WHERE user_id = ? AND (created_at > ? OR (created_at = ? AND id > ?))
+    ORDER BY created_at ASC, id ASC
+    LIMIT ?
+  `).bind(userId, since, since, afterId, limit).all<ReaderReviewEvent>();
+
+  return result.results;
+}
+
 /**
  * Get review events for a specific card
  */
@@ -1740,6 +1827,17 @@ export async function createGradedReader(
 /**
  * Get all graded readers for a user
  */
+// Raw graded_readers row: JSON columns still serialized
+type GradedReaderRow = GradedReader & { source_deck_ids: string; vocabulary_used: string };
+
+function parseReaderRow(row: GradedReaderRow): GradedReader {
+  return {
+    ...row,
+    source_deck_ids: JSON.parse(row.source_deck_ids) as string[],
+    vocabulary_used: JSON.parse(row.vocabulary_used) as VocabularyItem[],
+  };
+}
+
 export async function getGradedReaders(
   db: D1Database,
   userId: string
@@ -1748,13 +1846,37 @@ export async function getGradedReaders(
     SELECT * FROM graded_readers
     WHERE user_id = ?
     ORDER BY created_at DESC
-  `).bind(userId).all<GradedReader & { source_deck_ids: string; vocabulary_used: string }>();
+  `).bind(userId).all<GradedReaderRow>();
 
-  return result.results.map(r => ({
-    ...r,
-    source_deck_ids: JSON.parse(r.source_deck_ids) as string[],
-    vocabulary_used: JSON.parse(r.vocabulary_used) as VocabularyItem[],
-  }));
+  return result.results.map(parseReaderRow);
+}
+
+/**
+ * All of a user's readers WITH their pages, in two queries total.
+ * Used by the offline sync so the client can cache every reader locally.
+ */
+export async function getGradedReadersWithPages(
+  db: D1Database,
+  userId: string
+): Promise<GradedReaderWithPages[]> {
+  const readers = await getGradedReaders(db, userId);
+  if (readers.length === 0) return [];
+
+  const pagesResult = await db.prepare(`
+    SELECT p.* FROM reader_pages p
+    JOIN graded_readers r ON p.reader_id = r.id
+    WHERE r.user_id = ?
+    ORDER BY p.reader_id, p.page_number ASC
+  `).bind(userId).all<ReaderPage>();
+
+  const pagesByReader = new Map<string, ReaderPage[]>();
+  for (const page of pagesResult.results) {
+    const list = pagesByReader.get(page.reader_id);
+    if (list) list.push(page);
+    else pagesByReader.set(page.reader_id, [page]);
+  }
+
+  return readers.map(r => ({ ...r, pages: pagesByReader.get(r.id) ?? [] }));
 }
 
 /**
@@ -1768,22 +1890,9 @@ export async function getGradedReader(
   const reader = await db.prepare(`
     SELECT * FROM graded_readers
     WHERE id = ? AND user_id = ?
-  `).bind(readerId, userId).first<GradedReader & { source_deck_ids: string; vocabulary_used: string }>();
+  `).bind(readerId, userId).first<GradedReaderRow>();
 
-  if (!reader) return null;
-
-  const pagesResult = await db.prepare(`
-    SELECT * FROM reader_pages
-    WHERE reader_id = ?
-    ORDER BY page_number ASC
-  `).bind(readerId).all<ReaderPage>();
-
-  return {
-    ...reader,
-    source_deck_ids: JSON.parse(reader.source_deck_ids) as string[],
-    vocabulary_used: JSON.parse(reader.vocabulary_used) as VocabularyItem[],
-    pages: pagesResult.results,
-  };
+  return reader ? withReaderPages(db, parseReaderRow(reader)) : null;
 }
 
 /**
@@ -1796,22 +1905,22 @@ export async function getGradedReaderById(
   const reader = await db.prepare(`
     SELECT * FROM graded_readers
     WHERE id = ?
-  `).bind(readerId).first<GradedReader & { source_deck_ids: string; vocabulary_used: string }>();
+  `).bind(readerId).first<GradedReaderRow>();
 
-  if (!reader) return null;
+  return reader ? withReaderPages(db, parseReaderRow(reader)) : null;
+}
 
+async function withReaderPages(
+  db: D1Database,
+  reader: GradedReader
+): Promise<GradedReaderWithPages> {
   const pagesResult = await db.prepare(`
     SELECT * FROM reader_pages
     WHERE reader_id = ?
     ORDER BY page_number ASC
-  `).bind(readerId).all<ReaderPage>();
+  `).bind(reader.id).all<ReaderPage>();
 
-  return {
-    ...reader,
-    source_deck_ids: JSON.parse(reader.source_deck_ids) as string[],
-    vocabulary_used: JSON.parse(reader.vocabulary_used) as VocabularyItem[],
-    pages: pagesResult.results,
-  };
+  return { ...reader, pages: pagesResult.results };
 }
 
 /**

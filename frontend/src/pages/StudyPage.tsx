@@ -56,7 +56,9 @@ import { useManualOfflineMode, toggleManualOfflineMode } from '../services/offli
 import { SyncBadge } from '../components/OfflineBanner';
 import { useAuth } from '../contexts/AuthContext';
 import CardEditModal from '../components/CardEditModal';
-import { copyQueueCountsImage } from '../utils/queue-counts-image';
+import { QueueCountsHeader } from '../components/QueueCountsHeader';
+import { RatingButtons } from '../components/RatingButtons';
+import { StudyReader } from '../components/StudyReader';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
@@ -199,87 +201,6 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
       <div className="answer-diff-row">
         {correctChars.map((c, i) => (
           <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Queue counts header component
-function QueueCountsHeader({ counts, activeQueue, activeIsSecondary }: { counts: QueueCounts; activeQueue?: number; activeIsSecondary?: boolean }) {
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
-  const resetTimer = useRef<ReturnType<typeof setTimeout>>();
-
-  const total = counts.new + counts.secondaryNew + counts.learning + counts.review;
-
-  if (total === 0) {
-    return null;
-  }
-
-  // CardQueue.NEW = 0, CardQueue.LEARNING = 1, CardQueue.REVIEW = 2, CardQueue.RELEARNING = 3
-  const isNewActive = activeQueue === 0 && !activeIsSecondary;
-  const isSecondaryActive = activeQueue === 0 && !!activeIsSecondary;
-  const isLearningActive = activeQueue === 1 || activeQueue === 3; // Learning or Relearning
-  const isReviewActive = activeQueue === 2;
-
-  const handleCopy = async () => {
-    try {
-      await copyQueueCountsImage(counts);
-      setCopyState('copied');
-    } catch (err) {
-      console.error('Failed to copy queue counts image', err);
-      setCopyState('error');
-    }
-    clearTimeout(resetTimer.current);
-    resetTimer.current = setTimeout(() => setCopyState('idle'), 1500);
-  };
-
-  return (
-    <button
-      type="button"
-      className="queue-counts"
-      onClick={handleCopy}
-      aria-label="Copy progress as image"
-    >
-      <span className={`count-new ${isNewActive ? 'count-active' : ''}`} title="New cards">{counts.new}</span>
-      <span className="count-separator">+</span>
-      <span className={`count-secondary ${isSecondaryActive ? 'count-active' : ''}`} title="Secondary new cards (word already started)">{counts.secondaryNew}</span>
-      <span className="count-separator">+</span>
-      <span className={`count-learning ${isLearningActive ? 'count-active' : ''}`} title="Learning cards">{counts.learning}</span>
-      <span className="count-separator">+</span>
-      <span className={`count-review ${isReviewActive ? 'count-active' : ''}`} title="Review cards">{counts.review}</span>
-      {copyState !== 'idle' && (
-        <span className="queue-counts-toast">
-          {copyState === 'copied' ? 'Copied!' : 'Copy failed'}
-        </span>
-      )}
-    </button>
-  );
-}
-
-// Rating buttons with interval previews from backend
-function RatingButtons({
-  intervalPreviews,
-  onRate,
-  disabled,
-}: {
-  intervalPreviews: Record<Rating, IntervalPreview>;
-  onRate: (rating: Rating) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div>
-      <div className="rating-buttons">
-        {([0, 1, 2, 3] as Rating[]).map((rating) => (
-          <button
-            key={rating}
-            className={`rating-btn ${RATING_INFO[rating].label.toLowerCase()}`}
-            onClick={() => onRate(rating)}
-            disabled={disabled}
-          >
-            <span className="rating-label">{RATING_INFO[rating].label}</span>
-            <span className="rating-interval">{intervalPreviews[rating].intervalText}</span>
-          </button>
         ))}
       </div>
     </div>
@@ -3262,15 +3183,18 @@ export function StudyPage() {
   const {
     isLoading,
     currentCard,
+    currentReader,
     currentCardIsSecondaryNew,
     cardVersion,
     counts,
     intervalPreviews,
+    readerIntervalPreviews,
     hasMoreNewCards,
     isRating,
     sessionStats,
     canUndo,
     rateCard,
+    rateReader,
     undoLastReview,
     reloadQueue,
     removeNoteFromSession,
@@ -3282,7 +3206,7 @@ export function StudyPage() {
   });
 
   // Pre-fetch day stats when queue is nearly empty (3 or fewer cards) for instant "All Done" display
-  const isAllDone = !isLoading && !currentCard && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
+  const isAllDone = !isLoading && !currentCard && !currentReader && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
   const isNearlyDone = counts.new + counts.secondaryNew + counts.learning + counts.review <= 3;
   const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
   const [todayTotalTimeMs, setTodayTotalTimeMs] = useState<number>(0);
@@ -3378,7 +3302,7 @@ export function StudyPage() {
   }
 
   // Study complete - check that ALL queues are empty, not just that currentCard is null
-  if (!isLoading && !currentCard && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0) {
+  if (isAllDone) {
     // Number of bonus cards to add each time the user clicks "Study More"
     const BONUS_NEW_CARDS_INCREMENT = 10;
 
@@ -3541,6 +3465,16 @@ export function StudyPage() {
     <div className="study-page-fullscreen">
       {isLoading ? (
         <Loading />
+      ) : currentReader && readerIntervalPreviews ? (
+        <StudyReader
+          key={`${currentReader.id}-${cardVersion}`}
+          reader={currentReader}
+          intervalPreviews={readerIntervalPreviews}
+          counts={counts}
+          isRating={false}
+          onRate={rateReader}
+          onEnd={handleEndSession}
+        />
       ) : currentCard && intervalPreviews ? (
         <StudyCard
           key={`${currentCard.id}-${cardVersion}`}

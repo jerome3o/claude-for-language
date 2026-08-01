@@ -11,6 +11,7 @@ import { useMutation } from '@tanstack/react-query';
 import {
   db,
   LocalCard,
+  LocalReader,
   getDueCards,
   getQueueCounts,
   getStudyCutoff,
@@ -30,6 +31,12 @@ import {
   DEFAULT_DECK_SETTINGS,
   getIntervalPreview,
 } from '../services/anki-scheduler';
+import {
+  getDueReaders,
+  recordReaderReview,
+  getReaderIntervalPreviews,
+  readerSchedulingFields,
+} from '../services/reader-study';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
 
@@ -115,18 +122,27 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
   );
 }
 
-// Synchronously select the next card from a queue (pure function)
-function selectNextCardFromQueue(
+// The next thing to study: a card or a graded reader
+type NextStudyItem = { card: LocalCard } | { reader: LocalReader };
+
+/**
+ * Synchronously select the next study item from the card queue and the reader
+ * queue (pure function).
+ *
+ * Cards keep their existing priorities; due readers are woven in:
+ * - Learning cards due NOW come first (active timers), then learning readers
+ * - New/review readers join the proportional new/review mix
+ * - Cooldown fallback prefers cards, then readers due today
+ */
+function selectNextItem(
   queue: LocalCard[],
+  readerQueue: LocalReader[],
   recentNoteIds: string[],
   reviewedNoteIds: Set<string>,
   lastRatedCardId?: string,
-): LocalCard | null {
+  lastRatedReaderId?: string,
+): NextStudyItem | null {
   const now = Date.now();
-
-  if (queue.length === 0) {
-    return null;
-  }
 
   // Filter out recently studied notes (except learning cards)
   const availableCards = queue.filter(card => {
@@ -145,24 +161,52 @@ function selectNextCardFromQueue(
   );
 
   if (learningDue.length > 0) {
-    return pickWeightedLearningCard(learningDue, now);
+    const card = pickWeightedLearningCard(learningDue, now);
+    if (card) return { card };
   }
 
-  // Priority 2: Mix new and review cards proportionally
+  // Priority 1.5: Learning readers due NOW (their cooldown timer expired)
+  const learningReadersDue = readerQueue.filter(r =>
+    (r.queue === CardQueue.LEARNING || r.queue === CardQueue.RELEARNING) &&
+    r.due_timestamp && r.due_timestamp <= now
+  );
+  if (learningReadersDue.length > 0) {
+    const other = learningReadersDue.find(r => r.id !== lastRatedReaderId);
+    return { reader: other ?? learningReadersDue[0] };
+  }
+
+  // Priority 2: Mix new/review cards and new/review readers proportionally
   const newCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.NEW);
   const reviewCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.REVIEW);
-  const totalMixable = newCards.length + reviewCards.length;
+  const mixableReaders = readerQueue.filter(r =>
+    r.queue === CardQueue.NEW || r.queue === CardQueue.REVIEW
+  );
+  const totalMixable = newCards.length + reviewCards.length + mixableReaders.length;
 
   if (totalMixable > 0) {
-    const newProbability = newCards.length / totalMixable;
-    const random = Math.random();
+    let roll = Math.random() * totalMixable;
 
-    if (random < newProbability && newCards.length > 0) {
-      return pickPrioritizedNewCard(newCards, reviewedNoteIds);
-    } else if (reviewCards.length > 0) {
-      return pickRandom(reviewCards);
-    } else if (newCards.length > 0) {
-      return pickPrioritizedNewCard(newCards, reviewedNoteIds);
+    if (roll < mixableReaders.length) {
+      const reader = pickRandom(mixableReaders);
+      if (reader) return { reader };
+    }
+    roll -= mixableReaders.length;
+
+    if (roll < newCards.length && newCards.length > 0) {
+      const card = pickPrioritizedNewCard(newCards, reviewedNoteIds);
+      if (card) return { card };
+    }
+    if (reviewCards.length > 0) {
+      const card = pickRandom(reviewCards);
+      if (card) return { card };
+    }
+    if (newCards.length > 0) {
+      const card = pickPrioritizedNewCard(newCards, reviewedNoteIds);
+      if (card) return { card };
+    }
+    if (mixableReaders.length > 0) {
+      const reader = pickRandom(mixableReaders);
+      if (reader) return { reader };
     }
   }
 
@@ -178,9 +222,20 @@ function selectNextCardFromQueue(
     // Prefer a different card from the one just rated, if alternatives exist
     if (lastRatedCardId && cooldownCards.length > 1) {
       const other = cooldownCards.find(c => c.id !== lastRatedCardId);
-      if (other) return other;
+      if (other) return { card: other };
     }
-    return cooldownCards[0];
+    return { card: cooldownCards[0] };
+  }
+
+  // Priority 4: Learning readers on cooldown but due today
+  const cooldownReaders = readerQueue.filter(r =>
+    (r.queue === CardQueue.LEARNING || r.queue === CardQueue.RELEARNING) &&
+    (!r.due_timestamp || r.due_timestamp <= studyCutoff.ts)
+  );
+  if (cooldownReaders.length > 0) {
+    cooldownReaders.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+    const other = cooldownReaders.find(r => r.id !== lastRatedReaderId);
+    return { reader: other ?? cooldownReaders[0] };
   }
 
   return null;
@@ -202,11 +257,13 @@ interface UseStudySessionOptions {
   enabled?: boolean;
 }
 
-// Combined state for current card to ensure atomic updates
-interface CurrentCardState {
+// Combined state for the current study item to ensure atomic updates.
+// Exactly one of card (with note/deck) or reader is set at a time.
+interface CurrentItemState {
   card: LocalCard | null;
   note: Note | null;
   deck: Deck | null;
+  reader?: LocalReader | null;
 }
 
 // Snapshot taken just before a rating is applied so the last review can be
@@ -228,9 +285,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Local queue state
   const [queue, setQueue] = useState<LocalCard[]>([]);
+  // Due graded readers, interleaved with cards. Readers aren't deck-scoped,
+  // so they only join "All Decks" sessions (no deckId filter).
+  const [readerQueue, setReaderQueue] = useState<LocalReader[]>([]);
   // Monotonic counter — incremented every time a new card is shown (even same ID)
   const [cardVersion, setCardVersion] = useState(0);
-  const [currentCardState, setCurrentCardState] = useState<CurrentCardState>({
+  const [currentCardState, setCurrentCardState] = useState<CurrentItemState>({
     card: null,
     note: null,
     deck: null,
@@ -266,18 +326,23 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const undoSnapshotRef = useRef<UndoSnapshot | null>(null);
   const [canUndo, setCanUndo] = useState(false);
 
+  // Re-entrancy guard for the async reader rating flow
+  const ratingReaderRef = useRef(false);
+
   // Load initial queue
   const loadQueue = useCallback(async () => {
     if (!enabled) return;
     setIsLoading(true);
     try {
       await ensureDailyStatsInitialized();
-      const [dueCards, counts, reviewedIds] = await Promise.all([
+      const [dueCards, counts, reviewedIds, dueReaders] = await Promise.all([
         getDueCards(deckId, bonusNewCards),
         getQueueCounts(deckId, bonusNewCards),
         getReviewedNoteIds(deckId),
+        deckId ? Promise.resolve([]) : getDueReaders(),
       ]);
       setQueue(dueCards);
+      setReaderQueue(dueReaders);
       setHasMoreNewCards(counts.hasMoreNew);
       reviewedNoteIdsRef.current = reviewedIds;
       initializedRef.current = true;
@@ -307,86 +372,147 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     }
   }, [deckId, bonusNewCards, enabled, loadQueue]);
 
-  // Select the next card from the queue (async version for fallback cases)
-  const selectNextCard = useCallback(async () => {
-    console.log('[useStudySession] Selecting next card (async)', {
-      queueLength: queue.length,
-      recentNoteIds: recentNoteIds.length
+  // Find a learning/relearning card in IndexedDB that's due today. Used when
+  // the in-memory queue runs dry — learning cards on cooldown are shown
+  // immediately rather than making the user wait out the timer.
+  const findDelayedLearningCard = useCallback(async (excludeNoteId?: string): Promise<LocalCard | null> => {
+    const collection = deckId
+      ? db.cards.where('deck_id').equals(deckId)
+      : db.cards.toCollection();
+    const delayed = await collection
+      .filter(c =>
+        (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
+        (!excludeNoteId || c.note_id !== excludeNoteId)
+      )
+      .toArray();
+    if (delayed.length === 0) return null;
+
+    const studyCutoff = getStudyCutoff();
+    const dueToday = delayed.filter(c => !c.due_timestamp || c.due_timestamp <= studyCutoff.ts);
+    if (dueToday.length === 0) return null;
+
+    dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+    return dueToday[0];
+  }, [deckId]);
+
+  // Optional state updates applied atomically with a card/reader transition
+  interface QueueUpdates {
+    queue?: LocalCard[];
+    recentNoteIds?: string[];
+    readerQueue?: LocalReader[];
+  }
+
+  const applyQueueUpdates = useCallback((updates?: QueueUpdates) => {
+    if (updates?.queue) setQueue(updates.queue);
+    if (updates?.recentNoteIds) setRecentNoteIds(updates.recentNoteIds);
+    if (updates?.readerQueue) setReaderQueue(updates.readerQueue);
+  }, []);
+
+  // Load a card's note+deck and show it. Returns false if the note is missing
+  // (orphaned card) — the caller should fall back to something else.
+  const presentCard = useCallback(async (card: LocalCard, updates?: QueueUpdates): Promise<boolean> => {
+    const [note, deck] = await Promise.all([
+      db.notes.get(card.note_id),
+      db.decks.get(card.deck_id),
+    ]);
+    if (!note) return false;
+
+    applyQueueUpdates(updates);
+    setCardVersion(v => v + 1);
+    setCurrentCardState({ card, note, deck: deck || null });
+    return true;
+  }, [applyQueueUpdates]);
+
+  const presentReader = useCallback((reader: LocalReader, updates?: QueueUpdates) => {
+    applyQueueUpdates(updates);
+    setCardVersion(v => v + 1);
+    setCurrentCardState({ card: null, note: null, deck: null, reader });
+  }, [applyQueueUpdates]);
+
+  const presentNothing = useCallback((updates?: QueueUpdates) => {
+    applyQueueUpdates(updates);
+    setCurrentCardState({ card: null, note: null, deck: null });
+  }, [applyQueueUpdates]);
+
+  // Track a pending background DB write so fallback queries can await it
+  const trackWrite = useCallback((write: Promise<unknown>) => {
+    const tracked: Promise<void> = write
+      .then(() => undefined, () => undefined)
+      .then(() => {
+        pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== tracked);
+      });
+    pendingWritesRef.current.push(tracked);
+  }, []);
+
+  // Persist a review event (+ optional recording) and kick off a background
+  // sync. Shared by every card-rating path. The recording shares the event
+  // id — recording upload looks its event up by id.
+  const persistReviewEvent = useCallback(async (
+    reviewId: string,
+    cardId: string,
+    rating: Rating,
+    reviewedAt: string,
+    timeSpentMs?: number,
+    userAnswer?: string,
+    recordingBlob?: Blob,
+  ): Promise<void> => {
+    await createLocalReviewEvent({
+      id: reviewId,
+      card_id: cardId,
+      rating,
+      time_spent_ms: timeSpentMs || null,
+      user_answer: userAnswer || null,
+      reviewed_at: reviewedAt,
+      _synced: 0,
     });
-
-    if (queue.length === 0) {
-      console.log('[useStudySession] Queue empty, checking for delayed learning cards');
-
-      // Check for learning cards with delays (due today but on cooldown)
-      let delayedLearningCards: LocalCard[];
-      if (deckId) {
-        delayedLearningCards = await db.cards
-          .where('deck_id').equals(deckId)
-          .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
-          .toArray();
-      } else {
-        delayedLearningCards = await db.cards
-          .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
-          .toArray();
-      }
-
-      if (delayedLearningCards.length > 0) {
-        const studyCutoff = getStudyCutoff();
-        const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= studyCutoff.ts
-        );
-
-        if (dueToday.length > 0) {
-          // Sort by due_timestamp and pick soonest
-          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-          const selected = dueToday[0];
-
-          // Load note and deck
-          const [note, deck] = await Promise.all([
-            db.notes.get(selected.note_id),
-            db.decks.get(selected.deck_id),
-          ]);
-
-          if (note) {
-            console.log('[useStudySession] Selected delayed learning card:', selected.id);
-            setCurrentCardState({ card: selected, note, deck: deck || null });
-            return;
-          }
-        }
-      }
-
-      console.log('[useStudySession] No cards available');
-      setCurrentCardState({ card: null, note: null, deck: null });
-      return;
+    if (recordingBlob) {
+      await storePendingRecording({
+        id: reviewId,
+        blob: recordingBlob,
+        uploaded: false,
+        created_at: reviewedAt,
+      });
     }
+    if (navigator.onLine) {
+      syncService.syncEvents().catch(console.error);
+    }
+  }, []);
 
-    // Use the pure selection function
-    const selected = selectNextCardFromQueue(queue, recentNoteIds, reviewedNoteIdsRef.current);
+  // A NEW card being introduced counts against the primary (blue) quota, or
+  // the secondary (purple) quota if its note already has a reviewed card.
+  const countNewCardIntroduced = useCallback(async (card: LocalCard) => {
+    if (card.queue !== CardQueue.NEW) return;
+    const siblings = await db.cards.where('note_id').equals(card.note_id).toArray();
+    const isSecondary = siblings.some(s => s.id !== card.id && s.queue !== CardQueue.NEW);
+    await incrementNewCardsStudiedToday(card.deck_id, isSecondary);
+  }, []);
 
-    if (selected) {
-      // Load note and deck
-      const [note, deck] = await Promise.all([
-        db.notes.get(selected.note_id),
-        db.decks.get(selected.deck_id),
-      ]);
+  // Select the next item from the queues (async version for fallback cases)
+  const selectNextCard = useCallback(async () => {
+    const selection = selectNextItem(queue, readerQueue, recentNoteIds, reviewedNoteIdsRef.current);
 
-      if (note) {
-        console.log('[useStudySession] Selected card:', selected.id, 'queue:', selected.queue);
-        setCurrentCardState({ card: selected, note, deck: deck || null });
+    if (selection) {
+      if ('reader' in selection) {
+        presentReader(selection.reader);
         return;
       }
+      if (await presentCard(selection.card)) return;
     }
 
-    console.log('[useStudySession] No card selected');
-    setCurrentCardState({ card: null, note: null, deck: null });
-  }, [queue, recentNoteIds, deckId]);
+    // Queues empty — check for delayed learning cards in IndexedDB
+    const delayed = await findDelayedLearningCard();
+    if (delayed && await presentCard(delayed)) return;
 
-  // Select first card when queue loads
+    console.log('[useStudySession] No cards available');
+    presentNothing();
+  }, [queue, readerQueue, recentNoteIds, presentCard, presentReader, presentNothing, findDelayedLearningCard]);
+
+  // Select first item when queue loads
   useEffect(() => {
-    if (!isLoading && queue.length > 0 && !currentCardState.card) {
+    if (!isLoading && (queue.length > 0 || readerQueue.length > 0) && !currentCardState.card && !currentCardState.reader) {
       selectNextCard();
     }
-  }, [isLoading, queue.length, currentCardState.card, selectNextCard]);
+  }, [isLoading, queue.length, readerQueue.length, currentCardState.card, currentCardState.reader, selectNextCard]);
 
   // Submit review mutation
   const reviewMutation = useMutation({
@@ -410,14 +536,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       const card = await db.cards.get(cardId);
       if (!card) throw new Error('Card not found');
 
-      // Increment daily counter for new cards. A card is "secondary" if its
-      // note already has another reviewed card — it counts against the
-      // secondary (purple) quota instead of the primary (blue) one.
-      if (card.queue === CardQueue.NEW) {
-        const siblings = await db.cards.where('note_id').equals(card.note_id).toArray();
-        const isSecondary = siblings.some(s => s.id !== card.id && s.queue !== CardQueue.NEW);
-        await incrementNewCardsStudiedToday(card.deck_id, isSecondary);
-      }
+      await countNewCardIntroduced(card);
 
       // Get deck settings and calculate new state
       const deck = await db.decks.get(card.deck_id);
@@ -455,31 +574,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         updated_at: reviewedAt,
       });
 
-      // Create review event
-      await createLocalReviewEvent({
-        id: reviewId,
-        card_id: cardId,
-        rating,
-        time_spent_ms: timeSpentMs || null,
-        user_answer: userAnswer || null,
-        reviewed_at: reviewedAt,
-        _synced: 0,
-      });
-
-      // Store recording if present
-      if (recordingBlob) {
-        await storePendingRecording({
-          id: reviewId,
-          blob: recordingBlob,
-          uploaded: false,
-          created_at: reviewedAt,
-        });
-      }
-
-      // Background sync
-      if (navigator.onLine) {
-        syncService.syncEvents().catch(console.error);
-      }
+      await persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob);
 
       return {
         cardId,
@@ -565,7 +660,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     );
 
     // Build the new queue
-    let newQueue = queue.filter(c => c.id !== cardId);
+    const newQueue = queue.filter(c => c.id !== cardId);
 
     // If card is still in learning, add it back with updated state
     if (result.queue === CardQueue.LEARNING || result.queue === CardQueue.RELEARNING) {
@@ -592,180 +687,137 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // its remaining NEW siblings count as secondary cards from here on.
     reviewedNoteIdsRef.current.add(noteId);
 
-    // Select the next card synchronously from the new queue
-    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, reviewedNoteIdsRef.current, cardId);
+    const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
-    console.log('[useStudySession] Next card selected:', nextCard?.id, 'from queue of', newQueue.length);
+    // Select the next item synchronously from the new queues
+    const selection = selectNextItem(newQueue, readerQueue, newRecentNoteIds, reviewedNoteIdsRef.current, cardId);
 
-    if (nextCard) {
-      // Load note and deck for the next card, then update all state atomically
-      const [note, deck] = await Promise.all([
-        db.notes.get(nextCard.note_id),
-        db.decks.get(nextCard.deck_id),
-      ]);
-
-      // Update ALL state at once to prevent intermediate renders
-      setQueue(newQueue);
-      setRecentNoteIds(newRecentNoteIds);
-      setCardVersion(v => v + 1);
-      setCurrentCardState({ card: nextCard, note: note || null, deck: deck || null });
-    } else {
-      // No card from queue - need to check IndexedDB for delayed learning cards.
-      // First, await any pending background writes so the DB query sees all state.
-      if (pendingWritesRef.current.length > 0) {
-        console.log('[useStudySession] Awaiting', pendingWritesRef.current.length, 'pending DB writes before fallback query');
-        await Promise.all(pendingWritesRef.current);
-        pendingWritesRef.current = [];
-      }
-
-      // reviewMutation isn't used on this path, so bump the daily new-card
-      // counter here (same classification as in reviewMutation).
-      if (currentCard.queue === CardQueue.NEW) {
-        const siblings = await db.cards.where('note_id').equals(noteId).toArray();
-        const isSecondary = siblings.some(s => s.id !== cardId && s.queue !== CardQueue.NEW);
-        await incrementNewCardsStudiedToday(currentCard.deck_id, isSecondary);
-      }
-
-      // Then update IndexedDB with the current card's new state,
-      // otherwise the query will find this card still in its old LEARNING state.
-      const reviewedAt = new Date().toISOString();
-      await db.cards.update(cardId, {
-        queue: result.queue,
-        learning_step: result.learning_step,
-        ease_factor: result.ease_factor,
-        interval: result.interval,
-        repetitions: result.repetitions,
-        next_review_at: result.next_review_at?.toISOString() || null,
-        due_timestamp: result.due_timestamp,
-        last_reviewed_at: reviewedAt,
-        updated_at: reviewedAt,
-      });
-
-      // Now check for delayed learning cards with correct DB state
-      let delayedLearningCards: LocalCard[];
-      if (deckId) {
-        delayedLearningCards = await db.cards
-          .where('deck_id').equals(deckId)
-          .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
-          .toArray();
+    let presented = false;
+    if (selection) {
+      if ('reader' in selection) {
+        presentReader(selection.reader, updates);
+        presented = true;
       } else {
-        delayedLearningCards = await db.cards
-          .filter(c => c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING)
-          .toArray();
+        presented = await presentCard(selection.card, updates);
       }
+    }
 
-      if (delayedLearningCards.length > 0) {
-        const studyCutoff = getStudyCutoff();
-        const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= studyCutoff.ts
-        );
-
-        if (dueToday.length > 0) {
-          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-
-          // Show immediately — even if it's the same card just rated (user preference:
-          // drill all cards in one sitting without waiting for cooldowns)
-          const selected = dueToday[0];
-
-          const [note, deck] = await Promise.all([
-            db.notes.get(selected.note_id),
-            db.decks.get(selected.deck_id),
-          ]);
-
-          if (note) {
-            console.log('[useStudySession] Selected delayed learning card:', selected.id);
-            setQueue(newQueue);
-            setRecentNoteIds(newRecentNoteIds);
-            setCardVersion(v => v + 1);
-            setCurrentCardState({ card: selected, note, deck: deck || null });
-
-            // Submit review event in background (card already updated above),
-            // tracked so Undo can await it. The recording shares the event id —
-            // recording upload looks its event up by id.
-            const delayedWrite: Promise<void> = createLocalReviewEvent({
-              id: reviewId,
-              card_id: cardId,
-              rating,
-              time_spent_ms: timeSpentMs || null,
-              user_answer: userAnswer || null,
-              reviewed_at: reviewedAt,
-              _synced: 0,
-            }).then(async () => {
-              if (recordingBlob) {
-                await storePendingRecording({
-                  id: reviewId,
-                  blob: recordingBlob,
-                  uploaded: false,
-                  created_at: reviewedAt,
-                });
-              }
-              if (navigator.onLine) {
-                syncService.syncEvents().catch(console.error);
-              }
-            }).then(() => {
-              pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== delayedWrite);
-            }).catch(() => {
-              pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== delayedWrite);
-            });
-            pendingWritesRef.current.push(delayedWrite);
-            return;
-          }
-        }
-      }
-
-      // No delayed learning cards - session is truly done
-      console.log('[useStudySession] No cards available - session complete');
-      setQueue(newQueue);
-      setRecentNoteIds(newRecentNoteIds);
-      setCurrentCardState({ card: null, note: null, deck: null });
-
-      // Submit review event (card already updated in DB above), tracked so
-      // Undo can await it. The recording shares the event id.
-      const finalWrite: Promise<void> = createLocalReviewEvent({
-        id: reviewId,
-        card_id: cardId,
+    if (presented) {
+      // Submit review in background (don't await), tracked so a later rating
+      // that needs to query IndexedDB can await it first.
+      trackWrite(reviewMutation.mutateAsync({
+        reviewId,
+        cardId,
         rating,
-        time_spent_ms: timeSpentMs || null,
-        user_answer: userAnswer || null,
-        reviewed_at: reviewedAt,
-        _synced: 0,
-      }).then(async () => {
-        if (recordingBlob) {
-          await storePendingRecording({
-            id: reviewId,
-            blob: recordingBlob,
-            uploaded: false,
-            created_at: reviewedAt,
-          });
-        }
-        if (navigator.onLine) {
-          syncService.syncEvents().catch(console.error);
-        }
-      }).then(() => {
-        pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== finalWrite);
-      }).catch(() => {
-        pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== finalWrite);
-      });
-      pendingWritesRef.current.push(finalWrite);
+        timeSpentMs,
+        userAnswer,
+        recordingBlob,
+      }));
       return;
     }
 
-    // Submit review in background (don't await), but track the promise
-    // so we can await it if the next rating needs to query IndexedDB
-    const writePromise = reviewMutation.mutateAsync({
-      reviewId,
-      cardId,
-      rating,
-      timeSpentMs,
-      userAnswer,
-      recordingBlob,
-    }).then(() => {
-      pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
-    }).catch(() => {
-      pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
+    // Nothing in the queues — fall back to delayed learning cards in
+    // IndexedDB. First await pending background writes so the query sees all
+    // state, then write this card's new state inline (reviewMutation isn't
+    // used on this path), otherwise the query would find this card still in
+    // its old LEARNING state.
+    if (pendingWritesRef.current.length > 0) {
+      console.log('[useStudySession] Awaiting', pendingWritesRef.current.length, 'pending DB writes before fallback query');
+      await Promise.all(pendingWritesRef.current);
+      pendingWritesRef.current = [];
+    }
+
+    await countNewCardIntroduced(currentCard);
+
+    const reviewedAt = new Date().toISOString();
+    await db.cards.update(cardId, {
+      queue: result.queue,
+      learning_step: result.learning_step,
+      ease_factor: result.ease_factor,
+      interval: result.interval,
+      repetitions: result.repetitions,
+      next_review_at: result.next_review_at?.toISOString() || null,
+      due_timestamp: result.due_timestamp,
+      stability: result.stability,
+      difficulty: result.difficulty,
+      lapses: result.lapses,
+      last_reviewed_at: reviewedAt,
+      updated_at: reviewedAt,
     });
-    pendingWritesRef.current.push(writePromise);
-  }, [currentCardState, queue, recentNoteIds, sessionStats, reviewMutation]);
+
+    // Show a delayed learning card immediately — even if it's the same card
+    // just rated (user preference: drill all cards in one sitting without
+    // waiting for cooldowns)
+    const delayed = await findDelayedLearningCard();
+    if (delayed && await presentCard(delayed, updates)) {
+      trackWrite(persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob));
+      return;
+    }
+
+    // No delayed learning cards - session is truly done
+    console.log('[useStudySession] No cards available - session complete');
+    presentNothing(updates);
+    trackWrite(persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob));
+  }, [currentCardState, queue, readerQueue, recentNoteIds, sessionStats, reviewMutation, presentCard, presentReader, presentNothing, trackWrite, persistReviewEvent, countNewCardIntroduced, findDelayedLearningCard]);
+
+  // Rate the current reader and transition to the next item. Reader reviews
+  // follow the same FSRS cadence as cards; they aren't undoable yet, so
+  // rating one drops any pending card undo snapshot.
+  const rateReader = useCallback(async (rating: Rating, timeSpentMs: number) => {
+    const reader = currentCardState.reader;
+    if (!reader) return;
+    // Guard against double-taps while the async review write is in flight
+    if (ratingReaderRef.current) return;
+    ratingReaderRef.current = true;
+
+    undoSnapshotRef.current = null;
+    setCanUndo(false);
+
+    setSessionStats(prev => {
+      const isCorrect = rating === 2 || rating === 3; // Good or Easy
+      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
+      return {
+        ...prev,
+        totalReviews: prev.totalReviews + 1,
+        correctCount: prev.correctCount + (isCorrect ? 1 : 0),
+        againCount: prev.againCount + (rating === 0 ? 1 : 0),
+        currentStreak: newCurrentStreak,
+        bestStreak: Math.max(prev.bestStreak, newCurrentStreak),
+      };
+    });
+
+    try {
+      const { newState } = await recordReaderReview(reader.id, rating, timeSpentMs);
+
+      // Keep the reader in the session while it's still in learning; otherwise
+      // FSRS has scheduled it out to a future day.
+      const newReaderQueue = readerQueue.filter(r => r.id !== reader.id);
+      if (newState.queue === CardQueue.LEARNING || newState.queue === CardQueue.RELEARNING) {
+        newReaderQueue.push({ ...reader, ...readerSchedulingFields(newState) });
+      }
+
+      if (navigator.onLine) {
+        syncService.syncEvents().catch(console.error);
+      }
+
+      const updates = { readerQueue: newReaderQueue };
+      const selection = selectNextItem(queue, newReaderQueue, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id);
+      if (selection) {
+        if ('reader' in selection) {
+          presentReader(selection.reader, updates);
+          return;
+        }
+        if (await presentCard(selection.card, updates)) return;
+      }
+
+      const delayed = await findDelayedLearningCard();
+      if (delayed && await presentCard(delayed, updates)) return;
+
+      presentNothing(updates);
+    } finally {
+      ratingReaderRef.current = false;
+    }
+  }, [currentCardState, queue, readerQueue, recentNoteIds, presentCard, presentReader, presentNothing, findDelayedLearningCard]);
 
   // Undo the last rating (single-level, like Anki). Deletes the review event
   // locally and queues its deletion on the server, restores the card's
@@ -828,8 +880,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setCurrentCardState({ card: snap.card, note: snap.note, deck: snap.deck });
   }, []);
 
-  // Derive counts directly from the in-memory queue so the header updates in the
-  // same render as the card transition (no DB round-trip).
+  // Derive counts directly from the in-memory queues so the header updates in
+  // the same render as the card transition (no DB round-trip). Due readers
+  // count in the bucket matching their queue state.
   const counts: QueueCounts = useMemo(() => {
     let n = 0, s = 0, l = 0, r = 0;
     for (const c of queue) {
@@ -840,9 +893,15 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       else if (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) l++;
       else if (c.queue === CardQueue.REVIEW) r++;
     }
+    for (const reader of readerQueue) {
+      if (reader.queue === CardQueue.NEW) n++;
+      else if (reader.queue === CardQueue.LEARNING || reader.queue === CardQueue.RELEARNING) l++;
+      else r++;
+    }
     return { new: n, secondaryNew: s, learning: l, review: r };
-  }, [queue]);
+  }, [queue, readerQueue]);
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
+  const currentReader = currentCardState.reader ?? null;
 
   // Whether the current card is a "secondary" new card (purple): NEW, but its
   // note already has a reviewed card. Used to highlight the right header count.
@@ -869,6 +928,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     note: currentNote,
   } : null;
 
+  const readerIntervalPreviews: Record<Rating, IntervalPreview> | null =
+    currentReader ? getReaderIntervalPreviews(currentReader) : null;
+
   // Remove a deleted note's cards from the session and advance to the next card.
   // Call this after deleting a note from IndexedDB so the in-memory queue stays
   // consistent and we don't try to display a card whose note no longer exists.
@@ -881,75 +943,24 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     const newQueue = queue.filter(c => c.note_id !== noteId);
     const newRecentNoteIds = recentNoteIds.filter(id => id !== noteId);
+    const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
-    const nextCard = selectNextCardFromQueue(newQueue, newRecentNoteIds, reviewedNoteIdsRef.current);
-
-    if (nextCard) {
-      const [note, deck] = await Promise.all([
-        db.notes.get(nextCard.note_id),
-        db.decks.get(nextCard.deck_id),
-      ]);
-
-      if (note) {
-        setQueue(newQueue);
-        setRecentNoteIds(newRecentNoteIds);
-        setCardVersion(v => v + 1);
-        setCurrentCardState({ card: nextCard, note, deck: deck || null });
+    const selection = selectNextItem(newQueue, readerQueue, newRecentNoteIds, reviewedNoteIdsRef.current);
+    if (selection) {
+      if ('reader' in selection) {
+        presentReader(selection.reader, updates);
         return;
       }
+      if (await presentCard(selection.card, updates)) return;
     }
 
-    // No card in the filtered queue — check for delayed learning cards in IndexedDB
-    if (newQueue.length === 0) {
-      let delayedLearningCards: LocalCard[];
-      if (deckId) {
-        delayedLearningCards = await db.cards
-          .where('deck_id').equals(deckId)
-          .filter(c =>
-            (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-            c.note_id !== noteId
-          )
-          .toArray();
-      } else {
-        delayedLearningCards = await db.cards
-          .filter(c =>
-            (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-            c.note_id !== noteId
-          )
-          .toArray();
-      }
-
-      if (delayedLearningCards.length > 0) {
-        const studyCutoff = getStudyCutoff();
-        const dueToday = delayedLearningCards.filter(c =>
-          !c.due_timestamp || c.due_timestamp <= studyCutoff.ts
-        );
-
-        if (dueToday.length > 0) {
-          dueToday.sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
-          const selected = dueToday[0];
-
-          const [note, deck] = await Promise.all([
-            db.notes.get(selected.note_id),
-            db.decks.get(selected.deck_id),
-          ]);
-
-          if (note) {
-            setQueue(newQueue);
-            setRecentNoteIds(newRecentNoteIds);
-            setCardVersion(v => v + 1);
-            setCurrentCardState({ card: selected, note, deck: deck || null });
-            return;
-          }
-        }
-      }
-    }
+    // Nothing in the queues — check for delayed learning cards in IndexedDB
+    const delayed = await findDelayedLearningCard(noteId);
+    if (delayed && await presentCard(delayed, updates)) return;
 
     // Session is complete
-    setQueue(newQueue);
-    setRecentNoteIds(newRecentNoteIds);
-    setCurrentCardState({ card: null, note: null, deck: null });
-  }, [queue, recentNoteIds, deckId]);
+    presentNothing(updates);
+  }, [queue, readerQueue, recentNoteIds, presentCard, presentReader, presentNothing, findDelayedLearningCard]);
 
   // Reload queue (for "Study More" button)
   const reloadQueue = useCallback(() => {
@@ -978,10 +989,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // State
     isLoading,
     currentCard: cardWithNote,
+    currentReader,
     currentCardIsSecondaryNew,
     cardVersion,
     counts,
     intervalPreviews,
+    readerIntervalPreviews,
     hasMoreNewCards,
     isRating: reviewMutation.isPending,
     sessionStats,
@@ -989,6 +1002,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     // Actions
     rateCard,
+    rateReader,
     undoLastReview,
     reloadQueue,
     selectNextCard,
