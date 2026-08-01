@@ -19,6 +19,9 @@ import {
   createLocalReviewEvent,
   storePendingRecording,
   incrementNewCardsStudiedToday,
+  decrementNewCardsStudiedToday,
+  deleteCardCheckpoint,
+  addPendingReviewDeletion,
 } from '../db/database';
 import {
   scheduleCard,
@@ -206,6 +209,20 @@ interface CurrentCardState {
   deck: Deck | null;
 }
 
+// Snapshot taken just before a rating is applied so the last review can be
+// undone: restores the in-memory session state and the card's IndexedDB row.
+interface UndoSnapshot {
+  eventId: string;
+  card: LocalCard; // full card row BEFORE the review
+  note: Note;
+  deck: Deck | null;
+  queue: LocalCard[]; // in-memory queue BEFORE the review
+  recentNoteIds: string[];
+  sessionStats: SessionStats;
+  noteWasReviewed: boolean; // reviewedNoteIds membership before the review
+  prevAgainCount: number; // againCountByNote value before the review
+}
+
 export function useStudySession(options: UseStudySessionOptions = {}) {
   const { deckId, bonusNewCards = 0, enabled = true } = options;
 
@@ -244,6 +261,10 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Note IDs with at least one reviewed card — used to prioritize unreviewed notes in new card selection
   const reviewedNoteIdsRef = useRef<Set<string>>(new Set());
+
+  // Single-level undo (like Anki): snapshot of the state before the last rating
+  const undoSnapshotRef = useRef<UndoSnapshot | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
 
   // Load initial queue
   const loadQueue = useCallback(async () => {
@@ -370,6 +391,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Submit review mutation
   const reviewMutation = useMutation({
     mutationFn: async ({
+      reviewId,
       cardId,
       rating,
       timeSpentMs,
@@ -377,6 +399,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       sessionId: _sessionId,
       recordingBlob,
     }: {
+      reviewId: string;
       cardId: string;
       rating: Rating;
       timeSpentMs?: number;
@@ -414,7 +437,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         getCardLastReviewTime(card)
       );
 
-      const reviewId = crypto.randomUUID();
       const reviewedAt = new Date().toISOString();
 
       // Update card in IndexedDB (including FSRS fields)
@@ -471,14 +493,30 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Rate the current card and transition to next
   const rateCard = useCallback(async (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
     const currentCard = currentCardState.card;
+    const currentNote = currentCardState.note;
     const currentDeck = currentCardState.deck;
 
-    if (!currentCard) return;
+    if (!currentCard || !currentNote) return;
 
     const cardId = currentCard.id;
     const noteId = currentCard.note_id;
+    const reviewId = crypto.randomUUID();
 
     console.log('[useStudySession] Rating card', { cardId, rating });
+
+    // Snapshot everything the review is about to change, so Undo can restore it
+    undoSnapshotRef.current = {
+      eventId: reviewId,
+      card: { ...currentCard },
+      note: currentNote,
+      deck: currentDeck,
+      queue,
+      recentNoteIds,
+      sessionStats,
+      noteWasReviewed: reviewedNoteIdsRef.current.has(noteId),
+      prevAgainCount: againCountByNoteRef.current.get(noteId) || 0,
+    };
+    setCanUndo(true);
 
     // Update session stats
     setSessionStats(prev => {
@@ -641,19 +679,21 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
             setCardVersion(v => v + 1);
             setCurrentCardState({ card: selected, note, deck: deck || null });
 
-            // Submit review event in background (card already updated above)
-            createLocalReviewEvent({
-              id: crypto.randomUUID(),
+            // Submit review event in background (card already updated above),
+            // tracked so Undo can await it. The recording shares the event id —
+            // recording upload looks its event up by id.
+            const delayedWrite: Promise<void> = createLocalReviewEvent({
+              id: reviewId,
               card_id: cardId,
               rating,
               time_spent_ms: timeSpentMs || null,
               user_answer: userAnswer || null,
               reviewed_at: reviewedAt,
               _synced: 0,
-            }).then(() => {
+            }).then(async () => {
               if (recordingBlob) {
-                storePendingRecording({
-                  id: crypto.randomUUID(),
+                await storePendingRecording({
+                  id: reviewId,
                   blob: recordingBlob,
                   uploaded: false,
                   created_at: reviewedAt,
@@ -662,7 +702,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
               if (navigator.onLine) {
                 syncService.syncEvents().catch(console.error);
               }
+            }).then(() => {
+              pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== delayedWrite);
+            }).catch(() => {
+              pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== delayedWrite);
             });
+            pendingWritesRef.current.push(delayedWrite);
             return;
           }
         }
@@ -674,19 +719,20 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       setRecentNoteIds(newRecentNoteIds);
       setCurrentCardState({ card: null, note: null, deck: null });
 
-      // Submit review event (card already updated in DB above)
-      createLocalReviewEvent({
-        id: crypto.randomUUID(),
+      // Submit review event (card already updated in DB above), tracked so
+      // Undo can await it. The recording shares the event id.
+      const finalWrite: Promise<void> = createLocalReviewEvent({
+        id: reviewId,
         card_id: cardId,
         rating,
         time_spent_ms: timeSpentMs || null,
         user_answer: userAnswer || null,
         reviewed_at: reviewedAt,
         _synced: 0,
-      }).then(() => {
+      }).then(async () => {
         if (recordingBlob) {
-          storePendingRecording({
-            id: crypto.randomUUID(),
+          await storePendingRecording({
+            id: reviewId,
             blob: recordingBlob,
             uploaded: false,
             created_at: reviewedAt,
@@ -695,13 +741,19 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         if (navigator.onLine) {
           syncService.syncEvents().catch(console.error);
         }
+      }).then(() => {
+        pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== finalWrite);
+      }).catch(() => {
+        pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== finalWrite);
       });
+      pendingWritesRef.current.push(finalWrite);
       return;
     }
 
     // Submit review in background (don't await), but track the promise
     // so we can await it if the next rating needs to query IndexedDB
     const writePromise = reviewMutation.mutateAsync({
+      reviewId,
       cardId,
       rating,
       timeSpentMs,
@@ -713,7 +765,68 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       pendingWritesRef.current = pendingWritesRef.current.filter(p => p !== writePromise);
     });
     pendingWritesRef.current.push(writePromise);
-  }, [currentCardState, queue, recentNoteIds, reviewMutation]);
+  }, [currentCardState, queue, recentNoteIds, sessionStats, reviewMutation]);
+
+  // Undo the last rating (single-level, like Anki). Deletes the review event
+  // locally and queues its deletion on the server, restores the card's
+  // previous scheduling state, and brings the card back as the current card.
+  const undoLastReview = useCallback(async () => {
+    const snap = undoSnapshotRef.current;
+    if (!snap) return;
+    undoSnapshotRef.current = null;
+    setCanUndo(false);
+
+    console.log('[useStudySession] Undoing last review', { cardId: snap.card.id, eventId: snap.eventId });
+
+    // Wait for the review's background writes to land before reverting them
+    if (pendingWritesRef.current.length > 0) {
+      await Promise.all(pendingWritesRef.current);
+      pendingWritesRef.current = [];
+    }
+
+    const cardId = snap.card.id;
+    const noteId = snap.card.note_id;
+
+    // The daily new-card counter was incremented if the undone card was NEW.
+    // Recompute the same primary/secondary classification — sibling queues
+    // are unchanged by the review, so this matches what was counted.
+    if (snap.card.queue === CardQueue.NEW) {
+      const siblings = await db.cards.where('note_id').equals(noteId).toArray();
+      const isSecondary = siblings.some(s => s.id !== cardId && s.queue !== CardQueue.NEW);
+      await decrementNewCardsStudiedToday(snap.card.deck_id, isSecondary);
+    }
+
+    // Remove the event and any recording tied to it, then restore the card
+    // row. A checkpoint may have been written at this review — drop it (it's
+    // a pure cache, recreated on the next review).
+    await db.reviewEvents.delete(snap.eventId);
+    await db.pendingRecordings.delete(snap.eventId);
+    await deleteCardCheckpoint(cardId);
+    await db.cards.put(snap.card);
+
+    // The event may already be on the server (sync runs right after rating):
+    // queue a server-side deletion. Sync pushes it, and event downloads skip
+    // the id until the server confirms, so the review can't be resurrected.
+    await addPendingReviewDeletion(snap.eventId);
+    if (navigator.onLine) {
+      syncService.syncEvents().catch(console.error);
+    }
+
+    // Restore in-memory session state
+    if (!snap.noteWasReviewed) {
+      reviewedNoteIdsRef.current.delete(noteId);
+    }
+    if (snap.prevAgainCount > 0) {
+      againCountByNoteRef.current.set(noteId, snap.prevAgainCount);
+    } else {
+      againCountByNoteRef.current.delete(noteId);
+    }
+    setSessionStats(snap.sessionStats);
+    setQueue(snap.queue);
+    setRecentNoteIds(snap.recentNoteIds);
+    setCardVersion(v => v + 1);
+    setCurrentCardState({ card: snap.card, note: snap.note, deck: snap.deck });
+  }, []);
 
   // Derive counts directly from the in-memory queue so the header updates in the
   // same render as the card transition (no DB round-trip).
@@ -760,6 +873,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Call this after deleting a note from IndexedDB so the in-memory queue stays
   // consistent and we don't try to display a card whose note no longer exists.
   const removeNoteFromSession = useCallback(async (noteId: string) => {
+    // The deleted note's cards can't be restored — drop any undo for them
+    if (undoSnapshotRef.current?.card.note_id === noteId) {
+      undoSnapshotRef.current = null;
+      setCanUndo(false);
+    }
+
     const newQueue = queue.filter(c => c.note_id !== noteId);
     const newRecentNoteIds = recentNoteIds.filter(id => id !== noteId);
 
@@ -866,9 +985,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     hasMoreNewCards,
     isRating: reviewMutation.isPending,
     sessionStats,
+    canUndo,
 
     // Actions
     rateCard,
+    undoLastReview,
     reloadQueue,
     selectNextCard,
     removeNoteFromSession,

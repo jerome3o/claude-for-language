@@ -133,6 +133,7 @@ import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress
 import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, CreateTutorReviewRequest, RespondToTutorReviewRequest, TutorReviewRequestStatus } from './types';
 import {
   computeCardState,
+  initialCardState,
   DEFAULT_DECK_SETTINGS as FSRS_DEFAULT_SETTINGS,
   type ReviewEvent as SchedulerReviewEvent,
 } from '../../shared/scheduler';
@@ -5350,6 +5351,73 @@ app.get('/api/reviews', async (c) => {
     server_time: new Date().toISOString(),
     last_sync_at: metadata?.last_sync_at || null,
   });
+});
+
+// Delete a single review event (Undo on the study page). Events are normally
+// append-only; undo is the deliberate exception. The client deletes the event
+// locally and calls this so a later download/full sync can't resurrect it.
+// The card's state is recomputed from the remaining events.
+app.delete('/api/reviews/:id', async (c) => {
+  const userId = c.get('user').id;
+  const eventId = c.req.param('id');
+
+  const event = await c.env.DB.prepare(
+    'SELECT id, card_id FROM review_events WHERE id = ? AND user_id = ?'
+  ).bind(eventId, userId).first<{ id: string; card_id: string }>();
+
+  if (!event) {
+    // Already gone or never uploaded — report success so the client can clear
+    // its pending-deletion queue.
+    return c.json({ deleted: false });
+  }
+
+  await c.env.DB.prepare('DELETE FROM review_events WHERE id = ? AND user_id = ?')
+    .bind(eventId, userId).run();
+
+  const rows = await c.env.DB.prepare(`
+    SELECT id, card_id, rating, reviewed_at FROM review_events
+    WHERE user_id = ? AND card_id = ?
+    ORDER BY reviewed_at ASC
+  `).bind(userId, event.card_id).all<{ id: string; card_id: string; rating: number; reviewed_at: string }>();
+
+  const cardEvents: SchedulerReviewEvent[] = rows.results.map(e => ({
+    id: e.id,
+    card_id: e.card_id,
+    rating: e.rating as 0 | 1 | 2 | 3,
+    reviewed_at: e.reviewed_at,
+  }));
+
+  const newState = cardEvents.length > 0
+    ? computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS)
+    : initialCardState(FSRS_DEFAULT_SETTINGS);
+
+  await c.env.DB.prepare(`
+    UPDATE cards SET
+      queue = ?,
+      stability = ?,
+      difficulty = ?,
+      lapses = ?,
+      ease_factor = ?,
+      interval = ?,
+      repetitions = ?,
+      next_review_at = ?,
+      due_timestamp = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(
+    newState.queue,
+    newState.stability,
+    newState.difficulty,
+    newState.lapses,
+    newState.ease_factor,
+    newState.interval,
+    newState.repetitions,
+    newState.next_review_at,
+    newState.due_timestamp,
+    event.card_id
+  ).run();
+
+  return c.json({ deleted: true });
 });
 
 // Get review events for a specific card

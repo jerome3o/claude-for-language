@@ -16,7 +16,7 @@ import {
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates } from '../api/client';
-import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents } from './review-events';
+import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions } from './review-events';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 
@@ -515,6 +515,10 @@ class SyncService {
   async syncEvents(): Promise<{ uploaded: number; downloaded: number; recordings_uploaded: number; errors: string[] }> {
     const token = getAuthToken();
 
+    // Push review deletions queued by Undo first, so an undone event can't
+    // linger on the server and be re-downloaded later.
+    const deletionResult = await processPendingReviewDeletions(token);
+
     // Upload unsynced events
     this.notifyProgress({ phase: 'events-up', message: 'Uploading reviews...' });
     const uploadResult = await syncReviewEvents(token);
@@ -563,7 +567,7 @@ class SyncService {
       uploaded: uploadResult.synced,
       downloaded: downloadResult.downloaded,
       recordings_uploaded: recordingsUploaded,
-      errors: [...uploadResult.errors, ...downloadResult.errors],
+      errors: [...deletionResult.errors, ...uploadResult.errors, ...downloadResult.errors],
     };
   }
 

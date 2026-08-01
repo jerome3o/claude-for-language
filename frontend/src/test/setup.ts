@@ -16,6 +16,7 @@ beforeEach(async () => {
   await db.cardCheckpoints.clear();
   await db.pendingRecordings.clear();
   await db.eventSyncMeta.clear();
+  await db.pendingReviewDeletions.clear();
   await db.dailyStats.clear();
 });
 
