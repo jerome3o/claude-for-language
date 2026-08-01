@@ -619,8 +619,11 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         pinyin: z.string().describe("Pinyin with tone marks (e.g., nǐ hǎo)"),
         english: z.string().describe("English translation"),
         fun_facts: z.string().optional().describe("Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words. Focus on what helps the learner understand and remember correctly."),
+        sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
+        sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
+        sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
       },
-      async ({ deck_id, hanzi, pinyin, english, fun_facts }) => {
+      async ({ deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation }) => {
         const deck = await this.env.DB
           .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
           .bind(deck_id, userId)
@@ -649,9 +652,9 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
         await this.env.DB
           .prepare(
-            'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts) VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
-          .bind(noteId, deck_id, hanzi, pinyin, english, fun_facts || null)
+          .bind(noteId, deck_id, hanzi, pinyin, english, fun_facts || null, sentence_clue || null, sentence_clue_pinyin || null, sentence_clue_translation || null)
           .run();
 
         for (const cardType of CARD_TYPES) {
@@ -689,6 +692,9 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           pinyin: z.string().describe("Pinyin with tone marks (e.g., nǐ hǎo)"),
           english: z.string().describe("English translation"),
           fun_facts: z.string().optional().describe("Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words. Focus on what helps the learner understand and remember correctly."),
+          sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
+          sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
+          sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
         })).describe("Array of notes to add"),
       },
       async ({ deck_id, notes }) => {
@@ -740,8 +746,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
           statements.push(
             this.env.DB
-              .prepare('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts) VALUES (?, ?, ?, ?, ?, ?)')
-              .bind(noteId, deck_id, note.hanzi, note.pinyin, note.english, note.fun_facts || null)
+              .prepare('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+              .bind(noteId, deck_id, note.hanzi, note.pinyin, note.english, note.fun_facts || null, note.sentence_clue || null, note.sentence_clue_pinyin || null, note.sentence_clue_translation || null)
           );
           for (const cardType of CARD_TYPES) {
             statements.push(
