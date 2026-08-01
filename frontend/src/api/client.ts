@@ -1306,17 +1306,26 @@ export async function getGradedReader(id: string): Promise<GradedReaderWithPages
   return fetchJSON<GradedReaderWithPages>(`/readers/${id}`);
 }
 
-export async function generateGradedReader(
-  deckIds: string[],
-  topic?: string,
-  difficulty?: DifficultyLevel
-): Promise<GradedReaderWithPages> {
+export interface GenerateReaderOptions {
+  // 'decks' (default): story from learned vocabulary of deckIds.
+  // 'due_cards': best-effort story featuring the words of noteIds
+  // (today's due cards) — natural story over full word coverage.
+  source?: 'decks' | 'due_cards';
+  deckIds?: string[];
+  noteIds?: string[];
+  topic?: string;
+  difficulty?: DifficultyLevel;
+}
+
+export async function generateGradedReader(options: GenerateReaderOptions): Promise<GradedReaderWithPages> {
   return fetchJSON<GradedReaderWithPages>('/readers/generate', {
     method: 'POST',
     body: JSON.stringify({
-      deck_ids: deckIds,
-      topic,
-      difficulty,
+      source: options.source,
+      deck_ids: options.deckIds,
+      note_ids: options.noteIds,
+      topic: options.topic,
+      difficulty: options.difficulty,
     }),
   });
 }

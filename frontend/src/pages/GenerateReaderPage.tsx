@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { getDecks, generateGradedReader } from '../api/client';
+import { getDueCards } from '../db/database';
 import { Loading } from '../components/Loading';
 import { DifficultyLevel } from '../types';
 
@@ -12,10 +14,19 @@ const DIFFICULTY_OPTIONS: { value: DifficultyLevel; label: string; description: 
   { value: 'advanced', label: 'Advanced', description: 'Natural flowing prose' },
 ];
 
+type ReaderSource = 'decks' | 'due_cards';
+
+/** Note ids of all cards due today, in study order (offline queue logic). */
+async function getDueNoteIds(): Promise<string[]> {
+  const dueCards = await getDueCards();
+  return [...new Set(dueCards.map(c => c.note_id))];
+}
+
 export function GenerateReaderPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const [source, setSource] = useState<ReaderSource>('decks');
   const [selectedDeckIds, setSelectedDeckIds] = useState<string[]>([]);
   const [topic, setTopic] = useState('');
   const [difficulty, setDifficulty] = useState<DifficultyLevel>('beginner');
@@ -25,8 +36,27 @@ export function GenerateReaderPage() {
     queryFn: getDecks,
   });
 
+  // Words due today, from the same offline queue logic the study session uses
+  const dueNoteIds = useLiveQuery(() => getDueNoteIds(), []);
+  const dueWordCount = dueNoteIds?.length ?? null;
+
   const generateMutation = useMutation({
-    mutationFn: () => generateGradedReader(selectedDeckIds, topic || undefined, difficulty),
+    mutationFn: async () => {
+      if (source === 'due_cards') {
+        const noteIds = await getDueNoteIds();
+        return generateGradedReader({
+          source: 'due_cards',
+          noteIds,
+          topic: topic || undefined,
+          difficulty,
+        });
+      }
+      return generateGradedReader({
+        deckIds: selectedDeckIds,
+        topic: topic || undefined,
+        difficulty,
+      });
+    },
     onSuccess: () => {
       // Invalidate readers query to show the new generating reader
       queryClient.invalidateQueries({ queryKey: ['readers'] });
@@ -74,7 +104,60 @@ export function GenerateReaderPage() {
         </p>
 
         <form onSubmit={handleGenerate}>
+          {/* Source Selection */}
+          <div className="card mb-4">
+            <h3 style={{ margin: '0 0 0.75rem 0' }}>Story Source</h3>
+            <div className="flex flex-col gap-2">
+              {([
+                {
+                  value: 'decks' as ReaderSource,
+                  label: 'From decks',
+                  description: "Uses only words you've already learned from the selected decks",
+                },
+                {
+                  value: 'due_cards' as ReaderSource,
+                  label: "From today's due cards",
+                  description: dueWordCount === null
+                    ? 'Weaves the words due for review today into a natural story'
+                    : `Weaves your ${dueWordCount} due word${dueWordCount === 1 ? '' : 's'} into a natural story (best effort — realism over coverage)`,
+                },
+              ]).map((option) => (
+                <label
+                  key={option.value}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.75rem',
+                    border: '1px solid',
+                    borderColor: source === option.value ? '#3b82f6' : '#e5e7eb',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    backgroundColor: source === option.value ? '#eff6ff' : 'white',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="source"
+                    value={option.value}
+                    checked={source === option.value}
+                    onChange={() => setSource(option.value)}
+                    style={{ width: '1.25rem', height: '1.25rem', accentColor: '#3b82f6' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{option.label}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                      {option.description}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
           {/* Deck Selection */}
+          {source === 'decks' && (
           <div className="card mb-4">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0 }}>Select Decks</h3>
@@ -143,6 +226,7 @@ export function GenerateReaderPage() {
               </p>
             )}
           </div>
+          )}
 
           {/* Topic (Optional) */}
           <div className="card mb-4">
@@ -219,21 +303,31 @@ export function GenerateReaderPage() {
           <button
             type="submit"
             className="btn btn-primary btn-lg btn-block"
-            disabled={selectedDeckIds.length === 0 || generateMutation.isPending}
+            disabled={
+              generateMutation.isPending ||
+              (source === 'decks' ? selectedDeckIds.length === 0 : !dueWordCount)
+            }
           >
             {generateMutation.isPending ? (
               <>
                 <span className="spinner" style={{ width: '20px', height: '20px' }} />
                 Generating Story...
               </>
+            ) : source === 'due_cards' ? (
+              `Generate from Today's Due Cards${dueWordCount ? ` (${dueWordCount})` : ''}`
             ) : (
               'Generate Story'
             )}
           </button>
 
-          {selectedDeckIds.length === 0 && (
+          {source === 'decks' && selectedDeckIds.length === 0 && (
             <p className="text-light text-center mt-2" style={{ fontSize: '0.875rem' }}>
               Select at least one deck to continue
+            </p>
+          )}
+          {source === 'due_cards' && dueWordCount === 0 && (
+            <p className="text-light text-center mt-2" style={{ fontSize: '0.875rem' }}>
+              No cards due right now — nothing to build a story from
             </p>
           )}
         </form>
