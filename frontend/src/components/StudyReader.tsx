@@ -3,17 +3,20 @@ import { LocalReader, LocalReaderPage } from '../db/database';
 import { Rating, IntervalPreview, QueueCounts } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
 import { RatingButtons } from './RatingButtons';
-import { getAudioWithCache } from '../services/audioCache';
+import { getAudioWithCache, getCachedAudio } from '../services/audioCache';
 import { getReaderPageTTS, updateLocalReaderPageImage } from '../services/readerSync';
-import { generateReaderPageImage } from '../api/client';
+import { generateReaderPageImage, getReaderImageUrl } from '../api/client';
 import '../pages/ReaderPage.css';
 import './StudyReader.css';
 
 /**
- * Resolve a media key (R2 object served from /api/audio/<key>) to an object
- * URL, cache-first so reader images work offline.
+ * Resolve a page image key (R2 object served from /api/audio/<key>) to a
+ * displayable URL. Cached blob → object URL (works offline). Not cached →
+ * the direct API URL, so display never depends on a JS fetch succeeding
+ * (flaky connections kill fetch() where a plain <img> would recover), while
+ * the offline cache is filled in the background for next time.
  */
-function useCachedImageUrl(key: string | null): string | null {
+function useReaderImageUrl(key: string | null): string | null {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,10 +24,15 @@ function useCachedImageUrl(key: string | null): string | null {
     let cancelled = false;
     setUrl(null);
     if (key) {
-      getAudioWithCache(key).then(blob => {
-        if (cancelled || !blob) return;
-        objectUrl = URL.createObjectURL(blob);
-        setUrl(objectUrl);
+      getCachedAudio(key).then(blob => {
+        if (cancelled) return;
+        if (blob) {
+          objectUrl = URL.createObjectURL(blob);
+          setUrl(objectUrl);
+        } else if (navigator.onLine) {
+          setUrl(getReaderImageUrl(key));
+          getAudioWithCache(key).catch(() => {});
+        }
       });
     }
     return () => {
@@ -69,10 +77,15 @@ function usePageImage(readerId: string, page: LocalReaderPage): { imageUrl: stri
     };
   }, [readerId, page.id, page.image_url, page.image_prompt]);
 
-  return { imageUrl: useCachedImageUrl(page.image_url || generatedKey), generating };
+  return { imageUrl: useReaderImageUrl(page.image_url || generatedKey), generating };
 }
 
+// Rendered with key={page.id} so all reveal/audio state resets atomically on
+// every page turn — no effect-based resets, no stale-state flash.
 function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalReaderPage }) {
+  // Listen-first flow, same as the standalone reader: Chinese starts hidden
+  // so you can try the audio before reading.
+  const [showChinese, setShowChinese] = useState(false);
   const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -80,12 +93,6 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
   const playIdRef = useRef(0);
 
   const { imageUrl, generating } = usePageImage(readerId, page);
-
-  // Reset reveals when the page changes
-  useEffect(() => {
-    setShowPinyin(false);
-    setShowTranslation(false);
-  }, [page.id]);
 
   const stopAudio = useCallback(() => {
     playIdRef.current++;
@@ -121,8 +128,8 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
     void audio.play().catch(finish);
   }, [page, isPlaying]);
 
-  // Stop audio when the page changes or on unmount
-  useEffect(() => stopAudio, [page.id, stopAudio]);
+  // Stop audio on unmount (the component remounts per page via key)
+  useEffect(() => stopAudio, [stopAudio]);
 
   return (
     <div className="reader-page-view">
@@ -151,7 +158,13 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
 
       <div className="reader-text-content">
         <div className="reader-chinese-section">
-          <div className="reader-chinese-text">{page.content_chinese}</div>
+          {showChinese ? (
+            <div className="reader-chinese-text">{page.content_chinese}</div>
+          ) : (
+            <div className="reader-chinese-reveal-box" onClick={() => setShowChinese(true)}>
+              Tap to reveal Chinese
+            </div>
+          )}
           <button
             className="reader-audio-btn"
             onClick={isPlaying ? stopAudio : playAudio}
@@ -237,7 +250,7 @@ export function StudyReader({
           />
         </div>
 
-        <StudyReaderPage readerId={reader.id} page={page} />
+        <StudyReaderPage key={page.id} readerId={reader.id} page={page} />
       </div>
 
       {/* Fixed footer: page navigation, or rating once the last page is reached */}
