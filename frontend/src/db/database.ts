@@ -143,8 +143,11 @@ export interface LocalReaderPage {
   content_chinese: string;
   content_pinyin: string;
   content_english: string;
-  // R2 key served from /api/audio/<key>, cacheable via the media blob cache
+  // R2 key served from /api/audio/<key>, cacheable via the media blob cache.
+  // null until the illustration is generated — pages are illustrated lazily,
+  // so a null here with a non-null image_prompt means "generate on demand".
   image_url: string | null;
+  image_prompt: string | null;
 }
 
 /**

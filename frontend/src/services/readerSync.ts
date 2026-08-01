@@ -12,7 +12,7 @@
 
 import { db, LocalReader, LocalReaderPage } from '../db/database';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
-import { API_BASE, getAuthHeaders, generatePracticeTTS } from '../api/client';
+import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage } from '../api/client';
 import { GradedReaderWithPages } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 import { readerSchedulingFields, getDueReaders } from './reader-study';
@@ -25,7 +25,45 @@ function pageToLocal(page: GradedReaderWithPages['pages'][number]): LocalReaderP
     content_pinyin: page.content_pinyin,
     content_english: page.content_english,
     image_url: page.image_url,
+    image_prompt: page.image_prompt,
   };
+}
+
+/**
+ * Persist a freshly generated page image key onto the locally cached reader,
+ * so the study session sees it without waiting for the next content sync.
+ */
+export async function updateLocalReaderPageImage(
+  readerId: string,
+  pageId: string,
+  imageUrl: string
+): Promise<void> {
+  const reader = await db.readers.get(readerId);
+  if (!reader) return;
+  await db.readers.update(readerId, {
+    pages: reader.pages.map(p => (p.id === pageId ? { ...p, image_url: imageUrl } : p)),
+  });
+}
+
+/**
+ * Reader page illustrations are generated lazily server-side: pages start
+ * with image_url null and an image_prompt. Ask the server to generate (a
+ * no-op returning the key if the image already exists), persist the key
+ * locally, and pull the bytes into the offline cache.
+ */
+async function generateAndCachePageImage(
+  readerId: string,
+  page: Pick<LocalReaderPage, 'id' | 'image_prompt'>
+): Promise<void> {
+  try {
+    const result = await generateReaderPageImage(readerId, page.id);
+    if (result.image_url) {
+      await updateLocalReaderPageImage(readerId, page.id, result.image_url);
+      await getAudioWithCache(result.image_url);
+    }
+  } catch (err) {
+    console.error('[ReaderSync] Image generation failed for page', page.id, err);
+  }
 }
 
 /**
@@ -135,16 +173,17 @@ export async function getReaderPageTTS(
 
 /**
  * Proactively cache reader media for offline study:
- * - Page images for ALL readers (cheap R2 fetches, deduped by the cache)
- * - Page TTS for readers currently due (each page is one TTS API call, so
- *   this is limited to readers that will actually appear in a session)
+ * - Existing page images for ALL readers (cheap R2 fetches, deduped by cache)
+ * - Missing illustrations for readers currently due (one image-generation
+ *   API call per page, so limited to readers that will appear in a session)
+ * - Page TTS for readers currently due (one TTS API call per uncached page)
  */
 export async function prefetchReaderMedia(): Promise<void> {
   if (!navigator.onLine) return;
 
   const readers = await db.readers.toArray();
 
-  // Images: every page of every reader
+  // Images already generated: every page of every reader
   const imageKeys = readers
     .flatMap(r => r.pages)
     .map(p => p.image_url)
@@ -164,11 +203,16 @@ export async function prefetchReaderMedia(): Promise<void> {
     })
   );
 
-  // TTS: only readers that are due now (one API call per uncached page)
+  // Due readers: generate missing illustrations and TTS ahead of the session
   const dueReaders = await getDueReaders();
   for (const reader of dueReaders) {
     for (const page of reader.pages) {
       if (!navigator.onLine) return;
+      if (!page.image_url && page.image_prompt) {
+        await generateAndCachePageImage(reader.id, page);
+      } else if (page.image_url && !(await isAudioCached(page.image_url))) {
+        await getAudioWithCache(page.image_url);
+      }
       if (!(await isAudioCached(readerTtsKey(page)))) {
         await getReaderPageTTS(page);
       }
