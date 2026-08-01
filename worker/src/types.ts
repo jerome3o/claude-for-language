@@ -39,6 +39,10 @@ export interface StoryGenerationMessage {
   readerId: string;
   topic?: string;
   difficulty: DifficultyLevel;
+  // 'due_cards': vocabulary_used holds TARGET words (today's due cards) to
+  // weave in best-effort; the allowed vocabulary is the learner's full
+  // learned word list, loaded by the consumer.
+  mode?: 'due_cards';
 }
 
 export interface ImageGenerationMessage {
@@ -790,7 +794,12 @@ export interface GradedReaderWithPages extends GradedReader {
 }
 
 export interface GenerateReaderRequest {
-  deck_ids: string[];
+  // 'decks' (default): story from learned vocabulary of the given decks.
+  // 'due_cards': story that best-effort features the given notes' words
+  // (the client sends the note ids of today's due cards).
+  source?: 'decks' | 'due_cards';
+  deck_ids?: string[];
+  note_ids?: string[];
   topic?: string;
   difficulty?: DifficultyLevel;
 }

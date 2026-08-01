@@ -105,32 +105,50 @@ const CREATE_STORY_TOOL: Anthropic.Tool = {
   }
 };
 
+function formatVocabList(vocabulary: VocabularyItem[]): string {
+  return vocabulary.map(v => `- ${v.hanzi} (${v.pinyin}): ${v.english}`).join('\n');
+}
+
 /**
- * Generate a graded reader story using Claude with tool use for structured output
+ * Generate a graded reader story using Claude with tool use for structured output.
+ *
+ * options.targetVocabulary switches to best-effort mode ("story from today's
+ * due cards"): the story is written from the full allowed vocabulary, and the
+ * target words are woven in only where they fit naturally — a realistic story
+ * that skips some targets beats a contrived one that forces them all in.
  */
 export async function generateStory(
   apiKey: string,
   vocabulary: VocabularyItem[],
   topic?: string,
-  difficulty: DifficultyLevel = 'beginner'
+  difficulty: DifficultyLevel = 'beginner',
+  options: { targetVocabulary?: VocabularyItem[] } = {}
 ): Promise<GeneratedStory> {
   const client = new Anthropic({ apiKey });
-
-  const vocabList = vocabulary.map(v =>
-    `- ${v.hanzi} (${v.pinyin}): ${v.english}`
-  ).join('\n');
 
   const topicInstruction = topic
     ? `The story should be about: ${topic}`
     : 'Choose an appropriate topic based on the available vocabulary.';
+
+  const targetSection = options.targetVocabulary?.length
+    ? `
+TARGET words (the learner's cards due for review today). Weave in as many as fit NATURALLY:
+${formatVocabList(options.targetVocabulary)}
+
+IMPORTANT: Do NOT write a contrived story just to cram target words in. A realistic,
+natural story that features fewer of the target words is much better than an awkward
+one that forces them all. Let the target words guide the choice of topic and scenes,
+then let the story breathe — skip any target word that doesn't fit.
+`
+    : '';
 
   const userPrompt = `Create a graded reader story at the "${difficulty}" level.
 
 ${topicInstruction}
 
 Available vocabulary (you MUST only use these words):
-${vocabList}
-
+${formatVocabList(vocabulary)}
+${targetSection}
 Remember:
 - Use ONLY the vocabulary provided above
 - Create 4-6 pages with engaging content
@@ -144,6 +162,7 @@ Use the create_story tool to return your story.`;
     difficulty,
     topic: topic || null,
     vocabulary_count: vocabulary.length,
+    target_count: options.targetVocabulary?.length ?? 0,
   }));
 
   const response = await client.messages.create({

@@ -2109,6 +2109,39 @@ export async function getLearnedVocabulary(
   return result.results;
 }
 
+/**
+ * Vocabulary for a specific set of the user's notes (ownership-checked).
+ * Used by "generate reader from today's due cards" — the client sends the
+ * note ids of the cards due today.
+ */
+export async function getVocabularyForNotes(
+  db: D1Database,
+  userId: string,
+  noteIds: string[]
+): Promise<VocabularyItem[]> {
+  const items: VocabularyItem[] = [];
+  const seen = new Set<string>();
+
+  const CHUNK = 90;
+  for (let i = 0; i < noteIds.length; i += CHUNK) {
+    const chunk = noteIds.slice(i, i + CHUNK);
+    const result = await db.prepare(`
+      SELECT DISTINCT n.hanzi, n.pinyin, n.english
+      FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.id IN (${chunk.map(() => '?').join(',')})
+    `).bind(userId, ...chunk).all<{ hanzi: string; pinyin: string; english: string }>();
+    for (const row of result.results) {
+      if (!seen.has(row.hanzi)) {
+        seen.add(row.hanzi);
+        items.push(row);
+      }
+    }
+  }
+
+  return items;
+}
+
 // ============ Reader Editor ============
 
 export async function createBlankReader(db: D1Database, userId: string, data: { title_chinese: string; title_english: string; difficulty_level: DifficultyLevel; topic: string | null }): Promise<GradedReaderWithPages> {

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage } from './types';
+import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -2680,40 +2680,74 @@ app.get('/api/readers/:id', async (c) => {
   return c.json(reader);
 });
 
-// Generate a new graded reader (async - returns immediately with status='generating')
+// Generate a new graded reader (async - returns immediately with status='generating').
+// Two sources:
+// - 'decks' (default): story restricted to learned vocabulary of the given decks
+// - 'due_cards': the client sends note_ids of today's due cards; the story is
+//   written from the learner's full vocabulary and features the due words
+//   best-effort (natural story > full coverage)
 app.post('/api/readers/generate', async (c) => {
   const userId = c.get('user').id;
-  const { deck_ids, topic, difficulty = 'beginner' } = await c.req.json<GenerateReaderRequest>();
-
-  if (!deck_ids || !Array.isArray(deck_ids) || deck_ids.length === 0) {
-    return c.json({ error: 'deck_ids is required and must be a non-empty array' }, 400);
-  }
+  const { source = 'decks', deck_ids, note_ids, topic, difficulty = 'beginner' } = await c.req.json<GenerateReaderRequest>();
 
   if (!c.env.ANTHROPIC_API_KEY) {
     return c.json({ error: 'AI generation is not configured' }, 500);
   }
 
   try {
-    // Get learned vocabulary from the specified decks
-    const vocabulary = await db.getLearnedVocabulary(c.env.DB, userId, deck_ids);
+    let vocabulary: VocabularyItem[];
+    let sourceDeckIds: string[];
+    let mode: StoryGenerationMessage['mode'];
 
-    if (vocabulary.length < 5) {
-      return c.json({
-        error: 'Not enough learned vocabulary. Please study more cards first.',
-        vocabulary_count: vocabulary.length,
-        minimum_required: 5
-      }, 400);
+    if (source === 'due_cards') {
+      if (!note_ids || !Array.isArray(note_ids) || note_ids.length === 0) {
+        return c.json({ error: 'note_ids is required for source "due_cards"' }, 400);
+      }
+      // Cap the target list so the prompt stays focused on a workable set
+      const MAX_TARGET_WORDS = 80;
+      vocabulary = await db.getVocabularyForNotes(c.env.DB, userId, note_ids.slice(0, 300));
+      vocabulary = vocabulary.slice(0, MAX_TARGET_WORDS);
+      sourceDeckIds = [];
+      mode = 'due_cards';
+
+      if (vocabulary.length < 3) {
+        return c.json({
+          error: 'Not enough due words to build a story from.',
+          vocabulary_count: vocabulary.length,
+          minimum_required: 3,
+        }, 400);
+      }
+    } else {
+      if (!deck_ids || !Array.isArray(deck_ids) || deck_ids.length === 0) {
+        return c.json({ error: 'deck_ids is required and must be a non-empty array' }, 400);
+      }
+      // Get learned vocabulary from the specified decks
+      vocabulary = await db.getLearnedVocabulary(c.env.DB, userId, deck_ids);
+      sourceDeckIds = deck_ids;
+      mode = undefined;
+
+      if (vocabulary.length < 5) {
+        return c.json({
+          error: 'Not enough learned vocabulary. Please study more cards first.',
+          vocabulary_count: vocabulary.length,
+          minimum_required: 5
+        }, 400);
+      }
     }
 
-    console.log('[Readers] Creating pending reader with', vocabulary.length, 'vocabulary items');
+    console.log('[Readers] Creating pending reader with', vocabulary.length, 'vocabulary items (source:', source, ')');
 
     // Create a pending reader immediately with status='generating'
     const pendingReader = await db.createPendingReader(c.env.DB, userId, {
       title_chinese: '生成中...',
-      title_english: topic ? `Story about: ${topic}` : 'Generating story...',
+      title_english: topic
+        ? `Story about: ${topic}`
+        : source === 'due_cards'
+          ? "Story from today's due words..."
+          : 'Generating story...',
       difficulty_level: difficulty as DifficultyLevel,
       topic: topic || null,
-      source_deck_ids: deck_ids,
+      source_deck_ids: sourceDeckIds,
       vocabulary_used: vocabulary,
     });
 
@@ -2726,6 +2760,7 @@ app.post('/api/readers/generate', async (c) => {
       readerId: pendingReader.id,
       topic,
       difficulty: difficulty as DifficultyLevel,
+      mode,
     });
 
     console.log('[Readers] Story generation queued:', pendingReader.id);
@@ -6617,8 +6652,8 @@ export default {
     if (queueName === 'story-generation-queue') {
       // Handle story generation
       for (const message of batch.messages) {
-        const { readerId, topic, difficulty } = message.body as StoryGenerationMessage;
-        console.log('[Queue] Processing story generation for reader:', readerId);
+        const { readerId, topic, difficulty, mode } = message.body as StoryGenerationMessage;
+        console.log('[Queue] Processing story generation for reader:', readerId, mode ? `(mode: ${mode})` : '');
 
         try {
           // Load the vocabulary from the reader record rather than the queue
@@ -6627,14 +6662,26 @@ export default {
           if (!pendingReader) {
             throw new Error(`Reader not found for story generation: ${readerId}`);
           }
-          const vocabulary = pendingReader.vocabulary_used;
+          let vocabulary = pendingReader.vocabulary_used;
+          let targetVocabulary: VocabularyItem[] | undefined;
+
+          if (mode === 'due_cards') {
+            // vocabulary_used holds the TARGET words (today's due cards).
+            // The story itself may use the learner's full learned vocabulary,
+            // so it stays natural instead of contorting around ~30 words.
+            targetVocabulary = vocabulary;
+            const learned = await db.getLearnedVocabulary(env.DB, pendingReader.user_id);
+            const seen = new Set(learned.map(v => v.hanzi));
+            vocabulary = [...learned, ...targetVocabulary.filter(v => !seen.has(v.hanzi))];
+          }
 
           // Generate the story using Claude with tool use
           const story = await generateStory(
             env.ANTHROPIC_API_KEY,
             vocabulary,
             topic,
-            difficulty
+            difficulty,
+            { targetVocabulary }
           );
 
           console.log('[Queue] Story generated:', story.title_english, 'with', story.pages.length, 'pages');
