@@ -13,7 +13,7 @@
 import { db, LocalReader, LocalReaderPage } from '../db/database';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage } from '../api/client';
-import { GradedReaderWithPages } from '../types';
+import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 import { readerSchedulingFields, getDueReaders } from './reader-study';
 
@@ -128,18 +128,18 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
 
 // ============ Media Prefetch ============
 
-/** Reader narration speed. Slower than the app-wide TTS default (0.6) —
- * story pages are full sentences, so learners get more time to parse.
- * 0.5 is MiniMax's minimum. */
-export const READER_TTS_SPEED = 0.5;
+/** Reader narration speed (matches the app-wide TTS default). */
+export const READER_TTS_SPEED = 0.6;
 
-/** Stable cache key for a page's generated TTS. Content- and speed-hashed so
- * edited pages (or a speed change) regenerate instead of replaying stale audio. */
+/** Stable cache key for a page's generated TTS. Hashes content + speed +
+ * default voice, so edited pages or narration-setting changes regenerate
+ * instead of replaying stale audio. */
 export function readerTtsKey(page: Pick<LocalReaderPage, 'id' | 'content_chinese'>): string {
   // djb2 string hash — tiny, deterministic, good enough for cache busting
+  const input = `${page.content_chinese}|${DEFAULT_MINIMAX_VOICE}`;
   let hash = 5381;
-  for (let i = 0; i < page.content_chinese.length; i++) {
-    hash = ((hash << 5) + hash + page.content_chinese.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0;
   }
   return `reader-tts/${page.id}/${hash.toString(36)}-x${READER_TTS_SPEED}`;
 }
