@@ -1909,10 +1909,11 @@ export async function completeRoleplay(sessionId: string): Promise<void> {
 
 export async function generatePracticeTTS(
   text: string,
+  speed?: number,
 ): Promise<{ audio_base64: string; content_type: string }> {
   return fetchJSON('/practice/tts', {
     method: 'POST',
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, speed }),
   });
 }
 
