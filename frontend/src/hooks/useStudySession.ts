@@ -129,10 +129,9 @@ type NextStudyItem = { card: LocalCard } | { reader: LocalReader };
  * Synchronously select the next study item from the card queue and the reader
  * queue (pure function).
  *
- * Cards keep their existing priorities; due readers are woven in:
- * - Learning cards due NOW come first (active timers), then learning readers
- * - New/review readers join the proportional new/review mix
- * - Cooldown fallback prefers cards, then readers due today
+ * Cards keep their existing priorities. Graded readers come at the VERY END
+ * of the session (Jerome's preference): they're only offered once no card is
+ * available — the story is the reward after the drilling is done.
  */
 function selectNextItem(
   queue: LocalCard[],
@@ -165,34 +164,16 @@ function selectNextItem(
     if (card) return { card };
   }
 
-  // Priority 1.5: Learning readers due NOW (their cooldown timer expired)
-  const learningReadersDue = readerQueue.filter(r =>
-    (r.queue === CardQueue.LEARNING || r.queue === CardQueue.RELEARNING) &&
-    r.due_timestamp && r.due_timestamp <= now
-  );
-  if (learningReadersDue.length > 0) {
-    const other = learningReadersDue.find(r => r.id !== lastRatedReaderId);
-    return { reader: other ?? learningReadersDue[0] };
-  }
-
-  // Priority 2: Mix new/review cards and new/review readers proportionally
+  // Priority 2: Mix new and review cards proportionally
   const newCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.NEW);
   const reviewCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.REVIEW);
-  const mixableReaders = readerQueue.filter(r =>
-    r.queue === CardQueue.NEW || r.queue === CardQueue.REVIEW
-  );
-  const totalMixable = newCards.length + reviewCards.length + mixableReaders.length;
+  const totalMixable = newCards.length + reviewCards.length;
 
   if (totalMixable > 0) {
-    let roll = Math.random() * totalMixable;
+    const newProbability = newCards.length / totalMixable;
+    const random = Math.random();
 
-    if (roll < mixableReaders.length) {
-      const reader = pickRandom(mixableReaders);
-      if (reader) return { reader };
-    }
-    roll -= mixableReaders.length;
-
-    if (roll < newCards.length && newCards.length > 0) {
+    if (random < newProbability && newCards.length > 0) {
       const card = pickPrioritizedNewCard(newCards, reviewedNoteIds);
       if (card) return { card };
     }
@@ -203,10 +184,6 @@ function selectNextItem(
     if (newCards.length > 0) {
       const card = pickPrioritizedNewCard(newCards, reviewedNoteIds);
       if (card) return { card };
-    }
-    if (mixableReaders.length > 0) {
-      const reader = pickRandom(mixableReaders);
-      if (reader) return { reader };
     }
   }
 
@@ -227,7 +204,26 @@ function selectNextItem(
     return { card: cooldownCards[0] };
   }
 
-  // Priority 4: Learning readers on cooldown but due today
+  // Priority 4: All cards done — graded readers close out the session.
+  // Learning readers whose timer expired first, then new/review readers,
+  // then learning readers still on cooldown but due today.
+  const learningReadersDue = readerQueue.filter(r =>
+    (r.queue === CardQueue.LEARNING || r.queue === CardQueue.RELEARNING) &&
+    r.due_timestamp && r.due_timestamp <= now
+  );
+  if (learningReadersDue.length > 0) {
+    const other = learningReadersDue.find(r => r.id !== lastRatedReaderId);
+    return { reader: other ?? learningReadersDue[0] };
+  }
+
+  const freshReaders = readerQueue.filter(r =>
+    r.queue === CardQueue.NEW || r.queue === CardQueue.REVIEW
+  );
+  if (freshReaders.length > 0) {
+    const reader = pickRandom(freshReaders);
+    if (reader) return { reader };
+  }
+
   const cooldownReaders = readerQueue.filter(r =>
     (r.queue === CardQueue.LEARNING || r.queue === CardQueue.RELEARNING) &&
     (!r.due_timestamp || r.due_timestamp <= studyCutoff.ts)
