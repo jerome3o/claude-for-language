@@ -7,7 +7,8 @@ import { Env } from '../types';
 export type AudioProvider = 'minimax' | 'gtts';
 
 export const DEFAULT_TTS_SPEED = 0.6;
-export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Gentleman';
+// Radio Host: clearest enunciation of the MiniMax voices (Jerome's pick)
+export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Radio_Host';
 
 export interface TTSResult {
   audioKey: string;

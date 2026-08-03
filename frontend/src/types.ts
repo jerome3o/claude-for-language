@@ -557,8 +557,9 @@ export const MINIMAX_VOICES = [
   { id: 'Chinese (Mandarin)_Radio_Host', name: 'Radio Host' },
 ] as const;
 
-// Default voice ID - male voice for TTS generation
-export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Gentleman';
+// Default voice ID for TTS generation.
+// Radio Host: clearest enunciation of the MiniMax voices (Jerome's pick).
+export const DEFAULT_MINIMAX_VOICE = 'Chinese (Mandarin)_Radio_Host';
 
 // Default speaking rate for all TTS (MiniMax, Google, browser SpeechSynthesis).
 export const DEFAULT_TTS_SPEED = 0.6;
