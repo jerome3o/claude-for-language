@@ -128,15 +128,20 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
 
 // ============ Media Prefetch ============
 
-/** Stable cache key for a page's generated TTS. Content-hashed so edited
- * pages regenerate instead of replaying stale audio. */
+/** Reader narration speed. Slower than the app-wide TTS default (0.6) —
+ * story pages are full sentences, so learners get more time to parse.
+ * 0.5 is MiniMax's minimum. */
+export const READER_TTS_SPEED = 0.5;
+
+/** Stable cache key for a page's generated TTS. Content- and speed-hashed so
+ * edited pages (or a speed change) regenerate instead of replaying stale audio. */
 export function readerTtsKey(page: Pick<LocalReaderPage, 'id' | 'content_chinese'>): string {
   // djb2 string hash — tiny, deterministic, good enough for cache busting
   let hash = 5381;
   for (let i = 0; i < page.content_chinese.length; i++) {
     hash = ((hash << 5) + hash + page.content_chinese.charCodeAt(i)) >>> 0;
   }
-  return `reader-tts/${page.id}/${hash.toString(36)}`;
+  return `reader-tts/${page.id}/${hash.toString(36)}-x${READER_TTS_SPEED}`;
 }
 
 function base64ToBlob(base64: string, contentType: string): Blob {
@@ -161,7 +166,7 @@ export async function getReaderPageTTS(
   if (!navigator.onLine) return null;
 
   try {
-    const result = await generatePracticeTTS(page.content_chinese);
+    const result = await generatePracticeTTS(page.content_chinese, READER_TTS_SPEED);
     const blob = base64ToBlob(result.audio_base64, result.content_type);
     await cacheAudio(key, blob);
     return blob;

@@ -6155,9 +6155,11 @@ app.post('/api/roleplay/sessions/:id/complete', async (c) => {
 // ============ Grammar Practice ============
 
 app.post('/api/practice/tts', async (c) => {
-  const { text } = await c.req.json<{ text: string }>();
+  const { text, speed } = await c.req.json<{ text: string; speed?: number }>();
   if (!text) return c.json({ error: 'text required' }, 400);
-  const result = await generateConversationTTS(c.env, text, {});
+  // MiniMax accepts speeds in [0.5, 2.0]
+  const clampedSpeed = typeof speed === 'number' ? Math.min(2, Math.max(0.5, speed)) : undefined;
+  const result = await generateConversationTTS(c.env, text, { speed: clampedSpeed });
   if (!result) return c.json({ error: 'TTS failed' }, 502);
   return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });
 });

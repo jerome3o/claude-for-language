@@ -13,6 +13,7 @@ import {
   generatePracticeTTS,
 } from '../api/client';
 import { useAudioRecorder } from '../hooks/useAudio';
+import { READER_TTS_SPEED } from '../services/readerSync';
 import { Loading } from '../components/Loading';
 import { SentenceBreakdown } from '../components/SentenceBreakdown';
 import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
@@ -374,7 +375,7 @@ function PageView({
       return;
     }
 
-    generatePracticeTTS(page.content_chinese)
+    generatePracticeTTS(page.content_chinese, READER_TTS_SPEED)
       .then((r) => {
         if (pagePlayIdRef.current !== playId) return;
         const url = `data:${r.content_type};base64,${r.audio_base64}`;
