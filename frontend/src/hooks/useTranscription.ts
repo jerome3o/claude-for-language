@@ -57,7 +57,28 @@ function intToHanzi(n: number): string {
     if (rem < 10) return ones[h] + '百零' + ones[rem];
     return ones[h] + '百' + intToHanzi(rem);
   }
+  if (n < 10000) {
+    const t = Math.floor(n / 1000);
+    const rem = n % 1000;
+    if (rem === 0) return ones[t] + '千';
+    if (rem < 100) return ones[t] + '千零' + intToHanzi(rem);
+    return ones[t] + '千' + intToHanzi(rem);
+  }
+  if (n < 100000000) {
+    const w = Math.floor(n / 10000);
+    const rem = n % 10000;
+    if (rem === 0) return intToHanzi(w) + '万';
+    if (rem < 1000) return intToHanzi(w) + '万零' + intToHanzi(rem);
+    return intToHanzi(w) + '万' + intToHanzi(rem);
+  }
   return String(n);
+}
+
+/** Read a decimal number the Chinese way: integer part + 点 + digits one by one. */
+function decimalToHanzi(intPart: string, fracPart: string): string {
+  const digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  const frac = [...fracPart].map((d) => digits[parseInt(d, 10)]).join('');
+  return intToHanzi(parseInt(intPart, 10)) + '点' + frac;
 }
 
 /**
@@ -65,8 +86,11 @@ function intToHanzi(n: number): string {
  * Whisper sometimes transcribes spoken Chinese numbers as digits or Roman numerals.
  */
 function normalizeNumbersToHanzi(text: string): string {
+  // Strip thousands separators so "1,000" is treated as one number
+  let result = text.replace(/(\d),(?=\d{3})/g, '$1');
+
   // Replace English number words (whole-word, case-insensitive)
-  let result = text.replace(
+  result = result.replace(
     /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/gi,
     (word) => ENGLISH_NUM_TO_HANZI[word.toLowerCase()] || word
   );
@@ -75,6 +99,14 @@ function normalizeNumbersToHanzi(text: string): string {
   result = result.replace(/\b[IVXLC]+\b/g, (match) => {
     return ROMAN_TO_HANZI[match.toUpperCase()] || match;
   });
+
+  // Percentages: "50%" → 百分之五十
+  result = result.replace(/(\d+)(?:\.(\d+))?%/g, (_m, intPart, fracPart) => {
+    return '百分之' + (fracPart ? decimalToHanzi(intPart, fracPart) : intToHanzi(parseInt(intPart, 10)));
+  });
+
+  // Decimals: "1.5" → 一点五
+  result = result.replace(/\b(\d+)\.(\d+)\b/g, (_m, intPart, fracPart) => decimalToHanzi(intPart, fracPart));
 
   // Replace Arabic digit sequences
   result = result.replace(/\b\d+\b/g, (num) => {
@@ -95,26 +127,36 @@ function normalizePinyin(py: string): string {
     .replace(/[^a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]/g, '');
 }
 
+/** Pinyin comparison key for a hanzi string: tone marks kept, spacing/punctuation dropped. */
+function pinyinKey(hanzi: string): string {
+  return normalizePinyin(pinyin(hanzi, { toneType: 'symbol', type: 'string' }));
+}
+
 /**
  * Compare transcribed text against expected note content.
  * Transcription comes back as hanzi — convert both to pinyin for tone-aware comparison.
- * Numbers in transcription (digits, Roman numerals, English words) are normalized to hanzi first.
+ * Numbers (digits, Roman numerals, English words) are normalized to hanzi on BOTH sides,
+ * so a spoken 五 matches a note written as "5" and a transcription of "200" matches 两百.
+ * 两 and 二 are treated as equivalent when they're the only difference.
  */
 export function compareTranscription(transcribedText: string, expectedHanzi: string, expectedPinyin: string): TranscriptionComparison {
   const originalTrimmed = transcribedText.trim();
-  const normalizedHanzi = normalizeNumbersToHanzi(originalTrimmed);
-  const transcribedPy = pinyin(normalizedHanzi, { toneType: 'symbol', type: 'string' });
-  const expectedPy = pinyin(expectedHanzi, { toneType: 'symbol', type: 'string' });
+  const normalizedTranscribedHanzi = normalizeNumbersToHanzi(originalTrimmed);
+  const normalizedExpectedHanzi = normalizeNumbersToHanzi(expectedHanzi);
+  const transcribedPy = pinyin(normalizedTranscribedHanzi, { toneType: 'symbol', type: 'string' });
 
-  const normalizedTranscribed = normalizePinyin(transcribedPy);
-  const normalizedExpected = normalizePinyin(expectedPy);
+  // Digit-to-hanzi conversion produces 二 where a speaker naturally says 两 (200 → 二百 vs 两百),
+  // so fall back to comparing with 两 canonicalized to 二 on both sides.
+  const isMatch =
+    pinyinKey(normalizedTranscribedHanzi) === pinyinKey(normalizedExpectedHanzi) ||
+    pinyinKey(normalizedTranscribedHanzi.replace(/两/g, '二')) === pinyinKey(normalizedExpectedHanzi.replace(/两/g, '二'));
 
   return {
     transcribedHanzi: originalTrimmed,
     transcribedPinyin: transcribedPy,
     expectedHanzi,
     expectedPinyin,
-    isMatch: normalizedTranscribed === normalizedExpected,
+    isMatch,
   };
 }
 
