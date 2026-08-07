@@ -17,6 +17,9 @@ export interface TranscriptionComparison {
   expectedHanzi: string;
   expectedPinyin: string;
   isMatch: boolean;
+  /** Not an exact match, but the expected answer appears inside the transcription
+   *  (e.g. the user said the word within a sentence to help the transcriber). */
+  containsExpected: boolean;
 }
 
 // Maps for normalizing number representations in Whisper transcriptions to Chinese hanzi
@@ -147,9 +150,16 @@ export function compareTranscription(transcribedText: string, expectedHanzi: str
 
   // Digit-to-hanzi conversion produces 二 where a speaker naturally says 两 (200 → 二百 vs 两百),
   // so fall back to comparing with 两 canonicalized to 二 on both sides.
-  const isMatch =
-    pinyinKey(normalizedTranscribedHanzi) === pinyinKey(normalizedExpectedHanzi) ||
-    pinyinKey(normalizedTranscribedHanzi.replace(/两/g, '二')) === pinyinKey(normalizedExpectedHanzi.replace(/两/g, '二'));
+  const transcribedKey = pinyinKey(normalizedTranscribedHanzi);
+  const expectedKey = pinyinKey(normalizedExpectedHanzi);
+  const transcribedKeyAlt = pinyinKey(normalizedTranscribedHanzi.replace(/两/g, '二'));
+  const expectedKeyAlt = pinyinKey(normalizedExpectedHanzi.replace(/两/g, '二'));
+
+  const isMatch = transcribedKey === expectedKey || transcribedKeyAlt === expectedKeyAlt;
+  const containsExpected =
+    !isMatch &&
+    expectedKey.length > 0 &&
+    (transcribedKey.includes(expectedKey) || transcribedKeyAlt.includes(expectedKeyAlt));
 
   return {
     transcribedHanzi: originalTrimmed,
@@ -157,6 +167,7 @@ export function compareTranscription(transcribedText: string, expectedHanzi: str
     expectedHanzi,
     expectedPinyin,
     isMatch,
+    containsExpected,
   };
 }
 
