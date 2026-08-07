@@ -70,3 +70,44 @@ describe('compareTranscription', () => {
     expect(match(' 十二 ', '十二')).toBe(true);
   });
 });
+
+describe('compareTranscription containsExpected', () => {
+  const compare = (transcribed: string, expectedHanzi: string) =>
+    compareTranscription(transcribed, expectedHanzi, '');
+
+  it('detects the answer inside a longer sentence', () => {
+    const result = compare('我喜欢喝咖啡', '咖啡');
+    expect(result.isMatch).toBe(false);
+    expect(result.containsExpected).toBe(true);
+  });
+
+  it('detects a number answer spoken in a sentence, even transcribed as digits', () => {
+    const result = compare('我有5个苹果', '五');
+    expect(result.isMatch).toBe(false);
+    expect(result.containsExpected).toBe(true);
+  });
+
+  it('applies 两/二 equivalence to containment', () => {
+    const result = compare('这里有200个人', '两百');
+    expect(result.isMatch).toBe(false);
+    expect(result.containsExpected).toBe(true);
+  });
+
+  it('is false on an exact match', () => {
+    const result = compare('咖啡', '咖啡');
+    expect(result.isMatch).toBe(true);
+    expect(result.containsExpected).toBe(false);
+  });
+
+  it('is false when the answer is absent', () => {
+    const result = compare('我喜欢喝茶', '咖啡');
+    expect(result.isMatch).toBe(false);
+    expect(result.containsExpected).toBe(false);
+  });
+
+  it('is false for an empty transcription', () => {
+    const result = compare('', '咖啡');
+    expect(result.isMatch).toBe(false);
+    expect(result.containsExpected).toBe(false);
+  });
+});

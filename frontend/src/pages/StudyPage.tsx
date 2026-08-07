@@ -1069,21 +1069,31 @@ function StudyCard({
     }
 
     if (transcriptionComparison) {
-      const { transcribedHanzi, transcribedPinyin, isMatch } = transcriptionComparison;
+      const { transcribedHanzi, transcribedPinyin, isMatch, containsExpected } = transcriptionComparison;
+      const boxColor = isMatch
+        ? { bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.3)' }
+        : containsExpected
+          ? { bg: 'rgba(249, 115, 22, 0.12)', border: 'rgba(249, 115, 22, 0.4)' }
+          : { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)' };
 
       return (
         <div className="transcription-result" style={{
           padding: '0.5rem 0.75rem',
           borderRadius: '6px',
-          backgroundColor: isMatch ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-          border: `1px solid ${isMatch ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+          backgroundColor: boxColor.bg,
+          border: `1px solid ${boxColor.border}`,
           fontSize: '0.875rem',
           marginBottom: '0.5rem',
         }}>
           <div style={{ fontWeight: 500 }}>
-            You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : '\u274C'}
+            You said: {transcribedPinyin} ({transcribedHanzi}) {isMatch ? '\u2705' : containsExpected ? '\u2705' : '\u274C'}
           </div>
-          {!isMatch && (
+          {containsExpected && !isMatch && (
+            <div style={{ fontSize: '0.75rem', color: '#c2650a', marginTop: '0.125rem' }}>
+              Answer found in your sentence
+            </div>
+          )}
+          {!isMatch && !containsExpected && (
             <button
               className="btn btn-secondary btn-sm"
               onClick={() => {
