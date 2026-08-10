@@ -16,7 +16,7 @@ import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
-import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
+import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { getTodaySituation } from './services/situations';
 import { generateStory, generatePageImage } from './services/graded-reader';
@@ -6032,183 +6032,68 @@ app.post('/api/practice/tts', async (c) => {
   return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });
 });
 
-app.get('/api/practice/points', async (c) => {
+// The next ~6 grammar lessons with pre-generated exercises, for offline
+// caching. Lessons without exercises yet are topped up in the background
+// (max 2 generations per call) and arrive on a later sync.
+app.get('/api/practice/upcoming', async (c) => {
   const userId = c.get('user').id;
-  const [points, progress] = await Promise.all([
-    db.listGrammarPoints(c.env.DB),
-    db.getGrammarProgress(c.env.DB, userId),
-  ]);
-  const progressByPoint = Object.fromEntries(progress.map((p) => [p.grammar_point_id, p]));
-  return c.json({
-    points: points.map((gp) => ({ ...gp, progress: progressByPoint[gp.id] ?? null })),
-  });
-});
+  const UPCOMING_COUNT = 6;
+  const points = await db.getUpcomingGrammarPoints(c.env.DB, userId, UPCOMING_COUNT);
 
-app.get('/api/practice/next', async (c) => {
-  const userId = c.get('user').id;
-  const [nextPoint, doneToday] = await Promise.all([
-    db.getNextGrammarPoint(c.env.DB, userId),
-    db.practiceCompletedToday(c.env.DB, userId),
-  ]);
-  let point = nextPoint;
-  if (doneToday) {
-    const completedPoint = await db.getTodayCompletedGrammarPoint(c.env.DB, userId);
-    if (completedPoint) point = completedPoint;
-  }
-  // Trigger background pre-generation when the user visits the practice page
-  if (!doneToday && nextPoint) {
-    triggerPracticePregen(c, userId, nextPoint);
-  }
-  return c.json({ point, done_today: doneToday });
-});
+  const lessons: Array<{
+    grammar_point: GrammarPoint;
+    progress: { status: 'new' | 'learning'; correct_count: number } | null;
+    exercises: unknown;
+  }> = [];
+  const missing: GrammarPoint[] = [];
 
-app.get('/api/practice/pregenerated', async (c) => {
-  const userId = c.get('user').id;
-  const point = await db.getNextGrammarPoint(c.env.DB, userId);
-  if (!point) return c.json({ ready: false });
-  const pregen = await db.getPregenPracticeSession(c.env.DB, userId, point.id);
-  return c.json({ ready: !!pregen, pregen_id: pregen?.id ?? null, grammar_point: point });
-});
-
-app.post('/api/practice/sessions', async (c) => {
-  const userId = c.get('user').id;
-  const { grammar_point_id } = await c.req.json<{ grammar_point_id?: string }>();
-
-  const point = grammar_point_id
-    ? await db.getGrammarPoint(c.env.DB, grammar_point_id)
-    : await db.getNextGrammarPoint(c.env.DB, userId);
-  if (!point) return c.json({ error: 'No grammar point available' }, 404);
-
-  // Use pre-generated content if available (instant start, no AI wait)
-  if (!grammar_point_id) {
+  for (const point of points) {
     const pregen = await db.getPregenPracticeSession(c.env.DB, userId, point.id);
+    let exercises: unknown = null;
     if (pregen) {
-      const exercisesJson = await db.claimPregenPracticeSession(c.env.DB, pregen.id, userId);
-      if (exercisesJson) {
-        // A corrupt pre-gen shouldn't break Start — fall through to fresh generation if it won't parse.
-        let content: PracticeSessionContent | null = null;
-        try {
-          content = JSON.parse(exercisesJson) as PracticeSessionContent;
-        } catch (e) {
-          console.error('[Practice] Discarding corrupt pre-generated session:', e);
-        }
-        if (content) {
-          const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, exercisesJson);
-          triggerPracticePregen(c, userId, point);
-          return c.json({ session_id: sessionId, content });
-        }
+      try {
+        const content = JSON.parse(pregen.exercises_json) as PracticeSessionContent;
+        exercises = {
+          flood: content.flood,
+          scrambles: content.scrambles,
+          contrasts: content.contrasts,
+          translates: content.translates,
+        };
+      } catch (e) {
+        console.error('[Practice] Discarding corrupt pre-generated session for', point.id, e);
       }
     }
+    if (!exercises) missing.push(point);
+    const { progress, ...grammarPoint } = point;
+    lessons.push({ grammar_point: grammarPoint, progress, exercises });
   }
 
-  const [vocab, lessonNotes] = await Promise.all([
-    db.getLearnedVocabulary(c.env.DB, userId),
-    db.getRecentLessonNotesText(c.env.DB, userId),
-  ]);
-  if (vocab.length < 10) {
-    return c.json({ error: 'Learn at least 10 vocabulary words before starting grammar practice' }, 400);
+  // Top up missing exercise sets in the background, a couple at a time
+  for (const point of missing.slice(0, 2)) {
+    triggerPracticePregen(c, userId, point);
   }
 
-  let content: PracticeSessionContent;
-  try {
-    content = await generatePracticeSession(c.env.ANTHROPIC_API_KEY, point, vocab, lessonNotes || undefined);
-  } catch (e) {
-    // Surface a meaningful message instead of an opaque 500 so the UI can tell the user what happened.
-    console.error('[Practice] Session generation failed:', e);
-    const message = e instanceof Error ? e.message : 'Failed to generate practice session';
-    return c.json({ error: `Couldn't build a practice session right now: ${message}` }, 502);
-  }
-  const sessionId = await db.createPracticeSession(c.env.DB, userId, point.id, JSON.stringify(content));
-  return c.json({ session_id: sessionId, content });
+  return c.json({ lessons, pending: missing.map((p) => p.id) });
 });
 
-app.get('/api/practice/sessions/:id', async (c) => {
+// Apply offline grammar-lesson completions (idempotent by event id)
+app.post('/api/practice/offline-complete', async (c) => {
   const userId = c.get('user').id;
-  const session = await db.getPracticeSession(c.env.DB, c.req.param('id'), userId);
-  if (!session) return c.json({ error: 'Not found' }, 404);
-  return c.json({
-    session_id: session.id,
-    completed_at: session.completed_at,
-    content: JSON.parse(session.exercises_json) as PracticeSessionContent,
-  });
-});
-
-app.post('/api/practice/sessions/:id/attempts', async (c) => {
-  const userId = c.get('user').id;
-  const sessionId = c.req.param('id');
-  const session = await db.getPracticeSession(c.env.DB, sessionId, userId);
-  if (!session) return c.json({ error: 'Not found' }, 404);
-
-  const body = await c.req.json<{
-    exercise_type: 'flood' | 'scramble' | 'contrast' | 'translate' | 'speak';
-    exercise_index: number;
-    user_answer: string | string[];
+  const { events } = await c.req.json<{
+    events: Array<{ id: string; grammar_point_id: string; correct: number; total: number; completed_at: string }>;
   }>();
-  const content = JSON.parse(session.exercises_json) as PracticeSessionContent;
-
-  let isCorrect: boolean | null = null;
-  let feedback: unknown = null;
-  let prompt: unknown;
-  const answerStr = Array.isArray(body.user_answer)
-    ? JSON.stringify(body.user_answer)
-    : body.user_answer;
-
-  if (body.exercise_type === 'translate') {
-    const ex = content.translates[body.exercise_index];
-    prompt = ex;
-    const fb = await checkTranslation(
-      c.env.ANTHROPIC_API_KEY,
-      content.grammar_point,
-      ex,
-      body.user_answer as string,
-    );
-    isCorrect = fb.is_correct && fb.uses_target_structure;
-    feedback = fb;
-  } else if (body.exercise_type === 'speak') {
-    prompt = content.flood[body.exercise_index];
-    const fb = await checkProduction(
-      c.env.ANTHROPIC_API_KEY,
-      content.grammar_point,
-      body.user_answer as string,
-    );
-    isCorrect = fb.is_correct && fb.uses_target_structure;
-    feedback = fb;
-  } else if (body.exercise_type === 'scramble') {
-    const ex = content.scrambles[body.exercise_index];
-    prompt = ex;
-    isCorrect = checkScramble(ex, body.user_answer as string[]);
-  } else if (body.exercise_type === 'contrast') {
-    const ex = content.contrasts[body.exercise_index];
-    prompt = ex;
-    isCorrect = body.user_answer === ex.correct;
-  } else {
-    prompt = content.flood[body.exercise_index];
+  if (!events || !Array.isArray(events)) {
+    return c.json({ error: 'events array is required' }, 400);
   }
 
-  await db.recordPracticeAttempt(c.env.DB, {
-    sessionId,
-    userId,
-    grammarPointId: content.grammar_point.id,
-    exerciseType: body.exercise_type,
-    exerciseIndex: body.exercise_index,
-    promptJson: JSON.stringify(prompt),
-    userAnswer: answerStr,
-    isCorrect,
-    feedbackJson: feedback ? JSON.stringify(feedback) : null,
-  });
-
-  return c.json({ is_correct: isCorrect, feedback });
-});
-
-app.post('/api/practice/sessions/:id/complete', async (c) => {
-  const userId = c.get('user').id;
-  const sessionId = c.req.param('id');
-  const session = await db.getPracticeSession(c.env.DB, sessionId, userId);
-  if (!session) return c.json({ error: 'Not found' }, 404);
-
-  const { correct, total } = await c.req.json<{ correct: number; total: number }>();
-  await db.completePracticeSession(c.env.DB, sessionId, userId, session.grammar_point_id, correct, total);
-  return c.json({ ok: true });
+  let applied = 0;
+  for (const event of events) {
+    if (!event.id || !event.grammar_point_id || !event.completed_at) continue;
+    if (await db.applyOfflinePracticeCompletion(c.env.DB, userId, event)) {
+      applied++;
+    }
+  }
+  return c.json({ applied, skipped: events.length - applied });
 });
 
 // ============ Feature Requests ============

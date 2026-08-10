@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { getDecks, createDeck, getDeckStats, getDailyStatus } from '../api/client';
+import { getDecks, createDeck, getDeckStats } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
 import { Deck, DeckStats, QueueCounts, CardQueue } from '../types';
@@ -10,34 +10,6 @@ import { applyNewCardBonus, sumQueueCounts, EMPTY_QUEUE_COUNTS, DeckQueueCounts 
 import { getDueReaders } from '../services/reader-study';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
 import { useLiveQuery } from 'dexie-react-hooks';
-
-function DailyButton(props: {
-  done: boolean;
-  label: string;
-  icon: string;
-  sub?: string;
-  onClick: () => void;
-}) {
-  const { done, label, icon, sub, onClick } = props;
-  return (
-    <button
-      onClick={onClick}
-      className={`btn btn-lg btn-block ${done ? 'btn-secondary' : 'btn-primary'}`}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '0.5rem',
-        marginTop: '0.5rem',
-      }}
-    >
-      <span>{done ? `✓ ${label} done` : `${icon} ${label}`}</span>
-      {sub && (
-        <span style={{ fontSize: '0.85rem', opacity: 0.85, fontWeight: 400 }}>{sub}</span>
-      )}
-    </button>
-  );
-}
 
 // Queue counts display component
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -194,32 +166,6 @@ export function HomePage() {
     });
   };
 
-  // Background API calls - fetches decks from server when online
-  const dailyQuery = useQuery({
-    queryKey: ['daily-status'],
-    queryFn: getDailyStatus,
-    staleTime: 60000,
-    retry: false,
-    // Poll every 5s while the reader is still generating so the button updates when ready
-    refetchInterval: (q) => {
-      const status = q.state.data?.today_reader?.status;
-      return status === 'generating' ? 5000 : false;
-    },
-  });
-
-  // Invalidate daily status when the local date changes (e.g. crossing midnight).
-  // Without this, the "done" indicators stay stale if the app is left open overnight.
-  useEffect(() => {
-    let lastDate = new Date().toDateString();
-    const interval = setInterval(() => {
-      const today = new Date().toDateString();
-      if (today !== lastDate) {
-        lastDate = today;
-        queryClient.invalidateQueries({ queryKey: ['daily-status'] });
-      }
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [queryClient]);
 
   const decksQuery = useQuery({
     queryKey: ['decks'],
@@ -342,15 +288,8 @@ export function HomePage() {
               <span>✓ Flashcards done</span>
             </button>
           )}
-          <DailyButton
-            done={dailyQuery.data?.grammar.done_today ?? false}
-            label="Grammar"
-            icon="🧩"
-            sub={dailyQuery.data?.grammar.point?.title}
-            onClick={() => navigate('/practice')}
-          />
-          {/* Readers no longer have a home button — the study session checks
-              for (and generates) today's story and shows it at the end. */}
+          {/* Grammar and readers no longer have home buttons — both live at
+              the end of the study session now. */}
         </div>
 
         {/* Your Decks */}

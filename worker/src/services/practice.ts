@@ -51,15 +51,6 @@ export interface PracticeSessionContent {
   translates: TranslateExercise[];
 }
 
-export interface TranslateFeedback {
-  is_correct: boolean;
-  uses_target_structure: boolean;
-  diff_segments: Array<{ text: string; status: 'same' | 'removed' | 'added' }>;
-  corrected_hanzi: string;
-  corrected_pinyin: string;
-  explanation: string;
-}
-
 const VOCAB_CAP = 120;
 
 function vocabBlock(vocab: VocabularyItem[]): string {
@@ -269,118 +260,6 @@ Generate a practice session: 6 flood examples, 3 scrambles, 3 multiple-choice ex
   };
 }
 
-const FEEDBACK_TOOL: Anthropic.Tool = {
-  name: 'give_feedback',
-  description: 'Return minimal-correction feedback on a learner translation.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      is_correct: {
-        type: 'boolean',
-        description:
-          'True if the learner sentence is grammatical, conveys the target meaning, AND uses the target structure. Minor word-choice differences from the reference are still correct.',
-      },
-      uses_target_structure: {
-        type: 'boolean',
-        description: 'True if the target grammar pattern is present in the learner sentence.',
-      },
-      corrected_hanzi: {
-        type: 'string',
-        description:
-          'The learner sentence with ONLY grammatical errors fixed. Preserve their vocabulary choices. Do NOT rewrite for style. If already correct, return it unchanged.',
-      },
-      corrected_pinyin: { type: 'string' },
-      diff_segments: {
-        type: 'array',
-        description:
-          'Character-level diff from learner sentence to corrected_hanzi. Concatenating segments with status same|added must equal corrected_hanzi; same|removed must equal the learner sentence.',
-        items: {
-          type: 'object',
-          properties: {
-            text: { type: 'string' },
-            status: { type: 'string', enum: ['same', 'removed', 'added'] },
-          },
-          required: ['text', 'status'],
-        },
-      },
-      explanation: {
-        type: 'string',
-        description:
-          'One or two sentences. If wrong: what the structural error was. If correct: brief affirmation, optionally note an alternative phrasing.',
-      },
-    },
-    required: [
-      'is_correct',
-      'uses_target_structure',
-      'corrected_hanzi',
-      'corrected_pinyin',
-      'diff_segments',
-      'explanation',
-    ],
-  },
-};
-
-const FEEDBACK_SYSTEM_PROMPT = `You are checking an A2 Chinese learner's translation against a target grammar structure.
-
-RULES:
-- Correct ONLY grammatical errors. Do not improve word choice, do not rewrite for style, preserve the learner's vocabulary.
-- A sentence that is grammatical, means the right thing, and uses the target structure is CORRECT even if it differs from the reference answer.
-- If the learner's sentence is grammatical but does NOT use the target structure, mark uses_target_structure=false and explain they should try again with the pattern.
-- The diff must be minimal: the smallest set of removals/insertions to get from the learner's sentence to your corrected version.`;
-
-async function runFeedback(apiKey: string, userPrompt: string): Promise<TranslateFeedback> {
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1500,
-    system: FEEDBACK_SYSTEM_PROMPT,
-    tools: [FEEDBACK_TOOL],
-    tool_choice: { type: 'tool', name: 'give_feedback' },
-    messages: [{ role: 'user', content: userPrompt }],
-  });
-  const toolUse = response.content.find((c): c is Anthropic.ToolUseBlock => c.type === 'tool_use');
-  if (!toolUse) throw new Error('Feedback check returned no tool_use block');
-  return toolUse.input as TranslateFeedback;
-}
-
-export async function checkTranslation(
-  apiKey: string,
-  grammarPoint: GrammarPoint,
-  exercise: TranslateExercise,
-  userAnswer: string
-): Promise<TranslateFeedback> {
-  return runFeedback(
-    apiKey,
-    `Target grammar point:
-${grammarBlock(grammarPoint)}
-
-English prompt: ${exercise.english}
-Reference answer: ${exercise.reference_hanzi} (${exercise.reference_pinyin})
-
-Learner's answer: ${userAnswer}
-
-Give minimal-correction feedback.`,
-  );
-}
-
-export async function checkProduction(
-  apiKey: string,
-  grammarPoint: GrammarPoint,
-  userAnswer: string
-): Promise<TranslateFeedback> {
-  return runFeedback(
-    apiKey,
-    `Target grammar point:
-${grammarBlock(grammarPoint)}
-
-The learner was asked to produce ANY sentence using this pattern (no specific meaning required).
-
-Learner's answer (transcribed from speech): ${userAnswer}
-
-Judge whether the sentence is grammatical Chinese AND uses the target structure. Give minimal-correction feedback. If the structure is missing, set uses_target_structure=false and explain which part of the pattern is absent.`,
-  );
-}
-
 function shuffleArray<T>(arr: T[]): T[] {
   const result = [...arr];
   for (let i = result.length - 1; i > 0; i--) {
@@ -388,14 +267,4 @@ function shuffleArray<T>(arr: T[]): T[] {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
-}
-
-// Validate a learner's scramble ordering.
-// Uses joined-sentence comparison to handle cases where the AI segments tiles differently
-// in 'tiles' vs 'correct_order' (e.g. tiles=['我','喜欢'] vs correct_order=['我喜欢']).
-export function checkScramble(exercise: ScrambleExercise, userOrder: string[]): boolean {
-  const join = (arr: string[]) => arr.join('').replace(/\s/g, '');
-  const userSentence = join(userOrder);
-  if (userSentence === join(exercise.correct_order)) return true;
-  return (exercise.alt_orders ?? []).some((alt) => userSentence === join(alt));
 }
