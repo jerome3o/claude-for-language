@@ -135,7 +135,7 @@ describe('getDueReaders', () => {
 
     const due = await getDueReaders();
     expect(due).toHaveLength(NEW_READERS_PER_DAY);
-    expect(due.map(r => r.id)).toEqual(['r-new', 'r-mid']);
+    expect(due.map(r => r.id)).toEqual(['r-new', 'r-mid'].slice(0, NEW_READERS_PER_DAY));
   });
 
   it('counts readers introduced today against the NEW budget', async () => {

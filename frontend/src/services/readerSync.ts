@@ -12,10 +12,10 @@
 
 import { db, LocalReader, LocalReaderPage } from '../db/database';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
-import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage } from '../api/client';
-import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE } from '../types';
+import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader } from '../api/client';
+import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE, CardQueue } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
-import { readerSchedulingFields, getDueReaders } from './reader-study';
+import { readerSchedulingFields, getDueReaders, isStudyableReader } from './reader-study';
 
 function pageToLocal(page: GradedReaderWithPages['pages'][number]): LocalReaderPage {
   return {
@@ -124,6 +124,43 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
   });
 
   return { synced: serverReaders.length };
+}
+
+/**
+ * Make sure today has a graded reader, generating one in the background if
+ * needed. Called when a study session starts (replaces the old home-screen
+ * Reader button).
+ *
+ * No-buildup rule: if an unread (NEW) reader already exists — e.g. yesterday's
+ * story was never read — nothing new is generated; that one IS today's reader.
+ *
+ * Returns true when a fresh reader is being generated and will arrive shortly
+ * (the caller should poll sync until it lands), false when there's nothing to
+ * wait for (a reader already exists locally, today's was already read,
+ * offline, or generation failed).
+ */
+export async function ensureDailyReader(): Promise<boolean> {
+  if (!navigator.onLine) return false;
+
+  const readers = await db.readers.toArray();
+  const hasUnread = readers.some(r => isStudyableReader(r) && r.queue === CardQueue.NEW);
+  if (hasUnread) return false;
+
+  try {
+    // Idempotent per-day on the server: repeated calls return today's reader
+    const status = await generateDailyReader();
+    if (status.status === 'generating') return true;
+    if (status.status === 'ready') {
+      // Generated earlier (other device / earlier session) but possibly not
+      // synced locally yet — pull it in now so the session can pick it up.
+      await syncReadersFromServer();
+      return false;
+    }
+    return false;
+  } catch (err) {
+    console.error('[ReaderSync] ensureDailyReader failed:', err);
+    return false;
+  }
 }
 
 // ============ Media Prefetch ============

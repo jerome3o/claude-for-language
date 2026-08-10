@@ -31,11 +31,12 @@ import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE } from '../api/client';
 
 /**
- * Daily cap on NEW readers entering the rotation. Without it, every already
- * generated reader (daily readers pile up) would flood the first session
- * after this feature ships.
+ * Daily cap on NEW readers entering the rotation. One per day: skipping a
+ * day must not stack up a backlog of stories at the end of a session — the
+ * unread one from before is the day's reader (see ensureDailyReader, which
+ * also skips generating while an unread reader exists).
  */
-export const NEW_READERS_PER_DAY = 2;
+export const NEW_READERS_PER_DAY = 1;
 
 /** A reader is studyable once generation finished and it actually has pages. */
 export function isStudyableReader(reader: LocalReader): boolean {
