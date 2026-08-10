@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { getDecks, createDeck, getDeckStats, getDailyStatus, generateDailyReader } from '../api/client';
+import { getDecks, createDeck, getDeckStats, getDailyStatus } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
 import { Deck, DeckStats, QueueCounts, CardQueue } from '../types';
@@ -299,43 +299,6 @@ export function HomePage() {
     navigate('/study?autostart=true');
   };
 
-  // Reader generation is on-demand: tapping the Reader button kicks it off.
-  const generateReaderMutation = useMutation({
-    mutationFn: generateDailyReader,
-    onSuccess: (reader) => {
-      queryClient.setQueryData<typeof dailyQuery.data>(['daily-status'], (old) =>
-        old ? { ...old, today_reader: reader } : old
-      );
-      // Resume polling so the button flips to "ready" when generation finishes.
-      queryClient.invalidateQueries({ queryKey: ['daily-status'] });
-    },
-  });
-
-  const readerStatus = dailyQuery.data?.today_reader?.status;
-  const readerGenerating = generateReaderMutation.isPending || readerStatus === 'generating';
-  const readerTitle = dailyQuery.data?.today_situation?.title;
-
-  const handleReaderClick = () => {
-    const reader = dailyQuery.data?.today_reader;
-    if (reader?.status === 'ready') {
-      navigate(`/readers/${reader.reader_id}`);
-    } else if (reader?.status === 'generating' || generateReaderMutation.isPending) {
-      // Already generating — show the full-screen "preparing" page.
-      navigate('/daily-reader');
-    } else {
-      // No reader yet (or a previous attempt failed) — start generating now.
-      generateReaderMutation.mutate();
-    }
-  };
-
-  const readerSub = readerGenerating
-    ? `Preparing: ${readerTitle ?? ''}…`
-    : readerStatus === 'ready'
-      ? readerTitle
-      : readerTitle
-        ? `Tap to prepare: ${readerTitle}`
-        : undefined;
-
   const createMutation = useMutation({
     mutationFn: () => createDeck(name, description || undefined),
     onSuccess: (deck) => {
@@ -386,20 +349,8 @@ export function HomePage() {
             sub={dailyQuery.data?.grammar.point?.title}
             onClick={() => navigate('/practice')}
           />
-          <DailyButton
-            done={dailyQuery.data?.reader_done ?? false}
-            label="Reader"
-            icon="📖"
-            sub={readerSub}
-            onClick={handleReaderClick}
-          />
-          <DailyButton
-            done={dailyQuery.data?.roleplay_done ?? false}
-            label="Role play"
-            icon="💬"
-            sub={dailyQuery.data?.today_situation.title}
-            onClick={() => navigate('/roleplay')}
-          />
+          {/* Readers no longer have a home button — the study session checks
+              for (and generates) today's story and shows it at the end. */}
         </div>
 
         {/* Your Decks */}

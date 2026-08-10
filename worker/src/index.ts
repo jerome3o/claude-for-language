@@ -18,47 +18,7 @@ import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generatePracticeSession, checkTranslation, checkProduction, checkScramble } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
-import { SITUATIONS, getSituation, getTodaySituation } from './services/situations';
-import { openRoleplay, replyRoleplay, generatePersona, buildImagePrompt, type AnnotatedReply, type Persona } from './services/roleplay';
-
-async function persistAiRoleplayMessage(
-  c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
-  sessionId: string,
-  persona: Pick<Persona, 'appearance' | 'voice_id'>,
-  reply: AnnotatedReply,
-) {
-  const msgId = await db.addRoleplayMessage(c.env.DB, sessionId, {
-    role: 'ai',
-    hanzi: reply.hanzi,
-    pinyin: reply.pinyin,
-    english: reply.english,
-    chunks_json: JSON.stringify(reply.chunks),
-  });
-  if (c.env.GEMINI_API_KEY) {
-    c.executionCtx.waitUntil(
-      generatePageImage(
-        c.env.GEMINI_API_KEY,
-        buildImagePrompt(persona.appearance, reply.english),
-        `roleplay-${msgId}`,
-        c.env.AUDIO_BUCKET,
-      ).then((url) => (url ? db.setRoleplayMessageImage(c.env.DB, msgId, url) : undefined)),
-    );
-  }
-  const tts = await generateConversationTTS(c.env, reply.hanzi, { voiceId: persona.voice_id });
-  return {
-    message: {
-      id: msgId,
-      role: 'ai' as const,
-      hanzi: reply.hanzi,
-      pinyin: reply.pinyin,
-      english: reply.english,
-      chunks: reply.chunks,
-      image_url: null,
-      revealed: false,
-    },
-    audio_base64: tts?.audioBase64 ?? null,
-  };
-}
+import { getTodaySituation } from './services/situations';
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import { buildLessonScript, generateLessonAudio, generateDialogueScript } from './services/audio-lesson';
@@ -5893,12 +5853,10 @@ app.delete('/api/audio-lessons/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// ============ Daily activities (situations / roleplay / status) ============
-
-app.get('/api/situations', (c) => c.json({ situations: SITUATIONS }));
+// ============ Daily activities (reader / status) ============
 
 // Read-only status of today's reader. NEVER kicks off generation — that only
-// happens on demand when the user taps the Reader button (see startDailyReader).
+// happens on demand when a study session starts (see startDailyReader).
 // This keeps the home screen's /api/daily/status cheap and avoids generating a
 // graded reader every day for every user (which was rate-limiting the AI API).
 async function getDailyReaderStatus(
@@ -6034,15 +5992,13 @@ app.get('/api/daily/status', async (c) => {
   return c.json({
     grammar: { point: grammarPoint, done_today: grammarDone },
     reader_done: activities.reader,
-    roleplay_done: activities.roleplay,
-    today_situation: todaySit,
     today_reader: dailyReader,
   });
 });
 
 app.post('/api/daily/mark', async (c) => {
   const userId = c.get('user').id;
-  const { activity, ref_id } = await c.req.json<{ activity: 'reader' | 'roleplay'; ref_id?: string }>();
+  const { activity, ref_id } = await c.req.json<{ activity: 'reader'; ref_id?: string }>();
   await db.recordDailyActivity(c.env.DB, userId, activity, ref_id ?? null);
   return c.json({ ok: true });
 });
@@ -6062,94 +6018,6 @@ app.post('/api/daily/reader/generate', async (c) => {
     );
   }
   return c.json(reader);
-});
-
-app.post('/api/roleplay/sessions', async (c) => {
-  const userId = c.get('user').id;
-  const { situation_id } = await c.req.json<{ situation_id: string }>();
-  const sit = getSituation(situation_id);
-  if (!sit) return c.json({ error: 'Unknown situation' }, 400);
-
-  try {
-    const lessonNotes = await db.getRecentLessonNotesText(c.env.DB, userId);
-    const [persona, opener] = await Promise.all([
-      generatePersona(c.env.ANTHROPIC_API_KEY, sit),
-      openRoleplay(c.env.ANTHROPIC_API_KEY, sit, lessonNotes || undefined),
-    ]);
-    const sessionId = await db.createRoleplaySession(c.env.DB, userId, sit, persona);
-    const out = await persistAiRoleplayMessage(c, sessionId, persona, opener);
-    return c.json({ session_id: sessionId, situation: sit, persona_name: persona.name, ...out });
-  } catch (e) {
-    console.error('Failed to start roleplay session:', e);
-    return c.json({ error: e instanceof Error ? e.message : 'Failed to start roleplay session' }, 500);
-  }
-});
-
-app.get('/api/roleplay/sessions/:id', async (c) => {
-  const userId = c.get('user').id;
-  const session = await db.getRoleplaySession(c.env.DB, c.req.param('id'), userId);
-  if (!session) return c.json({ error: 'Not found' }, 404);
-  const messages = await db.listRoleplayMessages(c.env.DB, session.id);
-  return c.json({ session, situation: getSituation(session.situation_id), messages });
-});
-
-app.post('/api/roleplay/sessions/:id/reply', async (c) => {
-  const userId = c.get('user').id;
-  const sessionId = c.req.param('id');
-  const session = await db.getRoleplaySession(c.env.DB, sessionId, userId);
-  if (!session) return c.json({ error: 'Not found' }, 404);
-  const sit = getSituation(session.situation_id)!;
-
-  const { text } = await c.req.json<{ text: string }>();
-  const history = await db.listRoleplayMessages(c.env.DB, sessionId);
-  await db.addRoleplayMessage(c.env.DB, sessionId, { role: 'user', hanzi: text });
-
-  try {
-    const ai = await replyRoleplay(
-      c.env.ANTHROPIC_API_KEY,
-      sit,
-      history.map((m) => ({
-        ...m,
-        revealed: !!m.revealed,
-        chunks: m.chunks_json ? JSON.parse(m.chunks_json) : null,
-        image_url: m.image_url,
-      })),
-      text,
-    );
-    const persona = {
-      appearance: session.character_prompt ?? sit.ai_role,
-      voice_id: session.voice_id ?? DEFAULT_MINIMAX_VOICE,
-    };
-    const out = await persistAiRoleplayMessage(c, sessionId, persona, ai);
-    return c.json(out);
-  } catch (e) {
-    console.error('Failed to generate roleplay reply:', e);
-    return c.json({ error: e instanceof Error ? e.message : 'Failed to generate reply' }, 500);
-  }
-});
-
-app.get('/api/roleplay/messages/:id/image', async (c) => {
-  const userId = c.get('user').id;
-  const r = await c.env.DB.prepare(`
-    SELECT m.image_url FROM roleplay_messages m
-    JOIN roleplay_sessions s ON s.id = m.session_id
-    WHERE m.id = ? AND s.user_id = ?
-  `).bind(c.req.param('id'), userId).first<{ image_url: string | null }>();
-  return c.json({ image_url: r?.image_url ?? null });
-});
-
-app.post('/api/roleplay/messages/:id/reveal', async (c) => {
-  const userId = c.get('user').id;
-  await db.markRoleplayRevealed(c.env.DB, c.req.param('id'), userId);
-  return c.json({ ok: true });
-});
-
-app.post('/api/roleplay/sessions/:id/complete', async (c) => {
-  const userId = c.get('user').id;
-  const id = c.req.param('id');
-  await db.completeRoleplaySession(c.env.DB, id, userId);
-  await db.recordDailyActivity(c.env.DB, userId, 'roleplay', id);
-  return c.json({ ok: true });
 });
 
 // ============ Grammar Practice ============

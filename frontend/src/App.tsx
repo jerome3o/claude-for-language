@@ -35,8 +35,6 @@ const TutorReviewInboxPage = lazy(() => import('./pages/TutorReviewInboxPage').t
 const TutorReviewDetailPage = lazy(() => import('./pages/TutorReviewDetailPage').then(m => ({ default: m.TutorReviewDetailPage })));
 const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => ({ default: m.ReadersListPage })));
 const PracticePage = lazy(() => import('./pages/PracticePage').then(m => ({ default: m.PracticePage })));
-const RoleplayPage = lazy(() => import('./pages/RoleplayPage').then(m => ({ default: m.RoleplayPage })));
-const DailyReaderPage = lazy(() => import('./pages/DailyReaderPage').then(m => ({ default: m.DailyReaderPage })));
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => ({ default: m.LessonNotesPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
@@ -330,29 +328,11 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/roleplay"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <RoleplayPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/lesson-notes"
         element={
           <ProtectedRoute>
             <Header />
             <LessonNotesPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/daily-reader"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <DailyReaderPage />
           </ProtectedRoute>
         }
       />

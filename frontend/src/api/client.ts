@@ -1817,94 +1817,29 @@ export async function deleteLessonNote(id: string): Promise<void> {
   await fetchJSON(`/lesson-notes/${id}`, { method: 'DELETE' });
 }
 
-// ============ Daily activities / Roleplay ============
-
-export interface Situation {
-  id: string;
-  title: string;
-  scenario: string;
-  user_role: string;
-  ai_role: string;
-  goal: string;
-}
-
-export interface RoleplayChunk {
-  hanzi: string;
-  pinyin: string;
-  english: string;
-}
-
-export interface RoleplayMessage {
-  id: string;
-  role: 'ai' | 'user';
-  hanzi: string;
-  pinyin: string | null;
-  english: string | null;
-  chunks: RoleplayChunk[] | null;
-  image_url: string | null;
-  revealed: boolean;
-}
+// ============ Daily activities ============
 
 export interface DailyStatus {
   grammar: { point: GrammarPoint | null; done_today: boolean };
   reader_done: boolean;
-  roleplay_done: boolean;
-  today_situation: Situation;
   today_reader: { reader_id: string; situation_id: string; status: string; error_message?: string | null } | null;
-}
-
-export async function getSituations(): Promise<{ situations: Situation[] }> {
-  return fetchJSON('/situations');
 }
 
 export async function getDailyStatus(): Promise<DailyStatus> {
   return fetchJSON('/daily/status');
 }
 
-// Kick off generation of today's reader. Only called when the user taps the
-// Reader button — the server no longer auto-generates on home-screen load.
+// Kick off generation of today's reader. Idempotent per day — the study
+// session calls this when it starts (see ensureDailyReader).
 export async function generateDailyReader(): Promise<NonNullable<DailyStatus['today_reader']>> {
   return fetchJSON('/daily/reader/generate', { method: 'POST' });
 }
 
-export async function markDailyActivity(activity: 'reader' | 'roleplay', refId?: string): Promise<void> {
+export async function markDailyActivity(activity: 'reader', refId?: string): Promise<void> {
   await fetchJSON('/daily/mark', {
     method: 'POST',
     body: JSON.stringify({ activity, ref_id: refId }),
   });
-}
-
-export async function startRoleplay(
-  situationId: string,
-): Promise<{ session_id: string; situation: Situation; persona_name: string; message: RoleplayMessage; audio_base64: string | null }> {
-  return fetchJSON('/roleplay/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ situation_id: situationId }),
-  });
-}
-
-export async function replyRoleplay(
-  sessionId: string,
-  text: string,
-): Promise<{ message: RoleplayMessage; audio_base64: string | null }> {
-  return fetchJSON(`/roleplay/sessions/${sessionId}/reply`, {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  });
-}
-
-export async function getRoleplayMessageImage(
-  messageId: string,
-): Promise<{ image_url: string | null }> {
-  return fetchJSON(`/roleplay/messages/${messageId}/image`);
-}
-
-export async function revealRoleplayMessage(messageId: string): Promise<void> {
-  await fetchJSON(`/roleplay/messages/${messageId}/reveal`, { method: 'POST' });
-}
-
-export async function completeRoleplay(sessionId: string): Promise<void> {
-  await fetchJSON(`/roleplay/sessions/${sessionId}/complete`, { method: 'POST' });
 }
 
 export async function generatePracticeTTS(

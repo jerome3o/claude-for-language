@@ -2853,89 +2853,12 @@ export async function getRecentLessonNotesText(
     .join('\n\n---\n\n');
 }
 
-// ---- Roleplay + daily activities ----
-
-export async function createRoleplaySession(
-  db: D1Database,
-  userId: string,
-  sit: { id: string; scenario: string; ai_role: string; user_role: string; goal: string },
-  persona: { name: string; voice_id: string; appearance: string },
-): Promise<string> {
-  const id = crypto.randomUUID();
-  await db.prepare(`
-    INSERT INTO roleplay_sessions
-      (id, user_id, situation_id, scenario, ai_role, user_role, goal, character_prompt, voice_id, persona_name)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    id, userId, sit.id, sit.scenario, sit.ai_role, sit.user_role, sit.goal,
-    persona.appearance, persona.voice_id, persona.name,
-  ).run();
-  return id;
-}
-
-export async function getRoleplaySession(
-  db: D1Database,
-  id: string,
-  userId: string,
-): Promise<{ id: string; situation_id: string; scenario: string; ai_role: string; user_role: string; goal: string; character_prompt: string | null; voice_id: string | null; persona_name: string | null; completed_at: string | null } | null> {
-  return await db.prepare(`
-    SELECT id, situation_id, scenario, ai_role, user_role, goal, character_prompt, voice_id, persona_name, completed_at
-    FROM roleplay_sessions WHERE id = ? AND user_id = ?
-  `).bind(id, userId).first();
-}
-
-export async function listRoleplayMessages(
-  db: D1Database,
-  sessionId: string,
-): Promise<Array<{ id: string; role: 'ai' | 'user'; hanzi: string; pinyin: string | null; english: string | null; chunks_json: string | null; image_url: string | null; revealed: number }>> {
-  const r = await db.prepare(`
-    SELECT id, role, hanzi, pinyin, english, chunks_json, image_url, revealed
-    FROM roleplay_messages WHERE session_id = ? ORDER BY created_at
-  `).bind(sessionId).all();
-  return r.results as any;
-}
-
-export async function addRoleplayMessage(
-  db: D1Database,
-  sessionId: string,
-  m: { role: 'ai' | 'user'; hanzi: string; pinyin?: string | null; english?: string | null; chunks_json?: string | null; image_url?: string | null },
-): Promise<string> {
-  const id = crypto.randomUUID();
-  await db.prepare(`
-    INSERT INTO roleplay_messages (id, session_id, role, hanzi, pinyin, english, chunks_json, image_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, sessionId, m.role, m.hanzi, m.pinyin ?? null, m.english ?? null, m.chunks_json ?? null, m.image_url ?? null).run();
-  return id;
-}
-
-export async function setRoleplayMessageImage(
-  db: D1Database,
-  messageId: string,
-  imageUrl: string,
-): Promise<void> {
-  await db.prepare(`UPDATE roleplay_messages SET image_url = ? WHERE id = ?`).bind(imageUrl, messageId).run();
-}
-
-export async function markRoleplayRevealed(
-  db: D1Database,
-  messageId: string,
-  userId: string,
-): Promise<void> {
-  await db.prepare(`
-    UPDATE roleplay_messages SET revealed = 1
-    WHERE id = ? AND session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?)
-  `).bind(messageId, userId).run();
-}
-
-export async function completeRoleplaySession(db: D1Database, id: string, userId: string): Promise<void> {
-  await db.prepare(`UPDATE roleplay_sessions SET completed_at = datetime('now') WHERE id = ? AND user_id = ?`)
-    .bind(id, userId).run();
-}
+// ---- Daily activities ----
 
 export async function recordDailyActivity(
   db: D1Database,
   userId: string,
-  activity: 'reader' | 'roleplay',
+  activity: 'reader',
   refId: string | null,
 ): Promise<void> {
   await db.prepare(`
@@ -2986,13 +2909,13 @@ export async function getUserDeckIds(db: D1Database, userId: string): Promise<st
 export async function getDailyActivityStatus(
   db: D1Database,
   userId: string,
-): Promise<{ reader: boolean; roleplay: boolean }> {
+): Promise<{ reader: boolean }> {
   const r = await db.prepare(`
     SELECT activity FROM daily_activities
     WHERE user_id = ? AND date(completed_at) = date('now')
   `).bind(userId).all<{ activity: string }>();
   const set = new Set(r.results.map((x) => x.activity));
-  return { reader: set.has('reader'), roleplay: set.has('roleplay') };
+  return { reader: set.has('reader') };
 }
 
 export async function practiceCompletedToday(

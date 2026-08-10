@@ -37,6 +37,8 @@ import {
   getReaderIntervalPreviews,
   readerSchedulingFields,
 } from '../services/reader-study';
+import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '../services/readerSync';
+import { markDailyActivity } from '../api/client';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
 
@@ -294,6 +296,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [hasMoreNewCards, setHasMoreNewCards] = useState(false);
+  // True while today's graded reader is being generated in the background —
+  // shown as a placeholder count until it lands at the end of the session.
+  const [dailyReaderPending, setDailyReaderPending] = useState(false);
 
   // Session stats tracking
   const [sessionStats, setSessionStats] = useState<SessionStats>({
@@ -342,6 +347,23 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       setHasMoreNewCards(counts.hasMoreNew);
       reviewedNoteIdsRef.current = reviewedIds;
       initializedRef.current = true;
+
+      // Make sure today has a graded reader (all-decks sessions only). Runs
+      // in the background; if one starts generating, a placeholder count is
+      // shown and polling picks it up when it's ready.
+      if (!deckId) {
+        ensureDailyReader()
+          .then(async pending => {
+            setDailyReaderPending(pending);
+            if (!pending) {
+              // ensureDailyReader may have synced a ready-but-not-local
+              // reader — refresh the queue so it joins this session.
+              const fresh = await getDueReaders();
+              setReaderQueue(fresh);
+            }
+          })
+          .catch(err => console.error('[useStudySession] ensureDailyReader failed:', err));
+      }
     } catch (error) {
       console.error('[useStudySession] Failed to load queue:', error);
     } finally {
@@ -509,6 +531,29 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       selectNextCard();
     }
   }, [isLoading, queue.length, readerQueue.length, currentCardState.card, currentCardState.reader, selectNextCard]);
+
+  // While today's reader is generating, poll sync until it lands, then slot
+  // it into the session (it shows up at the end, after the cards).
+  useEffect(() => {
+    if (!dailyReaderPending || !enabled) return;
+
+    const POLL_MS = 20_000;
+    const interval = setInterval(async () => {
+      if (!navigator.onLine) return;
+      try {
+        await syncReadersFromServer();
+        const fresh = await getDueReaders();
+        if (fresh.some(r => r.queue === CardQueue.NEW)) {
+          setReaderQueue(fresh);
+          setDailyReaderPending(false);
+          prefetchReaderMedia().catch(() => {});
+        }
+      } catch (err) {
+        console.error('[useStudySession] Daily reader poll failed:', err);
+      }
+    }, POLL_MS);
+    return () => clearInterval(interval);
+  }, [dailyReaderPending, enabled]);
 
   // Submit review mutation
   const reviewMutation = useMutation({
@@ -785,6 +830,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     try {
       const { newState } = await recordReaderReview(reader.id, rating, timeSpentMs);
 
+      // Reading a story in-session counts as the day's reader activity
+      // (streaks) — best effort, offline reviews just skip it.
+      if (navigator.onLine) {
+        markDailyActivity('reader', reader.id).catch(() => {});
+      }
+
       // Keep the reader in the session while it's still in learning; otherwise
       // FSRS has scheduled it out to a future day.
       const newReaderQueue = readerQueue.filter(r => r.id !== reader.id);
@@ -894,8 +945,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       else if (reader.queue === CardQueue.LEARNING || reader.queue === CardQueue.RELEARNING) l++;
       else r++;
     }
+    // Placeholder for today's still-generating reader — it will arrive as a
+    // NEW (blue) item, so count it there while it's being written.
+    if (dailyReaderPending) n++;
     return { new: n, secondaryNew: s, learning: l, review: r };
-  }, [queue, readerQueue]);
+  }, [queue, readerQueue, dailyReaderPending]);
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
   const currentReader = currentCardState.reader ?? null;
 
@@ -989,6 +1043,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     currentCardIsSecondaryNew,
     cardVersion,
     counts,
+    dailyReaderPending,
     intervalPreviews,
     readerIntervalPreviews,
     hasMoreNewCards,
