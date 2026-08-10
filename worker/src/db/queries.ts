@@ -3164,6 +3164,81 @@ export async function claimPregenPracticeSession(
   return row?.exercises_json ?? null;
 }
 
+/**
+ * The next N grammar points for a user, in study order: points currently in
+ * 'learning' (least-recently practiced first), then unseen points by
+ * level/order. Known points are excluded. Drives the offline lesson queue.
+ */
+export async function getUpcomingGrammarPoints(
+  db: D1Database,
+  userId: string,
+  count: number,
+): Promise<Array<GrammarPoint & { progress: { status: 'new' | 'learning'; correct_count: number } | null }>> {
+  const rows = await db.prepare(`
+    SELECT gp.id, gp.level, gp.title, gp.pattern, gp.explanation, gp.cgw_url, gp.seed_examples, gp.order_index,
+           p.status AS progress_status, p.correct_count AS progress_correct
+    FROM grammar_points gp
+    LEFT JOIN grammar_progress p ON p.grammar_point_id = gp.id AND p.user_id = ?
+    WHERE p.status IS NULL OR p.status != 'known'
+    ORDER BY CASE WHEN p.status = 'learning' THEN 0 ELSE 1 END,
+             p.last_practiced_at ASC NULLS FIRST,
+             gp.level, gp.order_index
+    LIMIT ?
+  `).bind(userId, count).all<Record<string, unknown>>();
+
+  return rows.results.map((row) => ({
+    ...rowToGrammarPoint(row as never),
+    progress: row.progress_status
+      ? {
+          status: row.progress_status as 'new' | 'learning',
+          correct_count: (row.progress_correct as number) ?? 0,
+        }
+      : null,
+  }));
+}
+
+/**
+ * Apply an offline grammar-lesson completion event. Idempotent: the event id
+ * doubles as the practice_sessions row id, so replays are skipped. Consumes
+ * the point's pre-generated session so the next round gets fresh exercises.
+ * Returns true when the event was newly applied.
+ */
+export async function applyOfflinePracticeCompletion(
+  db: D1Database,
+  userId: string,
+  event: { id: string; grammar_point_id: string; correct: number; total: number; completed_at: string },
+): Promise<boolean> {
+  const inserted = await db.prepare(`
+    INSERT OR IGNORE INTO practice_sessions (id, user_id, grammar_point_id, exercises_json, status, is_pregenerated, completed_at)
+    VALUES (?, ?, ?, '{}', 'ready', 0, ?)
+  `).bind(event.id, userId, event.grammar_point_id, event.completed_at).run();
+  if ((inserted.meta?.changes ?? 0) === 0) return false;
+
+  await db.prepare(`
+    INSERT INTO grammar_progress (id, user_id, grammar_point_id, status, introduced_at)
+    VALUES (?, ?, ?, 'learning', datetime('now'))
+    ON CONFLICT(user_id, grammar_point_id) DO NOTHING
+  `).bind(crypto.randomUUID(), userId, event.grammar_point_id).run();
+
+  await db.prepare(`
+    UPDATE grammar_progress
+    SET correct_count = correct_count + ?,
+        attempt_count = attempt_count + ?,
+        last_practiced_at = ?,
+        status = CASE WHEN correct_count + ? >= 8 THEN 'known' ELSE 'learning' END
+    WHERE user_id = ? AND grammar_point_id = ?
+  `).bind(event.correct, event.total, event.completed_at, event.correct, userId, event.grammar_point_id).run();
+
+  // Consume this round's pre-generated exercises so the next round is fresh
+  await db.prepare(`
+    UPDATE pregenerated_practice_sessions
+    SET claimed_at = datetime('now')
+    WHERE user_id = ? AND grammar_point_id = ? AND claimed_at IS NULL
+  `).bind(userId, event.grammar_point_id).run();
+
+  return true;
+}
+
 // ---- Audio Lessons ----
 
 export interface AudioLesson {

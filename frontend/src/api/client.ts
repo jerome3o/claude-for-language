@@ -1692,6 +1692,8 @@ export async function markAllNotificationsRead(): Promise<void> {
 }
 
 // ============ Grammar Practice ============
+// Lesson content/completions are handled offline (see services/grammar-study);
+// only the shared GrammarPoint shape lives here.
 
 export interface ExampleSentence {
   hanzi: string;
@@ -1708,59 +1710,6 @@ export interface GrammarPoint {
   cgw_url: string | null;
   seed_examples: ExampleSentence[];
   order_index: number;
-}
-
-export interface GrammarProgressRow {
-  grammar_point_id: string;
-  status: 'new' | 'learning' | 'known';
-  correct_count: number;
-  attempt_count: number;
-  last_practiced_at: string | null;
-}
-
-export interface ScrambleExercise {
-  english: string;
-  tiles: string[];
-  correct_order: string[];
-  alt_orders?: string[][];
-}
-
-export interface ContrastExercise {
-  context: string;
-  option_a: ExampleSentence;
-  option_b: ExampleSentence;
-  option_c?: ExampleSentence;
-  option_d?: ExampleSentence;
-  correct: 'a' | 'b' | 'c' | 'd';
-  explanation: string;
-}
-
-export interface TranslateExercise {
-  english: string;
-  reference_hanzi: string;
-  reference_pinyin: string;
-}
-
-export interface PracticeSessionContent {
-  grammar_point: GrammarPoint;
-  flood: ExampleSentence[];
-  scrambles: ScrambleExercise[];
-  contrasts: ContrastExercise[];
-  translates: TranslateExercise[];
-}
-
-export interface DiffSegment {
-  text: string;
-  status: 'same' | 'removed' | 'added';
-}
-
-export interface TranslateFeedback {
-  is_correct: boolean;
-  uses_target_structure: boolean;
-  diff_segments: DiffSegment[];
-  corrected_hanzi: string;
-  corrected_pinyin: string;
-  explanation: string;
 }
 
 // ============ Lesson Notes ============
@@ -1849,61 +1798,6 @@ export async function generatePracticeTTS(
   return fetchJSON('/practice/tts', {
     method: 'POST',
     body: JSON.stringify({ text, speed }),
-  });
-}
-
-export async function listGrammarPoints(): Promise<{
-  points: Array<GrammarPoint & { progress: GrammarProgressRow | null }>;
-}> {
-  return fetchJSON('/practice/points');
-}
-
-export async function getNextGrammarPoint(): Promise<{
-  point: GrammarPoint | null;
-  done_today: boolean;
-}> {
-  return fetchJSON('/practice/next');
-}
-
-export async function getPregeneratedPracticeSession(): Promise<{
-  ready: boolean;
-  pregen_id: string | null;
-  grammar_point: GrammarPoint | null;
-}> {
-  return fetchJSON('/practice/pregenerated');
-}
-
-export async function startPracticeSession(
-  grammarPointId?: string,
-): Promise<{ session_id: string; content: PracticeSessionContent }> {
-  return fetchJSON('/practice/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ grammar_point_id: grammarPointId }),
-  });
-}
-
-export async function submitPracticeAttempt(
-  sessionId: string,
-  body: {
-    exercise_type: 'flood' | 'scramble' | 'contrast' | 'translate' | 'speak';
-    exercise_index: number;
-    user_answer: string | string[];
-  },
-): Promise<{ is_correct: boolean | null; feedback: TranslateFeedback | null }> {
-  return fetchJSON(`/practice/sessions/${sessionId}/attempts`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
-export async function completePracticeSession(
-  sessionId: string,
-  correct: number,
-  total: number,
-): Promise<void> {
-  await fetchJSON(`/practice/sessions/${sessionId}/complete`, {
-    method: 'POST',
-    body: JSON.stringify({ correct, total }),
   });
 }
 

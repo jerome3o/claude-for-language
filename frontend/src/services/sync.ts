@@ -19,6 +19,7 @@ import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardS
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions } from './review-events';
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia } from './readerSync';
+import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia } from './grammar-study';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 
@@ -339,9 +340,9 @@ class SyncService {
   }
 
   /**
-   * Sync reader content and kick off the media prefetch (images + TTS for due
-   * readers) in the background. Reader sync failures never fail the outer
-   * sync — readers are additive to the core deck/note/card data.
+   * Sync reader + grammar-lesson content and kick off the media prefetch
+   * (images + TTS) in the background. Failures here never fail the outer
+   * sync — this content is additive to the core deck/note/card data.
    */
   private async syncReaders(): Promise<void> {
     try {
@@ -351,6 +352,14 @@ class SyncService {
       );
     } catch (err) {
       console.error('[Sync] Reader sync failed:', err);
+    }
+    try {
+      await syncGrammarLessons();
+      prefetchGrammarMedia().catch(err =>
+        console.error('[Sync] Grammar media prefetch failed:', err)
+      );
+    } catch (err) {
+      console.error('[Sync] Grammar lesson sync failed:', err);
     }
   }
 
@@ -561,6 +570,13 @@ class SyncService {
     // Reader review events (same event-sourced model, separate endpoint)
     const readerUpload = await syncReaderReviewEvents(token);
     const readerDownload = await downloadReaderReviewEvents(token);
+
+    // Grammar completion events (idempotent server-side by event id)
+    try {
+      await uploadGrammarCompletions();
+    } catch (err) {
+      console.error('[Sync] Grammar completion upload failed:', err);
+    }
 
     // Upload pending recordings
     let recordingsUploaded = 0;

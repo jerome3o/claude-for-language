@@ -59,6 +59,7 @@ import CardEditModal from '../components/CardEditModal';
 import { QueueCountsHeader } from '../components/QueueCountsHeader';
 import { RatingButtons } from '../components/RatingButtons';
 import { StudyReader } from '../components/StudyReader';
+import { StudyGrammar } from '../components/StudyGrammar';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
@@ -3194,6 +3195,7 @@ export function StudyPage() {
     isLoading,
     currentCard,
     currentReader,
+    currentGrammar,
     currentCardIsSecondaryNew,
     cardVersion,
     counts,
@@ -3206,6 +3208,7 @@ export function StudyPage() {
     canUndo,
     rateCard,
     rateReader,
+    completeGrammar,
     undoLastReview,
     reloadQueue,
     removeNoteFromSession,
@@ -3217,7 +3220,7 @@ export function StudyPage() {
   });
 
   // Pre-fetch day stats when queue is nearly empty (3 or fewer cards) for instant "All Done" display
-  const isAllDone = !isLoading && !currentCard && !currentReader && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
+  const isAllDone = !isLoading && !currentCard && !currentReader && !currentGrammar && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
   const isNearlyDone = counts.new + counts.secondaryNew + counts.learning + counts.review <= 3;
   const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
   const [todayTotalTimeMs, setTodayTotalTimeMs] = useState<number>(0);
@@ -3476,6 +3479,14 @@ export function StudyPage() {
     <div className="study-page-fullscreen">
       {isLoading ? (
         <Loading />
+      ) : currentGrammar ? (
+        <StudyGrammar
+          key={`${currentGrammar.grammar_point_id}-${cardVersion}`}
+          lesson={currentGrammar}
+          counts={counts}
+          onComplete={completeGrammar}
+          onEnd={handleEndSession}
+        />
       ) : currentReader && readerIntervalPreviews ? (
         <StudyReader
           key={`${currentReader.id}-${cardVersion}`}

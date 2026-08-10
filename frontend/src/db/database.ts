@@ -187,6 +187,62 @@ export interface LocalReaderReviewEvent {
   _created_at: string;
 }
 
+// ============ Grammar Lessons (offline study) ============
+
+export interface GrammarExampleSentence {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+}
+
+/**
+ * A grammar lesson cached for offline study: the grammar point plus a
+ * pre-generated exercise set. One lesson per day appears at the end of the
+ * study session (after the graded reader). Exercises are pre-generated
+ * server-side and synced down; completions are recorded as events and
+ * synced up (see grammarCompletionEvents).
+ */
+export interface LocalGrammarLesson {
+  grammar_point_id: string;
+  level: string;
+  title: string;
+  pattern: string;
+  explanation: string;
+  cgw_url: string | null;
+  seed_examples: GrammarExampleSentence[];
+  order_index: number;
+  // Position in the upcoming queue (0 = today's lesson)
+  position: number;
+  status: 'new' | 'learning' | 'known';
+  correct_count: number;
+  // Pre-generated exercises; null when the server hasn't generated them yet
+  exercises: {
+    flood: GrammarExampleSentence[];
+    scrambles: Array<{ english: string; tiles: string[]; correct_order: string[]; alt_orders?: string[][] }>;
+    contrasts: Array<{
+      context: string;
+      option_a: GrammarExampleSentence;
+      option_b: GrammarExampleSentence;
+      option_c?: GrammarExampleSentence;
+      option_d?: GrammarExampleSentence;
+      correct: 'a' | 'b' | 'c' | 'd';
+      explanation: string;
+    }>;
+    translates: Array<{ english: string; reference_hanzi: string; reference_pinyin: string }>;
+  } | null;
+  _synced_at: number | null;
+}
+
+export interface LocalGrammarCompletionEvent {
+  id: string;
+  grammar_point_id: string;
+  correct: number;
+  total: number;
+  completed_at: string;
+  // Sync metadata (0 = unsynced, 1 = synced)
+  _synced: number;
+}
+
 export interface CachedAudio {
   key: string; // audio_url
   blob: Blob;
@@ -278,6 +334,10 @@ export class ChineseLearningDB extends Dexie {
   // Graded readers (offline study + FSRS rotation)
   readers!: Table<LocalReader, string>;
   readerReviewEvents!: Table<LocalReaderReviewEvent, string>;
+
+  // Grammar lessons (offline study, one per day after the reader)
+  grammarLessons!: Table<LocalGrammarLesson, string>;
+  grammarCompletionEvents!: Table<LocalGrammarCompletionEvent, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -489,6 +549,30 @@ export class ChineseLearningDB extends Dexie {
       characterDefinitions: 'hanzi, cached_at',
       readers: 'id, status, queue, next_review_at',
       readerReviewEvents: 'id, reader_id, reviewed_at, _synced, [reader_id+reviewed_at]',
+    });
+
+    // Version 11: Grammar lessons join the study session (offline exercises +
+    // completion events)
+    this.version(11).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      pendingReviewDeletions: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
+      readers: 'id, status, queue, next_review_at',
+      readerReviewEvents: 'id, reader_id, reviewed_at, _synced, [reader_id+reviewed_at]',
+      grammarLessons: 'grammar_point_id, position',
+      grammarCompletionEvents: 'id, grammar_point_id, completed_at, _synced',
     });
   }
 }
@@ -995,7 +1079,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1006,6 +1090,8 @@ export async function clearAllData(): Promise<void> {
     await db.eventSyncMeta.clear();
     await db.readers.clear();
     await db.readerReviewEvents.clear();
+    await db.grammarLessons.clear();
+    await db.grammarCompletionEvents.clear();
   });
 }
 

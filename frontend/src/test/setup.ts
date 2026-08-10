@@ -20,6 +20,8 @@ beforeEach(async () => {
   await db.dailyStats.clear();
   await db.readers.clear();
   await db.readerReviewEvents.clear();
+  await db.grammarLessons.clear();
+  await db.grammarCompletionEvents.clear();
 });
 
 // Clean up after each test
