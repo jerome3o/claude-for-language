@@ -3200,6 +3200,7 @@ export function StudyPage() {
     cardVersion,
     counts,
     dailyReaderPending,
+    grammarPending,
     intervalPreviews,
     readerIntervalPreviews,
     hasMoreNewCards,
@@ -3514,19 +3515,21 @@ export function StudyPage() {
           onUpdateNote={updateCurrentNote}
           onDeleteCurrentCard={() => removeNoteFromSession(currentCard.note.id)}
         />
-      ) : dailyReaderPending ? (
-        // Cards are done but today's story is still being written — hold the
-        // session open; polling swaps this for the reader when it's ready.
+      ) : dailyReaderPending || grammarPending ? (
+        // Cards are done but today's story/lesson is still being generated —
+        // hold the session open; polling swaps this in when it's ready.
         <div className="container" style={{ textAlign: 'center', paddingTop: '3rem' }}>
-          <div style={{ fontSize: '3rem' }}>✍️</div>
-          <h2 className="mt-2">Writing today's story…</h2>
+          <div style={{ fontSize: '3rem' }}>{dailyReaderPending ? '✍️' : '🧩'}</div>
+          <h2 className="mt-2">{dailyReaderPending ? "Writing today's story…" : "Preparing today's grammar lesson…"}</h2>
           <p className="text-light mt-1" style={{ fontSize: '0.875rem' }}>
-            Your graded reader is being generated and will appear here in a minute or two.
+            {dailyReaderPending
+              ? 'Your graded reader is being generated and will appear here in a minute or two.'
+              : 'Exercises are being generated and will appear here in a minute or two.'}
           </p>
           <span className="spinner" style={{ width: '28px', height: '28px', marginTop: '1rem' }} />
           <div className="mt-4">
             <button className="btn btn-secondary" onClick={handleEndSession}>
-              Finish without reading
+              Finish for today
             </button>
           </div>
         </div>

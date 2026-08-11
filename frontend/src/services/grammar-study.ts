@@ -46,9 +46,36 @@ interface UpcomingLessonResponse {
   }>;
 }
 
-function todayString(): string {
+function isSameLocalDay(iso: string): boolean {
+  const d = new Date(iso);
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
+/** Whether a grammar lesson was already completed today (learner-local time).
+ * Timestamps are stored as UTC ISO strings, so compare parsed local dates —
+ * a prefix match on the string would use the UTC date and, in timezones
+ * ahead of UTC, hand out a second lesson on the same local day. */
+export async function grammarCompletedToday(): Promise<boolean> {
+  const events = await db.grammarCompletionEvents.toArray();
+  return events.some(e => isSameLocalDay(e.completed_at));
+}
+
+/**
+ * True when the lesson queue is known but no lesson has exercises yet —
+ * generation is in flight server-side (kicked off by the upcoming call) and
+ * a sync poll should land today's lesson shortly.
+ */
+export async function grammarGenerationPending(): Promise<boolean> {
+  if (await grammarCompletedToday()) return false;
+  const lessons = await db.grammarLessons.toArray();
+  const usable = lessons.some(l => l.exercises !== null && l.status !== 'known');
+  const awaiting = lessons.some(l => l.exercises === null && l.status !== 'known');
+  return !usable && awaiting;
 }
 
 /**
@@ -122,12 +149,7 @@ export async function uploadGrammarCompletions(): Promise<{ uploaded: number }> 
  * One lesson per day: any completion event dated today means no more grammar.
  */
 export async function getTodaysGrammarLesson(): Promise<LocalGrammarLesson | null> {
-  const today = todayString();
-  const doneToday = await db.grammarCompletionEvents
-    .where('completed_at')
-    .between(today, today + '\uffff')
-    .count();
-  if (doneToday > 0) return null;
+  if (await grammarCompletedToday()) return null;
 
   const lessons = await db.grammarLessons.orderBy('position').toArray();
   return lessons.find(l => l.exercises !== null && l.status !== 'known') ?? null;

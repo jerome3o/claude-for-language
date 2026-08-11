@@ -38,7 +38,7 @@ import {
   getReaderIntervalPreviews,
   readerSchedulingFields,
 } from '../services/reader-study';
-import { getTodaysGrammarLesson, completeGrammarLesson } from '../services/grammar-study';
+import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia } from '../services/grammar-study';
 import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '../services/readerSync';
 import { markDailyActivity } from '../api/client';
 import { syncService } from '../services/sync';
@@ -312,6 +312,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const [dailyReaderPending, setDailyReaderPending] = useState(false);
   // Today's grammar lesson (offline, precomputed); null once completed today
   const [grammarLesson, setGrammarLesson] = useState<LocalGrammarLesson | null>(null);
+  // True while the server is still generating today's lesson exercises —
+  // shown as a placeholder count and polled until the lesson lands.
+  const [grammarPending, setGrammarPending] = useState(false);
 
   // Session stats tracking
   const [sessionStats, setSessionStats] = useState<SessionStats>({
@@ -367,6 +370,23 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       // in the background; if one starts generating, a placeholder count is
       // shown and polling picks it up when it's ready.
       if (!deckId) {
+        // Actively refresh the grammar lesson cache too — the background
+        // sync may not have run yet (fresh app load), and the first upcoming
+        // call is also what kicks off server-side exercise generation.
+        if (navigator.onLine) {
+          syncGrammarLessons()
+            .then(async () => {
+              const lesson = await getTodaysGrammarLesson();
+              if (lesson) {
+                setGrammarLesson(lesson);
+                setGrammarPending(false);
+              } else {
+                setGrammarPending(await grammarGenerationPending());
+              }
+            })
+            .catch(err => console.error('[useStudySession] Grammar lesson refresh failed:', err));
+        }
+
         ensureDailyReader()
           .then(async pending => {
             setDailyReaderPending(pending);
@@ -557,6 +577,31 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       selectNextCard();
     }
   }, [isLoading, queue.length, readerQueue.length, grammarLesson, currentCardState.card, currentCardState.reader, currentCardState.grammar, selectNextCard]);
+
+  // While today's grammar exercises are generating server-side, poll until
+  // they land, then slot the lesson in at the end of the session.
+  useEffect(() => {
+    if (!grammarPending || !enabled) return;
+
+    const POLL_MS = 30_000;
+    const interval = setInterval(async () => {
+      if (!navigator.onLine) return;
+      try {
+        await syncGrammarLessons();
+        const lesson = await getTodaysGrammarLesson();
+        if (lesson) {
+          setGrammarLesson(lesson);
+          setGrammarPending(false);
+          prefetchGrammarMedia().catch(() => {});
+        } else if (!(await grammarGenerationPending())) {
+          setGrammarPending(false);
+        }
+      } catch (err) {
+        console.error('[useStudySession] Grammar lesson poll failed:', err);
+      }
+    }, POLL_MS);
+    return () => clearInterval(interval);
+  }, [grammarPending, enabled]);
 
   // While today's reader is generating, poll sync until it lands, then slot
   // it into the session (it shows up at the end, after the cards).
@@ -1019,13 +1064,16 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // NEW (blue) item, so count it there while it's being written.
     if (dailyReaderPending) n++;
     // Today's grammar lesson: blue if it's a brand-new pattern, green if
-    // it's a repeat round of one still being learned.
+    // it's a repeat round of one still being learned. A lesson still being
+    // generated counts as a blue placeholder.
     if (grammarLesson) {
       if (grammarLesson.status === 'new') n++;
       else r++;
+    } else if (grammarPending) {
+      n++;
     }
     return { new: n, secondaryNew: s, learning: l, review: r };
-  }, [queue, readerQueue, dailyReaderPending, grammarLesson]);
+  }, [queue, readerQueue, dailyReaderPending, grammarLesson, grammarPending]);
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
   const currentReader = currentCardState.reader ?? null;
   const currentGrammar = currentCardState.grammar ?? null;
@@ -1126,6 +1174,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     cardVersion,
     counts,
     dailyReaderPending,
+    grammarPending,
     intervalPreviews,
     readerIntervalPreviews,
     hasMoreNewCards,

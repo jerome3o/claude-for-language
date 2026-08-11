@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   getTodaysGrammarLesson,
   completeGrammarLesson,
+  grammarCompletedToday,
+  grammarGenerationPending,
   GRAMMAR_KNOWN_THRESHOLD,
 } from './grammar-study';
 import { db, LocalGrammarLesson } from '../db/database';
@@ -68,6 +70,59 @@ describe('getTodaysGrammarLesson', () => {
 
   it('returns null when nothing is cached', async () => {
     expect(await getTodaysGrammarLesson()).toBeNull();
+  });
+});
+
+describe('grammarCompletedToday', () => {
+  it('compares learner-local dates, not UTC string prefixes', async () => {
+    // Completed "now" — same local day regardless of timezone
+    await db.grammarCompletionEvents.put({
+      id: 'ev-now',
+      grammar_point_id: 'gp-x',
+      correct: 4,
+      total: 8,
+      completed_at: new Date().toISOString(),
+      _synced: 0,
+    });
+    expect(await grammarCompletedToday()).toBe(true);
+
+    await db.grammarCompletionEvents.clear();
+    // Completed two days ago — never today in any timezone
+    await db.grammarCompletionEvents.put({
+      id: 'ev-old',
+      grammar_point_id: 'gp-x',
+      correct: 4,
+      total: 8,
+      completed_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      _synced: 1,
+    });
+    expect(await grammarCompletedToday()).toBe(false);
+  });
+});
+
+describe('grammarGenerationPending', () => {
+  it('is pending when lessons exist but none has exercises yet', async () => {
+    await db.grammarLessons.bulkPut([
+      makeLesson({ grammar_point_id: 'gp-a', position: 0, exercises: null }),
+      makeLesson({ grammar_point_id: 'gp-b', position: 1, exercises: null }),
+    ]);
+    expect(await grammarGenerationPending()).toBe(true);
+  });
+
+  it('is not pending when a usable lesson exists or the cache is empty', async () => {
+    expect(await grammarGenerationPending()).toBe(false);
+
+    await db.grammarLessons.bulkPut([
+      makeLesson({ grammar_point_id: 'gp-ready', position: 0 }),
+      makeLesson({ grammar_point_id: 'gp-later', position: 1, exercises: null }),
+    ]);
+    expect(await grammarGenerationPending()).toBe(false);
+  });
+
+  it('is not pending once today\'s lesson is done', async () => {
+    await db.grammarLessons.put(makeLesson({ grammar_point_id: 'gp-a', position: 0, exercises: null }));
+    await completeGrammarLesson('gp-other', 3, 6);
+    expect(await grammarGenerationPending()).toBe(false);
   });
 });
 
