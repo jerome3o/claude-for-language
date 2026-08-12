@@ -10,7 +10,7 @@
  *   cache it ahead of time for readers that are due soon.
  */
 
-import { db, LocalReader, LocalReaderPage } from '../db/database';
+import { db, getDueNoteIds, LocalReader, LocalReaderPage } from '../db/database';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader } from '../api/client';
 import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE, CardQueue } from '../types';
@@ -147,8 +147,12 @@ export async function ensureDailyReader(): Promise<boolean> {
   if (hasUnread) return false;
 
   try {
+    // Today's due words (from the offline study queue) become the story's
+    // best-effort target vocabulary. The server pairs them with the tutor's
+    // recent lesson notes to pick the theme — no more canned scenarios.
+    const dueNoteIds = await getDueNoteIds();
     // Idempotent per-day on the server: repeated calls return today's reader
-    const status = await generateDailyReader();
+    const status = await generateDailyReader(dueNoteIds);
     if (status.status === 'generating') return true;
     if (status.status === 'ready') {
       // Generated earlier (other device / earlier session) but possibly not

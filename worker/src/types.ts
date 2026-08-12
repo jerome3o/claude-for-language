@@ -43,6 +43,9 @@ export interface StoryGenerationMessage {
   // weave in best-effort; the allowed vocabulary is the learner's full
   // learned word list, loaded by the consumer.
   mode?: 'due_cards';
+  // Thread the tutor's recent lesson notes into the story prompt so the
+  // story can echo themes/phrasings the learner just covered in class.
+  withLessonNotes?: boolean;
 }
 
 export interface ImageGenerationMessage {

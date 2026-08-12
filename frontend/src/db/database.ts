@@ -1056,6 +1056,16 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
 }
 
 /**
+ * Note ids of all cards due today, in study order. Used to point AI story
+ * generation ("story from today's due words") at what the learner is about
+ * to review.
+ */
+export async function getDueNoteIds(): Promise<string[]> {
+  const dueCards = await getDueCards();
+  return [...new Set(dueCards.map(c => c.note_id))];
+}
+
+/**
  * Returns the set of note IDs that have at least one reviewed card (queue != NEW).
  * Used by the study session to prioritize unreviewed notes when selecting new cards.
  */

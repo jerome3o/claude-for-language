@@ -36,9 +36,10 @@ IMAGE PROMPTS:
 
 Use the create_story tool to return the story.`;
 
-// Model for story generation. The previous 'claude-sonnet-4-20250514' was
-// retired by Anthropic (API now returns 404 not_found_error for it).
-const STORY_MODEL = 'claude-sonnet-5';
+// Model for story generation. Opus-class writing quality matters here — the
+// stories are the product. (Previous models: claude-sonnet-4-20250514 was
+// retired by Anthropic, then claude-sonnet-5.)
+const STORY_MODEL = 'claude-opus-5';
 
 // Tool definition for structured output
 const CREATE_STORY_TOOL: Anthropic.Tool = {
@@ -116,13 +117,16 @@ function formatVocabList(vocabulary: VocabularyItem[]): string {
  * due cards"): the story is written from the full allowed vocabulary, and the
  * target words are woven in only where they fit naturally — a realistic story
  * that skips some targets beats a contrived one that forces them all in.
+ *
+ * options.lessonNotes threads in the tutor's recent lesson material so the
+ * story can echo themes and phrasings the learner just covered in class.
  */
 export async function generateStory(
   apiKey: string,
   vocabulary: VocabularyItem[],
   topic?: string,
   difficulty: DifficultyLevel = 'beginner',
-  options: { targetVocabulary?: VocabularyItem[] } = {}
+  options: { targetVocabulary?: VocabularyItem[]; lessonNotes?: string } = {}
 ): Promise<GeneratedStory> {
   const client = new Anthropic({ apiKey });
 
@@ -142,13 +146,24 @@ then let the story breathe — skip any target word that doesn't fit.
 `
     : '';
 
+  const lessonNotesSection = options.lessonNotes
+    ? `
+The learner's tutor recently covered the material below in their lessons. Where it
+fits naturally, prefer these themes, phrasings, and sentence patterns — a story that
+echoes what they just studied reinforces it. Do not force it; the notes are
+inspiration, not requirements:
+
+${options.lessonNotes}
+`
+    : '';
+
   const userPrompt = `Create a graded reader story at the "${difficulty}" level.
 
 ${topicInstruction}
 
 Available vocabulary (you MUST only use these words):
 ${formatVocabList(vocabulary)}
-${targetSection}
+${targetSection}${lessonNotesSection}
 Remember:
 - Use ONLY the vocabulary provided above
 - Create 4-6 pages with engaging content
@@ -163,6 +178,7 @@ Use the create_story tool to return your story.`;
     topic: topic || null,
     vocabulary_count: vocabulary.length,
     target_count: options.targetVocabulary?.length ?? 0,
+    has_lesson_notes: Boolean(options.lessonNotes),
   }));
 
   const response = await client.messages.create({
@@ -182,6 +198,13 @@ Use the create_story tool to return your story.`;
     input_tokens: response.usage?.input_tokens,
     output_tokens: response.usage?.output_tokens,
   }));
+
+  // Opus 5 / Fable-generation models can end with a safety refusal instead of
+  // the forced tool call — surface it distinctly so the reader is marked
+  // failed with a diagnosable message rather than a generic parse error.
+  if (response.stop_reason === 'refusal') {
+    throw new Error('Story generation was refused by the model (stop_reason: refusal)');
+  }
 
   // Find the tool use block
   const toolUse = response.content.find(c => c.type === 'tool_use');

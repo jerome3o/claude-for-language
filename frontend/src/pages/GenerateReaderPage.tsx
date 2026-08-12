@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getDecks, generateGradedReader } from '../api/client';
-import { getDueCards } from '../db/database';
+import { getDueNoteIds } from '../db/database';
 import { Loading } from '../components/Loading';
 import { DifficultyLevel } from '../types';
 
@@ -15,12 +15,6 @@ const DIFFICULTY_OPTIONS: { value: DifficultyLevel; label: string; description: 
 ];
 
 type ReaderSource = 'decks' | 'due_cards';
-
-/** Note ids of all cards due today, in study order (offline queue logic). */
-async function getDueNoteIds(): Promise<string[]> {
-  const dueCards = await getDueCards();
-  return [...new Set(dueCards.map(c => c.note_id))];
-}
 
 export function GenerateReaderPage() {
   const navigate = useNavigate();
