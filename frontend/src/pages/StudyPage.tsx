@@ -70,6 +70,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
+import { hanziAnswerKey } from '../utils/numberHanzi';
 
 // Friendly labels for read-only tool names
 const TOOL_LABELS: Record<string, string> = {
@@ -125,10 +126,17 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
   const normalizedCorrect = normalizeHanzi(correctAnswer);
   const isFullyCorrect = normalizedUser === normalizedCorrect;
 
-  // Check if user matched an acceptable alternative
-  const matchedAlternative = !isFullyCorrect && alternatives
-    ? alternatives.find(alt => normalizeHanzi(alt) === normalizedUser) ?? null
-    : null;
+  // Equivalence key: numbers normalized to hanzi (typing "7" matches 七),
+  // 两/二 treated the same, punctuation ignored (missing trailing 。 is fine).
+  const userKey = hanziAnswerKey(userAnswer);
+
+  // Check if user matched the answer up to number/punctuation equivalence,
+  // or an acceptable alternative (exact or equivalent).
+  const matchedAlternative = isFullyCorrect
+    ? null
+    : userKey === hanziAnswerKey(correctAnswer)
+      ? correctAnswer
+      : alternatives?.find(alt => normalizeHanzi(alt) === normalizedUser || hanziAnswerKey(alt) === userKey) ?? null;
 
   // Compare character by character (against correct or matched alternative)
   const compareTarget = matchedAlternative ?? correctAnswer;
