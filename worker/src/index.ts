@@ -18,7 +18,6 @@ import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
-import { getTodaySituation } from './services/situations';
 import { generateStory, generatePageImage } from './services/graded-reader';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import { buildLessonScript, generateLessonAudio, generateDialogueScript } from './services/audio-lesson';
@@ -2721,6 +2720,8 @@ app.post('/api/readers/generate', async (c) => {
       topic,
       difficulty: difficulty as DifficultyLevel,
       mode,
+      // Due-cards stories also draw on recent tutor lesson notes for theme
+      withLessonNotes: mode === 'due_cards',
     });
 
     console.log('[Readers] Story generation queued:', pendingReader.id);
@@ -5884,14 +5885,24 @@ async function getDailyReaderStatus(
   return existing;
 }
 
+// The daily reader has no canned scenario — the story theme is driven by the
+// learner's due words and recent lesson notes. daily_readers.situation_id is
+// NOT NULL for historical reasons, so reservations use this sentinel.
+const DAILY_READER_SOURCE = 'due-cards';
+
 // On-demand generation of today's reader. Idempotent: if one is already
 // generating or ready, it's returned as-is rather than regenerated. A failed
 // reader (or no reader yet) is (re)queued for generation. Returns null when the
 // user doesn't have enough learned vocabulary yet.
+//
+// The story targets today's due cards (note ids sent by the client, which owns
+// the offline study queue) and threads in the tutor's recent lesson notes.
+// With no/few due words it falls back to a free story over the full learned
+// vocabulary — still with lesson notes.
 async function startDailyReader(
   c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
   userId: string,
-  sit: ReturnType<typeof getTodaySituation>,
+  dueNoteIds: string[],
 ) {
   const existing = await db.getDailyReader(c.env.DB, userId);
 
@@ -5919,26 +5930,39 @@ async function startDailyReader(
 
   // No reservation yet — atomically reserve the slot (skip if already reserved for a retry).
   if (!existing) {
-    const won = await db.reserveDailyReader(c.env.DB, userId, sit.id);
+    const won = await db.reserveDailyReader(c.env.DB, userId, DAILY_READER_SOURCE);
     if (!won) return await db.getDailyReader(c.env.DB, userId);
   }
 
-  const topic = `A short conversation between ${sit.user_role} and ${sit.ai_role}. ${sit.scenario} The goal: ${sit.goal}`;
+  // Today's due words become best-effort TARGET words ('due_cards' mode: the
+  // consumer merges them with the full learned vocabulary). Too few due words
+  // → plain generation over the learned vocabulary instead.
+  const MAX_TARGET_WORDS = 80;
+  const targets = dueNoteIds.length
+    ? (await db.getVocabularyForNotes(c.env.DB, userId, dueNoteIds.slice(0, 300))).slice(0, MAX_TARGET_WORDS)
+    : [];
+  const dueMode = targets.length >= 3;
+
   const pending = await db.createPendingReader(c.env.DB, userId, {
     title_chinese: '生成中...',
-    title_english: sit.title,
+    title_english: "Today's story...",
     difficulty_level: 'beginner' as DifficultyLevel,
-    topic,
+    topic: null,
     source_deck_ids: deckIds,
-    vocabulary_used: vocabulary,
+    vocabulary_used: dueMode ? targets : vocabulary,
   });
   await db.setDailyReaderId(c.env.DB, userId, pending.id);
   // Only the readerId is sent — the consumer loads vocabulary_used from the
   // reader record to stay under the 128 KB Queues message limit.
   c.executionCtx.waitUntil(
-    c.env.STORY_QUEUE.send({ readerId: pending.id, topic, difficulty: 'beginner' }),
+    c.env.STORY_QUEUE.send({
+      readerId: pending.id,
+      difficulty: 'beginner',
+      mode: dueMode ? 'due_cards' : undefined,
+      withLessonNotes: true,
+    }),
   );
-  return { reader_id: pending.id, situation_id: sit.id, status: 'generating' };
+  return { reader_id: pending.id, situation_id: DAILY_READER_SOURCE, status: 'generating' };
 }
 
 function triggerPracticePregen(
@@ -5971,7 +5995,6 @@ function triggerPracticePregen(
 
 app.get('/api/daily/status', async (c) => {
   const userId = c.get('user').id;
-  const todaySit = getTodaySituation();
   const [nextGrammarPoint, grammarDone, activities, dailyReader] = await Promise.all([
     db.getNextGrammarPoint(c.env.DB, userId),
     db.practiceCompletedToday(c.env.DB, userId),
@@ -6003,14 +6026,16 @@ app.post('/api/daily/mark', async (c) => {
   return c.json({ ok: true });
 });
 
-// Kick off generation of today's reader on demand (only when the user taps the
-// Reader button). Idempotent — safe to call repeatedly; returns the current
-// reader status. This replaces the old behaviour of auto-generating on every
-// home-screen load.
+// Kick off generation of today's reader on demand (called when a study session
+// starts). Idempotent — safe to call repeatedly; returns the current reader
+// status. The client sends note_ids of today's due cards (it owns the offline
+// study queue) so the story can target them; an empty/missing list just means
+// a free story over the learned vocabulary.
 app.post('/api/daily/reader/generate', async (c) => {
   const userId = c.get('user').id;
-  const todaySit = getTodaySituation();
-  const reader = await startDailyReader(c, userId, todaySit);
+  const body = await c.req.json<{ note_ids?: string[] }>().catch(() => ({} as { note_ids?: string[] }));
+  const dueNoteIds = Array.isArray(body.note_ids) ? body.note_ids : [];
+  const reader = await startDailyReader(c, userId, dueNoteIds);
   if (!reader) {
     return c.json(
       { error: 'Not enough learned vocabulary yet. Study some cards first, then try again.' },
@@ -6407,7 +6432,7 @@ export default {
     if (queueName === 'story-generation-queue') {
       // Handle story generation
       for (const message of batch.messages) {
-        const { readerId, topic, difficulty, mode } = message.body as StoryGenerationMessage;
+        const { readerId, topic, difficulty, mode, withLessonNotes } = message.body as StoryGenerationMessage;
         console.log('[Queue] Processing story generation for reader:', readerId, mode ? `(mode: ${mode})` : '');
 
         try {
@@ -6430,13 +6455,17 @@ export default {
             vocabulary = [...learned, ...targetVocabulary.filter(v => !seen.has(v.hanzi))];
           }
 
+          const lessonNotes = withLessonNotes
+            ? await db.getRecentLessonNotesText(env.DB, pendingReader.user_id)
+            : '';
+
           // Generate the story using Claude with tool use
           const story = await generateStory(
             env.ANTHROPIC_API_KEY,
             vocabulary,
             topic,
             difficulty,
-            { targetVocabulary }
+            { targetVocabulary, lessonNotes: lessonNotes || undefined }
           );
 
           console.log('[Queue] Story generated:', story.title_english, 'with', story.pages.length, 'pages');

@@ -1779,9 +1779,14 @@ export async function getDailyStatus(): Promise<DailyStatus> {
 }
 
 // Kick off generation of today's reader. Idempotent per day — the study
-// session calls this when it starts (see ensureDailyReader).
-export async function generateDailyReader(): Promise<NonNullable<DailyStatus['today_reader']>> {
-  return fetchJSON('/daily/reader/generate', { method: 'POST' });
+// session calls this when it starts (see ensureDailyReader). The note ids of
+// today's due cards are sent so the story can target the words the learner is
+// about to review; an empty list means a free story over learned vocabulary.
+export async function generateDailyReader(dueNoteIds: string[]): Promise<NonNullable<DailyStatus['today_reader']>> {
+  return fetchJSON('/daily/reader/generate', {
+    method: 'POST',
+    body: JSON.stringify({ note_ids: dueNoteIds }),
+  });
 }
 
 export async function markDailyActivity(activity: 'reader', refId?: string): Promise<void> {
