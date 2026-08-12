@@ -407,7 +407,8 @@ function ContrastView(props: {
             disabled={result !== null}
           >
             <div className="contrast-hanzi">{s.hanzi}</div>
-            <div className="contrast-pinyin">{s.pinyin}</div>
+            {/* Pinyin only after answering — reading the hanzi IS the exercise */}
+            {result !== null && <div className="contrast-pinyin">{s.pinyin}</div>}
             {result !== null && <div className="contrast-english">{s.english}</div>}
           </button>
         );
