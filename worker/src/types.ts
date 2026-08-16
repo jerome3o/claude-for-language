@@ -180,6 +180,26 @@ export interface Note {
   updated_at: string;
 }
 
+/**
+ * One entry in a note's sentence set — a graded list of example sentences for
+ * a word (see migration 0054). Ordered by `position`, easiest first.
+ */
+export interface NoteSentence {
+  id: string;
+  note_id: string;
+  position: number;
+  hanzi: string;
+  pinyin: string | null;
+  translation: string | null;
+  audio_url: string | null;
+  /** core | shared_character | contrast | collocation | complex */
+  focus: string | null;
+  /** Short learner-facing note explaining why this sentence is in the set */
+  focus_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Card {
   id: string;
   note_id: string;

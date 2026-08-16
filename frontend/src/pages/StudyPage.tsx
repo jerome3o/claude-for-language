@@ -60,6 +60,7 @@ import { QueueCountsHeader } from '../components/QueueCountsHeader';
 import { RatingButtons } from '../components/RatingButtons';
 import { StudyReader } from '../components/StudyReader';
 import { StudyGrammar } from '../components/StudyGrammar';
+import { SentenceSet } from '../components/SentenceSet';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
@@ -2991,6 +2992,12 @@ function StudyCard({
                       {isGeneratingSentence ? 'Generating...' : 'Generate Sentence'}
                     </button>
                   )}
+                </div>
+
+                {/* Graded sentence set: several examples of this word, simple
+                    to complex, cached with audio for offline study. */}
+                <div className="mt-3">
+                  <SentenceSet noteId={card.note.id} compact />
                 </div>
               </div>
               <div className="study-card-actions">

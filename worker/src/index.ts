@@ -16,6 +16,7 @@ import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
+import { generateSentenceSet } from './services/sentence-set';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage } from './services/graded-reader';
@@ -1210,6 +1211,164 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
     console.error('Sentence clue generation error:', error);
     return c.json({ error: 'Failed to generate sentence clue' }, 500);
   }
+});
+
+// ============ Sentence sets (a graded list of examples per note) ============
+
+/** Generate TTS for a list of sentences, a few at a time, and store the keys. */
+async function attachSentenceSetAudio(
+  env: Env,
+  sentences: Array<{ id: string; hanzi: string }>
+): Promise<Map<string, string>> {
+  const audioByIdMap = new Map<string, string>();
+  if (!env.GOOGLE_TTS_API_KEY && !env.MINIMAX_API_KEY) return audioByIdMap;
+
+  const CONCURRENCY = 4;
+  let next = 0;
+  const worker = async () => {
+    while (next < sentences.length) {
+      const sentence = sentences[next++];
+      try {
+        const result = await generateTTS(env, sentence.hanzi, `${sentence.id}-sentence`);
+        if (result) {
+          await db.setNoteSentenceAudio(env.DB, sentence.id, result.audioKey);
+          audioByIdMap.set(sentence.id, result.audioKey);
+        }
+      } catch (error) {
+        console.error('[sentence-set] TTS failed for', sentence.id, error);
+        // Sentence stays usable without audio; the next generate can retry.
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sentences.length) }, worker));
+  return audioByIdMap;
+}
+
+// List a note's sentence set
+app.get('/api/notes/:id/sentences', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) return c.json({ error: 'Note not found' }, 404);
+
+  const sentences = await db.getNoteSentences(c.env.DB, id);
+  return c.json({ sentences });
+});
+
+// Generate (or regenerate) a whole sentence set for a note
+app.post('/api/notes/:id/sentences/generate', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) return c.json({ error: 'Note not found' }, 404);
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 500);
+  }
+
+  let count: number | undefined;
+  let customPrompt: string | null = null;
+  let keepExisting = false;
+  try {
+    const body = await c.req.json<{ count?: number; customPrompt?: string; keepExisting?: boolean }>();
+    count = body?.count;
+    customPrompt = body?.customPrompt?.trim() || null;
+    keepExisting = body?.keepExisting === true;
+  } catch {
+    // No body — use defaults
+  }
+
+  try {
+    const existingRows = await db.getNoteSentences(c.env.DB, id);
+    // The note's inline sentence clue counts as "already seen" so the set
+    // doesn't just repeat it back.
+    const seen = [
+      ...(note.sentence_clue ? [note.sentence_clue] : []),
+      ...existingRows.map((s) => s.hanzi),
+    ];
+
+    const userRow = await c.env.DB.prepare('SELECT bio FROM users WHERE id = ?')
+      .bind(userId)
+      .first<{ bio: string | null }>();
+
+    const generated = await generateSentenceSet(
+      c.env.ANTHROPIC_API_KEY,
+      {
+        hanzi: note.hanzi,
+        pinyin: note.pinyin,
+        english: note.english,
+        existing: seen,
+        bio: userRow?.bio ?? null,
+        customPrompt,
+      },
+      count
+    );
+
+    // "Keep existing" appends the new batch after what's already there; the
+    // default replaces the set so difficulty stays monotonic across it.
+    const kept = keepExisting
+      ? existingRows.map((s) => ({
+          hanzi: s.hanzi,
+          pinyin: s.pinyin,
+          translation: s.translation,
+          audioUrl: s.audio_url,
+          focus: s.focus,
+          focusNote: s.focus_note,
+        }))
+      : [];
+
+    const stored = await db.replaceNoteSentences(c.env.DB, id, [
+      ...kept,
+      ...generated.map((s) => ({
+        hanzi: s.hanzi,
+        pinyin: s.pinyin,
+        translation: s.translation,
+        audioUrl: null,
+        focus: s.focus,
+        focusNote: s.focusNote,
+      })),
+    ]);
+
+    const needAudio = stored.filter((s) => !s.audio_url);
+    const audioById = await attachSentenceSetAudio(c.env, needAudio);
+
+    const sentences = stored.map((s) => ({
+      ...s,
+      audio_url: s.audio_url ?? audioById.get(s.id) ?? null,
+    }));
+
+    return c.json({ sentences });
+  } catch (error) {
+    console.error('Sentence set generation error:', error);
+    return c.json({ error: 'Failed to generate sentence set' }, 500);
+  }
+});
+
+// Delete a note's sentence set
+app.delete('/api/notes/:id/sentences', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) return c.json({ error: 'Note not found' }, 404);
+
+  await db.deleteNoteSentences(c.env.DB, id);
+  return c.json({ success: true });
+});
+
+/**
+ * Offline sync: every sentence the user owns that changed since `since`.
+ * Sets are always written whole, so the client can safely replace all local
+ * rows for each note_id that appears in the response.
+ */
+app.get('/api/sentences/changes', async (c) => {
+  const userId = c.get('user').id;
+  const since = c.req.query('since') || null;
+  const sentences = await db.getNoteSentencesForUser(c.env.DB, userId, since);
+  return c.json({ sentences, server_time: new Date().toISOString() });
 });
 
 // Generate a fun fact for a note that doesn't have one

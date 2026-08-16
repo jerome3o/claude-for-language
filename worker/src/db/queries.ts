@@ -28,6 +28,7 @@ import {
   NotificationType,
   CoachConversation,
   CoachMessage,
+  NoteSentence,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
@@ -761,6 +762,9 @@ export async function deleteNote(db: D1Database, id: string, userId: string): Pr
   const note = await getNoteById(db, id, userId);
   if (!note) return;
 
+  // Explicit: the FK cascade covers this, but don't leave sentence rows (and
+  // their R2 audio) orphaned if foreign keys are ever off.
+  await db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(id).run();
   await db.prepare('DELETE FROM notes WHERE id = ?').bind(id).run();
 
   // Update deck's updated_at
@@ -2211,7 +2215,7 @@ export async function reorderReaderPages(db: D1Database, readerId: string, userI
  * URLs are R2 keys relative to /api/audio/ (e.g. "generated/abc.mp3").
  */
 export async function getAudioManifest(db: D1Database, userId: string): Promise<string[]> {
-  const [noteAudio, clueAudio, recordings] = await Promise.all([
+  const [noteAudio, clueAudio, recordings, sentenceSetAudio] = await Promise.all([
     db.prepare(`
       SELECT n.audio_url AS url FROM notes n
       JOIN decks d ON n.deck_id = d.id
@@ -2228,10 +2232,16 @@ export async function getAudioManifest(db: D1Database, userId: string): Promise<
       JOIN decks d ON n.deck_id = d.id
       WHERE d.user_id = ? AND nar.audio_url IS NOT NULL
     `).bind(userId).all<{ url: string }>(),
+    db.prepare(`
+      SELECT ns.audio_url AS url FROM note_sentences ns
+      JOIN notes n ON ns.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL
+    `).bind(userId).all<{ url: string }>(),
   ]);
 
   const urls = new Set<string>();
-  for (const rows of [noteAudio.results, clueAudio.results, recordings.results]) {
+  for (const rows of [noteAudio.results, clueAudio.results, recordings.results, sentenceSetAudio.results]) {
     for (const row of rows) {
       if (row.url) urls.add(row.url);
     }
@@ -3400,4 +3410,111 @@ export async function deleteCoachConversation(
   await db.prepare(`DELETE FROM coach_messages WHERE conversation_id = ?`).bind(id).run();
   await db.prepare(`DELETE FROM coach_conversations WHERE id = ?`).bind(id).run();
   return true;
+}
+
+// ============ Note Sentence Sets ============
+
+/**
+ * Sentence sets are stored as whole sets: generating replaces every row for a
+ * note in one go, and every surviving row gets the same `updated_at`. Clients
+ * sync with "give me every sentence touched since X" and replace their local
+ * rows for each note that comes back, which stays correct because a note's set
+ * is never partially updated.
+ */
+
+export interface NoteSentenceInput {
+  hanzi: string;
+  pinyin: string | null;
+  translation: string | null;
+  audioUrl: string | null;
+  focus: string | null;
+  focusNote: string | null;
+}
+
+export async function getNoteSentences(db: D1Database, noteId: string): Promise<NoteSentence[]> {
+  const result = await db
+    .prepare('SELECT * FROM note_sentences WHERE note_id = ? ORDER BY position ASC')
+    .bind(noteId)
+    .all<NoteSentence>();
+  return result.results;
+}
+
+/** Replace a note's entire sentence set. Returns the stored rows. */
+export async function replaceNoteSentences(
+  db: D1Database,
+  noteId: string,
+  sentences: NoteSentenceInput[]
+): Promise<NoteSentence[]> {
+  const now = new Date().toISOString();
+  const statements: D1PreparedStatement[] = [
+    db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(noteId),
+  ];
+
+  sentences.forEach((sentence, index) => {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO note_sentences
+             (id, note_id, position, hanzi, pinyin, translation, audio_url, focus, focus_note, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          noteId,
+          index,
+          sentence.hanzi,
+          sentence.pinyin,
+          sentence.translation,
+          sentence.audioUrl,
+          sentence.focus,
+          sentence.focusNote,
+          now,
+          now
+        )
+    );
+  });
+
+  await db.batch(statements);
+  return getNoteSentences(db, noteId);
+}
+
+export async function deleteNoteSentences(db: D1Database, noteId: string): Promise<void> {
+  await db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(noteId).run();
+}
+
+/** Attach an audio URL to one sentence (TTS is generated after the row exists). */
+export async function setNoteSentenceAudio(
+  db: D1Database,
+  sentenceId: string,
+  audioUrl: string
+): Promise<void> {
+  await db
+    .prepare('UPDATE note_sentences SET audio_url = ? WHERE id = ?')
+    .bind(audioUrl, sentenceId)
+    .run();
+}
+
+/**
+ * Every sentence the user owns that changed since `since` (ISO timestamp).
+ * Pass no `since` for a full dump — sentence rows are small and text-only.
+ */
+export async function getNoteSentencesForUser(
+  db: D1Database,
+  userId: string,
+  since?: string | null
+): Promise<NoteSentence[]> {
+  const base = `
+    SELECT ns.* FROM note_sentences ns
+    JOIN notes n ON ns.note_id = n.id
+    JOIN decks d ON n.deck_id = d.id
+    WHERE d.user_id = ?
+  `;
+  const result = since
+    ? await db.prepare(`${base} AND ns.updated_at > ? ORDER BY ns.note_id, ns.position`)
+        .bind(userId, since)
+        .all<NoteSentence>()
+    : await db.prepare(`${base} ORDER BY ns.note_id, ns.position`)
+        .bind(userId)
+        .all<NoteSentence>();
+  return result.results;
 }
