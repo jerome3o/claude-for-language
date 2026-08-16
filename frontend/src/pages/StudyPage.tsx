@@ -27,6 +27,7 @@ import {
   analyzeSentence,
   SpeechSuperResult,
 } from '../api/client';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
 import { SentenceChunk } from '../types';
 import './RoleplayPage.css';
@@ -356,6 +357,13 @@ function StudyCard({
   const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
+  // Separate player for the user's own recording so it never fights with the
+  // note audio for the single reusable element.
+  const recordingPlayerRef = useRef(createAudioPlayer());
+  useEffect(() => {
+    const player = recordingPlayerRef.current;
+    return () => player.dispose();
+  }, []);
   const {
     isTranscribing,
     comparison: transcriptionComparison,
@@ -1037,8 +1045,7 @@ function StudyCard({
 
   const playUserRecording = () => {
     if (audioBlob) {
-      const url = URL.createObjectURL(audioBlob);
-      new Audio(url).play();
+      recordingPlayerRef.current.play(audioBlob);
     }
   };
 
@@ -2397,10 +2404,7 @@ function StudyCard({
           <div className="flex gap-1 justify-center">
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => {
-                const url = URL.createObjectURL(audioBlob);
-                new Audio(url).play();
-              }}
+              onClick={playUserRecording}
             >
               Play Recording
             </button>

@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { SentenceBreakdown as SentenceBreakdownType } from '../types';
 import { generatePracticeTTS } from '../api/client';
+import { base64ToBlob } from '../services/ttsCache';
+import { createAudioPlayer } from '../utils/audioPlayback';
 
 interface SentenceBreakdownProps {
   breakdown: SentenceBreakdownType;
@@ -19,9 +21,10 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
 
   // Ref to track if we should continue playing all
   const playAllRef = useRef(false);
-  const currentPlayIdRef = useRef(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const ttsCache = useRef<Map<string, string>>(new Map());
+  const playerRef = useRef(createAudioPlayer());
+  // Per-chunk clips, kept as blobs rather than base64 data URLs: a data URL
+  // keeps the whole clip alive as a string on every element that references it.
+  const ttsCache = useRef<Map<string, Blob>>(new Map());
 
   const goToPrevious = useCallback(() => {
     setCurrentChunkIndex((prev) => Math.max(0, prev - 1));
@@ -40,67 +43,42 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
   // Stop any ongoing audio
   const stopSpeech = useCallback(() => {
     playAllRef.current = false;
-    currentPlayIdRef.current++;
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
+    playerRef.current.stop();
     setIsPlaying(false);
     setIsPlayingAll(false);
   }, []);
 
   // Speak a single chunk's hanzi via MiniMax TTS API, with in-memory caching
   const speakChunk = useCallback((text: string, onEnd?: () => void) => {
-    const playId = ++currentPlayIdRef.current;
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
+    const playId = playerRef.current.claim();
 
     setIsPlaying(true);
 
-    const playUrl = (url: string) => {
-      if (currentPlayIdRef.current !== playId) return;
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.onended = () => {
-        if (currentPlayIdRef.current === playId) {
-          setIsPlaying(false);
-          onEnd?.();
-        }
-      };
-      audio.onerror = () => {
-        if (currentPlayIdRef.current === playId) {
-          setIsPlaying(false);
-          onEnd?.();
-        }
-      };
-      void audio.play().catch(() => {
-        if (currentPlayIdRef.current === playId) {
-          setIsPlaying(false);
-          onEnd?.();
-        }
-      });
+    const finish = () => {
+      setIsPlaying(false);
+      onEnd?.();
+    };
+
+    const playBlob = (blob: Blob) => {
+      if (!playerRef.current.isCurrent(playId)) return;
+      playerRef.current.play(blob, { onEnded: finish, onError: finish });
     };
 
     const cached = ttsCache.current.get(text);
     if (cached) {
-      playUrl(cached);
+      playBlob(cached);
       return;
     }
 
     generatePracticeTTS(text)
       .then((r) => {
-        if (currentPlayIdRef.current !== playId) return;
-        const url = `data:${r.content_type};base64,${r.audio_base64}`;
-        ttsCache.current.set(text, url);
-        playUrl(url);
+        if (!playerRef.current.isCurrent(playId)) return;
+        const blob = base64ToBlob(r.audio_base64, r.content_type);
+        ttsCache.current.set(text, blob);
+        playBlob(blob);
       })
       .catch(() => {
-        if (currentPlayIdRef.current === playId) {
-          setIsPlaying(false);
-          onEnd?.();
-        }
+        if (playerRef.current.isCurrent(playId)) finish();
       });
   }, []);
 
@@ -135,10 +113,12 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
   }, [speakChunk, breakdown.chunks, totalChunks]);
 
   useEffect(() => {
+    const player = playerRef.current;
     return () => {
-      stopSpeech();
+      playAllRef.current = false;
+      player.dispose();
     };
-  }, [stopSpeech]);
+  }, []);
 
   // Render chunks with highlighting for hanzi/pinyin (built from chunks)
   const renderChunksHighlight = (

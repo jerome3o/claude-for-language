@@ -14,6 +14,8 @@ import {
 } from '../api/client';
 import { useAudioRecorder } from '../hooks/useAudio';
 import { READER_TTS_SPEED } from '../services/readerSync';
+import { base64ToBlob } from '../services/ttsCache';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import { Loading } from '../components/Loading';
 import { SentenceBreakdown } from '../components/SentenceBreakdown';
 import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
@@ -111,7 +113,7 @@ function RecordingControls({
   const [isUploading, setIsUploading] = useState(false);
   const [isPlayingBack, setIsPlayingBack] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef(createAudioPlayer());
   const recordingStartRef = useRef<number>(0);
 
   // Upload the recorded blob
@@ -137,47 +139,32 @@ function RecordingControls({
     startRecording();
   }, [startRecording]);
 
-  // Play existing recording
-  const playRecording = useCallback((audioUrl: string) => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    const audio = new Audio(getHomeworkRecordingUrl(audioUrl));
-    audioRef.current = audio;
-    audio.onplay = () => setIsPlayingBack(true);
-    audio.onended = () => setIsPlayingBack(false);
-    audio.onerror = () => setIsPlayingBack(false);
-    audio.play().catch(() => setIsPlayingBack(false));
+  const play = useCallback((source: Blob | string) => {
+    playerRef.current.play(source, {
+      onPlay: () => setIsPlayingBack(true),
+      onEnded: () => setIsPlayingBack(false),
+      onError: () => setIsPlayingBack(false),
+    });
   }, []);
 
+  // Play existing recording
+  const playRecording = useCallback((audioUrl: string) => {
+    play(getHomeworkRecordingUrl(audioUrl));
+  }, [play]);
+
   const stopPlayback = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      setIsPlayingBack(false);
-    }
+    playerRef.current.stop();
+    setIsPlayingBack(false);
   }, []);
 
   // Play back just-recorded audio
   const playPreview = useCallback(() => {
-    if (!audioBlob) return;
-    if (audioRef.current) audioRef.current.pause();
-    const url = URL.createObjectURL(audioBlob);
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.onplay = () => setIsPlayingBack(true);
-    audio.onended = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
-    audio.onerror = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
-    audio.play().catch(() => setIsPlayingBack(false));
-  }, [audioBlob]);
+    if (audioBlob) play(audioBlob);
+  }, [audioBlob, play]);
 
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
+    const player = playerRef.current;
+    return () => player.dispose();
   }, []);
 
   if (isCompleted) {
@@ -297,9 +284,8 @@ function PageView({
   const [segments, setSegments] = useState<SentenceChunk[] | null>(null);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const segmentingRef = useRef(false);
-  const pageAudioRef = useRef<HTMLAudioElement | null>(null);
-  const pagePlayIdRef = useRef(0);
-  const ttsCache = useRef<Map<string, string>>(new Map());
+  const pagePlayerRef = useRef(createAudioPlayer());
+  const ttsCache = useRef<Map<string, Blob>>(new Map());
 
   // Use the page's image_url or the generated one
   const imageKey = page.image_url || generatedImageUrl;
@@ -352,56 +338,42 @@ function PageView({
   const playAudio = useCallback(() => {
     if (isPlaying) return;
 
-    const playId = ++pagePlayIdRef.current;
-    if (pageAudioRef.current) {
-      pageAudioRef.current.pause();
-      pageAudioRef.current = null;
-    }
-
+    const playId = pagePlayerRef.current.claim();
     setIsPlaying(true);
 
-    const playUrl = (url: string) => {
-      if (pagePlayIdRef.current !== playId) return;
-      const audio = new Audio(url);
-      pageAudioRef.current = audio;
-      audio.onended = () => pagePlayIdRef.current === playId && setIsPlaying(false);
-      audio.onerror = () => pagePlayIdRef.current === playId && setIsPlaying(false);
-      void audio.play().catch(() => pagePlayIdRef.current === playId && setIsPlaying(false));
+    const playBlob = (blob: Blob) => {
+      if (!pagePlayerRef.current.isCurrent(playId)) return;
+      pagePlayerRef.current.play(blob, {
+        onEnded: () => setIsPlaying(false),
+        onError: () => setIsPlaying(false),
+      });
     };
 
     const cached = ttsCache.current.get(page.content_chinese);
     if (cached) {
-      playUrl(cached);
+      playBlob(cached);
       return;
     }
 
     generatePracticeTTS(page.content_chinese, READER_TTS_SPEED)
       .then((r) => {
-        if (pagePlayIdRef.current !== playId) return;
-        const url = `data:${r.content_type};base64,${r.audio_base64}`;
-        ttsCache.current.set(page.content_chinese, url);
-        playUrl(url);
+        if (!pagePlayerRef.current.isCurrent(playId)) return;
+        const blob = base64ToBlob(r.audio_base64, r.content_type);
+        ttsCache.current.set(page.content_chinese, blob);
+        playBlob(blob);
       })
-      .catch(() => pagePlayIdRef.current === playId && setIsPlaying(false));
+      .catch(() => pagePlayerRef.current.isCurrent(playId) && setIsPlaying(false));
   }, [page.content_chinese, isPlaying]);
 
   const stopAudio = useCallback(() => {
-    pagePlayIdRef.current++;
-    if (pageAudioRef.current) {
-      pageAudioRef.current.pause();
-      pageAudioRef.current = null;
-    }
+    pagePlayerRef.current.stop();
     setIsPlaying(false);
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (pageAudioRef.current) {
-        pageAudioRef.current.pause();
-        pageAudioRef.current = null;
-      }
-    };
+    const player = pagePlayerRef.current;
+    return () => player.dispose();
   }, []);
 
   // Split sentences for individual analysis

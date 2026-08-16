@@ -33,8 +33,59 @@ export async function storeAudio(
   return key;
 }
 
-export async function getAudio(bucket: R2Bucket, key: string): Promise<R2ObjectBody | null> {
-  return bucket.get(key);
+export async function getAudio(
+  bucket: R2Bucket,
+  key: string,
+  range?: R2Range
+): Promise<R2ObjectBody | null> {
+  return bucket.get(key, range ? { range } : undefined);
+}
+
+/**
+ * Parse a single-range `Range: bytes=...` header into an R2 range.
+ * Returns undefined for absent, malformed, or multi-range headers — callers
+ * then serve the whole object, which is a valid response to any Range request.
+ */
+export function parseByteRange(header: string | undefined | null): R2Range | undefined {
+  if (!header) return undefined;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match) return undefined;
+  const [, startRaw, endRaw] = match;
+
+  if (startRaw === '') {
+    // Suffix range: "bytes=-500" means the last 500 bytes.
+    const suffix = Number(endRaw);
+    return endRaw === '' || !Number.isFinite(suffix) || suffix <= 0 ? undefined : { suffix };
+  }
+
+  const offset = Number(startRaw);
+  if (!Number.isFinite(offset)) return undefined;
+  if (endRaw === '') return { offset };
+
+  const end = Number(endRaw);
+  if (!Number.isFinite(end) || end < offset) return undefined;
+  return { offset, length: end - offset + 1 };
+}
+
+/**
+ * Normalise the range R2 actually served into absolute offset/length, so the
+ * Content-Range header matches the bytes in the body. R2 echoes the range in
+ * whichever of its three shapes was requested (offset, offset+length, or
+ * suffix); a suffix has to be converted against the object size.
+ */
+export function resolveServedRange(
+  served: R2Range | undefined,
+  size: number
+): { offset: number; length: number } | null {
+  if (!served) return null;
+  if ('suffix' in served) {
+    const length = Math.min(served.suffix, size);
+    return { offset: size - length, length };
+  }
+  const offset = served.offset ?? 0;
+  const length = served.length ?? size - offset;
+  if (offset < 0 || length <= 0 || offset + length > size) return null;
+  return { offset, length };
 }
 
 export async function deleteAudio(bucket: R2Bucket, key: string): Promise<void> {

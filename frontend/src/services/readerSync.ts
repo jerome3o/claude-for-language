@@ -15,6 +15,7 @@ import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader } from '../api/client';
 import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE, CardQueue } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
+import { base64ToBlob } from './ttsCache';
 import { readerSchedulingFields, getDueReaders, isStudyableReader } from './reader-study';
 
 function pageToLocal(page: GradedReaderWithPages['pages'][number]): LocalReaderPage {
@@ -183,15 +184,6 @@ export function readerTtsKey(page: Pick<LocalReaderPage, 'id' | 'content_chinese
     hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0;
   }
   return `reader-tts/${page.id}/${hash.toString(36)}-x${READER_TTS_SPEED}`;
-}
-
-function base64ToBlob(base64: string, contentType: string): Blob {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: contentType });
 }
 
 /**

@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { getAudioWithCache, getCachedAudio, pickChineseVoice } from '../services/audioCache';
 import { getManualOfflineMode } from '../services/offlineMode';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import { DEFAULT_TTS_SPEED } from '../types';
 
 /**
@@ -123,7 +124,12 @@ export function useAudioRecorder() {
 export function useAudioPlayer(url?: string) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef(createAudioPlayer());
+
+  useEffect(() => {
+    const player = playerRef.current;
+    return () => player.dispose();
+  }, []);
 
   const play = useCallback(
     (overrideUrl?: string) => {
@@ -131,50 +137,27 @@ export function useAudioPlayer(url?: string) {
       if (!audioUrl) return;
 
       setError(null);
-
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-
-      audio.onplay = () => setIsPlaying(true);
-      audio.onended = () => setIsPlaying(false);
-      audio.onerror = () => {
-        setIsPlaying(false);
-        setError('Failed to play audio');
-      };
-
-      audio.play().catch((err) => {
-        setIsPlaying(false);
-        setError('Failed to play audio');
-        console.error('Playback error:', err);
+      playerRef.current.play(audioUrl, {
+        onPlay: () => setIsPlaying(true),
+        onEnded: () => setIsPlaying(false),
+        onError: () => {
+          setIsPlaying(false);
+          setError('Failed to play audio');
+        },
       });
     },
     [url]
   );
 
-  const pause = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, []);
-
   const stop = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      setIsPlaying(false);
-    }
+    playerRef.current.stop();
+    setIsPlaying(false);
   }, []);
 
   return {
     isPlaying,
     error,
     play,
-    pause,
     stop,
   };
 }
@@ -236,22 +219,20 @@ export function useTTS() {
  */
 export function useNoteAudio() {
   const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef(createAudioPlayer());
   const playIdRef = useRef(0); // Track which play() call is current
 
   const cleanupAudio = useCallback(() => {
-    if (audioRef.current) {
-      // Remove all event handlers to prevent stale callbacks
-      audioRef.current.onplay = null;
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
+    playerRef.current.stop();
     // Not available in Android WebView (the native app)
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+  }, []);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    return () => player.dispose();
   }, []);
 
   const play = useCallback((audioUrl: string | null, text: string, apiBase: string, cacheBuster?: string) => {
@@ -267,31 +248,20 @@ export function useNoteAudio() {
       return;
     }
 
-    const playFromUrl = (url: string) => {
-      const audio = new Audio(url);
-      audioRef.current = audio;
-
-      audio.onplay = () => {
-        if (playIdRef.current === currentPlayId) {
-          setIsPlaying(true);
-        }
-      };
-      audio.onended = () => {
-        if (playIdRef.current === currentPlayId) {
-          setIsPlaying(false);
-        }
-      };
-      audio.onerror = () => {
-        if (playIdRef.current === currentPlayId) {
-          setIsPlaying(false);
-          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
-        }
-      };
-
-      audio.play().catch(() => {
-        if (playIdRef.current === currentPlayId) {
-          speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
-        }
+    const playSource = (source: Blob | string) => {
+      playerRef.current.play(source, {
+        onPlay: () => {
+          if (playIdRef.current === currentPlayId) setIsPlaying(true);
+        },
+        onEnded: () => {
+          if (playIdRef.current === currentPlayId) setIsPlaying(false);
+        },
+        onError: () => {
+          if (playIdRef.current === currentPlayId) {
+            setIsPlaying(false);
+            speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
+          }
+        },
       });
     };
 
@@ -303,7 +273,7 @@ export function useNoteAudio() {
       getCachedAudio(audioUrl).then((blob) => {
         if (playIdRef.current !== currentPlayId) return; // Superseded
         if (blob) {
-          playFromUrl(URL.createObjectURL(blob));
+          playSource(blob);
         } else {
           speakWithBrowserTTS(text, setIsPlaying, currentPlayId, playIdRef);
         }
@@ -320,21 +290,19 @@ export function useNoteAudio() {
       const fullUrl = `${apiBase}/api/audio/${audioUrl}?v=${encodeURIComponent(cacheBuster)}`;
       // Fetch fresh, then update cache in background
       getAudioWithCache(audioUrl).catch(() => {});
-      playFromUrl(fullUrl);
+      playSource(fullUrl);
     } else {
       getAudioWithCache(audioUrl).then(blob => {
         if (playIdRef.current !== currentPlayId) return; // Superseded
         if (blob) {
-          playFromUrl(URL.createObjectURL(blob));
+          playSource(blob);
         } else {
           // Not cached and offline, or fetch failed — try network URL directly
-          const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
-          playFromUrl(fullUrl);
+          playSource(`${apiBase}/api/audio/${audioUrl}`);
         }
       }).catch(() => {
         if (playIdRef.current !== currentPlayId) return;
-        const fullUrl = `${apiBase}/api/audio/${audioUrl}`;
-        playFromUrl(fullUrl);
+        playSource(`${apiBase}/api/audio/${audioUrl}`);
       });
     }
   }, [cleanupAudio]);

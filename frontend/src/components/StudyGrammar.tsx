@@ -3,6 +3,7 @@ import { LocalGrammarLesson, GrammarExampleSentence } from '../db/database';
 import { QueueCounts } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
 import { getTTSWithCache } from '../services/ttsCache';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import '../pages/PracticePage.css';
 
 type Exercises = NonNullable<LocalGrammarLesson['exercises']>;
@@ -19,28 +20,20 @@ const SPEAK_COUNT = 2;
  * available, generated + cached when online, silent otherwise.
  */
 function useOfflineSpeak(): (text: string) => void {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const playIdRef = useRef(0);
+  const playerRef = useRef(createAudioPlayer());
 
   useEffect(() => {
-    return () => {
-      audioRef.current?.pause();
-      audioRef.current = null;
-    };
+    const player = playerRef.current;
+    return () => player.dispose();
   }, []);
 
   return useCallback((text: string) => {
-    const playId = ++playIdRef.current;
-    audioRef.current?.pause();
+    // claim() stops the current clip and reserves the id, so a slow cache
+    // lookup can't start playing over whatever the user asked for next.
+    const playId = playerRef.current.claim();
     void getTTSWithCache(text).then(blob => {
-      if (!blob || playIdRef.current !== playId) return;
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      const done = () => URL.revokeObjectURL(url);
-      audio.onended = done;
-      audio.onerror = done;
-      void audio.play().catch(done);
+      if (!blob || !playerRef.current.isCurrent(playId)) return;
+      playerRef.current.play(blob);
     });
   }, []);
 }

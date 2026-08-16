@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { base64ToBlob } from '../services/ttsCache';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getRelationship,
@@ -76,7 +78,7 @@ export function ChatPage() {
   // AI conversation state
   const [isWaitingForAI, setIsWaitingForAI] = useState(false);
   const [playingAudioMessageId, setPlayingAudioMessageId] = useState<string | null>(null);
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const playerRef = useRef(createAudioPlayer());
 
   // Message checking state
   const [checkingMessageId, setCheckingMessageId] = useState<string | null>(null);
@@ -116,11 +118,8 @@ export function ChatPage() {
     setLastTimestamp(null);
     setCheckResults(new Map());
     // Stop any playing audio
-    if (audioElement) {
-      audioElement.pause();
-      setAudioElement(null);
-      setPlayingAudioMessageId(null);
-    }
+    playerRef.current.stop();
+    setPlayingAudioMessageId(null);
   }, [convId]);
 
   // Auto-clear chat notifications when opening the conversation
@@ -323,36 +322,18 @@ export function ChatPage() {
 
   // Audio playback functions
   const playBase64Audio = (base64: string, contentType: string, messageId: string) => {
-    // Stop any currently playing audio
-    if (audioElement) {
-      audioElement.pause();
-    }
-
-    const audio = new Audio(`data:${contentType};base64,${base64}`);
-    setAudioElement(audio);
     setPlayingAudioMessageId(messageId);
-
-    audio.onended = () => {
-      setPlayingAudioMessageId(null);
-      setAudioElement(null);
-    };
-
-    audio.onerror = () => {
-      setPlayingAudioMessageId(null);
-      setAudioElement(null);
-    };
-
-    audio.play();
+    playerRef.current.play(base64ToBlob(base64, contentType), {
+      onEnded: () => setPlayingAudioMessageId(null),
+      onError: () => setPlayingAudioMessageId(null),
+    });
   };
 
   const handlePlayMessageAudio = async (msg: MessageWithSender) => {
     if (playingAudioMessageId === msg.id) {
       // Stop playing
-      if (audioElement) {
-        audioElement.pause();
-        setAudioElement(null);
-        setPlayingAudioMessageId(null);
-      }
+      playerRef.current.stop();
+      setPlayingAudioMessageId(null);
       return;
     }
 

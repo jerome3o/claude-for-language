@@ -21,7 +21,7 @@ export function ttsCacheKey(text: string, speed: number = DEFAULT_TTS_SPEED): st
   return `tts/${hash.toString(36)}-x${speed}`;
 }
 
-function base64ToBlob(base64: string, contentType: string): Blob {
+export function base64ToBlob(base64: string, contentType: string): Blob {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {

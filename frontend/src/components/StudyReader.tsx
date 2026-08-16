@@ -6,6 +6,7 @@ import { RatingButtons } from './RatingButtons';
 import { getAudioWithCache, getCachedAudio } from '../services/audioCache';
 import { getReaderPageTTS, updateLocalReaderPageImage } from '../services/readerSync';
 import { generateReaderPageImage, getReaderImageUrl } from '../api/client';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import '../pages/ReaderPage.css';
 import './StudyReader.css';
 
@@ -89,47 +90,39 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
   const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const playIdRef = useRef(0);
+  const playerRef = useRef(createAudioPlayer());
 
   const { imageUrl, generating } = usePageImage(readerId, page);
 
   const stopAudio = useCallback(() => {
-    playIdRef.current++;
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
+    playerRef.current.stop();
     setIsPlaying(false);
   }, []);
 
   const playAudio = useCallback(async () => {
     if (isPlaying) return;
-    const playId = ++playIdRef.current;
+    const playId = playerRef.current.claim();
     setIsPlaying(true);
 
     // Cache-first TTS; offline with nothing cached → fail gracefully
     const blob = await getReaderPageTTS(page);
-    if (playIdRef.current !== playId) return;
+    if (!playerRef.current.isCurrent(playId)) return;
     if (!blob) {
       setIsPlaying(false);
       return;
     }
 
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    const finish = () => {
-      URL.revokeObjectURL(url);
-      if (playIdRef.current === playId) setIsPlaying(false);
-    };
-    audio.onended = finish;
-    audio.onerror = finish;
-    void audio.play().catch(finish);
+    playerRef.current.play(blob, {
+      onEnded: () => setIsPlaying(false),
+      onError: () => setIsPlaying(false),
+    });
   }, [page, isPlaying]);
 
-  // Stop audio on unmount (the component remounts per page via key)
-  useEffect(() => stopAudio, [stopAudio]);
+  // Release the player on unmount (the component remounts per page via key)
+  useEffect(() => {
+    const player = playerRef.current;
+    return () => player.dispose();
+  }, []);
 
   return (
     <div className="reader-page-view">
