@@ -13,6 +13,7 @@ import {
   API_BASE,
 } from '../api/client';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { SentenceSet } from './SentenceSet';
 
 interface CardEditModalProps {
   card: CardWithNote;
@@ -347,6 +348,12 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Sentence set: graded examples, simple to complex */}
+          <div className="card-edit-audio-section">
+            <h3>Sentence Set</h3>
+            <SentenceSet noteId={card.note.id} defaultOpen />
           </div>
 
           {/* Audio recordings */}

@@ -194,6 +194,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `review_events` - Individual review records (rating, time, answer, recording_url). Card state is computed from these.
 - `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at)
+- `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus). Written as whole sets; synced to IndexedDB for offline study.
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -506,6 +507,17 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `GET /api/notes/:id/questions` - Get Q&A history
 - `POST /api/notes/:id/generate-audio` - Generate TTS audio for note
 
+### Sentence sets (graded example sentences per note)
+Each note can have a **set** of example sentences (separate from the single `sentence_clue`
+shown inline on the card): ordered easiest → hardest, with a couple deliberately placing the
+word in the language (one uses a word sharing a character, one contrasts an easily-confused
+word, one shows the usual collocation). Each sentence gets its own TTS clip and is cached in
+IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
+- `GET /api/notes/:id/sentences` - List a note's sentence set
+- `POST /api/notes/:id/sentences/generate` - Generate a set (`{ count?: 3-10, customPrompt?, keepExisting? }`)
+- `DELETE /api/notes/:id/sentences` - Delete a note's set
+- `GET /api/sentences/changes?since=` - Offline sync: every sentence changed since a timestamp
+
 ### Cards & Study
 - `GET /api/cards/due` - Get due cards (optional `?deck_id=`)
 - `POST /api/study/sessions` - Start study session
@@ -515,7 +527,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 ### Audio
 - `POST /api/audio/upload` - Upload user recording
 - `GET /api/audio/*` - Get audio file from R2
-- `GET /api/audio-manifest` - All audio URLs the user owns (note audio, sentence clues, recordings) for offline prefetch
+- `GET /api/audio-manifest` - All audio URLs the user owns (note audio, sentence clues, sentence sets, recordings) for offline prefetch
 
 ### AI
 - `POST /api/ai/generate-deck` - Generate deck from prompt

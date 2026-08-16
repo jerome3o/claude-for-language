@@ -20,6 +20,7 @@ import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllE
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia } from './grammar-study';
+import { syncSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 
@@ -360,6 +361,13 @@ class SyncService {
       );
     } catch (err) {
       console.error('[Sync] Grammar lesson sync failed:', err);
+    }
+    try {
+      // Sentence sets are text-only here; their audio comes down with the
+      // full audio prefetch (they're in the audio manifest).
+      await syncSentenceSets();
+    } catch (err) {
+      console.error('[Sync] Sentence set sync failed:', err);
     }
   }
 

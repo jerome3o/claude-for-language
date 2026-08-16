@@ -102,6 +102,32 @@ export interface Note {
   updated_at: string;
 }
 
+/** Why a sentence is in a note's sentence set. */
+export type SentenceFocus =
+  | 'core'
+  | 'shared_character'
+  | 'contrast'
+  | 'collocation'
+  | 'complex';
+
+/**
+ * One entry in a note's sentence set: a graded list of examples for a word,
+ * ordered easiest -> hardest, cached locally with its audio for offline study.
+ */
+export interface NoteSentence {
+  id: string;
+  note_id: string;
+  position: number;
+  hanzi: string;
+  pinyin: string | null;
+  translation: string | null;
+  audio_url: string | null;
+  focus: SentenceFocus | string | null;
+  focus_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Card {
   id: string;
   note_id: string;

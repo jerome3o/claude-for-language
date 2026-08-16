@@ -54,6 +54,7 @@ import {
   HomeworkRecording,
   HomeworkFeedback,
   AppNotification,
+  NoteSentence,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -290,6 +291,49 @@ export async function generateSentenceClue(
     method: 'POST',
     body: options ? JSON.stringify(options) : undefined,
   });
+}
+
+// ============ Sentence sets ============
+
+export interface GenerateSentenceSetOptions {
+  /** How many sentences to generate (3-10, default 6). */
+  count?: number;
+  /** Extra instructions from the learner. */
+  customPrompt?: string;
+  /** Append to the existing set instead of replacing it. */
+  keepExisting?: boolean;
+}
+
+export async function fetchNoteSentences(noteId: string): Promise<NoteSentence[]> {
+  const data = await fetchJSON<{ sentences: NoteSentence[] }>(`/notes/${noteId}/sentences`);
+  return data.sentences || [];
+}
+
+export async function generateNoteSentenceSet(
+  noteId: string,
+  options?: GenerateSentenceSetOptions
+): Promise<NoteSentence[]> {
+  const data = await fetchJSON<{ sentences: NoteSentence[] }>(
+    `/notes/${noteId}/sentences/generate`,
+    {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    }
+  );
+  return data.sentences || [];
+}
+
+export async function deleteNoteSentenceSet(noteId: string): Promise<void> {
+  await fetchJSON<{ success: boolean }>(`/notes/${noteId}/sentences`, { method: 'DELETE' });
+}
+
+export async function fetchSentenceChanges(
+  since: string | null
+): Promise<{ sentences: NoteSentence[]; server_time: string }> {
+  const query = since ? `?since=${encodeURIComponent(since)}` : '';
+  return fetchJSON<{ sentences: NoteSentence[]; server_time: string }>(
+    `/sentences/changes${query}`
+  );
 }
 
 export async function generateFunFact(noteId: string): Promise<Note> {
