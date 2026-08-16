@@ -15,6 +15,7 @@ import {
   getHomeworkRecordingUrl,
 } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import {
   HomeworkAssignmentWithDetails,
   HomeworkStatus,
@@ -60,7 +61,7 @@ function VoiceNoteRecorder({
   const [isUploading, setIsUploading] = useState(false);
   const [isPlayingBack, setIsPlayingBack] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef(createAudioPlayer());
   const recordingStartRef = useRef<number>(0);
 
   const handleUpload = useCallback(async () => {
@@ -84,43 +85,30 @@ function VoiceNoteRecorder({
     startRecording();
   }, [startRecording]);
 
-  const playRecording = useCallback((audioUrl: string) => {
-    if (audioRef.current) audioRef.current.pause();
-    const audio = new Audio(getHomeworkRecordingUrl(audioUrl));
-    audioRef.current = audio;
-    audio.onplay = () => setIsPlayingBack(true);
-    audio.onended = () => setIsPlayingBack(false);
-    audio.onerror = () => setIsPlayingBack(false);
-    audio.play().catch(() => setIsPlayingBack(false));
+  const play = useCallback((source: Blob | string) => {
+    playerRef.current.play(source, {
+      onPlay: () => setIsPlayingBack(true),
+      onEnded: () => setIsPlayingBack(false),
+      onError: () => setIsPlayingBack(false),
+    });
   }, []);
 
+  const playRecording = useCallback((audioUrl: string) => {
+    play(getHomeworkRecordingUrl(audioUrl));
+  }, [play]);
+
   const stopPlayback = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      setIsPlayingBack(false);
-    }
+    playerRef.current.stop();
+    setIsPlayingBack(false);
   }, []);
 
   const playPreview = useCallback(() => {
-    if (!audioBlob) return;
-    if (audioRef.current) audioRef.current.pause();
-    const url = URL.createObjectURL(audioBlob);
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.onplay = () => setIsPlayingBack(true);
-    audio.onended = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
-    audio.onerror = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
-    audio.play().catch(() => setIsPlayingBack(false));
-  }, [audioBlob]);
+    if (audioBlob) play(audioBlob);
+  }, [audioBlob, play]);
 
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
+    const player = playerRef.current;
+    return () => player.dispose();
   }, []);
 
   if (isCompleted) {

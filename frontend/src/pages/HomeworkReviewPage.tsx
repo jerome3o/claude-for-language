@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { useAudioRecorder } from '../hooks/useAudio';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import {
   getHomeworkAssignment,
   getGradedReader,
@@ -64,31 +65,24 @@ function StarRating({
 
 function AudioPlaybackButton({ audioUrl, label }: { audioUrl: string; label?: string }) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef(createAudioPlayer());
 
   const toggle = useCallback(() => {
-    if (isPlaying && audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+    if (isPlaying) {
+      playerRef.current.stop();
       setIsPlaying(false);
       return;
     }
-    if (audioRef.current) audioRef.current.pause();
-    const audio = new Audio(getHomeworkRecordingUrl(audioUrl));
-    audioRef.current = audio;
-    audio.onplay = () => setIsPlaying(true);
-    audio.onended = () => setIsPlaying(false);
-    audio.onerror = () => setIsPlaying(false);
-    audio.play().catch(() => setIsPlaying(false));
+    playerRef.current.play(getHomeworkRecordingUrl(audioUrl), {
+      onPlay: () => setIsPlaying(true),
+      onEnded: () => setIsPlaying(false),
+      onError: () => setIsPlaying(false),
+    });
   }, [audioUrl, isPlaying]);
 
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
+    const player = playerRef.current;
+    return () => player.dispose();
   }, []);
 
   return (
@@ -121,7 +115,7 @@ function FeedbackRecorder({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isPlayingBack, setIsPlayingBack] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef(createAudioPlayer());
   const recordingStartRef = useRef<number>(0);
 
   // Sync with prop changes when navigating between pages
@@ -159,31 +153,21 @@ function FeedbackRecorder({
 
   const playPreview = useCallback(() => {
     if (!audioBlob) return;
-    if (audioRef.current) audioRef.current.pause();
-    const url = URL.createObjectURL(audioBlob);
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.onplay = () => setIsPlayingBack(true);
-    audio.onended = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
-    audio.onerror = () => { setIsPlayingBack(false); URL.revokeObjectURL(url); };
-    audio.play().catch(() => setIsPlayingBack(false));
+    playerRef.current.play(audioBlob, {
+      onPlay: () => setIsPlayingBack(true),
+      onEnded: () => setIsPlayingBack(false),
+      onError: () => setIsPlayingBack(false),
+    });
   }, [audioBlob]);
 
   const stopPlayback = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      setIsPlayingBack(false);
-    }
+    playerRef.current.stop();
+    setIsPlayingBack(false);
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
+    const player = playerRef.current;
+    return () => player.dispose();
   }, []);
 
   const hasChanges = textFeedback.trim() !== (existingFeedback?.text_feedback || '')

@@ -19,7 +19,7 @@ import { translateSentence } from './services/sentence-translate';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage } from './services/graded-reader';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import { buildLessonScript, generateLessonAudio, generateDialogueScript } from './services/audio-lesson';
 import {
   getGoogleAuthUrl,
@@ -1990,7 +1990,14 @@ app.get('/api/audio-manifest', async (c) => {
 
 app.get('/api/audio/*', async (c) => {
   const key = c.req.path.replace('/api/audio/', '');
-  const object = await getAudio(c.env.AUDIO_BUCKET, key);
+
+  // <audio> streams media with Range requests. Answering every one with the
+  // full body (200) forces the element to re-buffer from zero whenever it
+  // seeks or recovers from a stall, which on a weak connection sounds like the
+  // clip cutting out. Serve real 206 partials instead.
+  const rangeHeader = c.req.header('Range');
+  const range = parseByteRange(rangeHeader);
+  const object = await getAudio(c.env.AUDIO_BUCKET, key, range);
 
   if (!object) {
     return c.json({ error: 'Audio not found' }, 404);
@@ -2002,10 +2009,26 @@ app.get('/api/audio/*', async (c) => {
   const headers = new Headers();
   headers.set('Content-Type', object.httpMetadata?.contentType || 'audio/mpeg');
   headers.set('Cache-Control', 'public, max-age=31536000');
+  headers.set('Accept-Ranges', 'bytes');
+  if (object.httpEtag) {
+    headers.set('ETag', object.httpEtag);
+  }
   // Explicit CORS headers for audio element cross-origin playback
   headers.set('Access-Control-Allow-Origin', origin);
   headers.set('Access-Control-Allow-Credentials', 'true');
+  // Range is not a CORS-safelisted response header, so the media element can
+  // only see the partial-content headers if we expose them.
+  headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, ETag');
 
+  const served = range ? resolveServedRange(object.range, object.size) : null;
+  if (served && served.length < object.size) {
+    const { offset, length } = served;
+    headers.set('Content-Length', String(length));
+    headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${object.size}`);
+    return new Response(object.body, { status: 206, headers });
+  }
+
+  headers.set('Content-Length', String(object.size));
   return new Response(object.body, { headers });
 });
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -15,6 +15,7 @@ import {
 import { Loading, ErrorMessage } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
 import { useNoteAudio } from '../hooks/useAudio';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import './TutorReviewDetailPage.css';
 
 function formatDateTime(dateString: string): string {
@@ -30,6 +31,11 @@ export function TutorReviewDetailPage() {
 
   const [response, setResponse] = useState('');
   const { isPlaying, play: playAudio } = useNoteAudio();
+  const playerRef = useRef(createAudioPlayer());
+  useEffect(() => {
+    const player = playerRef.current;
+    return () => player.dispose();
+  }, []);
 
   const requestQuery = useQuery({
     queryKey: ['tutor-review-request', requestId],
@@ -79,8 +85,7 @@ export function TutorReviewDetailPage() {
   };
 
   const playRecording = (recordingUrl: string) => {
-    const audio = new Audio(`${API_BASE}/api/audio/${recordingUrl}`);
-    audio.play();
+    playerRef.current.play(`${API_BASE}/api/audio/${recordingUrl}`);
   };
 
   return (
