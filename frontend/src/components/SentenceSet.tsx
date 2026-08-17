@@ -7,7 +7,9 @@ import {
   clearLocalNoteSentences,
   cacheSentenceAudio,
   resetSentenceSetSyncCursor,
+  getSentenceExplanation,
 } from '../services/sentence-sets';
+import { SentenceBriefExplanation } from '../types';
 import { fetchNoteSentences, deleteNoteSentenceSet, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -32,6 +34,16 @@ const FOCUS_LABELS: Record<string, string> = {
 
 const COUNT_OPTIONS = [5, 10];
 
+/** Read the explanation cached on a synced row, if it has one. */
+function parseCachedExplanation(raw: string | null): SentenceBriefExplanation | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SentenceBriefExplanation;
+  } catch {
+    return null;
+  }
+}
+
 interface SentenceSetProps {
   noteId: string;
   /** Rendered inside the study card (tighter, starts collapsed). */
@@ -53,6 +65,11 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
   const [showAll, setShowAll] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  // Explanations fetched this session, keyed by sentence id ('error' = failed)
+  const [explanations, setExplanations] = useState<
+    Record<string, SentenceBriefExplanation | 'error'>
+  >({});
+  const [explaining, setExplaining] = useState<Set<string>>(new Set());
 
   // Guard against a slow fetch landing after the user moved to another card
   const noteIdRef = useRef(noteId);
@@ -82,6 +99,7 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
 
   useEffect(() => {
     setExpanded(new Set());
+    setExplanations({});
     setShowAll(false);
     setError(null);
     setOpen(defaultOpen);
@@ -136,6 +154,71 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
   const playSentence = (sentence: LocalNoteSentence) => {
     setPlayingId(sentence.id);
     play(sentence.audio_url, sentence.hanzi, API_BASE);
+  };
+
+  const handleExplain = useCallback(async (sentenceId: string) => {
+    setExplaining((prev) => new Set(prev).add(sentenceId));
+    try {
+      const explanation = await getSentenceExplanation(sentenceId);
+      setExplanations((prev) => ({ ...prev, [sentenceId]: explanation }));
+    } catch (err) {
+      console.error('[SentenceSet] Explain failed:', err);
+      setExplanations((prev) => ({ ...prev, [sentenceId]: 'error' }));
+    } finally {
+      setExplaining((prev) => {
+        const next = new Set(prev);
+        next.delete(sentenceId);
+        return next;
+      });
+    }
+  }, []);
+
+  /**
+   * The per-sentence breakdown: a word list plus a line on the construction.
+   * Cached rows render straight from IndexedDB, so a second look is instant
+   * and works offline.
+   */
+  const renderExplanation = (sentence: LocalNoteSentence) => {
+    const state = explanations[sentence.id] ?? parseCachedExplanation(sentence.explanation);
+    const isLoading = explaining.has(sentence.id);
+
+    if (!state) {
+      return (
+        <button
+          className="sentence-set-explain"
+          onClick={() => handleExplain(sentence.id)}
+          disabled={isLoading || !isOnline}
+          title={!isOnline ? 'Requires internet connection' : 'Break this sentence down'}
+        >
+          {isLoading ? 'Explaining...' : 'What’s going on here?'}
+        </button>
+      );
+    }
+
+    if (state === 'error') {
+      return (
+        <button className="sentence-set-explain" onClick={() => handleExplain(sentence.id)}>
+          Explain failed — tap to retry
+        </button>
+      );
+    }
+
+    return (
+      <div className="sentence-set-explanation">
+        <ul className="sentence-set-words">
+          {state.words.map((word, i) => (
+            <li key={i}>
+              <span className="hanzi">{word.hanzi}</span>
+              <span className="sentence-set-word-pinyin">{word.pinyin}</span>
+              <span className="sentence-set-word-gloss">{word.gloss}</span>
+            </li>
+          ))}
+        </ul>
+        {state.construction && (
+          <p className="sentence-set-construction">{state.construction}</p>
+        )}
+      </div>
+    );
   };
 
   const hasSet = sentences.length > 0;
@@ -236,11 +319,14 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
                   {index + 1}
                 </span>
                 <div className="sentence-set-body">
+                  {/* Collapsed rows stay blank on purpose: listen first, then
+                      tap to check yourself against the characters. */}
                   <button
-                    className="sentence-set-hanzi hanzi"
+                    className={isExpanded ? 'sentence-set-hanzi hanzi' : 'sentence-set-hidden'}
                     onClick={() => toggleRow(sentence.id)}
+                    aria-expanded={isExpanded}
                   >
-                    {sentence.hanzi}
+                    {isExpanded ? sentence.hanzi : 'Tap to reveal'}
                   </button>
                   {isExpanded && (
                     <div className="sentence-set-details">
@@ -256,6 +342,7 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
                           {sentence.focus_note && <span>{sentence.focus_note}</span>}
                         </div>
                       )}
+                      {renderExplanation(sentence)}
                     </div>
                   )}
                 </div>

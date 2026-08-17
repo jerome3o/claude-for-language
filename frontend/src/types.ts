@@ -124,8 +124,16 @@ export interface NoteSentence {
   audio_url: string | null;
   focus: SentenceFocus | string | null;
   focus_note: string | null;
+  /** JSON SentenceBriefExplanation, filled in the first time it's asked for */
+  explanation: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Brief, on-demand breakdown of one sentence: words plus how it's built. */
+export interface SentenceBriefExplanation {
+  words: Array<{ hanzi: string; pinyin: string; gloss: string }>;
+  construction: string;
 }
 
 export interface Card {

@@ -6,8 +6,10 @@ import {
   clearLocalNoteSentences,
   syncSentenceSets,
   resetSentenceSetSyncCursor,
+  topUpSentenceSets,
+  getSentenceExplanation,
 } from './sentence-sets';
-import { db, LocalNote } from '../db/database';
+import { db, LocalNote, LocalCard } from '../db/database';
 import { NoteSentence } from '../types';
 
 function makeSentence(overrides: Partial<NoteSentence> = {}): NoteSentence {
@@ -21,6 +23,7 @@ function makeSentence(overrides: Partial<NoteSentence> = {}): NoteSentence {
     audio_url: null,
     focus: 'core',
     focus_note: null,
+    explanation: null,
     created_at: '2026-08-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,
@@ -191,5 +194,163 @@ describe('syncSentenceSets', () => {
     await expect(syncSentenceSets()).rejects.toThrow();
     expect((await getLocalNoteSentences('note-1')).map((r) => r.id)).toEqual(['local']);
     expect(localStorage.getItem('sentenceSetsLastSync')).toBeNull();
+  });
+});
+
+describe('topUpSentenceSets', () => {
+  function makeCard(id: string, noteId: string, dueTimestamp: number | null, queue = 2): LocalCard {
+    return {
+      id,
+      note_id: noteId,
+      deck_id: 'deck-1',
+      card_type: 'hanzi_to_meaning',
+      queue,
+      stability: 1,
+      difficulty: 5,
+      lapses: 0,
+      learning_step: 0,
+      ease_factor: 2.5,
+      interval: 1,
+      repetitions: 1,
+      next_review_at: null,
+      due_timestamp: dueTimestamp,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z',
+      _synced_at: Date.now(),
+    } as LocalCard;
+  }
+
+  function mockPrefetch() {
+    return vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/api/sentences/prefetch')) {
+          const body = JSON.parse(String(init?.body ?? '{}'));
+          return new Response(
+            JSON.stringify({ queued: body.note_ids?.length ?? 0, remaining: 0, echo: body }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+  }
+
+  function sentNoteIds(): string[] {
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const init = calls[0][1] as RequestInit;
+    return JSON.parse(String(init.body)).note_ids as string[];
+  }
+
+  it('prioritises the notes whose cards are due soonest', async () => {
+    const now = Date.now();
+    await db.cards.bulkPut([
+      makeCard('c-late', 'note-late', now + 60 * 60 * 1000),
+      makeCard('c-overdue', 'note-overdue', now - 60 * 60 * 1000),
+      makeCard('c-mid', 'note-mid', now + 10 * 60 * 1000),
+    ]);
+    mockPrefetch();
+
+    await topUpSentenceSets();
+
+    expect(sentNoteIds()).toEqual(['note-overdue', 'note-mid', 'note-late']);
+  });
+
+  it('lists each note once even when several of its cards are due', async () => {
+    const now = Date.now();
+    await db.cards.bulkPut([
+      makeCard('c-1', 'note-1', now - 1000),
+      makeCard('c-2', 'note-1', now - 500),
+      makeCard('c-3', 'note-2', now - 100),
+    ]);
+    mockPrefetch();
+
+    await topUpSentenceSets();
+
+    expect(sentNoteIds()).toEqual(['note-1', 'note-2']);
+  });
+
+  it('falls back to new cards when nothing is due', async () => {
+    await db.cards.put(makeCard('c-new', 'note-new', null, 0));
+    mockPrefetch();
+
+    await topUpSentenceSets();
+
+    expect(sentNoteIds()).toEqual(['note-new']);
+  });
+
+  it('throttles repeat runs', async () => {
+    await db.cards.put(makeCard('c-1', 'note-1', Date.now()));
+    mockPrefetch();
+
+    const first = await topUpSentenceSets();
+    const second = await topUpSentenceSets();
+
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
+    expect((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1);
+  });
+
+  it('does nothing when offline', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    mockPrefetch();
+
+    expect(await topUpSentenceSets()).toBeNull();
+
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  });
+});
+
+describe('getSentenceExplanation', () => {
+  it('returns the cached explanation without hitting the network', async () => {
+    const explanation = {
+      words: [{ hanzi: '明白', pinyin: 'míngbai', gloss: 'understand' }],
+      construction: 'Subject + verb + 了.',
+    };
+    await putLocalNoteSentences('note-1', [
+      makeSentence({ id: 's-1', explanation: JSON.stringify(explanation) }),
+    ]);
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('should not fetch'); }));
+
+    expect(await getSentenceExplanation('s-1')).toEqual(explanation);
+  });
+
+  it('fetches and caches on the local row when not yet explained', async () => {
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 's-2' })]);
+    const explanation = {
+      words: [{ hanzi: '我', pinyin: 'wǒ', gloss: 'I' }],
+      construction: 'Topic-comment.',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ explanation }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+
+    expect(await getSentenceExplanation('s-2')).toEqual(explanation);
+
+    const row = await db.noteSentences.get('s-2');
+    expect(JSON.parse(row!.explanation!)).toEqual(explanation);
+  });
+
+  it('regenerates when the cached explanation is corrupt', async () => {
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 's-3', explanation: 'not json' })]);
+    const explanation = { words: [{ hanzi: '好', pinyin: 'hǎo', gloss: 'good' }], construction: '.' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ explanation }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+
+    expect(await getSentenceExplanation('s-3')).toEqual(explanation);
   });
 });
