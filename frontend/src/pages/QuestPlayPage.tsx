@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   activeGoalProgress,
   applyQuestAction,
@@ -19,7 +19,7 @@ import {
   type QuestState,
   type QuestWorld,
 } from '@shared/quest';
-import { completeQuest, getQuest } from '../api/client';
+import { completeQuest, getQuest, retryQuest } from '../api/client';
 import { Confetti } from '../components/Confetti';
 import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
@@ -65,6 +65,15 @@ function useSpeak() {
 
 export function QuestPlayPage() {
   const { id = '' } = useParams();
+  const queryClient = useQueryClient();
+
+  const retry = useMutation({
+    mutationFn: () => retryQuest(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quest', id] });
+      queryClient.invalidateQueries({ queryKey: ['quests'] });
+    },
+  });
 
   const questQuery = useQuery({
     queryKey: ['quest', id],
@@ -98,6 +107,7 @@ export function QuestPlayPage() {
         <div className="quest-loading">
           <div className="quest-loading-emoji">🗺️</div>
           <p>Claude is drawing the map, placing the objects and writing the instructions…</p>
+          <p className="quest-progress">{quest.progress ?? 'queued'}</p>
           <p style={{ fontSize: '0.8rem' }}>This usually takes a minute or two.</p>
         </div>
         <Link to="/quests" className="btn btn-secondary btn-block">← Back to quests</Link>
@@ -110,7 +120,16 @@ export function QuestPlayPage() {
       <div className="container quest-page">
         <h1 style={{ fontSize: '1.2rem' }}>That level didn't come out playable</h1>
         <p style={{ color: 'var(--color-text-light)' }}>{quest.error || 'Generation failed.'}</p>
-        <Link to="/quests" className="btn btn-primary btn-block">← Back to quests</Link>
+        <button
+          className="btn btn-primary btn-block"
+          onClick={() => retry.mutate()}
+          disabled={retry.isPending}
+        >
+          {retry.isPending ? 'Starting…' : '🔄 Try building it again'}
+        </button>
+        <Link to="/quests" className="btn btn-secondary btn-block" style={{ marginTop: '0.5rem' }}>
+          ← Back to quests
+        </Link>
       </div>
     );
   }

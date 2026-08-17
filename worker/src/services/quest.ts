@@ -39,6 +39,8 @@ export interface QuestGenerationInput {
   bio?: string | null;
   difficulty?: QuestDifficulty;
   goalCount?: number;
+  /** Called as generation moves through its stages, for the progress breadcrumb. */
+  onProgress?: (stage: string) => void | Promise<void>;
 }
 
 export type QuestDifficulty = 'easy' | 'medium' | 'hard';
@@ -566,9 +568,18 @@ export async function generateQuestWorld(
   ];
 
   let lastErrors: string[] = [];
+  const report = async (stage: string) => {
+    try {
+      await input.onProgress?.(stage);
+    } catch {
+      // A breadcrumb is never worth failing generation over.
+    }
+  };
 
   for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+    await report(attempt === 0 ? 'writing the world' : `repairing the world (round ${attempt})`);
     const response = await callWithRetry(client, messages);
+    await report(attempt === 0 ? 'checking it is playable' : `checking the repair (round ${attempt})`);
 
     const toolUse = response.content.find((c) => c.type === 'tool_use');
     if (!toolUse || toolUse.type !== 'tool_use') {

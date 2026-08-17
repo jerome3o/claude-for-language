@@ -588,10 +588,17 @@ objects, the emoji that represent them, the verbs each object accepts, the state
   validation is fed its own error list back for up to two repair rounds, and is only stored
   if it passes
 
-Endpoints (rows live in `quests`; generation runs in `waitUntil`, so clients poll):
-- `GET /api/quests` - List quests (status, goal/object counts, best moves)
+Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is one long
+Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
+torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
+column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`.
+
+Endpoints (rows live in `quests`):
+- `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
 - `POST /api/quests` - Generate one (`{ topic?, difficulty?: easy|medium|hard, goal_count?, deck_ids? }`) → 202
 - `GET /api/quests/:id` - Get a quest with its full world JSON
+- `POST /api/quests/:id/retry` - Rebuild a failed quest in place, keeping its topic
 - `POST /api/quests/:id/complete` - Record a finished play-through (`{ moves }`)
 - `DELETE /api/quests/:id` - Delete a quest
 

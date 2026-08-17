@@ -3534,6 +3534,7 @@ export interface QuestRow {
   completed_at: string | null;
   best_moves: number | null;
   play_count: number;
+  progress: string | null;
   created_at: string;
 }
 
@@ -3550,6 +3551,20 @@ export async function createQuest(
   return id;
 }
 
+/** Breadcrumb of how far generation got, so a stuck quest says where it died. */
+export async function setQuestProgress(db: D1Database, id: string, progress: string): Promise<void> {
+  await db.prepare(`UPDATE quests SET progress = ? WHERE id = ?`).bind(progress.slice(0, 200), id).run();
+}
+
+/** Put a failed quest back in the queue's hands, keeping its topic and settings. */
+export async function resetQuestForRetry(db: D1Database, id: string, userId: string): Promise<void> {
+  await db.prepare(`
+    UPDATE quests
+    SET status = 'generating', error = NULL, progress = 'queued', created_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `).bind(id, userId).run();
+}
+
 export async function setQuestWorld(
   db: D1Database,
   id: string,
@@ -3557,7 +3572,7 @@ export async function setQuestWorld(
   world: unknown
 ): Promise<void> {
   await db.prepare(`
-    UPDATE quests SET status = 'ready', title = ?, world = ?, error = NULL WHERE id = ?
+    UPDATE quests SET status = 'ready', title = ?, world = ?, error = NULL, progress = NULL WHERE id = ?
   `).bind(title, JSON.stringify(world), id).run();
 }
 
@@ -3578,6 +3593,12 @@ export async function getQuest(db: D1Database, id: string, userId: string): Prom
   const row = await db.prepare(`SELECT * FROM quests WHERE id = ? AND user_id = ?`)
     .bind(id, userId)
     .first<QuestRow>();
+  return row ?? null;
+}
+
+/** Consumer-side lookup: the queue message has no user context. */
+export async function getQuestUnscoped(db: D1Database, id: string): Promise<QuestRow | null> {
+  const row = await db.prepare(`SELECT * FROM quests WHERE id = ?`).bind(id).first<QuestRow>();
   return row ?? null;
 }
 
@@ -3608,11 +3629,12 @@ export async function deleteQuest(db: D1Database, id: string, userId: string): P
 export async function markStaleQuests(
   db: D1Database,
   userId: string,
-  maxAgeSeconds = 600
+  maxAgeSeconds = 1200
 ): Promise<void> {
   await db.prepare(`
     UPDATE quests
-    SET status = 'error', error = 'Generation timed out — try again'
+    SET status = 'error',
+        error = 'Generation timed out — ' || COALESCE('stopped at: ' || progress, 'it never started') || '. Tap retry.'
     WHERE user_id = ?
       AND status = 'generating'
       AND created_at <= datetime('now', '-' || ? || ' seconds')

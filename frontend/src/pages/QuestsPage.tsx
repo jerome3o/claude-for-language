@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createQuest, deleteQuest, listQuests } from '../api/client';
+import { createQuest, deleteQuest, listQuests, retryQuest } from '../api/client';
 import type { QuestSummary } from '@shared/quest';
 import './QuestPage.css';
 
@@ -58,6 +58,11 @@ export function QuestsPage() {
       queryClient.invalidateQueries({ queryKey: ['quests'] });
       navigate(`/quests/${created.id}`);
     },
+  });
+
+  const retry = useMutation({
+    mutationFn: (id: string) => retryQuest(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['quests'] }),
   });
 
   const remove = useMutation({
@@ -156,6 +161,7 @@ export function QuestsPage() {
               <div className="quest-row-title">{quest.title}</div>
               <div className="quest-row-sub">
                 {new Date(quest.created_at + 'Z').toLocaleDateString()}
+                {quest.status === 'generating' && ` · ${quest.progress ?? 'queued'}`}
                 {quest.status === 'ready' && ` · ${quest.goal_count} instructions · ${quest.object_count} objects`}
                 {quest.completed_at && ` · ✅ done in ${quest.best_moves} moves`}
               </div>
@@ -168,6 +174,16 @@ export function QuestsPage() {
                 onClick={() => navigate(`/quests/${quest.id}`)}
               >
                 {quest.completed_at ? 'Replay' : 'Play'}
+              </button>
+            )}
+            {quest.status === 'error' && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => retry.mutate(quest.id)}
+                disabled={retry.isPending}
+                aria-label="Retry generation"
+              >
+                🔄 Retry
               </button>
             )}
             <button

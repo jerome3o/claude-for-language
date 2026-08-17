@@ -165,6 +165,8 @@ export interface Quest {
   completed_at: string | null;
   best_moves: number | null;
   play_count: number;
+  /** How far generation got — set while generating, kept on failure. */
+  progress: string | null;
   created_at: string;
 }
 
