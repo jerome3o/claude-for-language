@@ -93,9 +93,14 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   └── package.json
 │
 ├── shared/                # Shared code between worker and frontend
-│   └── scheduler/         # FSRS spaced repetition algorithm
-│       ├── compute-state.ts    # Core FSRS logic, state computation from events
-│       ├── compute-state.test.ts # Tests for scheduler
+│   ├── scheduler/         # FSRS spaced repetition algorithm
+│   │   ├── compute-state.ts    # Core FSRS logic, state computation from events
+│   │   ├── compute-state.test.ts # Tests for scheduler
+│   │   └── index.ts       # Re-exports
+│   └── quest/             # Quests: the tile-map mini-game framework
+│       ├── types.ts       # World schema (terrain, objects, verbs, goal conditions)
+│       ├── engine.ts      # Pure game engine — movement, verbs, goal checking
+│       ├── validate.ts    # Playability checks for generated worlds
 │       └── index.ts       # Re-exports
 │
 ├── frontend/              # React + Vite frontend
@@ -195,6 +200,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at)
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus). Written as whole sets; synced to IndexedDB for offline study.
+- `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -543,6 +549,34 @@ The Coach page auto-detects input language: Chinese → coach + explain, English
 - `GET /api/coach/conversations/:id` - Get conversation with messages
 - `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools)
 - `DELETE /api/coach/conversations/:id` - Delete a conversation
+
+### Quests (tile-map mini-games, page at `/quests`, play at `/quests/:id`)
+A quest is a small top-down grid world with a character the learner drives with on-screen
+arrows, a pick-up/put-down button and contextual verb buttons. Each goal is an **imperative
+Chinese instruction** (拿起…, 打开…, 把…放在…上, 先…然后…) that the learner carries out in
+the world; the engine checks it against a declarative condition, so the instruction is
+verified by doing, not by answering. Reached from the profile menu — not part of study/SRS.
+
+**It is a framework, not a set of canned levels.** Claude authors the whole world — terrain,
+objects, the emoji that represent them, the verbs each object accepts, the state machines
+(open/closed, clean/dirty), what is hidden inside what, and the goals with their conditions.
+- `shared/quest/types.ts` — the world schema, including the condition language
+  (`holding`, `object_on`, `object_state`, `object_removed`, `performed`, `player_at`,
+  `all_of` / `any_of` / `sequence`)
+- `shared/quest/engine.ts` — pure engine: movement/blocking, reach, carrying, verb
+  availability, hidden-object reveal, sequence progress, goal completion
+- `shared/quest/validate.ts` — playability checks (grid shape, dangling references,
+  unreachable objects via flood fill, states nothing can produce)
+- `worker/src/services/quest.ts` — generation prompt + tool schema; a world that fails
+  validation is fed its own error list back for up to two repair rounds, and is only stored
+  if it passes
+
+Endpoints (rows live in `quests`; generation runs in `waitUntil`, so clients poll):
+- `GET /api/quests` - List quests (status, goal/object counts, best moves)
+- `POST /api/quests` - Generate one (`{ topic?, difficulty?: easy|medium|hard, goal_count?, deck_ids? }`) → 202
+- `GET /api/quests/:id` - Get a quest with its full world JSON
+- `POST /api/quests/:id/complete` - Record a finished play-through (`{ moves }`)
+- `DELETE /api/quests/:id` - Delete a quest
 
 ### Stats
 - `GET /api/stats/overview` - Overall statistics

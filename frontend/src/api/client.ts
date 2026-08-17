@@ -56,6 +56,7 @@ import {
   AppNotification,
   NoteSentence,
 } from '../types';
+import type { Quest, QuestSummary } from '@shared/quest';
 
 export const API_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL
@@ -1907,4 +1908,36 @@ export async function downloadAudioLesson(id: string, filename: string): Promise
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ============ Quests (tile-map mini-games) ============
+
+export async function listQuests(): Promise<QuestSummary[]> {
+  const r = await fetchJSON<{ quests: QuestSummary[] }>('/quests');
+  return r.quests;
+}
+
+export async function createQuest(params: {
+  topic?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  goal_count?: number;
+  deck_ids?: string[];
+}): Promise<{ id: string; status: string }> {
+  return fetchJSON('/quests', { method: 'POST', body: JSON.stringify(params) });
+}
+
+export async function getQuest(id: string): Promise<Quest> {
+  const r = await fetchJSON<{ quest: Quest }>(`/quests/${id}`);
+  return r.quest;
+}
+
+export async function completeQuest(id: string, moves: number): Promise<void> {
+  await fetchJSON(`/quests/${id}/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ moves }),
+  });
+}
+
+export async function deleteQuest(id: string): Promise<void> {
+  await fetchJSON(`/quests/${id}`, { method: 'DELETE' });
 }

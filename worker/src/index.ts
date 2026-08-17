@@ -17,6 +17,9 @@ import { coachSentence } from './services/sentence-coach';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet } from './services/sentence-set';
+import { generateQuestWorld } from './services/quest';
+import type { QuestDifficulty } from './services/quest';
+import type { QuestWorld } from '@shared/quest';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage } from './services/graded-reader';
@@ -6033,6 +6036,121 @@ app.delete('/api/audio-lessons/:id', async (c) => {
     await c.env.AUDIO_BUCKET.delete(lesson.audio_key).catch(() => {});
   }
   await db.deleteAudioLesson(c.env.DB, c.req.param('id'), userId);
+  return c.json({ ok: true });
+});
+
+// ============ Quests (tile-map mini-games) ============
+
+/**
+ * A quest is a whole little game level authored by Claude — map, objects,
+ * verbs and goals — played by the shared engine. Generation takes a while and
+ * may need a repair round, so it runs in the background: the row is created
+ * immediately with status 'generating' and the client polls.
+ */
+function questSummary(row: db.QuestRow) {
+  const world = parseQuestWorld(row.world);
+  const { world: _world, ...rest } = row;
+  return {
+    ...rest,
+    goal_count: world?.goals.length ?? 0,
+    object_count: world?.objects.length ?? 0,
+  };
+}
+
+function parseQuestWorld(json: string | null): QuestWorld | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as QuestWorld;
+  } catch {
+    return null;
+  }
+}
+
+app.get('/api/quests', async (c) => {
+  const userId = c.get('user').id;
+  await db.markStaleQuests(c.env.DB, userId);
+  const rows = await db.listQuests(c.env.DB, userId);
+  return c.json({ quests: rows.map(questSummary) });
+});
+
+app.post('/api/quests', async (c) => {
+  const userId = c.get('user').id;
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI generation is not configured' }, 500);
+  }
+
+  const body = await c.req.json<{
+    topic?: string;
+    difficulty?: QuestDifficulty;
+    goal_count?: number;
+    deck_ids?: string[];
+  }>();
+
+  const difficulty: QuestDifficulty =
+    body.difficulty === 'easy' || body.difficulty === 'hard' ? body.difficulty : 'medium';
+  const topic = body.topic?.trim().slice(0, 200) || null;
+
+  // Build the world out of words the learner actually knows where we can.
+  const vocabulary = await db
+    .getLearnedVocabulary(c.env.DB, userId, body.deck_ids?.length ? body.deck_ids : undefined)
+    .catch(() => []);
+  const userRow = await c.env.DB.prepare('SELECT bio FROM users WHERE id = ?')
+    .bind(userId)
+    .first<{ bio: string | null }>();
+
+  const questId = await db.createQuest(c.env.DB, userId, {
+    title: topic ? `Quest: ${topic}` : 'New quest',
+    topic,
+    difficulty,
+  });
+
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        const world = await generateQuestWorld(c.env.ANTHROPIC_API_KEY, {
+          topic,
+          difficulty,
+          goalCount: body.goal_count,
+          vocabulary,
+          bio: userRow?.bio ?? null,
+        });
+        const title = world.title.english || world.title.hanzi || 'Quest';
+        await db.setQuestWorld(c.env.DB, questId, title, world);
+      } catch (error) {
+        console.error('[quests] generation failed:', error);
+        await db.setQuestError(
+          c.env.DB,
+          questId,
+          error instanceof Error ? error.message : 'Generation failed'
+        );
+      }
+    })()
+  );
+
+  return c.json({ id: questId, status: 'generating' }, 202);
+});
+
+app.get('/api/quests/:id', async (c) => {
+  const userId = c.get('user').id;
+  const row = await db.getQuest(c.env.DB, c.req.param('id'), userId);
+  if (!row) return c.json({ error: 'Not found' }, 404);
+  const { world, ...rest } = row;
+  return c.json({ quest: { ...rest, world: parseQuestWorld(world) } });
+});
+
+app.post('/api/quests/:id/complete', async (c) => {
+  const userId = c.get('user').id;
+  const { moves } = await c.req.json<{ moves?: number }>();
+  const row = await db.getQuest(c.env.DB, c.req.param('id'), userId);
+  if (!row) return c.json({ error: 'Not found' }, 404);
+  const clean = Number.isFinite(moves) ? Math.max(0, Math.round(moves as number)) : 0;
+  await db.recordQuestCompletion(c.env.DB, row.id, userId, clean);
+  return c.json({ ok: true });
+});
+
+app.delete('/api/quests/:id', async (c) => {
+  const userId = c.get('user').id;
+  await db.deleteQuest(c.env.DB, c.req.param('id'), userId);
   return c.json({ ok: true });
 });
 

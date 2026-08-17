@@ -44,6 +44,8 @@ const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ defa
 const HomeworkReviewPage = lazy(() => import('./pages/HomeworkReviewPage').then(m => ({ default: m.HomeworkReviewPage })));
 const AudioLessonsPage = lazy(() => import('./pages/AudioLessonsPage').then(m => ({ default: m.AudioLessonsPage })));
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
+const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
+const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -384,6 +386,26 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <AudioLessonsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/quests"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <QuestsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/quests/:id"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ErrorBoundary fallbackTitle="Couldn't load this quest">
+              <QuestPlayPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />
