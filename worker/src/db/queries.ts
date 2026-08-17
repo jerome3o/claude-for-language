@@ -3618,3 +3618,201 @@ export async function markStaleQuests(
       AND created_at <= datetime('now', '-' || ? || ' seconds')
   `).bind(userId, maxAgeSeconds).run();
 }
+
+// ============ Sentence set pre-generation ============
+
+/**
+ * Notes that still need a sentence set, most useful first.
+ *
+ * "Most useful" means what the learner is about to see: notes with cards due
+ * soonest come first, then the newest notes. Notes already generated, already
+ * queued, or that failed repeatedly are excluded, so repeated sweeps walk
+ * steadily through the backlog instead of retrying the same handful.
+ */
+export async function getNotesNeedingSentenceSets(
+  db: D1Database,
+  userId: string,
+  limit: number,
+  priorityNoteIds: string[] = []
+): Promise<Array<{ id: string }>> {
+  const results: Array<{ id: string }> = [];
+  const seen = new Set<string>();
+
+  // A job still marked 'queued' after a day never came back (lost message,
+  // worker restart) — let those notes be picked up again rather than starve.
+  const isEligible = `
+    NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id)
+    AND NOT EXISTS (
+      SELECT 1 FROM note_sentence_jobs j
+      WHERE j.note_id = n.id
+        AND (
+          (j.status = 'queued' AND j.updated_at > datetime('now', '-1 day'))
+          OR (j.status = 'error' AND j.attempts >= 3)
+        )
+    )
+  `;
+
+  // 1. Notes the caller explicitly asked for (the current study queue)
+  if (priorityNoteIds.length > 0) {
+    const ids = priorityNoteIds.slice(0, 200);
+    const placeholders = ids.map(() => '?').join(',');
+    const priority = await db
+      .prepare(`
+        SELECT n.id FROM notes n
+        JOIN decks d ON n.deck_id = d.id
+        WHERE d.user_id = ? AND n.id IN (${placeholders}) AND ${isEligible}
+        LIMIT ?
+      `)
+      .bind(userId, ...ids, limit)
+      .all<{ id: string }>();
+    for (const row of priority.results) {
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        results.push(row);
+      }
+    }
+  }
+
+  // 2. Fill the rest from the due-soonest backlog
+  if (results.length < limit) {
+    const backlog = await db
+      .prepare(`
+        SELECT n.id, MIN(c.next_review_at) AS due_at FROM notes n
+        JOIN decks d ON n.deck_id = d.id
+        LEFT JOIN cards c ON c.note_id = n.id
+        WHERE d.user_id = ? AND ${isEligible}
+        GROUP BY n.id
+        ORDER BY due_at IS NULL, due_at ASC, n.created_at DESC
+        LIMIT ?
+      `)
+      .bind(userId, limit - results.length + seen.size)
+      .all<{ id: string }>();
+    for (const row of backlog.results) {
+      if (results.length >= limit) break;
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        results.push(row);
+      }
+    }
+  }
+
+  return results;
+}
+
+/** How many of the user's notes still have no sentence set. */
+export async function countNotesWithoutSentenceSets(
+  db: D1Database,
+  userId: string
+): Promise<number> {
+  const row = await db
+    .prepare(`
+      SELECT COUNT(*) AS count FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+        AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id)
+    `)
+    .bind(userId)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+export async function markSentenceSetJobQueued(db: D1Database, noteId: string): Promise<void> {
+  await db
+    .prepare(`
+      INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at)
+      VALUES (?, 'queued', 1, datetime('now'))
+      ON CONFLICT(note_id) DO UPDATE SET
+        status = 'queued',
+        attempts = note_sentence_jobs.attempts + 1,
+        updated_at = datetime('now')
+    `)
+    .bind(noteId)
+    .run();
+}
+
+export async function markSentenceSetJobDone(db: D1Database, noteId: string): Promise<void> {
+  await db
+    .prepare(`
+      UPDATE note_sentence_jobs
+      SET status = 'done', error = NULL, updated_at = datetime('now')
+      WHERE note_id = ?
+    `)
+    .bind(noteId)
+    .run();
+}
+
+export async function markSentenceSetJobFailed(
+  db: D1Database,
+  noteId: string,
+  error: string
+): Promise<void> {
+  await db
+    .prepare(`
+      UPDATE note_sentence_jobs
+      SET status = 'error', error = ?, updated_at = datetime('now')
+      WHERE note_id = ?
+    `)
+    .bind(error.slice(0, 500), noteId)
+    .run();
+}
+
+export async function getNoteSentenceById(
+  db: D1Database,
+  sentenceId: string,
+  userId: string
+): Promise<NoteSentence | null> {
+  return db
+    .prepare(`
+      SELECT ns.* FROM note_sentences ns
+      JOIN notes n ON ns.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE ns.id = ? AND d.user_id = ?
+    `)
+    .bind(sentenceId, userId)
+    .first<NoteSentence>();
+}
+
+/**
+ * Cache a sentence's explanation.
+ *
+ * Every row of the note is touched, not just this one: the offline sync
+ * replaces a note's whole local set from any response that mentions it, so a
+ * lone changed row would wipe its siblings on the client.
+ */
+export async function setNoteSentenceExplanation(
+  db: D1Database,
+  sentenceId: string,
+  noteId: string,
+  explanation: string
+): Promise<void> {
+  await db.batch([
+    db
+      .prepare('UPDATE note_sentences SET explanation = ?, updated_at = ? WHERE id = ?')
+      .bind(explanation, new Date().toISOString(), sentenceId),
+    db
+      .prepare('UPDATE note_sentences SET updated_at = ? WHERE note_id = ? AND id != ?')
+      .bind(new Date().toISOString(), noteId, sentenceId),
+  ]);
+}
+
+/**
+ * Note lookup without a user check — for the queue consumer, which acts on a
+ * note id it was handed rather than on behalf of a request.
+ */
+export async function getNoteByIdUnscoped(db: D1Database, noteId: string): Promise<Note | null> {
+  return db.prepare('SELECT * FROM notes WHERE id = ?').bind(noteId).first<Note>();
+}
+
+/** The bio of whoever owns this note, so background generation can use it too. */
+export async function getUserBioForNote(db: D1Database, noteId: string): Promise<string | null> {
+  const row = await db
+    .prepare(`
+      SELECT u.bio FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      JOIN users u ON d.user_id = u.id
+      WHERE n.id = ?
+    `)
+    .bind(noteId)
+    .first<{ bio: string | null }>();
+  return row?.bio ?? null;
+}

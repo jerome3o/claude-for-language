@@ -258,6 +258,8 @@ export interface LocalNoteSentence {
   audio_url: string | null;
   focus: string | null;
   focus_note: string | null;
+  /** JSON SentenceBriefExplanation, cached after the first "explain" tap */
+  explanation: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number;

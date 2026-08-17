@@ -4,8 +4,11 @@ import {
   API_BASE,
   getAuthHeaders,
   generateNoteSentenceSet,
+  prefetchSentenceSets,
+  explainNoteSentence,
   GenerateSentenceSetOptions,
 } from '../api/client';
+import { SentenceBriefExplanation } from '../types';
 import { preCacheAudio } from './audioCache';
 
 /**
@@ -23,6 +26,10 @@ import { preCacheAudio } from './audioCache';
  */
 
 const SENTENCE_SYNC_KEY = 'sentenceSetsLastSync';
+const PREFETCH_LAST_RUN_KEY = 'sentenceSetsLastPrefetch';
+// One top-up per hour is plenty: each sweep queues a batch server-side, and
+// several syncs can fire in a single session.
+const PREFETCH_MIN_INTERVAL_MS = 60 * 60 * 1000;
 
 function toLocal(sentence: NoteSentence): LocalNoteSentence {
   return {
@@ -35,6 +42,7 @@ function toLocal(sentence: NoteSentence): LocalNoteSentence {
     audio_url: sentence.audio_url,
     focus: (sentence.focus as string | null) ?? null,
     focus_note: sentence.focus_note,
+    explanation: sentence.explanation ?? null,
     created_at: sentence.created_at,
     updated_at: sentence.updated_at,
     _synced_at: Date.now(),
@@ -161,6 +169,80 @@ async function pruneOrphanedSentences(): Promise<void> {
   if (orphans.length === 0) return;
   const keys = await db.noteSentences.where('note_id').anyOf(orphans).primaryKeys();
   if (keys.length > 0) await db.noteSentences.bulkDelete(keys);
+}
+
+/**
+ * Ask the server to pre-generate sets for notes that don't have one, starting
+ * with the notes the learner is about to study.
+ *
+ * Generation happens in a worker queue, so this returns as soon as the work is
+ * enqueued; the sets arrive on a later sync. Bounded per call server-side, and
+ * throttled here, so a big collection fills in over days rather than at once.
+ */
+export async function topUpSentenceSets(): Promise<{ queued: number; remaining: number } | null> {
+  if (!navigator.onLine) return null;
+
+  const lastRun = Number(localStorage.getItem(PREFETCH_LAST_RUN_KEY) || 0);
+  if (Date.now() - lastRun < PREFETCH_MIN_INTERVAL_MS) return null;
+
+  const priority = await getUpcomingNoteIds();
+  const result = await prefetchSentenceSets(priority);
+  localStorage.setItem(PREFETCH_LAST_RUN_KEY, String(Date.now()));
+  return result;
+}
+
+/**
+ * Notes whose cards come up soonest — the ones worth generating first.
+ * Learning and due cards first, then the nearest future reviews.
+ */
+async function getUpcomingNoteIds(limit = 120): Promise<string[]> {
+  const now = Date.now();
+  const cards = await db.cards
+    .where('due_timestamp')
+    .belowOrEqual(now + 24 * 60 * 60 * 1000)
+    .limit(limit * 3)
+    .toArray();
+
+  const newCards = cards.length < limit
+    ? await db.cards.where('queue').equals(0).limit(limit * 2).toArray()
+    : [];
+
+  const ordered = [...cards, ...newCards].sort(
+    (a, b) => (a.due_timestamp ?? Infinity) - (b.due_timestamp ?? Infinity)
+  );
+
+  const noteIds: string[] = [];
+  const seen = new Set<string>();
+  for (const card of ordered) {
+    if (seen.has(card.note_id)) continue;
+    seen.add(card.note_id);
+    noteIds.push(card.note_id);
+    if (noteIds.length >= limit) break;
+  }
+  return noteIds;
+}
+
+/**
+ * Fetch (or generate) the brief breakdown of one sentence and cache it on the
+ * local row, so a second tap is instant and works offline.
+ */
+export async function getSentenceExplanation(
+  sentenceId: string
+): Promise<SentenceBriefExplanation> {
+  const local = await db.noteSentences.get(sentenceId);
+  if (local?.explanation) {
+    try {
+      return JSON.parse(local.explanation) as SentenceBriefExplanation;
+    } catch {
+      // Corrupt cache — fall through and refetch
+    }
+  }
+
+  const explanation = await explainNoteSentence(sentenceId);
+  await db.noteSentences.update(sentenceId, {
+    explanation: JSON.stringify(explanation),
+  });
+  return explanation;
 }
 
 /** Forget the sync cursor so the next sync re-downloads every sentence. */

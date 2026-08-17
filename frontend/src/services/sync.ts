@@ -20,7 +20,7 @@ import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllE
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia } from './grammar-study';
-import { syncSentenceSets } from './sentence-sets';
+import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 
@@ -366,6 +366,12 @@ class SyncService {
       // Sentence sets are text-only here; their audio comes down with the
       // full audio prefetch (they're in the audio manifest).
       await syncSentenceSets();
+      // Then queue generation for notes that still have no set, upcoming
+      // cards first, so study rarely has to wait on one. Throttled internally.
+      const topUp = await topUpSentenceSets();
+      if (topUp) {
+        console.log('[Sync] Sentence sets queued:', topUp.queued, 'remaining:', topUp.remaining);
+      }
     } catch (err) {
       console.error('[Sync] Sentence set sync failed:', err);
     }

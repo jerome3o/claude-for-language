@@ -6,6 +6,7 @@ export interface Env {
   IMAGE_QUEUE: Queue<ImageGenerationMessage>;
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   AUDIO_LESSON_QUEUE: Queue<AudioLessonMessage>;
+  SENTENCE_SET_QUEUE: Queue<SentenceSetMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
@@ -59,6 +60,12 @@ export interface AudioLessonMessage {
   lessonId: string;
   title: string;
   notes: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string | null }>;
+}
+
+/** Background generation of a note's graded sentence set (see 0055). */
+export interface SentenceSetMessage {
+  noteId: string;
+  count?: number;
 }
 
 // Audio provider types
@@ -196,8 +203,17 @@ export interface NoteSentence {
   focus: string | null;
   /** Short learner-facing note explaining why this sentence is in the set */
   focus_note: string | null;
+  /** JSON SentenceExplanation, generated on demand and cached (see 0055) */
+  explanation: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Brief, on-demand breakdown of one sentence. Kept small so it renders fast. */
+export interface SentenceBriefExplanation {
+  words: Array<{ hanzi: string; pinyin: string; gloss: string }>;
+  /** One or two sentences on how the sentence is put together */
+  construction: string;
 }
 
 export interface Card {

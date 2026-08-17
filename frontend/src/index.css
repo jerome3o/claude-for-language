@@ -1555,8 +1555,93 @@ button.queue-counts:active {
   word-break: break-word;
 }
 
+/* Collapsed row: nothing to read, so you listen before you check yourself */
+.sentence-set-hidden {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0.375rem 0;
+  min-height: 32px;
+  font-size: 0.8rem;
+  font-style: italic;
+  opacity: 0.4;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
 .sentence-set-details {
   padding-top: 0.25rem;
+}
+
+.sentence-set-explain {
+  margin-top: 0.5rem;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  min-height: 32px;
+  font-size: 0.7rem;
+  color: var(--color-text-light);
+  cursor: pointer;
+}
+
+.sentence-set-explain:hover:not(:disabled) {
+  color: var(--color-text);
+  background-color: var(--color-background, #f5f5f5);
+}
+
+.sentence-set-explain:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sentence-set-explanation {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--color-border);
+}
+
+.sentence-set-words {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.sentence-set-words li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+}
+
+/* The global .hanzi size is card-sized; inside the gloss list it must stay
+   inline with the pinyin and English. */
+.sentence-set-words .hanzi {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  flex: 0 0 auto;
+  min-width: 3.25rem;
+}
+
+.sentence-set-word-pinyin {
+  opacity: 0.65;
+}
+
+.sentence-set-word-gloss {
+  opacity: 0.85;
+}
+
+.sentence-set-construction {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  opacity: 0.8;
 }
 
 .sentence-set-pinyin {

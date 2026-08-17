@@ -69,6 +69,19 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
 
+# Queue for background sentence-set generation, so a card in study never waits
+# on an AI call. One note per message (a set is one Claude call + N TTS clips).
+# Create with: `wrangler queues create sentence-set-queue`
+[[queues.producers]]
+queue = "sentence-set-queue"
+binding = "SENTENCE_SET_QUEUE"
+
+[[queues.consumers]]
+queue = "sentence-set-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"

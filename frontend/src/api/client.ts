@@ -55,6 +55,7 @@ import {
   HomeworkFeedback,
   AppNotification,
   NoteSentence,
+  SentenceBriefExplanation,
 } from '../types';
 import type { Quest, QuestSummary } from '@shared/quest';
 
@@ -326,6 +327,31 @@ export async function generateNoteSentenceSet(
 
 export async function deleteNoteSentenceSet(noteId: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/notes/${noteId}/sentences`, { method: 'DELETE' });
+}
+
+/**
+ * Ask the server to top up the backlog of notes without a sentence set.
+ * `noteIds` are generated first — pass the notes the learner is about to see.
+ */
+export async function prefetchSentenceSets(
+  noteIds: string[],
+  limit?: number
+): Promise<{ queued: number; remaining: number }> {
+  return fetchJSON<{ queued: number; remaining: number }>('/sentences/prefetch', {
+    method: 'POST',
+    body: JSON.stringify({ note_ids: noteIds, limit }),
+  });
+}
+
+/** Brief breakdown of one sentence. Cached server-side after the first call. */
+export async function explainNoteSentence(
+  sentenceId: string
+): Promise<SentenceBriefExplanation> {
+  const data = await fetchJSON<{ explanation: SentenceBriefExplanation }>(
+    `/sentences/${sentenceId}/explain`,
+    { method: 'POST' }
+  );
+  return data.explanation;
 }
 
 export async function fetchSentenceChanges(

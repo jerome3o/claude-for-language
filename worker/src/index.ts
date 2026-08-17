@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage, VocabularyItem } from './types';
+import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -20,6 +20,7 @@ import { generateSentenceSet } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
+import { explainSentenceBriefly } from './services/sentence-explain-brief';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage } from './services/graded-reader';
@@ -795,6 +796,10 @@ app.post('/api/decks/:deckId/notes', async (c) => {
     })
   );
 
+  // Start the sentence set now so the card already has one by the time it
+  // comes up in study.
+  c.executionCtx.waitUntil(enqueueSentenceSet(c.env, note.id));
+
   return c.json(note, 201);
 });
 
@@ -1218,6 +1223,21 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
 
 // ============ Sentence sets (a graded list of examples per note) ============
 
+/**
+ * Queue a note for background sentence-set generation.
+ * Best-effort: a failure here just means the set gets made on demand instead.
+ */
+async function enqueueSentenceSet(env: Env, noteId: string, count?: number): Promise<void> {
+  try {
+    // Send first, mark second: a job marked 'queued' is skipped by future
+    // sweeps, so marking a send that never happened would starve the note.
+    await env.SENTENCE_SET_QUEUE.send({ noteId, count });
+    await db.markSentenceSetJobQueued(env.DB, noteId);
+  } catch (error) {
+    console.error('[sentence-set] Failed to enqueue note', noteId, error);
+  }
+}
+
 /** Generate TTS for a list of sentences, a few at a time, and store the keys. */
 async function attachSentenceSetAudio(
   env: Env,
@@ -1372,6 +1392,95 @@ app.get('/api/sentences/changes', async (c) => {
   const since = c.req.query('since') || null;
   const sentences = await db.getNoteSentencesForUser(c.env.DB, userId, since);
   return c.json({ sentences, server_time: new Date().toISOString() });
+});
+
+/** Default number of notes a single prefetch sweep will enqueue. */
+const SENTENCE_PREFETCH_BATCH = 20;
+const SENTENCE_PREFETCH_MAX_BATCH = 100;
+
+/**
+ * Top up the backlog of notes without a sentence set.
+ *
+ * The client calls this on sync, passing the notes in the current study queue
+ * as `note_ids` so what the learner is about to see gets generated first;
+ * whatever budget is left goes to the due-soonest notes overall. Bounded per
+ * call so a large collection fills in steadily instead of all at once.
+ */
+app.post('/api/sentences/prefetch', async (c) => {
+  const userId = c.get('user').id;
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 500);
+  }
+
+  let noteIds: string[] = [];
+  let limit = SENTENCE_PREFETCH_BATCH;
+  try {
+    const body = await c.req.json<{ note_ids?: string[]; limit?: number }>();
+    if (Array.isArray(body?.note_ids)) noteIds = body.note_ids.filter((id) => typeof id === 'string');
+    if (typeof body?.limit === 'number' && Number.isFinite(body.limit)) {
+      limit = Math.min(SENTENCE_PREFETCH_MAX_BATCH, Math.max(1, Math.round(body.limit)));
+    }
+  } catch {
+    // No body — use defaults
+  }
+
+  const notes = await db.getNotesNeedingSentenceSets(c.env.DB, userId, limit, noteIds);
+  for (const note of notes) {
+    await enqueueSentenceSet(c.env, note.id);
+  }
+
+  const remaining = await db.countNotesWithoutSentenceSets(c.env.DB, userId);
+  console.log('[sentence-set] Prefetch queued', notes.length, 'notes;', remaining, 'still without a set');
+  return c.json({ queued: notes.length, remaining });
+});
+
+/**
+ * A brief breakdown of one sentence — what each word is doing and how the
+ * sentence is built. Generated on demand with Haiku (this is a mid-study tap,
+ * so speed wins), then cached on the row so it is instant and offline after.
+ */
+app.post('/api/sentences/:id/explain', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+
+  const sentence = await db.getNoteSentenceById(c.env.DB, id, userId);
+  if (!sentence) {
+    return c.json({ error: 'Sentence not found' }, 404);
+  }
+
+  if (sentence.explanation) {
+    try {
+      return c.json({
+        explanation: JSON.parse(sentence.explanation) as SentenceBriefExplanation,
+        cached: true,
+      });
+    } catch {
+      // Corrupt cache — fall through and regenerate
+    }
+  }
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 500);
+  }
+
+  try {
+    const explanation = await explainSentenceBriefly(c.env.ANTHROPIC_API_KEY, {
+      hanzi: sentence.hanzi,
+      pinyin: sentence.pinyin,
+      translation: sentence.translation,
+    });
+    await db.setNoteSentenceExplanation(
+      c.env.DB,
+      sentence.id,
+      sentence.note_id,
+      JSON.stringify(explanation)
+    );
+    return c.json({ explanation, cached: false });
+  } catch (error) {
+    console.error('Sentence explanation error:', error);
+    return c.json({ error: 'Failed to explain sentence' }, 500);
+  }
 });
 
 // Generate a fun fact for a note that doesn't have one
@@ -6725,7 +6834,7 @@ export default {
   fetch: app.fetch,
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | AudioLessonMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | AudioLessonMessage | SentenceSetMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6914,6 +7023,71 @@ export default {
             error: err instanceof Error ? err.message : 'Unknown error',
           });
           message.ack(); // Don't retry — partial state may be inconsistent
+        }
+      }
+    } else if (queueName === 'sentence-set-queue') {
+      // Pre-generate a note's sentence set so study never waits on the AI
+      for (const message of batch.messages) {
+        const { noteId, count } = message.body as SentenceSetMessage;
+
+        try {
+          const note = await db.getNoteByIdUnscoped(env.DB, noteId);
+          if (!note) {
+            console.log('[Queue] Sentence set: note gone, skipping', noteId);
+            message.ack();
+            continue;
+          }
+
+          // Someone may have generated it by hand between queueing and now
+          const existing = await db.getNoteSentences(env.DB, noteId);
+          if (existing.length > 0) {
+            await db.markSentenceSetJobDone(env.DB, noteId);
+            message.ack();
+            continue;
+          }
+
+          const bio = await db.getUserBioForNote(env.DB, noteId);
+          const generated = await generateSentenceSet(
+            env.ANTHROPIC_API_KEY,
+            {
+              hanzi: note.hanzi,
+              pinyin: note.pinyin,
+              english: note.english,
+              existing: note.sentence_clue ? [note.sentence_clue] : [],
+              bio,
+            },
+            count
+          );
+
+          const stored = await db.replaceNoteSentences(
+            env.DB,
+            noteId,
+            generated.map((s) => ({
+              hanzi: s.hanzi,
+              pinyin: s.pinyin,
+              translation: s.translation,
+              audioUrl: null,
+              focus: s.focus,
+              focusNote: s.focusNote,
+            }))
+          );
+
+          await attachSentenceSetAudio(env, stored);
+          await db.markSentenceSetJobDone(env.DB, noteId);
+          console.log('[Queue] Sentence set done:', noteId, stored.length, 'sentences');
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] Sentence set generation failed for note:', noteId, err);
+          await db
+            .markSentenceSetJobFailed(
+              env.DB,
+              noteId,
+              err instanceof Error ? err.message : 'Unknown error'
+            )
+            .catch(() => {});
+          // One retry (max_retries = 1); after that the job row's attempt count
+          // keeps it out of future prefetch sweeps.
+          message.retry();
         }
       }
     } else {

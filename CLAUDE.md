@@ -199,7 +199,8 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `review_events` - Individual review records (rating, time, answer, recording_url). Card state is computed from these.
 - `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at)
-- `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus). Written as whole sets; synced to IndexedDB for offline study.
+- `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
+- `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
@@ -519,10 +520,20 @@ shown inline on the card): ordered easiest → hardest, with a couple deliberate
 word in the language (one uses a word sharing a character, one contrasts an easily-confused
 word, one shows the usual collocation). Each sentence gets its own TTS clip and is cached in
 IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
+In the study card the sentences start hidden — you hear the audio first and tap a row to
+reveal the hanzi, pinyin and translation. Each row has an on-demand "what's going on here?"
+breakdown (word glosses + the construction), generated with Haiku and cached on the row.
+
+Sets are pre-generated in the background so study never waits on an AI call: notes are
+enqueued on `sentence-set-queue` when created, and the client's sync tops up the backlog
+(`topUpSentenceSets`, throttled to hourly) passing the upcoming study queue as priority.
+`note_sentence_jobs` stops a note being queued twice or retried forever.
 - `GET /api/notes/:id/sentences` - List a note's sentence set
 - `POST /api/notes/:id/sentences/generate` - Generate a set (`{ count?: 3-10, customPrompt?, keepExisting? }`)
 - `DELETE /api/notes/:id/sentences` - Delete a note's set
 - `GET /api/sentences/changes?since=` - Offline sync: every sentence changed since a timestamp
+- `POST /api/sentences/prefetch` - Queue background generation (`{ note_ids?, limit? }`, default 20/call)
+- `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
 
 ### Cards & Study
 - `GET /api/cards/due` - Get due cards (optional `?deck_id=`)
