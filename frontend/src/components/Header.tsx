@@ -329,6 +329,12 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/quests')}
+                >
+                  🎮 Quests
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/duplicate-finder')}
                 >
                   🪞 Duplicate Finder

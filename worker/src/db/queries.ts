@@ -3518,3 +3518,103 @@ export async function getNoteSentencesForUser(
         .all<NoteSentence>();
   return result.results;
 }
+
+// ============ Quests (tile-map mini-games) ============
+
+/** Row as stored — `world` is the QuestWorld JSON blob. */
+export interface QuestRow {
+  id: string;
+  user_id: string;
+  title: string;
+  topic: string | null;
+  difficulty: string;
+  status: 'generating' | 'ready' | 'error';
+  world: string | null;
+  error: string | null;
+  completed_at: string | null;
+  best_moves: number | null;
+  play_count: number;
+  created_at: string;
+}
+
+export async function createQuest(
+  db: D1Database,
+  userId: string,
+  params: { title: string; topic: string | null; difficulty: string }
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO quests (id, user_id, title, topic, difficulty, status)
+    VALUES (?, ?, ?, ?, ?, 'generating')
+  `).bind(id, userId, params.title, params.topic, params.difficulty).run();
+  return id;
+}
+
+export async function setQuestWorld(
+  db: D1Database,
+  id: string,
+  title: string,
+  world: unknown
+): Promise<void> {
+  await db.prepare(`
+    UPDATE quests SET status = 'ready', title = ?, world = ?, error = NULL WHERE id = ?
+  `).bind(title, JSON.stringify(world), id).run();
+}
+
+export async function setQuestError(db: D1Database, id: string, error: string): Promise<void> {
+  await db.prepare(`UPDATE quests SET status = 'error', error = ? WHERE id = ?`)
+    .bind(error.slice(0, 500), id)
+    .run();
+}
+
+export async function listQuests(db: D1Database, userId: string): Promise<QuestRow[]> {
+  const result = await db.prepare(`
+    SELECT * FROM quests WHERE user_id = ? ORDER BY created_at DESC LIMIT 30
+  `).bind(userId).all<QuestRow>();
+  return result.results;
+}
+
+export async function getQuest(db: D1Database, id: string, userId: string): Promise<QuestRow | null> {
+  const row = await db.prepare(`SELECT * FROM quests WHERE id = ? AND user_id = ?`)
+    .bind(id, userId)
+    .first<QuestRow>();
+  return row ?? null;
+}
+
+/** Record a finished play-through, keeping the fewest moves it has ever taken. */
+export async function recordQuestCompletion(
+  db: D1Database,
+  id: string,
+  userId: string,
+  moves: number
+): Promise<void> {
+  await db.prepare(`
+    UPDATE quests
+    SET completed_at = COALESCE(completed_at, datetime('now')),
+        play_count = play_count + 1,
+        best_moves = CASE
+          WHEN best_moves IS NULL OR ? < best_moves THEN ?
+          ELSE best_moves
+        END
+    WHERE id = ? AND user_id = ?
+  `).bind(moves, moves, id, userId).run();
+}
+
+export async function deleteQuest(db: D1Database, id: string, userId: string): Promise<void> {
+  await db.prepare(`DELETE FROM quests WHERE id = ? AND user_id = ?`).bind(id, userId).run();
+}
+
+/** A generation that never came back (worker died mid-flight) shows as failed. */
+export async function markStaleQuests(
+  db: D1Database,
+  userId: string,
+  maxAgeSeconds = 600
+): Promise<void> {
+  await db.prepare(`
+    UPDATE quests
+    SET status = 'error', error = 'Generation timed out — try again'
+    WHERE user_id = ?
+      AND status = 'generating'
+      AND created_at <= datetime('now', '-' || ? || ' seconds')
+  `).bind(userId, maxAgeSeconds).run();
+}
