@@ -33,7 +33,7 @@ function useOfflineSpeak(): (text: string) => void {
     const playId = playerRef.current.claim();
     void getTTSWithCache(text).then(blob => {
       if (!blob || !playerRef.current.isCurrent(playId)) return;
-      playerRef.current.play(blob);
+      playerRef.current.play(blob, { label: 'grammar-example' });
     });
   }, []);
 }

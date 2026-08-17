@@ -15,10 +15,20 @@
  * their lifetime and must `dispose()` it on unmount.
  */
 
+import { trackClip, ClipTracker } from './audioDiagnostics';
+
+/** Live element count, so diagnostics can catch a leak reappearing. */
+let livePlayers = 0;
+export function livePlayerCount(): number {
+  return livePlayers;
+}
+
 export interface PlayHandlers {
   onPlay?: () => void;
   onEnded?: () => void;
   onError?: () => void;
+  /** Which feature is playing, for diagnostics. Defaults to 'unknown'. */
+  label?: string;
 }
 
 export interface AudioPlayer {
@@ -42,13 +52,35 @@ export interface AudioPlayer {
   isCurrent(playId: number): boolean;
 }
 
+/** MediaError codes are numeric; name them so a report is readable. */
+function describeMediaError(el: HTMLAudioElement): string {
+  const code = el.error?.code;
+  switch (code) {
+    case 1:
+      return 'MEDIA_ERR_ABORTED';
+    case 2:
+      return 'MEDIA_ERR_NETWORK';
+    case 3:
+      return 'MEDIA_ERR_DECODE';
+    case 4:
+      return 'MEDIA_ERR_SRC_NOT_SUPPORTED';
+    default:
+      return 'media-error';
+  }
+}
+
 export function createAudioPlayer(): AudioPlayer {
   let element: HTMLAudioElement | null = null;
   let objectUrl: string | null = null;
   let playId = 0;
+  let tracker: ClipTracker | null = null;
 
   /** Release the current source: detach handlers, free the decoder and the blob. */
   function release() {
+    if (tracker) {
+      tracker.finish();
+      tracker = null;
+    }
     if (element) {
       element.onplay = null;
       element.onended = null;
@@ -76,6 +108,7 @@ export function createAudioPlayer(): AudioPlayer {
 
       if (!element) {
         element = new Audio();
+        livePlayers++;
       }
       const el = element;
 
@@ -86,22 +119,29 @@ export function createAudioPlayer(): AudioPlayer {
         el.src = objectUrl;
       }
 
+      tracker = trackClip(el, source, handlers.label ?? 'unknown');
+      const clip = tracker;
+
       el.onplay = () => {
         if (playId === id) handlers.onPlay?.();
       };
       el.onended = () => {
+        clip.finish({ ended: true });
         if (playId === id) handlers.onEnded?.();
       };
       el.onerror = () => {
+        clip.finish({ error: describeMediaError(el) });
         if (playId === id) handlers.onError?.();
       };
 
       const started = el.play();
       // Older WebViews return undefined instead of a promise.
       if (started && typeof started.catch === 'function') {
-        started.catch(() => {
+        started.catch((err: unknown) => {
           // An aborted play (superseded by the next clip) is not an error.
-          if (playId === id) handlers.onError?.();
+          if (playId !== id) return;
+          clip.finish({ error: err instanceof Error ? err.name : 'play-rejected' });
+          handlers.onError?.();
         });
       }
 
@@ -116,7 +156,10 @@ export function createAudioPlayer(): AudioPlayer {
     dispose() {
       playId++;
       release();
-      element = null;
+      if (element) {
+        element = null;
+        livePlayers--;
+      }
     },
 
     claim() {

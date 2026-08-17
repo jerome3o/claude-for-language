@@ -14,10 +14,17 @@ interface FakeAudio {
   onerror: (() => void) | null;
   paused: boolean;
   loads: number;
+  // The diagnostics layer samples currentTime and subscribes to media events.
+  currentTime: number;
+  duration: number;
+  error: { code: number } | null;
+  listeners: Map<string, Set<() => void>>;
   play: () => Promise<void>;
   pause: () => void;
   removeAttribute: (name: string) => void;
   load: () => void;
+  addEventListener: (type: string, fn: () => void) => void;
+  removeEventListener: (type: string, fn: () => void) => void;
 }
 
 let created: FakeAudio[] = [];
@@ -33,6 +40,10 @@ function makeFakeAudio(): FakeAudio {
     onerror: null,
     paused: true,
     loads: 0,
+    currentTime: 0,
+    duration: 1,
+    error: null,
+    listeners: new Map(),
     play: () => {
       el.paused = false;
       el.onplay?.();
@@ -46,6 +57,13 @@ function makeFakeAudio(): FakeAudio {
     },
     load: () => {
       el.loads++;
+    },
+    addEventListener: (type, fn) => {
+      if (!el.listeners.has(type)) el.listeners.set(type, new Set());
+      el.listeners.get(type)!.add(fn);
+    },
+    removeEventListener: (type, fn) => {
+      el.listeners.get(type)?.delete(fn);
     },
   };
   created.push(el);

@@ -113,6 +113,7 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
     }
 
     playerRef.current.play(blob, {
+      label: 'reader-page',
       onEnded: () => setIsPlaying(false),
       onError: () => setIsPlaying(false),
     });

@@ -61,7 +61,7 @@ export function SentenceBreakdown({ breakdown, onClose }: SentenceBreakdownProps
 
     const playBlob = (blob: Blob) => {
       if (!playerRef.current.isCurrent(playId)) return;
-      playerRef.current.play(blob, { onEnded: finish, onError: finish });
+      playerRef.current.play(blob, { label: 'sentence-chunk', onEnded: finish, onError: finish });
     };
 
     const cached = ttsCache.current.get(text);

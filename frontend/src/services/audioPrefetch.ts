@@ -61,6 +61,15 @@ export function useAudioPrefetchProgress(): AudioPrefetchProgress {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
+/**
+ * Current prefetch status, for playback diagnostics: bulk downloading competes
+ * with playback for network and for IndexedDB writes, so a report needs to
+ * know whether a choppy clip coincided with a run.
+ */
+export function getPrefetchStatus(): AudioPrefetchProgress['status'] {
+  return progress.status;
+}
+
 /** Fetch the list of every audio URL the user owns. */
 export async function fetchAudioManifest(): Promise<string[]> {
   const response = await fetch(`${API_BASE}/api/audio-manifest`, {
