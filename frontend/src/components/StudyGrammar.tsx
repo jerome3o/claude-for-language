@@ -296,6 +296,10 @@ function ScrambleView(props: {
   const { exercise, speak, onNext } = props;
   const [pickedOrder, setPickedOrder] = useState<number[]>([]);
   const [result, setResult] = useState<boolean | null>(null);
+  // The English translation starts hidden: build the sentence from the Chinese
+  // tiles alone, reaching for the English only as a deliberate hint. After
+  // checking it's always shown so the feedback has full context.
+  const [showEnglish, setShowEnglish] = useState(false);
 
   const picked = pickedOrder.map(i => exercise.tiles[i]);
   const allPicked = pickedOrder.length === exercise.tiles.length;
@@ -309,7 +313,13 @@ function ScrambleView(props: {
   return (
     <div className="exercise">
       <div className="phase-label">Word order</div>
-      <div className="scramble-prompt">{exercise.english}</div>
+      {showEnglish || result !== null ? (
+        <div className="scramble-prompt">{exercise.english}</div>
+      ) : (
+        <button className="scramble-prompt hidden-hint" onClick={() => setShowEnglish(true)}>
+          Tap to show English
+        </button>
+      )}
       <div className="scramble-row answer">
         {picked.map((t, i) => (
           <button
