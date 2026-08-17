@@ -354,6 +354,22 @@ export async function explainNoteSentence(
   return data.explanation;
 }
 
+/**
+ * Breakdown of a sentence that isn't a stored set row (the card's own example
+ * sentence). Not cached server-side — there's no row to hang it on.
+ */
+export async function explainSentenceText(sentence: {
+  hanzi: string;
+  pinyin?: string | null;
+  translation?: string | null;
+}): Promise<SentenceBriefExplanation> {
+  const data = await fetchJSON<{ explanation: SentenceBriefExplanation }>(
+    '/sentences/explain-text',
+    { method: 'POST', body: JSON.stringify(sentence) }
+  );
+  return data.explanation;
+}
+
 export async function fetchSentenceChanges(
   since: string | null
 ): Promise<{ sentences: NoteSentence[]; server_time: string }> {

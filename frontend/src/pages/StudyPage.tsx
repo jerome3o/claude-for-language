@@ -336,9 +336,6 @@ function StudyCard({
   // Sentence clue state
   const [showSentenceClue, setShowSentenceClue] = useState(false);
   const [isGeneratingSentence, setIsGeneratingSentence] = useState(false);
-  const [showSentenceHanzi, setShowSentenceHanzi] = useState(false);
-  const [showSentencePinyin, setShowSentencePinyin] = useState(false);
-  const [showSentenceTranslation, setShowSentenceTranslation] = useState(false);
   const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
   const [sentenceChunkCache, setSentenceChunkCache] = useState<Record<string, SentenceChunk[]>>({});
 
@@ -589,16 +586,11 @@ function StudyCard({
     }
   };
 
-  const [showRegenMenu, setShowRegenMenu] = useState(false);
-  const [showCustomPrompt, setShowCustomPrompt] = useState(false);
-  const [customPromptText, setCustomPromptText] = useState('');
 
   const handleGenerateSentenceClue = async (
     options?: { modifier?: 'simple' | 'complex' | 'variation' | 'custom'; customPrompt?: string }
   ) => {
     setIsGeneratingSentence(true);
-    setShowRegenMenu(false);
-    setShowCustomPrompt(false);
     try {
       const updatedNote = await generateSentenceClue(card.note.id, options);
       // Update the local card with the new sentence clue
@@ -611,11 +603,6 @@ function StudyCard({
         sentence_clue_audio_url: updatedNote.sentence_clue_audio_url,
       });
       setShowSentenceClue(true);
-      // Reset progressive reveal states so regenerated content is hidden
-      setShowSentenceHanzi(false);
-      setShowSentencePinyin(false);
-      setShowSentenceTranslation(false);
-      setAddedSentenceAsCard(false);
     } catch (error) {
       console.error('Failed to generate sentence clue:', error);
       if (error instanceof Error && error.message === 'Note not found') {
@@ -626,9 +613,6 @@ function StudyCard({
     }
   };
 
-  const [addedSentenceAsCard, setAddedSentenceAsCard] = useState(false);
-  const [isAddingSentenceCard, setIsAddingSentenceCard] = useState(false);
-  const [showDeckPicker, setShowDeckPicker] = useState(false);
 
   // Fetch sentence chunks for clickable words whenever sentence_clue changes
   const sentenceClueForChunks = card.note.sentence_clue;
@@ -647,24 +631,6 @@ function StudyCard({
 
   // Get all decks for the deck picker
   const allDecks = useLiveQuery(() => db.decks.toArray(), []);
-
-  const handleAddSentenceAsCard = async (deckId: string) => {
-    if (!card.note.sentence_clue || !card.note.sentence_clue_pinyin || !card.note.sentence_clue_translation) return;
-    setIsAddingSentenceCard(true);
-    setShowDeckPicker(false);
-    try {
-      await createNote(deckId, {
-        hanzi: card.note.sentence_clue,
-        pinyin: card.note.sentence_clue_pinyin,
-        english: card.note.sentence_clue_translation,
-      });
-      setAddedSentenceAsCard(true);
-    } catch (error) {
-      console.error('Failed to add sentence as card:', error);
-    } finally {
-      setIsAddingSentenceCard(false);
-    }
-  };
 
   const handleGenerateFunFact = async () => {
     setIsGeneratingFunFact(true);
@@ -2815,193 +2781,23 @@ function StudyCard({
               <div className="study-card-main">
                 {renderBackMain()}
 
-                {/* Sentence clue section with progressive reveal */}
-                <div className="mt-3" style={{ textAlign: 'center' }}>
-                  {card.note.sentence_clue ? (
-                    <div className="sentence-clue-box">
-                      <div className="sentence-clue-header">
-                        {card.note.sentence_clue_audio_url && (
-                          <button
-                            className="sentence-clue-play"
-                            onClick={playSentenceClue}
-                            disabled={isPlaying}
-                            title="Play sentence"
-                          >
-                            {isPlaying ? '⏸' : '▶'}
-                          </button>
-                        )}
-                        <span className="sentence-clue-label">Example Sentence</span>
-                        {card.note.sentence_clue_pinyin && card.note.sentence_clue_translation && (
-                          <div style={{ position: 'relative' }}>
-                            <button
-                              className="sentence-clue-add"
-                              onClick={() => !addedSentenceAsCard && setShowDeckPicker(!showDeckPicker)}
-                              disabled={isAddingSentenceCard || addedSentenceAsCard || !isOnline}
-                              title={addedSentenceAsCard ? 'Added to deck' : 'Add sentence as a new card'}
-                            >
-                              {isAddingSentenceCard ? '...' : addedSentenceAsCard ? '✓' : '+'}
-                            </button>
-                            {showDeckPicker && allDecks && (
-                              <div className="regen-menu" style={{ left: '50%', right: 'auto', transform: 'translateX(-50%)' }}>
-                                <div style={{ padding: '0.25rem 0.75rem', fontSize: '0.7rem', opacity: 0.5, fontWeight: 600 }}>Add to deck</div>
-                                {allDecks.map((d) => (
-                                  <button
-                                    key={d.id}
-                                    className="regen-menu-item"
-                                    onClick={() => handleAddSentenceAsCard(d.id)}
-                                  >
-                                    {d.name}{d.id === card.note.deck_id ? ' (current)' : ''}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <div style={{ position: 'relative' }}>
-                          <button
-                            className="sentence-clue-regen"
-                            onClick={() => setShowRegenMenu(!showRegenMenu)}
-                            disabled={isGeneratingSentence || !isOnline}
-                            title="Regenerate sentence"
-                          >
-                            {isGeneratingSentence ? '...' : '↻'}
-                          </button>
-                          {showRegenMenu && (
-                            <div className="regen-menu">
-                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue()}>
-                                New sentence
-                              </button>
-                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue({ modifier: 'simple' })}>
-                                Simple
-                              </button>
-                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue({ modifier: 'complex' })}>
-                                Complex
-                              </button>
-                              <button className="regen-menu-item" onClick={() => handleGenerateSentenceClue({ modifier: 'variation' })}>
-                                Variation
-                              </button>
-                              <button className="regen-menu-item" onClick={() => { setShowRegenMenu(false); setShowCustomPrompt(true); }}>
-                                Custom...
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {showCustomPrompt && (
-                        <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.375rem' }}>
-                          <input
-                            type="text"
-                            className="form-control form-control-sm"
-                            placeholder="Describe the sentence you want..."
-                            value={customPromptText}
-                            onChange={(e) => setCustomPromptText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && customPromptText.trim()) {
-                                handleGenerateSentenceClue({ modifier: 'custom', customPrompt: customPromptText.trim() });
-                                setCustomPromptText('');
-                              }
-                            }}
-                            autoFocus
-                            style={{ fontSize: '0.75rem' }}
-                          />
-                          <button
-                            className="btn btn-primary btn-sm"
-                            onClick={() => {
-                              if (customPromptText.trim()) {
-                                handleGenerateSentenceClue({ modifier: 'custom', customPrompt: customPromptText.trim() });
-                                setCustomPromptText('');
-                              }
-                            }}
-                            disabled={!customPromptText.trim()}
-                            style={{ fontSize: '0.7rem', padding: '0.125rem 0.5rem' }}
-                          >
-                            Go
-                          </button>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => { setShowCustomPrompt(false); setCustomPromptText(''); }}
-                            style={{ fontSize: '0.7rem', padding: '0.125rem 0.5rem' }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      )}
-                      <div style={{ position: 'relative' }}>
-                        {isGeneratingSentence && (
-                          <div className="sentence-clue-loading">
-                            <div className="sentence-clue-spinner" />
-                            <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>Generating new sentence...</span>
-                          </div>
-                        )}
-                        <div style={{ opacity: isGeneratingSentence ? 0.3 : 1, transition: 'opacity 0.2s', pointerEvents: isGeneratingSentence ? 'none' : 'auto' }}>
-                          <div
-                            className="sentence-clue-row"
-                            style={{ cursor: showSentenceHanzi ? 'default' : 'pointer' }}
-                            onClick={() => !showSentenceHanzi && setShowSentenceHanzi(true)}
-                          >
-                            {showSentenceHanzi ? (
-                              <span className="hanzi" style={{ fontSize: '1.125rem' }}>
-                                {(() => {
-                                  const cacheKey = `${card.note.id}:${card.note.sentence_clue}`;
-                                  const chunks = sentenceChunkCache[cacheKey];
-                                  return chunks && chunks.length > 0
-                                    ? chunks.map((c, i) => (
-                                        <button key={i} className="rp-chunk" onClick={() => setAddingChunk(c)}>
-                                          {c.hanzi}
-                                        </button>
-                                      ))
-                                    : card.note.sentence_clue;
-                                })()}
-                              </span>
-                            ) : (
-                              <span className="sentence-clue-tap">Tap to show Chinese</span>
-                            )}
-                          </div>
-                          {card.note.sentence_clue_pinyin && (
-                            <div
-                              className="sentence-clue-row"
-                              style={{ cursor: showSentencePinyin ? 'default' : 'pointer' }}
-                              onClick={() => !showSentencePinyin && setShowSentencePinyin(true)}
-                            >
-                              {showSentencePinyin ? (
-                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_pinyin}</span>
-                              ) : (
-                                <span className="sentence-clue-tap">Tap to show pinyin</span>
-                              )}
-                            </div>
-                          )}
-                          {card.note.sentence_clue_translation && (
-                            <div
-                              className="sentence-clue-row"
-                              style={{ cursor: showSentenceTranslation ? 'default' : 'pointer' }}
-                              onClick={() => !showSentenceTranslation && setShowSentenceTranslation(true)}
-                            >
-                              {showSentenceTranslation ? (
-                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>{card.note.sentence_clue_translation}</span>
-                              ) : (
-                                <span className="sentence-clue-tap">Tap to show translation</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => handleGenerateSentenceClue()}
-                      disabled={isGeneratingSentence || !isOnline}
-                      title={!isOnline ? 'Requires internet connection' : ''}
-                    >
-                      {isGeneratingSentence ? 'Generating...' : 'Generate Sentence'}
-                    </button>
-                  )}
-                </div>
-
-                {/* Graded sentence set: several examples of this word, simple
-                    to complex, cached with audio for offline study. */}
+                {/* One list of sentences for this word: the card's own
+                    example sentence first, then the generated set. */}
                 <div className="mt-3">
-                  <SentenceSet noteId={card.note.id} compact />
+                  <SentenceSet
+                    noteId={card.note.id}
+                    cardSentence={
+                      card.note.sentence_clue
+                        ? {
+                            hanzi: card.note.sentence_clue,
+                            pinyin: card.note.sentence_clue_pinyin,
+                            translation: card.note.sentence_clue_translation,
+                            audio_url: card.note.sentence_clue_audio_url,
+                          }
+                        : null
+                    }
+                    compact
+                  />
                 </div>
               </div>
               <div className="study-card-actions">

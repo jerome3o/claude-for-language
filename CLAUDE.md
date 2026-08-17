@@ -520,9 +520,14 @@ shown inline on the card): ordered easiest → hardest, with a couple deliberate
 word in the language (one uses a word sharing a character, one contrasts an easily-confused
 word, one shows the usual collocation). Each sentence gets its own TTS clip and is cached in
 IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
-In the study card the sentences start hidden — you hear the audio first and tap a row to
-reveal the hanzi, pinyin and translation. Each row has an on-demand "what's going on here?"
-breakdown (word glosses + the construction), generated with Haiku and cached on the row.
+On the study card there is ONE sentence list: the note's own `sentence_clue` is rendered as
+row 1 (badged "From the card", read straight from the note — never copied into the set, so
+editing it stays reflected), followed by the generated set. Sentences start hidden — you hear
+the audio first and tap a row to reveal the hanzi, pinyin and translation. Each row has an
+on-demand "what's going on here?" breakdown (word glosses + the construction), generated with
+Haiku; each word in it is tappable to add as a card, and `+` adds the whole sentence.
+Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses
+`/api/sentences/explain-text` and caches in the `sentenceTextExplanations` IndexedDB table.
 
 Sets are pre-generated in the background so study never waits on an AI call: notes are
 enqueued on `sentence-set-queue` when created, and the client's sync tops up the backlog
@@ -534,6 +539,7 @@ enqueued on `sentence-set-queue` when created, and the client's sync tops up the
 - `GET /api/sentences/changes?since=` - Offline sync: every sentence changed since a timestamp
 - `POST /api/sentences/prefetch` - Queue background generation (`{ note_ids?, limit? }`, default 20/call)
 - `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
+- `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the card's own clue)
 
 ### Cards & Study
 - `GET /api/cards/due` - Get due cards (optional `?deck_id=`)

@@ -23,6 +23,7 @@ beforeEach(async () => {
   await db.grammarLessons.clear();
   await db.grammarCompletionEvents.clear();
   await db.noteSentences.clear();
+  await db.sentenceTextExplanations.clear();
 });
 
 // Clean up after each test

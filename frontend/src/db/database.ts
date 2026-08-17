@@ -265,6 +265,17 @@ export interface LocalNoteSentence {
   _synced_at: number;
 }
 
+/**
+ * A cached breakdown for a sentence that has no note_sentences row — i.e. the
+ * card's own example sentence, which lives on the note. Keyed by the sentence
+ * text so it survives the clue being regenerated (a new sentence is a new key).
+ */
+export interface LocalSentenceTextExplanation {
+  key: string; // the sentence's hanzi
+  explanation: string; // JSON SentenceBriefExplanation
+  cached_at: number;
+}
+
 export interface CachedAudio {
   key: string; // audio_url
   blob: Blob;
@@ -363,6 +374,7 @@ export class ChineseLearningDB extends Dexie {
 
   // Sentence sets: graded example sentences per note (offline, with audio)
   noteSentences!: Table<LocalNoteSentence, string>;
+  sentenceTextExplanations!: Table<LocalSentenceTextExplanation, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -622,6 +634,32 @@ export class ChineseLearningDB extends Dexie {
       grammarLessons: 'grammar_point_id, position',
       grammarCompletionEvents: 'id, grammar_point_id, completed_at, _synced',
       noteSentences: 'id, note_id, updated_at, [note_id+position]',
+    });
+
+    // Version 13: cache breakdowns for sentences with no row of their own
+    // (the card's example sentence, which lives on the note)
+    this.version(13).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      pendingReviewDeletions: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
+      readers: 'id, status, queue, next_review_at',
+      readerReviewEvents: 'id, reader_id, reviewed_at, _synced, [reader_id+reviewed_at]',
+      grammarLessons: 'grammar_point_id, position',
+      grammarCompletionEvents: 'id, grammar_point_id, completed_at, _synced',
+      noteSentences: 'id, note_id, updated_at, [note_id+position]',
+      sentenceTextExplanations: 'key, cached_at',
     });
   }
 }
@@ -1138,7 +1176,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1152,6 +1190,7 @@ export async function clearAllData(): Promise<void> {
     await db.grammarLessons.clear();
     await db.grammarCompletionEvents.clear();
     await db.noteSentences.clear();
+    await db.sentenceTextExplanations.clear();
   });
 }
 

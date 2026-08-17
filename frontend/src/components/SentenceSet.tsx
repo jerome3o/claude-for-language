@@ -8,11 +8,13 @@ import {
   cacheSentenceAudio,
   resetSentenceSetSyncCursor,
   getSentenceExplanation,
+  getTextExplanation,
 } from '../services/sentence-sets';
 import { SentenceBriefExplanation } from '../types';
 import { fetchNoteSentences, deleteNoteSentenceSet, API_BASE } from '../api/client';
 import { useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
+import { AddChunkModal, Chunk } from './AddChunkModal';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
@@ -25,6 +27,7 @@ import { useNetwork } from '../contexts/NetworkContext';
  */
 
 const FOCUS_LABELS: Record<string, string> = {
+  from_card: 'From the card',
   core: 'Core',
   shared_character: 'Shared character',
   contrast: 'Contrast',
@@ -44,15 +47,49 @@ function parseCachedExplanation(raw: string | null): SentenceBriefExplanation | 
   }
 }
 
+/** The card's own example sentence, which lives on the note, not in the set. */
+export interface CardSentence {
+  hanzi: string;
+  pinyin: string | null;
+  translation: string | null;
+  audio_url: string | null;
+}
+
+/** A row in the rendered list — either the card's sentence or a set row. */
+interface DisplayRow {
+  /** Set-row id, or `clue:<noteId>` for the card's own sentence */
+  key: string;
+  /** null for the card's own sentence: it has no row to cache against */
+  sentenceId: string | null;
+  hanzi: string;
+  pinyin: string | null;
+  translation: string | null;
+  audio_url: string | null;
+  focus: string | null;
+  focus_note: string | null;
+  explanation: string | null;
+  fromCard: boolean;
+}
+
 interface SentenceSetProps {
   noteId: string;
+  /**
+   * The card's own example sentence. It leads the list, so there is one place
+   * to look for sentences rather than two stacked panels.
+   */
+  cardSentence?: CardSentence | null;
   /** Rendered inside the study card (tighter, starts collapsed). */
   compact?: boolean;
   /** Start with the list expanded (deck/edit views). */
   defaultOpen?: boolean;
 }
 
-export function SentenceSet({ noteId, compact = false, defaultOpen = false }: SentenceSetProps) {
+export function SentenceSet({
+  noteId,
+  cardSentence,
+  compact = false,
+  defaultOpen = false,
+}: SentenceSetProps) {
   const { isOnline } = useNetwork();
   const { isPlaying, play } = useNoteAudio();
 
@@ -70,6 +107,11 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
     Record<string, SentenceBriefExplanation | 'error'>
   >({});
   const [explaining, setExplaining] = useState<Set<string>>(new Set());
+  const [showCustom, setShowCustom] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState('');
+  // Whatever the learner tapped to turn into its own card: a whole sentence
+  // or a single word out of a breakdown.
+  const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
 
   // Guard against a slow fetch landing after the user moved to another card
   const noteIdRef = useRef(noteId);
@@ -101,13 +143,15 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
     setExpanded(new Set());
     setExplanations({});
     setShowAll(false);
+    setShowCustom(false);
+    setCustomPrompt('');
     setError(null);
     setOpen(defaultOpen);
     void load();
   }, [noteId, defaultOpen, load]);
 
   const handleGenerate = useCallback(
-    async (options: { count?: number; keepExisting?: boolean } = {}) => {
+    async (options: { count?: number; keepExisting?: boolean; customPrompt?: string } = {}) => {
       setShowMenu(false);
       setGenerating(true);
       setError(null);
@@ -151,23 +195,31 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
     });
   };
 
-  const playSentence = (sentence: LocalNoteSentence) => {
-    setPlayingId(sentence.id);
-    play(sentence.audio_url, sentence.hanzi, API_BASE);
+  const playSentence = (row: DisplayRow) => {
+    setPlayingId(row.key);
+    play(row.audio_url, row.hanzi, API_BASE);
   };
 
-  const handleExplain = useCallback(async (sentenceId: string) => {
-    setExplaining((prev) => new Set(prev).add(sentenceId));
+  const handleExplain = useCallback(async (row: DisplayRow) => {
+    setExplaining((prev) => new Set(prev).add(row.key));
     try {
-      const explanation = await getSentenceExplanation(sentenceId);
-      setExplanations((prev) => ({ ...prev, [sentenceId]: explanation }));
+      // Set rows cache their breakdown server-side; the card's own sentence
+      // has no row, so it goes through the by-text path instead.
+      const explanation = row.sentenceId
+        ? await getSentenceExplanation(row.sentenceId)
+        : await getTextExplanation({
+            hanzi: row.hanzi,
+            pinyin: row.pinyin,
+            translation: row.translation,
+          });
+      setExplanations((prev) => ({ ...prev, [row.key]: explanation }));
     } catch (err) {
       console.error('[SentenceSet] Explain failed:', err);
-      setExplanations((prev) => ({ ...prev, [sentenceId]: 'error' }));
+      setExplanations((prev) => ({ ...prev, [row.key]: 'error' }));
     } finally {
       setExplaining((prev) => {
         const next = new Set(prev);
-        next.delete(sentenceId);
+        next.delete(row.key);
         return next;
       });
     }
@@ -178,15 +230,15 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
    * Cached rows render straight from IndexedDB, so a second look is instant
    * and works offline.
    */
-  const renderExplanation = (sentence: LocalNoteSentence) => {
-    const state = explanations[sentence.id] ?? parseCachedExplanation(sentence.explanation);
-    const isLoading = explaining.has(sentence.id);
+  const renderExplanation = (row: DisplayRow) => {
+    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
+    const isLoading = explaining.has(row.key);
 
     if (!state) {
       return (
         <button
           className="sentence-set-explain"
-          onClick={() => handleExplain(sentence.id)}
+          onClick={() => handleExplain(row)}
           disabled={isLoading || !isOnline}
           title={!isOnline ? 'Requires internet connection' : 'Break this sentence down'}
         >
@@ -197,7 +249,7 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
 
     if (state === 'error') {
       return (
-        <button className="sentence-set-explain" onClick={() => handleExplain(sentence.id)}>
+        <button className="sentence-set-explain" onClick={() => handleExplain(row)}>
           Explain failed — tap to retry
         </button>
       );
@@ -205,12 +257,22 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
 
     return (
       <div className="sentence-set-explanation">
+        {/* Each word is tappable: the breakdown doubles as the old
+            tap-a-word-to-make-a-card affordance. */}
         <ul className="sentence-set-words">
           {state.words.map((word, i) => (
             <li key={i}>
-              <span className="hanzi">{word.hanzi}</span>
-              <span className="sentence-set-word-pinyin">{word.pinyin}</span>
-              <span className="sentence-set-word-gloss">{word.gloss}</span>
+              <button
+                className="sentence-set-word"
+                onClick={() =>
+                  setAddingChunk({ hanzi: word.hanzi, pinyin: word.pinyin, english: word.gloss })
+                }
+                title="Add this word as a card"
+              >
+                <span className="hanzi">{word.hanzi}</span>
+                <span className="sentence-set-word-pinyin">{word.pinyin}</span>
+                <span className="sentence-set-word-gloss">{word.gloss}</span>
+              </button>
             </li>
           ))}
         </ul>
@@ -221,14 +283,50 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
     );
   };
 
+  /**
+   * One list for the learner: the card's own example sentence first, then the
+   * generated set. The card's sentence is rendered from the note rather than
+   * copied into the set, so editing it stays reflected here and there is only
+   * ever one copy of it.
+   */
+  const rows: DisplayRow[] = [];
+  if (cardSentence?.hanzi && !sentences.some((s) => s.hanzi === cardSentence.hanzi)) {
+    rows.push({
+      key: `clue:${noteId}`,
+      sentenceId: null,
+      hanzi: cardSentence.hanzi,
+      pinyin: cardSentence.pinyin,
+      translation: cardSentence.translation,
+      audio_url: cardSentence.audio_url,
+      focus: 'from_card',
+      focus_note: null,
+      explanation: null,
+      fromCard: true,
+    });
+  }
+  for (const sentence of sentences) {
+    rows.push({
+      key: sentence.id,
+      sentenceId: sentence.id,
+      hanzi: sentence.hanzi,
+      pinyin: sentence.pinyin,
+      translation: sentence.translation,
+      audio_url: sentence.audio_url,
+      focus: sentence.focus,
+      focus_note: sentence.focus_note,
+      explanation: sentence.explanation,
+      fromCard: false,
+    });
+  }
+
   const hasSet = sentences.length > 0;
 
-  if (loading && !hasSet) {
+  if (loading && rows.length === 0) {
     return null;
   }
 
-  // Empty state: one button that generates the whole set.
-  if (!hasSet) {
+  // Nothing at all yet: a single button that generates the set.
+  if (rows.length === 0) {
     return (
       <div className={`sentence-set sentence-set--empty${compact ? ' sentence-set--compact' : ''}`}>
         <button
@@ -237,9 +335,12 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
           disabled={generating || !isOnline}
           title={!isOnline ? 'Requires internet connection' : 'Generate a graded set of example sentences'}
         >
-          {generating ? 'Generating sentences...' : '✨ Generate sentence set'}
+          {generating ? 'Generating sentences...' : '✨ Generate sentences'}
         </button>
         {error && <div className="sentence-set-error">{error}</div>}
+        {addingChunk && (
+          <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />
+        )}
       </div>
     );
   }
@@ -254,7 +355,7 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
         >
           <span className="sentence-set-caret">{open ? '▾' : '▸'}</span>
           <span className="sentence-set-title">Sentences</span>
-          <span className="sentence-set-count">{sentences.length}</span>
+          <span className="sentence-set-count">{rows.length}</span>
         </button>
 
         {open && (
@@ -283,18 +384,31 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
                       className="regen-menu-item"
                       onClick={() => handleGenerate({ count })}
                     >
-                      New set of {count}
+                      {hasSet ? `New set of ${count}` : `Generate ${count}`}
                     </button>
                   ))}
+                  {hasSet && (
+                    <button
+                      className="regen-menu-item"
+                      onClick={() => handleGenerate({ count: 5, keepExisting: true })}
+                    >
+                      Add 5 more
+                    </button>
+                  )}
                   <button
                     className="regen-menu-item"
-                    onClick={() => handleGenerate({ count: 5, keepExisting: true })}
+                    onClick={() => {
+                      setShowMenu(false);
+                      setShowCustom(true);
+                    }}
                   >
-                    Add 5 more
+                    Custom...
                   </button>
-                  <button className="regen-menu-item" onClick={handleClear}>
-                    Clear set
-                  </button>
+                  {hasSet && (
+                    <button className="regen-menu-item" onClick={handleClear}>
+                      Clear set
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -304,18 +418,56 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
 
       {error && <div className="sentence-set-error">{error}</div>}
 
+      {open && showCustom && (
+        <div className="sentence-set-custom">
+          <input
+            type="text"
+            className="form-control form-control-sm"
+            placeholder="Describe the sentences you want..."
+            value={customPrompt}
+            onChange={(e) => setCustomPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && customPrompt.trim()) {
+                handleGenerate({ count: 6, customPrompt: customPrompt.trim() });
+                setCustomPrompt('');
+                setShowCustom(false);
+              }
+            }}
+            autoFocus
+          />
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              if (!customPrompt.trim()) return;
+              handleGenerate({ count: 6, customPrompt: customPrompt.trim() });
+              setCustomPrompt('');
+              setShowCustom(false);
+            }}
+            disabled={!customPrompt.trim()}
+          >
+            Go
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              setShowCustom(false);
+              setCustomPrompt('');
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       {open && (
         <ol className="sentence-set-list">
-          {sentences.map((sentence, index) => {
-            const isExpanded = showAll || expanded.has(sentence.id);
-            const focusLabel = sentence.focus ? FOCUS_LABELS[sentence.focus] : null;
-            const showFocus = focusLabel && sentence.focus !== 'core';
+          {rows.map((row, index) => {
+            const isExpanded = showAll || expanded.has(row.key);
+            const focusLabel = row.focus ? FOCUS_LABELS[row.focus] : null;
+            const showFocus = focusLabel && row.focus !== 'core';
             return (
-              <li key={sentence.id} className="sentence-set-row">
-                <span
-                  className="sentence-set-step"
-                  title={`Difficulty ${index + 1} of ${sentences.length}`}
-                >
+              <li key={row.key} className="sentence-set-row">
+                <span className="sentence-set-step" title={`Sentence ${index + 1} of ${rows.length}`}>
                   {index + 1}
                 </span>
                 <div className="sentence-set-body">
@@ -323,42 +475,59 @@ export function SentenceSet({ noteId, compact = false, defaultOpen = false }: Se
                       tap to check yourself against the characters. */}
                   <button
                     className={isExpanded ? 'sentence-set-hanzi hanzi' : 'sentence-set-hidden'}
-                    onClick={() => toggleRow(sentence.id)}
+                    onClick={() => toggleRow(row.key)}
                     aria-expanded={isExpanded}
                   >
-                    {isExpanded ? sentence.hanzi : 'Tap to reveal'}
+                    {isExpanded ? row.hanzi : 'Tap to reveal'}
                   </button>
                   {isExpanded && (
                     <div className="sentence-set-details">
-                      {sentence.pinyin && (
-                        <div className="sentence-set-pinyin">{sentence.pinyin}</div>
+                      {row.pinyin && <div className="sentence-set-pinyin">{row.pinyin}</div>}
+                      {row.translation && (
+                        <div className="sentence-set-translation">{row.translation}</div>
                       )}
-                      {sentence.translation && (
-                        <div className="sentence-set-translation">{sentence.translation}</div>
-                      )}
-                      {(showFocus || sentence.focus_note) && (
+                      {(showFocus || row.focus_note) && (
                         <div className="sentence-set-focus">
                           {showFocus && <span className="sentence-set-badge">{focusLabel}</span>}
-                          {sentence.focus_note && <span>{sentence.focus_note}</span>}
+                          {row.focus_note && <span>{row.focus_note}</span>}
                         </div>
                       )}
-                      {renderExplanation(sentence)}
+                      {renderExplanation(row)}
                     </div>
                   )}
                 </div>
-                <button
-                  className="sentence-set-play"
-                  onClick={() => playSentence(sentence)}
-                  disabled={isPlaying && playingId === sentence.id}
-                  title="Play sentence"
-                >
-                  {isPlaying && playingId === sentence.id ? '⏸' : '▶'}
-                </button>
+                <div className="sentence-set-row-actions">
+                  <button
+                    className="sentence-set-play"
+                    onClick={() => playSentence(row)}
+                    disabled={isPlaying && playingId === row.key}
+                    title="Play sentence"
+                  >
+                    {isPlaying && playingId === row.key ? '⏸' : '▶'}
+                  </button>
+                  {isExpanded && row.pinyin && row.translation && (
+                    <button
+                      className="sentence-set-add"
+                      onClick={() =>
+                        setAddingChunk({
+                          hanzi: row.hanzi,
+                          pinyin: row.pinyin || '',
+                          english: row.translation || '',
+                        })
+                      }
+                      title="Add this sentence as a card"
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
               </li>
             );
           })}
         </ol>
       )}
+
+      {addingChunk && <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   generateNoteSentenceSet,
   prefetchSentenceSets,
   explainNoteSentence,
+  explainSentenceText,
   GenerateSentenceSetOptions,
 } from '../api/client';
 import { SentenceBriefExplanation } from '../types';
@@ -241,6 +242,34 @@ export async function getSentenceExplanation(
   const explanation = await explainNoteSentence(sentenceId);
   await db.noteSentences.update(sentenceId, {
     explanation: JSON.stringify(explanation),
+  });
+  return explanation;
+}
+
+/**
+ * Same breakdown for a sentence with no row of its own — the card's example
+ * sentence. Cached locally by its text, so it is instant and offline after the
+ * first look, and a regenerated clue simply gets a new cache key.
+ */
+export async function getTextExplanation(sentence: {
+  hanzi: string;
+  pinyin?: string | null;
+  translation?: string | null;
+}): Promise<SentenceBriefExplanation> {
+  const cached = await db.sentenceTextExplanations.get(sentence.hanzi);
+  if (cached) {
+    try {
+      return JSON.parse(cached.explanation) as SentenceBriefExplanation;
+    } catch {
+      // Corrupt cache — fall through and refetch
+    }
+  }
+
+  const explanation = await explainSentenceText(sentence);
+  await db.sentenceTextExplanations.put({
+    key: sentence.hanzi,
+    explanation: JSON.stringify(explanation),
+    cached_at: Date.now(),
   });
   return explanation;
 }

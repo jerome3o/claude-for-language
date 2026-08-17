@@ -8,6 +8,7 @@ import {
   resetSentenceSetSyncCursor,
   topUpSentenceSets,
   getSentenceExplanation,
+  getTextExplanation,
 } from './sentence-sets';
 import { db, LocalNote, LocalCard } from '../db/database';
 import { NoteSentence } from '../types';
@@ -352,5 +353,64 @@ describe('getSentenceExplanation', () => {
     );
 
     expect(await getSentenceExplanation('s-3')).toEqual(explanation);
+  });
+});
+
+describe('getTextExplanation', () => {
+  const sentence = { hanzi: '我明白了。', pinyin: 'Wǒ míngbai le.', translation: 'I understand.' };
+  const explanation = {
+    words: [{ hanzi: '明白', pinyin: 'míngbai', gloss: 'understand' }],
+    construction: 'Verb + 了 for a change of state.',
+  };
+
+  function mockExplainText() {
+    return vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/api/sentences/explain-text')) {
+          return new Response(JSON.stringify({ explanation }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${input}`);
+      })
+    );
+  }
+
+  it('fetches and caches by sentence text', async () => {
+    mockExplainText();
+
+    expect(await getTextExplanation(sentence)).toEqual(explanation);
+
+    const cached = await db.sentenceTextExplanations.get(sentence.hanzi);
+    expect(JSON.parse(cached!.explanation)).toEqual(explanation);
+  });
+
+  it('serves the second look from the cache', async () => {
+    mockExplainText();
+    await getTextExplanation(sentence);
+    await getTextExplanation(sentence);
+
+    expect((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1);
+  });
+
+  it('treats a different sentence as a different key', async () => {
+    mockExplainText();
+    await getTextExplanation(sentence);
+    await getTextExplanation({ ...sentence, hanzi: '他明白了。' });
+
+    expect((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
+  });
+
+  it('refetches when the cached value is corrupt', async () => {
+    await db.sentenceTextExplanations.put({
+      key: sentence.hanzi,
+      explanation: 'not json',
+      cached_at: Date.now(),
+    });
+    mockExplainText();
+
+    expect(await getTextExplanation(sentence)).toEqual(explanation);
   });
 });
