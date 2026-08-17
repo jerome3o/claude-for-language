@@ -11,21 +11,18 @@ import {
   getMyRelationships,
   createConversation,
   initiateAIConversation,
-  createTutorReviewRequest,
   generateNoteAudio,
   GenerateAudioOptions,
   getNoteAudioRecordings,
   generateNoteAudioRecording,
   generateSentenceClue,
   generateMultipleChoice,
-  updateNote,
   generateFunFact,
   createNote,
   getOverviewStats,
   getMyDailyProgress,
   textToFlashcard,
   analyzeSentence,
-  SpeechSuperResult,
 } from '../api/client';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
@@ -42,7 +39,6 @@ import {
   QueueCounts,
   IntervalPreview,
   TutorRelationshipWithUsers,
-  getOtherUserInRelationship,
   isClaudeUser,
   MINIMAX_VOICES,
   DEFAULT_MINIMAX_VOICE,
@@ -50,12 +46,10 @@ import {
   OverviewStats,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
-import { useTranscription, usePronunciationAssessment } from '../hooks/useTranscription';
-import { useSpeechSuper } from '../hooks/useSpeechSuper';
+import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, toggleManualOfflineMode } from '../services/offlineMode';
 import { SyncBadge } from '../components/OfflineBanner';
-import { useAuth } from '../contexts/AuthContext';
 import CardEditModal from '../components/CardEditModal';
 import { QueueCountsHeader } from '../components/QueueCountsHeader';
 import { RatingButtons } from '../components/RatingButtons';
@@ -218,20 +212,6 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
   );
 }
 
-// Data needed to show the flag modal (persisted in parent to survive card transitions)
-interface FlagModalData {
-  noteId: string;
-  cardId: string;
-  hanzi: string;
-  pinyin: string;
-  english: string;
-  // Rating data to submit when modal closes
-  rating: Rating;
-  timeSpentMs: number;
-  userAnswer?: string;
-  recordingBlob?: Blob;
-}
-
 function StudyCard({
   card,
   cardIsSecondaryNew,
@@ -243,7 +223,6 @@ function StudyCard({
   onRate,
   onUndo,
   onEnd,
-  onShowFlagModal,
   onUpdateNote,
   onDeleteCurrentCard,
 }: {
@@ -257,7 +236,6 @@ function StudyCard({
   onRate: (rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => void;
   onUndo: () => void;
   onEnd: () => void;
-  onShowFlagModal: (data: FlagModalData) => void;
   onUpdateNote: (updatedNote: Partial<Note>) => void;
   onDeleteCurrentCard: () => void;
 }) {
@@ -330,9 +308,6 @@ function StudyCard({
     [card.note.deck_id]
   );
 
-  // Flag for tutor checkbox state (modal is handled by parent)
-  const [flagForTutor, setFlagForTutor] = useState(false);
-
   // Sentence clue state
   const [showSentenceClue, setShowSentenceClue] = useState(false);
   const [isGeneratingSentence, setIsGeneratingSentence] = useState(false);
@@ -369,27 +344,6 @@ function StudyCard({
     transcribe,
     reset: resetTranscription,
   } = useTranscription();
-
-  // Azure pronunciation assessment
-  const {
-    isAssessing: isAzureAssessing,
-    result: azureResult,
-    error: azureError,
-    assess: azureAssess,
-    reset: resetAzure,
-  } = usePronunciationAssessment();
-  const [useAzure, setUseAzure] = useState(false);
-
-  // SpeechSuper pronunciation assessment (spike — Mandarin tone analysis, on-demand)
-  const {
-    isAssessing: isSpeechSuperAssessing,
-    result: speechSuperResult,
-    error: speechSuperError,
-    assess: speechSuperAssess,
-    reset: resetSpeechSuper,
-  } = useSpeechSuper();
-  // Which per-character chip is expanded in the SpeechSuper report (null = none).
-  const [ssSelectedChar, setSsSelectedChar] = useState<number | null>(null);
 
   // Microphone device selection (persisted in localStorage)
   const [micDeviceId, setMicDeviceId] = useState<string>(() =>
@@ -562,12 +516,8 @@ function StudyCard({
   useEffect(() => {
     if (flipped && isSpeakingCard && audioBlob) {
       transcribe(audioBlob, card.note.hanzi, card.note.pinyin);
-      // Also run Azure pronunciation assessment if enabled
-      if (useAzure) {
-        azureAssess(audioBlob, card.note.hanzi);
-      }
     }
-  }, [flipped, isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe, useAzure, azureAssess]);
+  }, [flipped, isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe]);
 
   // Auto-play audio when answer is revealed
   useEffect(() => {
@@ -820,24 +770,6 @@ function StudyCard({
 
   const handleRate = (rating: Rating) => {
     const timeSpent = Date.now() - startTime;
-
-    // If flag is checked, show modal in parent (survives card transition)
-    if (flagForTutor && tutors.length > 0 && isOnline) {
-      onShowFlagModal({
-        noteId: card.note.id,
-        cardId: card.id,
-        hanzi: card.note.hanzi,
-        pinyin: card.note.pinyin,
-        english: card.note.english,
-        rating,
-        timeSpentMs: timeSpent,
-        userAnswer: userAnswer || undefined,
-        recordingBlob: audioBlob || undefined,
-      });
-      // The flag modal will call onRate when it closes
-      return;
-    }
-
     // Call parent's rate function - handles both state update and DB write
     onRate(rating, timeSpent, userAnswer || undefined, audioBlob || undefined);
   };
@@ -1081,8 +1013,6 @@ function StudyCard({
               className="btn btn-secondary btn-sm"
               onClick={() => {
                 resetTranscription();
-                resetAzure();
-                resetSpeechSuper();
                 clearRecording();
                 setTimeout(() => startRecordingWithDelay(true), 100);
               }}
@@ -1096,342 +1026,6 @@ function StudyCard({
     }
 
     return null;
-  };
-
-  const renderAzureResult = () => {
-    if (!useAzure || !isSpeakingCard || !audioBlob) return null;
-
-    if (isAzureAssessing) {
-      return (
-        <div style={{
-          padding: '0.5rem 0.75rem',
-          borderRadius: '6px',
-          backgroundColor: 'rgba(139, 92, 246, 0.1)',
-          fontSize: '0.875rem',
-          marginBottom: '0.5rem',
-        }}>
-          Azure assessing pronunciation...
-        </div>
-      );
-    }
-
-    if (azureError) {
-      return (
-        <div style={{
-          padding: '0.5rem 0.75rem',
-          borderRadius: '6px',
-          backgroundColor: 'rgba(239, 68, 68, 0.1)',
-          fontSize: '0.8125rem',
-          marginBottom: '0.5rem',
-        }}>
-          Azure: {azureError}
-        </div>
-      );
-    }
-
-    if (azureResult?.NBest?.[0]) {
-      const best = azureResult.NBest[0];
-      const scoreColor = (score: number) =>
-        score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#ef4444';
-
-      return (
-        <div style={{
-          padding: '0.5rem 0.75rem',
-          borderRadius: '6px',
-          backgroundColor: 'rgba(139, 92, 246, 0.08)',
-          border: '1px solid rgba(139, 92, 246, 0.2)',
-          fontSize: '0.8125rem',
-          marginBottom: '0.5rem',
-        }}>
-          <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: '#7c3aed' }}>
-            Azure Pronunciation Assessment
-          </div>
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
-            <span>Overall: <strong style={{ color: scoreColor(best.PronScore) }}>{Math.round(best.PronScore)}</strong></span>
-            <span>Accuracy: <strong style={{ color: scoreColor(best.AccuracyScore) }}>{Math.round(best.AccuracyScore)}</strong></span>
-            <span>Fluency: <strong style={{ color: scoreColor(best.FluencyScore) }}>{Math.round(best.FluencyScore)}</strong></span>
-            <span>Completeness: <strong style={{ color: scoreColor(best.CompletenessScore) }}>{Math.round(best.CompletenessScore)}</strong></span>
-          </div>
-          {best.Words && best.Words.length > 0 && (
-            <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
-              {best.Words.map((w, i) => (
-                <span key={i} style={{
-                  padding: '0.125rem 0.375rem',
-                  borderRadius: '4px',
-                  backgroundColor: w.ErrorType === 'None'
-                    ? 'rgba(34, 197, 94, 0.15)'
-                    : 'rgba(239, 68, 68, 0.15)',
-                  fontSize: '0.8125rem',
-                }}>
-                  {w.Word} <span style={{ color: scoreColor(w.AccuracyScore), fontWeight: 600 }}>{Math.round(w.AccuracyScore)}</span>
-                  {w.ErrorType !== 'None' && <span style={{ color: '#ef4444', fontSize: '0.75rem' }}> ({w.ErrorType})</span>}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return null;
-  };
-
-  // ===== SpeechSuper (spike): on-demand Mandarin pronunciation + tone report =====
-  // Continuous red -> amber -> green scale (red at 0, green at 100) for smooth bars.
-  const ssColor = (s?: number) => {
-    if (s == null || isNaN(s)) return '#9ca3af';
-    const v = Math.max(0, Math.min(100, s));
-    return `hsl(${Math.round(v * 1.25)}, 68%, 44%)`;
-  };
-  const ssClamp = (s: number) => Math.max(0, Math.min(100, s));
-
-  const ssNum = (v: any): number | undefined =>
-    typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)) ? Number(v) : undefined;
-
-  // Predicted-tone digit for a character (SpeechSuper exposes `tone` and/or `scores.tone`).
-  // A small value (0–5) is a tone category; a larger one is a 0–100 tone score.
-  const ssToneDigit = (item: any): string | null => {
-    const t = item?.tone ?? item?.scores?.tone;
-    if (t == null) return null;
-    if (typeof t === 'object') {
-      const got = t.char ?? t.tone ?? t.predict ?? t.detected ?? t.value;
-      return got != null ? String(got) : null;
-    }
-    const n = ssNum(t);
-    if (n != null && n <= 5) return String(n); // looks like a tone category
-    return null;
-  };
-
-  // Per-character pronunciation score (0–100), checking the common field locations.
-  const ssCharScore = (item: any): number | undefined =>
-    ssNum(item?.scores?.pronunciation ?? item?.scores?.overall ?? item?.overall ?? item?.pronunciation ?? item?.score);
-
-  // Expanded detail for a single character: every numeric sub-score + the
-  // phoneme/sound-level breakdown (initials/finals). Defensive about field names.
-  const renderCharDetail = (ch: any) => {
-    const label = ch.word ?? ch.char ?? ch.name ?? '?';
-    const tone = ssToneDigit(ch);
-
-    const scoreObj: Record<string, any> = ch.scores && typeof ch.scores === 'object' ? ch.scores : {};
-    const scoreEntries: { key: string; val: number }[] = [];
-    const seen = new Set<string>();
-    const pushScore = (key: string, raw: any) => {
-      const v = ssNum(raw);
-      if (v != null && !seen.has(key)) {
-        seen.add(key);
-        scoreEntries.push({ key, val: v });
-      }
-    };
-    ['overall', 'pronunciation', 'tone'].forEach((k) => pushScore(k, ch[k]));
-    Object.keys(scoreObj).forEach((k) => pushScore(k, scoreObj[k]));
-
-    const phones: any[] = Array.isArray(ch.phonemes) ? ch.phonemes
-      : Array.isArray(ch.phones) ? ch.phones
-      : Array.isArray(ch.sounds) ? ch.sounds
-      : Array.isArray(ch.details) ? ch.details
-      : [];
-
-    return (
-      <div className="ss-detail">
-        <div className="ss-detail-head">
-          <span className="ss-detail-hanzi">{label}</span>
-          <div className="ss-detail-meta">
-            {ch.pinyin && <span>{ch.pinyin}</span>}
-            {tone != null && <span className="ss-char-tone">声调 {tone}</span>}
-          </div>
-          <button type="button" className="ss-detail-close" onClick={() => setSsSelectedChar(null)} aria-label="Close">×</button>
-        </div>
-
-        {scoreEntries.length > 0 ? (
-          <div className="ss-metrics">
-            {scoreEntries.map((m) => (
-              <div key={m.key}>
-                <div className="ss-metric-head">
-                  <span className="ss-metric-label">{m.key}</span>
-                  <span className="ss-metric-val" style={{ color: ssColor(m.val) }}>{Math.round(m.val)}</span>
-                </div>
-                <div className="ss-track">
-                  <div className="ss-fill" style={{ width: `${ssClamp(m.val)}%`, background: ssColor(m.val) }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ color: '#6b7280', fontSize: '0.78rem' }}>No numeric sub-scores for this character.</div>
-        )}
-
-        {phones.length > 0 && (
-          <>
-            <div className="ss-section-label" style={{ marginTop: '0.5rem' }}>Sounds</div>
-            <div className="ss-phones">
-              {phones.map((p, i) => {
-                const sound = p.phone ?? p.sound ?? p.name ?? p.char ?? p.spell ?? '?';
-                const target = p.target ?? p.ref ?? p.expected ?? p.tgt;
-                const detected = p.detected ?? p.predict ?? p.actual ?? p.dtc;
-                const ps = ssNum(p.overall ?? p.score ?? p.pronunciation ?? p.scores?.overall ?? p.scores?.pronunciation);
-                const mismatch = target != null && detected != null && String(target) !== String(detected);
-                return (
-                  <div className="ss-phone" key={i}>
-                    <span className="ss-phone-sound">{sound}</span>
-                    {mismatch && <span className="ss-phone-sub">heard “{String(detected)}”</span>}
-                    {ps != null && <span className="ss-phone-score" style={{ color: ssColor(ps) }}>{Math.round(ps)}</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-
-        <details className="ss-raw" style={{ marginTop: '0.5rem' }}>
-          <summary>Raw character data</summary>
-          <pre>{JSON.stringify(ch, null, 2)}</pre>
-        </details>
-      </div>
-    );
-  };
-
-  const renderSpeechSuperReport = (data: SpeechSuperResult) => {
-    const r: Record<string, any> = data.result ?? data;
-    const overall = ssNum(r.overall);
-
-    // Metric bars (overall is shown separately as the badge).
-    const metricKeys = ['pronunciation', 'tone', 'fluency', 'integrity', 'rhythm'];
-    const metrics = metricKeys
-      .map((k) => ({ key: k, val: ssNum(r[k]) }))
-      .filter((m): m is { key: string; val: number } => m.val != null);
-
-    // For Mandarin, each entry in result.words[] is a character with its own tone/score.
-    const chars: any[] = Array.isArray(r.words) ? r.words
-      : Array.isArray(r.details) ? r.details
-      : Array.isArray(r.chars) ? r.chars
-      : [];
-
-    return (
-      <div className="ss-report">
-        <div className="ss-head">
-          <span className="ss-title">🎯 SpeechSuper{data.coreType ? ` · ${data.coreType}` : ''}</span>
-          <button
-            className="ss-rerun"
-            onClick={() => { setSsSelectedChar(null); resetSpeechSuper(); if (audioBlob) speechSuperAssess(audioBlob, card.note.hanzi); }}
-          >
-            ↻ Re-run
-          </button>
-        </div>
-
-        {(overall != null || metrics.length > 0) ? (
-          <div className="ss-summary">
-            {overall != null && (
-              <div className="ss-overall" style={{ background: ssColor(overall) }}>
-                <span className="ss-overall-num">{Math.round(overall)}</span>
-                <span className="ss-overall-cap">overall</span>
-              </div>
-            )}
-            <div className="ss-metrics">
-              {metrics.map((m) => (
-                <div key={m.key}>
-                  <div className="ss-metric-head">
-                    <span className="ss-metric-label">{m.key}</span>
-                    <span className="ss-metric-val" style={{ color: ssColor(m.val) }}>{Math.round(m.val)}</span>
-                  </div>
-                  <div className="ss-track">
-                    <div className="ss-fill" style={{ width: `${ssClamp(m.val)}%`, background: ssColor(m.val) }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div style={{ color: '#6b7280', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-            No top-level scores parsed — see raw response below.
-          </div>
-        )}
-
-        {chars.length > 0 && (
-          <>
-            <div className="ss-section-label">Per-character · tap for details</div>
-            <div className="ss-chars">
-              {chars.map((ch, i) => {
-                const label = ch.word ?? ch.char ?? ch.name ?? '?';
-                const score = ssCharScore(ch);
-                const tone = ssToneDigit(ch);
-                const selected = ssSelectedChar === i;
-                return (
-                  <button
-                    type="button"
-                    className={`ss-char${selected ? ' ss-char-selected' : ''}`}
-                    key={i}
-                    onClick={() => setSsSelectedChar(selected ? null : i)}
-                    aria-expanded={selected}
-                  >
-                    <span className="ss-char-hanzi">{label}</span>
-                    {tone != null && <span className="ss-char-tone">声调 {tone}</span>}
-                    {score != null && (
-                      <div className="ss-char-track" title={`Pronunciation ${Math.round(score)}`}>
-                        <div className="ss-char-fill" style={{ width: `${ssClamp(score)}%`, background: ssColor(score) }} />
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {ssSelectedChar != null && chars[ssSelectedChar] && renderCharDetail(chars[ssSelectedChar])}
-          </>
-        )}
-
-        {/* Spike: surface the full payload so we can see exactly what SpeechSuper returns. */}
-        <details className="ss-raw" style={{ marginTop: '0.5rem' }}>
-          <summary>Raw response</summary>
-          <pre>{JSON.stringify(data, null, 2)}</pre>
-        </details>
-      </div>
-    );
-  };
-
-  const renderSpeechSuper = () => {
-    if (!isSpeakingCard || !audioBlob) return null;
-    if (!isOnline) return null;
-
-    return (
-      <div style={{ marginBottom: '0.5rem' }}>
-        {!speechSuperResult && !isSpeechSuperAssessing && !speechSuperError && (
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => { setSsSelectedChar(null); speechSuperAssess(audioBlob, card.note.hanzi); }}
-            style={{ fontSize: '0.8125rem' }}
-            title="Analyse your pronunciation and tones with SpeechSuper"
-          >
-            🎯 Try SpeechSuper
-          </button>
-        )}
-
-        {isSpeechSuperAssessing && (
-          <div className="ss-loading">
-            Analysing tones with SpeechSuper…
-            <div className="ss-loading-track" />
-          </div>
-        )}
-
-        {speechSuperError && !speechSuperResult && (
-          <div style={{
-            padding: '0.5rem 0.75rem',
-            borderRadius: '6px',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            fontSize: '0.8125rem',
-          }}>
-            SpeechSuper: {speechSuperError}{' '}
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => { setSsSelectedChar(null); resetSpeechSuper(); speechSuperAssess(audioBlob, card.note.hanzi); }}
-              style={{ fontSize: '0.7rem', padding: '0.125rem 0.5rem', marginLeft: '0.25rem' }}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {speechSuperResult && renderSpeechSuperReport(speechSuperResult)}
-      </div>
-    );
   };
 
   const handleCharacterClick = (char: string) => {
@@ -1487,8 +1081,6 @@ function StudyCard({
         )}
 
         {renderTranscriptionResult()}
-        {renderAzureResult()}
-        {renderSpeechSuper()}
 
         {/* Show recording controls on the answer screen when retrying */}
         {flipped && isSpeakingCard && !audioBlob && !transcriptionComparison && (
@@ -1521,7 +1113,7 @@ function StudyCard({
 
         {card.note.fun_facts ? (
           <div
-            className="mt-3 text-light claude-response"
+            className="mt-2 text-light claude-response"
             style={{
               fontSize: '0.8125rem',
               backgroundColor: '#f3f4f6',
@@ -1543,7 +1135,7 @@ function StudyCard({
         ) : null}
 
         {card.note.created_at && (
-          <div style={{ fontSize: '0.6875rem', opacity: 0.4, marginTop: '0.75rem' }}>
+          <div style={{ fontSize: '0.6875rem', opacity: 0.4, marginTop: '0.375rem' }}>
             Added {new Date(card.note.created_at + (card.note.created_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
           </div>
         )}
@@ -2199,8 +1791,10 @@ function StudyCard({
             <button
               className="btn btn-secondary btn-sm"
               onClick={playUserRecording}
+              title="Play my recording"
+              aria-label="Play my recording"
             >
-              My Recording
+              🎙️
             </button>
           )}
           <button
@@ -2219,9 +1813,10 @@ function StudyCard({
               className="btn btn-secondary btn-sm"
               onClick={handleUseInConversation}
               disabled={isInitiatingConversation}
-              title="Practice this word in a conversation with Claude"
+              title="Roleplay this word in a conversation with Claude"
+              aria-label="Roleplay this word"
             >
-              {isInitiatingConversation ? 'Starting...' : 'Roleplay Word'}
+              {isInitiatingConversation ? '...' : '🎭'}
             </button>
           )}
           {isOnline && (
@@ -2255,8 +1850,9 @@ function StudyCard({
               }}
               disabled={isRegeneratingAudio}
               title="Regenerate audio with MiniMax"
+              aria-label="Regenerate audio"
             >
-              {isRegeneratingAudio ? '...' : 'Regen Audio'}
+              {isRegeneratingAudio ? '...' : '🔊↻'}
             </button>
           )}
           <button
@@ -2273,51 +1869,6 @@ function StudyCard({
           >
             🔍
           </button>
-        </div>
-
-        {/* Card options row */}
-        <div className="study-back-options">
-          <label className="study-back-option">
-            <input
-              type="checkbox"
-              checked={!!card.note.pinyin_only}
-              onChange={async (e) => {
-                const val = e.target.checked ? 1 : 0;
-                try {
-                  await updateNote(card.note.id, { pinyin_only: val });
-                  onUpdateNote({ pinyin_only: val });
-                  await db.notes.update(card.note.id, { pinyin_only: val });
-                } catch (err) {
-                  console.error('Failed to update pinyin_only:', err);
-                }
-              }}
-              className="form-checkbox"
-              disabled={!isOnline}
-            />
-            <span>Multi-choice default</span>
-          </label>
-          {tutors.length > 0 && isOnline && (
-            <label className="study-back-option">
-              <input
-                type="checkbox"
-                checked={flagForTutor}
-                onChange={(e) => setFlagForTutor(e.target.checked)}
-                className="form-checkbox"
-              />
-              <span>Flag for tutor</span>
-            </label>
-          )}
-          {isSpeakingCard && isOnline && (
-            <label className="study-back-option">
-              <input
-                type="checkbox"
-                checked={useAzure}
-                onChange={(e) => setUseAzure(e.target.checked)}
-                className="form-checkbox"
-              />
-              <span>Azure pronunciation</span>
-            </label>
-          )}
         </div>
       </div>
     );
@@ -2783,7 +2334,7 @@ function StudyCard({
 
                 {/* One list of sentences for this word: the card's own
                     example sentence first, then the generated set. */}
-                <div className="mt-3">
+                <div className="mt-2">
                   <SentenceSet
                     noteId={card.note.id}
                     cardSentence={
@@ -2951,7 +2502,6 @@ export function StudyPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isOnline } = useNetwork();
-  const { user } = useAuth();
 
   const deckId = searchParams.get('deck') || undefined;
   const autostart = searchParams.get('autostart') === 'true';
@@ -2966,14 +2516,7 @@ export function StudyPage() {
     }
   }, [autostart]);
 
-  // Flag modal state (lifted here to survive card transitions)
-  const [flagModalData, setFlagModalData] = useState<FlagModalData | null>(null);
-  const [selectedTutor, setSelectedTutor] = useState<TutorRelationshipWithUsers | null>(null);
-  const [flagMessage, setFlagMessage] = useState('');
-  const [isFlagging, setIsFlagging] = useState(false);
-  const flagMessageRef = useRef<HTMLTextAreaElement>(null);
-
-  // Fetch tutors for flag feature
+  // Tutor relationships (used for the "Roleplay Word" action on the card back)
   const { data: relationships } = useQuery({
     queryKey: ['relationships'],
     queryFn: getMyRelationships,
@@ -3062,54 +2605,10 @@ export function StudyPage() {
     }
   }, [autostart, studyStarted, sessionId, isOnline, deckId]);
 
-  // Handle rating a card (called from StudyCard or after flag modal)
+  // Handle rating a card (called from StudyCard)
   const handleRateCard = useCallback((rating: Rating, timeSpentMs: number, userAnswer?: string, recordingBlob?: Blob) => {
     rateCard(rating, timeSpentMs, userAnswer, recordingBlob);
   }, [rateCard]);
-
-  // Flag modal handlers
-  const handleShowFlagModal = useCallback((data: FlagModalData) => {
-    setFlagModalData(data);
-    // Auto-select first tutor if only one
-    if (tutors.length === 1) {
-      setSelectedTutor(tutors[0]);
-    }
-    setTimeout(() => flagMessageRef.current?.focus(), 100);
-  }, [tutors]);
-
-  const handleFlagSubmit = async () => {
-    if (!selectedTutor || !flagMessage.trim() || isFlagging || !flagModalData) return;
-
-    setIsFlagging(true);
-    try {
-      await createTutorReviewRequest({
-        relationship_id: selectedTutor.id,
-        note_id: flagModalData.noteId,
-        card_id: flagModalData.cardId,
-        message: flagMessage.trim(),
-      });
-    } catch (error) {
-      console.error('Failed to create flag:', error);
-    } finally {
-      // Rate the card regardless of flag success
-      handleRateCard(flagModalData.rating, flagModalData.timeSpentMs, flagModalData.userAnswer, flagModalData.recordingBlob);
-      // Reset flag state
-      setFlagModalData(null);
-      setSelectedTutor(null);
-      setFlagMessage('');
-      setIsFlagging(false);
-    }
-  };
-
-  const handleFlagCancel = () => {
-    // Still rate the card when canceling
-    if (flagModalData) {
-      handleRateCard(flagModalData.rating, flagModalData.timeSpentMs, flagModalData.userAnswer, flagModalData.recordingBlob);
-    }
-    setFlagModalData(null);
-    setSelectedTutor(null);
-    setFlagMessage('');
-  };
 
   const handleEndSession = useCallback(() => {
     setStudyStarted(false);
@@ -3193,103 +2692,6 @@ export function StudyPage() {
     );
   }
 
-  // Render flag modal (at page level to survive card transitions)
-  const renderFlagModal = () => {
-    if (!flagModalData) return null;
-
-    return (
-      <div className="modal-overlay" onClick={handleFlagCancel}>
-        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
-          <div className="modal-header">
-            <div className="modal-title">Flag for Tutor Review</div>
-            <button className="modal-close" onClick={handleFlagCancel}>×</button>
-          </div>
-
-          <div className="modal-body">
-            {/* Card preview */}
-            <div style={{
-              backgroundColor: '#f3f4f6',
-              padding: '0.75rem',
-              borderRadius: '6px',
-              marginBottom: '1rem',
-              textAlign: 'center'
-            }}>
-              <div className="hanzi" style={{ fontSize: '1.5rem' }}>{flagModalData.hanzi}</div>
-              <div className="pinyin" style={{ fontSize: '0.875rem' }}>{flagModalData.pinyin}</div>
-              <div style={{ fontSize: '0.875rem', color: '#666' }}>{flagModalData.english}</div>
-            </div>
-
-            {/* Tutor selection (if multiple) */}
-            {tutors.length > 1 && (
-              <div className="form-group mb-3">
-                <label className="form-label">Select Tutor</label>
-                <select
-                  className="form-input"
-                  value={selectedTutor?.id || ''}
-                  onChange={(e) => {
-                    const tutor = tutors.find(t => t.id === e.target.value);
-                    setSelectedTutor(tutor || null);
-                  }}
-                >
-                  <option value="">Choose a tutor...</option>
-                  {tutors.map((rel) => {
-                    const tutor = user ? getOtherUserInRelationship(rel, user.id) : null;
-                    return (
-                      <option key={rel.id} value={rel.id}>
-                        {tutor?.name || tutor?.email || 'Tutor'}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            )}
-
-            {/* Single tutor display */}
-            {tutors.length === 1 && selectedTutor && (
-              <div className="mb-3" style={{ fontSize: '0.875rem', color: '#666' }}>
-                Sending to: <strong>
-                  {user ? (getOtherUserInRelationship(selectedTutor, user.id)?.name ||
-                    getOtherUserInRelationship(selectedTutor, user.id)?.email) : 'Tutor'}
-                </strong>
-              </div>
-            )}
-
-            {/* Message input */}
-            <div className="form-group">
-              <label className="form-label">What would you like help with?</label>
-              <textarea
-                ref={flagMessageRef}
-                className="form-input"
-                value={flagMessage}
-                onChange={(e) => setFlagMessage(e.target.value)}
-                placeholder="e.g., The audio sounds different than I expected..."
-                rows={3}
-                style={{ resize: 'vertical' }}
-              />
-            </div>
-          </div>
-
-          <div className="modal-footer">
-            <button
-              className="btn btn-secondary"
-              onClick={handleFlagCancel}
-              disabled={isFlagging}
-            >
-              Skip
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleFlagSubmit}
-              disabled={!selectedTutor || !flagMessage.trim() || isFlagging}
-            >
-              {isFlagging ? 'Sending...' : 'Send to Tutor'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // Active study - fullscreen mode
   return (
     <div className="study-page-fullscreen">
@@ -3326,7 +2728,6 @@ export function StudyPage() {
           onRate={handleRateCard}
           onUndo={undoLastReview}
           onEnd={handleEndSession}
-          onShowFlagModal={handleShowFlagModal}
           onUpdateNote={updateCurrentNote}
           onDeleteCurrentCard={() => removeNoteFromSession(currentCard.note.id)}
         />
@@ -3351,7 +2752,6 @@ export function StudyPage() {
       ) : null}
 
       {/* Flag modal - rendered at page level to survive card transitions */}
-      {renderFlagModal()}
     </div>
   );
 }
