@@ -78,9 +78,10 @@ interface SentenceSetProps {
    * to look for sentences rather than two stacked panels.
    */
   cardSentence?: CardSentence | null;
-  /** Rendered inside the study card (tighter, starts collapsed). */
+  /** Rendered inside the study card (tighter spacing). */
   compact?: boolean;
-  /** Start with the list expanded (deck/edit views). */
+  /** Start with the list expanded. Open by default: the card's own sentence
+   *  is in here, and it shouldn't take a tap to get at. */
   defaultOpen?: boolean;
 }
 
@@ -88,7 +89,7 @@ export function SentenceSet({
   noteId,
   cardSentence,
   compact = false,
-  defaultOpen = false,
+  defaultOpen = true,
 }: SentenceSetProps) {
   const { isOnline } = useNetwork();
   const { isPlaying, play } = useNoteAudio();
@@ -525,6 +526,19 @@ export function SentenceSet({
             );
           })}
         </ol>
+      )}
+
+      {open && (
+        <button
+          className="sentence-set-more"
+          onClick={() =>
+            handleGenerate(hasSet ? { count: 5, keepExisting: true } : { count: 6 })
+          }
+          disabled={generating || !isOnline}
+          title={!isOnline ? 'Requires internet connection' : 'Generate more example sentences'}
+        >
+          {generating ? 'Generating...' : hasSet ? '+ Generate 5 more' : '+ Generate more sentences'}
+        </button>
       )}
 
       {addingChunk && <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />}
