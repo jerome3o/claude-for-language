@@ -353,7 +353,20 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
           {/* Sentence set: graded examples, simple to complex */}
           <div className="card-edit-audio-section">
             <h3>Sentence Set</h3>
-            <SentenceSet noteId={card.note.id} defaultOpen />
+            <SentenceSet
+              noteId={card.note.id}
+              cardSentence={
+                sentenceClue
+                  ? {
+                      hanzi: sentenceClue,
+                      pinyin: sentenceCluePinyin || null,
+                      translation: sentenceClueTranslation || null,
+                      audio_url: sentenceClueAudioUrl,
+                    }
+                  : null
+              }
+              defaultOpen
+            />
           </div>
 
           {/* Audio recordings */}

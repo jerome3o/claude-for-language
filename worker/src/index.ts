@@ -1436,6 +1436,41 @@ app.post('/api/sentences/prefetch', async (c) => {
 });
 
 /**
+ * The same brief breakdown, for a sentence that isn't a stored set row — the
+ * card's own example sentence, which lives on the note rather than in
+ * note_sentences. There's no row to cache it on, so the client caches it.
+ */
+app.post('/api/sentences/explain-text', async (c) => {
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 500);
+  }
+
+  let body: { hanzi?: string; pinyin?: string | null; translation?: string | null };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'hanzi is required' }, 400);
+  }
+
+  const hanzi = body?.hanzi?.trim();
+  if (!hanzi) {
+    return c.json({ error: 'hanzi is required' }, 400);
+  }
+
+  try {
+    const explanation = await explainSentenceBriefly(c.env.ANTHROPIC_API_KEY, {
+      hanzi,
+      pinyin: body.pinyin ?? null,
+      translation: body.translation ?? null,
+    });
+    return c.json({ explanation });
+  } catch (error) {
+    console.error('Sentence text explanation error:', error);
+    return c.json({ error: 'Failed to explain sentence' }, 500);
+  }
+});
+
+/**
  * A brief breakdown of one sentence — what each word is doing and how the
  * sentence is built. Generated on demand with Haiku (this is a mid-study tap,
  * so speed wins), then cached on the row so it is instant and offline after.

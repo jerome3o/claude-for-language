@@ -1613,11 +1613,70 @@ button.queue-counts:active {
 }
 
 .sentence-set-words li {
+  font-size: 0.75rem;
+}
+
+/* Each word doubles as "add this word as a card" */
+.sentence-set-word {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.375rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 0.125rem 0.25rem;
+  min-height: 28px;
+  color: var(--color-text);
   font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.sentence-set-word:hover {
+  background-color: var(--color-background, #f5f5f5);
+}
+
+.sentence-set-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.sentence-set-add {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--color-text-light);
+  cursor: pointer;
+  padding: 0;
+}
+
+.sentence-set-add:hover {
+  color: var(--color-primary, #3b82f6);
+  background-color: var(--color-background, #f5f5f5);
+}
+
+.sentence-set-custom {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.sentence-set-custom .form-control {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8rem;
 }
 
 /* The global .hanzi size is card-sized; inside the gloss list it must stay
