@@ -786,3 +786,8 @@ body.quest-fullscreen .sync-badge {
   color: var(--color-primary);
   font-weight: 600;
 }
+
+.quest-hands-pinyin {
+  color: var(--color-text-light);
+  font-size: 0.66rem;
+}

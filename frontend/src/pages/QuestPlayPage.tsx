@@ -56,13 +56,13 @@ interface RevealSettings {
   /** English under the instruction. */
   english: boolean;
   /**
-   * Hanzi on the action buttons. Off by default: with the characters on the
-   * buttons, an instruction can be solved by matching them without reading it.
+   * Pinyin under the verbs on the action buttons. Off by default — the buttons
+   * always carry the characters, so reading them is part of the exercise.
    */
-  hanzi: boolean;
+  buttonPinyin: boolean;
 }
 
-const DEFAULT_REVEAL: RevealSettings = { pinyin: false, english: false, hanzi: false };
+const DEFAULT_REVEAL: RevealSettings = { pinyin: false, english: false, buttonPinyin: false };
 
 interface Toast {
   hanzi: string;
@@ -438,7 +438,8 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
             {carried.length > 0 ? (
               carried.map((obj) => (
                 <span key={obj.id} className="quest-hands-item">
-                  {emojiFor(obj, state.objects[obj.id])} {reveal.hanzi ? obj.hanzi : obj.pinyin}
+                  {emojiFor(obj, state.objects[obj.id])} {obj.hanzi}
+                  {reveal.buttonPinyin && <span className="quest-hands-pinyin"> {obj.pinyin}</span>}
                 </span>
               ))
             ) : (
@@ -459,7 +460,7 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
                 <VerbButton
                   key={`pick-${obj.id}`}
                   carry
-                  showHanzi={reveal.hanzi}
+                  showPinyin={reveal.buttonPinyin}
                   verbHanzi="拿起"
                   verbPinyin="ná qǐ"
                   objectEmoji={emojiFor(obj, state.objects[obj.id])}
@@ -471,7 +472,7 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
                 <VerbButton
                   key={`drop-${obj.id}`}
                   carry
-                  showHanzi={reveal.hanzi}
+                  showPinyin={reveal.buttonPinyin}
                   verbHanzi="放下"
                   verbPinyin="fàng xià"
                   objectEmoji={emojiFor(obj, state.objects[obj.id])}
@@ -482,7 +483,7 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
               {verbs.map(({ object, action }) => (
                 <VerbButton
                   key={`${object.id}-${action.id}`}
-                  showHanzi={reveal.hanzi}
+                  showPinyin={reveal.buttonPinyin}
                   verbHanzi={action.hanzi}
                   verbPinyin={action.pinyin}
                   objectEmoji={emojiFor(object, state.objects[object.id])}
@@ -531,11 +532,11 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
 }
 
 /**
- * One verb button. Without the hanzi it reads as emoji + pinyin, so the
- * instruction has to be understood rather than character-matched.
+ * One verb button: the verb in characters next to the object's emoji. The
+ * reading sits behind a toggle so the characters are what you read by default.
  */
 function VerbButton({
-  showHanzi,
+  showPinyin,
   verbHanzi,
   verbPinyin,
   objectEmoji,
@@ -543,7 +544,7 @@ function VerbButton({
   carry,
   onClick,
 }: {
-  showHanzi: boolean;
+  showPinyin: boolean;
   verbHanzi: string;
   verbPinyin: string;
   objectEmoji: string;
@@ -554,13 +555,13 @@ function VerbButton({
   return (
     <button className={`quest-verb ${carry ? 'quest-verb-carry' : ''}`} onClick={onClick}>
       <span className="quest-verb-main">
-        {showHanzi ? `${verbHanzi} ` : ''}
-        {objectEmoji}
+        {verbHanzi} {objectEmoji}
       </span>
-      <span className="quest-verb-sub">
-        {verbPinyin}
-        {showHanzi ? ` ${objectPinyin}` : ''}
-      </span>
+      {showPinyin && (
+        <span className="quest-verb-sub">
+          {verbPinyin} {objectPinyin}
+        </span>
+      )}
     </button>
   );
 }
@@ -596,7 +597,7 @@ function QuestMenu({
                 className={`quest-reveal-btn ${reveal.pinyin ? 'quest-reveal-btn-on' : ''}`}
                 onClick={() => onToggle('pinyin')}
               >
-                拼音 pinyin
+                拼音 instruction
               </button>
               <button
                 className={`quest-reveal-btn ${reveal.english ? 'quest-reveal-btn-on' : ''}`}
@@ -605,10 +606,10 @@ function QuestMenu({
                 English
               </button>
               <button
-                className={`quest-reveal-btn ${reveal.hanzi ? 'quest-reveal-btn-on' : ''}`}
-                onClick={() => onToggle('hanzi')}
+                className={`quest-reveal-btn ${reveal.buttonPinyin ? 'quest-reveal-btn-on' : ''}`}
+                onClick={() => onToggle('buttonPinyin')}
               >
-                汉字 on buttons
+                拼音 buttons
               </button>
             </div>
           </div>
