@@ -9,6 +9,7 @@ import {
   topUpSentenceSets,
   getSentenceExplanation,
   getTextExplanation,
+  ensureSentenceSetForNote,
 } from './sentence-sets';
 import { db, LocalNote, LocalCard } from '../db/database';
 import { NoteSentence } from '../types';
@@ -412,5 +413,83 @@ describe('getTextExplanation', () => {
     mockExplainText();
 
     expect(await getTextExplanation(sentence)).toEqual(explanation);
+  });
+});
+
+describe('ensureSentenceSetForNote', () => {
+  const generated = [
+    { ...makeSentence({ id: 'g1', position: 0, hanzi: '第一句' }) },
+    { ...makeSentence({ id: 'g2', position: 1, hanzi: '第二句' }) },
+  ];
+
+  function mockGenerate() {
+    return vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/sentences/generate')) {
+          return new Response(JSON.stringify({ sentences: generated }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${input}`);
+      })
+    );
+  }
+
+  function fetchCalls(): number {
+    return (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+  }
+
+  it('generates and stores a set for a note that has none', async () => {
+    mockGenerate();
+
+    await ensureSentenceSetForNote('note-fail-1');
+
+    expect((await getLocalNoteSentences('note-fail-1')).map((r) => r.hanzi)).toEqual([
+      '第一句',
+      '第二句',
+    ]);
+  });
+
+  it('does nothing when the note already has a set', async () => {
+    await putLocalNoteSentences('note-has-set', [makeSentence({ id: 'existing' })]);
+    mockGenerate();
+
+    await ensureSentenceSetForNote('note-has-set');
+
+    expect(fetchCalls()).toBe(0);
+    expect((await getLocalNoteSentences('note-has-set')).map((r) => r.id)).toEqual(['existing']);
+  });
+
+  it('only starts one generation per note, however many times it is failed', async () => {
+    mockGenerate();
+
+    await ensureSentenceSetForNote('note-repeat');
+    await ensureSentenceSetForNote('note-repeat');
+    await ensureSentenceSetForNote('note-repeat');
+
+    expect(fetchCalls()).toBe(1);
+  });
+
+  it('does nothing when offline', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    mockGenerate();
+
+    await ensureSentenceSetForNote('note-offline');
+
+    expect(fetchCalls()).toBe(0);
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  });
+
+  it('swallows failures and lets a later attempt retry', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500 })));
+
+    await expect(ensureSentenceSetForNote('note-retry')).resolves.toBeUndefined();
+    expect(fetchCalls()).toBe(1);
+
+    mockGenerate();
+    await ensureSentenceSetForNote('note-retry');
+    expect((await getLocalNoteSentences('note-retry'))).toHaveLength(2);
   });
 });

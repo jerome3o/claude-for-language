@@ -532,6 +532,9 @@ Set rows cache their breakdown server-side; the clue row has no row to cache on,
 Sets are pre-generated in the background so study never waits on an AI call: notes are
 enqueued on `sentence-set-queue` when created, and the client's sync tops up the backlog
 (`topUpSentenceSets`, throttled to hourly) passing the upcoming study queue as priority.
+Rating a card **Again** also calls `ensureSentenceSetForNote` (fire-and-forget, once per note
+per session), so a word you just got wrong has sentences waiting when it comes back a minute
+later.
 `note_sentence_jobs` stops a note being queued twice or retried forever.
 - `GET /api/notes/:id/sentences` - List a note's sentence set
 - `POST /api/notes/:id/sentences/generate` - Generate a set (`{ count?: 3-10, customPrompt?, keepExisting? }`)
