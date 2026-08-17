@@ -1980,6 +1980,10 @@ export async function completeQuest(id: string, moves: number): Promise<void> {
   });
 }
 
+export async function retryQuest(id: string): Promise<{ id: string; status: string }> {
+  return fetchJSON(`/quests/${id}/retry`, { method: 'POST' });
+}
+
 export async function deleteQuest(id: string): Promise<void> {
   await fetchJSON(`/quests/${id}`, { method: 'DELETE' });
 }

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage, VocabularyItem } from './types';
+import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -6234,48 +6234,39 @@ app.post('/api/quests', async (c) => {
     body.difficulty === 'easy' || body.difficulty === 'hard' ? body.difficulty : 'medium';
   const topic = body.topic?.trim().slice(0, 200) || null;
 
-  // Build the world out of words the learner actually knows where we can.
-  const vocabulary = await db
-    .getLearnedVocabulary(c.env.DB, userId, body.deck_ids?.length ? body.deck_ids : undefined)
-    .catch(() => []);
-  const userRow = await c.env.DB.prepare('SELECT bio FROM users WHERE id = ?')
-    .bind(userId)
-    .first<{ bio: string | null }>();
-
   const questId = await db.createQuest(c.env.DB, userId, {
     title: topic ? `Quest: ${topic}` : 'New quest',
     topic,
     difficulty,
   });
 
-  c.executionCtx.waitUntil(
-    (async () => {
-      try {
-        const world = await generateQuestWorld(c.env.ANTHROPIC_API_KEY, {
-          topic,
-          difficulty,
-          goalCount: body.goal_count,
-          vocabulary,
-          bio: userRow?.bio ?? null,
-        });
-        const title = world.title.english || world.title.hanzi || 'Quest';
-        await db.setQuestWorld(c.env.DB, questId, title, world);
-      } catch (error) {
-        console.error('[quests] generation failed:', error);
-        await db.setQuestError(
-          c.env.DB,
-          questId,
-          error instanceof Error ? error.message : 'Generation failed'
-        );
-      }
-    })()
-  );
+  // A world is one long Claude call plus up to two repair rounds, which
+  // outlives waitUntil() — the isolate gets torn down mid-call and the row is
+  // left stuck in 'generating'. Queue consumers get minutes, so it goes there.
+  await c.env.QUEST_QUEUE.send({
+    questId,
+    goalCount: body.goal_count,
+    deckIds: body.deck_ids,
+  });
 
   return c.json({ id: questId, status: 'generating' }, 202);
 });
 
+/** Rebuild a failed quest in place, keeping its topic and difficulty. */
+app.post('/api/quests/:id/retry', async (c) => {
+  const userId = c.get('user').id;
+  const row = await db.getQuest(c.env.DB, c.req.param('id'), userId);
+  if (!row) return c.json({ error: 'Not found' }, 404);
+  if (row.status === 'generating') return c.json({ error: 'Already generating' }, 409);
+
+  await db.resetQuestForRetry(c.env.DB, row.id, userId);
+  await c.env.QUEST_QUEUE.send({ questId: row.id });
+  return c.json({ id: row.id, status: 'generating' }, 202);
+});
+
 app.get('/api/quests/:id', async (c) => {
   const userId = c.get('user').id;
+  await db.markStaleQuests(c.env.DB, userId);
   const row = await db.getQuest(c.env.DB, c.req.param('id'), userId);
   if (!row) return c.json({ error: 'Not found' }, 404);
   const { world, ...rest } = row;
@@ -6869,7 +6860,7 @@ export default {
   fetch: app.fetch,
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | AudioLessonMessage | SentenceSetMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | AudioLessonMessage | SentenceSetMessage | QuestGenerationMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -7058,6 +7049,51 @@ export default {
             error: err instanceof Error ? err.message : 'Unknown error',
           });
           message.ack(); // Don't retry — partial state may be inconsistent
+        }
+      }
+    } else if (queueName === 'quest-generation-queue') {
+      // Build a quest world: one Claude call, validated, with up to two repair
+      // rounds. Minutes of wall clock, which is exactly why it lives here.
+      for (const message of batch.messages) {
+        const { questId, goalCount, deckIds } = message.body as QuestGenerationMessage;
+        console.log('[Queue] Generating quest world:', questId);
+
+        try {
+          const quest = await db.getQuestUnscoped(env.DB, questId);
+          if (!quest) {
+            console.log('[Queue] Quest gone, skipping', questId);
+            message.ack();
+            continue;
+          }
+
+          const vocabulary = await db
+            .getLearnedVocabulary(env.DB, quest.user_id, deckIds?.length ? deckIds : undefined)
+            .catch(() => []);
+          const userRow = await env.DB.prepare('SELECT bio FROM users WHERE id = ?')
+            .bind(quest.user_id)
+            .first<{ bio: string | null }>();
+
+          const world = await generateQuestWorld(env.ANTHROPIC_API_KEY, {
+            topic: quest.topic,
+            difficulty: (quest.difficulty || 'medium') as QuestDifficulty,
+            goalCount,
+            vocabulary,
+            bio: userRow?.bio ?? null,
+            onProgress: (stage) => db.setQuestProgress(env.DB, questId, stage),
+          });
+
+          const title = world.title.english || world.title.hanzi || 'Quest';
+          await db.setQuestWorld(env.DB, questId, title, world);
+          console.log('[Queue] Quest ready:', questId, title);
+          message.ack();
+        } catch (err) {
+          console.error('[Queue] Quest generation failed:', questId, err);
+          await db.setQuestError(
+            env.DB,
+            questId,
+            err instanceof Error ? err.message : 'Generation failed'
+          );
+          message.ack(); // The error is recorded; retrying is the learner's call
         }
       }
     } else if (queueName === 'sentence-set-queue') {

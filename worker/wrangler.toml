@@ -82,6 +82,20 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
 
+# Queue for background quest generation. A quest world is one big Claude call
+# plus up to two repair rounds, which outlives a waitUntil() — the isolate gets
+# torn down mid-flight and the row is left stuck in 'generating'.
+# Create with: `wrangler queues create quest-generation-queue`
+[[queues.producers]]
+queue = "quest-generation-queue"
+binding = "QUEST_QUEUE"
+
+[[queues.consumers]]
+queue = "quest-generation-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"
