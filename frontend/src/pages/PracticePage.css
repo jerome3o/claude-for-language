@@ -297,6 +297,23 @@
   font-weight: 500;
 }
 
+/* English translation hidden behind a deliberate tap, so the sentence is
+ * built from the Chinese tiles first and English is only a fallback hint. */
+.scramble-prompt.hidden-hint {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed #cdd6e8;
+  border-radius: 8px;
+  background: #f6f8fc;
+  color: #667;
+  font-weight: 400;
+  font-size: 1rem;
+  text-align: center;
+  cursor: pointer;
+}
+
 .scramble-row {
   display: flex;
   flex-wrap: wrap;
