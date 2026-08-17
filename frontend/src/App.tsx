@@ -398,11 +398,11 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* No <Header /> — a quest takes over the whole screen while it is open. */}
       <Route
         path="/quests/:id"
         element={
           <ProtectedRoute>
-            <Header />
             <ErrorBoundary fallbackTitle="Couldn't load this quest">
               <QuestPlayPage />
             </ErrorBoundary>

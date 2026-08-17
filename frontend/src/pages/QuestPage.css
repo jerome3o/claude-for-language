@@ -171,46 +171,95 @@
   padding: 2rem 1rem;
 }
 
-/* ---------- Game ---------- */
+/* ---------- Game: a fixed, full-screen board that never scrolls ---------- */
 
-.quest-game {
+/* While a quest is open the app chrome gets out of the way entirely. */
+body.quest-fullscreen {
+  overflow: hidden;
+}
+
+/* The feedback bubble and the sync badge both float over the controls. */
+body.quest-fullscreen .feedback-fab,
+body.quest-fullscreen .sync-badge {
+  display: none;
+}
+
+.quest-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.3rem;
+  padding: 0.3rem 0.4rem calc(0.3rem + env(safe-area-inset-bottom));
+  background: var(--color-background);
+  overscroll-behavior: none;
 }
 
-.quest-topbar {
+/* --- hud --- */
+
+.quest-hud {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  font-size: 0.8rem;
-  color: var(--color-text-light);
+  gap: 0.4rem;
+  flex-shrink: 0;
 }
 
-.quest-topbar-title {
+.quest-hud-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.quest-hud-moves {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  font-variant-numeric: tabular-nums;
+}
+
+.quest-hud-btn {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--color-text);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quest-hud-btn:active {
+  background: rgba(15, 23, 42, 0.18);
+}
+
+/* --- instruction --- */
+
 .quest-instruction {
+  flex-shrink: 0;
   background: linear-gradient(140deg, #1e293b, #3730a3);
   color: #fff;
-  border-radius: var(--radius-lg);
-  padding: 0.75rem 0.875rem;
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.55rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .quest-instruction-meta {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.72rem;
+  gap: 0.4rem;
+  font-size: 0.68rem;
   color: #c7d2fe;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.15rem;
 }
 
 .quest-pips {
@@ -220,8 +269,8 @@
 }
 
 .quest-pip {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.25);
 }
@@ -231,20 +280,21 @@
 
 .quest-instruction-text {
   display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .quest-instruction-hanzi {
-  font-size: 1.25rem;
-  line-height: 1.5;
+  font-size: 1.15rem;
+  line-height: 1.35;
   font-weight: 600;
   flex: 1;
+  min-width: 0;
 }
 
 @media (min-width: 640px) {
   .quest-instruction-hanzi {
-    font-size: 1.4rem;
+    font-size: 1.3rem;
   }
 }
 
@@ -253,63 +303,50 @@
   border: none;
   color: #fff;
   border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
-  font-size: 1.05rem;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  font-size: 0.95rem;
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.quest-speak-btn:hover { background: rgba(255, 255, 255, 0.26); }
+.quest-speak-btn-on {
+  background: rgba(251, 191, 36, 0.4);
+}
 
 .quest-instruction-pinyin {
   color: #a5b4fc;
-  font-size: 0.85rem;
-  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  margin-top: 0.1rem;
 }
 
 .quest-instruction-english {
   color: #e2e8f0;
-  font-size: 0.85rem;
-  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  margin-top: 0.1rem;
 }
 
 .quest-instruction-hint {
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #fde68a;
 }
 
-.quest-reveal-row {
+/* --- stage + map --- */
+
+/* The board takes whatever is left; its tile size is computed from this box. */
+.quest-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  gap: 0.375rem;
-  margin-top: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.quest-reveal-btn {
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #e2e8f0;
-  border-radius: 999px;
-  padding: 0.25rem 0.65rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-  min-height: 30px;
-}
-
-.quest-reveal-btn-on {
-  background: rgba(255, 255, 255, 0.28);
-  color: #fff;
-}
-
-/* --- map --- */
-
-.quest-map-wrap {
-  display: flex;
+  align-items: center;
   justify-content: center;
 }
 
@@ -359,7 +396,6 @@
 
 .quest-sprite-stack {
   font-size: calc(var(--quest-tile) * 0.44);
-  transform-origin: center;
 }
 
 .quest-sprite-player {
@@ -394,70 +430,84 @@
   }
 }
 
+/* --- toast: sits over the board, dismissable, and lingers long enough to read --- */
+
 .quest-toast {
   position: absolute;
   left: 50%;
-  bottom: 8px;
+  bottom: 6px;
   transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  border: none;
+  background: rgba(15, 23, 42, 0.94);
   color: #fff;
-  padding: 0.35rem 0.7rem;
+  padding: 0.4rem 0.8rem;
   border-radius: var(--radius-md);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   text-align: center;
-  max-width: 90%;
-  pointer-events: none;
+  max-width: 92%;
+  min-height: 0;
+  cursor: pointer;
   z-index: 3;
+  animation: quest-toast-in 0.18s ease-out;
+}
+
+@keyframes quest-toast-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 .quest-toast-sub {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   color: #cbd5e1;
 }
 
 .quest-toast-bad { background: rgba(153, 27, 27, 0.94); }
 
-/* --- carrying --- */
+/* --- dock: hands + controls --- */
+
+.quest-dock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
 
 .quest-hands {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  color: var(--color-text-light);
-  min-height: 24px;
+  gap: 0.3rem;
   justify-content: center;
+  font-size: 0.72rem;
+  min-height: 20px;
+}
+
+.quest-hands-empty {
+  color: var(--color-text-light);
 }
 
 .quest-hands-item {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  padding: 0.15rem 0.6rem;
-  color: var(--color-text);
+  padding: 0.1rem 0.5rem;
 }
-
-/* --- controls --- */
 
 .quest-controls {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
   align-items: flex-start;
 }
 
 .quest-dpad {
   display: grid;
-  grid-template-columns: repeat(3, 46px);
-  grid-template-rows: repeat(3, 46px);
-  gap: 4px;
+  grid-template-columns: repeat(3, 44px);
+  grid-template-rows: repeat(3, 40px);
+  gap: 3px;
   flex-shrink: 0;
-}
-
-@media (min-width: 640px) {
-  .quest-dpad {
-    grid-template-columns: repeat(3, 52px);
-    grid-template-rows: repeat(3, 52px);
-  }
 }
 
 .quest-dpad button {
@@ -465,7 +515,7 @@
   border-radius: var(--radius-md);
   background: #1f2937;
   color: #fff;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   cursor: pointer;
   min-height: 0;
   display: flex;
@@ -476,7 +526,6 @@
 }
 
 .quest-dpad button:active { background: #0f172a; }
-.quest-dpad button:disabled { opacity: 0.25; cursor: not-allowed; }
 
 .quest-dpad-up { grid-area: 1 / 2; }
 .quest-dpad-left { grid-area: 2 / 1; }
@@ -489,19 +538,22 @@
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
-  gap: 0.375rem;
+  gap: 0.3rem;
+  max-height: 128px;
+  overflow-y: auto;
 }
 
 .quest-verb {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   border-radius: var(--radius-md);
-  padding: 0.3rem 0.55rem;
-  min-height: 44px;
+  padding: 0.2rem 0.5rem;
+  min-height: 40px;
+  justify-content: center;
   cursor: pointer;
   line-height: 1.15;
 }
@@ -509,7 +561,7 @@
 .quest-verb:active { background: var(--color-background); }
 
 .quest-verb-main {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -526,32 +578,105 @@
 }
 
 .quest-verbs-empty {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  align-self: center;
+}
+
+/* --- menu sheet --- */
+
+.quest-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.quest-sheet {
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-lg);
+  animation: quest-sheet-in 0.18s ease-out;
+}
+
+@keyframes quest-sheet-in {
+  from { transform: translateY(12px); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.quest-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+}
+
+.quest-sheet-body {
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+}
+
+.quest-sheet-section {
+  margin-bottom: 0.9rem;
+}
+
+.quest-sheet-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light);
+  margin-bottom: 0.3rem;
+}
+
+.quest-sheet-scenario {
   font-size: 0.8rem;
   color: var(--color-text-light);
-  padding: 0.5rem 0;
+  margin: 0 0 0.4rem;
 }
 
-/* --- goals + glossary --- */
+.quest-sheet-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border);
+}
 
-.quest-panel {
+.quest-sheet-actions .btn {
+  flex: 1;
+}
+
+.quest-reveal-row {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.quest-reveal-btn {
+  background: var(--color-background);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  overflow: hidden;
-}
-
-.quest-panel > summary {
-  padding: 0.6rem 0.75rem;
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
   cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  list-style: none;
+  min-height: 36px;
 }
 
-.quest-panel > summary::-webkit-details-marker { display: none; }
-
-.quest-panel-body {
-  padding: 0 0.75rem 0.75rem;
+.quest-reveal-btn-on {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
 }
 
 .quest-goal-item {
@@ -562,8 +687,7 @@
   border-top: 1px solid var(--color-border);
 }
 
-.quest-goal-item:first-child { border-top: none; }
-
+.quest-goal-item:first-of-type { border-top: none; }
 .quest-goal-done { color: var(--color-text-light); }
 .quest-goal-locked { color: var(--color-text-light); opacity: 0.55; }
 
@@ -575,8 +699,6 @@
   border-top: 1px solid var(--color-border);
   font-size: 0.85rem;
 }
-
-.quest-glossary-item:first-child { border-top: none; }
 
 .quest-glossary-hanzi { font-weight: 600; }
 .quest-glossary-pinyin { color: var(--color-primary); font-size: 0.78rem; }
@@ -605,6 +727,17 @@
 
 /* --- finish --- */
 
+.quest-finish-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+}
+
 .quest-finish {
   text-align: center;
   background: linear-gradient(140deg, #065f46, #047857);
@@ -612,6 +745,8 @@
   border-radius: var(--radius-lg);
   padding: 1.25rem 1rem;
   box-shadow: var(--shadow-lg);
+  max-width: 420px;
+  width: 100%;
 }
 
 .quest-finish h2 {
@@ -632,6 +767,8 @@
   justify-content: center;
   flex-wrap: wrap;
 }
+
+/* --- generation states (these keep the normal page chrome) --- */
 
 .quest-loading {
   text-align: center;
