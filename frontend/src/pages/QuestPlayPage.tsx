@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   activeGoalProgress,
@@ -38,7 +45,24 @@ const REJECTION_TEXT: Record<QuestRejection, { hanzi: string; english: string }>
   action_unavailable: { hanzi: '现在不行', english: 'not right now' },
 };
 
+/** Praise sits long enough to actually be read; a refusal can go quickly. */
+const TOAST_MS = { good: 4500, bad: 1800 };
+
 const REVEAL_KEY = 'quest-reveal';
+
+interface RevealSettings {
+  /** Pinyin under the instruction. */
+  pinyin: boolean;
+  /** English under the instruction. */
+  english: boolean;
+  /**
+   * Hanzi on the action buttons. Off by default: with the characters on the
+   * buttons, an instruction can be solved by matching them without reading it.
+   */
+  hanzi: boolean;
+}
+
+const DEFAULT_REVEAL: RevealSettings = { pinyin: false, english: false, hanzi: false };
 
 interface Toast {
   hanzi: string;
@@ -61,6 +85,29 @@ function useSpeak() {
       playerRef.current.play(blob);
     });
   }, []);
+}
+
+/**
+ * Live size of the play area. The board is sized in JS rather than CSS because
+ * it has to fill whatever is left after the instruction and the controls, on a
+ * screen that never scrolls.
+ */
+function useElementSize<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () =>
+      setSize({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, size] as const;
 }
 
 export function QuestPlayPage() {
@@ -138,21 +185,30 @@ export function QuestPlayPage() {
 }
 
 export function QuestGame({ questId, world }: { questId: string; world: QuestWorld }) {
+  const navigate = useNavigate();
   const [state, setState] = useState<QuestState>(() => createQuestState(world));
   const [toast, setToast] = useState<Toast | null>(null);
   const [showHint, setShowHint] = useState(false);
-  const [reveal, setReveal] = useState<{ pinyin: boolean; english: boolean }>(() => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reveal, setReveal] = useState<RevealSettings>(() => {
     try {
       const saved = localStorage.getItem(REVEAL_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...DEFAULT_REVEAL, ...JSON.parse(saved) };
     } catch {
       // ignore
     }
-    return { pinyin: false, english: false };
+    return DEFAULT_REVEAL;
   });
   const speak = useSpeak();
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reportedRef = useRef(false);
+  const [stageRef, stageSize] = useElementSize<HTMLDivElement>();
+
+  // The game owns the whole screen: no app chrome, no page scroll, no FAB.
+  useEffect(() => {
+    document.body.classList.add('quest-fullscreen');
+    return () => document.body.classList.remove('quest-fullscreen');
+  }, []);
 
   useEffect(() => {
     try {
@@ -169,7 +225,10 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
   const flash = useCallback((next: Toast) => {
     setToast(next);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2200);
+    toastTimer.current = setTimeout(
+      () => setToast(null),
+      next.bad ? TOAST_MS.bad : TOAST_MS.good
+    );
   }, []);
 
   const goal = state.world.goals[state.activeGoalIndex] ?? null;
@@ -222,12 +281,19 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
   const replay = useCallback(() => {
     reportedRef.current = false;
     spokenGoalRef.current = null;
+    setMenuOpen(false);
     setState((current) => resetQuestState(current));
   }, []);
 
-  // Desktop keyboard: arrows/WASD walk, space picks up or puts down.
+  const exit = useCallback(() => navigate('/quests'), [navigate]);
+
+  // Desktop keyboard: arrows/WASD walk, space picks up or puts down, esc exits.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen((open) => !open);
+        return;
+      }
       const directions: Record<string, QuestDirection> = {
         ArrowUp: 'up',
         ArrowDown: 'down',
@@ -274,18 +340,168 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
     [showHint, goal]
   );
 
-  return (
-    <div className="container quest-page">
-      <div className="quest-game">
-        <div className="quest-topbar">
-          <Link to="/quests" className="btn-link" style={{ padding: 0 }}>← Quests</Link>
-          <span className="quest-topbar-title">{state.world.title.hanzi}</span>
-          <span>{state.moves} 步</span>
-        </div>
+  const tile = useMemo(() => {
+    if (!stageSize.width || !stageSize.height) return 0;
+    const fit = Math.min(stageSize.width / world.width, stageSize.height / world.height);
+    return Math.max(18, Math.min(76, Math.floor(fit)));
+  }, [stageSize, world.width, world.height]);
 
-        {state.finished ? (
-          <>
-            <Confetti />
+  return (
+    <div className="quest-shell">
+      <div className="quest-hud">
+        <button className="quest-hud-btn" onClick={exit} aria-label="Exit quest">✕</button>
+        <span className="quest-hud-title">{state.world.title.hanzi}</span>
+        <span className="quest-hud-moves">{state.moves} 步</span>
+        <button
+          className="quest-hud-btn"
+          onClick={() => setMenuOpen(true)}
+          aria-label="Menu"
+        >
+          ☰
+        </button>
+      </div>
+
+      {goal && !state.finished && (
+        <div className="quest-instruction">
+          <div className="quest-instruction-meta">
+            <span>
+              {state.activeGoalIndex + 1}/{state.world.goals.length}
+              {progress && progress.total > 1
+                ? ` · 第 ${Math.min(progress.done + 1, progress.total)} 步/${progress.total}`
+                : ''}
+            </span>
+            <span className="quest-pips">
+              {state.world.goals.map((g, i) => (
+                <span
+                  key={g.id}
+                  className={`quest-pip ${
+                    i < state.activeGoalIndex
+                      ? 'quest-pip-done'
+                      : i === state.activeGoalIndex
+                        ? 'quest-pip-active'
+                        : ''
+                  }`}
+                />
+              ))}
+            </span>
+          </div>
+
+          <div className="quest-instruction-text">
+            <div className="quest-instruction-hanzi">{goal.instruction.hanzi}</div>
+            <button
+              className="quest-speak-btn"
+              onClick={() => speak(goal.instruction.hanzi)}
+              aria-label="Play instruction"
+            >
+              🔊
+            </button>
+            {goal.hint && (
+              <button
+                className={`quest-speak-btn ${showHint ? 'quest-speak-btn-on' : ''}`}
+                onClick={() => setShowHint((h) => !h)}
+                aria-label="Hint"
+              >
+                💡
+              </button>
+            )}
+          </div>
+
+          {reveal.pinyin && <div className="quest-instruction-pinyin">{goal.instruction.pinyin}</div>}
+          {reveal.english && <div className="quest-instruction-english">{goal.instruction.english}</div>}
+
+          {showHint && goal.hint && (
+            <div className="quest-instruction-hint">
+              💡 {goal.hint.hanzi}
+              {reveal.pinyin && <div>{goal.hint.pinyin}</div>}
+              {reveal.english && <div>{goal.hint.english}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="quest-stage" ref={stageRef}>
+        {tile > 0 && <QuestMap state={state} tile={tile} highlighted={highlighted} />}
+        {toast && (
+          <button
+            className={`quest-toast ${toast.bad ? 'quest-toast-bad' : ''}`}
+            onClick={() => setToast(null)}
+          >
+            <span>{toast.hanzi}</span>
+            {toast.sub && <span className="quest-toast-sub">{toast.sub}</span>}
+          </button>
+        )}
+      </div>
+
+      {!state.finished && (
+        <div className="quest-dock">
+          <div className="quest-hands">
+            {carried.length > 0 ? (
+              carried.map((obj) => (
+                <span key={obj.id} className="quest-hands-item">
+                  {emojiFor(obj, state.objects[obj.id])} {reveal.hanzi ? obj.hanzi : obj.pinyin}
+                </span>
+              ))
+            ) : (
+              <span className="quest-hands-empty">手里是空的</span>
+            )}
+          </div>
+
+          <div className="quest-controls">
+            <div className="quest-dpad">
+              <button className="quest-dpad-up" onClick={() => act({ type: 'move', direction: 'up' })} aria-label="Up">↑</button>
+              <button className="quest-dpad-left" onClick={() => act({ type: 'move', direction: 'left' })} aria-label="Left">←</button>
+              <button className="quest-dpad-right" onClick={() => act({ type: 'move', direction: 'right' })} aria-label="Right">→</button>
+              <button className="quest-dpad-down" onClick={() => act({ type: 'move', direction: 'down' })} aria-label="Down">↓</button>
+            </div>
+
+            <div className="quest-verbs">
+              {pickable.map((obj) => (
+                <VerbButton
+                  key={`pick-${obj.id}`}
+                  carry
+                  showHanzi={reveal.hanzi}
+                  verbHanzi="拿起"
+                  verbPinyin="ná qǐ"
+                  objectEmoji={emojiFor(obj, state.objects[obj.id])}
+                  objectPinyin={obj.pinyin}
+                  onClick={() => act({ type: 'pick_up', object: obj.id })}
+                />
+              ))}
+              {carried.map((obj) => (
+                <VerbButton
+                  key={`drop-${obj.id}`}
+                  carry
+                  showHanzi={reveal.hanzi}
+                  verbHanzi="放下"
+                  verbPinyin="fàng xià"
+                  objectEmoji={emojiFor(obj, state.objects[obj.id])}
+                  objectPinyin={obj.pinyin}
+                  onClick={() => act({ type: 'put_down', object: obj.id })}
+                />
+              ))}
+              {verbs.map(({ object, action }) => (
+                <VerbButton
+                  key={`${object.id}-${action.id}`}
+                  showHanzi={reveal.hanzi}
+                  verbHanzi={action.hanzi}
+                  verbPinyin={action.pinyin}
+                  objectEmoji={emojiFor(object, state.objects[object.id])}
+                  objectPinyin={object.pinyin}
+                  onClick={() => act({ type: 'interact', object: object.id, action: action.id })}
+                />
+              ))}
+              {pickable.length === 0 && carried.length === 0 && verbs.length === 0 && (
+                <div className="quest-verbs-empty">走到东西旁边，动词按钮就会出现。</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {state.finished && (
+        <>
+          <Confetti />
+          <div className="quest-finish-overlay">
             <div className="quest-finish">
               <h2>完成了！</h2>
               <div className="quest-finish-sub">
@@ -293,159 +509,114 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
               </div>
               <div className="quest-finish-actions">
                 <button className="btn btn-secondary" onClick={replay}>再玩一次 Play again</button>
-                <Link to="/quests" className="btn btn-primary">Back to quests</Link>
+                <button className="btn btn-primary" onClick={exit}>Back to quests</button>
               </div>
             </div>
-          </>
-        ) : (
-          goal && (
-            <div className="quest-instruction">
-              <div className="quest-instruction-meta">
-                <span>
-                  任务 {state.activeGoalIndex + 1} / {state.world.goals.length}
-                  {progress && progress.total > 1 ? ` · 第 ${Math.min(progress.done + 1, progress.total)} 步 / ${progress.total}` : ''}
-                </span>
-                <span className="quest-pips">
-                  {state.world.goals.map((g, i) => (
-                    <span
-                      key={g.id}
-                      className={`quest-pip ${
-                        i < state.activeGoalIndex
-                          ? 'quest-pip-done'
-                          : i === state.activeGoalIndex
-                            ? 'quest-pip-active'
-                            : ''
-                      }`}
-                    />
-                  ))}
-                </span>
-              </div>
+          </div>
+        </>
+      )}
 
-              <div className="quest-instruction-text">
-                <div className="quest-instruction-hanzi">{goal.instruction.hanzi}</div>
-                <button
-                  className="quest-speak-btn"
-                  onClick={() => speak(goal.instruction.hanzi)}
-                  aria-label="Play instruction"
-                >
-                  🔊
-                </button>
-              </div>
+      {menuOpen && (
+        <QuestMenu
+          state={state}
+          reveal={reveal}
+          onToggle={(key) => setReveal((r) => ({ ...r, [key]: !r[key] }))}
+          onClose={() => setMenuOpen(false)}
+          onRestart={replay}
+          onExit={exit}
+        />
+      )}
+    </div>
+  );
+}
 
-              {reveal.pinyin && <div className="quest-instruction-pinyin">{goal.instruction.pinyin}</div>}
-              {reveal.english && <div className="quest-instruction-english">{goal.instruction.english}</div>}
+/**
+ * One verb button. Without the hanzi it reads as emoji + pinyin, so the
+ * instruction has to be understood rather than character-matched.
+ */
+function VerbButton({
+  showHanzi,
+  verbHanzi,
+  verbPinyin,
+  objectEmoji,
+  objectPinyin,
+  carry,
+  onClick,
+}: {
+  showHanzi: boolean;
+  verbHanzi: string;
+  verbPinyin: string;
+  objectEmoji: string;
+  objectPinyin: string;
+  carry?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button className={`quest-verb ${carry ? 'quest-verb-carry' : ''}`} onClick={onClick}>
+      <span className="quest-verb-main">
+        {showHanzi ? `${verbHanzi} ` : ''}
+        {objectEmoji}
+      </span>
+      <span className="quest-verb-sub">
+        {verbPinyin}
+        {showHanzi ? ` ${objectPinyin}` : ''}
+      </span>
+    </button>
+  );
+}
 
-              {showHint && goal.hint && (
-                <div className="quest-instruction-hint">
-                  💡 {goal.hint.hanzi}
-                  {reveal.pinyin && <div>{goal.hint.pinyin}</div>}
-                  {reveal.english && <div>{goal.hint.english}</div>}
-                </div>
-              )}
+function QuestMenu({
+  state,
+  reveal,
+  onToggle,
+  onClose,
+  onRestart,
+  onExit,
+}: {
+  state: QuestState;
+  reveal: RevealSettings;
+  onToggle: (key: keyof RevealSettings) => void;
+  onClose: () => void;
+  onRestart: () => void;
+  onExit: () => void;
+}) {
+  return (
+    <div className="quest-sheet-overlay" onClick={onClose}>
+      <div className="quest-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="quest-sheet-header">
+          <span>{state.world.title.hanzi}</span>
+          <button className="quest-hud-btn" onClick={onClose} aria-label="Close menu">✕</button>
+        </div>
 
-              <div className="quest-reveal-row">
-                <button
-                  className={`quest-reveal-btn ${reveal.pinyin ? 'quest-reveal-btn-on' : ''}`}
-                  onClick={() => setReveal((r) => ({ ...r, pinyin: !r.pinyin }))}
-                >
-                  拼音
-                </button>
-                <button
-                  className={`quest-reveal-btn ${reveal.english ? 'quest-reveal-btn-on' : ''}`}
-                  onClick={() => setReveal((r) => ({ ...r, english: !r.english }))}
-                >
-                  English
-                </button>
-                {goal.hint && (
-                  <button
-                    className={`quest-reveal-btn ${showHint ? 'quest-reveal-btn-on' : ''}`}
-                    onClick={() => setShowHint((h) => !h)}
-                  >
-                    💡 提示
-                  </button>
-                )}
-              </div>
+        <div className="quest-sheet-body">
+          <div className="quest-sheet-section">
+            <div className="quest-sheet-label">显示 Show</div>
+            <div className="quest-reveal-row">
+              <button
+                className={`quest-reveal-btn ${reveal.pinyin ? 'quest-reveal-btn-on' : ''}`}
+                onClick={() => onToggle('pinyin')}
+              >
+                拼音 pinyin
+              </button>
+              <button
+                className={`quest-reveal-btn ${reveal.english ? 'quest-reveal-btn-on' : ''}`}
+                onClick={() => onToggle('english')}
+              >
+                English
+              </button>
+              <button
+                className={`quest-reveal-btn ${reveal.hanzi ? 'quest-reveal-btn-on' : ''}`}
+                onClick={() => onToggle('hanzi')}
+              >
+                汉字 on buttons
+              </button>
             </div>
-          )
-        )}
+          </div>
 
-        <QuestMap state={state} toast={toast} highlighted={highlighted} />
-
-        {!state.finished && (
-          <>
-            <div className="quest-hands">
-              {carried.length > 0 ? (
-                <>
-                  拿着：
-                  {carried.map((obj) => (
-                    <span key={obj.id} className="quest-hands-item">
-                      {emojiFor(obj, state.objects[obj.id])} {obj.hanzi}
-                    </span>
-                  ))}
-                </>
-              ) : (
-                <span>手里是空的</span>
-              )}
+          <div className="quest-sheet-section">
+            <div className="quest-sheet-label">
+              任务 Goals ({state.completedGoals.length}/{state.world.goals.length})
             </div>
-
-            <div className="quest-controls">
-              <div className="quest-dpad">
-                <button className="quest-dpad-up" onClick={() => act({ type: 'move', direction: 'up' })} aria-label="Up">↑</button>
-                <button className="quest-dpad-left" onClick={() => act({ type: 'move', direction: 'left' })} aria-label="Left">←</button>
-                <button className="quest-dpad-right" onClick={() => act({ type: 'move', direction: 'right' })} aria-label="Right">→</button>
-                <button className="quest-dpad-down" onClick={() => act({ type: 'move', direction: 'down' })} aria-label="Down">↓</button>
-              </div>
-
-              <div className="quest-verbs">
-                {pickable.map((obj) => (
-                  <button
-                    key={`pick-${obj.id}`}
-                    className="quest-verb quest-verb-carry"
-                    onClick={() => act({ type: 'pick_up', object: obj.id })}
-                  >
-                    <span className="quest-verb-main">
-                      拿起 {emojiFor(obj, state.objects[obj.id])}
-                    </span>
-                    <span className="quest-verb-sub">ná qǐ {obj.pinyin}</span>
-                  </button>
-                ))}
-                {carried.map((obj) => (
-                  <button
-                    key={`drop-${obj.id}`}
-                    className="quest-verb quest-verb-carry"
-                    onClick={() => act({ type: 'put_down', object: obj.id })}
-                  >
-                    <span className="quest-verb-main">
-                      放下 {emojiFor(obj, state.objects[obj.id])}
-                    </span>
-                    <span className="quest-verb-sub">fàng xià {obj.pinyin}</span>
-                  </button>
-                ))}
-                {verbs.map(({ object, action }) => (
-                  <button
-                    key={`${object.id}-${action.id}`}
-                    className="quest-verb"
-                    onClick={() => act({ type: 'interact', object: object.id, action: action.id })}
-                  >
-                    <span className="quest-verb-main">
-                      {action.hanzi} {emojiFor(object, state.objects[object.id])}
-                    </span>
-                    <span className="quest-verb-sub">
-                      {action.pinyin} {object.pinyin}
-                    </span>
-                  </button>
-                ))}
-                {pickable.length === 0 && carried.length === 0 && verbs.length === 0 && (
-                  <div className="quest-verbs-empty">走到东西旁边，这里就会出现动词按钮。</div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        <details className="quest-panel">
-          <summary>📋 任务 Goals ({state.completedGoals.length}/{state.world.goals.length})</summary>
-          <div className="quest-panel-body">
             {state.world.goals.map((g, i) => {
               const done = i < state.activeGoalIndex;
               const locked = i > state.activeGoalIndex;
@@ -460,14 +631,10 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
               );
             })}
           </div>
-        </details>
 
-        <details className="quest-panel">
-          <summary>📖 词汇 Glossary ({state.world.glossary.length})</summary>
-          <div className="quest-panel-body">
-            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-light)', margin: '0 0 0.5rem' }}>
-              {state.world.scenario.hanzi}
-            </p>
+          <div className="quest-sheet-section">
+            <div className="quest-sheet-label">词汇 Glossary</div>
+            <p className="quest-sheet-scenario">{state.world.scenario.hanzi}</p>
             {state.world.glossary.map((entry, i) => (
               <div key={`${entry.hanzi}-${i}`} className="quest-glossary-item">
                 <span className={`quest-pos quest-pos-${entry.pos}`}>{entry.pos}</span>
@@ -480,11 +647,12 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
               </div>
             ))}
           </div>
-        </details>
+        </div>
 
-        {!state.finished && (
-          <button className="btn btn-link" onClick={replay}>重新开始 Restart level</button>
-        )}
+        <div className="quest-sheet-actions">
+          <button className="btn btn-secondary" onClick={onRestart}>重新开始 Restart</button>
+          <button className="btn btn-primary" onClick={onExit}>退出 Exit</button>
+        </div>
       </div>
     </div>
   );
@@ -492,20 +660,14 @@ export function QuestGame({ questId, world }: { questId: string; world: QuestWor
 
 function QuestMap({
   state,
-  toast,
+  tile,
   highlighted,
 }: {
   state: QuestState;
-  toast: Toast | null;
+  tile: number;
   highlighted: Set<string>;
 }) {
   const { world } = state;
-
-  // The map has to share one screen with the instruction card and the controls,
-  // so tiles are sized off both the viewport width and what's left vertically.
-  const tileStyle = {
-    '--quest-tile': `clamp(26px, min((100vw - 2.5rem) / ${world.width}, (100svh - 26rem) / ${world.height}), 64px)`,
-  } as CSSProperties;
 
   const tiles: Array<{ key: string; x: number; y: number }> = [];
   for (let y = 0; y < world.height; y++) {
@@ -515,68 +677,59 @@ function QuestMap({
   }
 
   return (
-    <div className="quest-map-wrap">
-      <div className="quest-map" style={tileStyle}>
+    <div className="quest-map" style={{ ['--quest-tile' as string]: `${tile}px` }}>
+      <div
+        className="quest-tiles"
+        style={{ gridTemplateColumns: `repeat(${world.width}, var(--quest-tile))` }}
+      >
+        {tiles.map(({ key, x, y }) => {
+          const terrain = terrainAt(world, x, y);
+          return (
+            <div
+              key={key}
+              className="quest-tile"
+              style={{ background: terrain?.color ?? '#e5e7eb' }}
+            >
+              {terrain?.emoji && <span className="quest-tile-decor">{terrain.emoji}</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="quest-sprites">
+        {tiles.map(({ key, x, y }) => {
+          const here = objectsAt(state, x, y);
+          if (here.length === 0) return null;
+          return (
+            <div
+              key={`obj-${key}`}
+              className={`quest-sprite ${here.length > 1 ? 'quest-sprite-stack' : ''}`}
+              style={{
+                left: `calc(${x} * var(--quest-tile))`,
+                top: `calc(${y} * var(--quest-tile))`,
+              }}
+            >
+              {here.map((obj) => (
+                <span
+                  key={obj.id}
+                  className={highlighted.has(obj.id) ? 'quest-sprite-target' : undefined}
+                  title={`${obj.hanzi} ${obj.pinyin}`}
+                >
+                  {emojiFor(obj, state.objects[obj.id])}
+                </span>
+              ))}
+            </div>
+          );
+        })}
+
         <div
-          className="quest-tiles"
-          style={{ gridTemplateColumns: `repeat(${world.width}, var(--quest-tile))` }}
+          className="quest-sprite quest-sprite-player"
+          style={{
+            transform: `translate(calc(${state.player.x} * var(--quest-tile)), calc(${state.player.y} * var(--quest-tile)))`,
+          }}
         >
-          {tiles.map(({ key, x, y }) => {
-            const terrain = terrainAt(world, x, y);
-            return (
-              <div
-                key={key}
-                className="quest-tile"
-                style={{ background: terrain?.color ?? '#e5e7eb' }}
-              >
-                {terrain?.emoji && <span className="quest-tile-decor">{terrain.emoji}</span>}
-              </div>
-            );
-          })}
+          {world.player.emoji}
         </div>
-
-        <div className="quest-sprites">
-          {tiles.map(({ key, x, y }) => {
-            const here = objectsAt(state, x, y);
-            if (here.length === 0) return null;
-            return (
-              <div
-                key={`obj-${key}`}
-                className={`quest-sprite ${here.length > 1 ? 'quest-sprite-stack' : ''}`}
-                style={{
-                  left: `calc(${x} * var(--quest-tile))`,
-                  top: `calc(${y} * var(--quest-tile))`,
-                }}
-              >
-                {here.map((obj) => (
-                  <span
-                    key={obj.id}
-                    className={highlighted.has(obj.id) ? 'quest-sprite-target' : undefined}
-                    title={`${obj.hanzi} ${obj.pinyin}`}
-                  >
-                    {emojiFor(obj, state.objects[obj.id])}
-                  </span>
-                ))}
-              </div>
-            );
-          })}
-
-          <div
-            className="quest-sprite quest-sprite-player"
-            style={{
-              transform: `translate(calc(${state.player.x} * var(--quest-tile)), calc(${state.player.y} * var(--quest-tile)))`,
-            }}
-          >
-            {world.player.emoji}
-          </div>
-        </div>
-
-        {toast && (
-          <div className={`quest-toast ${toast.bad ? 'quest-toast-bad' : ''}`}>
-            <div>{toast.hanzi}</div>
-            {toast.sub && <div className="quest-toast-sub">{toast.sub}</div>}
-          </div>
-        )}
       </div>
     </div>
   );
