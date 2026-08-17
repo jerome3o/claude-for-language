@@ -40,6 +40,7 @@ import {
 } from '../services/reader-study';
 import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia } from '../services/grammar-study';
 import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '../services/readerSync';
+import { ensureSentenceSetForNote } from '../services/sentence-sets';
 import { markDailyActivity } from '../api/client';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
@@ -710,6 +711,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const reviewId = crypto.randomUUID();
 
     console.log('[useStudySession] Rating card', { cardId, rating });
+
+    // Failing a card is a strong signal you want more of this word. Start its
+    // sentence set now (if it hasn't got one) so it's ready when the card
+    // comes back — Again reschedules it about a minute out. Fire-and-forget:
+    // this must not hold up the transition to the next card.
+    if (rating === 0) {
+      void ensureSentenceSetForNote(noteId);
+    }
 
     // Snapshot everything the review is about to change, so Undo can restore it
     undoSnapshotRef.current = {

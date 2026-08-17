@@ -72,7 +72,9 @@ export async function putLocalNoteSentences(
   noteId: string,
   sentences: NoteSentence[]
 ): Promise<LocalNoteSentence[]> {
-  const rows = sentences.map(toLocal);
+  // Stamp the note id we're writing under: rows are deleted by note_id, so a
+  // payload carrying a different one would leave orphans behind.
+  const rows = sentences.map((sentence) => ({ ...toLocal(sentence), note_id: noteId }));
   await db.transaction('rw', db.noteSentences, async () => {
     const existing = await db.noteSentences.where('note_id').equals(noteId).primaryKeys();
     if (existing.length > 0) await db.noteSentences.bulkDelete(existing);
@@ -109,6 +111,39 @@ export async function generateAndStoreSentenceSet(
   const stored = await putLocalNoteSentences(noteId, sentences);
   cacheSentenceAudio(stored);
   return stored;
+}
+
+/**
+ * Notes a generation has already been started for in this session, so a
+ * repeated "Again" on the same card doesn't stack up duplicate work.
+ */
+const generationStarted = new Set<string>();
+
+/**
+ * Make sure a note has a sentence set, generating one now if it doesn't.
+ *
+ * Called when a card is failed: getting a word wrong is a strong signal you
+ * want more exposure to it, and "Again" puts the card back about a minute
+ * later — long enough for a set to be generated and stored, so it's waiting
+ * when the card comes back.
+ *
+ * Fire-and-forget: never throws, never blocks the card transition.
+ */
+export async function ensureSentenceSetForNote(noteId: string): Promise<void> {
+  if (!navigator.onLine || generationStarted.has(noteId)) return;
+
+  try {
+    const existing = await getLocalNoteSentences(noteId);
+    if (existing.length > 0) return;
+
+    generationStarted.add(noteId);
+    await generateAndStoreSentenceSet(noteId, { count: 6 });
+  } catch (err) {
+    // Let a later "Again" on the same card try again — a failure here is
+    // usually a dropped connection mid-session.
+    generationStarted.delete(noteId);
+    console.error('[sentence-sets] Background generation failed for', noteId, err);
+  }
 }
 
 /**
