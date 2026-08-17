@@ -1,10 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio } from '../api/client';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
 import { getAudioCacheStats, getCachedAudioKeys } from '../services/audioCache';
 import { saveBlobAs } from '../utils/download';
 import { fetchAudioManifest, prefetchAllAudio, useAudioPrefetchProgress } from '../services/audioPrefetch';
 import { useNetwork } from '../contexts/NetworkContext';
+import {
+  getAudioRecords,
+  clearAudioRecords,
+  summarize,
+  buildAudioDiagnosticsReport,
+} from '../utils/audioDiagnostics';
+import { copyTextToClipboard } from '../utils/clipboard';
 import './SettingsPage.css';
 
 function formatBytes(bytes: number): string {
@@ -237,6 +244,83 @@ function OfflineAudioSection() {
       {progress.status === 'done' && progress.failed > 0 && (
         <div style={{ fontSize: '0.8rem', color: '#b45309', marginTop: '0.5rem' }}>
           {progress.failed} clips failed to download — try again later.
+        </div>
+      )}
+
+      <AudioDiagnosticsPanel />
+    </div>
+  );
+}
+
+/**
+ * Playback quality report. Every clip is measured as it plays (see
+ * utils/audioDiagnostics.ts); this surfaces the tally and copies the detail
+ * out, so "the audio sounds choppy" can be handed over as numbers.
+ */
+function AudioDiagnosticsPanel() {
+  const [status, setStatus] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  // Re-read on mount and whenever the user acts; records accumulate while
+  // studying, so a stale count here would be misleading.
+  const records = useMemo(() => getAudioRecords(), [tick]);
+  const summary = useMemo(() => summarize(records), [records]);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 2000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleCopy = async () => {
+    const report = buildAudioDiagnosticsReport();
+    if (await copyTextToClipboard(report)) {
+      setStatus(`Copied ${records.length} clips (${(report.length / 1024).toFixed(1)} KB). Paste it into the Claude chat.`);
+      return;
+    }
+    console.log('[audioDiagnostics]', report);
+    setStatus('Could not access the clipboard — printed to the debug console instead.');
+  };
+
+  const handleClear = () => {
+    clearAudioRecords();
+    setTick((t) => t + 1);
+    setStatus('Cleared. Play some cards, then copy the report.');
+  };
+
+  return (
+    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border, #e5e7eb)' }}>
+      <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.25rem 0' }}>Playback Quality</h3>
+      <p className="settings-section-desc" style={{ marginBottom: '0.5rem' }}>
+        If audio sounds choppy, clear this, play the cards that sound bad, then
+        copy the report and paste it into the Claude chat.
+      </p>
+
+      {records.length === 0 ? (
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-light)' }}>
+          No clips measured yet.
+        </p>
+      ) : (
+        <p style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+          {summary.clips} clips measured — <strong>{summary.choppy_clips} choppy</strong>
+          {summary.truncated_clips > 0 ? `, ${summary.truncated_clips} cut short` : ''}
+          {summary.errored > 0 ? `, ${summary.errored} failed` : ''}.
+          {' '}{summary.from_network} of {summary.clips} streamed instead of playing from the cache.
+          {summary.worst_gap_ms > 0 ? ` Worst gap ${summary.worst_gap_ms} ms.` : ''}
+        </p>
+      )}
+
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button className="btn btn-secondary" onClick={handleCopy} disabled={records.length === 0}>
+          Copy Audio Report
+        </button>
+        <button className="btn btn-secondary" onClick={handleClear}>
+          Clear
+        </button>
+      </div>
+
+      {status && (
+        <div style={{ fontSize: '0.8rem', color: 'var(--color-text-light)', marginTop: '0.5rem' }}>
+          {status}
         </div>
       )}
     </div>

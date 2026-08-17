@@ -138,6 +138,7 @@ export function useAudioPlayer(url?: string) {
 
       setError(null);
       playerRef.current.play(audioUrl, {
+        label: 'recording',
         onPlay: () => setIsPlaying(true),
         onEnded: () => setIsPlaying(false),
         onError: () => {
@@ -217,7 +218,7 @@ export function useTTS() {
 /**
  * Hook for playing note audio - uses stored audio URL if available, falls back to browser TTS
  */
-export function useNoteAudio() {
+export function useNoteAudio(label: string = 'note') {
   const [isPlaying, setIsPlaying] = useState(false);
   const playerRef = useRef(createAudioPlayer());
   const playIdRef = useRef(0); // Track which play() call is current
@@ -250,6 +251,7 @@ export function useNoteAudio() {
 
     const playSource = (source: Blob | string) => {
       playerRef.current.play(source, {
+        label,
         onPlay: () => {
           if (playIdRef.current === currentPlayId) setIsPlaying(true);
         },
@@ -305,7 +307,7 @@ export function useNoteAudio() {
         playSource(`${apiBase}/api/audio/${audioUrl}`);
       });
     }
-  }, [cleanupAudio]);
+  }, [cleanupAudio, label]);
 
   const stop = useCallback(() => {
     playIdRef.current++; // Invalidate any pending callbacks

@@ -92,7 +92,7 @@ export function SentenceSet({
   defaultOpen = true,
 }: SentenceSetProps) {
   const { isOnline } = useNetwork();
-  const { isPlaying, play } = useNoteAudio();
+  const { isPlaying, play } = useNoteAudio('sentence-set');
 
   const [sentences, setSentences] = useState<LocalNoteSentence[]>([]);
   const [loading, setLoading] = useState(true);
