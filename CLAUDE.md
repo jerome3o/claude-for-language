@@ -544,6 +544,14 @@ later.
 - `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
 - `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the card's own clue)
 - `GET /api/sentences/stats` - Coverage + background-job state, for the settings overview
+- `POST /api/sentences/clue-audio` - Backfill TTS for card sentences that have none (`{ limit? }`, default 50, max 250; queued one per message)
+
+**Card-sentence audio**: `sentence_clue` is written by several paths that don't generate TTS
+(MCP `add_note`/`batch_add_notes`, `PUT /api/notes/:id`, Claude's `edit_current_card`), which left
+those sentences with a ▶ that had nothing to play. `ensureSentenceClueAudio` now fills it in from
+`POST /api/notes/:id/generate-audio` (the endpoint both MCP paths call), on a note update whose clue
+changed, after Claude edits a card, and as part of each background sentence-set job. The Sentence
+Coverage page has a button to backfill the rest.
 
 **Sentence Coverage page** (`/settings/sentences`, linked from Settings): what fraction of notes
 have a card sentence vs a generated set, how many sentences are missing audio, the
