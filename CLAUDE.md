@@ -522,8 +522,10 @@ word, one shows the usual collocation). Each sentence gets its own TTS clip and 
 IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
 On the study card there is ONE sentence list: the note's own `sentence_clue` is rendered as
 row 1 (badged "From the card", read straight from the note — never copied into the set, so
-editing it stays reflected), followed by the generated set. Sentences start hidden — you hear
-the audio first and tap a row to reveal the hanzi, pinyin and translation. Each row has an
+editing it stays reflected), followed by the generated set. Sentences start hidden and reveal
+progressively — you hear the audio first, then one tap uncovers the hanzi, the next the pinyin,
+the next the English, and a tap on a fully open row hides it again (steps a row hasn't got are
+skipped; "Show all" jumps straight to everything). Each row has an
 on-demand "what's going on here?" breakdown (word glosses + the construction), generated with
 Haiku; each word in it is tappable to add as a card, and `+` adds the whole sentence.
 Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses
