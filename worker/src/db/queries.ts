@@ -4053,3 +4053,53 @@ export async function getSentenceCoverageStats(
     decks: decks.results ?? [],
   };
 }
+
+/**
+ * Notes with an example sentence on the card but no audio for it.
+ *
+ * Several paths write a sentence clue without TTS — the MCP `add_note` tools,
+ * a plain note edit, Claude's edit_note — so the ▶ on those sentences has
+ * nothing to play. Soonest-due first, so what's about to be studied is fixed
+ * first.
+ */
+export async function getNotesMissingClueAudio(
+  db: D1Database,
+  userId: string,
+  limit: number
+): Promise<Array<{ id: string; hanzi: string }>> {
+  const result = await db
+    .prepare(`
+      SELECT n.id, n.hanzi, MIN(c.next_review_at) AS due
+      FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      LEFT JOIN cards c ON c.note_id = n.id
+      WHERE d.user_id = ?
+        AND n.sentence_clue IS NOT NULL AND n.sentence_clue != ''
+        AND (n.sentence_clue_audio_url IS NULL OR n.sentence_clue_audio_url = '')
+      GROUP BY n.id
+      ORDER BY due IS NULL, due ASC
+      LIMIT ?
+    `)
+    .bind(userId, limit)
+    .all<{ id: string; hanzi: string }>();
+  return result.results ?? [];
+}
+
+/** How many card sentences are still without audio. */
+export async function countNotesMissingClueAudio(
+  db: D1Database,
+  userId: string
+): Promise<number> {
+  const row = await db
+    .prepare(`
+      SELECT COUNT(*) AS count
+      FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+        AND n.sentence_clue IS NOT NULL AND n.sentence_clue != ''
+        AND (n.sentence_clue_audio_url IS NULL OR n.sentence_clue_audio_url = '')
+    `)
+    .bind(userId)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}

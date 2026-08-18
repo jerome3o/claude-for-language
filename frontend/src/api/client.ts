@@ -351,6 +351,19 @@ export interface SentenceCoverageStats {
   decks: Array<{ id: string; name: string; notes: number; with_clue: number; with_set: number }>;
 }
 
+/**
+ * Backfill audio for card sentences that have none. Queued server-side, so
+ * this returns as soon as the batch is enqueued.
+ */
+export async function backfillClueAudio(
+  limit?: number
+): Promise<{ queued: number; remaining: number }> {
+  return fetchJSON<{ queued: number; remaining: number }>('/sentences/clue-audio', {
+    method: 'POST',
+    body: JSON.stringify({ limit }),
+  });
+}
+
 /** Coverage + background-job state for the sentence overview in settings. */
 export async function getSentenceCoverageStats(): Promise<SentenceCoverageStats> {
   return fetchJSON<SentenceCoverageStats>('/sentences/stats');

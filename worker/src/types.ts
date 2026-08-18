@@ -68,6 +68,12 @@ export interface QuestGenerationMessage {
 export interface SentenceSetMessage {
   noteId: string;
   count?: number;
+  /**
+   * 'set' (the default) generates the note's sentence set. 'clue_audio' only
+   * fills in missing TTS for the note's own example sentence — several write
+   * paths save a clue without audio, which leaves its ▶ silent.
+   */
+  kind?: 'set' | 'clue_audio';
 }
 
 // Audio provider types

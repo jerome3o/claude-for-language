@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
+  backfillClueAudio,
   getSentenceCoverageStats,
   prefetchSentenceSets,
   type SentenceCoverageStats,
@@ -24,6 +25,9 @@ const POLL_INTERVAL_MS = 5000;
 // ~10 minutes of polling. A job wedged in 'queued' would otherwise keep this
 // page refetching forever in a background tab.
 const MAX_POLLS = 120;
+// A queued clip takes a second or two; keep watching for a few minutes so a
+// few hundred of them can be seen landing.
+const CLUE_AUDIO_POLL_MS = 5 * 60 * 1000;
 
 function pct(value: number, total: number): number {
   if (total <= 0) return 0;
@@ -104,11 +108,16 @@ export function SentenceCoveragePage() {
   const [status, setStatus] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const pollsRef = useRef(0);
+  // Clue-audio work runs off the same queue but isn't tracked in
+  // note_sentence_jobs, so nothing in the stats says it's in flight — keep
+  // refreshing for a while after asking for it so the bar visibly fills.
+  const pollUntilRef = useRef(0);
 
   const statsQuery = useQuery({
     queryKey: ['sentence-coverage'],
     queryFn: getSentenceCoverageStats,
     refetchInterval: (query) => {
+      if (Date.now() < pollUntilRef.current) return POLL_INTERVAL_MS;
       const jobs = query.state.data?.jobs;
       const active = (jobs?.queued ?? 0) - (jobs?.stale_queued ?? 0);
       if (active <= 0) {
@@ -126,6 +135,7 @@ export function SentenceCoveragePage() {
   });
 
   const stats = statsQuery.data;
+  const missingClueAudio = stats ? stats.notes.with_clue - stats.notes.with_clue_audio : 0;
 
   const handleGenerate = async (limit: number) => {
     setIsBusy(true);
@@ -142,6 +152,26 @@ export function SentenceCoveragePage() {
       await statsQuery.refetch();
     } catch (err) {
       setStatus(err instanceof Error ? `Failed: ${err.message}` : 'Failed to queue generation.');
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleClueAudio = async () => {
+    setIsBusy(true);
+    setStatus('Queueing audio for card sentences…');
+    try {
+      const result = await backfillClueAudio(250);
+      setStatus(
+        result.queued === 0
+          ? 'Every card sentence already has audio.'
+          : `Queued audio for ${result.queued} sentences. ${result.remaining.toLocaleString()} still without it. ` +
+            'They fill in over the next few minutes.'
+      );
+      pollUntilRef.current = Date.now() + CLUE_AUDIO_POLL_MS;
+      await statsQuery.refetch();
+    } catch (err) {
+      setStatus(err instanceof Error ? `Failed: ${err.message}` : 'Failed to queue audio.');
     } finally {
       setIsBusy(false);
     }
@@ -198,7 +228,11 @@ export function SentenceCoveragePage() {
                 label="Sentence on the card"
                 value={stats.notes.with_clue}
                 total={stats.notes.total}
-                hint={`${stats.notes.with_clue_audio.toLocaleString()} of those have audio`}
+                hint={
+                  missingClueAudio > 0
+                    ? `${missingClueAudio.toLocaleString()} of those have no audio — their ▶ has nothing to play`
+                    : 'all of those have audio'
+                }
               />
               <CoverageBar
                 label="Full sentence set"
@@ -273,6 +307,16 @@ export function SentenceCoveragePage() {
                 >
                   Generate 100
                 </button>
+                {missingClueAudio > 0 && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleClueAudio}
+                    disabled={isBusy || !isOnline}
+                    title={!isOnline ? 'Requires internet connection' : ''}
+                  >
+                    Add audio to {missingClueAudio.toLocaleString()} sentences
+                  </button>
+                )}
                 <button
                   className="btn btn-secondary"
                   onClick={handleSync}

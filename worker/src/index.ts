@@ -816,6 +816,7 @@ app.get('/api/notes/:id', async (c) => {
 app.put('/api/notes/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
+  const before = await db.getNoteById(c.env.DB, id, userId);
   const updates = await c.req.json<{
     hanzi?: string;
     pinyin?: string;
@@ -845,6 +846,20 @@ app.put('/api/notes/:id', async (c) => {
   if (!note) {
     return c.json({ error: 'Note not found' }, 404);
   }
+
+  // A changed example sentence needs new audio: the old clip is of the old
+  // sentence, and an edit that adds a clue for the first time has none at all.
+  // Skipped when the caller supplied the audio itself.
+  const clueChanged =
+    updates.sentence_clue_audio_url === undefined &&
+    !!note.sentence_clue &&
+    note.sentence_clue !== before?.sentence_clue;
+  if (clueChanged || (note.sentence_clue && !note.sentence_clue_audio_url)) {
+    c.executionCtx.waitUntil(
+      ensureSentenceClueAudio(c.env, note.id, { force: clueChanged })
+    );
+  }
+
   return c.json(note);
 });
 
@@ -928,6 +943,12 @@ app.post('/api/notes/:id/ask', async (c) => {
 
             const updatedNote = await db.updateNote(c.env.DB, id, userId, updates);
             if (updatedNote) {
+              // A clue Claude just wrote has no audio yet — give it one.
+              if (updates.sentenceClue) {
+                c.executionCtx.waitUntil(
+                  ensureSentenceClueAudio(c.env, id, { force: true })
+                );
+              }
               toolResults.push({
                 tool: 'edit_current_card',
                 success: true,
@@ -1060,6 +1081,9 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
     const result = await generateTTS(c.env, note.hanzi, note.id, { speed, preferProvider, voiceId });
     if (result) {
       await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
+      // The note's example sentence needs audio too — this is the path the MCP
+      // add_note tools call, and they save a clue without ever generating one.
+      c.executionCtx.waitUntil(ensureSentenceClueAudio(c.env, note.id));
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
     } else {
@@ -1238,6 +1262,46 @@ async function enqueueSentenceSet(env: Env, noteId: string, count?: number): Pro
   }
 }
 
+/**
+ * Give a note's own example sentence its audio.
+ *
+ * The clue is written by several paths that don't generate TTS (the MCP
+ * add_note tools, a plain note edit, Claude's edit_note), which leaves the ▶
+ * next to that sentence with nothing to play. Best-effort: returns whether it
+ * stored anything.
+ */
+async function ensureSentenceClueAudio(
+  env: Env,
+  noteId: string,
+  options: { force?: boolean } = {}
+): Promise<boolean> {
+  if (!env.GOOGLE_TTS_API_KEY && !env.MINIMAX_API_KEY) return false;
+
+  try {
+    const note = await db.getNoteByIdUnscoped(env.DB, noteId);
+    if (!note?.sentence_clue) return false;
+    if (note.sentence_clue_audio_url && !options.force) return false;
+
+    const result = await generateTTS(env, note.sentence_clue, `${noteId}-sentence`);
+    if (!result) return false;
+
+    await db.updateNote(env.DB, noteId, { sentenceClueAudioUrl: result.audioKey });
+    return true;
+  } catch (error) {
+    console.error('[clue-audio] Failed for note', noteId, error);
+    return false;
+  }
+}
+
+/** Queue a note for background clue-audio generation. Best-effort. */
+async function enqueueClueAudio(env: Env, noteId: string): Promise<void> {
+  try {
+    await env.SENTENCE_SET_QUEUE.send({ noteId, kind: 'clue_audio' });
+  } catch (error) {
+    console.error('[clue-audio] Failed to enqueue note', noteId, error);
+  }
+}
+
 /** Generate TTS for a list of sentences, a few at a time, and store the keys. */
 async function attachSentenceSetAudio(
   env: Env,
@@ -1403,6 +1467,44 @@ app.get('/api/sentences/stats', async (c) => {
   const userId = c.get('user').id;
   const stats = await db.getSentenceCoverageStats(c.env.DB, userId);
   return c.json(stats);
+});
+
+/** Default number of card sentences one backfill call gives audio to. */
+const CLUE_AUDIO_BATCH = 50;
+const CLUE_AUDIO_MAX_BATCH = 250;
+
+/**
+ * Backfill audio for card sentences that don't have any.
+ *
+ * TTS is cheap and quick, but a few hundred clips is more than one request
+ * should do, so this queues them one per message and returns immediately —
+ * the coverage page watches the number come down.
+ */
+app.post('/api/sentences/clue-audio', async (c) => {
+  const userId = c.get('user').id;
+
+  if (!c.env.GOOGLE_TTS_API_KEY && !c.env.MINIMAX_API_KEY) {
+    return c.json({ error: 'TTS is not configured' }, 500);
+  }
+
+  let limit = CLUE_AUDIO_BATCH;
+  try {
+    const body = await c.req.json<{ limit?: number }>();
+    if (typeof body?.limit === 'number' && Number.isFinite(body.limit)) {
+      limit = Math.min(CLUE_AUDIO_MAX_BATCH, Math.max(1, Math.round(body.limit)));
+    }
+  } catch {
+    // No body — use the default
+  }
+
+  const notes = await db.getNotesMissingClueAudio(c.env.DB, userId, limit);
+  for (const note of notes) {
+    await enqueueClueAudio(c.env, note.id);
+  }
+
+  const remaining = await db.countNotesMissingClueAudio(c.env.DB, userId);
+  console.log('[clue-audio] Queued', notes.length, 'notes;', remaining, 'still missing audio');
+  return c.json({ queued: notes.length, remaining });
 });
 
 /** Default number of notes a single prefetch sweep will enqueue. */
@@ -6953,7 +7055,15 @@ export default {
     } else if (queueName === 'sentence-set-queue') {
       // Pre-generate a note's sentence set so study never waits on the AI
       for (const message of batch.messages) {
-        const { noteId, count } = message.body as SentenceSetMessage;
+        const { noteId, count, kind } = message.body as SentenceSetMessage;
+
+        // Same queue, much smaller job: just the TTS for a card's own sentence.
+        if (kind === 'clue_audio') {
+          const stored = await ensureSentenceClueAudio(env, noteId);
+          console.log('[Queue] Clue audio', stored ? 'done' : 'skipped', noteId);
+          message.ack();
+          continue;
+        }
 
         try {
           const note = await db.getNoteByIdUnscoped(env.DB, noteId);
@@ -6998,6 +7108,9 @@ export default {
           );
 
           await attachSentenceSetAudio(env, stored);
+          // While we're here: the card's own sentence often has no audio
+          // either, and this sweep is the one place that visits every note.
+          await ensureSentenceClueAudio(env, noteId);
           await db.markSentenceSetJobDone(env.DB, noteId);
           console.log('[Queue] Sentence set done:', noteId, stored.length, 'sentences');
           message.ack();
