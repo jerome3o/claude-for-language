@@ -3838,3 +3838,218 @@ export async function getUserBioForNote(db: D1Database, noteId: string): Promise
     .first<{ bio: string | null }>();
   return row?.bio ?? null;
 }
+
+// ============ Sentence coverage (settings overview) ============
+
+export interface SentenceCoverageStats {
+  notes: {
+    total: number;
+    with_clue: number;
+    with_clue_audio: number;
+    with_note_audio: number;
+    with_set: number;
+    with_full_set: number;
+  };
+  sentences: {
+    total: number;
+    with_audio: number;
+    with_explanation: number;
+  };
+  cards: {
+    total: number;
+    new: number;
+    learning: number;
+    review: number;
+    relearning: number;
+  };
+  jobs: {
+    queued: number;
+    done: number;
+    error: number;
+    stale_queued: number;
+    exhausted: number;
+  };
+  recent_errors: Array<{
+    note_id: string;
+    hanzi: string;
+    attempts: number;
+    error: string | null;
+    updated_at: string;
+  }>;
+  decks: Array<{
+    id: string;
+    name: string;
+    notes: number;
+    with_clue: number;
+    with_set: number;
+  }>;
+}
+
+/** Full set = the default generated size; below that a set was cut short. */
+const FULL_SENTENCE_SET_SIZE = 5;
+
+/**
+ * Everything needed to answer "which of my words have example sentences, and
+ * what is the background generation actually doing?" — one round trip for the
+ * settings overview.
+ */
+export async function getSentenceCoverageStats(
+  db: D1Database,
+  userId: string
+): Promise<SentenceCoverageStats> {
+  const noteRow = await db
+    .prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN n.sentence_clue IS NOT NULL AND n.sentence_clue != '' THEN 1 ELSE 0 END) AS with_clue,
+        SUM(CASE WHEN n.sentence_clue_audio_url IS NOT NULL AND n.sentence_clue_audio_url != '' THEN 1 ELSE 0 END) AS with_clue_audio,
+        SUM(CASE WHEN n.audio_url IS NOT NULL AND n.audio_url != '' THEN 1 ELSE 0 END) AS with_note_audio,
+        SUM(CASE WHEN s.count > 0 THEN 1 ELSE 0 END) AS with_set,
+        SUM(CASE WHEN s.count >= ? THEN 1 ELSE 0 END) AS with_full_set
+      FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      LEFT JOIN (
+        SELECT note_id, COUNT(*) AS count FROM note_sentences GROUP BY note_id
+      ) s ON s.note_id = n.id
+      WHERE d.user_id = ?
+    `)
+    .bind(FULL_SENTENCE_SET_SIZE, userId)
+    .first<{
+      total: number;
+      with_clue: number;
+      with_clue_audio: number;
+      with_note_audio: number;
+      with_set: number;
+      with_full_set: number;
+    }>();
+
+  const sentenceRow = await db
+    .prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN ns.audio_url IS NOT NULL AND ns.audio_url != '' THEN 1 ELSE 0 END) AS with_audio,
+        SUM(CASE WHEN ns.explanation IS NOT NULL THEN 1 ELSE 0 END) AS with_explanation
+      FROM note_sentences ns
+      JOIN notes n ON ns.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+    `)
+    .bind(userId)
+    .first<{ total: number; with_audio: number; with_explanation: number }>();
+
+  const cardRow = await db
+    .prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN COALESCE(c.queue, 0) = 0 THEN 1 ELSE 0 END) AS new_count,
+        SUM(CASE WHEN c.queue = 1 THEN 1 ELSE 0 END) AS learning,
+        SUM(CASE WHEN c.queue = 2 THEN 1 ELSE 0 END) AS review,
+        SUM(CASE WHEN c.queue = 3 THEN 1 ELSE 0 END) AS relearning
+      FROM cards c
+      JOIN notes n ON c.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+    `)
+    .bind(userId)
+    .first<{
+      total: number;
+      new_count: number;
+      learning: number;
+      review: number;
+      relearning: number;
+    }>();
+
+  // Mirrors the eligibility rules in getNotesNeedingSentenceSets: a 'queued'
+  // job older than a day was lost and will be retried, and an 'error' job at
+  // three attempts is given up on.
+  const jobRow = await db
+    .prepare(`
+      SELECT
+        SUM(CASE WHEN j.status = 'queued' THEN 1 ELSE 0 END) AS queued,
+        SUM(CASE WHEN j.status = 'done' THEN 1 ELSE 0 END) AS done,
+        SUM(CASE WHEN j.status = 'error' THEN 1 ELSE 0 END) AS error,
+        SUM(CASE WHEN j.status = 'queued' AND j.updated_at <= datetime('now', '-1 day') THEN 1 ELSE 0 END) AS stale_queued,
+        SUM(CASE WHEN j.status = 'error' AND j.attempts >= 3 THEN 1 ELSE 0 END) AS exhausted
+      FROM note_sentence_jobs j
+      JOIN notes n ON j.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+    `)
+    .bind(userId)
+    .first<{
+      queued: number;
+      done: number;
+      error: number;
+      stale_queued: number;
+      exhausted: number;
+    }>();
+
+  const errors = await db
+    .prepare(`
+      SELECT j.note_id, n.hanzi, j.attempts, j.error, j.updated_at
+      FROM note_sentence_jobs j
+      JOIN notes n ON j.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND j.status = 'error'
+      ORDER BY j.updated_at DESC
+      LIMIT 10
+    `)
+    .bind(userId)
+    .all<{
+      note_id: string;
+      hanzi: string;
+      attempts: number;
+      error: string | null;
+      updated_at: string;
+    }>();
+
+  const decks = await db
+    .prepare(`
+      SELECT
+        d.id,
+        d.name,
+        COUNT(n.id) AS notes,
+        SUM(CASE WHEN n.sentence_clue IS NOT NULL AND n.sentence_clue != '' THEN 1 ELSE 0 END) AS with_clue,
+        SUM(CASE WHEN EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id) THEN 1 ELSE 0 END) AS with_set
+      FROM decks d
+      LEFT JOIN notes n ON n.deck_id = d.id
+      WHERE d.user_id = ?
+      GROUP BY d.id
+      HAVING COUNT(n.id) > 0
+      ORDER BY d.name COLLATE NOCASE ASC
+    `)
+    .bind(userId)
+    .all<{ id: string; name: string; notes: number; with_clue: number; with_set: number }>();
+
+  return {
+    notes: {
+      total: noteRow?.total ?? 0,
+      with_clue: noteRow?.with_clue ?? 0,
+      with_clue_audio: noteRow?.with_clue_audio ?? 0,
+      with_note_audio: noteRow?.with_note_audio ?? 0,
+      with_set: noteRow?.with_set ?? 0,
+      with_full_set: noteRow?.with_full_set ?? 0,
+    },
+    sentences: {
+      total: sentenceRow?.total ?? 0,
+      with_audio: sentenceRow?.with_audio ?? 0,
+      with_explanation: sentenceRow?.with_explanation ?? 0,
+    },
+    cards: {
+      total: cardRow?.total ?? 0,
+      new: cardRow?.new_count ?? 0,
+      learning: cardRow?.learning ?? 0,
+      review: cardRow?.review ?? 0,
+      relearning: cardRow?.relearning ?? 0,
+    },
+    jobs: {
+      queued: jobRow?.queued ?? 0,
+      done: jobRow?.done ?? 0,
+      error: jobRow?.error ?? 0,
+      stale_queued: jobRow?.stale_queued ?? 0,
+      exhausted: jobRow?.exhausted ?? 0,
+    },
+    recent_errors: errors.results ?? [],
+    decks: decks.results ?? [],
+  };
+}

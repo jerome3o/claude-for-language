@@ -39,6 +39,7 @@ const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
 const ReaderEditorPage = lazy(() => import('./pages/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const SentenceCoveragePage = lazy(() => import('./pages/SentenceCoveragePage').then(m => ({ default: m.SentenceCoveragePage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
 const HomeworkReviewPage = lazy(() => import('./pages/HomeworkReviewPage').then(m => ({ default: m.HomeworkReviewPage })));
@@ -316,6 +317,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings/sentences"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <SentenceCoveragePage />
           </ProtectedRoute>
         }
       />

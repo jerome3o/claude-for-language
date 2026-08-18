@@ -329,6 +329,33 @@ export async function deleteNoteSentenceSet(noteId: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/notes/${noteId}/sentences`, { method: 'DELETE' });
 }
 
+export interface SentenceCoverageStats {
+  notes: {
+    total: number;
+    with_clue: number;
+    with_clue_audio: number;
+    with_note_audio: number;
+    with_set: number;
+    with_full_set: number;
+  };
+  sentences: { total: number; with_audio: number; with_explanation: number };
+  cards: { total: number; new: number; learning: number; review: number; relearning: number };
+  jobs: { queued: number; done: number; error: number; stale_queued: number; exhausted: number };
+  recent_errors: Array<{
+    note_id: string;
+    hanzi: string;
+    attempts: number;
+    error: string | null;
+    updated_at: string;
+  }>;
+  decks: Array<{ id: string; name: string; notes: number; with_clue: number; with_set: number }>;
+}
+
+/** Coverage + background-job state for the sentence overview in settings. */
+export async function getSentenceCoverageStats(): Promise<SentenceCoverageStats> {
+  return fetchJSON<SentenceCoverageStats>('/sentences/stats');
+}
+
 /**
  * Ask the server to top up the backlog of notes without a sentence set.
  * `noteIds` are generated first — pass the notes the learner is about to see.

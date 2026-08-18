@@ -543,6 +543,14 @@ later.
 - `POST /api/sentences/prefetch` - Queue background generation (`{ note_ids?, limit? }`, default 20/call)
 - `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
 - `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the card's own clue)
+- `GET /api/sentences/stats` - Coverage + background-job state, for the settings overview
+
+**Sentence Coverage page** (`/settings/sentences`, linked from Settings): what fraction of notes
+have a card sentence vs a generated set, how many sentences are missing audio, the
+`note_sentence_jobs` breakdown (queued / done / failed / stuck / given-up) with the failing words
+and their errors, per-deck coverage, and buttons to queue a batch (20 or 100) or pull new sets down
+to the device. It polls `/api/sentences/stats` every 5s while jobs are in flight (capped at ~10
+minutes so a wedged job can't poll forever).
 
 ### Cards & Study
 - `GET /api/cards/due` - Get due cards (optional `?deck_id=`)

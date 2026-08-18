@@ -10,6 +10,7 @@ import {
   getSentenceExplanation,
   getTextExplanation,
   ensureSentenceSetForNote,
+  getLocalSentenceSetStats,
 } from './sentence-sets';
 import { db, LocalNote, LocalCard } from '../db/database';
 import { NoteSentence } from '../types';
@@ -121,6 +122,28 @@ describe('local sentence storage', () => {
     expect(counts.get('note-1')).toBe(2);
     expect(counts.get('note-2')).toBe(1);
     expect(counts.has('note-3')).toBe(false);
+  });
+
+  it('summarises what this device holds', async () => {
+    await putLocalNoteSentences('note-1', [
+      makeSentence({ id: 'a', position: 0 }),
+      makeSentence({ id: 'b', position: 1 }),
+    ]);
+    await putLocalNoteSentences('note-2', [makeSentence({ id: 'c', note_id: 'note-2' })]);
+
+    const stats = await getLocalSentenceSetStats();
+    expect(stats.sentences).toBe(3);
+    expect(stats.notes).toBe(2);
+    expect(stats.last_sync).toBeNull();
+  });
+
+  it('reports the last sync time once a sync has run', async () => {
+    mockChanges([makeSentence({ id: 'a' })], '2026-08-09T00:00:00.000Z');
+    await db.notes.put(makeNote('note-1'));
+    await syncSentenceSets();
+
+    const stats = await getLocalSentenceSetStats();
+    expect(stats.last_sync).toBe('2026-08-09T00:00:00.000Z');
   });
 });
 
