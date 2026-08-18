@@ -1517,6 +1517,20 @@ button.queue-counts:active {
   min-width: 0;
 }
 
+/* The reveal target: everything uncovered so far, plus what the next tap
+   brings. One button, so a tap anywhere on the text moves it along. */
+.sentence-set-reveal {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0.125rem 0;
+  color: var(--color-text);
+  cursor: pointer;
+  min-height: 32px;
+}
+
 .sentence-set-hanzi {
   display: block;
   width: 100%;
@@ -1529,6 +1543,16 @@ button.queue-counts:active {
   line-height: 1.5;
   cursor: pointer;
   word-break: break-word;
+}
+
+/* What the next tap uncovers — quiet, but enough to say there's more. */
+.sentence-set-next {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  font-style: italic;
+  opacity: 0.4;
+  color: var(--color-text);
 }
 
 /* Collapsed row: nothing to read, so you listen before you check yourself */
@@ -1706,11 +1730,13 @@ button.queue-counts:active {
 }
 
 .sentence-set-pinyin {
+  display: block;
   font-size: 0.8rem;
   opacity: 0.75;
 }
 
 .sentence-set-translation {
+  display: block;
   font-size: 0.8rem;
   opacity: 0.75;
   margin-top: 0.125rem;

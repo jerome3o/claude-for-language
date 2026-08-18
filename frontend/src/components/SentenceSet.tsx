@@ -37,6 +37,26 @@ const FOCUS_LABELS: Record<string, string> = {
 
 const COUNT_OPTIONS = [5, 10];
 
+/**
+ * Progressive reveal: you hear the sentence, then uncover it a line at a time
+ * — characters, then pinyin, then the English — so each one gets read before
+ * the next is there to read instead. Steps a row hasn't got are skipped.
+ */
+type RevealStep = 'hanzi' | 'pinyin' | 'translation';
+
+const NEXT_STEP_LABEL: Record<RevealStep, string> = {
+  hanzi: 'Tap to reveal',
+  pinyin: 'Tap for pinyin',
+  translation: 'Tap for the translation',
+};
+
+function revealSteps(row: DisplayRow): RevealStep[] {
+  const steps: RevealStep[] = ['hanzi'];
+  if (row.pinyin) steps.push('pinyin');
+  if (row.translation) steps.push('translation');
+  return steps;
+}
+
 /** Read the explanation cached on a synced row, if it has one. */
 function parseCachedExplanation(raw: string | null): SentenceBriefExplanation | null {
   if (!raw) return null;
@@ -99,7 +119,8 @@ export function SentenceSet({
   const [open, setOpen] = useState(defaultOpen);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // How much of each row is showing: 0 = nothing, then one step per tap.
+  const [revealed, setRevealed] = useState<Record<string, number>>({});
   const [showAll, setShowAll] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -141,7 +162,7 @@ export function SentenceSet({
   }, [noteId]);
 
   useEffect(() => {
-    setExpanded(new Set());
+    setRevealed({});
     setExplanations({});
     setShowAll(false);
     setShowCustom(false);
@@ -187,12 +208,12 @@ export function SentenceSet({
     setSentences([]);
   }, [noteId]);
 
-  const toggleRow = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  /** One more tap, one more line — and a tap on a fully open row hides it again. */
+  const advanceRow = (row: DisplayRow) => {
+    const total = revealSteps(row).length;
+    setRevealed((prev) => {
+      const stage = prev[row.key] ?? 0;
+      return { ...prev, [row.key]: stage >= total ? 0 : stage + 1 };
     });
   };
 
@@ -463,7 +484,14 @@ export function SentenceSet({
       {open && (
         <ol className="sentence-set-list">
           {rows.map((row, index) => {
-            const isExpanded = showAll || expanded.has(row.key);
+            const steps = revealSteps(row);
+            const stage = showAll ? steps.length : revealed[row.key] ?? 0;
+            const shown = (step: RevealStep) => {
+              const at = steps.indexOf(step);
+              return at !== -1 && at < stage;
+            };
+            const isFullyShown = stage >= steps.length;
+            const nextStep = isFullyShown ? null : steps[stage];
             const focusLabel = row.focus ? FOCUS_LABELS[row.focus] : null;
             const showFocus = focusLabel && row.focus !== 'core';
             return (
@@ -472,21 +500,26 @@ export function SentenceSet({
                   {index + 1}
                 </span>
                 <div className="sentence-set-body">
-                  {/* Collapsed rows stay blank on purpose: listen first, then
-                      tap to check yourself against the characters. */}
+                  {/* A row starts blank on purpose: listen first, then uncover
+                      one line per tap so each is read before the next lands. */}
                   <button
-                    className={isExpanded ? 'sentence-set-hanzi hanzi' : 'sentence-set-hidden'}
-                    onClick={() => toggleRow(row.key)}
-                    aria-expanded={isExpanded}
+                    className={stage === 0 ? 'sentence-set-hidden' : 'sentence-set-reveal'}
+                    onClick={() => advanceRow(row)}
+                    aria-expanded={stage > 0}
                   >
-                    {isExpanded ? row.hanzi : 'Tap to reveal'}
+                    {shown('hanzi') && <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>}
+                    {shown('pinyin') && row.pinyin && (
+                      <span className="sentence-set-pinyin">{row.pinyin}</span>
+                    )}
+                    {shown('translation') && row.translation && (
+                      <span className="sentence-set-translation">{row.translation}</span>
+                    )}
+                    {nextStep && (
+                      <span className="sentence-set-next">{NEXT_STEP_LABEL[nextStep]}</span>
+                    )}
                   </button>
-                  {isExpanded && (
+                  {isFullyShown && (
                     <div className="sentence-set-details">
-                      {row.pinyin && <div className="sentence-set-pinyin">{row.pinyin}</div>}
-                      {row.translation && (
-                        <div className="sentence-set-translation">{row.translation}</div>
-                      )}
                       {(showFocus || row.focus_note) && (
                         <div className="sentence-set-focus">
                           {showFocus && <span className="sentence-set-badge">{focusLabel}</span>}
@@ -506,7 +539,7 @@ export function SentenceSet({
                   >
                     {isPlaying && playingId === row.key ? '⏸' : '▶'}
                   </button>
-                  {isExpanded && row.pinyin && row.translation && (
+                  {isFullyShown && row.pinyin && row.translation && (
                     <button
                       className="sentence-set-add"
                       onClick={() =>
