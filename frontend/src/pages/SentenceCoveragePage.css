@@ -1,0 +1,273 @@
+/* Mobile-first: this page is read on a phone, mid-study, to see what's still
+   missing. Everything stacks; the deck table stays a 4-column grid because the
+   numbers are short. */
+.coverage-page {
+  padding: 0.5rem 0 2rem;
+}
+
+.coverage-header {
+  margin-bottom: 1rem;
+}
+
+.coverage-header h1 {
+  font-size: 1.25rem;
+  margin: 0.25rem 0 0;
+}
+
+.coverage-back {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.coverage-muted {
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+}
+
+.coverage-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--color-error);
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+}
+
+/* Coverage bars */
+.coverage-bar {
+  margin-bottom: 0.875rem;
+}
+
+.coverage-bar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  margin-bottom: 0.25rem;
+}
+
+.coverage-bar-label {
+  font-weight: 500;
+}
+
+.coverage-bar-value {
+  color: var(--color-text-light);
+  white-space: nowrap;
+}
+
+.coverage-track {
+  height: 8px;
+  background: var(--color-background, #f3f4f6);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.coverage-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.coverage-fill-primary {
+  background: #3b82f6;
+}
+
+.coverage-fill-secondary {
+  background: #8b5cf6;
+}
+
+.coverage-bar-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  margin-top: 0.25rem;
+}
+
+/* Headline numbers */
+.coverage-facts {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.coverage-facts > div {
+  background: var(--color-background, #f9fafb);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.625rem;
+}
+
+.coverage-fact-value {
+  display: block;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.coverage-fact-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+/* Job chips */
+.coverage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.875rem;
+}
+
+.coverage-chip {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: var(--color-background, #f3f4f6);
+  border: 1px solid var(--color-border, #e5e7eb);
+}
+
+.coverage-chip-queued {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.coverage-chip-warn {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.coverage-chip-error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.coverage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.coverage-actions .btn {
+  min-height: 44px;
+}
+
+.coverage-status {
+  font-size: 0.8125rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-background, #f3f4f6);
+  border: 1px solid var(--color-border, #e5e7eb);
+}
+
+.coverage-local {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  margin-top: 0.75rem;
+}
+
+/* Failures */
+.coverage-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.coverage-error-row {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.625rem;
+}
+
+.coverage-error-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.coverage-error-hanzi {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.coverage-error-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  white-space: nowrap;
+}
+
+/* API errors can be a whole JSON blob — show the first few lines, the rest is
+   one tap away in the element title. */
+.coverage-error-text {
+  font-size: 0.75rem;
+  color: var(--color-error);
+  margin-top: 0.25rem;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Deck table */
+.coverage-decks {
+  display: flex;
+  flex-direction: column;
+}
+
+.coverage-deck-row {
+  display: grid;
+  grid-template-columns: 1fr 3.5rem 3rem 3rem;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.625rem 0.25rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  font-size: 0.8125rem;
+  color: inherit;
+  text-decoration: none;
+  min-height: 44px;
+}
+
+.coverage-deck-row > span:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-deck-head {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light);
+  min-height: 0;
+  padding-bottom: 0.375rem;
+}
+
+.coverage-deck-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coverage-deck-done {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+@media (min-width: 640px) {
+  .coverage-page {
+    padding: 1.5rem 0 3rem;
+  }
+
+  .coverage-header h1 {
+    font-size: 2rem;
+  }
+
+  .coverage-facts {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}

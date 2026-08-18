@@ -309,6 +309,27 @@ export async function getTextExplanation(sentence: {
   return explanation;
 }
 
+/**
+ * What this device actually holds, for the coverage overview: sets are only
+ * usable offline once they've synced down, so "the server has 800 sets" and
+ * "this phone has 800 sets" are different questions.
+ */
+export async function getLocalSentenceSetStats(): Promise<{
+  sentences: number;
+  notes: number;
+  last_sync: string | null;
+}> {
+  const [sentences, noteIds] = await Promise.all([
+    db.noteSentences.count(),
+    db.noteSentences.orderBy('note_id').uniqueKeys(),
+  ]);
+  return {
+    sentences,
+    notes: noteIds.length,
+    last_sync: localStorage.getItem(SENTENCE_SYNC_KEY),
+  };
+}
+
 /** Forget the sync cursor so the next sync re-downloads every sentence. */
 export function resetSentenceSetSyncCursor(): void {
   localStorage.removeItem(SENTENCE_SYNC_KEY);

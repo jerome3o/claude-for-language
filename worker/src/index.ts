@@ -1394,6 +1394,17 @@ app.get('/api/sentences/changes', async (c) => {
   return c.json({ sentences, server_time: new Date().toISOString() });
 });
 
+/**
+ * Coverage overview for the settings screen: how many words have an example
+ * sentence, how many have a full generated set, and what the background
+ * generation is doing (including the jobs that failed).
+ */
+app.get('/api/sentences/stats', async (c) => {
+  const userId = c.get('user').id;
+  const stats = await db.getSentenceCoverageStats(c.env.DB, userId);
+  return c.json(stats);
+});
+
 /** Default number of notes a single prefetch sweep will enqueue. */
 const SENTENCE_PREFETCH_BATCH = 20;
 const SENTENCE_PREFETCH_MAX_BATCH = 100;

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio } from '../api/client';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
 import { getAudioCacheStats, getCachedAudioKeys } from '../services/audioCache';
@@ -438,6 +439,18 @@ export function SettingsPage() {
         </div>
 
         <OfflineAudioSection />
+
+        <div className="settings-section">
+          <h2>Example Sentences</h2>
+          <p className="settings-section-desc">
+            How many of your words have example sentences, what the background
+            generation is doing, and a button to push a batch through now.
+          </p>
+          <Link className="btn btn-primary export-btn" to="/settings/sentences">
+            Sentence Coverage →
+          </Link>
+        </div>
+
 
         <div className="settings-section">
           <h2>Export Data</h2>
