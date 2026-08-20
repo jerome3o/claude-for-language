@@ -158,7 +158,7 @@ export function TutorReviewDetailPage() {
             <div className="review-detail-card-actions">
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => playAudio(request.note.audio_url || null, request.note.hanzi, API_BASE, request.note.updated_at)}
+                onClick={() => playAudio(request.note.audio_url || null, request.note.hanzi, API_BASE)}
                 disabled={isPlaying}
               >
                 {isPlaying ? 'Playing...' : 'Play Audio'}
