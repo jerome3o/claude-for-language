@@ -189,13 +189,20 @@ export function readerTtsKey(page: Pick<LocalReaderPage, 'id' | 'content_chinese
 /**
  * Cache-first TTS for a reader page. Offline with no cached audio → null
  * (the play button fails gracefully).
+ *
+ * options.regenerate skips the cache read and overwrites the cached clip with
+ * a freshly generated one — for when a cached clip is glitchy or was made with
+ * the Google fallback voice while MiniMax was down.
  */
 export async function getReaderPageTTS(
-  page: Pick<LocalReaderPage, 'id' | 'content_chinese'>
+  page: Pick<LocalReaderPage, 'id' | 'content_chinese'>,
+  options: { regenerate?: boolean } = {}
 ): Promise<Blob | null> {
   const key = readerTtsKey(page);
-  const cached = await getCachedAudio(key);
-  if (cached) return cached;
+  if (!options.regenerate) {
+    const cached = await getCachedAudio(key);
+    if (cached) return cached;
+  }
   if (!navigator.onLine) return null;
 
   try {
