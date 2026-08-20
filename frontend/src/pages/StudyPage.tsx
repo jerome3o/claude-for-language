@@ -415,9 +415,9 @@ function StudyCard({
       const rec = recs[index % recs.length];
       playAudio(rec.audio_url, card.note.hanzi, API_BASE);
     } else {
-      playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE, card.note.updated_at);
+      playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE);
     }
-  }, [card.note.audio_url, card.note.hanzi, card.note.updated_at, playAudio]);
+  }, [card.note.audio_url, card.note.hanzi, playAudio]);
 
   // Cycle to next recording and play it
   const cycleAndPlay = useCallback(() => {
@@ -1482,7 +1482,7 @@ function StudyCard({
                         });
 
                         // Trigger audio playback with the NEW audio URL and cache buster
-                        playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
+                        playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE);
                       } catch (error) {
                         console.error('Failed to regenerate audio:', error);
                       } finally {
@@ -1841,7 +1841,7 @@ function StudyCard({
                     audio_provider: updatedNote.audio_provider,
                     updated_at: updatedNote.updated_at,
                   });
-                  playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE, Date.now().toString());
+                  playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE);
                 } catch (error) {
                   console.error('Failed to regenerate audio:', error);
                 } finally {

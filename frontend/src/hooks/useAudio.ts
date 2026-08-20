@@ -216,6 +216,29 @@ export function useTTS() {
 }
 
 /**
+ * What to hand the player for a stored clip: the cached blob whenever we can
+ * get one, and the network URL only as a last resort.
+ *
+ * Always cache-first. Regenerating a note's audio mints a brand-new R2 key
+ * (getUniqueAudioKey), so a fresh clip is simply a cache miss and gets fetched
+ * on its own — there is no stale-bytes case to bust, and therefore no reason to
+ * ever hand the media element a URL when the bytes are already on the device.
+ * That matters: streaming a clip stalls mid-playback on a mobile connection
+ * (audible as choppy, crunchy audio), while playing a fetched blob does not.
+ *
+ * getAudioWithCache already fetches-and-stores on a miss, so the URL fallback
+ * only happens when the device is offline with nothing cached, or the fetch
+ * itself failed.
+ */
+export async function resolveNoteAudioSource(
+  audioUrl: string,
+  apiBase: string
+): Promise<Blob | string> {
+  const blob = await getAudioWithCache(audioUrl).catch(() => null);
+  return blob ?? `${apiBase}/api/audio/${audioUrl}`;
+}
+
+/**
  * Hook for playing note audio - uses stored audio URL if available, falls back to browser TTS
  */
 export function useNoteAudio(label: string = 'note') {
@@ -236,7 +259,7 @@ export function useNoteAudio(label: string = 'note') {
     return () => player.dispose();
   }, []);
 
-  const play = useCallback((audioUrl: string | null, text: string, apiBase: string, cacheBuster?: string) => {
+  const play = useCallback((audioUrl: string | null, text: string, apiBase: string) => {
     // Increment play ID to invalidate any pending callbacks from previous plays
     const currentPlayId = ++playIdRef.current;
 
@@ -286,27 +309,10 @@ export function useNoteAudio(label: string = 'note') {
       return;
     }
 
-    // Try IndexedDB cache first (works offline), then fall back to network
-    // Skip cache if cacheBuster is set (audio was just regenerated)
-    if (cacheBuster) {
-      const fullUrl = `${apiBase}/api/audio/${audioUrl}?v=${encodeURIComponent(cacheBuster)}`;
-      // Fetch fresh, then update cache in background
-      getAudioWithCache(audioUrl).catch(() => {});
-      playSource(fullUrl);
-    } else {
-      getAudioWithCache(audioUrl).then(blob => {
-        if (playIdRef.current !== currentPlayId) return; // Superseded
-        if (blob) {
-          playSource(blob);
-        } else {
-          // Not cached and offline, or fetch failed — try network URL directly
-          playSource(`${apiBase}/api/audio/${audioUrl}`);
-        }
-      }).catch(() => {
-        if (playIdRef.current !== currentPlayId) return;
-        playSource(`${apiBase}/api/audio/${audioUrl}`);
-      });
-    }
+    resolveNoteAudioSource(audioUrl, apiBase).then(source => {
+      if (playIdRef.current !== currentPlayId) return; // Superseded
+      playSource(source);
+    });
   }, [cleanupAudio, label]);
 
   const stop = useCallback(() => {
