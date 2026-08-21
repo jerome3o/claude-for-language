@@ -3,7 +3,7 @@ export interface Env {
   DB: D1Database;
   AUDIO_BUCKET: R2Bucket;
   AI: Ai;
-  IMAGE_QUEUE: Queue<ImageGenerationMessage>;
+  IMAGE_QUEUE: Queue<ImageGenerationMessage | CustomLessonImageMessage>;
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   AUDIO_LESSON_QUEUE: Queue<AudioLessonMessage>;
   SENTENCE_SET_QUEUE: Queue<SentenceSetMessage>;
@@ -49,6 +49,15 @@ export interface ImageGenerationMessage {
   pageId: string;
   imagePrompt: string;
   totalPages: number;
+}
+
+/** Illustration for a custom lesson's describe_image exercise. Shares the
+ * image-generation queue with reader pages; distinguished by lessonId. */
+export interface CustomLessonImageMessage {
+  lessonId: string;
+  sectionIndex: number;
+  exerciseIndex: number;
+  imagePrompt: string;
 }
 
 export interface AudioLessonMessage {

@@ -244,6 +244,33 @@ export interface LocalGrammarCompletionEvent {
 }
 
 /**
+ * A custom mini lesson (agent-authored, schema-driven — see shared/lesson),
+ * cached whole for offline study. Lessons are one-shot: 'active' until the
+ * learner completes them once, then 'done'.
+ */
+export interface LocalCustomLesson {
+  id: string;
+  title: string;
+  description: string | null;
+  icon: string | null;
+  source: string;
+  status: 'active' | 'done';
+  created_at: string;
+  spec: import('@shared/lesson').CustomLessonSpec;
+  _synced_at: number | null;
+}
+
+export interface LocalCustomLessonCompletionEvent {
+  id: string;
+  lesson_id: string;
+  correct: number;
+  total: number;
+  completed_at: string;
+  // Sync metadata (0 = unsynced, 1 = synced)
+  _synced: number;
+}
+
+/**
  * One entry of a note's sentence set, cached for offline study. Sets are
  * written whole (server-side generation replaces every row for a note), so the
  * sync can safely replace all local rows for any note_id it sees.
@@ -371,6 +398,10 @@ export class ChineseLearningDB extends Dexie {
   // Grammar lessons (offline study, one per day after the reader)
   grammarLessons!: Table<LocalGrammarLesson, string>;
   grammarCompletionEvents!: Table<LocalGrammarCompletionEvent, string>;
+
+  // Custom mini lessons (agent-authored, mixed into the card flow)
+  customLessons!: Table<LocalCustomLesson, string>;
+  customLessonCompletionEvents!: Table<LocalCustomLessonCompletionEvent, string>;
 
   // Sentence sets: graded example sentences per note (offline, with audio)
   noteSentences!: Table<LocalNoteSentence, string>;
@@ -660,6 +691,34 @@ export class ChineseLearningDB extends Dexie {
       grammarCompletionEvents: 'id, grammar_point_id, completed_at, _synced',
       noteSentences: 'id, note_id, updated_at, [note_id+position]',
       sentenceTextExplanations: 'key, cached_at',
+    });
+
+    // Version 14: custom mini lessons (agent-authored, offline) + their
+    // completion events
+    this.version(14).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      pendingReviewDeletions: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
+      readers: 'id, status, queue, next_review_at',
+      readerReviewEvents: 'id, reader_id, reviewed_at, _synced, [reader_id+reviewed_at]',
+      grammarLessons: 'grammar_point_id, position',
+      grammarCompletionEvents: 'id, grammar_point_id, completed_at, _synced',
+      noteSentences: 'id, note_id, updated_at, [note_id+position]',
+      sentenceTextExplanations: 'key, cached_at',
+      customLessons: 'id, status, created_at',
+      customLessonCompletionEvents: 'id, lesson_id, completed_at, _synced',
     });
   }
 }

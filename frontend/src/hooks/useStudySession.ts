@@ -13,6 +13,7 @@ import {
   LocalCard,
   LocalReader,
   LocalGrammarLesson,
+  LocalCustomLesson,
   getDueCards,
   getQueueCounts,
   getStudyCutoff,
@@ -39,6 +40,12 @@ import {
   readerSchedulingFields,
 } from '../services/reader-study';
 import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia } from '../services/grammar-study';
+import {
+  getPendingCustomLessons,
+  completeCustomLesson as recordCustomLessonCompletion,
+  syncCustomLessons,
+  prefetchCustomLessonMedia,
+} from '../services/custom-lesson-study';
 import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '../services/readerSync';
 import { ensureSentenceSetForNote } from '../services/sentence-sets';
 import { markDailyActivity } from '../api/client';
@@ -127,21 +134,36 @@ function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: Deck
   );
 }
 
-// The next thing to study: a card, a graded reader, or a grammar lesson
-type NextStudyItem = { card: LocalCard } | { reader: LocalReader } | { grammar: LocalGrammarLesson };
+// The next thing to study: a card, a graded reader, a custom mini lesson,
+// or a grammar lesson
+type NextStudyItem =
+  | { card: LocalCard }
+  | { reader: LocalReader }
+  | { customLesson: LocalCustomLesson }
+  | { grammar: LocalGrammarLesson };
+
+// A custom mini lesson is offered after this many card reviews, so lessons
+// mix INTO the session instead of piling up at the end.
+export const LESSON_MIX_INTERVAL = 8;
 
 /**
- * Synchronously select the next study item from the card queue and the reader
- * queue (pure function).
+ * Synchronously select the next study item from the card queue, the custom
+ * lesson queue, and the reader queue (pure function).
  *
- * Cards keep their existing priorities. Graded readers come at the VERY END
- * of the session (Jerome's preference): they're only offered once no card is
- * available — the story is the reward after the drilling is done. Today's
+ * Cards keep their existing priorities. Custom mini lessons interleave with
+ * the cards: one is offered every LESSON_MIX_INTERVAL reviews (lessonBreakDue),
+ * and any left over run before the readers. Graded readers come at the VERY
+ * END of the session (Jerome's preference): they're only offered once no card
+ * is available — the story is the reward after the drilling is done. Today's
  * grammar lesson comes after the readers, closing out the session.
+ *
+ * Exported for tests.
  */
-function selectNextItem(
+export function selectNextItem(
   queue: LocalCard[],
   readerQueue: LocalReader[],
+  customLessons: LocalCustomLesson[],
+  lessonBreakDue: boolean,
   grammarLesson: LocalGrammarLesson | null,
   recentNoteIds: string[],
   reviewedNoteIds: Set<string>,
@@ -169,6 +191,12 @@ function selectNextItem(
   if (learningDue.length > 0) {
     const card = pickWeightedLearningCard(learningDue, now);
     if (card) return { card };
+  }
+
+  // Custom-lesson break: after enough card reviews, slot a mini lesson into
+  // the flow. Learning cards due NOW still win (their timers are active).
+  if (lessonBreakDue && customLessons.length > 0) {
+    return { customLesson: customLessons[0] };
   }
 
   // Priority 2: Mix new and review cards proportionally
@@ -209,6 +237,12 @@ function selectNextItem(
       if (other) return { card: other };
     }
     return { card: cooldownCards[0] };
+  }
+
+  // Priority 3.5: Cards done — any custom lessons that never hit an
+  // interleave break run now, before the readers.
+  if (customLessons.length > 0) {
+    return { customLesson: customLessons[0] };
   }
 
   // Priority 4: All cards done — graded readers close out the session.
@@ -274,6 +308,7 @@ interface CurrentItemState {
   deck: Deck | null;
   reader?: LocalReader | null;
   grammar?: LocalGrammarLesson | null;
+  customLesson?: LocalCustomLesson | null;
 }
 
 // Snapshot taken just before a rating is applied so the last review can be
@@ -298,6 +333,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Due graded readers, interleaved with cards. Readers aren't deck-scoped,
   // so they only join "All Decks" sessions (no deckId filter).
   const [readerQueue, setReaderQueue] = useState<LocalReader[]>([]);
+  // Pending custom mini lessons (agent-authored), mixed into the card flow.
+  // Like readers, they aren't deck-scoped — all-decks sessions only.
+  const [customLessonQueue, setCustomLessonQueue] = useState<LocalCustomLesson[]>([]);
+  // Card reviews since the last custom lesson — drives the interleave break
+  const reviewsSinceLessonRef = useRef(0);
   // Monotonic counter — incremented every time a new card is shown (even same ID)
   const [cardVersion, setCardVersion] = useState(0);
   const [currentCardState, setCurrentCardState] = useState<CurrentItemState>({
@@ -353,16 +393,19 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setIsLoading(true);
     try {
       await ensureDailyStatsInitialized();
-      const [dueCards, counts, reviewedIds, dueReaders, todaysGrammar] = await Promise.all([
+      const [dueCards, counts, reviewedIds, dueReaders, todaysGrammar, pendingLessons] = await Promise.all([
         getDueCards(deckId, bonusNewCards),
         getQueueCounts(deckId, bonusNewCards),
         getReviewedNoteIds(deckId),
         deckId ? Promise.resolve([]) : getDueReaders(),
         deckId ? Promise.resolve(null) : getTodaysGrammarLesson(),
+        deckId ? Promise.resolve([]) : getPendingCustomLessons(),
       ]);
       setQueue(dueCards);
       setReaderQueue(dueReaders);
       setGrammarLesson(todaysGrammar);
+      setCustomLessonQueue(pendingLessons);
+      reviewsSinceLessonRef.current = 0;
       setHasMoreNewCards(counts.hasMoreNew);
       reviewedNoteIdsRef.current = reviewedIds;
       initializedRef.current = true;
@@ -386,6 +429,15 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
               }
             })
             .catch(err => console.error('[useStudySession] Grammar lesson refresh failed:', err));
+
+          // Custom mini lessons: pick up anything an agent created since the
+          // last sync, then cache media so the lessons work offline.
+          syncCustomLessons()
+            .then(async () => {
+              setCustomLessonQueue(await getPendingCustomLessons());
+              prefetchCustomLessonMedia().catch(() => {});
+            })
+            .catch(err => console.error('[useStudySession] Custom lesson refresh failed:', err));
         }
 
         ensureDailyReader()
@@ -454,12 +506,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     queue?: LocalCard[];
     recentNoteIds?: string[];
     readerQueue?: LocalReader[];
+    customLessonQueue?: LocalCustomLesson[];
   }
 
   const applyQueueUpdates = useCallback((updates?: QueueUpdates) => {
     if (updates?.queue) setQueue(updates.queue);
     if (updates?.recentNoteIds) setRecentNoteIds(updates.recentNoteIds);
     if (updates?.readerQueue) setReaderQueue(updates.readerQueue);
+    if (updates?.customLessonQueue) setCustomLessonQueue(updates.customLessonQueue);
   }, []);
 
   // Load a card's note+deck and show it. Returns false if the note is missing
@@ -489,10 +543,43 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setCurrentCardState({ card: null, note: null, deck: null, grammar });
   }, [applyQueueUpdates]);
 
+  const presentCustomLesson = useCallback((customLesson: LocalCustomLesson, updates?: QueueUpdates) => {
+    applyQueueUpdates(updates);
+    // Starting a lesson resets the interleave counter, so the next one waits
+    // for another run of card reviews.
+    reviewsSinceLessonRef.current = 0;
+    setCardVersion(v => v + 1);
+    setCurrentCardState({ card: null, note: null, deck: null, customLesson });
+  }, [applyQueueUpdates]);
+
   const presentNothing = useCallback((updates?: QueueUpdates) => {
     applyQueueUpdates(updates);
     setCurrentCardState({ card: null, note: null, deck: null });
   }, [applyQueueUpdates]);
+
+  // Show whatever selectNextItem picked. Returns false only when a card's
+  // note is missing (orphaned card) — the caller falls back to something else.
+  const presentSelection = useCallback(async (selection: NextStudyItem, updates?: QueueUpdates): Promise<boolean> => {
+    if ('reader' in selection) {
+      presentReader(selection.reader, updates);
+      return true;
+    }
+    if ('grammar' in selection) {
+      presentGrammar(selection.grammar, updates);
+      return true;
+    }
+    if ('customLesson' in selection) {
+      presentCustomLesson(selection.customLesson, updates);
+      return true;
+    }
+    return presentCard(selection.card, updates);
+  }, [presentReader, presentGrammar, presentCustomLesson, presentCard]);
+
+  // Whether enough card reviews have passed to slot in a custom mini lesson
+  const lessonBreakReady = useCallback(
+    () => reviewsSinceLessonRef.current >= LESSON_MIX_INTERVAL,
+    [],
+  );
 
   // Track a pending background DB write so fallback queries can await it
   const trackWrite = useCallback((write: Promise<unknown>) => {
@@ -549,19 +636,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Select the next item from the queues (async version for fallback cases)
   const selectNextCard = useCallback(async () => {
-    const selection = selectNextItem(queue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
+    const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
 
-    if (selection) {
-      if ('reader' in selection) {
-        presentReader(selection.reader);
-        return;
-      }
-      if ('grammar' in selection) {
-        presentGrammar(selection.grammar);
-        return;
-      }
-      if (await presentCard(selection.card)) return;
-    }
+    if (selection && await presentSelection(selection)) return;
 
     // Queues empty — check for delayed learning cards in IndexedDB
     const delayed = await findDelayedLearningCard();
@@ -569,15 +646,15 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     console.log('[useStudySession] No cards available');
     presentNothing();
-  }, [queue, readerQueue, grammarLesson, recentNoteIds, presentCard, presentReader, presentGrammar, presentNothing, findDelayedLearningCard]);
+  }, [queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
   // Select first item when queue loads
   useEffect(() => {
-    const nothingShown = !currentCardState.card && !currentCardState.reader && !currentCardState.grammar;
-    if (!isLoading && (queue.length > 0 || readerQueue.length > 0 || grammarLesson) && nothingShown) {
+    const nothingShown = !currentCardState.card && !currentCardState.reader && !currentCardState.grammar && !currentCardState.customLesson;
+    if (!isLoading && (queue.length > 0 || readerQueue.length > 0 || customLessonQueue.length > 0 || grammarLesson) && nothingShown) {
       selectNextCard();
     }
-  }, [isLoading, queue.length, readerQueue.length, grammarLesson, currentCardState.card, currentCardState.reader, currentCardState.grammar, selectNextCard]);
+  }, [isLoading, queue.length, readerQueue.length, customLessonQueue.length, grammarLesson, currentCardState.card, currentCardState.reader, currentCardState.grammar, currentCardState.customLesson, selectNextCard]);
 
   // While today's grammar exercises are generating server-side, poll until
   // they land, then slot the lesson in at the end of the session.
@@ -810,20 +887,15 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
+    // One more review toward the next custom-lesson interleave break
+    reviewsSinceLessonRef.current += 1;
+
     // Select the next item synchronously from the new queues
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId);
+    const selection = selectNextItem(newQueue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId);
 
     let presented = false;
     if (selection) {
-      if ('reader' in selection) {
-        presentReader(selection.reader, updates);
-        presented = true;
-      } else if ('grammar' in selection) {
-        presentGrammar(selection.grammar, updates);
-        presented = true;
-      } else {
-        presented = await presentCard(selection.card, updates);
-      }
+      presented = await presentSelection(selection, updates);
     }
 
     if (presented) {
@@ -882,7 +954,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     console.log('[useStudySession] No cards available - session complete');
     presentNothing(updates);
     trackWrite(persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob));
-  }, [currentCardState, queue, readerQueue, grammarLesson, recentNoteIds, sessionStats, reviewMutation, presentCard, presentReader, presentGrammar, presentNothing, trackWrite, persistReviewEvent, countNewCardIntroduced, findDelayedLearningCard]);
+  }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, sessionStats, reviewMutation, presentCard, presentSelection, presentNothing, trackWrite, persistReviewEvent, countNewCardIntroduced, findDelayedLearningCard]);
 
   // Rate the current reader and transition to the next item. Reader reviews
   // follow the same FSRS cadence as cards; they aren't undoable yet, so
@@ -931,18 +1003,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       const updates = { readerQueue: newReaderQueue };
-      const selection = selectNextItem(queue, newReaderQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id);
-      if (selection) {
-        if ('reader' in selection) {
-          presentReader(selection.reader, updates);
-          return;
-        }
-        if ('grammar' in selection) {
-          presentGrammar(selection.grammar, updates);
-          return;
-        }
-        if (await presentCard(selection.card, updates)) return;
-      }
+      const selection = selectNextItem(queue, newReaderQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id);
+      if (selection && await presentSelection(selection, updates)) return;
 
       const delayed = await findDelayedLearningCard();
       if (delayed && await presentCard(delayed, updates)) return;
@@ -951,7 +1013,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     } finally {
       ratingReaderRef.current = false;
     }
-  }, [currentCardState, queue, readerQueue, grammarLesson, recentNoteIds, presentCard, presentReader, presentGrammar, presentNothing, findDelayedLearningCard]);
+  }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
   // Complete the current grammar lesson: record the completion event
   // (synced up in the background) and advance — this is the session's last
@@ -971,24 +1033,41 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       syncService.syncEvents().catch(console.error);
     }
 
-    const selection = selectNextItem(queue, readerQueue, null, recentNoteIds, reviewedNoteIdsRef.current);
-    if (selection) {
-      if ('reader' in selection) {
-        presentReader(selection.reader);
-        return;
-      }
-      if ('grammar' in selection) {
-        presentGrammar(selection.grammar);
-        return;
-      }
-      if (await presentCard(selection.card)) return;
-    }
+    const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), null, recentNoteIds, reviewedNoteIdsRef.current);
+    if (selection && await presentSelection(selection)) return;
 
     const delayed = await findDelayedLearningCard();
     if (delayed && await presentCard(delayed)) return;
 
     presentNothing();
-  }, [currentCardState, queue, readerQueue, recentNoteIds, presentCard, presentReader, presentGrammar, presentNothing, findDelayedLearningCard]);
+  }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
+
+  // Complete the current custom mini lesson: record the completion event
+  // (synced up in the background), drop it from the queue, and advance —
+  // usually back into the card flow it interrupted.
+  const completeCustomLessonAction = useCallback(async (correct: number, total: number) => {
+    const lesson = currentCardState.customLesson;
+    if (!lesson) return;
+
+    try {
+      await recordCustomLessonCompletion(lesson.id, correct, total);
+    } catch (err) {
+      console.error('[useStudySession] Failed to record custom lesson completion:', err);
+    }
+    if (navigator.onLine) {
+      syncCustomLessons().catch(() => {});
+    }
+
+    const newLessonQueue = customLessonQueue.filter(l => l.id !== lesson.id);
+    const updates = { customLessonQueue: newLessonQueue };
+    const selection = selectNextItem(queue, readerQueue, newLessonQueue, false, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
+    if (selection && await presentSelection(selection, updates)) return;
+
+    const delayed = await findDelayedLearningCard();
+    if (delayed && await presentCard(delayed, updates)) return;
+
+    presentNothing(updates);
+  }, [currentCardState, queue, readerQueue, customLessonQueue, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
   // Undo the last rating (single-level, like Anki). Deletes the review event
   // locally and queues its deletion on the server, restores the card's
@@ -1072,6 +1151,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // Placeholder for today's still-generating reader — it will arrive as a
     // NEW (blue) item, so count it there while it's being written.
     if (dailyReaderPending) n++;
+    // Pending custom mini lessons are always new material — blue.
+    n += customLessonQueue.length;
     // Today's grammar lesson: blue if it's a brand-new pattern, green if
     // it's a repeat round of one still being learned. A lesson still being
     // generated counts as a blue placeholder.
@@ -1082,10 +1163,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       n++;
     }
     return { new: n, secondaryNew: s, learning: l, review: r };
-  }, [queue, readerQueue, dailyReaderPending, grammarLesson, grammarPending]);
+  }, [queue, readerQueue, customLessonQueue, dailyReaderPending, grammarLesson, grammarPending]);
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
   const currentReader = currentCardState.reader ?? null;
   const currentGrammar = currentCardState.grammar ?? null;
+  const currentCustomLesson = currentCardState.customLesson ?? null;
 
   // Whether the current card is a "secondary" new card (purple): NEW, but its
   // note already has a reviewed card. Used to highlight the right header count.
@@ -1129,18 +1211,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const newRecentNoteIds = recentNoteIds.filter(id => id !== noteId);
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current);
-    if (selection) {
-      if ('reader' in selection) {
-        presentReader(selection.reader, updates);
-        return;
-      }
-      if ('grammar' in selection) {
-        presentGrammar(selection.grammar, updates);
-        return;
-      }
-      if (await presentCard(selection.card, updates)) return;
-    }
+    const selection = selectNextItem(newQueue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current);
+    if (selection && await presentSelection(selection, updates)) return;
 
     // Nothing in the queues — check for delayed learning cards in IndexedDB
     const delayed = await findDelayedLearningCard(noteId);
@@ -1148,7 +1220,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     // Session is complete
     presentNothing(updates);
-  }, [queue, readerQueue, grammarLesson, recentNoteIds, presentCard, presentReader, presentGrammar, presentNothing, findDelayedLearningCard]);
+  }, [queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
   // Reload queue (for "Study More" button)
   const reloadQueue = useCallback(() => {
@@ -1179,6 +1251,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     currentCard: cardWithNote,
     currentReader,
     currentGrammar,
+    currentCustomLesson,
     currentCardIsSecondaryNew,
     cardVersion,
     counts,
@@ -1195,6 +1268,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     rateCard,
     rateReader,
     completeGrammar,
+    completeCustomLesson: completeCustomLessonAction,
     undoLastReview,
     reloadQueue,
     selectNextCard,

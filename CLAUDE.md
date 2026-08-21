@@ -97,10 +97,14 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── compute-state.ts    # Core FSRS logic, state computation from events
 │   │   ├── compute-state.test.ts # Tests for scheduler
 │   │   └── index.ts       # Re-exports
-│   └── quest/             # Quests: the tile-map mini-game framework
-│       ├── types.ts       # World schema (terrain, objects, verbs, goal conditions)
-│       ├── engine.ts      # Pure game engine — movement, verbs, goal checking
-│       ├── validate.ts    # Playability checks for generated worlds
+│   ├── quest/             # Quests: the tile-map mini-game framework
+│   │   ├── types.ts       # World schema (terrain, objects, verbs, goal conditions)
+│   │   ├── engine.ts      # Pure game engine — movement, verbs, goal checking
+│   │   ├── validate.ts    # Playability checks for generated worlds
+│   │   └── index.ts       # Re-exports
+│   └── lesson/            # Custom mini lessons: agent-authored lesson schema
+│       ├── types.ts       # Lesson spec (sections of exercises, 7 exercise types)
+│       ├── validate.ts    # Structural validation for agent-authored specs
 │       └── index.ts       # Re-exports
 │
 ├── frontend/              # React + Vite frontend
@@ -202,6 +206,8 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
+- `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done)
+- `custom_lesson_completions` - Idempotent offline completion events for custom lessons
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -623,6 +629,30 @@ Endpoints (rows live in `quests`):
 - `POST /api/quests/:id/complete` - Record a finished play-through (`{ moves }`)
 - `DELETE /api/quests/:id` - Delete a quest
 
+### Custom mini lessons (agent-authored, in the study session)
+The generalized successor to the fixed-phase grammar lesson: a **schema-driven lesson**
+(`shared/lesson`) that agents author — sections in any order, each holding any number of
+exercises of any type. Exercise types: `note` (teaching text + example sentences with TTS),
+`scramble` (word order), `choice` (multiple choice), `translate` (EN→ZH, self-assessed),
+`match` (connect hanzi↔English pairs), `describe_image` (an illustration is generated from
+`image_prompt` via the image queue; the learner describes it aloud, self-assessed), and
+`speak` (say your own sentence, self-assessed). Specs are validated with
+`validateLessonSpec` before storage; invalid specs come back with a list of problems so the
+agent can repair and retry.
+
+Lessons are cached whole in IndexedDB (`customLessons`) and studied fully offline,
+**mixed into the study session's card flow** — one is offered every ~8 card reviews
+(`LESSON_MIX_INTERVAL` in useStudySession), leftovers run before the readers, max 2 per
+session. Completions are offline events (idempotent by id); a completed lesson is `done`
+and leaves the queue. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
+Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
+views live in `frontend/src/components/lesson-exercises.tsx` (StudyGrammar reuses the
+scramble/choice/translate ones).
+- `GET /api/custom-lessons` - Active lessons with parsed spec (`?status=done|all` for the rest)
+- `POST /api/custom-lessons` - Create from `{ spec }` (validated; queues describe_image illustrations)
+- `DELETE /api/custom-lessons/:id` - Delete a lesson
+- `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id)
+
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
 - `GET /api/stats/deck/:id` - Deck statistics
@@ -735,6 +765,9 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `update_card_settings` | Fine-grained control over card scheduling |
 | `batch_set_familiarity` | Set familiarity for multiple notes at once |
 | `get_note_history` | Get review history and Q&A for a note |
+| `create_custom_lesson` | Author a custom mini lesson (sections of exercises) for the user's next study session |
+| `list_custom_lessons` | List custom mini lessons (pending and completed) |
+| `delete_custom_lesson` | Delete a custom mini lesson |
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |

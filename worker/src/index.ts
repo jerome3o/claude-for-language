@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, StoryGenerationMessage, AudioLessonMessage, VocabularyItem } from './types';
+import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, AudioLessonMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import { calculateSM2 } from './services/sm2';
 import {
@@ -24,6 +24,7 @@ import { explainSentenceBriefly } from './services/sentence-explain-brief';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage } from './services/graded-reader';
+import { createCustomLessonFromSpec } from './services/custom-lesson';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import { buildLessonScript, generateLessonAudio, generateDialogueScript } from './services/audio-lesson';
 import {
@@ -1011,6 +1012,28 @@ app.post('/api/notes/:id/ask', async (c) => {
                 reason: (action.input as { reason?: string }).reason || 'Deleted by user request',
               },
             });
+            break;
+          }
+
+          case 'create_custom_lesson': {
+            const result = await createCustomLessonFromSpec(c.env, userId, action.input, 'chat');
+            if (result.ok) {
+              toolResults.push({
+                tool: 'create_custom_lesson',
+                success: true,
+                data: {
+                  lesson_id: result.lesson.id,
+                  title: result.lesson.title,
+                  image_jobs: result.imageJobs,
+                },
+              });
+            } else {
+              toolResults.push({
+                tool: 'create_custom_lesson',
+                success: false,
+                error: `Invalid lesson spec: ${result.errors.join('; ')}`,
+              });
+            }
             break;
           }
         }
@@ -6512,6 +6535,72 @@ app.post('/api/practice/offline-complete', async (c) => {
   return c.json({ applied, skipped: events.length - applied });
 });
 
+// ============ Custom mini lessons (agent-authored, see shared/lesson) ============
+
+// Active lessons with their full spec, for offline caching. Parsed spec so
+// the client never has to double-parse JSON strings.
+app.get('/api/custom-lessons', async (c) => {
+  const userId = c.get('user').id;
+  const status = c.req.query('status');
+  const rows = await db.listCustomLessons(
+    c.env.DB,
+    userId,
+    status === 'all' ? {} : { status: (status as 'active' | 'done') || 'active' },
+  );
+  return c.json({
+    lessons: rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      icon: row.icon,
+      source: row.source,
+      status: row.status,
+      created_at: row.created_at,
+      spec: JSON.parse(row.spec),
+    })),
+  });
+});
+
+// Create a lesson from a spec (validated). Used directly by scripts/agents
+// with a session; the MCP server and in-app chat have their own tool paths.
+app.post('/api/custom-lessons', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ spec?: unknown }>().catch(() => ({} as { spec?: unknown }));
+  const result = await createCustomLessonFromSpec(c.env, userId, body.spec, 'api');
+  if (!result.ok) {
+    return c.json({ error: 'Invalid lesson spec', problems: result.errors }, 400);
+  }
+  return c.json({ ...result.lesson, spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs }, 201);
+});
+
+app.delete('/api/custom-lessons/:id', async (c) => {
+  const userId = c.get('user').id;
+  const deleted = await db.deleteCustomLesson(c.env.DB, c.req.param('id'), userId);
+  if (!deleted) return c.json({ error: 'Lesson not found' }, 404);
+  return c.json({ ok: true });
+});
+
+// Offline completion events — idempotent by event id, same shape as the
+// grammar practice endpoint.
+app.post('/api/custom-lessons/offline-complete', async (c) => {
+  const userId = c.get('user').id;
+  const { events } = await c.req.json<{
+    events: Array<{ id: string; lesson_id: string; correct: number; total: number; completed_at: string }>;
+  }>();
+  if (!events || !Array.isArray(events)) {
+    return c.json({ error: 'events array is required' }, 400);
+  }
+
+  let applied = 0;
+  for (const event of events) {
+    if (!event.id || !event.lesson_id || !event.completed_at) continue;
+    if (await db.applyCustomLessonCompletion(c.env.DB, userId, event)) {
+      applied++;
+    }
+  }
+  return c.json({ applied, skipped: events.length - applied });
+});
+
 // ============ Feature Requests ============
 
 // List feature requests (own for regular users, all for admins)
@@ -6816,7 +6905,7 @@ export default {
   fetch: app.fetch,
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | AudioLessonMessage | SentenceSetMessage | QuestGenerationMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | AudioLessonMessage | SentenceSetMessage | QuestGenerationMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6911,6 +7000,33 @@ export default {
     } else if (queueName === 'image-generation-queue') {
       // Handle image generation
       for (const message of batch.messages) {
+        // Custom-lesson illustrations share this queue; they carry a lessonId
+        // instead of a readerId.
+        if ('lessonId' in message.body) {
+          const { lessonId, sectionIndex, exerciseIndex, imagePrompt } = message.body as CustomLessonImageMessage;
+          try {
+            const imageKey = await generatePageImage(
+              env.GEMINI_API_KEY,
+              imagePrompt,
+              `lesson-${lessonId}-s${sectionIndex}e${exerciseIndex}`,
+              env.AUDIO_BUCKET
+            );
+            if (imageKey) {
+              await db.setCustomLessonExerciseImage(env.DB, lessonId, sectionIndex, exerciseIndex, imageKey);
+              console.log('[Queue] Lesson image generated:', lessonId, `s${sectionIndex}e${exerciseIndex}`);
+            } else {
+              console.error('[Queue] Lesson image generation returned null:', lessonId);
+            }
+            // The lesson is studyable without its images (text fallback), so
+            // a failed image is never retried forever — ack either way.
+            message.ack();
+          } catch (err) {
+            console.error('[Queue] Lesson image generation failed:', lessonId, err);
+            message.retry();
+          }
+          continue;
+        }
+
         const { readerId, pageId, imagePrompt } = message.body as ImageGenerationMessage;
         console.log('[Queue] Processing image for page:', pageId, 'reader:', readerId);
 

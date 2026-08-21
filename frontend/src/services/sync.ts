@@ -20,6 +20,7 @@ import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllE
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia } from './grammar-study';
+import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
@@ -363,6 +364,14 @@ class SyncService {
       console.error('[Sync] Grammar lesson sync failed:', err);
     }
     try {
+      await syncCustomLessons();
+      prefetchCustomLessonMedia().catch(err =>
+        console.error('[Sync] Custom lesson media prefetch failed:', err)
+      );
+    } catch (err) {
+      console.error('[Sync] Custom lesson sync failed:', err);
+    }
+    try {
       // Sentence sets are text-only here; their audio comes down with the
       // full audio prefetch (they're in the audio manifest).
       await syncSentenceSets();
@@ -590,6 +599,13 @@ class SyncService {
       await uploadGrammarCompletions();
     } catch (err) {
       console.error('[Sync] Grammar completion upload failed:', err);
+    }
+
+    // Custom lesson completion events (same idempotent pattern)
+    try {
+      await uploadCustomLessonCompletions();
+    } catch (err) {
+      console.error('[Sync] Custom lesson completion upload failed:', err);
     }
 
     // Upload pending recordings

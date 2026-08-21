@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GeneratedDeck, GeneratedNote, GeneratedNoteWithContext, Note, Conversation, CheckMessageResponse, MessageCheckStatus } from '../types';
+import { LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -165,6 +166,7 @@ Tool usage guidelines:
 - The user points out an error in the card (wrong tone, incorrect translation, etc.) → use edit_current_card
 - The user asks for related vocabulary to be added → use create_flashcards (can target any of the user's decks by specifying deck_id)
 - The user says the card is a duplicate or should be removed → use delete_current_card
+- The user asks for a lesson, drill, or practice around a word/pattern/topic → use create_custom_lesson (it appears in their next study session and works offline)
 - Use search_cards to find related vocabulary, check for duplicates, or answer questions about what cards exist
 - Use list_conversations to find past discussions about cards
 - Use get_deck_info to understand the deck context
@@ -355,6 +357,11 @@ function getAskNoteTools(note: Note) {
       },
     },
     {
+      name: 'create_custom_lesson',
+      description: 'Create a custom mini lesson that appears in the user\'s next study session (fully offline). A lesson is sections of exercises in any order — use it when the user wants focused practice on a word, pattern, or topic (e.g. drilling this card\'s word in context). Keep lessons short: 1-3 sections, ~4-10 exercises total.',
+      input_schema: LESSON_SPEC_INPUT_SCHEMA,
+    },
+    {
       name: 'search_cards',
       description: 'Search through all flashcards across all decks. Use this to find related vocabulary, check for duplicates, or answer questions about what cards exist.',
       input_schema: {
@@ -435,7 +442,7 @@ function getAskNoteTools(note: Note) {
   ];
 }
 
-export type ToolName = 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'search_cards' | 'list_conversations' | 'get_deck_info' | 'get_note_cards' | 'get_note_history' | 'get_deck_progress' | 'get_due_cards' | 'get_overall_stats';
+export type ToolName = 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'create_custom_lesson' | 'search_cards' | 'list_conversations' | 'get_deck_info' | 'get_note_cards' | 'get_note_history' | 'get_deck_progress' | 'get_due_cards' | 'get_overall_stats';
 
 export interface ToolAction {
   tool: ToolName;

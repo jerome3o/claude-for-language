@@ -1,0 +1,137 @@
+/* Styles for the schema-driven lesson exercises that don't exist in the
+ * practice-page stylesheet: match-the-pairs, describe-image, teaching notes.
+ * Everything else reuses PracticePage.css classes. */
+
+/* ---- Match the pairs ---- */
+
+.match-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.match-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.match-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-height: 44px;
+  padding: 0.6rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+  word-break: break-word;
+}
+
+.match-item.hanzi {
+  font-size: 1.25rem;
+}
+
+.match-item.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.match-item.matched {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+  cursor: default;
+}
+
+.match-item.wrong {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.match-pinyin {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* ---- Describe the picture ---- */
+
+.describe-image-container {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.describe-image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.describe-image-fallback {
+  width: 100%;
+  padding: 1rem;
+  border: 1px dashed #cdd6e8;
+  border-radius: 8px;
+  background: #f6f8fc;
+  color: #445;
+  font-size: 0.95rem;
+}
+
+.describe-image-fallback-label {
+  font-weight: 600;
+}
+
+.describe-task {
+  text-align: center;
+  color: #374151;
+}
+
+/* ---- Teaching note ---- */
+
+.lesson-note-body {
+  width: 100%;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: #1f2937;
+}
+
+.lesson-note-body p {
+  margin: 0 0 0.75rem;
+}
+
+.lesson-note-sentence {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.lesson-note-hanzi {
+  font-size: 1.25rem;
+}
+
+/* ---- Section header inside the custom lesson player ---- */
+
+.lesson-section-title {
+  width: 100%;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+}

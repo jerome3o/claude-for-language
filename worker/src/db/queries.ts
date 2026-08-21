@@ -4103,3 +4103,110 @@ export async function countNotesMissingClueAudio(
     .first<{ count: number }>();
   return row?.count ?? 0;
 }
+
+// ---- Custom mini lessons (agent-authored, see shared/lesson) ----
+
+export interface CustomLessonRow {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  icon: string | null;
+  spec: string; // JSON CustomLessonSpec
+  source: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createCustomLesson(
+  db: D1Database,
+  userId: string,
+  data: { title: string; description?: string | null; icon?: string | null; spec: string; source: string },
+): Promise<CustomLessonRow> {
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO custom_lessons (id, user_id, title, description, icon, spec, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, userId, data.title, data.description ?? null, data.icon ?? null, data.spec, data.source).run();
+  const row = await db.prepare(`SELECT * FROM custom_lessons WHERE id = ?`).bind(id).first<CustomLessonRow>();
+  return row!;
+}
+
+export async function listCustomLessons(
+  db: D1Database,
+  userId: string,
+  options: { status?: 'active' | 'done' } = {},
+): Promise<CustomLessonRow[]> {
+  const query = options.status
+    ? db.prepare(`SELECT * FROM custom_lessons WHERE user_id = ? AND status = ? ORDER BY created_at`).bind(userId, options.status)
+    : db.prepare(`SELECT * FROM custom_lessons WHERE user_id = ? ORDER BY created_at`).bind(userId);
+  const r = await query.all<CustomLessonRow>();
+  return r.results;
+}
+
+export async function getCustomLesson(
+  db: D1Database,
+  lessonId: string,
+  userId: string,
+): Promise<CustomLessonRow | null> {
+  const row = await db.prepare(`SELECT * FROM custom_lessons WHERE id = ? AND user_id = ?`)
+    .bind(lessonId, userId).first<CustomLessonRow>();
+  return row ?? null;
+}
+
+export async function deleteCustomLesson(
+  db: D1Database,
+  lessonId: string,
+  userId: string,
+): Promise<boolean> {
+  const r = await db.prepare(`DELETE FROM custom_lessons WHERE id = ? AND user_id = ?`)
+    .bind(lessonId, userId).run();
+  return (r.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * Apply one offline completion event. Idempotent by event id — returns false
+ * if the event was already applied. A completed lesson leaves the study
+ * queue (status 'done').
+ */
+export async function applyCustomLessonCompletion(
+  db: D1Database,
+  userId: string,
+  event: { id: string; lesson_id: string; correct: number; total: number; completed_at: string },
+): Promise<boolean> {
+  // Ownership check via the lesson row: never record events against someone
+  // else's (or a deleted) lesson.
+  const lesson = await db.prepare(`SELECT id FROM custom_lessons WHERE id = ? AND user_id = ?`)
+    .bind(event.lesson_id, userId).first<{ id: string }>();
+  if (!lesson) return false;
+
+  const inserted = await db.prepare(`
+    INSERT OR IGNORE INTO custom_lesson_completions (id, user_id, lesson_id, correct, total, completed_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(event.id, userId, event.lesson_id, event.correct, event.total, event.completed_at).run();
+  if ((inserted.meta?.changes ?? 0) === 0) return false;
+
+  await db.prepare(`
+    UPDATE custom_lessons SET status = 'done', updated_at = datetime('now') WHERE id = ?
+  `).bind(event.lesson_id).run();
+  return true;
+}
+
+/**
+ * Record a generated illustration on a describe_image exercise inside the
+ * lesson's spec JSON. json_set is atomic per statement, so parallel image
+ * jobs for the same lesson can't clobber each other's keys.
+ */
+export async function setCustomLessonExerciseImage(
+  db: D1Database,
+  lessonId: string,
+  sectionIndex: number,
+  exerciseIndex: number,
+  imageKey: string,
+): Promise<void> {
+  const path = `$.sections[${sectionIndex}].exercises[${exerciseIndex}].image_url`;
+  await db.prepare(`
+    UPDATE custom_lessons SET spec = json_set(spec, ?, ?), updated_at = datetime('now') WHERE id = ?
+  `).bind(path, imageKey, lessonId).run();
+}
