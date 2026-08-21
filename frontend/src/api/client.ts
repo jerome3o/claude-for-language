@@ -473,7 +473,7 @@ export interface NoteQuestion {
 }
 
 export interface AskToolResult {
-  tool: 'edit_current_card' | 'create_flashcards' | 'delete_current_card';
+  tool: 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'create_custom_lesson';
   success: boolean;
   data?: Record<string, unknown>;
   error?: string;
