@@ -55,6 +55,7 @@ import { QueueCountsHeader } from '../components/QueueCountsHeader';
 import { RatingButtons } from '../components/RatingButtons';
 import { StudyReader } from '../components/StudyReader';
 import { StudyGrammar } from '../components/StudyGrammar';
+import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { SentenceSet } from '../components/SentenceSet';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
@@ -2554,6 +2555,7 @@ export function StudyPage() {
     currentCard,
     currentReader,
     currentGrammar,
+    currentCustomLesson,
     currentCardIsSecondaryNew,
     cardVersion,
     counts,
@@ -2568,6 +2570,7 @@ export function StudyPage() {
     rateCard,
     rateReader,
     completeGrammar,
+    completeCustomLesson,
     undoLastReview,
     reloadQueue,
     removeNoteFromSession,
@@ -2579,7 +2582,7 @@ export function StudyPage() {
   });
 
   // Pre-fetch day stats when queue is nearly empty (3 or fewer cards) for instant "All Done" display
-  const isAllDone = !isLoading && !currentCard && !currentReader && !currentGrammar && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
+  const isAllDone = !isLoading && !currentCard && !currentReader && !currentGrammar && !currentCustomLesson && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
   const isNearlyDone = counts.new + counts.secondaryNew + counts.learning + counts.review <= 3;
   const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
   const [todayTotalTimeMs, setTodayTotalTimeMs] = useState<number>(0);
@@ -2697,6 +2700,14 @@ export function StudyPage() {
     <div className="study-page-fullscreen">
       {isLoading ? (
         <Loading />
+      ) : currentCustomLesson ? (
+        <StudyCustomLesson
+          key={`${currentCustomLesson.id}-${cardVersion}`}
+          lesson={currentCustomLesson}
+          counts={counts}
+          onComplete={completeCustomLesson}
+          onEnd={handleEndSession}
+        />
       ) : currentGrammar ? (
         <StudyGrammar
           key={`${currentGrammar.grammar_point_id}-${cardVersion}`}

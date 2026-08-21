@@ -24,6 +24,8 @@ beforeEach(async () => {
   await db.grammarCompletionEvents.clear();
   await db.noteSentences.clear();
   await db.sentenceTextExplanations.clear();
+  await db.customLessons.clear();
+  await db.customLessonCompletionEvents.clear();
 });
 
 // Clean up after each test

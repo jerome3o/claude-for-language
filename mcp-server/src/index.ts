@@ -608,6 +608,106 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
       }
     );
 
+    // ============ Custom Mini Lessons ============
+
+    this.server.tool(
+      "create_custom_lesson",
+      `Create a custom mini lesson that appears in the user's next study session (fully offline). A lesson is ordered sections, each holding any number of exercises of any type in any order. Exercise objects (each needs a "type"):
+- {type:"note", title?, body?, sentences?:[{hanzi,pinyin?,english?}]} — teaching text with example sentences (sentences get TTS). Not scored.
+- {type:"scramble", english, tiles:[...], correct_order:[...], alt_orders?} — arrange tiles into the sentence; tiles must be exactly a permutation of correct_order.
+- {type:"choice", question, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — multiple choice (2-5 options).
+- {type:"translate", english, reference_hanzi, reference_pinyin?, note?} — translate EN→ZH, self-assessed against the reference.
+- {type:"match", pairs:[{hanzi,pinyin?,english}]} — connect hanzi with meanings (2-8 pairs, no duplicate hanzi/english).
+- {type:"describe_image", image_prompt, task?, reference_hanzi, reference_pinyin?, reference_english?} — an illustration is generated in the background from image_prompt (write it in English, detailed, no text in the image); the learner describes it aloud and self-assesses.
+- {type:"speak", prompt, example?:{hanzi,pinyin?,english?}} — say your own sentence out loud, self-assessed.
+Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-marked pinyin (nǐ hǎo), never tone numbers. Invalid specs are rejected with a list of problems — fix them and retry.`,
+      {
+        title: z.string().describe("Short lesson title, e.g. 'Ordering at a café'"),
+        icon: z.string().optional().describe("One emoji for the lesson (default 🎓)"),
+        description: z.string().optional().describe("One sentence on what the lesson covers"),
+        sections: z.array(z.object({
+          title: z.string().optional().describe("Optional section heading"),
+          exercises: z.array(z.record(z.unknown())).describe("Exercise objects as documented in the tool description"),
+        })).describe("Ordered sections of exercises"),
+      },
+      async ({ title, icon, description, sections }) => {
+        const sessionToken = await this.getApiSessionToken(userId);
+        try {
+          // The main API is the single write path: it validates the spec and
+          // queues illustration generation for describe_image exercises.
+          const response = await fetch(`${this.getApiUrl()}/api/custom-lessons`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${sessionToken}`,
+            },
+            body: JSON.stringify({ spec: { title, icon, description, sections } }),
+          });
+          const data = await response.json() as { id?: string; image_jobs?: number; error?: string; problems?: string[] };
+          if (!response.ok) {
+            return {
+              content: [{
+                type: "text" as const,
+                text: `Lesson rejected: ${data.error || response.status}${data.problems ? `\n- ${data.problems.join('\n- ')}` : ''}`,
+              }],
+              isError: true,
+            };
+          }
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Created custom lesson "${title}" (id=${data.id}). It will appear in the user's next study session.${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}`,
+            }],
+          };
+        } finally {
+          await this.cleanupSessionToken(sessionToken);
+        }
+      }
+    );
+
+    this.server.tool(
+      "list_custom_lessons",
+      "List the user's custom mini lessons: pending ones waiting in the study queue and completed ones.",
+      {
+        status: z.enum(["active", "done", "all"]).optional().describe("Filter (default: all)"),
+      },
+      async ({ status }) => {
+        const filter = status && status !== 'all' ? `AND status = '${status === 'active' ? 'active' : 'done'}'` : '';
+        const r = await this.env.DB.prepare(
+          `SELECT id, title, description, icon, source, status, created_at FROM custom_lessons WHERE user_id = ? ${filter} ORDER BY created_at DESC LIMIT 50`
+        ).bind(userId).all();
+        return {
+          content: [{
+            type: "text" as const,
+            text: r.results.length === 0
+              ? "No custom lessons yet."
+              : r.results
+                  .map((l: any) => `${l.icon || '🎓'} ${l.title} — ${l.status} (source: ${l.source}, id: ${l.id})${l.description ? `\n   ${l.description}` : ''}`)
+                  .join("\n"),
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "delete_custom_lesson",
+      "Delete a custom mini lesson (e.g. one created by mistake). Completed lessons can also be deleted.",
+      { lesson_id: z.string().describe("The lesson id") },
+      async ({ lesson_id }) => {
+        const r = await this.env.DB.prepare(
+          `DELETE FROM custom_lessons WHERE id = ? AND user_id = ?`
+        ).bind(lesson_id, userId).run();
+        const deleted = (r.meta?.changes ?? 0) > 0;
+        return {
+          content: [{
+            type: "text" as const,
+            text: deleted ? `Deleted lesson ${lesson_id}.` : `Lesson not found: ${lesson_id}`,
+          }],
+          ...(deleted ? {} : { isError: true }),
+        };
+      }
+    );
+
     // ============ Note Tools ============
 
     this.server.tool(

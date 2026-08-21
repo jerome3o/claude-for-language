@@ -3,47 +3,12 @@ import { LocalReader, LocalReaderPage } from '../db/database';
 import { Rating, IntervalPreview, QueueCounts } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
 import { RatingButtons } from './RatingButtons';
-import { getAudioWithCache, getCachedAudio } from '../services/audioCache';
 import { getReaderPageTTS, updateLocalReaderPageImage } from '../services/readerSync';
-import { generateReaderPageImage, getReaderImageUrl } from '../api/client';
+import { generateReaderPageImage } from '../api/client';
+import { useCachedImageUrl } from '../hooks/useCachedImageUrl';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import '../pages/ReaderPage.css';
 import './StudyReader.css';
-
-/**
- * Resolve a page image key (R2 object served from /api/audio/<key>) to a
- * displayable URL. Cached blob → object URL (works offline). Not cached →
- * the direct API URL, so display never depends on a JS fetch succeeding
- * (flaky connections kill fetch() where a plain <img> would recover), while
- * the offline cache is filled in the background for next time.
- */
-function useReaderImageUrl(key: string | null): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let objectUrl: string | null = null;
-    let cancelled = false;
-    setUrl(null);
-    if (key) {
-      getCachedAudio(key).then(blob => {
-        if (cancelled) return;
-        if (blob) {
-          objectUrl = URL.createObjectURL(blob);
-          setUrl(objectUrl);
-        } else if (navigator.onLine) {
-          setUrl(getReaderImageUrl(key));
-          getAudioWithCache(key).catch(() => {});
-        }
-      });
-    }
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [key]);
-
-  return url;
-}
 
 /**
  * Illustrations are generated lazily: a page with image_url null but an
@@ -78,7 +43,7 @@ function usePageImage(readerId: string, page: LocalReaderPage): { imageUrl: stri
     };
   }, [readerId, page.id, page.image_url, page.image_prompt]);
 
-  return { imageUrl: useReaderImageUrl(page.image_url || generatedKey), generating };
+  return { imageUrl: useCachedImageUrl(page.image_url || generatedKey), generating };
 }
 
 // Rendered with key={page.id} so all reveal/audio state resets atomically on
