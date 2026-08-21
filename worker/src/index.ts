@@ -2788,7 +2788,7 @@ app.post('/api/coach/conversations/:id/messages', async (c) => {
       c.env.ANTHROPIC_API_KEY, history, { db: c.env.DB, userId }
     );
 
-    // Execute mutating tool actions (create_flashcards is the only one)
+    // Execute mutating tool actions (create_flashcards, create_custom_lesson)
     const toolResults: Array<{
       tool: string;
       success: boolean;
@@ -2797,6 +2797,15 @@ app.post('/api/coach/conversations/:id/messages', async (c) => {
     }> = [];
 
     for (const action of toolActions) {
+      if (action.tool === 'create_custom_lesson') {
+        const result = await createCustomLessonFromSpec(c.env, userId, action.input, 'chat');
+        toolResults.push(
+          result.ok
+            ? { tool: 'create_custom_lesson', success: true, data: { lesson_id: result.lesson.id, title: result.lesson.title, image_jobs: result.imageJobs } }
+            : { tool: 'create_custom_lesson', success: false, error: `Invalid lesson spec: ${result.errors.join('; ')}` }
+        );
+        continue;
+      }
       if (action.tool !== 'create_flashcards') {
         toolResults.push({ tool: action.tool, success: false, error: 'Unsupported tool' });
         continue;

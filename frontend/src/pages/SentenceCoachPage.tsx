@@ -22,6 +22,7 @@ import {
   SentenceTranslation,
 } from '../types';
 import { containsChinese } from '../utils/textLanguage';
+import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import './SentenceCoachPage.css';
 
 const LAST_DECK_KEY = 'coach-last-deck-id';
@@ -400,6 +401,14 @@ function ToolResultChips({ results }: { results: CoachToolResult[] }) {
             </div>
           );
         }
+        if (r.tool === 'create_custom_lesson' && r.success) {
+          const data = r.data as { title?: string } | undefined;
+          return (
+            <div key={i} className="coach-tool-chip coach-tool-chip-success">
+              🎓 Mini lesson created{data?.title ? `: ${data.title}` : ''} — it'll appear in your next study session
+            </div>
+          );
+        }
         return (
           <div key={i} className={`coach-tool-chip ${r.success ? 'coach-tool-chip-success' : 'coach-tool-chip-error'}`}>
             {r.success ? `✓ ${r.tool}` : `✗ ${r.tool}: ${r.error ?? 'failed'}`}
@@ -495,6 +504,13 @@ export function SentenceCoachPage() {
           prev ? { ...prev, messages: [...prev.messages, ...res.messages] } : prev
       );
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
+      // A lesson created in this turn should be cached (with media) right
+      // away, so it joins the very next study session — even offline.
+      if (res.toolResults?.some(r => r.tool === 'create_custom_lesson' && r.success)) {
+        syncCustomLessons()
+          .then(() => prefetchCustomLessonMedia())
+          .catch(console.error);
+      }
       setFollowUp('');
     },
   });

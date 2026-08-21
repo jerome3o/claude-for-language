@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GeneratedDeck, GeneratedNote, GeneratedNoteWithContext, Note, Conversation, CheckMessageResponse, MessageCheckStatus } from '../types';
 import { LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
+import { validateLessonSpec } from '@shared/lesson';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -461,6 +462,43 @@ export interface AskWithToolsResponse {
   readOnlyToolCalls: ReadOnlyToolCall[];
 }
 
+/**
+ * Inline handling for a create_custom_lesson tool call during an agent loop.
+ *
+ * The spec is validated HERE, inside the loop, so an invalid spec goes back
+ * to the model as an error tool result and it can repair and retry in the
+ * same conversation. (Other mutating tools defer execution to the route with
+ * a generic acknowledgement — but by then the loop is over, so a rejected
+ * lesson would be lost.) Only a valid spec is collected for execution.
+ */
+function handleCustomLessonToolUse(
+  block: Anthropic.ToolUseBlock,
+  collected: ToolAction[],
+): Anthropic.ToolResultBlockParam {
+  const errors = validateLessonSpec(block.input);
+  if (errors.length > 0) {
+    return {
+      type: 'tool_result' as const,
+      tool_use_id: block.id,
+      is_error: true,
+      content: JSON.stringify({
+        success: false,
+        problems: errors,
+        message: 'Lesson spec invalid — fix these problems and call create_custom_lesson again.',
+      }),
+    };
+  }
+  collected.push({ tool: 'create_custom_lesson', input: block.input as Record<string, unknown> });
+  return {
+    type: 'tool_result' as const,
+    tool_use_id: block.id,
+    content: JSON.stringify({
+      success: true,
+      message: "Lesson validated — it will be created and mixed into the user's next study session.",
+    }),
+  };
+}
+
 export interface AskDbContext {
   db: D1Database;
   userId: string;
@@ -635,7 +673,9 @@ export async function askAboutNoteWithTools(
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.messages.create({
       model: 'claude-opus-4-6',
-      max_tokens: 1500,
+      // A full custom-lesson spec (sections of exercises with tiles, options
+      // and pinyin) is far bigger than a chat answer — the cap must fit it.
+      max_tokens: 4000,
       messages,
       system: ASK_SYSTEM_PROMPT,
       tools: tools as Anthropic.Tool[],
@@ -649,8 +689,10 @@ export async function askAboutNoteWithTools(
         textParts.push(block.text);
       } else if (block.type === 'tool_use') {
         toolUseBlocks.push(block);
-        // Only collect mutating tool actions for deferred execution
-        if (!READ_ONLY_TOOLS.has(block.name)) {
+        // Only collect mutating tool actions for deferred execution.
+        // create_custom_lesson is validated in the tool-result loop below and
+        // collected there only when the spec passes.
+        if (!READ_ONLY_TOOLS.has(block.name) && block.name !== 'create_custom_lesson') {
           collectedToolActions.push({
             tool: block.name as ToolAction['tool'],
             input: block.input as Record<string, unknown>,
@@ -682,6 +724,8 @@ export async function askAboutNoteWithTools(
           tool_use_id: block.id,
           content: JSON.stringify(result),
         });
+      } else if (block.name === 'create_custom_lesson') {
+        toolResults.push(handleCustomLessonToolUse(block, collectedToolActions));
       } else {
         toolResults.push({
           type: 'tool_result' as const,
@@ -925,6 +969,7 @@ Guidelines:
 
 You have tools. Read-only tools run automatically; use them freely.
 - The user asks to save words/sentences to a deck → use create_flashcards with a deck_id chosen from the user's decks listed in the context (ask which deck ONLY if genuinely ambiguous and the user has several plausible ones — otherwise pick the most relevant and say which you chose).
+- The user is confused about a pattern or asks for practice/a lesson/a drill (e.g. "I don't get 被 vs 把") → use create_custom_lesson to build a targeted mini lesson; it appears in their next study session and works offline. Answer their question in chat too — the lesson reinforces, it doesn't replace the explanation.
 - Use search_cards to check what the user already knows or avoid duplicate cards.
 - Use get_note_cards / get_note_history for details on specific existing cards.
 - Use get_overall_stats for study-progress questions.
@@ -956,6 +1001,11 @@ function getCoachChatTools() {
         },
         required: ['deck_id', 'flashcards'],
       },
+    },
+    {
+      name: 'create_custom_lesson',
+      description: 'Create a custom mini lesson that appears in the user\'s next study session (fully offline). Use when the user is confused about a pattern or wants targeted practice — e.g. contrasting two similar words. Keep lessons short: 1-3 sections, ~4-10 exercises total.',
+      input_schema: LESSON_SPEC_INPUT_SCHEMA,
     },
     {
       name: 'search_cards',
@@ -1034,7 +1084,8 @@ export async function coachChatWithTools(
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await client.messages.create({
       model: 'claude-opus-4-6',
-      max_tokens: 1500,
+      // Big enough for a full custom-lesson spec, not just chat answers
+      max_tokens: 4000,
       messages,
       system: COACH_CHAT_SYSTEM_PROMPT,
       tools: tools as Anthropic.Tool[],
@@ -1047,7 +1098,9 @@ export async function coachChatWithTools(
         textParts.push(block.text);
       } else if (block.type === 'tool_use') {
         toolUseBlocks.push(block);
-        if (!READ_ONLY_TOOLS.has(block.name)) {
+        // create_custom_lesson is validated in the tool-result loop below
+        // and collected there only when the spec passes.
+        if (!READ_ONLY_TOOLS.has(block.name) && block.name !== 'create_custom_lesson') {
           collectedToolActions.push({
             tool: block.name as ToolAction['tool'],
             input: block.input as Record<string, unknown>,
@@ -1076,6 +1129,8 @@ export async function coachChatWithTools(
           tool_use_id: block.id,
           content: JSON.stringify(result),
         });
+      } else if (block.name === 'create_custom_lesson') {
+        toolResults.push(handleCustomLessonToolUse(block, collectedToolActions));
       } else {
         toolResults.push({
           type: 'tool_result' as const,

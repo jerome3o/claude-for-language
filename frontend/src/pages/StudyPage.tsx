@@ -59,6 +59,7 @@ import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { SentenceSet } from '../components/SentenceSet';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
+import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import { useStudySession, SessionStats } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
@@ -821,6 +822,15 @@ function StudyCard({
           // Cards are already created on the server side.
           // Trigger an incremental sync so they appear in IndexedDB immediately.
           syncService.incrementalSync().catch(console.error);
+          break;
+        }
+        case 'create_custom_lesson': {
+          // The lesson is already created server-side — pull it into the
+          // local cache (and prefetch its media) so it can join a session
+          // right away instead of waiting for the next background sync.
+          syncCustomLessons()
+            .then(() => prefetchCustomLessonMedia())
+            .catch(console.error);
           break;
         }
       }
@@ -1671,6 +1681,13 @@ function StudyCard({
                                     <strong>Delete this card</strong>
                                   </div>
                                 )}
+                                {tr.tool === 'create_custom_lesson' && tr.success && (
+                                  <div>
+                                    <span className="tool-approval-icon">&#127891;</span>
+                                    <strong>Mini lesson created: {String(tr.data?.title || '')}</strong>
+                                    <div className="tool-approval-changes">It will appear in your next study session.</div>
+                                  </div>
+                                )}
                                 {!tr.success && (
                                   <div>Action failed: {tr.error || 'Unknown error'}</div>
                                 )}
@@ -1697,6 +1714,9 @@ function StudyCard({
                               )}
                               {tr.tool === 'delete_current_card' && tr.success && (
                                 <span>Card deleted — advancing to next card...</span>
+                              )}
+                              {tr.tool === 'create_custom_lesson' && tr.success && (
+                                <span>Mini lesson created: {String(tr.data?.title || '')} — it'll appear in your next study session</span>
                               )}
                               {!tr.success && (
                                 <span>Action failed: {tr.error || 'Unknown error'}</span>
