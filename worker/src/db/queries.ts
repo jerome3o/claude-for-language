@@ -3843,13 +3843,14 @@ export async function deleteCustomLesson(
 
 /**
  * Apply one offline completion event. Idempotent by event id — returns false
- * if the event was already applied. A completed lesson leaves the study
- * queue (status 'done').
+ * if the event was already applied. Completions are the lesson's review
+ * events: the client computes FSRS scheduling from them, so a completed
+ * lesson recurs on the FSRS cadence rather than retiring.
  */
 export async function applyCustomLessonCompletion(
   db: D1Database,
   userId: string,
-  event: { id: string; lesson_id: string; correct: number; total: number; completed_at: string },
+  event: { id: string; lesson_id: string; correct: number; total: number; completed_at: string; rating?: number | null },
 ): Promise<boolean> {
   // Ownership check via the lesson row: never record events against someone
   // else's (or a deleted) lesson.
@@ -3857,16 +3858,36 @@ export async function applyCustomLessonCompletion(
     .bind(event.lesson_id, userId).first<{ id: string }>();
   if (!lesson) return false;
 
+  const rating = typeof event.rating === 'number' && event.rating >= 0 && event.rating <= 3
+    ? event.rating
+    : null;
   const inserted = await db.prepare(`
-    INSERT OR IGNORE INTO custom_lesson_completions (id, user_id, lesson_id, correct, total, completed_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(event.id, userId, event.lesson_id, event.correct, event.total, event.completed_at).run();
-  if ((inserted.meta?.changes ?? 0) === 0) return false;
+    INSERT OR IGNORE INTO custom_lesson_completions (id, user_id, lesson_id, correct, total, completed_at, rating)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(event.id, userId, event.lesson_id, event.correct, event.total, event.completed_at, rating).run();
+  return (inserted.meta?.changes ?? 0) > 0;
+}
 
-  await db.prepare(`
-    UPDATE custom_lessons SET status = 'done', updated_at = datetime('now') WHERE id = ?
-  `).bind(event.lesson_id).run();
-  return true;
+export interface CustomLessonCompletionRow {
+  id: string;
+  lesson_id: string;
+  correct: number;
+  total: number;
+  completed_at: string;
+  rating: number | null;
+}
+
+/** All completion events for the user's lessons — the client computes each
+ * lesson's FSRS state from these (small: a handful per lesson). */
+export async function listCustomLessonCompletions(
+  db: D1Database,
+  userId: string,
+): Promise<CustomLessonCompletionRow[]> {
+  const r = await db.prepare(`
+    SELECT id, lesson_id, correct, total, completed_at, rating
+    FROM custom_lesson_completions WHERE user_id = ? ORDER BY completed_at
+  `).bind(userId).all<CustomLessonCompletionRow>();
+  return r.results;
 }
 
 /**

@@ -2583,6 +2583,7 @@ export function StudyPage() {
     grammarPending,
     intervalPreviews,
     readerIntervalPreviews,
+    customLessonIntervalPreviews,
     hasMoreNewCards,
     isRating,
     sessionStats,
@@ -2720,10 +2721,11 @@ export function StudyPage() {
     <div className="study-page-fullscreen">
       {isLoading ? (
         <Loading />
-      ) : currentCustomLesson ? (
+      ) : currentCustomLesson && customLessonIntervalPreviews ? (
         <StudyCustomLesson
           key={`${currentCustomLesson.id}-${cardVersion}`}
           lesson={currentCustomLesson}
+          intervalPreviews={customLessonIntervalPreviews}
           counts={counts}
           onComplete={completeCustomLesson}
           onEnd={handleEndSession}

@@ -41,8 +41,10 @@ import {
 } from '../services/reader-study';
 import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia } from '../services/grammar-study';
 import {
-  getPendingCustomLessons,
+  getDueCustomLessons,
   completeCustomLesson as recordCustomLessonCompletion,
+  getCustomLessonIntervalPreviews,
+  lessonSchedulingFields,
   syncCustomLessons,
   prefetchCustomLessonMedia,
 } from '../services/custom-lesson-study';
@@ -399,7 +401,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         getReviewedNoteIds(deckId),
         deckId ? Promise.resolve([]) : getDueReaders(),
         deckId ? Promise.resolve(null) : getTodaysGrammarLesson(),
-        deckId ? Promise.resolve([]) : getPendingCustomLessons(),
+        deckId ? Promise.resolve([]) : getDueCustomLessons(),
       ]);
       setQueue(dueCards);
       setReaderQueue(dueReaders);
@@ -434,7 +436,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
           // last sync, then cache media so the lessons work offline.
           syncCustomLessons()
             .then(async () => {
-              setCustomLessonQueue(await getPendingCustomLessons());
+              setCustomLessonQueue(await getDueCustomLessons());
               prefetchCustomLessonMedia().catch(() => {});
             })
             .catch(err => console.error('[useStudySession] Custom lesson refresh failed:', err));
@@ -1042,15 +1044,33 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     presentNothing();
   }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
-  // Complete the current custom mini lesson: record the completion event
-  // (synced up in the background), drop it from the queue, and advance —
-  // usually back into the card flow it interrupted.
-  const completeCustomLessonAction = useCallback(async (correct: number, total: number) => {
+  // Complete the current custom mini lesson: record the rated completion
+  // event (synced up in the background) and advance. Like readers, a lesson
+  // rated back into learning stays in the session queue with its new
+  // scheduling; otherwise FSRS has pushed it out to a future day.
+  const completeCustomLessonAction = useCallback(async (correct: number, total: number, rating: Rating) => {
     const lesson = currentCardState.customLesson;
     if (!lesson) return;
 
+    setSessionStats(prev => {
+      const isCorrect = rating === 2 || rating === 3; // Good or Easy
+      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
+      return {
+        ...prev,
+        totalReviews: prev.totalReviews + 1,
+        correctCount: prev.correctCount + (isCorrect ? 1 : 0),
+        againCount: prev.againCount + (rating === 0 ? 1 : 0),
+        currentStreak: newCurrentStreak,
+        bestStreak: Math.max(prev.bestStreak, newCurrentStreak),
+      };
+    });
+
+    let newLessonQueue = customLessonQueue.filter(l => l.id !== lesson.id);
     try {
-      await recordCustomLessonCompletion(lesson.id, correct, total);
+      const { newState } = await recordCustomLessonCompletion(lesson.id, correct, total, rating);
+      if (newState.queue === CardQueue.LEARNING || newState.queue === CardQueue.RELEARNING) {
+        newLessonQueue = [...newLessonQueue, { ...lesson, ...lessonSchedulingFields(newState) }];
+      }
     } catch (err) {
       console.error('[useStudySession] Failed to record custom lesson completion:', err);
     }
@@ -1058,7 +1078,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       syncCustomLessons().catch(() => {});
     }
 
-    const newLessonQueue = customLessonQueue.filter(l => l.id !== lesson.id);
     const updates = { customLessonQueue: newLessonQueue };
     const selection = selectNextItem(queue, readerQueue, newLessonQueue, false, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
     if (selection && await presentSelection(selection, updates)) return;
@@ -1151,8 +1170,13 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     // Placeholder for today's still-generating reader — it will arrive as a
     // NEW (blue) item, so count it there while it's being written.
     if (dailyReaderPending) n++;
-    // Pending custom mini lessons are always new material — blue.
-    n += customLessonQueue.length;
+    // Custom mini lessons count in the bucket matching their FSRS state.
+    for (const lesson of customLessonQueue) {
+      const q = lesson.queue ?? CardQueue.NEW;
+      if (q === CardQueue.NEW) n++;
+      else if (q === CardQueue.LEARNING || q === CardQueue.RELEARNING) l++;
+      else r++;
+    }
     // Today's grammar lesson: blue if it's a brand-new pattern, green if
     // it's a repeat round of one still being learned. A lesson still being
     // generated counts as a blue placeholder.
@@ -1193,6 +1217,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     ...currentCard,
     note: currentNote,
   } : null;
+
+  const customLessonIntervalPreviews: Record<Rating, IntervalPreview> | null =
+    currentCustomLesson ? getCustomLessonIntervalPreviews(currentCustomLesson) : null;
 
   const readerIntervalPreviews: Record<Rating, IntervalPreview> | null =
     currentReader ? getReaderIntervalPreviews(currentReader) : null;
@@ -1259,6 +1286,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     grammarPending,
     intervalPreviews,
     readerIntervalPreviews,
+    customLessonIntervalPreviews,
     hasMoreNewCards,
     isRating: reviewMutation.isPending,
     sessionStats,
