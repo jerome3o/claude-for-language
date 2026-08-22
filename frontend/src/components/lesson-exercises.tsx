@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { useCachedImageUrl } from '../hooks/useCachedImageUrl';
+import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -47,6 +48,10 @@ export function ScrambleExercise(props: {
   const { english, tiles, correctOrder, altOrders, speak, onNext } = props;
   const [pickedOrder, setPickedOrder] = useState<number[]>([]);
   const [result, setResult] = useState<boolean | null>(null);
+  // Pool display order is shuffled per attempt (never presenting a correct
+  // order) — exercises repeat under FSRS, so fixed positions would be
+  // memorizable, and authored tile order is often the answer itself.
+  const [poolOrder] = useState(() => scramblePoolOrder(tiles, correctOrder, altOrders));
   // The English translation starts hidden: build the sentence from the Chinese
   // tiles alone, reaching for the English only as a deliberate hint. After
   // checking it's always shown so the feedback has full context.
@@ -85,7 +90,7 @@ export function ScrambleExercise(props: {
         {picked.length === 0 && <div className="tile-placeholder">Tap tiles below</div>}
       </div>
       <div className="scramble-row pool">
-        {tiles.map((t, i) => {
+        {poolOrder.map(i => {
           const isPicked = pickedOrder.includes(i);
           return (
             <button
@@ -94,7 +99,7 @@ export function ScrambleExercise(props: {
               onClick={() => !isPicked && setPickedOrder([...pickedOrder, i])}
               disabled={isPicked || result !== null}
             >
-              {t}
+              {tiles[i]}
             </button>
           );
         })}
@@ -134,6 +139,9 @@ export function ChoiceExercise(props: {
 }) {
   const { question, options, correctIndex, explanation, speak, onNext } = props;
   const [choice, setChoice] = useState<number | null>(null);
+  // Options are shuffled per attempt — under FSRS the same exercise comes
+  // back, and "the answer is always the first one" would be memorizable.
+  const [optionOrder] = useState(() => shuffledIndexes(options.length));
   const result = choice === null ? null : choice === correctIndex;
 
   function pick(index: number) {
@@ -145,7 +153,8 @@ export function ChoiceExercise(props: {
     <div className="exercise">
       <div className="phase-label">Which one fits?</div>
       <div className="contrast-context">{question}</div>
-      {options.map((s, index) => {
+      {optionOrder.map(index => {
+        const s = options[index];
         const cls =
           result === null ? '' : index === correctIndex ? 'correct' : index === choice ? 'wrong' : '';
         return (
@@ -180,6 +189,14 @@ export function ChoiceExercise(props: {
 }
 
 // ============ Translate (self-assessed) ============
+
+/** Compare a typed answer to the reference ignoring whitespace and
+ * punctuation, so 蛋糕被妹妹吃掉了 matches 蛋糕被妹妹吃掉了。 */
+function isExactHanziMatch(answer: string, reference: string): boolean {
+  const normalize = (s: string) => s.replace(/[\s。，！？；：、．…,.!?;:'"''""()（）]/g, '');
+  const a = normalize(answer);
+  return a.length > 0 && a === normalize(reference);
+}
 
 export function TranslateExercise(props: {
   label?: string;
@@ -221,9 +238,16 @@ export function TranslateExercise(props: {
         </>
       ) : (
         <>
+          {/* An exact match gets a green nudge; there's deliberately no
+              "wrong" state — a different wording can still be right. */}
           {answer.trim() && (
-            <div className="speak-transcript">
-              <div className="speak-transcript-label">Your answer</div>
+            <div className={`speak-transcript ${isExactHanziMatch(answer, referenceHanzi) ? 'exact' : ''}`}>
+              <div className="speak-transcript-label">
+                Your answer
+                {isExactHanziMatch(answer, referenceHanzi) && (
+                  <span className="speak-transcript-exact-badge">✓ Exact match</span>
+                )}
+              </div>
               <div className="speak-transcript-text">{answer.trim()}</div>
             </div>
           )}
@@ -252,15 +276,6 @@ export function TranslateExercise(props: {
 
 // ============ Match the pairs ============
 
-function shuffled(count: number): number[] {
-  const order = Array.from({ length: count }, (_, i) => i);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [order[i], order[j]] = [order[j], order[i]];
-  }
-  return order;
-}
-
 /**
  * Connect the Chinese words with their English meanings. Correct = every
  * pair matched with no wrong taps along the way.
@@ -271,8 +286,8 @@ export function MatchExercise(props: {
   onNext: (correct: boolean) => void;
 }) {
   const { pairs, speak, onNext } = props;
-  const [leftOrder] = useState(() => shuffled(pairs.length));
-  const [rightOrder] = useState(() => shuffled(pairs.length));
+  const [leftOrder] = useState(() => shuffledIndexes(pairs.length));
+  const [rightOrder] = useState(() => shuffledIndexes(pairs.length));
   const [selectedLeft, setSelectedLeft] = useState<number | null>(null);
   const [selectedRight, setSelectedRight] = useState<number | null>(null);
   const [matched, setMatched] = useState<Set<number>>(new Set());

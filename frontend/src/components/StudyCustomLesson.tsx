@@ -105,22 +105,6 @@ export function StudyCustomLesson({
               {score.correct}/{score.total} correct ({pct}%)
             </div>
           )}
-          {/* FSRS rating, same as cards and readers — decides when the
-              lesson comes back around. */}
-          <p className="practice-sub" style={{ marginTop: '0.75rem' }}>
-            How well do you know this material now?
-          </p>
-          <div style={{ width: '100%', marginTop: '0.5rem' }}>
-            <RatingButtons
-              intervalPreviews={intervalPreviews}
-              onRate={rating => {
-                if (isRating) return;
-                setIsRating(true);
-                onComplete(score.correct, score.total, rating);
-              }}
-              disabled={isRating}
-            />
-          </div>
         </div>
       );
     }
@@ -249,6 +233,29 @@ export function StudyCustomLesson({
           {body}
         </div>
       </div>
+
+      {/* Fixed rating footer once the lesson is finished — same FSRS rating
+          bar as cards and readers, pinned to the bottom of the screen. */}
+      {done && (
+        <div className="study-rating-sticky">
+          <div className="study-reader-rating-header">
+            {/* marginRight 0: the shared prompt class offsets for a Back
+                button that this footer doesn't have */}
+            <div className="study-reader-rating-prompt" style={{ marginRight: 0 }}>
+              How well do you know this material now?
+            </div>
+          </div>
+          <RatingButtons
+            intervalPreviews={intervalPreviews}
+            onRate={rating => {
+              if (isRating) return;
+              setIsRating(true);
+              onComplete(score.correct, score.total, rating);
+            }}
+            disabled={isRating}
+          />
+        </div>
+      )}
     </div>
   );
 }

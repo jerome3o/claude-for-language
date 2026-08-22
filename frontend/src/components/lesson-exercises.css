@@ -135,3 +135,35 @@
   color: #6b7280;
   margin-bottom: 0.25rem;
 }
+
+/* ---- Translate: exact-match highlight ---- */
+/* Green when the typed answer matches the reference exactly (ignoring
+ * punctuation). No "wrong" counterpart — paraphrases can be correct too,
+ * so anything else stays neutral for self-assessment. */
+
+.speak-transcript.exact {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.speak-transcript.exact .speak-transcript-text {
+  color: #166534;
+}
+
+.speak-transcript-exact-badge {
+  margin-left: 0.5rem;
+  color: #16a34a;
+  font-weight: 600;
+  text-transform: none;
+}
+
+/* ---- Lesson width inside the study session ---- */
+/* .practice-page carries `margin: 0 auto` for its old standalone layout. As
+ * a flex item of .study-card-content (a flex column), those cross-axis auto
+ * margins CANCEL the default stretch — the lesson shrinks to its widest
+ * child and floats centered (a translate exercise collapsed to textarea
+ * width). An explicit width restores a definite cross size; max-width still
+ * caps it and the auto margins re-center on wide screens. */
+.study-card-content .practice-page {
+  width: 100%;
+}
