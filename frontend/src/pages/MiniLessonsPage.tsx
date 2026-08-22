@@ -12,10 +12,57 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CustomLessonSpec, LessonExercise, countScoreable } from '@shared/lesson';
+import { computeCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { getCustomLessons, deleteCustomLessonById, CustomLessonListItem } from '../api/client';
-import { db } from '../db/database';
+import { db, getStudyCutoff } from '../db/database';
+import { CardQueue, Rating } from '../types';
 import { Loading } from '../components/Loading';
 import './MiniLessonsPage.css';
+
+interface LessonSchedule {
+  queue: CardQueue;
+  next_review_at: string | null;
+  due_timestamp: number | null;
+  reps: number;
+}
+
+/** FSRS state for the chip, computed from the lesson's completion events. */
+function scheduleFromCompletions(lesson: CustomLessonListItem): LessonSchedule {
+  const completions = lesson.completions ?? [];
+  if (completions.length === 0) {
+    return { queue: CardQueue.NEW, next_review_at: null, due_timestamp: null, reps: 0 };
+  }
+  const state = computeCardState(
+    completions.map(c => ({
+      id: c.id,
+      card_id: c.lesson_id,
+      rating: (c.rating ?? 2) as Rating,
+      reviewed_at: c.completed_at,
+    })),
+    DEFAULT_DECK_SETTINGS,
+  );
+  return {
+    queue: state.queue,
+    next_review_at: state.next_review_at,
+    due_timestamp: state.due_timestamp,
+    reps: state.reps,
+  };
+}
+
+function scheduleChip(schedule: LessonSchedule): { label: string; cls: string } {
+  const cutoff = getStudyCutoff();
+  if (schedule.queue === CardQueue.NEW) return { label: 'New', cls: 'active' };
+  if (schedule.queue === CardQueue.LEARNING || schedule.queue === CardQueue.RELEARNING) {
+    return { label: 'Learning', cls: 'learning' };
+  }
+  const dueNow = !schedule.next_review_at || schedule.next_review_at <= cutoff.iso;
+  if (dueNow) return { label: 'Due today', cls: 'learning' };
+  const due = new Date(schedule.next_review_at!);
+  return {
+    label: `Due ${due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
+    cls: 'done',
+  };
+}
 
 const EXERCISE_LABELS: Record<LessonExercise['type'], string> = {
   note: '📖 Note',
@@ -57,9 +104,11 @@ function LessonCard({ lesson, onDelete, deleting }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const created = new Date(lesson.created_at + (lesson.created_at.endsWith('Z') ? '' : 'Z'));
+  const schedule = scheduleFromCompletions(lesson);
+  const chip = scheduleChip(schedule);
 
   return (
-    <div className={`mini-lesson-card ${lesson.status === 'done' ? 'done' : ''}`}>
+    <div className="mini-lesson-card">
       <div className="mini-lesson-head" onClick={() => setExpanded(!expanded)}>
         <div className="mini-lesson-icon">{lesson.icon || '🎓'}</div>
         <div className="mini-lesson-titles">
@@ -67,13 +116,12 @@ function LessonCard({ lesson, onDelete, deleting }: {
           {lesson.description && <div className="mini-lesson-desc">{lesson.description}</div>}
           <div className="mini-lesson-meta">
             {exerciseCount(lesson.spec)} exercises ({countScoreable(lesson.spec)} scored)
+            {schedule.reps > 0 && ` · studied ${schedule.reps}×`}
             {' · '}from {lesson.source}
             {' · '}{created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
           </div>
         </div>
-        <span className={`mini-lesson-status ${lesson.status}`}>
-          {lesson.status === 'active' ? 'In queue' : 'Done'}
-        </span>
+        <span className={`mini-lesson-status ${chip.cls}`}>{chip.label}</span>
       </div>
 
       {expanded && (
@@ -111,8 +159,27 @@ export function MiniLessonsPage() {
     retry: 1,
   });
 
-  // Offline fallback: the locally cached pending lessons
-  const localLessons = useLiveQuery(() => db.customLessons.toArray(), []);
+  // Offline fallback: the locally cached lessons, with their local completion
+  // events attached so the schedule chips still compute.
+  const localLessons = useLiveQuery(async () => {
+    const [lessons, events] = await Promise.all([
+      db.customLessons.toArray(),
+      db.customLessonCompletionEvents.toArray(),
+    ]);
+    return lessons.map(l => ({
+      lesson: l,
+      completions: events
+        .filter(e => e.lesson_id === l.id)
+        .map(e => ({
+          id: e.id,
+          lesson_id: e.lesson_id,
+          correct: e.correct,
+          total: e.total,
+          completed_at: e.completed_at,
+          rating: e.rating,
+        })),
+    }));
+  }, []);
 
   const deleteMutation = useMutation({
     mutationFn: async (lesson: CustomLessonListItem) => {
@@ -131,27 +198,37 @@ export function MiniLessonsPage() {
 
   const serverLessons = lessonsQuery.data;
   const lessons: CustomLessonListItem[] = serverLessons
-    ?? (localLessons ?? []).map(l => ({
-      id: l.id,
-      title: l.title,
-      description: l.description,
-      icon: l.icon,
-      source: l.source,
-      status: l.status,
-      created_at: l.created_at,
-      spec: l.spec,
+    ?? (localLessons ?? []).map(({ lesson, completions }) => ({
+      id: lesson.id,
+      title: lesson.title,
+      description: lesson.description,
+      icon: lesson.icon,
+      source: lesson.source,
+      status: lesson.status,
+      created_at: lesson.created_at,
+      spec: lesson.spec,
+      completions,
     }));
 
-  const active = lessons.filter(l => l.status === 'active');
-  const done = lessons.filter(l => l.status === 'done');
+  // Lessons recur on the FSRS cadence: split by whether they're up next
+  // (new / learning / due today) or scheduled out.
+  const cutoff = getStudyCutoff();
+  const isUpNext = (lesson: CustomLessonListItem) => {
+    const s = scheduleFromCompletions(lesson);
+    if (s.queue === CardQueue.NEW || s.queue === CardQueue.LEARNING || s.queue === CardQueue.RELEARNING) return true;
+    return !s.next_review_at || s.next_review_at <= cutoff.iso;
+  };
+  const upNext = lessons.filter(isUpNext);
+  const scheduled = lessons.filter(l => !isUpNext(l));
 
   return (
     <div className="page">
       <div className="container mini-lessons-page">
         <h1>🎓 Mini Lessons</h1>
         <p className="text-light mini-lessons-sub">
-          Custom lessons authored by Claude (from chat or MCP). Pending ones mix
-          into your study sessions — one every few cards, up to two per session.
+          Custom lessons authored by Claude (from chat or MCP). They mix into
+          your study sessions and, once rated, come back on the same FSRS
+          cadence as cards.
         </p>
         {!serverLessons && (
           <p className="mini-lessons-offline-note">
@@ -159,14 +236,14 @@ export function MiniLessonsPage() {
           </p>
         )}
 
-        <h2 className="mini-lessons-heading">In the study queue ({active.length})</h2>
-        {active.length === 0 && (
+        <h2 className="mini-lessons-heading">Up next ({upNext.length})</h2>
+        {upNext.length === 0 && (
           <p className="text-light">
             Nothing waiting. Ask Claude for one — during study, in the Sentence
             Coach, or from any connected Claude chat: “make me a mini lesson on …”
           </p>
         )}
-        {active.map(lesson => (
+        {upNext.map(lesson => (
           <LessonCard
             key={lesson.id}
             lesson={lesson}
@@ -175,10 +252,10 @@ export function MiniLessonsPage() {
           />
         ))}
 
-        {done.length > 0 && (
+        {scheduled.length > 0 && (
           <>
-            <h2 className="mini-lessons-heading">Completed ({done.length})</h2>
-            {done.map(lesson => (
+            <h2 className="mini-lessons-heading">Scheduled ({scheduled.length})</h2>
+            {scheduled.map(lesson => (
               <LessonCard
                 key={lesson.id}
                 lesson={lesson}

@@ -11,8 +11,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LessonExercise } from '@shared/lesson';
 import { LocalCustomLesson } from '../db/database';
-import { QueueCounts } from '../types';
+import { QueueCounts, Rating, IntervalPreview } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
+import { RatingButtons } from './RatingButtons';
 import {
   ScrambleExercise,
   ChoiceExercise,
@@ -66,19 +67,22 @@ function useOfflineSpeak(): (text: string) => void {
 
 export function StudyCustomLesson({
   lesson,
+  intervalPreviews,
   counts,
   onComplete,
   onEnd,
 }: {
   lesson: LocalCustomLesson;
+  intervalPreviews: Record<Rating, IntervalPreview>;
   counts: QueueCounts;
-  onComplete: (correct: number, total: number) => void;
+  onComplete: (correct: number, total: number, rating: Rating) => void;
   onEnd: () => void;
 }) {
   const speak = useOfflineSpeak();
   const items = useMemo(() => flattenSpec(lesson), [lesson]);
   const [idx, setIdx] = useState(0);
   const [score, setScore] = useState({ correct: 0, total: 0 });
+  const [isRating, setIsRating] = useState(false);
   const done = idx >= items.length;
 
   function advance(gotPoint: boolean | null) {
@@ -101,13 +105,22 @@ export function StudyCustomLesson({
               {score.correct}/{score.total} correct ({pct}%)
             </div>
           )}
-          <button
-            className="btn btn-primary btn-block"
-            style={{ marginTop: '1rem', minHeight: '44px' }}
-            onClick={() => onComplete(score.correct, score.total)}
-          >
-            Finish lesson
-          </button>
+          {/* FSRS rating, same as cards and readers — decides when the
+              lesson comes back around. */}
+          <p className="practice-sub" style={{ marginTop: '0.75rem' }}>
+            How well do you know this material now?
+          </p>
+          <div style={{ width: '100%', marginTop: '0.5rem' }}>
+            <RatingButtons
+              intervalPreviews={intervalPreviews}
+              onRate={rating => {
+                if (isRating) return;
+                setIsRating(true);
+                onComplete(score.correct, score.total, rating);
+              }}
+              disabled={isRating}
+            />
+          </div>
         </div>
       );
     }

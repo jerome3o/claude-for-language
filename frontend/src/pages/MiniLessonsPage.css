@@ -128,3 +128,8 @@
   margin-top: 0.5rem;
   min-height: 40px;
 }
+
+.mini-lesson-status.learning {
+  background: #ffedd5;
+  color: #9a3412;
+}

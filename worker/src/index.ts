@@ -5889,16 +5889,27 @@ app.post('/api/practice/offline-complete', async (c) => {
 
 // ============ Custom mini lessons (agent-authored, see shared/lesson) ============
 
-// Active lessons with their full spec, for offline caching. Parsed spec so
-// the client never has to double-parse JSON strings.
+// Lessons with their full spec and completion history, for offline caching.
+// Completions are the lessons' FSRS review events — the client computes each
+// lesson's scheduling state from them, so all lessons are returned by default
+// (a completed lesson recurs on the FSRS cadence rather than retiring).
 app.get('/api/custom-lessons', async (c) => {
   const userId = c.get('user').id;
   const status = c.req.query('status');
-  const rows = await db.listCustomLessons(
-    c.env.DB,
-    userId,
-    status === 'all' ? {} : { status: (status as 'active' | 'done') || 'active' },
-  );
+  const [rows, completions] = await Promise.all([
+    db.listCustomLessons(
+      c.env.DB,
+      userId,
+      status === 'active' || status === 'done' ? { status } : {},
+    ),
+    db.listCustomLessonCompletions(c.env.DB, userId),
+  ]);
+  const completionsByLesson = new Map<string, typeof completions>();
+  for (const completion of completions) {
+    const list = completionsByLesson.get(completion.lesson_id) ?? [];
+    list.push(completion);
+    completionsByLesson.set(completion.lesson_id, list);
+  }
   return c.json({
     lessons: rows.map(row => ({
       id: row.id,
@@ -5909,6 +5920,7 @@ app.get('/api/custom-lessons', async (c) => {
       status: row.status,
       created_at: row.created_at,
       spec: JSON.parse(row.spec),
+      completions: completionsByLesson.get(row.id) ?? [],
     })),
   });
 });
@@ -5937,7 +5949,7 @@ app.delete('/api/custom-lessons/:id', async (c) => {
 app.post('/api/custom-lessons/offline-complete', async (c) => {
   const userId = c.get('user').id;
   const { events } = await c.req.json<{
-    events: Array<{ id: string; lesson_id: string; correct: number; total: number; completed_at: string }>;
+    events: Array<{ id: string; lesson_id: string; correct: number; total: number; completed_at: string; rating?: number | null }>;
   }>();
   if (!events || !Array.isArray(events)) {
     return c.json({ error: 'events array is required' }, 400);

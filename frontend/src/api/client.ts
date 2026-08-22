@@ -1611,6 +1611,15 @@ export async function generatePracticeTTS(
 
 // ============ Custom Mini Lessons ============
 
+export interface CustomLessonCompletion {
+  id: string;
+  lesson_id: string;
+  correct: number;
+  total: number;
+  completed_at: string;
+  rating: number | null;
+}
+
 export interface CustomLessonListItem {
   id: string;
   title: string;
@@ -1620,6 +1629,8 @@ export interface CustomLessonListItem {
   status: 'active' | 'done';
   created_at: string;
   spec: import('@shared/lesson').CustomLessonSpec;
+  /** The lesson's FSRS review events (absent on locally cached fallbacks). */
+  completions?: CustomLessonCompletion[];
 }
 
 export async function getCustomLessons(

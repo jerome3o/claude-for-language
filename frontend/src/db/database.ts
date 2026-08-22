@@ -245,8 +245,10 @@ export interface LocalGrammarCompletionEvent {
 
 /**
  * A custom mini lesson (agent-authored, schema-driven — see shared/lesson),
- * cached whole for offline study. Lessons are one-shot: 'active' until the
- * learner completes them once, then 'done'.
+ * cached whole for offline study. Lessons are scheduled with FSRS like cards
+ * and readers: completion events (each carrying an Again/Hard/Good/Easy
+ * rating) are the source of truth, and the scheduling fields here are the
+ * cached state computed from them.
  */
 export interface LocalCustomLesson {
   id: string;
@@ -254,18 +256,32 @@ export interface LocalCustomLesson {
   description: string | null;
   icon: string | null;
   source: string;
+  /** Legacy pre-FSRS field; scheduling state decides due-ness now. */
   status: 'active' | 'done';
   created_at: string;
   spec: import('@shared/lesson').CustomLessonSpec;
+  // FSRS scheduling state (computed from completion events)
+  queue: CardQueue;
+  stability: number;
+  difficulty: number;
+  lapses: number;
+  interval: number;
+  repetitions: number;
+  next_review_at: string | null;
+  due_timestamp: number | null;
+  last_reviewed_at: string | null;
   _synced_at: number | null;
 }
 
+/** One completed run of a lesson — doubles as its FSRS review event. */
 export interface LocalCustomLessonCompletionEvent {
   id: string;
   lesson_id: string;
   correct: number;
   total: number;
   completed_at: string;
+  // Again/Hard/Good/Easy; null on legacy events (treated as Good)
+  rating: Rating | null;
   // Sync metadata (0 = unsynced, 1 = synced)
   _synced: number;
 }
@@ -718,6 +734,36 @@ export class ChineseLearningDB extends Dexie {
       noteSentences: 'id, note_id, updated_at, [note_id+position]',
       sentenceTextExplanations: 'key, cached_at',
       customLessons: 'id, status, created_at',
+      customLessonCompletionEvents: 'id, lesson_id, completed_at, _synced',
+    });
+
+    // Version 15: custom lessons join the FSRS rotation — scheduling fields
+    // on the lesson row (indexed for due queries) and a rating on completion
+    // events. Existing cached rows are refilled by the next lesson sync,
+    // which computes state from completion events.
+    this.version(15).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      pendingReviewDeletions: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
+      readers: 'id, status, queue, next_review_at',
+      readerReviewEvents: 'id, reader_id, reviewed_at, _synced, [reader_id+reviewed_at]',
+      grammarLessons: 'grammar_point_id, position',
+      grammarCompletionEvents: 'id, grammar_point_id, completed_at, _synced',
+      noteSentences: 'id, note_id, updated_at, [note_id+position]',
+      sentenceTextExplanations: 'key, cached_at',
+      customLessons: 'id, status, created_at, queue, next_review_at',
       customLessonCompletionEvents: 'id, lesson_id, completed_at, _synced',
     });
   }

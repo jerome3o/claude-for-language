@@ -642,9 +642,13 @@ agent can repair and retry.
 
 Lessons are cached whole in IndexedDB (`customLessons`) and studied fully offline,
 **mixed into the study session's card flow** — one is offered every ~8 card reviews
-(`LESSON_MIX_INTERVAL` in useStudySession), leftovers run before the readers, max 2 per
-session. Completions are offline events (idempotent by id); a completed lesson is `done`
-and leaves the queue. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
+(`LESSON_MIX_INTERVAL` in useStudySession), leftovers run before the readers, max 2 NEW
+lessons per session. Lessons are **scheduled with FSRS** like cards and readers: the
+lesson ends with Again/Hard/Good/Easy rating buttons, each completion event carries the
+rating, and the client computes scheduling state from the completion history (rating NULL
+on legacy events = Good). FSRS-due lessons re-enter the mix uncapped. Completions are
+offline events (idempotent by id) uploaded in sync; other devices' completions come down
+inside `GET /api/custom-lessons`. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
 Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
 views live in `frontend/src/components/lesson-exercises.tsx` (StudyGrammar reuses the
 scramble/choice/translate ones). The **Mini Lessons page** (`/lessons`, in the profile
