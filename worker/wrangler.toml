@@ -57,18 +57,6 @@ queue = "image-generation-queue"
 max_batch_size = 1
 max_batch_timeout = 0
 
-# Queue for background audio lesson generation (long-running TTS, can take several minutes)
-# Create with: `wrangler queues create audio-lesson-queue`
-[[queues.producers]]
-queue = "audio-lesson-queue"
-binding = "AUDIO_LESSON_QUEUE"
-
-[[queues.consumers]]
-queue = "audio-lesson-queue"
-max_batch_size = 1
-max_batch_timeout = 0
-max_retries = 1
-
 # Queue for background sentence-set generation, so a card in study never waits
 # on an AI call. One note per message (a set is one Claude call + N TTS clips).
 # Create with: `wrangler queues create sentence-set-queue`

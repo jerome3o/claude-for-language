@@ -30,8 +30,6 @@ import {
   DayCardsDetail,
   CardReviewsDetail,
   MyDailyProgress,
-  TutorReviewRequestWithDetails,
-  TutorReviewRequestStatus,
   AIRespondResponse,
   ConversationTTSResponse,
   CheckMessageResponse,
@@ -49,10 +47,6 @@ import {
   DifficultyLevel,
   NoteAudioRecording,
   ReaderPage,
-  HomeworkAssignmentWithDetails,
-  HomeworkAssignment,
-  HomeworkRecording,
-  HomeworkFeedback,
   AppNotification,
   NoteSentence,
   SentenceBriefExplanation,
@@ -1194,69 +1188,6 @@ export async function getMyCardReviews(date: string, cardId: string): Promise<Ca
   return fetchJSON<CardReviewsDetail>(`/progress/day/${date}/card/${cardId}`);
 }
 
-// ============ Tutor Review Requests ============
-
-export async function createTutorReviewRequest(data: {
-  relationship_id: string;
-  note_id: string;
-  card_id: string;
-  review_event_id?: string;
-  message: string;
-}): Promise<TutorReviewRequestWithDetails> {
-  return fetchJSON<TutorReviewRequestWithDetails>('/tutor-review-requests', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function getTutorReviewInbox(
-  status?: TutorReviewRequestStatus
-): Promise<TutorReviewRequestWithDetails[]> {
-  const params = new URLSearchParams();
-  if (status) params.set('status', status);
-  const query = params.toString();
-  return fetchJSON<TutorReviewRequestWithDetails[]>(
-    `/tutor-review-requests/inbox${query ? `?${query}` : ''}`
-  );
-}
-
-export async function getPendingReviewRequestCount(): Promise<{ count: number }> {
-  return fetchJSON<{ count: number }>('/tutor-review-requests/pending-count');
-}
-
-export async function getStudentSentRequests(
-  status?: TutorReviewRequestStatus
-): Promise<TutorReviewRequestWithDetails[]> {
-  const params = new URLSearchParams();
-  if (status) params.set('status', status);
-  const query = params.toString();
-  return fetchJSON<TutorReviewRequestWithDetails[]>(
-    `/tutor-review-requests/sent${query ? `?${query}` : ''}`
-  );
-}
-
-export async function getTutorReviewRequest(
-  requestId: string
-): Promise<TutorReviewRequestWithDetails> {
-  return fetchJSON<TutorReviewRequestWithDetails>(`/tutor-review-requests/${requestId}`);
-}
-
-export async function respondToTutorReviewRequest(
-  requestId: string,
-  response: string
-): Promise<TutorReviewRequestWithDetails> {
-  return fetchJSON<TutorReviewRequestWithDetails>(`/tutor-review-requests/${requestId}/respond`, {
-    method: 'POST',
-    body: JSON.stringify({ response }),
-  });
-}
-
-export async function archiveTutorReviewRequest(requestId: string): Promise<void> {
-  await fetchJSON<{ success: boolean }>(`/tutor-review-requests/${requestId}/archive`, {
-    method: 'POST',
-  });
-}
-
 // ============ Sentence Analysis (Learning Subtitles) ============
 
 export async function analyzeSentence(sentence: string): Promise<SentenceBreakdown> {
@@ -1534,157 +1465,6 @@ export async function getPendingFeatureRequestCount(): Promise<number> {
   return count;
 }
 
-// ============ Homework Assignments ============
-
-export async function getHomeworkAssignments(): Promise<HomeworkAssignmentWithDetails[]> {
-  return fetchJSON<HomeworkAssignmentWithDetails[]>('/homework');
-}
-
-export async function getHomeworkAssignment(id: string): Promise<HomeworkAssignmentWithDetails> {
-  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${id}`);
-}
-
-export async function assignHomework(data: {
-  reader_id: string;
-  student_id: string;
-  notes?: string;
-}): Promise<HomeworkAssignment> {
-  return fetchJSON<HomeworkAssignment>('/homework', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function updateHomeworkStatus(
-  id: string,
-  status: 'in_progress' | 'completed',
-): Promise<HomeworkAssignmentWithDetails> {
-  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${id}/status`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  });
-}
-
-export async function deleteHomework(id: string): Promise<void> {
-  await fetchJSON<{ success: boolean }>(`/homework/${id}`, { method: 'DELETE' });
-}
-
-// ============ Homework Recordings ============
-
-export async function uploadHomeworkRecording(
-  homeworkId: string,
-  audioBlob: Blob,
-  type: 'page_reading' | 'voice_note',
-  pageId?: string,
-  durationMs?: number,
-): Promise<HomeworkRecording> {
-  const formData = new FormData();
-  formData.append('file', audioBlob, 'recording.webm');
-  formData.append('type', type);
-  if (pageId) formData.append('page_id', pageId);
-  if (durationMs !== undefined) formData.append('duration_ms', String(durationMs));
-
-  const headers: Record<string, string> = {};
-  if (sessionToken) {
-    headers['Authorization'] = `Bearer ${sessionToken}`;
-  }
-
-  const response = await fetch(`${API_PATH}/homework/${homeworkId}/recordings`, {
-    method: 'POST',
-    credentials: 'include',
-    headers,
-    body: formData,
-  });
-
-  if (response.status === 401) {
-    authEvents.onUnauthorized();
-    throw new Error('Unauthorized');
-  }
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error((err as { error: string }).error || 'Upload failed');
-  }
-  return response.json();
-}
-
-export async function getHomeworkRecordings(homeworkId: string): Promise<HomeworkRecording[]> {
-  return fetchJSON<HomeworkRecording[]>(`/homework/${homeworkId}/recordings`);
-}
-
-export async function deleteHomeworkRecording(homeworkId: string, recordingId: string): Promise<void> {
-  await fetchJSON<{ success: boolean }>(`/homework/${homeworkId}/recordings/${recordingId}`, {
-    method: 'DELETE',
-  });
-}
-
-export async function submitHomework(homeworkId: string): Promise<HomeworkAssignmentWithDetails> {
-  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${homeworkId}/submit`, {
-    method: 'POST',
-  });
-}
-
-export function getHomeworkRecordingUrl(audioUrl: string): string {
-  return `${API_BASE}/api/audio/${audioUrl}`;
-}
-
-// ============ Homework Feedback ============
-
-export async function submitHomeworkFeedback(
-  homeworkId: string,
-  type: 'page_feedback' | 'overall',
-  opts: {
-    textFeedback?: string;
-    audioBlob?: Blob;
-    pageId?: string;
-    rating?: number;
-  },
-): Promise<HomeworkFeedback> {
-  const formData = new FormData();
-  formData.append('type', type);
-  if (opts.textFeedback) formData.append('text_feedback', opts.textFeedback);
-  if (opts.pageId) formData.append('page_id', opts.pageId);
-  if (opts.rating !== undefined) formData.append('rating', String(opts.rating));
-  if (opts.audioBlob) formData.append('file', opts.audioBlob, 'feedback.webm');
-
-  const headers: Record<string, string> = {};
-  if (sessionToken) {
-    headers['Authorization'] = `Bearer ${sessionToken}`;
-  }
-
-  const response = await fetch(`${API_PATH}/homework/${homeworkId}/feedback`, {
-    method: 'POST',
-    credentials: 'include',
-    headers,
-    body: formData,
-  });
-
-  if (response.status === 401) {
-    authEvents.onUnauthorized();
-    throw new Error('Unauthorized');
-  }
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error((err as { error: string }).error || 'Upload failed');
-  }
-  return response.json();
-}
-
-export async function getHomeworkFeedback(homeworkId: string): Promise<HomeworkFeedback[]> {
-  return fetchJSON<HomeworkFeedback[]>(`/homework/${homeworkId}/feedback`);
-}
-
-export async function deleteHomeworkFeedback(homeworkId: string, feedbackId: string): Promise<void> {
-  await fetchJSON<{ success: boolean }>(`/homework/${homeworkId}/feedback/${feedbackId}`, {
-    method: 'DELETE',
-  });
-}
-
-export async function completeHomeworkReview(homeworkId: string): Promise<HomeworkAssignmentWithDetails> {
-  return fetchJSON<HomeworkAssignmentWithDetails>(`/homework/${homeworkId}/review-complete`, {
-    method: 'POST',
-  });
-}
-
 // ============ Notifications ============
 
 export async function getNotifications(): Promise<AppNotification[]> {
@@ -1829,63 +1609,28 @@ export async function generatePracticeTTS(
   });
 }
 
-// ---- Audio Lessons ----
+// ============ Custom Mini Lessons ============
 
-export interface AudioLesson {
+export interface CustomLessonListItem {
   id: string;
-  deck_id: string | null;
-  lesson_note_id: string | null;
   title: string;
-  status: 'pending' | 'generating' | 'done' | 'error';
-  audio_key: string | null;
-  segment_count: number | null;
-  error: string | null;
+  description: string | null;
+  icon: string | null;
+  source: string;
+  status: 'active' | 'done';
   created_at: string;
+  spec: import('@shared/lesson').CustomLessonSpec;
 }
 
-export async function listAudioLessons(): Promise<AudioLesson[]> {
-  const r = await fetchJSON<{ lessons: AudioLesson[] }>('/audio-lessons');
+export async function getCustomLessons(
+  status: 'active' | 'done' | 'all' = 'all',
+): Promise<CustomLessonListItem[]> {
+  const r = await fetchJSON<{ lessons: CustomLessonListItem[] }>(`/custom-lessons?status=${status}`);
   return r.lessons;
 }
 
-export async function createAudioLesson(params: { deck_id?: string; lesson_note_id?: string }): Promise<{ id: string; title: string; status: string }> {
-  return fetchJSON('/audio-lessons', { method: 'POST', body: JSON.stringify(params) });
-}
-
-export async function getAudioLesson(id: string): Promise<AudioLesson> {
-  const r = await fetchJSON<{ lesson: AudioLesson }>(`/audio-lessons/${id}`);
-  return r.lesson;
-}
-
-export async function deleteAudioLesson(id: string): Promise<void> {
-  await fetchJSON(`/audio-lessons/${id}`, { method: 'DELETE' });
-}
-
-export async function downloadAudioLesson(id: string, filename: string): Promise<void> {
-  const headers: Record<string, string> = {};
-  if (sessionToken) {
-    headers['Authorization'] = `Bearer ${sessionToken}`;
-  }
-  const response = await fetch(`${API_PATH}/audio-lessons/${id}/download`, {
-    credentials: 'include',
-    headers,
-  });
-  if (response.status === 401) {
-    authEvents.onUnauthorized();
-    throw new Error('Unauthorized');
-  }
-  if (!response.ok) {
-    throw new Error(`Download failed: HTTP ${response.status}`);
-  }
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+export async function deleteCustomLessonById(id: string): Promise<void> {
+  await fetchJSON(`/custom-lessons/${id}`, { method: 'DELETE' });
 }
 
 // ============ Quests (tile-map mini-games) ============

@@ -61,7 +61,6 @@ jobs:
         run: |
           npx wrangler queues create story-generation-queue || true
           npx wrangler queues create image-generation-queue || true
-          npx wrangler queues create audio-lesson-queue || true
           npx wrangler queues create sentence-set-queue || true
           npx wrangler queues create quest-generation-queue || true
         env:

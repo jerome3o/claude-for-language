@@ -17,13 +17,6 @@ import {
   VocabularyItem,
   DifficultyLevel,
   NoteAudioRecording,
-  HomeworkAssignment,
-  HomeworkAssignmentWithDetails,
-  HomeworkStatus,
-  HomeworkRecording,
-  HomeworkRecordingType,
-  HomeworkFeedback,
-  HomeworkFeedbackType,
   AppNotification,
   NotificationType,
   CoachConversation,
@@ -2367,246 +2360,6 @@ export async function deleteAudioRecording(
   return { was_primary: wasPrimary, note_id: noteId, audio_url: audioUrl };
 }
 
-// ============ Homework Assignments ============
-
-export async function createHomeworkAssignment(
-  db: D1Database,
-  tutorId: string,
-  studentId: string,
-  readerId: string,
-  notes: string | null,
-): Promise<HomeworkAssignment> {
-  const id = generateId();
-  await db.prepare(`
-    INSERT INTO homework_assignments (id, tutor_id, student_id, reader_id, notes)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(id, tutorId, studentId, readerId, notes).run();
-
-  const row = await db.prepare('SELECT * FROM homework_assignments WHERE id = ?')
-    .bind(id).first<HomeworkAssignment>();
-  return row!;
-}
-
-export async function getHomeworkAssignments(
-  db: D1Database,
-  userId: string,
-): Promise<HomeworkAssignmentWithDetails[]> {
-  const rows = await db.prepare(`
-    SELECT
-      h.*,
-      r.title_chinese AS reader_title_chinese,
-      r.title_english AS reader_title_english,
-      r.difficulty_level AS reader_difficulty_level,
-      t.name AS tutor_name,
-      t.email AS tutor_email,
-      s.name AS student_name,
-      s.email AS student_email
-    FROM homework_assignments h
-    JOIN graded_readers r ON h.reader_id = r.id
-    JOIN users t ON h.tutor_id = t.id
-    JOIN users s ON h.student_id = s.id
-    WHERE h.tutor_id = ? OR h.student_id = ?
-    ORDER BY h.assigned_at DESC
-  `).bind(userId, userId).all<HomeworkAssignmentWithDetails>();
-  return rows.results;
-}
-
-export async function getHomeworkAssignment(
-  db: D1Database,
-  id: string,
-  userId: string,
-): Promise<HomeworkAssignmentWithDetails | null> {
-  return db.prepare(`
-    SELECT
-      h.*,
-      r.title_chinese AS reader_title_chinese,
-      r.title_english AS reader_title_english,
-      r.difficulty_level AS reader_difficulty_level,
-      t.name AS tutor_name,
-      t.email AS tutor_email,
-      s.name AS student_name,
-      s.email AS student_email
-    FROM homework_assignments h
-    JOIN graded_readers r ON h.reader_id = r.id
-    JOIN users t ON h.tutor_id = t.id
-    JOIN users s ON h.student_id = s.id
-    WHERE h.id = ? AND (h.tutor_id = ? OR h.student_id = ?)
-  `).bind(id, userId, userId).first<HomeworkAssignmentWithDetails>();
-}
-
-export async function updateHomeworkStatus(
-  db: D1Database,
-  id: string,
-  userId: string,
-  status: HomeworkStatus,
-): Promise<boolean> {
-  const completedAt = status === 'completed' ? "datetime('now')" : 'NULL';
-  const result = await db.prepare(`
-    UPDATE homework_assignments
-    SET status = ?, completed_at = ${completedAt}
-    WHERE id = ? AND student_id = ?
-  `).bind(status, id, userId).run();
-  return (result.meta?.changes ?? 0) > 0;
-}
-
-export async function deleteHomeworkAssignment(
-  db: D1Database,
-  id: string,
-  tutorId: string,
-): Promise<boolean> {
-  const result = await db.prepare(`
-    DELETE FROM homework_assignments
-    WHERE id = ? AND tutor_id = ?
-  `).bind(id, tutorId).run();
-  return (result.meta?.changes ?? 0) > 0;
-}
-
-// ============ Homework Recordings ============
-
-export async function createHomeworkRecording(
-  db: D1Database,
-  homeworkId: string,
-  audioUrl: string,
-  type: HomeworkRecordingType,
-  pageId: string | null,
-  durationMs: number | null,
-): Promise<HomeworkRecording> {
-  const id = generateId();
-  await db.prepare(`
-    INSERT INTO homework_recordings (id, homework_id, page_id, audio_url, duration_ms, type)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(id, homeworkId, pageId, audioUrl, durationMs, type).run();
-
-  const row = await db.prepare('SELECT * FROM homework_recordings WHERE id = ?')
-    .bind(id).first<HomeworkRecording>();
-  return row!;
-}
-
-export async function getHomeworkRecordings(
-  db: D1Database,
-  homeworkId: string,
-): Promise<HomeworkRecording[]> {
-  const rows = await db.prepare(`
-    SELECT * FROM homework_recordings
-    WHERE homework_id = ?
-    ORDER BY recorded_at ASC
-  `).bind(homeworkId).all<HomeworkRecording>();
-  return rows.results;
-}
-
-export async function deleteHomeworkRecording(
-  db: D1Database,
-  recordingId: string,
-  homeworkId: string,
-): Promise<HomeworkRecording | null> {
-  const row = await db.prepare(
-    'SELECT * FROM homework_recordings WHERE id = ? AND homework_id = ?'
-  ).bind(recordingId, homeworkId).first<HomeworkRecording>();
-  if (!row) return null;
-
-  await db.prepare(
-    'DELETE FROM homework_recordings WHERE id = ? AND homework_id = ?'
-  ).bind(recordingId, homeworkId).run();
-  return row;
-}
-
-export async function submitHomework(
-  db: D1Database,
-  id: string,
-  studentId: string,
-): Promise<boolean> {
-  const result = await db.prepare(`
-    UPDATE homework_assignments
-    SET status = 'completed', completed_at = datetime('now')
-    WHERE id = ? AND student_id = ? AND status != 'completed'
-  `).bind(id, studentId).run();
-  return (result.meta?.changes ?? 0) > 0;
-}
-
-// ============ Homework Feedback ============
-
-export async function createHomeworkFeedback(
-  db: D1Database,
-  homeworkId: string,
-  tutorId: string,
-  type: HomeworkFeedbackType,
-  pageId: string | null,
-  textFeedback: string | null,
-  audioFeedbackUrl: string | null,
-  rating: number | null,
-): Promise<HomeworkFeedback> {
-  const id = generateId();
-  await db.prepare(`
-    INSERT INTO homework_feedback (id, homework_id, tutor_id, page_id, text_feedback, audio_feedback_url, rating, type)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, homeworkId, tutorId, pageId, textFeedback, audioFeedbackUrl, rating, type).run();
-
-  const row = await db.prepare('SELECT * FROM homework_feedback WHERE id = ?')
-    .bind(id).first<HomeworkFeedback>();
-  return row!;
-}
-
-export async function getHomeworkFeedback(
-  db: D1Database,
-  homeworkId: string,
-): Promise<HomeworkFeedback[]> {
-  const rows = await db.prepare(`
-    SELECT * FROM homework_feedback
-    WHERE homework_id = ?
-    ORDER BY created_at ASC
-  `).bind(homeworkId).all<HomeworkFeedback>();
-  return rows.results;
-}
-
-export async function updateHomeworkFeedback(
-  db: D1Database,
-  feedbackId: string,
-  tutorId: string,
-  textFeedback: string | null,
-  audioFeedbackUrl: string | null,
-  rating: number | null,
-): Promise<HomeworkFeedback | null> {
-  const result = await db.prepare(`
-    UPDATE homework_feedback
-    SET text_feedback = ?, audio_feedback_url = ?, rating = ?
-    WHERE id = ? AND tutor_id = ?
-  `).bind(textFeedback, audioFeedbackUrl, rating, feedbackId, tutorId).run();
-
-  if ((result.meta?.changes ?? 0) === 0) return null;
-
-  return db.prepare('SELECT * FROM homework_feedback WHERE id = ?')
-    .bind(feedbackId).first<HomeworkFeedback>();
-}
-
-export async function deleteHomeworkFeedback(
-  db: D1Database,
-  feedbackId: string,
-  tutorId: string,
-): Promise<HomeworkFeedback | null> {
-  const row = await db.prepare(
-    'SELECT * FROM homework_feedback WHERE id = ? AND tutor_id = ?'
-  ).bind(feedbackId, tutorId).first<HomeworkFeedback>();
-  if (!row) return null;
-
-  await db.prepare(
-    'DELETE FROM homework_feedback WHERE id = ? AND tutor_id = ?'
-  ).bind(feedbackId, tutorId).run();
-  return row;
-}
-
-export async function markHomeworkReviewed(
-  db: D1Database,
-  id: string,
-  tutorId: string,
-): Promise<boolean> {
-  const result = await db.prepare(`
-    UPDATE homework_assignments
-    SET status = 'reviewed'
-    WHERE id = ? AND tutor_id = ? AND status = 'completed'
-  `).bind(id, tutorId).run();
-  return (result.meta?.changes ?? 0) > 0;
-}
-
 // ============ Notifications ============
 
 export async function createNotification(
@@ -2615,7 +2368,6 @@ export async function createNotification(
   type: NotificationType,
   title: string,
   message: string | null,
-  homeworkId: string | null,
   opts?: {
     note_id?: string | null;
     conversation_id?: string | null;
@@ -2624,10 +2376,10 @@ export async function createNotification(
 ): Promise<AppNotification> {
   const id = generateId();
   await db.prepare(`
-    INSERT INTO notifications (id, user_id, type, title, message, homework_id, note_id, conversation_id, relationship_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notifications (id, user_id, type, title, message, note_id, conversation_id, relationship_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
-    id, userId, type, title, message, homeworkId,
+    id, userId, type, title, message,
     opts?.note_id ?? null,
     opts?.conversation_id ?? null,
     opts?.relationship_id ?? null,
@@ -3247,82 +2999,6 @@ export async function applyOfflinePracticeCompletion(
   `).bind(userId, event.grammar_point_id).run();
 
   return true;
-}
-
-// ---- Audio Lessons ----
-
-export interface AudioLesson {
-  id: string;
-  user_id: string;
-  deck_id: string | null;
-  lesson_note_id: string | null;
-  title: string;
-  status: 'pending' | 'generating' | 'done' | 'error';
-  audio_key: string | null;
-  duration_seconds: number | null;
-  segment_count: number | null;
-  error: string | null;
-  created_at: string;
-}
-
-export async function createAudioLesson(
-  db: D1Database,
-  userId: string,
-  title: string,
-  deckId: string | null,
-  lessonNoteId: string | null,
-): Promise<string> {
-  const id = crypto.randomUUID();
-  await db.prepare(`
-    INSERT INTO audio_lessons (id, user_id, deck_id, lesson_note_id, title, status)
-    VALUES (?, ?, ?, ?, ?, 'pending')
-  `).bind(id, userId, deckId, lessonNoteId, title).run();
-  return id;
-}
-
-export async function updateAudioLessonStatus(
-  db: D1Database,
-  id: string,
-  status: AudioLesson['status'],
-  updates: { audio_key?: string; duration_seconds?: number; segment_count?: number; error?: string } = {},
-): Promise<void> {
-  const sets: string[] = ['status = ?'];
-  const vals: unknown[] = [status];
-  if (updates.audio_key !== undefined) { sets.push('audio_key = ?'); vals.push(updates.audio_key); }
-  if (updates.duration_seconds !== undefined) { sets.push('duration_seconds = ?'); vals.push(updates.duration_seconds); }
-  if (updates.segment_count !== undefined) { sets.push('segment_count = ?'); vals.push(updates.segment_count); }
-  if (updates.error !== undefined) { sets.push('error = ?'); vals.push(updates.error); }
-  vals.push(id);
-  await db.prepare(`UPDATE audio_lessons SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
-}
-
-export async function listAudioLessons(db: D1Database, userId: string): Promise<AudioLesson[]> {
-  const r = await db.prepare(`
-    SELECT * FROM audio_lessons WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
-  `).bind(userId).all<AudioLesson>();
-  return r.results;
-}
-
-export async function getAudioLesson(db: D1Database, id: string, userId: string): Promise<AudioLesson | null> {
-  const r = await db.prepare(`
-    SELECT * FROM audio_lessons WHERE id = ? AND user_id = ?
-  `).bind(id, userId).first<AudioLesson>();
-  return r ?? null;
-}
-
-export async function deleteAudioLesson(db: D1Database, id: string, userId: string): Promise<void> {
-  await db.prepare(`DELETE FROM audio_lessons WHERE id = ? AND user_id = ?`).bind(id, userId).run();
-}
-
-/** Reset lessons stuck in pending/generating for longer than maxAgeSeconds to error state. */
-export async function markStaleAudioLessons(db: D1Database, userId: string, maxAgeSeconds = 900): Promise<void> {
-  await db.prepare(`
-    UPDATE audio_lessons
-    SET status = 'error', error = 'Generation timed out – please delete and try again'
-    WHERE user_id = ?
-      AND status IN ('pending', 'generating')
-      AND created_at <= datetime('now', '-' || ? || ' seconds')
-  `).bind(userId, maxAgeSeconds).run();
 }
 
 // ============ Sentence Coach Conversations ============

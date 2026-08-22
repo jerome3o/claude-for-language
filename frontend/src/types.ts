@@ -519,44 +519,6 @@ export function getOtherUserInRelationship(
     : relationship.requester;
 }
 
-// ============ Tutor Review Requests ============
-
-export type TutorReviewRequestStatus = 'pending' | 'reviewed' | 'archived';
-
-export interface TutorReviewRequest {
-  id: string;
-  relationship_id: string;
-  student_id: string;
-  tutor_id: string;
-  note_id: string;
-  card_id: string;
-  review_event_id: string | null;
-  message: string;
-  status: TutorReviewRequestStatus;
-  tutor_response: string | null;
-  responded_at: string | null;
-  created_at: string;
-}
-
-export interface TutorReviewRequestWithDetails extends TutorReviewRequest {
-  student: UserSummary;
-  tutor: UserSummary;
-  note: Note;
-  card: Card;
-  review_event: {
-    id: string;
-    rating: Rating;
-    time_spent_ms: number | null;
-    user_answer: string | null;
-    recording_url: string | null;
-    reviewed_at: string;
-  } | null;
-  deck: {
-    id: string;
-    name: string;
-  };
-}
-
 // ============ AI Conversation Types ============
 
 export const CLAUDE_AI_USER_ID = 'claude-ai';
@@ -942,64 +904,9 @@ export interface DeckTutorShare {
   tutor: UserSummary;
 }
 
-// ============ Homework Assignments ============
-
-export type HomeworkStatus = 'assigned' | 'in_progress' | 'completed' | 'reviewed';
-
-export interface HomeworkAssignment {
-  id: string;
-  tutor_id: string;
-  student_id: string;
-  reader_id: string;
-  status: HomeworkStatus;
-  assigned_at: string;
-  completed_at: string | null;
-  notes: string | null;
-}
-
-export interface HomeworkAssignmentWithDetails extends HomeworkAssignment {
-  reader_title_chinese: string;
-  reader_title_english: string;
-  reader_difficulty_level: DifficultyLevel;
-  tutor_name: string | null;
-  tutor_email: string | null;
-  student_name: string | null;
-  student_email: string | null;
-}
-
-// ============ Homework Recordings ============
-
-export type HomeworkRecordingType = 'page_reading' | 'voice_note';
-
-export interface HomeworkRecording {
-  id: string;
-  homework_id: string;
-  page_id: string | null;
-  audio_url: string;
-  duration_ms: number | null;
-  recorded_at: string;
-  type: HomeworkRecordingType;
-}
-
-// ============ Homework Feedback ============
-
-export type HomeworkFeedbackType = 'page_feedback' | 'overall';
-
-export interface HomeworkFeedback {
-  id: string;
-  homework_id: string;
-  tutor_id: string;
-  page_id: string | null;
-  text_feedback: string | null;
-  audio_feedback_url: string | null;
-  rating: number | null;
-  type: HomeworkFeedbackType;
-  created_at: string;
-}
-
 // ============ Notifications ============
 
-export type NotificationType = 'homework_assigned' | 'homework_submitted' | 'homework_reviewed' | 'tutor_review_flagged' | 'new_chat_message';
+export type NotificationType = 'new_chat_message';
 
 export interface AppNotification {
   id: string;
@@ -1007,7 +914,6 @@ export interface AppNotification {
   type: NotificationType;
   title: string;
   message: string | null;
-  homework_id: string | null;
   note_id: string | null;
   conversation_id: string | null;
   relationship_id: string | null;

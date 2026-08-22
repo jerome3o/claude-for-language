@@ -82,10 +82,6 @@ export function Header() {
     setShowNotifications(false);
     if (notif.type === 'new_chat_message' && notif.relationship_id && notif.conversation_id) {
       navigate(`/connections/${notif.relationship_id}/chat/${notif.conversation_id}`);
-    } else if (notif.type === 'tutor_review_flagged') {
-      navigate('/tutor-reviews');
-    } else if (notif.homework_id) {
-      navigate('/homework');
     }
   }, [navigate]);
 
@@ -203,7 +199,6 @@ export function Header() {
           <nav className="header-nav">
             <Link to="/">Home</Link>
             <Link to="/search">Search</Link>
-            <Link to="/homework">Homework</Link>
             <Link to="/connections">Connections</Link>
           </nav>
         {user && (
@@ -299,21 +294,15 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
-                  onClick={() => handleMenuItemClick('/audio-lessons')}
-                >
-                  🎧 Audio Lessons
-                </button>
-                <button
-                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/readers')}
                 >
                   📚 Readers
                 </button>
                 <button
                   className="user-menu-item"
-                  onClick={() => handleMenuItemClick('/homework')}
+                  onClick={() => handleMenuItemClick('/lessons')}
                 >
-                  📋 Homework
+                  🎓 Mini Lessons
                 </button>
                 <button
                   className="user-menu-item"
@@ -344,12 +333,6 @@ export function Header() {
                   onClick={() => handleMenuItemClick('/progress')}
                 >
                   📊 Progress
-                </button>
-                <button
-                  className="user-menu-item"
-                  onClick={() => handleMenuItemClick('/tutor-reviews')}
-                >
-                  ✍️ Reviews
                 </button>
                 <div className="user-menu-divider" />
                 <button

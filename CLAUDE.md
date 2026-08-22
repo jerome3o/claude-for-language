@@ -647,7 +647,8 @@ session. Completions are offline events (idempotent by id); a completed lesson i
 and leaves the queue. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
 Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
 views live in `frontend/src/components/lesson-exercises.tsx` (StudyGrammar reuses the
-scramble/choice/translate ones).
+scramble/choice/translate ones). The **Mini Lessons page** (`/lessons`, in the profile
+menu) inspects pending + completed lessons — full exercise listing per lesson, delete.
 - `GET /api/custom-lessons` - Active lessons with parsed spec (`?status=done|all` for the rest)
 - `POST /api/custom-lessons` - Create from `{ spec }` (validated; queues describe_image illustrations)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
