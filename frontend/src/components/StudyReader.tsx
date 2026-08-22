@@ -138,6 +138,15 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
 
       <div className="reader-text-content">
         <div className="reader-chinese-section">
+          <button
+            className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
+            onClick={regenerateAudio}
+            disabled={isRegenerating}
+            aria-label="Regenerate audio"
+            title="Regenerate audio"
+          >
+            ↻
+          </button>
           {showChinese ? (
             <div className="reader-chinese-text">{page.content_chinese}</div>
           ) : (
@@ -151,15 +160,6 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
             aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
           >
             {isPlaying ? '⏹' : '🔊'}
-          </button>
-          <button
-            className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
-            onClick={regenerateAudio}
-            disabled={isRegenerating}
-            aria-label="Regenerate audio"
-            title="Regenerate audio"
-          >
-            ↻
           </button>
         </div>
 
