@@ -1,0 +1,130 @@
+.mini-lessons-page {
+  max-width: 640px;
+  padding-bottom: 2rem;
+}
+
+.mini-lessons-sub {
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.mini-lessons-offline-note {
+  font-size: 0.8rem;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+
+.mini-lessons-heading {
+  font-size: 1rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.mini-lesson-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+
+.mini-lesson-card.done {
+  opacity: 0.75;
+}
+
+.mini-lesson-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.mini-lesson-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.mini-lesson-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.mini-lesson-title {
+  font-weight: 600;
+}
+
+.mini-lesson-desc {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.mini-lesson-meta {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-top: 0.15rem;
+}
+
+.mini-lesson-status {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+}
+
+.mini-lesson-status.active {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.mini-lesson-status.done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.mini-lesson-detail {
+  border-top: 1px solid #f3f4f6;
+  padding: 0.75rem;
+}
+
+.mini-lesson-section {
+  margin-bottom: 0.75rem;
+}
+
+.mini-lesson-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  margin-bottom: 0.35rem;
+}
+
+.mini-lesson-exercise {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px dashed #f3f4f6;
+}
+
+.mini-lesson-exercise-type {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+  min-width: 8.5rem;
+}
+
+.mini-lesson-exercise-text {
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.mini-lesson-delete {
+  margin-top: 0.5rem;
+  min-height: 40px;
+}

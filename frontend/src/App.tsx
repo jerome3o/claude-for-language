@@ -31,19 +31,15 @@ const CardReviewDetailPage = lazy(() => import('./pages/CardReviewDetailPage').t
 const MyProgressPage = lazy(() => import('./pages/MyProgressPage').then(m => ({ default: m.MyProgressPage })));
 const MyDayDetailPage = lazy(() => import('./pages/MyDayDetailPage').then(m => ({ default: m.MyDayDetailPage })));
 const MyCardReviewDetailPage = lazy(() => import('./pages/MyCardReviewDetailPage').then(m => ({ default: m.MyCardReviewDetailPage })));
-const TutorReviewInboxPage = lazy(() => import('./pages/TutorReviewInboxPage').then(m => ({ default: m.TutorReviewInboxPage })));
-const TutorReviewDetailPage = lazy(() => import('./pages/TutorReviewDetailPage').then(m => ({ default: m.TutorReviewDetailPage })));
 const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => ({ default: m.ReadersListPage })));
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => ({ default: m.LessonNotesPage })));
+const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
 const ReaderEditorPage = lazy(() => import('./pages/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const SentenceCoveragePage = lazy(() => import('./pages/SentenceCoveragePage').then(m => ({ default: m.SentenceCoveragePage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
-const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
-const HomeworkReviewPage = lazy(() => import('./pages/HomeworkReviewPage').then(m => ({ default: m.HomeworkReviewPage })));
-const AudioLessonsPage = lazy(() => import('./pages/AudioLessonsPage').then(m => ({ default: m.AudioLessonsPage })));
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
@@ -285,24 +281,6 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/tutor-reviews"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <TutorReviewInboxPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/tutor-reviews/:requestId"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <TutorReviewDetailPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/search"
         element={
           <ProtectedRoute>
@@ -326,6 +304,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <SentenceCoveragePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/lessons"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <MiniLessonsPage />
           </ProtectedRoute>
         }
       />
@@ -370,32 +357,6 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <ReaderPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/homework/:id/review"
-        element={
-          <ProtectedRoute>
-            <HomeworkReviewPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/homework"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <HomeworkPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/audio-lessons"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <AudioLessonsPage />
           </ProtectedRoute>
         }
       />

@@ -32,42 +32,6 @@ export async function notifyNewUser(topic: string, user: User): Promise<void> {
   );
 }
 
-export async function notifyHomeworkAssigned(topic: string, tutorName: string, readerTitle: string): Promise<void> {
-  await sendNtfy(
-    topic,
-    'Homework Assigned',
-    `${tutorName} assigned homework: "${readerTitle}"`,
-    'books,new',
-  );
-}
-
-export async function notifyHomeworkSubmitted(topic: string, studentName: string, readerTitle: string): Promise<void> {
-  await sendNtfy(
-    topic,
-    'Homework Submitted',
-    `${studentName} submitted homework: "${readerTitle}"`,
-    'white_check_mark',
-  );
-}
-
-export async function notifyHomeworkReviewed(topic: string, tutorName: string, readerTitle: string): Promise<void> {
-  await sendNtfy(
-    topic,
-    'Homework Reviewed',
-    `${tutorName} reviewed homework: "${readerTitle}"`,
-    'star',
-  );
-}
-
-export async function notifyTutorReviewFlagged(topic: string, studentName: string, noteHanzi: string, message: string): Promise<void> {
-  await sendNtfy(
-    topic,
-    'Card Flagged for Review',
-    `${studentName} flagged 「${noteHanzi}」: ${message}`,
-    'triangular_flag_on_post',
-  );
-}
-
 export async function notifyNewChatMessage(topic: string, senderName: string, messagePreview: string): Promise<void> {
   await sendNtfy(
     topic,

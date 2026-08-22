@@ -349,7 +349,7 @@ export function ConnectionDetailPage() {
                   type="text"
                   value={newConvTitle}
                   onChange={(e) => setNewConvTitle(e.target.value)}
-                  placeholder={isClaudeRelationship ? 'e.g., Restaurant Practice' : 'e.g., Homework Help'}
+                  placeholder={isClaudeRelationship ? 'e.g., Restaurant Practice' : 'e.g., Lesson Questions'}
                 />
               </div>
               {isClaudeRelationship && (
