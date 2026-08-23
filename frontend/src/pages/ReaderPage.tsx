@@ -271,33 +271,42 @@ function PageView({
               Tap to reveal Chinese
             </div>
           ) : (
-            <div className="reader-chinese-text">
-              {segments ? (
-                segments.map((chunk, i) => (
-                  <span
-                    key={i}
-                    className="reader-word-segment"
-                    onClick={() => onAddChunk({ hanzi: chunk.hanzi, pinyin: chunk.pinyin, english: chunk.english })}
-                  >
-                    {chunk.hanzi}
+            <div className="reader-chinese-revealed">
+              <div className="reader-chinese-text">
+                {segments ? (
+                  segments.map((chunk, i) => (
+                    <span
+                      key={i}
+                      className="reader-word-segment"
+                      onClick={() => onAddChunk({ hanzi: chunk.hanzi, pinyin: chunk.pinyin, english: chunk.english })}
+                    >
+                      {chunk.hanzi}
+                    </span>
+                  ))
+                ) : (
+                  sentences.map((sentence, index) => (
+                    <span
+                      key={index}
+                      onClick={() => onAnalyzeSentence(sentence)}
+                      className="reader-sentence"
+                    >
+                      {sentence}
+                    </span>
+                  ))
+                )}
+                {isSegmenting && (
+                  <span className="reader-segmenting-indicator" title="Loading word segments...">
+                    <span className="spinner" style={{ width: '14px', height: '14px', display: 'inline-block', verticalAlign: 'middle', marginLeft: '0.5rem' }} />
                   </span>
-                ))
-              ) : (
-                sentences.map((sentence, index) => (
-                  <span
-                    key={index}
-                    onClick={() => onAnalyzeSentence(sentence)}
-                    className="reader-sentence"
-                  >
-                    {sentence}
-                  </span>
-                ))
-              )}
-              {isSegmenting && (
-                <span className="reader-segmenting-indicator" title="Loading word segments...">
-                  <span className="spinner" style={{ width: '14px', height: '14px', display: 'inline-block', verticalAlign: 'middle', marginLeft: '0.5rem' }} />
-                </span>
-              )}
+                )}
+              </div>
+              <button
+                type="button"
+                className="reader-chinese-hide-btn"
+                onClick={() => setShowChinese(false)}
+              >
+                Hide Chinese
+              </button>
             </div>
           )}
           <button

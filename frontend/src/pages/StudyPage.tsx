@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   askAboutNote,
   startSession,
@@ -244,17 +244,6 @@ function StudyCard({
   const { isOnline } = useNetwork();
 
   const [flipped, setFlipped] = useState(false);
-  // Revealed answer fields the user has collapsed to re-quiz themselves or cut
-  // clutter. Per-card only: StudyCard is keyed by card id, so this resets on the
-  // next card.
-  const [collapsedFields, setCollapsedFields] = useState<Set<string>>(new Set());
-  const toggleFieldCollapsed = (field: string) =>
-    setCollapsedFields((prev) => {
-      const next = new Set(prev);
-      if (next.has(field)) next.delete(field);
-      else next.add(field);
-      return next;
-    });
   const [userAnswer, setUserAnswer] = useState('');
   const [startTime] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1071,62 +1060,26 @@ function StudyCard({
     }
   };
 
-  // Wrap a revealed answer field so the user can collapse it (hide it again to
-  // re-test recall, or just to cut clutter) and re-open it on demand.
-  const collapsibleField = (field: string, label: string, content: ReactNode) => {
-    if (collapsedFields.has(field)) {
-      return (
-        <button
-          type="button"
-          className="field-collapse-show"
-          onClick={() => toggleFieldCollapsed(field)}
-          aria-label={`Show ${label}`}
-          title={`Show ${label}`}
-        >
-          {label} <span aria-hidden="true">•••</span>
-        </button>
-      );
-    }
-    return (
-      <div className="field-collapse">
-        {content}
-        <button
-          type="button"
-          className="field-collapse-hide"
-          onClick={() => toggleFieldCollapsed(field)}
-          aria-label={`Hide ${label}`}
-          title={`Hide ${label}`}
-        >
-          Hide
-        </button>
-      </div>
-    );
-  };
-
   const renderBackMain = () => {
     return (
       <div className="text-center">
-        {collapsibleField(
-          'hanzi',
-          'Hanzi',
-          isTypingCard && userAnswer ? (
-            // Show character-by-character diff for typed answers
-            <div className="mb-3">
-              <AnswerDiff
+        {isTypingCard && userAnswer ? (
+          // Show character-by-character diff for typed answers
+          <div className="mb-3">
+            <AnswerDiff
                 userAnswer={userAnswer.trim()}
                 correctAnswer={card.note.hanzi}
                 alternatives={card.note.alternatives ? JSON.parse(card.note.alternatives) : undefined}
                 onCharacterClick={handleCharacterClick}
               />
-            </div>
-          ) : (
-            // Show just the hanzi for non-typing cards - each character is clickable
-            <div className="hanzi hanzi-large mb-1">
-              {[...card.note.hanzi].map((char, i) => (
-                <span key={i} className="hanzi-char-clickable" onClick={() => handleCharacterClick(char)}>{char}</span>
-              ))}
-            </div>
-          )
+          </div>
+        ) : (
+          // Show just the hanzi for non-typing cards - each character is clickable
+          <div className="hanzi hanzi-large mb-1">
+            {[...card.note.hanzi].map((char, i) => (
+              <span key={i} className="hanzi-char-clickable" onClick={() => handleCharacterClick(char)}>{char}</span>
+            ))}
+          </div>
         )}
 
         {selectedCharacter && (
@@ -1166,16 +1119,8 @@ function StudyCard({
           </div>
         )}
 
-        {collapsibleField(
-          'pinyin',
-          'Pinyin',
-          <div className="pinyin mb-1">{card.note.pinyin}</div>
-        )}
-        {collapsibleField(
-          'english',
-          'English',
-          <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
-        )}
+        <div className="pinyin mb-1">{card.note.pinyin}</div>
+        <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
 
         {card.note.fun_facts ? (
           <div

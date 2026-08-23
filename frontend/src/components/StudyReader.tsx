@@ -50,7 +50,8 @@ function usePageImage(readerId: string, page: LocalReaderPage): { imageUrl: stri
 // every page turn — no effect-based resets, no stale-state flash.
 function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalReaderPage }) {
   // Listen-first flow, same as the standalone reader: Chinese starts hidden
-  // so you can try the audio before reading.
+  // so you can try the audio before reading, and can be hidden again to
+  // re-test yourself without turning the page.
   const [showChinese, setShowChinese] = useState(false);
   const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -148,7 +149,16 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
             ↻
           </button>
           {showChinese ? (
-            <div className="reader-chinese-text">{page.content_chinese}</div>
+            <div className="reader-chinese-revealed">
+              <div className="reader-chinese-text">{page.content_chinese}</div>
+              <button
+                type="button"
+                className="reader-chinese-hide-btn"
+                onClick={() => setShowChinese(false)}
+              >
+                Hide Chinese
+              </button>
+            </div>
           ) : (
             <div className="reader-chinese-reveal-box" onClick={() => setShowChinese(true)}>
               Tap to reveal Chinese
