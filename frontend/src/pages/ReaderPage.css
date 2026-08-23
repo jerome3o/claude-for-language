@@ -189,6 +189,33 @@ body:has(.reader-page) #root {
   border-color: #d1d5db;
 }
 
+/* Revealed Chinese, wrapped so it can carry its own hide control. Takes the
+   flex slot .reader-chinese-text used to hold in .reader-chinese-section. */
+.reader-chinese-revealed {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Put the hanzi back behind the cover so you can re-listen and re-test
+   yourself without turning the page. Deliberately faint — it's a utility,
+   not part of the reading flow. */
+.reader-chinese-hide-btn {
+  display: block;
+  margin: 0.25rem auto 0;
+  padding: 0.25rem 0.75rem;
+  min-height: 44px;
+  background: none;
+  border: none;
+  font-size: 0.75rem;
+  color: #b0b6c1;
+  cursor: pointer;
+}
+
+.reader-chinese-hide-btn:hover,
+.reader-chinese-hide-btn:active {
+  color: #6b7280;
+}
+
 .reader-word-segment {
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -345,6 +372,11 @@ body:has(.reader-page) #root {
     font-size: 2rem;
     line-height: 2;
     text-align: left;
+  }
+
+  .reader-chinese-hide-btn {
+    margin-left: 0;
+    padding-left: 0;
   }
 
   .reader-audio-btn {
