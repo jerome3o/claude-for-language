@@ -1,12 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { LocalReader, LocalReaderPage } from '../db/database';
 import { Rating, IntervalPreview, QueueCounts } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
 import { RatingButtons } from './RatingButtons';
-import { getReaderPageTTS, updateLocalReaderPageImage } from '../services/readerSync';
+import { updateLocalReaderPageImage } from '../services/readerSync';
 import { generateReaderPageImage } from '../api/client';
 import { useCachedImageUrl } from '../hooks/useCachedImageUrl';
-import { createAudioPlayer } from '../utils/audioPlayback';
+import { ReaderAudioScrubber } from './ReaderAudioScrubber';
 import '../pages/ReaderPage.css';
 import './StudyReader.css';
 
@@ -55,62 +55,7 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
   const [showChinese, setShowChinese] = useState(false);
   const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isRegenerating, setIsRegenerating] = useState(false);
-  const playerRef = useRef(createAudioPlayer());
-
   const { imageUrl, generating } = usePageImage(readerId, page);
-
-  const stopAudio = useCallback(() => {
-    playerRef.current.stop();
-    setIsPlaying(false);
-  }, []);
-
-  const playAudio = useCallback(async () => {
-    if (isPlaying) return;
-    const playId = playerRef.current.claim();
-    setIsPlaying(true);
-
-    // Cache-first TTS; offline with nothing cached → fail gracefully
-    const blob = await getReaderPageTTS(page);
-    if (!playerRef.current.isCurrent(playId)) return;
-    if (!blob) {
-      setIsPlaying(false);
-      return;
-    }
-
-    playerRef.current.play(blob, {
-      label: 'reader-page',
-      onEnded: () => setIsPlaying(false),
-      onError: () => setIsPlaying(false),
-    });
-  }, [page, isPlaying]);
-
-  // Escape hatch for a bad cached clip (glitchy audio, or the Google fallback
-  // voice from a MiniMax outage): regenerate, overwrite the cache, replay.
-  const regenerateAudio = useCallback(async () => {
-    if (isRegenerating || !navigator.onLine) return;
-    setIsRegenerating(true);
-    const playId = playerRef.current.claim();
-    setIsPlaying(false);
-
-    const blob = await getReaderPageTTS(page, { regenerate: true });
-    setIsRegenerating(false);
-    if (!blob || !playerRef.current.isCurrent(playId)) return;
-
-    setIsPlaying(true);
-    playerRef.current.play(blob, {
-      label: 'reader-page',
-      onEnded: () => setIsPlaying(false),
-      onError: () => setIsPlaying(false),
-    });
-  }, [page, isRegenerating]);
-
-  // Release the player on unmount (the component remounts per page via key)
-  useEffect(() => {
-    const player = playerRef.current;
-    return () => player.dispose();
-  }, []);
 
   return (
     <div className="reader-page-view">
@@ -139,15 +84,6 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
 
       <div className="reader-text-content">
         <div className="reader-chinese-section">
-          <button
-            className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
-            onClick={regenerateAudio}
-            disabled={isRegenerating}
-            aria-label="Regenerate audio"
-            title="Regenerate audio"
-          >
-            ↻
-          </button>
           {showChinese ? (
             <div className="reader-chinese-revealed">
               <div className="reader-chinese-text">{page.content_chinese}</div>
@@ -164,14 +100,12 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
               Tap to reveal Chinese
             </div>
           )}
-          <button
-            className="reader-audio-btn"
-            onClick={isPlaying ? stopAudio : playAudio}
-            aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
-          >
-            {isPlaying ? '⏹' : '🔊'}
-          </button>
         </div>
+
+        {/* Scrubbable audio: drag the circle to a spot on the waveform, and
+            play/stop always restarts from there — for replaying one stretch
+            when listening comprehension needs another pass. */}
+        <ReaderAudioScrubber page={page} />
 
         <div
           onClick={() => setShowPinyin(!showPinyin)}
