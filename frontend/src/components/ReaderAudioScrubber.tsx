@@ -227,14 +227,17 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
   }, [isRegenerating, page, stop, adoptBlob, movePlayhead]);
 
   return (
+    // Play sits on the RIGHT — that's the thumb side (Jerome's preference,
+    // same as the pre-scrubber layout); the rarely-used regen goes left.
     <div className="reader-audio-scrubber">
       <button
-        className="reader-audio-btn"
-        onClick={isPlaying ? stop : play}
-        disabled={status !== 'ready'}
-        aria-label={isPlaying ? 'Stop audio' : 'Play audio from the selected point'}
+        className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
+        onClick={regenerate}
+        disabled={isRegenerating}
+        aria-label="Regenerate audio"
+        title="Regenerate audio"
       >
-        {isPlaying ? '⏹' : '🔊'}
+        ↻
       </button>
       <div
         className={`reader-audio-track ${status !== 'ready' ? 'disabled' : ''}`}
@@ -254,13 +257,12 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
         )}
       </div>
       <button
-        className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
-        onClick={regenerate}
-        disabled={isRegenerating}
-        aria-label="Regenerate audio"
-        title="Regenerate audio"
+        className="reader-audio-btn"
+        onClick={isPlaying ? stop : play}
+        disabled={status !== 'ready'}
+        aria-label={isPlaying ? 'Stop audio' : 'Play audio from the selected point'}
       >
-        ↻
+        {isPlaying ? '⏹' : '🔊'}
       </button>
     </div>
   );
