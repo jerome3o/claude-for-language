@@ -155,3 +155,40 @@
   font-size: 0.7rem;
   color: #9ca3af;
 }
+
+/* ---- Compact collapsed layout ---- */
+/* With nothing revealed (Chinese covered, pinyin and translation hidden)
+ * the whole page — illustration, scrubber, all three reveal boxes and the
+ * bottom nav — must fit on screen without scrolling. The illustration is
+ * the flexible element: cap it by viewport height and let it letterbox. */
+
+.study-reader-content .reader-image-container {
+  display: flex;
+  justify-content: center;
+  max-height: 34vh;
+  margin-bottom: 0.75rem;
+}
+
+.study-reader-content .reader-image {
+  width: auto;
+  max-width: 100%;
+  max-height: 34vh;
+  object-fit: contain;
+}
+
+.study-reader-content .reader-chinese-section {
+  margin-bottom: 0.5rem;
+}
+
+.study-reader-content .reader-audio-scrubber {
+  margin-bottom: 0.5rem;
+}
+
+.study-reader-content .reader-pinyin-box {
+  margin-bottom: 0.5rem;
+  padding: 0.6rem 1rem;
+}
+
+.study-reader-content .reader-translation-box {
+  padding: 0.6rem 1rem;
+}
