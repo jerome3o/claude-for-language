@@ -733,7 +733,10 @@ export type CoachInputLanguage = 'zh' | 'en';
 
 // Structured payload stored in the first assistant message of a conversation
 export type CoachAnalysis =
-  | { kind: 'chinese'; coach: SentenceCoachResult; explanation: SentenceExplanation }
+  // explanation is legacy: older conversations stored a full word-by-word
+  // breakdown alongside the coach result. New conversations omit it to keep the
+  // initial analysis short and fast.
+  | { kind: 'chinese'; coach: SentenceCoachResult; explanation?: SentenceExplanation }
   | { kind: 'english'; translation: SentenceTranslation };
 
 export interface CoachConversation {

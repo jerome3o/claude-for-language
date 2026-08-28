@@ -2673,11 +2673,13 @@ app.post('/api/coach/conversations', async (c) => {
   try {
     let analysis: import('./types').CoachAnalysis;
     if (isChinese) {
-      const [coach, explanation] = await Promise.all([
-        coachSentence(c.env.ANTHROPIC_API_KEY, input),
-        explainSentence(c.env.ANTHROPIC_API_KEY, input),
-      ]);
-      analysis = { kind: 'chinese', coach, explanation };
+      // Keep the initial analysis short and fast: just the correction, a brief
+      // critique, and a couple of example phrasings. The heavy word-by-word /
+      // grammar breakdown (explainSentence) is available on demand via
+      // /api/sentence/explain and by asking a follow-up, so we no longer block
+      // the first response on it.
+      const coach = await coachSentence(c.env.ANTHROPIC_API_KEY, input);
+      analysis = { kind: 'chinese', coach };
     } else {
       const translation = await translateSentence(c.env.ANTHROPIC_API_KEY, input);
       analysis = { kind: 'english', translation };
