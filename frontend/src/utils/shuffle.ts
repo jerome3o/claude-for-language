@@ -13,8 +13,10 @@ const join = (tiles: string[]) => tiles.join('').replace(/\s/g, '');
 /**
  * Display order for a scramble's tile pool. Exercises repeat under FSRS, and
  * authored tile order is often the answer itself — so shuffle at display
- * time, re-rolling if the pool happens to land on a correct order (which
- * would hand the learner the answer).
+ * time. If the shuffle lands on a correct order (which would hand the
+ * learner the answer), repair it deterministically by scanning pairwise
+ * swaps — random re-rolls have a real failure rate on tiny pools (a
+ * two-tile scramble is 50% per roll).
  */
 export function scramblePoolOrder(
   tiles: string[],
@@ -22,12 +24,19 @@ export function scramblePoolOrder(
   altOrders?: string[][],
 ): number[] {
   const answers = new Set([join(correctOrder), ...(altOrders ?? []).map(join)]);
-  let order = shuffledIndexes(tiles.length);
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const presented = join(order.map(i => tiles[i]));
-    if (!answers.has(presented)) return order;
-    order = shuffledIndexes(tiles.length);
+  const isAnswer = (o: number[]) => answers.has(join(o.map(i => tiles[i])));
+
+  const order = shuffledIndexes(tiles.length);
+  if (!isAnswer(order)) return order;
+
+  for (let i = 0; i < order.length - 1; i++) {
+    for (let j = i + 1; j < order.length; j++) {
+      [order[i], order[j]] = [order[j], order[i]];
+      if (!isAnswer(order)) return order;
+      [order[i], order[j]] = [order[j], order[i]];
+    }
   }
-  // Pathological pool (e.g. identical tiles) — any order gives the answer away
+  // Pathological pool (e.g. identical tiles, or every permutation is an
+  // accepted answer) — any order gives the answer away
   return order;
 }

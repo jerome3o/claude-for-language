@@ -29,6 +29,16 @@ import { prefetchTTS } from './ttsCache';
  * (matches the server-side grammar_progress rule). */
 export const GRAMMAR_KNOWN_THRESHOLD = 8;
 
+/**
+ * Master switch: grammar lessons are benched from the study session for now
+ * (Jerome finds them weak as-is; custom mini lessons cover the ground
+ * better). The code all stays for a future revamp — flip this to bring them
+ * back. Also gates the background sync, which matters because the
+ * /api/practice/upcoming call is what kicks off server-side exercise
+ * generation (real AI cost).
+ */
+export const GRAMMAR_LESSONS_ENABLED = false;
+
 interface UpcomingLessonResponse {
   lessons: Array<{
     grammar_point: {
