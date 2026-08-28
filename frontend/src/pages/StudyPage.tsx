@@ -68,7 +68,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
-import { hanziAnswerKey } from '../utils/numberHanzi';
+import { hanziAnswerKey, stripAnswerPunctuation } from '../utils/numberHanzi';
 
 // Friendly labels for read-only tool names
 const TOOL_LABELS: Record<string, string> = {
@@ -124,6 +124,12 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
   const normalizedCorrect = normalizeHanzi(correctAnswer);
   const isFullyCorrect = normalizedUser === normalizedCorrect;
 
+  // A punctuation-only difference (e.g. a missing trailing 。) is functionally
+  // correct — the hanzi are identical. Treat it like a full match and show a
+  // single green row rather than the "your answer / canonical answer" diff.
+  const isPunctuationOnlyMatch = !isFullyCorrect &&
+    stripAnswerPunctuation(userAnswer) === stripAnswerPunctuation(correctAnswer);
+
   // Equivalence key: numbers normalized to hanzi (typing "7" matches 七),
   // 两/二 treated the same, punctuation ignored (missing trailing 。 is fine).
   const userKey = hanziAnswerKey(userAnswer);
@@ -161,15 +167,19 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
 
   const clickable = onCharacterClick ? ' diff-char-clickable' : '';
 
-  if (isFullyCorrect) {
+  if (isFullyCorrect || isPunctuationOnlyMatch) {
+    // Single green row. For a punctuation-only difference, show the canonical
+    // answer (with its proper punctuation) rather than the user's variant.
+    const greenChars = isFullyCorrect ? userChars.map(c => c.char) : [...correctAnswer];
+    const greenPinyin = isFullyCorrect ? userPinyin : canonicalPinyin;
     return (
       <div className="answer-diff">
         <div className="answer-diff-row">
-          {userChars.map((c, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
+          {greenChars.map((ch, i) => (
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(ch)}>{ch}</span>
           ))}
         </div>
-        <div className="answer-diff-pinyin">{userPinyin}</div>
+        <div className="answer-diff-pinyin">{greenPinyin}</div>
       </div>
     );
   }
