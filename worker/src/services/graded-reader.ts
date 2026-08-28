@@ -111,6 +111,28 @@ function formatVocabList(vocabulary: VocabularyItem[]): string {
 }
 
 /**
+ * Storytelling "lenses" for the daily reader. Lesson notes only change a few
+ * times a week but a story is generated every day, so the TREATMENT rotates
+ * daily even when the anchored material is identical — meeting the same
+ * patterns across different framings beats one framing repeated.
+ */
+const STORY_LENSES = [
+  'a warm slice-of-life scene from an ordinary day',
+  'a light mystery — something small is missing or does not add up, and the explanation lands on the last page',
+  'a comedy of errors — a small misunderstanding snowballs, then gets resolved',
+  "a first-person diary entry recounting the day's events",
+  'a dialogue-driven scene — mostly back-and-forth conversation between two people',
+  'everyday phrases in an unexpected setting — familiar language somewhere you would not expect it',
+  'a small outing or plan that does not go the way anyone expected',
+];
+
+/** Deterministic per-day lens, so retries of the same day agree. */
+export function getDailyStoryLens(now = new Date()): string {
+  const dayNumber = Math.floor(now.getTime() / 86_400_000);
+  return STORY_LENSES[dayNumber % STORY_LENSES.length];
+}
+
+/**
  * Generate a graded reader story using Claude with tool use for structured output.
  *
  * options.targetVocabulary switches to best-effort mode ("story from today's
@@ -133,7 +155,15 @@ export async function generateStory(
   vocabulary: VocabularyItem[],
   topic?: string,
   difficulty: DifficultyLevel = 'beginner',
-  options: { targetVocabulary?: VocabularyItem[]; lessonNotes?: string; anchorOnLessonNotes?: boolean } = {}
+  options: {
+    targetVocabulary?: VocabularyItem[];
+    lessonNotes?: string;
+    anchorOnLessonNotes?: boolean;
+    /** Today's storytelling treatment (see STORY_LENSES). */
+    lens?: string;
+    /** One-line summaries of recent stories, to be explicitly NOT repeated. */
+    recentStories?: string[];
+  } = {}
 ): Promise<GeneratedStory> {
   const client = new Anthropic({ apiKey });
   const anchored = Boolean(options.anchorOnLessonNotes && options.lessonNotes);
@@ -143,6 +173,21 @@ export async function generateStory(
     : anchored
       ? 'Choose a topic that grows naturally out of the lesson material below.'
       : 'Choose an appropriate topic based on the available vocabulary.';
+
+  const lensSection = options.lens
+    ? `
+Today's treatment: write the story as ${options.lens}.
+`
+    : '';
+
+  const recentStoriesSection = options.recentStories?.length
+    ? `
+The learner's recent stories are listed below. Do NOT reuse their settings,
+characters, or plots — even when working from the same lesson material, find a
+noticeably different angle:
+${options.recentStories.map(s => `- ${s}`).join('\n')}
+`
+    : '';
 
   const lessonNotesSection = options.lessonNotes
     ? anchored
@@ -189,10 +234,10 @@ then let the story breathe — skip any target word that doesn't fit.
   const userPrompt = `Create a graded reader story at the "${difficulty}" level.
 
 ${topicInstruction}
-
+${lensSection}
 Available vocabulary (you MUST only use these words${anchored ? ', plus words appearing in the lesson material' : ''}):
 ${formatVocabList(vocabulary)}
-${lessonNotesSection}${targetSection}
+${lessonNotesSection}${targetSection}${recentStoriesSection}
 Remember:
 - Use ONLY the vocabulary provided above${anchored ? ' (plus lesson-material words)' : ''}
 - Create 4-6 pages with engaging content
@@ -209,6 +254,8 @@ Use the create_story tool to return your story.`;
     target_count: options.targetVocabulary?.length ?? 0,
     has_lesson_notes: Boolean(options.lessonNotes),
     anchored_on_lesson_notes: anchored,
+    lens: options.lens ?? null,
+    recent_story_count: options.recentStories?.length ?? 0,
   }));
 
   const response = await client.messages.create({
