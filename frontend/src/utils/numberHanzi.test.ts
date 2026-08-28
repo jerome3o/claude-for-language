@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hanziAnswerKey, normalizeNumbersToHanzi } from './numberHanzi';
+import { hanziAnswerKey, normalizeNumbersToHanzi, stripAnswerPunctuation } from './numberHanzi';
 
 describe('hanziAnswerKey (typed answer equivalence)', () => {
   const equal = (a: string, b: string) => hanziAnswerKey(a) === hanziAnswerKey(b);
@@ -31,6 +31,32 @@ describe('hanziAnswerKey (typed answer equivalence)', () => {
     expect(equal('8', '七')).toBe(false);
     expect(equal('彩虹有6个颜色', '彩虹有七个颜色。')).toBe(false);
     expect(equal('你好', '你们好')).toBe(false);
+  });
+});
+
+describe('stripAnswerPunctuation (punctuation-only difference detection)', () => {
+  const punctuationOnly = (a: string, b: string) =>
+    a !== b && stripAnswerPunctuation(a) === stripAnswerPunctuation(b);
+
+  it('treats a missing trailing 。/！ as a punctuation-only difference', () => {
+    expect(punctuationOnly('你好', '你好。')).toBe(true);
+    expect(punctuationOnly('你好！', '你好')).toBe(true);
+    expect(punctuationOnly('我爱你', '我，爱你。')).toBe(true);
+  });
+
+  it('ignores surrounding whitespace', () => {
+    expect(punctuationOnly('你 好', '你好')).toBe(true);
+  });
+
+  it('does NOT treat number-equivalence as punctuation-only', () => {
+    // Same hanziAnswerKey, but the characters genuinely differ (7 vs 七),
+    // so this should still show the canonical form, not collapse to green.
+    expect(punctuationOnly('7个', '七个')).toBe(false);
+    expect(punctuationOnly('两百', '二百')).toBe(false);
+  });
+
+  it('does NOT treat genuinely different hanzi as punctuation-only', () => {
+    expect(punctuationOnly('你好', '你们好')).toBe(false);
   });
 });
 

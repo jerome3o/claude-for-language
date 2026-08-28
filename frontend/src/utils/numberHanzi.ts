@@ -102,6 +102,20 @@ export function normalizeNumbersToHanzi(text: string): string {
   return result;
 }
 
+// Punctuation and whitespace that shouldn't affect whether a typed answer is
+// considered correct (e.g. a missing trailing 。).
+const ANSWER_PUNCTUATION = /[\s。，、！？．·….,!?;:；：""''"'()（）【】\[\]《》<>「」-]/g;
+
+/**
+ * Strip punctuation and whitespace from a typed answer (also trims and
+ * lowercases). Two answers that differ ONLY by punctuation produce the same
+ * result — unlike hanziAnswerKey, this does NOT normalize numbers or 两/二, so
+ * it can distinguish a pure punctuation difference from a number-equivalence.
+ */
+export function stripAnswerPunctuation(s: string): string {
+  return s.trim().toLowerCase().replace(ANSWER_PUNCTUATION, '');
+}
+
 /**
  * Comparison key for typed hanzi answers. Two answers with the same key are
  * considered equivalent: numbers are normalized to hanzi (so typing "7"
@@ -111,5 +125,5 @@ export function normalizeNumbersToHanzi(text: string): string {
 export function hanziAnswerKey(s: string): string {
   return normalizeNumbersToHanzi(s.trim().toLowerCase())
     .replace(/两/g, '二')
-    .replace(/[\s。，、！？．·….,!?;:；：""''"'()（）【】\[\]《》<>「」-]/g, '');
+    .replace(ANSWER_PUNCTUATION, '');
 }
