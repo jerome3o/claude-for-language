@@ -120,22 +120,62 @@ function formatVocabList(vocabulary: VocabularyItem[]): string {
  *
  * options.lessonNotes threads in the tutor's recent lesson material so the
  * story can echo themes and phrasings the learner just covered in class.
+ *
+ * options.anchorOnLessonNotes (daily reader, when notes exist) inverts the
+ * priorities: the lesson material becomes the story's FOUNDATION — scenes,
+ * vocabulary and sentence patterns are built around it, and words appearing
+ * verbatim in the notes are allowed even when they're outside the learned
+ * vocabulary (meeting new lesson material in context is the point). Due-card
+ * targets are demoted to secondary weave-ins.
  */
 export async function generateStory(
   apiKey: string,
   vocabulary: VocabularyItem[],
   topic?: string,
   difficulty: DifficultyLevel = 'beginner',
-  options: { targetVocabulary?: VocabularyItem[]; lessonNotes?: string } = {}
+  options: { targetVocabulary?: VocabularyItem[]; lessonNotes?: string; anchorOnLessonNotes?: boolean } = {}
 ): Promise<GeneratedStory> {
   const client = new Anthropic({ apiKey });
+  const anchored = Boolean(options.anchorOnLessonNotes && options.lessonNotes);
 
   const topicInstruction = topic
     ? `The story should be about: ${topic}`
-    : 'Choose an appropriate topic based on the available vocabulary.';
+    : anchored
+      ? 'Choose a topic that grows naturally out of the lesson material below.'
+      : 'Choose an appropriate topic based on the available vocabulary.';
+
+  const lessonNotesSection = options.lessonNotes
+    ? anchored
+      ? `
+STORY FOUNDATION — the learner's most recent lessons with their tutor:
+
+${options.lessonNotes}
+
+Anchor the story on this material: build the scenes around its situations and
+themes, and feature its vocabulary and sentence patterns prominently — the
+learner needs to meet exactly this lesson material again in context. In
+addition to the allowed vocabulary list, you MAY use words and phrasings that
+appear verbatim in the lesson material above; introduce them naturally and
+repeat them across pages, since repetition is how they stick.
+`
+      : `
+The learner's tutor recently covered the material below in their lessons. Where it
+fits naturally, prefer these themes, phrasings, and sentence patterns — a story that
+echoes what they just studied reinforces it. Do not force it; the notes are
+inspiration, not requirements:
+
+${options.lessonNotes}
+`
+    : '';
 
   const targetSection = options.targetVocabulary?.length
-    ? `
+    ? anchored
+      ? `
+Also due for review today (SECONDARY — the lesson material above comes first).
+Weave a few of these in where they fit naturally, and skip any that don't:
+${formatVocabList(options.targetVocabulary)}
+`
+      : `
 TARGET words (the learner's cards due for review today). Weave in as many as fit NATURALLY:
 ${formatVocabList(options.targetVocabulary)}
 
@@ -146,26 +186,15 @@ then let the story breathe — skip any target word that doesn't fit.
 `
     : '';
 
-  const lessonNotesSection = options.lessonNotes
-    ? `
-The learner's tutor recently covered the material below in their lessons. Where it
-fits naturally, prefer these themes, phrasings, and sentence patterns — a story that
-echoes what they just studied reinforces it. Do not force it; the notes are
-inspiration, not requirements:
-
-${options.lessonNotes}
-`
-    : '';
-
   const userPrompt = `Create a graded reader story at the "${difficulty}" level.
 
 ${topicInstruction}
 
-Available vocabulary (you MUST only use these words):
+Available vocabulary (you MUST only use these words${anchored ? ', plus words appearing in the lesson material' : ''}):
 ${formatVocabList(vocabulary)}
-${targetSection}${lessonNotesSection}
+${lessonNotesSection}${targetSection}
 Remember:
-- Use ONLY the vocabulary provided above
+- Use ONLY the vocabulary provided above${anchored ? ' (plus lesson-material words)' : ''}
 - Create 4-6 pages with engaging content
 - Each page needs an image_prompt for illustration
 - Use proper pinyin with tone marks
@@ -179,6 +208,7 @@ Use the create_story tool to return your story.`;
     vocabulary_count: vocabulary.length,
     target_count: options.targetVocabulary?.length ?? 0,
     has_lesson_notes: Boolean(options.lessonNotes),
+    anchored_on_lesson_notes: anchored,
   }));
 
   const response = await client.messages.create({
