@@ -27,14 +27,6 @@ import './SentenceCoachPage.css';
 
 const LAST_DECK_KEY = 'coach-last-deck-id';
 
-const ISSUE_TYPE_LABELS: Record<string, string> = {
-  grammar: 'Grammar',
-  word_choice: 'Word choice',
-  word_order: 'Word order',
-  naturalness: 'Naturalness',
-  typo: 'Typo',
-};
-
 // ============ Add-to-deck plumbing shared by the analysis blocks ============
 
 interface AddToDeckControls {
@@ -91,6 +83,10 @@ function DeckPicker({ controls }: { controls: AddToDeckControls }) {
 
 // ============ Structured analysis blocks ============
 
+// Slimmed-down coach view: the correction + a short explanation, then a couple
+// of example phrasings. Everything else the model produces (per-issue fix list,
+// vocab suggestions, word-by-word breakdown) was more than the user read, so it
+// is no longer surfaced here — follow-up chat can still dig into any of it.
 function CoachResultBlock({ result, keyPrefix, controls }: {
   result: SentenceCoachResult;
   keyPrefix: string;
@@ -105,6 +101,7 @@ function CoachResultBlock({ result, keyPrefix, controls }: {
         <div className="coach-corrected-hanzi">{result.corrected.hanzi}</div>
         <div className="coach-corrected-pinyin">{result.corrected.pinyin}</div>
         <div className="coach-corrected-english">{result.corrected.english}</div>
+        {result.critique && <p className="coach-critique">{result.critique}</p>}
         <div style={{ marginTop: '0.5rem' }}>
           <AddButton
             controls={controls}
@@ -117,63 +114,26 @@ function CoachResultBlock({ result, keyPrefix, controls }: {
             }}
           />
         </div>
+        <DeckPicker controls={controls} />
       </div>
-
-      {result.critique && (
-        <div className="card mt-3">
-          <h3 className="mb-2">Feedback</h3>
-          <p>{result.critique}</p>
-        </div>
-      )}
-
-      {result.issues.length > 0 && (
-        <div className="card mt-3">
-          <h3 className="mb-2">What to fix</h3>
-          {result.issues.map((issue, i) => (
-            <div key={i} className="coach-issue">
-              <span className="coach-issue-type">{ISSUE_TYPE_LABELS[issue.type] ?? issue.type}</span>
-              <div className="coach-issue-change">
-                <span className="coach-issue-original">{issue.original}</span>
-                {' → '}
-                <span className="coach-issue-suggestion">{issue.suggestion}</span>
-              </div>
-              <div className="coach-issue-explanation">{issue.explanation}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {result.alternatives.length > 0 && (
         <div className="card mt-3">
           <h3 className="mb-2">Other ways to say it</h3>
           {result.alternatives.map((alt, i) => (
-            <div key={i} className="coach-alternative">
-              <div className="coach-vocab-hanzi">{alt.hanzi}</div>
-              <div className="coach-vocab-detail">{alt.pinyin} — {alt.english}</div>
-              {alt.note && <div className="coach-vocab-reason">{alt.note}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {result.vocabSuggestions.length > 0 && (
-        <div className="card mt-3">
-          <h3 className="mb-2">Vocabulary from this sentence</h3>
-          {result.vocabSuggestions.map((vocab, i) => (
             <div key={i} className="coach-vocab-item">
               <div style={{ minWidth: 0 }}>
-                <div className="coach-vocab-hanzi">{vocab.hanzi}</div>
-                <div className="coach-vocab-detail">{vocab.pinyin} — {vocab.english}</div>
-                {vocab.reason && <div className="coach-vocab-reason">{vocab.reason}</div>}
+                <div className="coach-vocab-hanzi">{alt.hanzi}</div>
+                <div className="coach-vocab-detail">{alt.pinyin} — {alt.english}</div>
+                {alt.note && <div className="coach-vocab-reason">{alt.note}</div>}
               </div>
               <AddButton
                 controls={controls}
-                itemKey={`${keyPrefix}-vocab-${i}`}
-                note={{ hanzi: vocab.hanzi, pinyin: vocab.pinyin, english: vocab.english, fun_facts: vocab.reason || undefined }}
+                itemKey={`${keyPrefix}-alt-${i}`}
+                note={{ hanzi: alt.hanzi, pinyin: alt.pinyin, english: alt.english, fun_facts: alt.note || undefined }}
               />
             </div>
           ))}
-          <DeckPicker controls={controls} />
         </div>
       )}
     </>
@@ -279,6 +239,9 @@ function TranslationBlock({ translation, keyPrefix, controls }: {
         {translation.primary.note && (
           <div className="coach-vocab-reason" style={{ marginTop: '0.5rem' }}>{translation.primary.note}</div>
         )}
+        {translation.usage_note && (
+          <p className="coach-critique">{translation.usage_note}</p>
+        )}
         <div style={{ marginTop: '0.5rem' }}>
           <AddButton
             controls={controls}
@@ -291,6 +254,7 @@ function TranslationBlock({ translation, keyPrefix, controls }: {
             }}
           />
         </div>
+        <DeckPicker controls={controls} />
       </div>
 
       {translation.alternatives.length > 0 && (
@@ -310,54 +274,6 @@ function TranslationBlock({ translation, keyPrefix, controls }: {
               />
             </div>
           ))}
-        </div>
-      )}
-
-      {translation.words.length > 0 && (
-        <div className="card mt-3">
-          <h3 className="mb-2">Word by word</h3>
-          {translation.words.map((word, i) => (
-            <div key={i} className="coach-vocab-item">
-              <div style={{ minWidth: 0 }}>
-                <div className="coach-vocab-hanzi">
-                  {word.hanzi}
-                  {word.role && <span className="coach-word-role">{word.role}</span>}
-                </div>
-                <div className="coach-vocab-detail">{word.pinyin} — {word.english}</div>
-                {word.notes && <div className="coach-vocab-reason">{word.notes}</div>}
-              </div>
-              <AddButton
-                controls={controls}
-                itemKey={`${keyPrefix}-word-${i}`}
-                note={{ hanzi: word.hanzi, pinyin: word.pinyin, english: word.english, fun_facts: word.notes || undefined }}
-              />
-            </div>
-          ))}
-          <DeckPicker controls={controls} />
-        </div>
-      )}
-
-      {translation.grammar_points.length > 0 && (
-        <div className="card mt-3">
-          <h3 className="mb-2">Grammar</h3>
-          {translation.grammar_points.map((point, i) => (
-            <div key={i} className="coach-issue coach-grammar-point">
-              <span className="coach-issue-type">{point.pattern}</span>
-              <div className="coach-issue-explanation">{point.explanation}</div>
-              {point.example && (
-                <div className="coach-vocab-reason" style={{ marginTop: '0.25rem' }}>
-                  e.g. {point.example}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {translation.usage_note && (
-        <div className="card mt-3">
-          <h3 className="mb-2">Usage</h3>
-          <p>{translation.usage_note}</p>
         </div>
       )}
     </>
@@ -433,7 +349,10 @@ function CoachMessageView({ message, controls }: { message: CoachMessage; contro
       return (
         <div className="coach-analysis">
           <CoachResultBlock result={analysis.coach} keyPrefix={message.id} controls={controls} />
-          <ExplanationBlock explanation={analysis.explanation} keyPrefix={`${message.id}-ex`} controls={controls} showHeader={false} />
+          {/* Legacy conversations still carry the full breakdown; new ones omit it. */}
+          {analysis.explanation && (
+            <ExplanationBlock explanation={analysis.explanation} keyPrefix={`${message.id}-ex`} controls={controls} showHeader={false} />
+          )}
         </div>
       );
     }
@@ -747,8 +666,8 @@ export function SentenceCoachPage() {
               <div className="sentence-loading-spinner" />
               <p>
                 {inputIsChinese === false
-                  ? 'Translating and explaining...'
-                  : 'Correcting, critiquing, and explaining your sentence...'}
+                  ? 'Translating your sentence...'
+                  : 'Checking your sentence...'}
               </p>
             </div>
           </div>
