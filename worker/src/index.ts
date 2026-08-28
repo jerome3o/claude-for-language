@@ -5726,6 +5726,10 @@ async function startDailyReader(
       difficulty: 'beginner',
       mode: dueMode ? 'due_cards' : undefined,
       withLessonNotes: true,
+      // The daily story is ANCHORED on recent lesson notes when they exist
+      // (Jerome: the lesson material matters more than the due cards); the
+      // due words above become secondary weave-ins.
+      anchorLessonNotes: true,
     }),
   );
   return { reader_id: pending.id, situation_id: DAILY_READER_SOURCE, status: 'generating' };
@@ -6276,7 +6280,7 @@ export default {
     if (queueName === 'story-generation-queue') {
       // Handle story generation
       for (const message of batch.messages) {
-        const { readerId, topic, difficulty, mode, withLessonNotes } = message.body as StoryGenerationMessage;
+        const { readerId, topic, difficulty, mode, withLessonNotes, anchorLessonNotes } = message.body as StoryGenerationMessage;
         console.log('[Queue] Processing story generation for reader:', readerId, mode ? `(mode: ${mode})` : '');
 
         try {
@@ -6303,13 +6307,19 @@ export default {
             ? await db.getRecentLessonNotesText(env.DB, pendingReader.user_id)
             : '';
 
-          // Generate the story using Claude with tool use
+          // Generate the story using Claude with tool use. Daily readers
+          // anchor on the lesson notes when there are any — the tutor's
+          // recent material is the story's foundation, due words secondary.
           const story = await generateStory(
             env.ANTHROPIC_API_KEY,
             vocabulary,
             topic,
             difficulty,
-            { targetVocabulary, lessonNotes: lessonNotes || undefined }
+            {
+              targetVocabulary,
+              lessonNotes: lessonNotes || undefined,
+              anchorOnLessonNotes: Boolean(anchorLessonNotes && lessonNotes),
+            }
           );
 
           console.log('[Queue] Story generated:', story.title_english, 'with', story.pages.length, 'pages');

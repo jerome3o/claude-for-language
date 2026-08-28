@@ -41,6 +41,9 @@ export interface StoryGenerationMessage {
   // Thread the tutor's recent lesson notes into the story prompt so the
   // story can echo themes/phrasings the learner just covered in class.
   withLessonNotes?: boolean;
+  // Daily reader: when lesson notes exist, ANCHOR the story on them (they
+  // become the primary theme/content; due-card targets go secondary).
+  anchorLessonNotes?: boolean;
 }
 
 export interface ImageGenerationMessage {

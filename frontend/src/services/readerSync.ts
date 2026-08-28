@@ -148,9 +148,9 @@ export async function ensureDailyReader(): Promise<boolean> {
   if (hasUnread) return false;
 
   try {
-    // Today's due words (from the offline study queue) become the story's
-    // best-effort target vocabulary. The server pairs them with the tutor's
-    // recent lesson notes to pick the theme — no more canned scenarios.
+    // The story anchors on the tutor's recent lesson notes (server-side);
+    // today's due words (from the offline study queue) ride along as
+    // secondary targets to weave in — no canned scenarios.
     const dueNoteIds = await getDueNoteIds();
     // Idempotent per-day on the server: repeated calls return today's reader
     const status = await generateDailyReader(dueNoteIds);
