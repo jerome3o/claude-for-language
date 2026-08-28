@@ -39,7 +39,7 @@ import {
   getReaderIntervalPreviews,
   readerSchedulingFields,
 } from '../services/reader-study';
-import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia } from '../services/grammar-study';
+import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from '../services/grammar-study';
 import {
   getDueCustomLessons,
   completeCustomLesson as recordCustomLessonCompletion,
@@ -157,7 +157,10 @@ export const LESSON_MIX_INTERVAL = 8;
  * and any left over run before the readers. Graded readers come at the VERY
  * END of the session (Jerome's preference): they're only offered once no card
  * is available — the story is the reward after the drilling is done. Today's
- * grammar lesson comes after the readers, closing out the session.
+ * grammar lesson comes after the readers, closing out the session — though
+ * grammar is currently benched (GRAMMAR_LESSONS_ENABLED = false in
+ * grammar-study.ts), so grammarLesson arrives as null and this branch is
+ * dormant until the feature gets its revamp.
  *
  * Exported for tests.
  */
@@ -400,7 +403,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         getQueueCounts(deckId, bonusNewCards),
         getReviewedNoteIds(deckId),
         deckId ? Promise.resolve([]) : getDueReaders(),
-        deckId ? Promise.resolve(null) : getTodaysGrammarLesson(),
+        deckId || !GRAMMAR_LESSONS_ENABLED ? Promise.resolve(null) : getTodaysGrammarLesson(),
         deckId ? Promise.resolve([]) : getDueCustomLessons(),
       ]);
       setQueue(dueCards);
@@ -420,17 +423,19 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         // sync may not have run yet (fresh app load), and the first upcoming
         // call is also what kicks off server-side exercise generation.
         if (navigator.onLine) {
-          syncGrammarLessons()
-            .then(async () => {
-              const lesson = await getTodaysGrammarLesson();
-              if (lesson) {
-                setGrammarLesson(lesson);
-                setGrammarPending(false);
-              } else {
-                setGrammarPending(await grammarGenerationPending());
-              }
-            })
-            .catch(err => console.error('[useStudySession] Grammar lesson refresh failed:', err));
+          if (GRAMMAR_LESSONS_ENABLED) {
+            syncGrammarLessons()
+              .then(async () => {
+                const lesson = await getTodaysGrammarLesson();
+                if (lesson) {
+                  setGrammarLesson(lesson);
+                  setGrammarPending(false);
+                } else {
+                  setGrammarPending(await grammarGenerationPending());
+                }
+              })
+              .catch(err => console.error('[useStudySession] Grammar lesson refresh failed:', err));
+          }
 
           // Custom mini lessons: pick up anything an agent created since the
           // last sync, then cache media so the lessons work offline.
@@ -661,7 +666,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // While today's grammar exercises are generating server-side, poll until
   // they land, then slot the lesson in at the end of the session.
   useEffect(() => {
-    if (!grammarPending || !enabled) return;
+    if (!GRAMMAR_LESSONS_ENABLED || !grammarPending || !enabled) return;
 
     const POLL_MS = 30_000;
     const interval = setInterval(async () => {

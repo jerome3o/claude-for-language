@@ -19,7 +19,7 @@ import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardS
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions } from './review-events';
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia } from './readerSync';
-import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia } from './grammar-study';
+import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
 import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
@@ -355,13 +355,18 @@ class SyncService {
     } catch (err) {
       console.error('[Sync] Reader sync failed:', err);
     }
-    try {
-      await syncGrammarLessons();
-      prefetchGrammarMedia().catch(err =>
-        console.error('[Sync] Grammar media prefetch failed:', err)
-      );
-    } catch (err) {
-      console.error('[Sync] Grammar lesson sync failed:', err);
+    // Grammar lessons are benched (GRAMMAR_LESSONS_ENABLED) — skipping the
+    // sync also stops the /api/practice/upcoming call that kicks off
+    // server-side exercise generation.
+    if (GRAMMAR_LESSONS_ENABLED) {
+      try {
+        await syncGrammarLessons();
+        prefetchGrammarMedia().catch(err =>
+          console.error('[Sync] Grammar media prefetch failed:', err)
+        );
+      } catch (err) {
+        console.error('[Sync] Grammar lesson sync failed:', err);
+      }
     }
     try {
       await syncCustomLessons();
