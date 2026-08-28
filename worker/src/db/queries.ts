@@ -2601,6 +2601,49 @@ export async function deleteLessonNote(db: D1Database, id: string, userId: strin
   await db.prepare(`DELETE FROM lesson_notes WHERE id = ? AND user_id = ?`).bind(id, userId).run();
 }
 
+export interface LessonNoteRow {
+  raw_text: string;
+  given_at: string | null;
+}
+
+/** The most recent lesson notes as rows, newest first — for callers that
+ * need to treat notes individually (e.g. rotating a daily focus note). */
+export async function getRecentLessonNotes(
+  db: D1Database,
+  userId: string,
+  limit = 3,
+): Promise<LessonNoteRow[]> {
+  const r = await db.prepare(`
+    SELECT raw_text, given_at FROM lesson_notes
+    WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
+  `).bind(userId, limit).all<LessonNoteRow>();
+  return r.results;
+}
+
+export interface RecentReaderSummary {
+  title_chinese: string;
+  title_english: string;
+  first_page_english: string | null;
+}
+
+/** Titles + opening line of the user's most recent finished readers, for
+ * telling the story generator what NOT to repeat. */
+export async function getRecentReaderSummaries(
+  db: D1Database,
+  userId: string,
+  limit = 5,
+): Promise<RecentReaderSummary[]> {
+  const r = await db.prepare(`
+    SELECT gr.title_chinese, gr.title_english,
+      (SELECT rp.content_english FROM reader_pages rp
+       WHERE rp.reader_id = gr.id ORDER BY rp.page_number LIMIT 1) AS first_page_english
+    FROM graded_readers gr
+    WHERE gr.user_id = ? AND gr.status = 'ready'
+    ORDER BY gr.created_at DESC LIMIT ?
+  `).bind(userId, limit).all<RecentReaderSummary>();
+  return r.results;
+}
+
 export async function getRecentLessonNotesText(
   db: D1Database,
   userId: string,

@@ -23,7 +23,7 @@ import type { QuestWorld } from '@shared/quest';
 import { explainSentenceBriefly } from './services/sentence-explain-brief';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
-import { generateStory, generatePageImage } from './services/graded-reader';
+import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec } from './services/custom-lesson';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
@@ -6305,9 +6305,40 @@ export default {
             vocabulary = [...learned, ...targetVocabulary.filter(v => !seen.has(v.hanzi))];
           }
 
-          const lessonNotes = withLessonNotes
-            ? await db.getRecentLessonNotesText(env.DB, pendingReader.user_id)
-            : '';
+          // Lesson notes: daily readers (anchorLessonNotes) rotate a FOCUS
+          // note by day — notes change a few times a week but a story is
+          // generated daily, so the emphasis cycles through the week's
+          // lessons instead of blending them identically every day.
+          let lessonNotes = '';
+          if (withLessonNotes) {
+            const notes = await db.getRecentLessonNotes(env.DB, pendingReader.user_id);
+            const formatNote = (n: { raw_text: string; given_at: string | null }) =>
+              n.given_at ? `[${n.given_at}]\n${n.raw_text}` : n.raw_text;
+            if (anchorLessonNotes && notes.length > 1) {
+              const dayNumber = Math.floor(Date.now() / 86_400_000);
+              const focus = notes[dayNumber % notes.length];
+              const others = notes.filter(n => n !== focus);
+              lessonNotes =
+                `TODAY'S FOCUS LESSON (anchor the story primarily on this one):\n${formatNote(focus)}` +
+                `\n\nOther recent lesson material (weave in where natural):\n${others.map(formatNote).join('\n\n---\n\n')}`;
+            } else {
+              lessonNotes = notes.map(formatNote).join('\n\n---\n\n');
+            }
+          }
+
+          // Daily readers also get anti-repetition context (recent story
+          // summaries) and a per-day storytelling lens, so a week of stories
+          // over the same lesson notes still comes out different.
+          let recentStories: string[] | undefined;
+          let lens: string | undefined;
+          if (anchorLessonNotes) {
+            const summaries = await db.getRecentReaderSummaries(env.DB, pendingReader.user_id);
+            recentStories = summaries.map(s => {
+              const opening = s.first_page_english ? ` — opens: "${s.first_page_english.slice(0, 100)}"` : '';
+              return `${s.title_english} (${s.title_chinese})${opening}`;
+            });
+            lens = getDailyStoryLens();
+          }
 
           // Generate the story using Claude with tool use. Daily readers
           // anchor on the lesson notes when there are any — the tutor's
@@ -6321,6 +6352,8 @@ export default {
               targetVocabulary,
               lessonNotes: lessonNotes || undefined,
               anchorOnLessonNotes: Boolean(anchorLessonNotes && lessonNotes),
+              lens,
+              recentStories,
             }
           );
 
