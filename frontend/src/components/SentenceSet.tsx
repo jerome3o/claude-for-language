@@ -525,10 +525,12 @@ export function SentenceSet({
             const showFocus = focusLabel && row.focus !== 'core';
             return (
               <li key={row.key} className="sentence-set-row">
+                {/* Out of the flow in the corner: it numbers the row without
+                    costing it a line of height. */}
+                <span className="sentence-set-step" title={`Sentence ${index + 1} of ${rows.length}`}>
+                  {index + 1}
+                </span>
                 <div className="sentence-set-row-lead">
-                  <span className="sentence-set-step" title={`Sentence ${index + 1} of ${rows.length}`}>
-                    {index + 1}
-                  </span>
                   {/* Reverse practice: put the English up on its own and
                       translate it back into Chinese before revealing. */}
                   {row.translation && (

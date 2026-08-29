@@ -1489,6 +1489,7 @@ button.queue-counts:active {
 }
 
 .sentence-set-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
@@ -1497,28 +1498,30 @@ button.queue-counts:active {
   border-radius: 8px;
 }
 
+/* Tucked into the row's top-left corner and out of the layout, so numbering
+   the row costs no height — the left column is the English toggle's. */
 .sentence-set-step {
-  flex: 0 0 auto;
-  width: 1.25rem;
-  height: 1.25rem;
-  margin-top: 0.15rem;
-  border-radius: 50%;
-  background-color: var(--color-background, #f5f5f5);
-  border: 1px solid var(--color-border);
+  position: absolute;
+  top: 0.1rem;
+  left: 0.3rem;
+  font-size: 0.55rem;
+  line-height: 1;
   color: var(--color-text-light);
-  font-size: 0.65rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  opacity: 0.55;
+  pointer-events: none;
 }
 
-/* Far-left column of a sentence row: its number, then the English toggle. */
+/* Far-left column of a sentence row: the English toggle, where the row's
+   number used to sit. Holds its width when a row has no translation, so the
+   sentences stay aligned down the list. */
 .sentence-set-row-lead {
   flex: 0 0 auto;
+  width: 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
+  /* Clears the corner number without pushing the row taller. */
+  margin-top: 0.35rem;
 }
 
 /* Reverse practice: show the English on its own and translate it back. */
