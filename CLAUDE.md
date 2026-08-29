@@ -531,7 +531,10 @@ row 1 (badged "From the card", read straight from the note — never copied into
 editing it stays reflected), followed by the generated set. Sentences start hidden and reveal
 progressively — you hear the audio first, then one tap uncovers the hanzi, the next the pinyin,
 the next the English, and a tap on a fully open row hides it again (steps a row hasn't got are
-skipped; "Show all" jumps straight to everything). Each row has an
+skipped; "Show all" jumps straight to everything). Each row also has an **EN** button in its
+far-left column that flips it into English-first mode for the reverse exercise: the translation
+goes up on its own as the prompt, everything else re-collapses, and the reveal chain drops the
+translation step (hanzi, then pinyin) so you translate back into Chinese before checking. Each row has an
 on-demand "what's going on here?" breakdown (word glosses + the construction), generated with
 Haiku; each word in it is tappable to add as a card, and `+` adds the whole sentence.
 Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses
@@ -873,11 +876,19 @@ Do NOT skip these steps. CI failures on main break production deploys for everyo
 
 ### PR Merge Policy (Jerome's standing preference)
 
+**Every session Jerome starts ends in a merged PR.** If he asked for a change,
+he wants it opened as a PR and landed — don't stop at a pushed branch and don't
+ask "shall I open a PR?" or "shall I merge?". That is a standing, blanket
+pre-approval: it covers every session, not just the one where he said it.
+
 Once the pre-merge checklist passes locally, open the PR and **merge it
 without asking** (squash) as soon as CI is green — enable GitHub auto-merge
-right after opening when possible, otherwise merge when checks pass. Jerome
-has pre-approved this flow; only pause for genuinely destructive or
-ambiguous changes.
+right after opening when possible, otherwise merge when checks pass. If CI
+fails, fix it and land it; don't hand a red PR back to him. Only pause for
+genuinely destructive or ambiguous changes.
+
+Jerome does not want to be looped in for any of this. Tell him what landed
+when it's done, not what you're about to do.
 
 ### To Deploy
 

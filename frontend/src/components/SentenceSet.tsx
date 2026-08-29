@@ -50,10 +50,21 @@ const NEXT_STEP_LABEL: Record<RevealStep, string> = {
   translation: 'Tap for the translation',
 };
 
-function revealSteps(row: DisplayRow): RevealStep[] {
+/** With the English already up as the prompt, the reveal is the answer. */
+const NEXT_STEP_LABEL_EN_FIRST: Record<RevealStep, string> = {
+  ...NEXT_STEP_LABEL,
+  hanzi: 'Tap for the Chinese',
+};
+
+/**
+ * The steps a row still has to uncover. In English-first mode the translation
+ * is already on screen as the prompt, so it drops out of the chain rather than
+ * being shown twice.
+ */
+function revealSteps(row: DisplayRow, englishFirst = false): RevealStep[] {
   const steps: RevealStep[] = ['hanzi'];
   if (row.pinyin) steps.push('pinyin');
-  if (row.translation) steps.push('translation');
+  if (row.translation && !englishFirst) steps.push('translation');
   return steps;
 }
 
@@ -121,6 +132,9 @@ export function SentenceSet({
   const [error, setError] = useState<string | null>(null);
   // How much of each row is showing: 0 = nothing, then one step per tap.
   const [revealed, setRevealed] = useState<Record<string, number>>({});
+  // Rows put into English-first mode: the translation leads, the Chinese is
+  // hidden, so the row reads as a translate-into-Chinese prompt.
+  const [englishFirst, setEnglishFirst] = useState<Record<string, boolean>>({});
   const [showAll, setShowAll] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -163,6 +177,7 @@ export function SentenceSet({
 
   useEffect(() => {
     setRevealed({});
+    setEnglishFirst({});
     setExplanations({});
     setShowAll(false);
     setShowCustom(false);
@@ -210,11 +225,24 @@ export function SentenceSet({
 
   /** One more tap, one more line — and a tap on a fully open row hides it again. */
   const advanceRow = (row: DisplayRow) => {
-    const total = revealSteps(row).length;
+    const total = revealSteps(row, englishFirst[row.key]).length;
     setRevealed((prev) => {
       const stage = prev[row.key] ?? 0;
       return { ...prev, [row.key]: stage >= total ? 0 : stage + 1 };
     });
+  };
+
+  /**
+   * The reverse exercise: show only the English and hide everything else, so
+   * the sentence can be translated back into Chinese from memory. Turning it
+   * on re-collapses the row — there's nothing to work out if the answer is
+   * already up.
+   */
+  const toggleEnglishFirst = (row: DisplayRow) => {
+    const next = !englishFirst[row.key];
+    setEnglishFirst((prev) => ({ ...prev, [row.key]: next }));
+    setRevealed((prev) => ({ ...prev, [row.key]: 0 }));
+    if (next) setShowAll(false);
   };
 
   const playSentence = (row: DisplayRow) => {
@@ -484,7 +512,8 @@ export function SentenceSet({
       {open && (
         <ol className="sentence-set-list">
           {rows.map((row, index) => {
-            const steps = revealSteps(row);
+            const isEnglishFirst = !!englishFirst[row.key];
+            const steps = revealSteps(row, isEnglishFirst);
             const stage = showAll ? steps.length : revealed[row.key] ?? 0;
             const shown = (step: RevealStep) => {
               const at = steps.indexOf(step);
@@ -496,10 +525,31 @@ export function SentenceSet({
             const showFocus = focusLabel && row.focus !== 'core';
             return (
               <li key={row.key} className="sentence-set-row">
-                <span className="sentence-set-step" title={`Sentence ${index + 1} of ${rows.length}`}>
-                  {index + 1}
-                </span>
+                <div className="sentence-set-row-lead">
+                  <span className="sentence-set-step" title={`Sentence ${index + 1} of ${rows.length}`}>
+                    {index + 1}
+                  </span>
+                  {/* Reverse practice: put the English up on its own and
+                      translate it back into Chinese before revealing. */}
+                  {row.translation && (
+                    <button
+                      className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
+                      onClick={() => toggleEnglishFirst(row)}
+                      aria-pressed={isEnglishFirst}
+                      title={
+                        isEnglishFirst
+                          ? 'Hide the English prompt'
+                          : 'Show the English only — translate it back into Chinese'
+                      }
+                    >
+                      EN
+                    </button>
+                  )}
+                </div>
                 <div className="sentence-set-body">
+                  {isEnglishFirst && row.translation && (
+                    <p className="sentence-set-prompt">{row.translation}</p>
+                  )}
                   {/* A row starts blank on purpose: listen first, then uncover
                       one line per tap so each is read before the next lands. */}
                   <button
@@ -515,7 +565,9 @@ export function SentenceSet({
                       <span className="sentence-set-translation">{row.translation}</span>
                     )}
                     {nextStep && (
-                      <span className="sentence-set-next">{NEXT_STEP_LABEL[nextStep]}</span>
+                      <span className="sentence-set-next">
+                        {(isEnglishFirst ? NEXT_STEP_LABEL_EN_FIRST : NEXT_STEP_LABEL)[nextStep]}
+                      </span>
                     )}
                   </button>
                   {isFullyShown && (
