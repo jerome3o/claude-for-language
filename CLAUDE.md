@@ -531,7 +531,10 @@ row 1 (badged "From the card", read straight from the note — never copied into
 editing it stays reflected), followed by the generated set. Sentences start hidden and reveal
 progressively — you hear the audio first, then one tap uncovers the hanzi, the next the pinyin,
 the next the English, and a tap on a fully open row hides it again (steps a row hasn't got are
-skipped; "Show all" jumps straight to everything). Each row has an
+skipped; "Show all" jumps straight to everything). Each row also has an **EN** button in its
+far-left column that flips it into English-first mode for the reverse exercise: the translation
+goes up on its own as the prompt, everything else re-collapses, and the reveal chain drops the
+translation step (hanzi, then pinyin) so you translate back into Chinese before checking. Each row has an
 on-demand "what's going on here?" breakdown (word glosses + the construction), generated with
 Haiku; each word in it is tappable to add as a card, and `+` adds the whole sentence.
 Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses

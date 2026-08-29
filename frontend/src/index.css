@@ -1512,6 +1512,52 @@ button.queue-counts:active {
   justify-content: center;
 }
 
+/* Far-left column of a sentence row: its number, then the English toggle. */
+.sentence-set-row-lead {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Reverse practice: show the English on its own and translate it back. */
+.sentence-set-en {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--color-text-light);
+  cursor: pointer;
+}
+
+.sentence-set-en:hover {
+  color: var(--color-text);
+  background-color: var(--color-background, #f5f5f5);
+}
+
+.sentence-set-en.is-active {
+  color: var(--color-primary, #3b82f6);
+  border-color: var(--color-primary, #3b82f6);
+}
+
+/* The English standing in as the prompt — the thing you translate from, so
+   it reads at full strength rather than as a revealed answer. */
+.sentence-set-prompt {
+  margin: 0 0 0.25rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--color-text);
+}
+
 .sentence-set-body {
   flex: 1 1 auto;
   min-width: 0;
@@ -1794,6 +1840,10 @@ button.queue-counts:active {
   .sentence-set-pinyin,
   .sentence-set-translation {
     font-size: 0.85rem;
+  }
+
+  .sentence-set-prompt {
+    font-size: 0.95rem;
   }
 }
 
