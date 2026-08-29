@@ -5631,8 +5631,9 @@ app.delete('/api/quests/:id', async (c) => {
 async function getDailyReaderStatus(
   c: { env: Env },
   userId: string,
+  localDate?: string,
 ) {
-  const existing = await db.getDailyReader(c.env.DB, userId);
+  const existing = await db.getDailyReader(c.env.DB, userId, localDate);
   if (!existing) return null;
 
   // Surface a generation that's been stuck > 30 min as failed so the UI can
@@ -5671,8 +5672,9 @@ async function startDailyReader(
   c: { env: Env; executionCtx: { waitUntil: (p: Promise<unknown>) => void } },
   userId: string,
   dueNoteIds: string[],
+  localDate?: string,
 ) {
-  const existing = await db.getDailyReader(c.env.DB, userId);
+  const existing = await db.getDailyReader(c.env.DB, userId, localDate);
 
   // Already generating or ready — return immediately, but treat as failed if stuck > 30 min.
   if (existing && existing.status !== 'failed') {
@@ -5698,8 +5700,8 @@ async function startDailyReader(
 
   // No reservation yet — atomically reserve the slot (skip if already reserved for a retry).
   if (!existing) {
-    const won = await db.reserveDailyReader(c.env.DB, userId, DAILY_READER_SOURCE);
-    if (!won) return await db.getDailyReader(c.env.DB, userId);
+    const won = await db.reserveDailyReader(c.env.DB, userId, DAILY_READER_SOURCE, localDate);
+    if (!won) return await db.getDailyReader(c.env.DB, userId, localDate);
   }
 
   // Today's due words become best-effort TARGET words ('due_cards' mode: the
@@ -5719,7 +5721,7 @@ async function startDailyReader(
     source_deck_ids: deckIds,
     vocabulary_used: dueMode ? targets : vocabulary,
   });
-  await db.setDailyReaderId(c.env.DB, userId, pending.id);
+  await db.setDailyReaderId(c.env.DB, userId, pending.id, localDate);
   // Only the readerId is sent — the consumer loads vocabulary_used from the
   // reader record to stay under the 128 KB Queues message limit.
   c.executionCtx.waitUntil(
@@ -5767,11 +5769,12 @@ function triggerPracticePregen(
 
 app.get('/api/daily/status', async (c) => {
   const userId = c.get('user').id;
+  const localDate = c.req.query('local_date');
   const [nextGrammarPoint, grammarDone, activities, dailyReader] = await Promise.all([
     db.getNextGrammarPoint(c.env.DB, userId),
     db.practiceCompletedToday(c.env.DB, userId),
     db.getDailyActivityStatus(c.env.DB, userId),
-    getDailyReaderStatus(c, userId),
+    getDailyReaderStatus(c, userId, localDate),
   ]);
   if (!grammarDone && nextGrammarPoint) {
     triggerPracticePregen(c, userId, nextGrammarPoint);
@@ -5805,9 +5808,10 @@ app.post('/api/daily/mark', async (c) => {
 // a free story over the learned vocabulary.
 app.post('/api/daily/reader/generate', async (c) => {
   const userId = c.get('user').id;
-  const body = await c.req.json<{ note_ids?: string[] }>().catch(() => ({} as { note_ids?: string[] }));
+  type GenerateBody = { note_ids?: string[]; local_date?: string };
+  const body = await c.req.json<GenerateBody>().catch(() => ({} as GenerateBody));
   const dueNoteIds = Array.isArray(body.note_ids) ? body.note_ids : [];
-  const reader = await startDailyReader(c, userId, dueNoteIds);
+  const reader = await startDailyReader(c, userId, dueNoteIds, body.local_date);
   if (!reader) {
     return c.json(
       { error: 'Not enough learned vocabulary yet. Study some cards first, then try again.' },

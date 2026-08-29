@@ -2671,16 +2671,28 @@ export async function recordDailyActivity(
   `).bind(crypto.randomUUID(), userId, activity, refId).run();
 }
 
+/** The daily-reader slot is keyed to the LEARNER'S local date (sent by the
+ * client as local_date, same convention as the card daily limits). Falling
+ * back to the UTC date made the "new story day" roll over at noon for
+ * timezones like NZ (UTC+12): a late-night session and the next morning
+ * shared one slot, while morning + afternoon sessions got two. */
+function dailyReaderDay(localDate?: string): string {
+  return localDate && /^\d{4}-\d{2}-\d{2}$/.test(localDate)
+    ? localDate
+    : new Date().toISOString().split('T')[0];
+}
+
 export async function getDailyReader(
   db: D1Database,
   userId: string,
+  localDate?: string,
 ): Promise<{ reader_id: string; situation_id: string; status: string; created_at: string | null; error_message: string | null } | null> {
   const r = await db.prepare(`
     SELECT dr.reader_id, dr.situation_id, COALESCE(gr.status, 'generating') AS status, gr.created_at, gr.error_message
     FROM daily_readers dr
     LEFT JOIN graded_readers gr ON gr.id = dr.reader_id
-    WHERE dr.user_id = ? AND dr.date = date('now')
-  `).bind(userId).first<{ reader_id: string; situation_id: string; status: string; created_at: string | null; error_message: string | null }>();
+    WHERE dr.user_id = ? AND dr.date = ?
+  `).bind(userId, dailyReaderDay(localDate)).first<{ reader_id: string; situation_id: string; status: string; created_at: string | null; error_message: string | null }>();
   return r ?? null;
 }
 
@@ -2688,11 +2700,12 @@ export async function reserveDailyReader(
   db: D1Database,
   userId: string,
   situationId: string,
+  localDate?: string,
 ): Promise<boolean> {
   const r = await db.prepare(`
     INSERT OR IGNORE INTO daily_readers (user_id, date, situation_id, reader_id)
-    VALUES (?, date('now'), ?, '')
-  `).bind(userId, situationId).run();
+    VALUES (?, ?, ?, '')
+  `).bind(userId, dailyReaderDay(localDate), situationId).run();
   return (r.meta?.changes ?? 0) > 0;
 }
 
@@ -2700,10 +2713,11 @@ export async function setDailyReaderId(
   db: D1Database,
   userId: string,
   readerId: string,
+  localDate?: string,
 ): Promise<void> {
   await db.prepare(`
-    UPDATE daily_readers SET reader_id = ? WHERE user_id = ? AND date = date('now')
-  `).bind(readerId, userId).run();
+    UPDATE daily_readers SET reader_id = ? WHERE user_id = ? AND date = ?
+  `).bind(readerId, userId, dailyReaderDay(localDate)).run();
 }
 
 export async function getUserDeckIds(db: D1Database, userId: string): Promise<string[]> {

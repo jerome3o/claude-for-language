@@ -1578,17 +1578,21 @@ export interface DailyStatus {
 }
 
 export async function getDailyStatus(): Promise<DailyStatus> {
-  return fetchJSON('/daily/status');
+  // local_date keys the one-story-per-day slot to the learner's local day
+  // (same convention as the card daily limits) — without it the "new story
+  // day" would roll over at UTC midnight, i.e. noon in NZ.
+  return fetchJSON(`/daily/status?local_date=${getLocalDateString()}`);
 }
 
-// Kick off generation of today's reader. Idempotent per day — the study
-// session calls this when it starts (see ensureDailyReader). The note ids of
-// today's due cards are sent so the story can target the words the learner is
-// about to review; an empty list means a free story over learned vocabulary.
+// Kick off generation of today's reader. Idempotent per local day — the study
+// session and the background sync call this (see ensureDailyReader). The note
+// ids of today's due cards are sent so the story can target the words the
+// learner is about to review; an empty list means a free story over learned
+// vocabulary.
 export async function generateDailyReader(dueNoteIds: string[]): Promise<NonNullable<DailyStatus['today_reader']>> {
   return fetchJSON('/daily/reader/generate', {
     method: 'POST',
-    body: JSON.stringify({ note_ids: dueNoteIds }),
+    body: JSON.stringify({ note_ids: dueNoteIds, local_date: getLocalDateString() }),
   });
 }
 

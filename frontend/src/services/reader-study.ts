@@ -153,11 +153,22 @@ export function getReaderIntervalPreviews(reader: LocalReader): Record<Rating, I
   return result;
 }
 
+/** Whether a stored UTC ISO timestamp falls on today's LOCAL date. A string
+ * prefix comparison would use the UTC date, which in timezones ahead of UTC
+ * shifts the "day" boundary to midday (same bug class as
+ * grammarCompletedToday's isSameLocalDay). */
+function isTodayLocal(iso: string): boolean {
+  const d = new Date(iso);
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
 /** Count readers whose first-ever review happened today (for the daily cap). */
 async function countReadersIntroducedToday(): Promise<number> {
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
   const events = await db.readerReviewEvents.toArray();
   const firstReviewByReader = new Map<string, string>();
   for (const e of events) {
@@ -169,7 +180,7 @@ async function countReadersIntroducedToday(): Promise<number> {
 
   let count = 0;
   for (const first of firstReviewByReader.values()) {
-    if (first >= todayStr) count++;
+    if (isTodayLocal(first)) count++;
   }
   return count;
 }
