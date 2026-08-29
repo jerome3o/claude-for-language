@@ -130,7 +130,8 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
 /**
  * Make sure today has a graded reader, generating one in the background if
  * needed. Called when a study session starts (replaces the old home-screen
- * Reader button).
+ * Reader button) AND from the background sync (throttled), so generation
+ * usually starts well before the session reaches the reader slot.
  *
  * No-buildup rule: if an unread (NEW) reader already exists — e.g. yesterday's
  * story was never read — nothing new is generated; that one IS today's reader.

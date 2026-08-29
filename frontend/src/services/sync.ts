@@ -18,7 +18,7 @@ import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates } from '../api/client';
 import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions } from './review-events';
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
-import { syncReadersFromServer, prefetchReaderMedia } from './readerSync';
+import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
 import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
@@ -119,6 +119,9 @@ class SyncService {
   private progressListeners: Set<(progress: SyncProgress | null) => void> = new Set();
   private currentProgress: SyncProgress | null = null;
   private lastSyncDetails: SyncLogEntry['details'] = {};
+  /** Last time syncReaders kicked off ensureDailyReader (throttle). */
+  private lastDailyReaderEnsure = 0;
+  private static readonly DAILY_READER_ENSURE_MS = 30 * 60 * 1000;
 
   private logSync(
     type: SyncLogEntry['type'],
@@ -354,6 +357,18 @@ class SyncService {
       );
     } catch (err) {
       console.error('[Sync] Reader sync failed:', err);
+    }
+    // Kick off today's story generation from the background sync too, not
+    // just at session start — generation takes a few minutes, and a short
+    // session could otherwise end before the story lands (it then silently
+    // becomes tomorrow's reader). Idempotent server-side; throttled here
+    // because sync runs frequently, and skipped entirely while an unread
+    // reader exists (ensureDailyReader's no-buildup check).
+    if (Date.now() - this.lastDailyReaderEnsure > SyncService.DAILY_READER_ENSURE_MS) {
+      this.lastDailyReaderEnsure = Date.now();
+      ensureDailyReader().catch(err =>
+        console.error('[Sync] Daily reader kick-off failed:', err)
+      );
     }
     // Grammar lessons are benched (GRAMMAR_LESSONS_ENABLED) — skipping the
     // sync also stops the /api/practice/upcoming call that kicks off
