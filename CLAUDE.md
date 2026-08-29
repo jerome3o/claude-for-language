@@ -876,11 +876,19 @@ Do NOT skip these steps. CI failures on main break production deploys for everyo
 
 ### PR Merge Policy (Jerome's standing preference)
 
+**Every session Jerome starts ends in a merged PR.** If he asked for a change,
+he wants it opened as a PR and landed — don't stop at a pushed branch and don't
+ask "shall I open a PR?" or "shall I merge?". That is a standing, blanket
+pre-approval: it covers every session, not just the one where he said it.
+
 Once the pre-merge checklist passes locally, open the PR and **merge it
 without asking** (squash) as soon as CI is green — enable GitHub auto-merge
-right after opening when possible, otherwise merge when checks pass. Jerome
-has pre-approved this flow; only pause for genuinely destructive or
-ambiguous changes.
+right after opening when possible, otherwise merge when checks pass. If CI
+fails, fix it and land it; don't hand a red PR back to him. Only pause for
+genuinely destructive or ambiguous changes.
+
+Jerome does not want to be looped in for any of this. Tell him what landed
+when it's done, not what you're about to do.
 
 ### To Deploy
 
