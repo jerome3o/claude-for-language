@@ -196,6 +196,24 @@ body:has(.reader-page) #root {
   min-width: 0;
 }
 
+/* The revealed hanzi is itself the hide control: the whole block (text plus
+   the padding around it) is the hit target, like the pinyin/translation
+   boxes. Keeps a transparent border so the hover state doesn't shift text. */
+.reader-chinese-revealed.tappable {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  min-height: 48px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.reader-chinese-revealed.tappable:hover,
+.reader-chinese-revealed.tappable:active {
+  background-color: #f9fafb;
+  border-color: #e5e7eb;
+}
+
 /* Put the hanzi back behind the cover so you can re-listen and re-test
    yourself without turning the page. Deliberately faint — it's a utility,
    not part of the reading flow. */
