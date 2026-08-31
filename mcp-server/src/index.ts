@@ -620,6 +620,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 - {type:"match", pairs:[{hanzi,pinyin?,english}]} — connect hanzi with meanings (2-8 pairs, no duplicate hanzi/english).
 - {type:"describe_image", image_prompt, task?, reference_hanzi, reference_pinyin?, reference_english?} — an illustration is generated in the background from image_prompt (write it in English, detailed, no text in the image); the learner describes it aloud and self-assesses.
 - {type:"speak", prompt, example?:{hanzi,pinyin?,english?}} — say your own sentence out loud, self-assessed.
+- {type:"listen_choice", audio:{hanzi,pinyin?,english?}, question?, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — LISTENING: the audio hanzi is played via TTS (never shown until answered); the learner picks the option matching what they heard. Ideal for tone/minimal-pair discrimination (e.g. hear 我又去了 and choose 又 vs 有).
+- {type:"listen_translate", audio:{hanzi,pinyin?,english}, note?} — LISTENING: the audio hanzi is played (hidden); the learner translates what they heard, self-assessed against audio.english (required).
 Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-marked pinyin (nǐ hǎo), never tone numbers. Invalid specs are rejected with a list of problems — fix them and retry.`,
       {
         title: z.string().describe("Short lesson title, e.g. 'Ordering at a café'"),

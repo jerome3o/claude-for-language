@@ -103,7 +103,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── validate.ts    # Playability checks for generated worlds
 │   │   └── index.ts       # Re-exports
 │   └── lesson/            # Custom mini lessons: agent-authored lesson schema
-│       ├── types.ts       # Lesson spec (sections of exercises, 7 exercise types)
+│       ├── types.ts       # Lesson spec (sections of exercises, 9 exercise types)
 │       ├── validate.ts    # Structural validation for agent-authored specs
 │       └── index.ts       # Re-exports
 │
@@ -638,8 +638,11 @@ The generalized successor to the fixed-phase grammar lesson: a **schema-driven l
 exercises of any type. Exercise types: `note` (teaching text + example sentences with TTS),
 `scramble` (word order), `choice` (multiple choice), `translate` (EN→ZH, self-assessed),
 `match` (connect hanzi↔English pairs), `describe_image` (an illustration is generated from
-`image_prompt` via the image queue; the learner describes it aloud, self-assessed), and
-`speak` (say your own sentence, self-assessed). Specs are validated with
+`image_prompt` via the image queue; the learner describes it aloud, self-assessed),
+`speak` (say your own sentence, self-assessed), `listen_choice` (LISTENING: audio plays with
+the text hidden, pick the matching option — built for tone/minimal-pair discrimination like
+有 yǒu vs 又 yòu), and `listen_translate` (LISTENING: audio plays hidden, translate what you
+heard, self-assessed). Specs are validated with
 `validateLessonSpec` before storage; invalid specs come back with a list of problems so the
 agent can repair and retry.
 

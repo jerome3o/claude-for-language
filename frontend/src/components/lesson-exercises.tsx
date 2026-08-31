@@ -500,6 +500,150 @@ export function SpeakPromptExercise(props: {
   );
 }
 
+// ============ Listening: pick what you heard ============
+
+/** Big replayable play button shared by the listening exercises. The played
+ * text is never rendered next to it — hearing it IS the exercise. */
+function ListenPlayButton(props: { text: string; speak: Speak }) {
+  const { text, speak } = props;
+  // Auto-play once on mount so the exercise starts in the ear, not the eye.
+  useEffect(() => {
+    speak(text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <button className="listen-play-btn" onClick={() => speak(text)} aria-label="Play audio">
+      🔊
+      <span className="listen-play-hint">Tap to replay</span>
+    </button>
+  );
+}
+
+export function ListenChoiceExercise(props: {
+  audio: ExerciseSentence;
+  question?: string;
+  options: ExerciseSentence[];
+  correctIndex: number;
+  explanation?: string;
+  speak: Speak;
+  onNext: (correct: boolean) => void;
+}) {
+  const { audio, question, options, correctIndex, explanation, speak, onNext } = props;
+  const [choice, setChoice] = useState<number | null>(null);
+  const [optionOrder] = useState(() => shuffledIndexes(options.length));
+  const result = choice === null ? null : choice === correctIndex;
+
+  return (
+    <div className="exercise">
+      <div className="phase-label">What do you hear?</div>
+      {question && <div className="contrast-context">{question}</div>}
+      <ListenPlayButton text={audio.hanzi} speak={speak} />
+      {optionOrder.map(index => {
+        const s = options[index];
+        const cls =
+          result === null ? '' : index === correctIndex ? 'correct' : index === choice ? 'wrong' : '';
+        return (
+          <button
+            key={index}
+            className={`contrast-option ${cls}`}
+            // After answering, tapping an option speaks it — hearing the
+            // contrast between the choices is the point of the exercise.
+            onClick={() => (result === null ? setChoice(index) : speak(s.hanzi))}
+          >
+            <div className="contrast-hanzi">{s.hanzi}</div>
+            {/* Pinyin/English only after answering — they'd give the audio away */}
+            {result !== null && s.pinyin && <div className="contrast-pinyin">{s.pinyin}</div>}
+            {result !== null && s.english && <div className="contrast-english">{s.english}</div>}
+          </button>
+        );
+      })}
+      {result !== null && (
+        <>
+          <div className={`result-banner ${result ? 'correct' : 'wrong'}`}>
+            {result ? '✓ Correct' : '✗ Not quite'}
+          </div>
+          <div className="translate-ref">
+            <div className="translate-ref-hanzi" onClick={() => speak(audio.hanzi)}>
+              {audio.hanzi} 🔊
+            </div>
+            {audio.pinyin && <div className="translate-ref-pinyin">{audio.pinyin}</div>}
+            {audio.english && <div className="contrast-english">{audio.english}</div>}
+          </div>
+          {explanation && <p className="result-explanation">{explanation}</p>}
+          <div className="exercise-actions">
+            <button className="practice-btn primary" onClick={() => onNext(result)}>
+              Continue
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============ Listening: translate what you heard (self-assessed) ============
+
+export function ListenTranslateExercise(props: {
+  audio: ExerciseSentence;
+  note?: string;
+  speak: Speak;
+  onNext: (correct: boolean) => void;
+}) {
+  const { audio, note, speak, onNext } = props;
+  const [answer, setAnswer] = useState('');
+  const [revealed, setRevealed] = useState(false);
+
+  return (
+    <div className="exercise">
+      <div className="phase-label">Listen and translate</div>
+      <ListenPlayButton text={audio.hanzi} speak={speak} />
+      {!revealed ? (
+        <>
+          <textarea
+            className="translate-input"
+            value={answer}
+            onChange={e => setAnswer(e.target.value)}
+            placeholder="What did it mean? Type it or say it in your head…"
+            rows={3}
+          />
+          <div className="exercise-actions">
+            <button className="practice-btn primary" onClick={() => setRevealed(true)}>
+              Show answer
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {answer.trim() && (
+            <div className="speak-transcript">
+              <div className="speak-transcript-label">Your answer</div>
+              <div className="speak-transcript-text">{answer.trim()}</div>
+            </div>
+          )}
+          <div className="translate-ref">
+            <div className="translate-ref-hanzi" onClick={() => speak(audio.hanzi)}>
+              {audio.hanzi} 🔊
+            </div>
+            {audio.pinyin && <div className="translate-ref-pinyin">{audio.pinyin}</div>}
+            {audio.english && <div className="contrast-english">{audio.english}</div>}
+          </div>
+          <p className="result-explanation">
+            {note || 'Did you catch the meaning? (Different wording is fine.)'}
+          </p>
+          <div className="exercise-actions">
+            <button className="practice-btn" onClick={() => onNext(false)}>
+              ✗ Missed it
+            </button>
+            <button className="practice-btn primary" onClick={() => onNext(true)}>
+              ✓ Got it
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ============ Teaching note (not scored) ============
 
 export function LessonNoteCard(props: {

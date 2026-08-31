@@ -40,6 +40,8 @@ export const LESSON_SPEC_INPUT_SCHEMA = {
 - {type:"match", pairs:[{hanzi,pinyin?,english}]} — connect hanzi with meanings (2-8 pairs, no duplicates).
 - {type:"describe_image", image_prompt, task?, reference_hanzi, reference_pinyin?, reference_english?} — an illustration is generated from image_prompt (English, detailed, no text in image); the learner describes it aloud and self-assesses.
 - {type:"speak", prompt, example?:{hanzi,pinyin?,english?}} — say your own sentence out loud, self-assessed.
+- {type:"listen_choice", audio:{hanzi,pinyin?,english?}, question?, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — LISTENING: the audio hanzi is played (never shown until answered); pick the option that matches what you heard. Ideal for tone/minimal-pair discrimination (e.g. hear 我又去了 and choose 又 vs 有).
+- {type:"listen_translate", audio:{hanzi,pinyin?,english}, note?} — LISTENING: the audio hanzi is played (hidden); translate what you heard, self-assessed against audio.english (required).
 Always use tone-marked pinyin (nǐ hǎo), never tone numbers.`,
             items: { type: 'object' },
           },
