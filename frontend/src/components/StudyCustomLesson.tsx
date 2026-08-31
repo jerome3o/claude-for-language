@@ -21,6 +21,8 @@ import {
   MatchExercise,
   DescribeImageExercise,
   SpeakPromptExercise,
+  ListenChoiceExercise,
+  ListenTranslateExercise,
   LessonNoteCard,
 } from './lesson-exercises';
 import { getTTSWithCache } from '../services/ttsCache';
@@ -188,6 +190,29 @@ export function StudyCustomLesson({
             key={key}
             prompt={exercise.prompt}
             example={exercise.example}
+            speak={speak}
+            onNext={correct => advance(correct)}
+          />
+        );
+      case 'listen_choice':
+        return (
+          <ListenChoiceExercise
+            key={key}
+            audio={exercise.audio}
+            question={exercise.question}
+            options={exercise.options}
+            correctIndex={exercise.correct}
+            explanation={exercise.explanation}
+            speak={speak}
+            onNext={correct => advance(correct)}
+          />
+        );
+      case 'listen_translate':
+        return (
+          <ListenTranslateExercise
+            key={key}
+            audio={exercise.audio}
+            note={exercise.note}
             speak={speak}
             onNext={correct => advance(correct)}
           />

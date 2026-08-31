@@ -167,3 +167,35 @@
 .study-card-content .practice-page {
   width: 100%;
 }
+
+/* ---- Listening exercises ---- */
+
+/* Big replayable speaker — the audio is the prompt, so make it inviting and
+ * easy to hit repeatedly (tone pairs need several listens). */
+.listen-play-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  align-self: center;
+  margin: 0.5rem auto 0.75rem;
+  padding: 0.9rem 2.25rem;
+  min-height: 44px;
+  font-size: 2rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: #eff6ff;
+  cursor: pointer;
+  transition: background-color 0.15s, transform 0.1s;
+}
+
+.listen-play-btn:active {
+  background: #dbeafe;
+  transform: scale(0.97);
+}
+
+.listen-play-hint {
+  font-size: 0.7rem;
+  color: #6b7280;
+  letter-spacing: 0.02em;
+}

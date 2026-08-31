@@ -72,6 +72,8 @@ const EXERCISE_LABELS: Record<LessonExercise['type'], string> = {
   match: '🔗 Match',
   describe_image: '🖼 Describe picture',
   speak: '🎤 Speak',
+  listen_choice: '👂 Listen & pick',
+  listen_translate: '👂 Listen & translate',
 };
 
 function exerciseSummary(ex: LessonExercise): string {
@@ -90,6 +92,10 @@ function exerciseSummary(ex: LessonExercise): string {
       return ex.task || ex.reference_hanzi;
     case 'speak':
       return ex.prompt;
+    case 'listen_choice':
+      return ex.question || ex.audio.hanzi;
+    case 'listen_translate':
+      return ex.audio.hanzi;
   }
 }
 

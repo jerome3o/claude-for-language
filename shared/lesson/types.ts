@@ -87,6 +87,33 @@ export interface SpeakExerciseSpec {
   example?: LessonSentence;
 }
 
+/** Listening comprehension: audio plays with the text HIDDEN; pick the option
+ * that matches what you heard. Built for minimal pairs and tone discrimination
+ * (有 yǒu vs 又 yòu): options show their hanzi only until answered, then the
+ * played sentence and each option's pinyin/english are revealed. */
+export interface ListenChoiceExerciseSpec {
+  type: 'listen_choice';
+  /** What is PLAYED (hanzi → TTS). Not shown until after answering. */
+  audio: LessonSentence;
+  /** Optional instruction, e.g. "Which word did you hear?" */
+  question?: string;
+  options: LessonSentence[];
+  /** Index into options. */
+  correct: number;
+  explanation?: string;
+}
+
+/** Listening comprehension: audio plays with the text HIDDEN; translate what
+ * you heard into English, self-assessed against the sentence's translation. */
+export interface ListenTranslateExerciseSpec {
+  type: 'listen_translate';
+  /** What is PLAYED. Requires english (the answer); hanzi/pinyin/english are
+   * revealed on check. */
+  audio: LessonSentence;
+  /** Optional guidance shown with the answer. */
+  note?: string;
+}
+
 export type LessonExercise =
   | NoteExercise
   | ScrambleExerciseSpec
@@ -94,7 +121,9 @@ export type LessonExercise =
   | TranslateExerciseSpec
   | MatchExerciseSpec
   | DescribeImageExerciseSpec
-  | SpeakExerciseSpec;
+  | SpeakExerciseSpec
+  | ListenChoiceExerciseSpec
+  | ListenTranslateExerciseSpec;
 
 export interface LessonSection {
   title?: string;
@@ -110,7 +139,7 @@ export interface CustomLessonSpec {
 }
 
 /** Exercise types that contribute to the lesson score. */
-const SCOREABLE = new Set(['scramble', 'choice', 'translate', 'match', 'describe_image', 'speak']);
+const SCOREABLE = new Set(['scramble', 'choice', 'translate', 'match', 'describe_image', 'speak', 'listen_choice', 'listen_translate']);
 
 export function isScoreable(exercise: LessonExercise): boolean {
   return SCOREABLE.has(exercise.type);
@@ -149,6 +178,15 @@ export function lessonTtsTexts(spec: CustomLessonSpec): string[] {
           break;
         case 'speak':
           if (ex.example) texts.push(ex.example.hanzi);
+          break;
+        case 'listen_choice':
+          // The played audio is the exercise; option hanzi are speakable after
+          // answering, so cache those too.
+          texts.push(ex.audio.hanzi);
+          for (const o of ex.options) texts.push(o.hanzi);
+          break;
+        case 'listen_translate':
+          texts.push(ex.audio.hanzi);
           break;
       }
     }

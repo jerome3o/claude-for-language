@@ -49,6 +49,18 @@ const validSpec: CustomLessonSpec = {
           reference_hanzi: '服务员给客人两杯咖啡。',
         },
         { type: 'speak', prompt: 'Order your own drink out loud.', example: { hanzi: '我要一杯热茶。' } },
+        {
+          type: 'listen_choice',
+          audio: { hanzi: '我又喝了一杯咖啡。', pinyin: 'wǒ yòu hē le yì bēi kā fēi.', english: 'I drank another cup of coffee.' },
+          question: 'Which word did you hear?',
+          options: [{ hanzi: '又', english: 'again' }, { hanzi: '有', english: 'have' }],
+          correct: 0,
+          explanation: '又 yòu (4th tone, falling) vs 有 yǒu (3rd tone, dipping).',
+        },
+        {
+          type: 'listen_translate',
+          audio: { hanzi: '你要不要再来一杯？', english: 'Do you want another cup?' },
+        },
       ],
     },
   ],
@@ -94,6 +106,23 @@ describe('validateLessonSpec', () => {
     expect(errors.some(e => e.includes('ambiguous'))).toBe(true);
   });
 
+  it('rejects listening exercises missing their audio or answer', () => {
+    const errors = validateLessonSpec({
+      title: 'x',
+      sections: [{
+        exercises: [
+          { type: 'listen_choice', options: [{ hanzi: '又' }, { hanzi: '有' }], correct: 0 },
+          { type: 'listen_choice', audio: { hanzi: '我又去了' }, options: [{ hanzi: '又' }, { hanzi: '有' }], correct: 5 },
+          // listen_translate needs english on the audio — it IS the answer
+          { type: 'listen_translate', audio: { hanzi: '我有三本书。' } },
+        ],
+      }],
+    });
+    expect(errors.some(e => e.includes('exercises[0].audio'))).toBe(true);
+    expect(errors.some(e => e.includes('option index'))).toBe(true);
+    expect(errors.some(e => e.includes('needs "english"'))).toBe(true);
+  });
+
   it('rejects unknown exercise types with a helpful message', () => {
     const errors = validateLessonSpec({
       title: 'x',
@@ -105,8 +134,9 @@ describe('validateLessonSpec', () => {
 
 describe('spec helpers', () => {
   it('counts only scoreable exercises', () => {
-    // note is not scoreable; match, scramble, choice, translate, describe_image, speak are
-    expect(countScoreable(validSpec)).toBe(6);
+    // note is not scoreable; match, scramble, choice, translate,
+    // describe_image, speak, listen_choice, listen_translate are
+    expect(countScoreable(validSpec)).toBe(8);
   });
 
   it('collects every hanzi that needs TTS', () => {
@@ -117,5 +147,8 @@ describe('spec helpers', () => {
     expect(texts).toContain('请给我两杯咖啡。');      // translate reference
     expect(texts).toContain('服务员给客人两杯咖啡。'); // describe_image reference
     expect(texts).toContain('我要一杯热茶。');        // speak example
+    expect(texts).toContain('我又喝了一杯咖啡。');    // listen_choice audio
+    expect(texts).toContain('又');                    // listen_choice option
+    expect(texts).toContain('你要不要再来一杯？');    // listen_translate audio
   });
 });

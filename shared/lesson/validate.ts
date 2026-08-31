@@ -124,9 +124,30 @@ function checkExercise(ex: unknown, where: string, errors: string[]): void {
       if (ex.example !== undefined) checkSentence(ex.example, `${where}.example`, errors);
       break;
     }
+    case 'listen_choice': {
+      checkSentence(ex.audio, `${where}.audio`, errors);
+      const options = ex.options as unknown;
+      if (!Array.isArray(options) || options.length < 2 || options.length > 5) {
+        errors.push(`${where}: "options" must be 2-5 sentences`);
+      } else {
+        options.forEach((o, i) => checkSentence(o, `${where}.options[${i}]`, errors));
+        const correct = ex.correct;
+        if (typeof correct !== 'number' || !Number.isInteger(correct) || correct < 0 || correct >= options.length) {
+          errors.push(`${where}: "correct" must be an option index (0-${options.length - 1})`);
+        }
+      }
+      break;
+    }
+    case 'listen_translate': {
+      checkSentence(ex.audio, `${where}.audio`, errors);
+      if (isRecord(ex.audio) && !nonEmptyString(ex.audio.english)) {
+        errors.push(`${where}: listen_translate "audio" needs "english" (the translation to check against)`);
+      }
+      break;
+    }
     default:
       errors.push(
-        `${where}: unknown exercise type "${String(ex.type)}" (valid: note, scramble, choice, translate, match, describe_image, speak)`
+        `${where}: unknown exercise type "${String(ex.type)}" (valid: note, scramble, choice, translate, match, describe_image, speak, listen_choice, listen_translate)`
       );
   }
 }
