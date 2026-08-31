@@ -14,6 +14,29 @@ export const BUILD_TIME = import.meta.env.VITE_BUILD_TIME || 'unknown';
 
 const HOURLY = 60 * 60 * 1000;
 
+/**
+ * Screens where an automatic reload would destroy in-flight state: a study
+ * session (in-memory queue, current card, reader progress), reading or
+ * editing a graded reader, playing a quest, or composing in the coach /
+ * tutor chat / AI-generation forms. On these the update reload is DEFERRED
+ * until the user navigates somewhere harmless (home, lists, settings…) —
+ * which every session eventually does. Everything not listed reloads
+ * immediately, so updates still apply promptly.
+ */
+const UNSAFE_ROUTES: RegExp[] = [
+  /^\/study(\/|$)/,   // study session (cards, readers, lessons mid-flight)
+  /^\/readers\/.+/,   // reading or editing a reader; the /readers list is fine
+  /^\/quests\/.+/,    // mid-quest; the /quests list is fine
+  /^\/coach(\/|$)/,   // coach conversation + draft input
+  /^\/generate(\/|$)/, // deck generation form
+  /^\/analyze(\/|$)/, // sentence analysis input
+  /\/chat\//,         // tutor-student chat (draft message)
+];
+
+function reloadIsDisruptive(): boolean {
+  return UNSAFE_ROUTES.some(r => r.test(window.location.pathname));
+}
+
 export function initAutoUpdate(): void {
   if (!('serviceWorker' in navigator)) return;
 
@@ -21,14 +44,36 @@ export function initAutoUpdate(): void {
   // only reload for genuine updates of an already-controlled page.
   let hadController = !!navigator.serviceWorker.controller;
   let reloading = false;
+  let deferPoll: ReturnType<typeof setInterval> | null = null;
+
+  const reloadNow = () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  };
+
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController) {
       hadController = true;
       return;
     }
-    if (reloading) return;
-    reloading = true;
-    window.location.reload();
+    if (reloading || deferPoll) return;
+    if (!reloadIsDisruptive()) {
+      reloadNow();
+      return;
+    }
+    // Mid-activity: hold the reload and apply it as soon as the user lands
+    // on a safe screen. (Router navigations don't fire a global event, so
+    // poll the pathname — cheap, and it only runs while an update is
+    // pending.) Note the new service worker HAS already taken control, so
+    // a not-yet-visited lazy chunk could fail to load until this fires;
+    // the ErrorBoundary's reload button covers that rare corner.
+    deferPoll = setInterval(() => {
+      if (!reloadIsDisruptive()) {
+        if (deferPoll) clearInterval(deferPoll);
+        reloadNow();
+      }
+    }, 3000);
   });
 
   const check = () => {
