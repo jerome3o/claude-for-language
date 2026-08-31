@@ -85,15 +85,23 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
       <div className="reader-text-content">
         <div className="reader-chinese-section">
           {showChinese ? (
-            <div className="reader-chinese-revealed">
+            // Whole block is the hit target, same as the pinyin/translation
+            // boxes below — tap anywhere on (or around) the hanzi to hide it
+            // again. Nothing inside is individually tappable here.
+            <div
+              className="reader-chinese-revealed tappable"
+              onClick={() => setShowChinese(false)}
+              role="button"
+              tabIndex={0}
+              aria-label="Hide Chinese"
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setShowChinese(false);
+                }
+              }}
+            >
               <div className="reader-chinese-text">{page.content_chinese}</div>
-              <button
-                type="button"
-                className="reader-chinese-hide-btn"
-                onClick={() => setShowChinese(false)}
-              >
-                Hide Chinese
-              </button>
             </div>
           ) : (
             <div className="reader-chinese-reveal-box" onClick={() => setShowChinese(true)}>

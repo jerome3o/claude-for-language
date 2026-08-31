@@ -271,14 +271,24 @@ function PageView({
               Tap to reveal Chinese
             </div>
           ) : (
-            <div className="reader-chinese-revealed">
+            // Tapping anywhere in the block that isn't a word/sentence hides
+            // the Chinese again, matching the pinyin/translation boxes. The
+            // hanzi themselves keep their own tap actions (add card / analyze),
+            // so those stop the click from bubbling up to the hide handler.
+            <div
+              className="reader-chinese-revealed tappable"
+              onClick={() => setShowChinese(false)}
+            >
               <div className="reader-chinese-text">
                 {segments ? (
                   segments.map((chunk, i) => (
                     <span
                       key={i}
                       className="reader-word-segment"
-                      onClick={() => onAddChunk({ hanzi: chunk.hanzi, pinyin: chunk.pinyin, english: chunk.english })}
+                      onClick={e => {
+                        e.stopPropagation();
+                        onAddChunk({ hanzi: chunk.hanzi, pinyin: chunk.pinyin, english: chunk.english });
+                      }}
                     >
                       {chunk.hanzi}
                     </span>
@@ -287,7 +297,10 @@ function PageView({
                   sentences.map((sentence, index) => (
                     <span
                       key={index}
-                      onClick={() => onAnalyzeSentence(sentence)}
+                      onClick={e => {
+                        e.stopPropagation();
+                        onAnalyzeSentence(sentence);
+                      }}
                       className="reader-sentence"
                     >
                       {sentence}
