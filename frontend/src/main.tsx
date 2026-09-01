@@ -6,7 +6,7 @@ import { initConsoleBuffer } from './utils/consoleBuffer';
 import { initDebugConsole } from './utils/debugConsole';
 import { initAutoUpdate } from './utils/appUpdates';
 import { setDiagnosticsContext } from './utils/audioDiagnostics';
-import { livePlayerCount } from './utils/audioPlayback';
+import { livePlayerCount, warmAudioOutput } from './utils/audioPlayback';
 import { getPrefetchStatus } from './services/audioPrefetch';
 import { getManualOfflineMode } from './services/offlineMode';
 
@@ -24,6 +24,10 @@ setDiagnosticsContext({
   prefetchStatus: getPrefetchStatus,
   offlineMode: getManualOfflineMode,
 });
+
+// Opening the audio output takes a moment and can only be done from a user
+// gesture, so do it on the first tap — long before a card needs to play.
+document.addEventListener('pointerdown', warmAudioOutput, { once: true });
 
 // Pick up new deploys automatically (on app focus + hourly)
 initAutoUpdate();
