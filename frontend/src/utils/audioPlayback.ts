@@ -23,6 +23,58 @@ export function livePlayerCount(): number {
   return livePlayers;
 }
 
+// ---- Playback activity, so background work can keep out of the way ----
+//
+// Bulk media caching (sentence sets, the offline prefetcher) downloads several
+// clips at once and writes each into IndexedDB. Doing that while a clip is
+// playing starves the media pipeline of network, disk and main thread, and the
+// clip comes out choppy. Playback is user-facing and lasts a second or two;
+// caching is background work with no deadline. So caching yields to playback.
+
+let activeClips = 0;
+const idleWaiters = new Set<() => void>();
+
+function clipStarted() {
+  activeClips++;
+}
+
+function clipStopped() {
+  activeClips = Math.max(0, activeClips - 1);
+  if (activeClips === 0) {
+    const waiters = [...idleWaiters];
+    idleWaiters.clear();
+    waiters.forEach(resolve => resolve());
+  }
+}
+
+/** True while any player has a clip in flight. */
+export function isAudioPlaying(): boolean {
+  return activeClips > 0;
+}
+
+/**
+ * Resolve once nothing is playing. Background cache fills await this before
+ * each batch so they slot into the gaps between clips.
+ *
+ * Capped: if audio somehow never goes quiet, caching resumes anyway rather
+ * than stalling forever.
+ */
+export function whenAudioIdle(maxWaitMs = 15_000): Promise<void> {
+  if (activeClips === 0) return Promise.resolve();
+  return new Promise<void>(resolve => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      idleWaiters.delete(done);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(done, maxWaitMs);
+    idleWaiters.add(done);
+  });
+}
+
 export interface PlayHandlers {
   onPlay?: () => void;
   onEnded?: () => void;
@@ -74,9 +126,24 @@ export function createAudioPlayer(): AudioPlayer {
   let objectUrl: string | null = null;
   let playId = 0;
   let tracker: ClipTracker | null = null;
+  // At most one clip per player is ever counted as active.
+  let clipActive = false;
+
+  function markActive() {
+    if (clipActive) return;
+    clipActive = true;
+    clipStarted();
+  }
+
+  function markInactive() {
+    if (!clipActive) return;
+    clipActive = false;
+    clipStopped();
+  }
 
   /** Release the current source: detach handlers, free the decoder and the blob. */
   function release() {
+    markInactive();
     if (tracker) {
       tracker.finish();
       tracker = null;
@@ -121,16 +188,19 @@ export function createAudioPlayer(): AudioPlayer {
 
       tracker = trackClip(el, source, handlers.label ?? 'unknown');
       const clip = tracker;
+      markActive();
 
       el.onplay = () => {
         if (playId === id) handlers.onPlay?.();
       };
       el.onended = () => {
         clip.finish({ ended: true });
+        if (playId === id) markInactive();
         if (playId === id) handlers.onEnded?.();
       };
       el.onerror = () => {
         clip.finish({ error: describeMediaError(el) });
+        if (playId === id) markInactive();
         if (playId === id) handlers.onError?.();
       };
 
@@ -141,6 +211,7 @@ export function createAudioPlayer(): AudioPlayer {
           // An aborted play (superseded by the next clip) is not an error.
           if (playId !== id) return;
           clip.finish({ error: err instanceof Error ? err.name : 'play-rejected' });
+          markInactive();
           handlers.onError?.();
         });
       }
