@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createAudioPlayer } from './audioPlayback';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createAudioPlayer, isAudioPlaying, whenAudioIdle, AudioPlayer } from './audioPlayback';
 
 /**
  * The point of these tests is resource hygiene: one element, and every object
@@ -93,9 +93,22 @@ beforeEach(() => {
 
 const blob = () => new Blob(['audio'], { type: 'audio/mpeg' });
 
+// Playback activity is tracked module-wide, so every player a test creates has
+// to be released or it leaks into the next one.
+const players: AudioPlayer[] = [];
+function newPlayer(): AudioPlayer {
+  const player = createAudioPlayer();
+  players.push(player);
+  return player;
+}
+
+afterEach(() => {
+  players.splice(0).forEach(player => player.dispose());
+});
+
 describe('createAudioPlayer', () => {
   it('reuses a single element across many clips', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     for (let i = 0; i < 50; i++) {
       player.play(blob());
     }
@@ -103,7 +116,7 @@ describe('createAudioPlayer', () => {
   });
 
   it('revokes the previous object URL before playing the next clip', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     player.play(blob());
     player.play(blob());
     player.play(blob());
@@ -117,7 +130,7 @@ describe('createAudioPlayer', () => {
   });
 
   it('releases the media resource on stop, not just pause', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     player.play(blob());
     player.stop();
 
@@ -128,14 +141,14 @@ describe('createAudioPlayer', () => {
   });
 
   it('does not create object URLs for plain URL sources', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     player.play('https://example.test/clip.mp3');
     expect(objectUrls).toHaveLength(0);
     expect(created[0].src).toBe('https://example.test/clip.mp3');
   });
 
   it('only fires handlers for the current clip', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     const first = { onEnded: vi.fn() };
     const second = { onEnded: vi.fn() };
 
@@ -153,7 +166,7 @@ describe('createAudioPlayer', () => {
   });
 
   it('claim() supersedes in-flight async work', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     const stale = player.claim();
     const fresh = player.claim();
 
@@ -162,7 +175,7 @@ describe('createAudioPlayer', () => {
   });
 
   it('claim() stops whatever is currently playing', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     player.play(blob());
     player.claim();
 
@@ -171,7 +184,7 @@ describe('createAudioPlayer', () => {
   });
 
   it('dispose() releases the element and its URL', () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     player.play(blob());
     player.dispose();
 
@@ -185,7 +198,7 @@ describe('createAudioPlayer', () => {
   });
 
   it('reports a rejected play() as an error', async () => {
-    const player = createAudioPlayer();
+    const player = newPlayer();
     const onError = vi.fn();
     vi.stubGlobal('Audio', function Audio() {
       const el = makeFakeAudio();
@@ -197,5 +210,87 @@ describe('createAudioPlayer', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(onError).toHaveBeenCalled();
+  });
+});
+
+describe('playback activity gate', () => {
+  it('is idle before anything plays', async () => {
+    expect(isAudioPlaying()).toBe(false);
+    await expect(whenAudioIdle()).resolves.toBeUndefined();
+  });
+
+  it('reports playing while a clip is in flight', () => {
+    const player = newPlayer();
+    player.play(blob());
+    expect(isAudioPlaying()).toBe(true);
+
+    player.stop();
+    expect(isAudioPlaying()).toBe(false);
+  });
+
+  it('holds background work until the clip ends', async () => {
+    const player = newPlayer();
+    player.play(blob());
+
+    let released = false;
+    const waiting = whenAudioIdle().then(() => { released = true; });
+
+    await Promise.resolve();
+    expect(released).toBe(false);
+
+    created[0].onended?.();
+    await waiting;
+    expect(released).toBe(true);
+  });
+
+  it('releases waiters when playback errors rather than ends', async () => {
+    const player = newPlayer();
+    player.play(blob());
+    const waiting = whenAudioIdle();
+
+    created[0].onerror?.();
+    await expect(waiting).resolves.toBeUndefined();
+    expect(isAudioPlaying()).toBe(false);
+  });
+
+  it('does not double-count a player that replaces its own clip', () => {
+    const player = newPlayer();
+    player.play(blob());
+    player.play(blob());
+    player.play(blob());
+    expect(isAudioPlaying()).toBe(true);
+
+    // One stop is enough — the player only ever holds one active clip.
+    player.stop();
+    expect(isAudioPlaying()).toBe(false);
+  });
+
+  it('counts players independently', () => {
+    const a = newPlayer();
+    const b = newPlayer();
+    a.play(blob());
+    b.play(blob());
+
+    a.stop();
+    expect(isAudioPlaying()).toBe(true);
+    b.dispose();
+    expect(isAudioPlaying()).toBe(false);
+  });
+
+  it('gives up waiting rather than stalling caching forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const player = newPlayer();
+      player.play(blob()); // never ends
+
+      let released = false;
+      const waiting = whenAudioIdle(1000).then(() => { released = true; });
+
+      await vi.advanceTimersByTimeAsync(1001);
+      await waiting;
+      expect(released).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

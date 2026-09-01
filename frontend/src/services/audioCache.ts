@@ -1,6 +1,7 @@
 import { db } from '../db/database';
 import { API_BASE } from '../api/client';
 import { DEFAULT_TTS_SPEED } from '../types';
+import { whenAudioIdle } from '../utils/audioPlayback';
 
 // Size budget for the audio cache. Audio clips are small (~30-60KB), so this
 // comfortably fits every clip the user owns (Jerome is fine with ~1GB).
@@ -124,9 +125,14 @@ export async function preCacheAudio(audioUrls: string[]): Promise<void> {
   const cachedKeys = await getCachedAudioKeys();
   const uncachedUrls = audioUrls.filter((url) => url && !cachedKeys.has(url));
 
-  // Fetch and cache uncached URLs (in parallel, but limited)
+  // Fetch and cache uncached URLs (in parallel, but limited).
+  // This runs on card reveal (a note's sentence set is cached as soon as it is
+  // fetched), which is exactly when the answer audio starts playing. Five
+  // parallel downloads plus five IndexedDB writes made that first clip choppy,
+  // so each batch waits for playback to finish first.
   const BATCH_SIZE = 5;
   for (let i = 0; i < uncachedUrls.length; i += BATCH_SIZE) {
+    await whenAudioIdle();
     const batch = uncachedUrls.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(url => getAudioWithCache(url)));
   }

@@ -56,6 +56,14 @@ export interface AudioClipRecord {
   stutter_ms: number;
   /** Longest single gap, in ms. */
   worst_gap_ms: number;
+  /**
+   * Worst lateness of the sampling timer, in ms. The sampler is scheduled on a
+   * fixed interval, so a late tick means the main thread was busy. High values
+   * alongside stutter point at work blocking the page (bulk caching, a big
+   * render); punctual ticks alongside stutter point at the media pipeline
+   * itself being starved.
+   */
+  worst_timer_late_ms: number;
   samples: number;
   /** Live <audio> elements at the time — a leak check. */
   players_live: number;
@@ -135,6 +143,7 @@ export function trackClip(
     stalls: 0,
     stutter_ms: 0,
     worst_gap_ms: 0,
+    worst_timer_late_ms: 0,
     samples: 0,
     players_live: context.playersLive(),
     prefetch: context.prefetchStatus(),
@@ -162,6 +171,13 @@ export function trackClip(
     const mediaDelta = (element.currentTime - lastMedia) * 1000;
     lastWall = now;
     lastMedia = element.currentTime;
+
+    // A tick that arrives late means the main thread was blocked for at least
+    // that long — recorded whether or not the clip itself stuttered.
+    const timerLate = Math.round(wallDelta - SAMPLE_MS);
+    if (timerLate > 0) {
+      record.worst_timer_late_ms = Math.max(record.worst_timer_late_ms, timerLate);
+    }
 
     // Before the first frame, "not advancing" is startup latency, which
     // start_ms already covers — only count gaps once audio is flowing.
@@ -213,6 +229,9 @@ export interface AudioDiagnosticsSummary {
   max_players_live: number;
   choppy_while_prefetching: number;
   choppy_from_network: number;
+  /** Choppy clips where the main thread was also visibly blocked. */
+  choppy_with_main_thread_block: number;
+  worst_timer_late_ms: number;
 }
 
 function median(values: number[]): number | null {
@@ -254,6 +273,10 @@ export function summarize(list: AudioClipRecord[]): AudioDiagnosticsSummary {
     // background prefetch, or to streaming instead of playing from cache?
     choppy_while_prefetching: choppy.filter((r) => r.prefetch === 'running').length,
     choppy_from_network: choppy.filter((r) => r.source === 'url').length,
+    // Distinguishes "something blocked the page" from "the media pipeline was
+    // starved" — the two look identical to the ear.
+    choppy_with_main_thread_block: choppy.filter((r) => r.worst_timer_late_ms >= 100).length,
+    worst_timer_late_ms: list.reduce((max, r) => Math.max(max, r.worst_timer_late_ms), 0),
   };
 }
 

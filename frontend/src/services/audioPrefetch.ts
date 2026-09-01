@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { getAudioWithCache, getCachedAudioKeys } from './audioCache';
+import { whenAudioIdle } from '../utils/audioPlayback';
 
 /**
  * Audio prefetch service: downloads every audio clip the user owns into the
@@ -136,7 +137,12 @@ export async function prefetchAllAudio(options: { force?: boolean } = {}): Promi
     async function worker() {
       while (nextIndex < missing.length) {
         if (!navigator.onLine) return; // connection dropped — resume on next run
+        // Claim the index synchronously: awaiting first would let the other
+        // workers advance nextIndex past the end while this one is parked.
         const url = missing[nextIndex++];
+        // Never download over the top of playback — see whenAudioIdle.
+        await whenAudioIdle();
+        if (!navigator.onLine) return; // dropped while waiting
         const blob = await getAudioWithCache(url);
         done++;
         if (blob) {

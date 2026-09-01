@@ -207,6 +207,7 @@ describe('isTruncated', () => {
     stalls: 0,
     stutter_ms: 0,
     worst_gap_ms: 0,
+    worst_timer_late_ms: 0,
     samples: 10,
     players_live: 1,
     prefetch: 'idle',
@@ -264,5 +265,38 @@ describe('summarize', () => {
     expect(summary.clips).toBe(0);
     expect(summary.median_start_ms).toBeNull();
     expect(summary.worst_gap_ms).toBe(0);
+  });
+});
+
+describe('main-thread blocking', () => {
+  // Fake timers keep the clock perfectly in step with the scheduler, so a late
+  // tick cannot be simulated — this one blocks the thread for real.
+  it('records timer lateness when the main thread is blocked', async () => {
+    vi.useRealTimers();
+    const el = fakeAudio();
+    const tracker = trackClip(asElement(el), blob(), 'note');
+    el.emit('playing');
+
+    el.currentTime = 0.25;
+    await new Promise(resolve => setTimeout(resolve, 300)); // one clean tick
+
+    const until = Date.now() + 500;
+    while (Date.now() < until) {
+      // Busy-wait: the sampler cannot run while this holds the thread.
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+    tracker.finish({ ended: true });
+
+    expect(getAudioRecords()[0].worst_timer_late_ms).toBeGreaterThan(100);
+  });
+
+  it('reports no lateness when ticks are punctual', () => {
+    const el = fakeAudio();
+    const tracker = trackClip(asElement(el), blob(), 'note');
+    el.emit('playing');
+    playSmoothly(el, 1000);
+    tracker.finish({ ended: true });
+
+    expect(getAudioRecords()[0].worst_timer_late_ms).toBe(0);
   });
 });
