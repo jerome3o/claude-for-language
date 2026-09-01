@@ -583,6 +583,19 @@ export function ListenChoiceExercise(props: {
 
 // ============ Listening: translate what you heard (self-assessed) ============
 
+/** Learners answer a listening exercise either by transcribing the hanzi or
+ * by translating to English — a full match on either goes green (same
+ * no-wrong-state rule as TranslateExercise: paraphrases stay neutral). */
+function isListenAnswerMatch(answer: string, audio: ExerciseSentence): boolean {
+  if (isExactHanziMatch(answer, audio.hanzi)) return true;
+  if (audio.english) {
+    const norm = (s: string) => s.toLowerCase().replace(/[\s。，！？；：、．…,.!?;:'"''""()（）]/g, '');
+    const a = norm(answer);
+    return a.length > 0 && a === norm(audio.english);
+  }
+  return false;
+}
+
 export function ListenTranslateExercise(props: {
   audio: ExerciseSentence;
   note?: string;
@@ -615,8 +628,13 @@ export function ListenTranslateExercise(props: {
       ) : (
         <>
           {answer.trim() && (
-            <div className="speak-transcript">
-              <div className="speak-transcript-label">Your answer</div>
+            <div className={`speak-transcript ${isListenAnswerMatch(answer, audio) ? 'exact' : ''}`}>
+              <div className="speak-transcript-label">
+                Your answer
+                {isListenAnswerMatch(answer, audio) && (
+                  <span className="speak-transcript-exact-badge">✓ Exact match</span>
+                )}
+              </div>
               <div className="speak-transcript-text">{answer.trim()}</div>
             </div>
           )}
