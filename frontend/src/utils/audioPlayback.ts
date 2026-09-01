@@ -15,7 +15,7 @@
  * their lifetime and must `dispose()` it on unmount.
  */
 
-import { trackClip, ClipTracker } from './audioDiagnostics';
+import { trackClip, trackBufferClip, ClipTracker } from './audioDiagnostics';
 
 /** Live element count, so diagnostics can catch a leak reappearing. */
 let livePlayers = 0;
@@ -104,6 +104,53 @@ export interface AudioPlayer {
   isCurrent(playId: number): boolean;
 }
 
+// ---- Shared audio output ----
+//
+// An <audio> element acquires and releases the device's audio output around
+// every clip. On Android that acquisition is not free: a report from the device
+// showed ~1s to first sound for a 17KB clip already in memory, and a `waiting`
+// event on every single clip — with the main thread idle and the bytes local.
+// Short card clips played back to back pay that cost over and over, and the
+// first moments of a clip are exactly where a freshly-opened output glitches.
+//
+// One AudioContext, opened once and kept open for the session, removes the
+// per-clip acquisition entirely: each clip is a buffer scheduled on an output
+// that is already running. Element playback stays as the fallback.
+
+let sharedContext: AudioContext | null = null;
+let contextUnavailable = false;
+
+function getSharedContext(): AudioContext | null {
+  if (sharedContext) return sharedContext;
+  if (contextUnavailable) return null;
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) {
+    contextUnavailable = true;
+    return null;
+  }
+  try {
+    sharedContext = new Ctor();
+    return sharedContext;
+  } catch {
+    contextUnavailable = true;
+    return null;
+  }
+}
+
+/**
+ * Open (or resume) the shared output. Browsers only allow this from a user
+ * gesture, so call it from an early interaction — the output is then warm
+ * before the first clip needs it.
+ */
+export function warmAudioOutput(): void {
+  const ctx = getSharedContext();
+  if (ctx && ctx.state === 'suspended') {
+    void ctx.resume().catch(() => {});
+  }
+}
+
 /** MediaError codes are numeric; name them so a report is readable. */
 function describeMediaError(el: HTMLAudioElement): string {
   const code = el.error?.code;
@@ -128,6 +175,8 @@ export function createAudioPlayer(): AudioPlayer {
   let tracker: ClipTracker | null = null;
   // At most one clip per player is ever counted as active.
   let clipActive = false;
+  // Web Audio path: the buffer currently scheduled on the shared output.
+  let bufferSource: AudioBufferSourceNode | null = null;
 
   function markActive() {
     if (clipActive) return;
@@ -147,6 +196,16 @@ export function createAudioPlayer(): AudioPlayer {
     if (tracker) {
       tracker.finish();
       tracker = null;
+    }
+    if (bufferSource) {
+      bufferSource.onended = null;
+      try {
+        bufferSource.stop();
+      } catch {
+        // Already finished — stop() on a spent source throws.
+      }
+      bufferSource.disconnect();
+      bufferSource = null;
     }
     if (element) {
       element.onplay = null;
@@ -168,12 +227,61 @@ export function createAudioPlayer(): AudioPlayer {
     }
   }
 
-  return {
-    play(source, handlers = {}) {
-      const id = ++playId;
-      release();
+  /**
+   * Play through the shared output. Returns false when Web Audio is
+   * unavailable or the clip cannot be decoded, so the caller falls back to the
+   * element path rather than leaving the user with silence.
+   */
+  function playViaSharedOutput(
+    id: number,
+    source: Blob,
+    handlers: PlayHandlers
+  ): boolean {
+    const ctx = getSharedContext();
+    if (!ctx) return false;
 
-      if (!element) {
+    markActive();
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
+
+    void (async () => {
+      let buffer: AudioBuffer;
+      try {
+        buffer = await ctx.decodeAudioData(await source.arrayBuffer());
+      } catch {
+        // Undecodable here but possibly fine for the element (some WebViews
+        // decode formats Web Audio refuses) — hand it back.
+        if (playId !== id) return;
+        markInactive();
+        playViaElement(id, source, handlers);
+        return;
+      }
+      if (playId !== id) return;
+
+      const clip = trackBufferClip(source, handlers.label ?? 'unknown', buffer.duration);
+      tracker = clip;
+
+      const node = ctx.createBufferSource();
+      node.buffer = buffer;
+      node.connect(ctx.destination);
+      node.onended = () => {
+        if (playId !== id) return;
+        clip.finish({ ended: true });
+        tracker = null;
+        markInactive();
+        handlers.onEnded?.();
+      };
+      bufferSource = node;
+      node.start();
+      clip.markStarted?.();
+      handlers.onPlay?.();
+    })();
+
+    return true;
+  }
+
+  /** Play through an <audio> element. */
+  function playViaElement(id: number, source: Blob | string, handlers: PlayHandlers): void {
+    if (!element) {
         element = new Audio();
         livePlayers++;
       }
@@ -215,7 +323,19 @@ export function createAudioPlayer(): AudioPlayer {
           handlers.onError?.();
         });
       }
+  }
 
+  return {
+    play(source, handlers = {}) {
+      const id = ++playId;
+      release();
+
+      // Cached clips (everything in the study session) go through the shared
+      // output; plain URLs stay on the element, which streams them.
+      if (typeof source !== 'string' && playViaSharedOutput(id, source, handlers)) {
+        return id;
+      }
+      playViaElement(id, source, handlers);
       return id;
     },
 

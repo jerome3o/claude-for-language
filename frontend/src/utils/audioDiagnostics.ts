@@ -38,6 +38,8 @@ export interface AudioClipRecord {
   /** Which feature played it (note, sentence, reader, grammar, …). */
   label: string;
   source: 'blob' | 'url';
+  /** Which playback path ran it: the shared AudioContext, or an <audio> element. */
+  engine: 'webaudio' | 'element';
   bytes: number | null;
   mime: string | null;
   /** Network sources only, query string stripped. */
@@ -50,9 +52,19 @@ export interface AudioClipRecord {
   played_s: number | null;
   ended: boolean;
   error: string | null;
-  /** `waiting` + `stalled` events, i.e. the decoder ran dry mid-clip. */
+  /**
+   * `waiting` + `stalled` events AFTER audio started. The one that fires while
+   * the element is still opening its stream is startup, not a drop-out, and
+   * counting it flagged every clip as choppy.
+   */
   stalls: number;
-  /** Total wall-clock ms where media time failed to keep up. */
+  /**
+   * How far media time fell behind the wall clock between the first frame and
+   * the end, in ms. Measured cumulatively rather than by summing per-sample
+   * shortfalls: `currentTime` advances in coarse steps, so summing only the
+   * positive errors accumulated the jitter and never the catch-up, which
+   * inflated every clip.
+   */
   stutter_ms: number;
   /** Longest single gap, in ms. */
   worst_gap_ms: number;
@@ -113,6 +125,8 @@ export function clearAudioRecords(): void {
 export interface ClipTracker {
   /** Stop sampling and file the record. Safe to call twice. */
   finish(outcome?: { error?: string | null; ended?: boolean }): void;
+  /** Web Audio only: note the moment the buffer began sounding. */
+  markStarted?(): void;
 }
 
 /**
@@ -132,6 +146,7 @@ export function trackClip(
     at: new Date(startedAt).toISOString(),
     label,
     source: isBlob ? 'blob' : 'url',
+    engine: 'element',
     bytes: isBlob ? source.size : null,
     mime: isBlob ? source.type || null : null,
     url: isBlob ? null : source.split('?')[0],
@@ -155,7 +170,9 @@ export function trackClip(
     if (record.start_ms === null) record.start_ms = Date.now() - startedAt;
   };
   const onStall = () => {
-    record.stalls++;
+    // Before the first frame this is the element opening its stream, which
+    // start_ms already reports. Only a dry decoder mid-clip is a stall.
+    if (record.start_ms !== null) record.stalls++;
   };
   element.addEventListener('playing', onPlaying);
   element.addEventListener('waiting', onStall);
@@ -163,14 +180,18 @@ export function trackClip(
 
   let lastWall = Date.now();
   let lastMedia = element.currentTime;
-  let sawProgress = false;
+  // Anchored at the first frame, so drift is measured over the whole clip
+  // rather than summed per sample.
+  let firstFrameWall: number | null = null;
+  let firstFrameMedia = 0;
 
   const timer = setInterval(() => {
     const now = Date.now();
+    const media = element.currentTime;
     const wallDelta = now - lastWall;
-    const mediaDelta = (element.currentTime - lastMedia) * 1000;
+    const mediaDelta = (media - lastMedia) * 1000;
     lastWall = now;
-    lastMedia = element.currentTime;
+    lastMedia = media;
 
     // A tick that arrives late means the main thread was blocked for at least
     // that long — recorded whether or not the clip itself stuttered.
@@ -180,15 +201,27 @@ export function trackClip(
     }
 
     // Before the first frame, "not advancing" is startup latency, which
-    // start_ms already covers — only count gaps once audio is flowing.
-    if (mediaDelta > 0) sawProgress = true;
-    if (!sawProgress || element.paused) return;
+    // start_ms already covers — only measure once audio is flowing.
+    if (firstFrameWall === null) {
+      if (mediaDelta <= 0) return;
+      firstFrameWall = now;
+      firstFrameMedia = media;
+      return;
+    }
+    if (element.paused) return;
 
     record.samples++;
-    const lost = wallDelta - mediaDelta - TOLERANCE_MS;
-    if (lost > 0) {
-      record.stutter_ms += Math.round(lost);
-      record.worst_gap_ms = Math.max(record.worst_gap_ms, Math.round(lost));
+
+    // Cumulative: total real time elapsed minus total media time played. Coarse
+    // currentTime updates cancel out instead of accumulating.
+    const drift = Math.round(
+      now - firstFrameWall - (media - firstFrameMedia) * 1000
+    );
+    record.stutter_ms = Math.max(0, drift);
+
+    const gap = Math.round(wallDelta - mediaDelta - TOLERANCE_MS);
+    if (gap > 0) {
+      record.worst_gap_ms = Math.max(record.worst_gap_ms, gap);
     }
   }, SAMPLE_MS);
 
@@ -214,6 +247,64 @@ export function trackClip(
   };
 }
 
+/**
+ * Record a clip played through the shared AudioContext. There is no element to
+ * poll: Web Audio schedules against the audio clock, so a started buffer either
+ * plays intact or the whole output is broken. Start latency and duration are
+ * the signals worth keeping.
+ */
+export function trackBufferClip(
+  source: Blob,
+  label: string,
+  durationSeconds: number
+): ClipTracker {
+  const startedAt = Date.now();
+  const record: AudioClipRecord = {
+    seq: nextSeq++,
+    at: new Date(startedAt).toISOString(),
+    label,
+    source: 'blob',
+    engine: 'webaudio',
+    bytes: source.size,
+    mime: source.type || null,
+    url: null,
+    start_ms: null,
+    duration_s: Number(durationSeconds.toFixed(2)),
+    played_s: null,
+    ended: false,
+    error: null,
+    stalls: 0,
+    stutter_ms: 0,
+    worst_gap_ms: 0,
+    worst_timer_late_ms: 0,
+    samples: 0,
+    players_live: context.playersLive(),
+    prefetch: context.prefetchStatus(),
+    online: navigator.onLine,
+    offline_mode: context.offlineMode(),
+  };
+
+  let started: number | null = null;
+  let done = false;
+  return {
+    finish(outcome = {}) {
+      if (done) return;
+      done = true;
+      const elapsed = (Date.now() - (started ?? startedAt)) / 1000;
+      record.played_s = Number(Math.min(durationSeconds, Math.max(0, elapsed)).toFixed(2));
+      record.ended = outcome.ended ?? false;
+      record.error = outcome.error ?? null;
+      push(record);
+    },
+    /** Called when the buffer actually begins sounding. */
+    markStarted() {
+      if (started !== null) return;
+      started = Date.now();
+      record.start_ms = started - startedAt;
+    },
+  };
+}
+
 export interface AudioDiagnosticsSummary {
   clips: number;
   /** Clips that lost more than a quarter second of wall clock. */
@@ -232,6 +323,10 @@ export interface AudioDiagnosticsSummary {
   /** Choppy clips where the main thread was also visibly blocked. */
   choppy_with_main_thread_block: number;
   worst_timer_late_ms: number;
+  /** Clips that went through the shared AudioContext rather than an element. */
+  via_webaudio: number;
+  /** Slowest time-to-first-sound, in ms. */
+  worst_start_ms: number;
 }
 
 function median(values: number[]): number | null {
@@ -277,6 +372,8 @@ export function summarize(list: AudioClipRecord[]): AudioDiagnosticsSummary {
     // starved" — the two look identical to the ear.
     choppy_with_main_thread_block: choppy.filter((r) => r.worst_timer_late_ms >= 100).length,
     worst_timer_late_ms: list.reduce((max, r) => Math.max(max, r.worst_timer_late_ms), 0),
+    via_webaudio: list.filter((r) => r.engine === 'webaudio').length,
+    worst_start_ms: list.reduce((max, r) => Math.max(max, r.start_ms ?? 0), 0),
   };
 }
 

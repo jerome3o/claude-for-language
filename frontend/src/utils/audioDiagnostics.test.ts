@@ -196,6 +196,7 @@ describe('isTruncated', () => {
     at: '2026-08-17T00:00:00.000Z',
     label: 'note',
     source: 'blob',
+    engine: 'element',
     bytes: 1,
     mime: 'audio/mpeg',
     url: null,
