@@ -619,6 +619,7 @@ export async function updateNote(
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
+    sentenceClueAudioProvider?: 'minimax' | 'gtts';
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
     alternatives?: string | null;
@@ -634,6 +635,7 @@ export async function updateNote(
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
+    sentenceClueAudioProvider?: 'minimax' | 'gtts';
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
     alternatives?: string | null;
@@ -652,6 +654,7 @@ export async function updateNote(
     sentenceCluePinyin?: string;
     sentenceClueTranslation?: string;
     sentenceClueAudioUrl?: string;
+    sentenceClueAudioProvider?: 'minimax' | 'gtts';
     multipleChoiceOptions?: string;
     pinyinOnly?: number;
     alternatives?: string | null;
@@ -712,6 +715,10 @@ export async function updateNote(
   if (actualUpdates.sentenceClueAudioUrl !== undefined) {
     fields.push('sentence_clue_audio_url = ?');
     values.push(actualUpdates.sentenceClueAudioUrl);
+  }
+  if (actualUpdates.sentenceClueAudioProvider !== undefined) {
+    fields.push('sentence_clue_audio_provider = ?');
+    values.push(actualUpdates.sentenceClueAudioProvider);
   }
   if (actualUpdates.multipleChoiceOptions !== undefined) {
     fields.push('multiple_choice_options = ?');
@@ -3219,12 +3226,178 @@ export async function deleteNoteSentences(db: D1Database, noteId: string): Promi
 export async function setNoteSentenceAudio(
   db: D1Database,
   sentenceId: string,
-  audioUrl: string
+  audioUrl: string,
+  provider: 'minimax' | 'gtts' | null = null
 ): Promise<void> {
+  // updated_at bumps so /api/sentences/changes carries the new clip down to
+  // devices that already have the row cached.
   await db
-    .prepare('UPDATE note_sentences SET audio_url = ? WHERE id = ?')
-    .bind(audioUrl, sentenceId)
+    .prepare(
+      "UPDATE note_sentences SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE id = ?"
+    )
+    .bind(audioUrl, provider, sentenceId)
     .run();
+}
+
+// ============ Audio quality (which provider made each clip) ============
+
+export interface AudioQualityCounts {
+  minimax: number;
+  gtts: number;
+  unknown: number;
+}
+
+export interface AudioQualityStats {
+  notes: AudioQualityCounts;
+  clues: AudioQualityCounts;
+  sentences: AudioQualityCounts;
+}
+
+function countsFromRows(rows: Array<{ provider: string | null; n: number }>): AudioQualityCounts {
+  const counts: AudioQualityCounts = { minimax: 0, gtts: 0, unknown: 0 };
+  for (const row of rows) {
+    if (row.provider === 'minimax') counts.minimax += row.n;
+    else if (row.provider === 'gtts') counts.gtts += row.n;
+    else counts.unknown += row.n;
+  }
+  return counts;
+}
+
+/** How many of the user's clips came from each provider, per clip kind. */
+export async function getAudioQualityStats(db: D1Database, userId: string): Promise<AudioQualityStats> {
+  const [notes, clues, sentences] = await Promise.all([
+    db.prepare(`
+      SELECT n.audio_provider AS provider, COUNT(*) AS n FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.audio_url IS NOT NULL
+      GROUP BY n.audio_provider
+    `).bind(userId).all<{ provider: string | null; n: number }>(),
+    db.prepare(`
+      SELECT n.sentence_clue_audio_provider AS provider, COUNT(*) AS n FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.sentence_clue_audio_url IS NOT NULL
+      GROUP BY n.sentence_clue_audio_provider
+    `).bind(userId).all<{ provider: string | null; n: number }>(),
+    db.prepare(`
+      SELECT ns.audio_provider AS provider, COUNT(*) AS n FROM note_sentences ns
+      JOIN notes n ON ns.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL
+      GROUP BY ns.audio_provider
+    `).bind(userId).all<{ provider: string | null; n: number }>(),
+  ]);
+  return {
+    notes: countsFromRows(notes.results ?? []),
+    clues: countsFromRows(clues.results ?? []),
+    sentences: countsFromRows(sentences.results ?? []),
+  };
+}
+
+export interface UnclassifiedAudio {
+  notes: Array<{ id: string; audio_url: string }>;
+  clues: Array<{ id: string; audio_url: string }>;
+  sentences: Array<{ id: string; audio_url: string }>;
+}
+
+/** Clips stored before their provider was recorded, due-soonest first. */
+export async function getUnclassifiedAudio(
+  db: D1Database,
+  userId: string,
+  limit: number
+): Promise<UnclassifiedAudio> {
+  const [notes, clues, sentences] = await Promise.all([
+    db.prepare(`
+      SELECT n.id, n.audio_url FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.audio_url IS NOT NULL AND n.audio_provider IS NULL
+      LIMIT ?
+    `).bind(userId, limit).all<{ id: string; audio_url: string }>(),
+    db.prepare(`
+      SELECT n.id, n.sentence_clue_audio_url AS audio_url FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.sentence_clue_audio_url IS NOT NULL
+        AND n.sentence_clue_audio_provider IS NULL
+      LIMIT ?
+    `).bind(userId, limit).all<{ id: string; audio_url: string }>(),
+    db.prepare(`
+      SELECT ns.id, ns.audio_url FROM note_sentences ns
+      JOIN notes n ON ns.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL AND ns.audio_provider IS NULL
+      LIMIT ?
+    `).bind(userId, limit).all<{ id: string; audio_url: string }>(),
+  ]);
+  return {
+    notes: notes.results ?? [],
+    clues: clues.results ?? [],
+    sentences: sentences.results ?? [],
+  };
+}
+
+/** A sentence-set row by id, for background jobs that carry no user. */
+export async function getNoteSentenceByIdUnscoped(
+  db: D1Database,
+  sentenceId: string
+): Promise<{ id: string; note_id: string; hanzi: string; audio_url: string | null } | null> {
+  return db
+    .prepare('SELECT id, note_id, hanzi, audio_url FROM note_sentences WHERE id = ?')
+    .bind(sentenceId)
+    .first<{ id: string; note_id: string; hanzi: string; audio_url: string | null }>();
+}
+
+export async function setNoteAudioProvider(db: D1Database, noteId: string, provider: string): Promise<void> {
+  await db.prepare('UPDATE notes SET audio_provider = ? WHERE id = ?').bind(provider, noteId).run();
+}
+
+export async function setClueAudioProvider(db: D1Database, noteId: string, provider: string): Promise<void> {
+  await db.prepare('UPDATE notes SET sentence_clue_audio_provider = ? WHERE id = ?').bind(provider, noteId).run();
+}
+
+export async function setSentenceAudioProvider(db: D1Database, sentenceId: string, provider: string): Promise<void> {
+  await db.prepare('UPDATE note_sentences SET audio_provider = ? WHERE id = ?').bind(provider, sentenceId).run();
+}
+
+export interface FallbackAudioTargets {
+  notes: string[];
+  clues: string[];
+  sentences: string[];
+}
+
+/** Clips known to have come from the Google fallback, due-soonest first. */
+export async function getFallbackAudioTargets(
+  db: D1Database,
+  userId: string,
+  limit: number
+): Promise<FallbackAudioTargets> {
+  const [notes, clues, sentences] = await Promise.all([
+    db.prepare(`
+      SELECT n.id, MIN(c.next_review_at) AS due FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      LEFT JOIN cards c ON c.note_id = n.id
+      WHERE d.user_id = ? AND n.audio_url IS NOT NULL AND n.audio_provider = 'gtts'
+      GROUP BY n.id ORDER BY due IS NULL, due ASC LIMIT ?
+    `).bind(userId, limit).all<{ id: string }>(),
+    db.prepare(`
+      SELECT n.id, MIN(c.next_review_at) AS due FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      LEFT JOIN cards c ON c.note_id = n.id
+      WHERE d.user_id = ? AND n.sentence_clue_audio_url IS NOT NULL
+        AND n.sentence_clue_audio_provider = 'gtts'
+      GROUP BY n.id ORDER BY due IS NULL, due ASC LIMIT ?
+    `).bind(userId, limit).all<{ id: string }>(),
+    db.prepare(`
+      SELECT ns.id FROM note_sentences ns
+      JOIN notes n ON ns.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL AND ns.audio_provider = 'gtts'
+      LIMIT ?
+    `).bind(userId, limit).all<{ id: string }>(),
+  ]);
+  return {
+    notes: (notes.results ?? []).map(r => r.id),
+    clues: (clues.results ?? []).map(r => r.id),
+    sentences: (sentences.results ?? []).map(r => r.id),
+  };
 }
 
 /**

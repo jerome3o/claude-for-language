@@ -7,6 +7,8 @@ import {
   summarize,
   isChoppy,
   isTruncated,
+  isLowBitrate,
+  bitrateKbps,
   AudioClipRecord,
 } from './audioDiagnostics';
 
@@ -202,6 +204,7 @@ describe('isTruncated', () => {
     url: null,
     start_ms: 100,
     duration_s: 3,
+    kbps: 128,
     played_s: 3,
     ended: true,
     error: null,
@@ -299,5 +302,30 @@ describe('main-thread blocking', () => {
     tracker.finish({ ended: true });
 
     expect(getAudioRecords()[0].worst_timer_late_ms).toBe(0);
+  });
+});
+
+describe('bitrate', () => {
+  it('derives kbps from size and duration', () => {
+    // The clip from the device report: 11520 bytes over 1.44 s → 64 kbps
+    expect(bitrateKbps(11520, 1.44)).toBe(64);
+    // A MiniMax clip: ~128 kbps plus a little ID3 overhead
+    expect(bitrateKbps(23674, 1.32)).toBe(143);
+    expect(bitrateKbps(null, 1)).toBeNull();
+    expect(bitrateKbps(1000, 0)).toBeNull();
+  });
+
+  it('flags the Google fallback encode', () => {
+    const el = fakeAudio();
+    el.duration = 1.44;
+    const tracker = trackClip(asElement(el), blob(11520), 'note');
+    el.emit('playing');
+    playSmoothly(el, 250);
+    tracker.finish({ ended: true });
+
+    const [record] = getAudioRecords();
+    expect(record.kbps).toBe(64);
+    expect(isLowBitrate(record)).toBe(true);
+    expect(summarize([record]).low_bitrate_clips).toBe(1);
   });
 });

@@ -25,7 +25,7 @@ import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec } from './services/custom-lesson';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -1230,11 +1230,13 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
 
     // Generate TTS for the sentence clue
     let sentenceClueAudioUrl: string | null = null;
+    let sentenceClueAudioProvider: 'minimax' | 'gtts' | undefined;
     if (c.env.GOOGLE_TTS_API_KEY || c.env.MINIMAX_API_KEY) {
       try {
         const audioResult = await generateTTS(c.env, sentenceClue, `${id}-sentence`);
         if (audioResult) {
           sentenceClueAudioUrl = audioResult.audioKey;
+          sentenceClueAudioProvider = audioResult.provider;
         }
       } catch (error) {
         console.error('Failed to generate sentence clue audio:', error);
@@ -1248,6 +1250,7 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
       sentenceCluePinyin: sentenceCluePinyin ?? undefined,
       sentenceClueTranslation: sentenceClueTranslation ?? undefined,
       sentenceClueAudioUrl: sentenceClueAudioUrl ?? undefined,
+      sentenceClueAudioProvider,
     });
 
     const updatedNote = await db.getNoteById(c.env.DB, id, userId);
@@ -1298,7 +1301,15 @@ async function ensureSentenceClueAudio(
     const result = await generateTTS(env, note.sentence_clue, `${noteId}-sentence`);
     if (!result) return false;
 
-    await db.updateNote(env.DB, noteId, { sentenceClueAudioUrl: result.audioKey });
+    await db.updateNote(env.DB, noteId, {
+      sentenceClueAudioUrl: result.audioKey,
+      sentenceClueAudioProvider: result.provider,
+    });
+    // Only once the replacement is stored and pointed at — a failed
+    // regeneration must leave the old clip playable.
+    if (options.force && note.sentence_clue_audio_url) {
+      await deleteAudio(env.AUDIO_BUCKET, note.sentence_clue_audio_url).catch(() => {});
+    }
     return true;
   } catch (error) {
     console.error('[clue-audio] Failed for note', noteId, error);
@@ -1331,7 +1342,7 @@ async function attachSentenceSetAudio(
       try {
         const result = await generateTTS(env, sentence.hanzi, `${sentence.id}-sentence`);
         if (result) {
-          await db.setNoteSentenceAudio(env.DB, sentence.id, result.audioKey);
+          await db.setNoteSentenceAudio(env.DB, sentence.id, result.audioKey, result.provider);
           audioByIdMap.set(sentence.id, result.audioKey);
         }
       } catch (error) {
@@ -2418,6 +2429,153 @@ app.get('/api/audio-manifest', async (c) => {
   const userId = c.get('user').id;
   const urls = await db.getAudioManifest(c.env.DB, userId);
   return c.json({ urls });
+});
+
+/** Regenerate a note's word audio with MiniMax; keeps the old clip on failure. */
+async function regenerateNoteAudio(env: Env, noteId: string): Promise<boolean> {
+  const note = await db.getNoteByIdUnscoped(env.DB, noteId);
+  if (!note) return false;
+  const result = await generateTTS(env, note.hanzi, noteId);
+  if (!result || result.provider !== 'minimax') return false;
+  await db.updateNote(env.DB, noteId, { audioUrl: result.audioKey, audioProvider: result.provider });
+  if (note.audio_url) await deleteAudio(env.AUDIO_BUCKET, note.audio_url).catch(() => {});
+  return true;
+}
+
+/** Regenerate one sentence-set clip with MiniMax; keeps the old clip on failure. */
+async function regenerateSentenceAudio(env: Env, sentenceId: string): Promise<boolean> {
+  const sentence = await db.getNoteSentenceByIdUnscoped(env.DB, sentenceId);
+  if (!sentence) return false;
+  const result = await generateTTS(env, sentence.hanzi, `${sentenceId}-sentence`);
+  if (!result || result.provider !== 'minimax') return false;
+  await db.setNoteSentenceAudio(env.DB, sentenceId, result.audioKey, result.provider);
+  if (sentence.audio_url) await deleteAudio(env.AUDIO_BUCKET, sentence.audio_url).catch(() => {});
+  return true;
+}
+
+// ============ Audio quality ============
+//
+// Every clip records which provider made it. The Google fallback produces a
+// different voice at half the bitrate with time-stretched slow speech — the
+// "crunchy" audio — so these routes exist to count those clips, find the ones
+// stored before the provider was recorded, and replace them.
+
+app.get('/api/audio/quality', async (c) => {
+  const userId = c.get('user').id;
+  const stats = await db.getAudioQualityStats(c.env.DB, userId);
+  return c.json(stats);
+});
+
+const AUDIO_CLASSIFY_BATCH = 100;
+const AUDIO_CLASSIFY_MAX_BATCH = 300;
+
+/**
+ * Work out the provider of clips stored before it was recorded, by reading the
+ * first frame header of each from R2 (a 2 KB range read, no download). Bounded
+ * per call; the client loops until nothing is left.
+ */
+app.post('/api/audio/classify', async (c) => {
+  const userId = c.get('user').id;
+  let limit = AUDIO_CLASSIFY_BATCH;
+  try {
+    const body = await c.req.json<{ limit?: number }>();
+    if (typeof body?.limit === 'number' && Number.isFinite(body.limit)) {
+      limit = Math.min(AUDIO_CLASSIFY_MAX_BATCH, Math.max(1, Math.round(body.limit)));
+    }
+  } catch {
+    // No body — default batch
+  }
+
+  const pending = await db.getUnclassifiedAudio(c.env.DB, userId, limit);
+  const classify = async (key: string): Promise<string> => {
+    const object = await getAudio(c.env.AUDIO_BUCKET, key, { offset: 0, length: 2048 });
+    if (!object) return 'missing';
+    return classifyMp3(new Uint8Array(await object.arrayBuffer()));
+  };
+
+  let classified = 0;
+  let found = 0;
+  const jobs: Array<() => Promise<void>> = [
+    ...pending.notes.map(n => async () => {
+      const provider = await classify(n.audio_url);
+      await db.setNoteAudioProvider(c.env.DB, n.id, provider);
+      classified++;
+      if (provider === 'gtts') found++;
+    }),
+    ...pending.clues.map(n => async () => {
+      const provider = await classify(n.audio_url);
+      await db.setClueAudioProvider(c.env.DB, n.id, provider);
+      classified++;
+      if (provider === 'gtts') found++;
+    }),
+    ...pending.sentences.map(sn => async () => {
+      const provider = await classify(sn.audio_url);
+      await db.setSentenceAudioProvider(c.env.DB, sn.id, provider);
+      classified++;
+      if (provider === 'gtts') found++;
+    }),
+  ];
+  // A few at a time: each is one small R2 read plus one D1 write.
+  const CONCURRENCY = 8;
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, async () => {
+      while (next < jobs.length) {
+        const job = jobs[next++];
+        try {
+          await job();
+        } catch (error) {
+          console.error('[audio-classify] failed', error);
+        }
+      }
+    })
+  );
+
+  const remaining = await db.getUnclassifiedAudio(c.env.DB, userId, 1);
+  const remainingCount = remaining.notes.length + remaining.clues.length + remaining.sentences.length;
+  console.log('[audio-classify] Classified', classified, 'clips,', found, 'from Google fallback');
+  return c.json({ classified, found_fallback: found, remaining: remainingCount > 0 });
+});
+
+const AUDIO_REGEN_BATCH = 50;
+const AUDIO_REGEN_MAX_BATCH = 250;
+
+/** Queue replacement of known Google-fallback clips with MiniMax. */
+app.post('/api/audio/regenerate-fallback', async (c) => {
+  const userId = c.get('user').id;
+  if (!c.env.MINIMAX_API_KEY) {
+    return c.json({ error: 'MiniMax is not configured' }, 500);
+  }
+  let limit = AUDIO_REGEN_BATCH;
+  try {
+    const body = await c.req.json<{ limit?: number }>();
+    if (typeof body?.limit === 'number' && Number.isFinite(body.limit)) {
+      limit = Math.min(AUDIO_REGEN_MAX_BATCH, Math.max(1, Math.round(body.limit)));
+    }
+  } catch {
+    // No body — default batch
+  }
+
+  const targets = await db.getFallbackAudioTargets(c.env.DB, userId, limit);
+  let queued = 0;
+  for (const noteId of targets.notes) {
+    await c.env.SENTENCE_SET_QUEUE.send({ noteId, kind: 'note_audio' });
+    queued++;
+  }
+  for (const noteId of targets.clues) {
+    await c.env.SENTENCE_SET_QUEUE.send({ noteId, kind: 'clue_audio', force: true });
+    queued++;
+  }
+  for (const sentenceId of targets.sentences) {
+    // noteId is required by the message shape but unused for this kind.
+    await c.env.SENTENCE_SET_QUEUE.send({ noteId: '', kind: 'sentence_audio', sentenceId });
+    queued++;
+  }
+
+  const stats = await db.getAudioQualityStats(c.env.DB, userId);
+  const remaining = stats.notes.gtts + stats.clues.gtts + stats.sentences.gtts;
+  console.log('[audio-regen] Queued', queued, 'fallback clips;', remaining, 'still recorded as gtts');
+  return c.json({ queued, remaining });
 });
 
 app.get('/api/audio/*', async (c) => {
@@ -6543,12 +6701,28 @@ export default {
     } else if (queueName === 'sentence-set-queue') {
       // Pre-generate a note's sentence set so study never waits on the AI
       for (const message of batch.messages) {
-        const { noteId, count, kind } = message.body as SentenceSetMessage;
+        const { noteId, count, kind, sentenceId, force } = message.body as SentenceSetMessage;
 
         // Same queue, much smaller job: just the TTS for a card's own sentence.
         if (kind === 'clue_audio') {
-          const stored = await ensureSentenceClueAudio(env, noteId);
+          const stored = await ensureSentenceClueAudio(env, noteId, { force });
           console.log('[Queue] Clue audio', stored ? 'done' : 'skipped', noteId);
+          message.ack();
+          continue;
+        }
+
+        // Replace a Google-fallback clip with MiniMax. generateTTS returns null
+        // rather than falling back, so a rate limit here leaves the old clip in
+        // place for the next sweep instead of storing another bad one.
+        if (kind === 'note_audio') {
+          const replaced = await regenerateNoteAudio(env, noteId);
+          console.log('[Queue] Note audio', replaced ? 'replaced' : 'left', noteId);
+          message.ack();
+          continue;
+        }
+        if (kind === 'sentence_audio' && sentenceId) {
+          const replaced = await regenerateSentenceAudio(env, sentenceId);
+          console.log('[Queue] Sentence audio', replaced ? 'replaced' : 'left', sentenceId);
           message.ack();
           continue;
         }
