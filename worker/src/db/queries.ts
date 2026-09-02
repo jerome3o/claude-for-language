@@ -4061,6 +4061,24 @@ export async function getCustomLesson(
   return row ?? null;
 }
 
+/** Replace a lesson's content in place (title/description/icon/spec). The
+ * id — and therefore its completion history and FSRS schedule — is kept.
+ * Ownership-checked; returns null when the lesson isn't the user's. */
+export async function updateCustomLesson(
+  db: D1Database,
+  lessonId: string,
+  userId: string,
+  data: { title: string; description?: string | null; icon?: string | null; spec: string },
+): Promise<CustomLessonRow | null> {
+  const r = await db.prepare(`
+    UPDATE custom_lessons
+    SET title = ?, description = ?, icon = ?, spec = ?, updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `).bind(data.title, data.description ?? null, data.icon ?? null, data.spec, lessonId, userId).run();
+  if ((r.meta?.changes ?? 0) === 0) return null;
+  return getCustomLesson(db, lessonId, userId);
+}
+
 export async function deleteCustomLesson(
   db: D1Database,
   lessonId: string,

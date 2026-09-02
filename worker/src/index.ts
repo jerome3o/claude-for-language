@@ -24,7 +24,7 @@ import { explainSentenceBriefly } from './services/sentence-explain-brief';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
-import { createCustomLessonFromSpec } from './services/custom-lesson';
+import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
@@ -6103,6 +6103,20 @@ app.post('/api/custom-lessons', async (c) => {
     return c.json({ error: 'Invalid lesson spec', problems: result.errors }, 400);
   }
   return c.json({ ...result.lesson, spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs }, 201);
+});
+
+// Replace a lesson's content in place (validated). Same id, so completion
+// history and the FSRS schedule carry over — this is how agents fix a bad
+// question without the learner losing progress.
+app.put('/api/custom-lessons/:id', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ spec?: unknown }>().catch(() => ({} as { spec?: unknown }));
+  const result = await updateCustomLessonFromSpec(c.env, userId, c.req.param('id'), body.spec);
+  if (!result.ok) {
+    if (result.notFound) return c.json({ error: 'Lesson not found' }, 404);
+    return c.json({ error: 'Invalid lesson spec', problems: result.errors }, 400);
+  }
+  return c.json({ ...result.lesson, spec: JSON.parse(result.lesson.spec), image_jobs: result.imageJobs });
 });
 
 app.delete('/api/custom-lessons/:id', async (c) => {

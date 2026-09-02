@@ -661,6 +661,7 @@ scramble/choice/translate ones). The **Mini Lessons page** (`/lessons`, in the p
 menu) inspects pending + completed lessons — full exercise listing per lesson, delete.
 - `GET /api/custom-lessons` - Active lessons with parsed spec (`?status=done|all` for the rest)
 - `POST /api/custom-lessons` - Create from `{ spec }` (validated; queues describe_image illustrations)
+- `PUT /api/custom-lessons/:id` - Replace a lesson's spec in place (validated; same id so history/schedule carry over; keeps generated illustrations whose image_prompt is unchanged)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
 - `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id)
 
@@ -778,6 +779,8 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_note_history` | Get review history and Q&A for a note |
 | `create_custom_lesson` | Author a custom mini lesson (sections of exercises) for the user's next study session |
 | `list_custom_lessons` | List custom mini lessons (pending and completed) |
+| `get_custom_lesson` | Get one lesson with its full spec (fetch before editing) |
+| `update_custom_lesson` | Replace a lesson's content in place (same id — completion history + FSRS schedule kept) |
 | `delete_custom_lesson` | Delete a custom mini lesson |
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
