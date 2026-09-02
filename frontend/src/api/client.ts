@@ -273,6 +273,41 @@ export async function generateNoteAudio(noteId: string, options?: GenerateAudioO
   });
 }
 
+export interface AudioQualityCounts {
+  minimax: number;
+  gtts: number;
+  unknown: number;
+}
+
+export interface AudioQualityStats {
+  notes: AudioQualityCounts;
+  clues: AudioQualityCounts;
+  sentences: AudioQualityCounts;
+}
+
+/** How many clips came from each TTS provider. gtts = the low-quality fallback. */
+export async function getAudioQuality(): Promise<AudioQualityStats> {
+  return fetchJSON<AudioQualityStats>('/audio/quality');
+}
+
+/** Work out the provider of clips stored before it was recorded (one batch). */
+export async function classifyAudio(limit?: number): Promise<{ classified: number; found_fallback: number; remaining: boolean }> {
+  return fetchJSON('/audio/classify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ limit }),
+  });
+}
+
+/** Queue replacement of Google-fallback clips with MiniMax (one batch). */
+export async function regenerateFallbackAudio(limit?: number): Promise<{ queued: number; remaining: number }> {
+  return fetchJSON('/audio/regenerate-fallback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ limit }),
+  });
+}
+
 export async function regenerateNoteAudio(noteId: string): Promise<Note> {
   return fetchJSON<Note>(`/notes/${noteId}/regenerate-audio`, {
     method: 'POST',

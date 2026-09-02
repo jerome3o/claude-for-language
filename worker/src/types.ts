@@ -77,8 +77,14 @@ export interface SentenceSetMessage {
    * 'set' (the default) generates the note's sentence set. 'clue_audio' only
    * fills in missing TTS for the note's own example sentence — several write
    * paths save a clue without audio, which leaves its ▶ silent.
+   * 'note_audio' / 'sentence_audio' regenerate a clip that was produced by the
+   * Google fallback, replacing it with MiniMax (see /api/audio/regenerate-fallback).
    */
-  kind?: 'set' | 'clue_audio';
+  kind?: 'set' | 'clue_audio' | 'note_audio' | 'sentence_audio';
+  /** For 'sentence_audio': the note_sentences row to regenerate. */
+  sentenceId?: string;
+  /** For 'clue_audio': replace existing audio rather than only filling a gap. */
+  force?: boolean;
 }
 
 // Audio provider types

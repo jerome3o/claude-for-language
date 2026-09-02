@@ -48,6 +48,12 @@ export interface AudioClipRecord {
   start_ms: number | null;
   /** Clip length as the decoder reported it. */
   duration_s: number | null;
+  /**
+   * Encoded bitrate, from bytes / duration. MiniMax clips are 128 kbps; the
+   * Google fallback is 64 kbps, and that difference is audible — this is what
+   * finally distinguished bad audio from bad playback.
+   */
+  kbps: number | null;
   /** How far playback actually got. */
   played_s: number | null;
   ended: boolean;
@@ -152,6 +158,7 @@ export function trackClip(
     url: isBlob ? null : source.split('?')[0],
     start_ms: null,
     duration_s: null,
+    kbps: null,
     played_s: null,
     ended: false,
     error: null,
@@ -237,6 +244,7 @@ export function trackClip(
 
       const duration = element.duration;
       record.duration_s = Number.isFinite(duration) ? Number(duration.toFixed(2)) : null;
+      record.kbps = bitrateKbps(record.bytes, record.duration_s);
       record.played_s = Number.isFinite(element.currentTime)
         ? Number(element.currentTime.toFixed(2))
         : null;
@@ -270,6 +278,7 @@ export function trackBufferClip(
     url: null,
     start_ms: null,
     duration_s: Number(durationSeconds.toFixed(2)),
+    kbps: bitrateKbps(source.size, durationSeconds),
     played_s: null,
     ended: false,
     error: null,
@@ -327,6 +336,8 @@ export interface AudioDiagnosticsSummary {
   via_webaudio: number;
   /** Slowest time-to-first-sound, in ms. */
   worst_start_ms: number;
+  /** Clips whose encode is the low-quality fallback (~64 kbps). */
+  low_bitrate_clips: number;
 }
 
 function median(values: number[]): number | null {
@@ -336,6 +347,16 @@ function median(values: number[]): number | null {
   return sorted.length % 2 === 0
     ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
     : sorted[mid];
+}
+
+export function bitrateKbps(bytes: number | null, durationSeconds: number | null): number | null {
+  if (!bytes || !durationSeconds || durationSeconds <= 0) return null;
+  return Math.round((bytes * 8) / durationSeconds / 1000);
+}
+
+/** Below MiniMax's 128 kbps by a wide margin — the Google fallback encode. */
+export function isLowBitrate(record: AudioClipRecord): boolean {
+  return record.kbps !== null && record.kbps < 96;
 }
 
 /** A clip counts as choppy once it loses a noticeable fraction of a second. */
@@ -374,6 +395,7 @@ export function summarize(list: AudioClipRecord[]): AudioDiagnosticsSummary {
     worst_timer_late_ms: list.reduce((max, r) => Math.max(max, r.worst_timer_late_ms), 0),
     via_webaudio: list.filter((r) => r.engine === 'webaudio').length,
     worst_start_ms: list.reduce((max, r) => Math.max(max, r.start_ms ?? 0), 0),
+    low_bitrate_clips: list.filter(isLowBitrate).length,
   };
 }
 
