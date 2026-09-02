@@ -710,6 +710,75 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
       }
     );
 
+    this.server.tool(
+      "get_custom_lesson",
+      "Get one custom mini lesson with its FULL spec (title, icon, description, sections of exercises). Use this before update_custom_lesson so you can edit the existing content rather than rewriting from memory.",
+      { lesson_id: z.string().describe("The lesson id (from list_custom_lessons)") },
+      async ({ lesson_id }) => {
+        const row = await this.env.DB.prepare(
+          `SELECT id, title, description, icon, source, status, created_at, updated_at, spec FROM custom_lessons WHERE id = ? AND user_id = ?`
+        ).bind(lesson_id, userId).first<any>();
+        if (!row) {
+          return { content: [{ type: "text" as const, text: `Lesson not found: ${lesson_id}` }], isError: true };
+        }
+        const { spec, ...meta } = row;
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ ...meta, spec: JSON.parse(spec) }, null, 2),
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
+      "update_custom_lesson",
+      `Replace an existing custom mini lesson's content in place. The lesson keeps its id, so the user's completion history and FSRS schedule carry over — use this to fix a bad question, add exercises, or reword explanations without resetting progress. Send the FULL updated spec (title, icon, description, sections) — it replaces the old one entirely; fetch the current spec with get_custom_lesson first and edit it. Exercise types and rules are the same as create_custom_lesson. Illustrations already generated for describe_image exercises are kept when the image_prompt is unchanged.`,
+      {
+        lesson_id: z.string().describe("The lesson id (from list_custom_lessons / get_custom_lesson)"),
+        title: z.string().describe("Lesson title"),
+        icon: z.string().optional().describe("One emoji for the lesson"),
+        description: z.string().optional().describe("One sentence on what the lesson covers"),
+        sections: z.array(z.object({
+          title: z.string().optional().describe("Optional section heading"),
+          exercises: z.array(z.record(z.unknown())).describe("Exercise objects as documented in create_custom_lesson"),
+        })).describe("The complete, updated list of sections"),
+      },
+      async ({ lesson_id, title, icon, description, sections }) => {
+        const sessionToken = await this.getApiSessionToken(userId);
+        try {
+          // Same single write path as create: the main API validates the spec,
+          // preserves generated illustrations, and queues any new ones.
+          const response = await fetch(`${this.getApiUrl()}/api/custom-lessons/${encodeURIComponent(lesson_id)}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${sessionToken}`,
+            },
+            body: JSON.stringify({ spec: { title, icon, description, sections } }),
+          });
+          const data = await response.json() as { id?: string; image_jobs?: number; error?: string; problems?: string[] };
+          if (!response.ok) {
+            return {
+              content: [{
+                type: "text" as const,
+                text: `Update rejected: ${data.error || response.status}${data.problems ? `\n- ${data.problems.join('\n- ')}` : ''}`,
+              }],
+              isError: true,
+            };
+          }
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Updated custom lesson "${title}" (id=${lesson_id}). The user's device picks up the new content on its next sync; completion history and scheduling are unchanged.${data.image_jobs ? ` ${data.image_jobs} new illustration(s) generating in the background.` : ''}`,
+            }],
+          };
+        } finally {
+          await this.cleanupSessionToken(sessionToken);
+        }
+      }
+    );
+
     // ============ Note Tools ============
 
     this.server.tool(
