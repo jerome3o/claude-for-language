@@ -287,12 +287,12 @@ export interface AudioQualityStats {
 
 /** How many clips came from each TTS provider. gtts = the low-quality fallback. */
 export async function getAudioQuality(): Promise<AudioQualityStats> {
-  return fetchJSON<AudioQualityStats>('/audio/quality');
+  return fetchJSON<AudioQualityStats>('/audio-quality');
 }
 
 /** Work out the provider of clips stored before it was recorded (one batch). */
 export async function classifyAudio(limit?: number): Promise<{ classified: number; found_fallback: number; remaining: boolean }> {
-  return fetchJSON('/audio/classify', {
+  return fetchJSON('/audio-quality/classify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ limit }),
@@ -301,7 +301,7 @@ export async function classifyAudio(limit?: number): Promise<{ classified: numbe
 
 /** Queue replacement of Google-fallback clips with MiniMax (one batch). */
 export async function regenerateFallbackAudio(limit?: number): Promise<{ queued: number; remaining: number }> {
-  return fetchJSON('/audio/regenerate-fallback', {
+  return fetchJSON('/audio-quality/regenerate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ limit }),
