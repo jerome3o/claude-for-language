@@ -265,14 +265,18 @@ function OfflineAudioSection() {
 function AudioQualityPanel() {
   const { isOnline } = useNetwork();
   const [stats, setStats] = useState<AudioQualityStats | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'classify' | 'regenerate' | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setStats(await getAudioQuality());
-    } catch {
+      setLoadError(null);
+    } catch (err) {
+      // Say so rather than sitting on "Loading…" forever.
       setStats(null);
+      setLoadError(err instanceof Error ? err.message : 'Could not load audio quality');
     }
   }, []);
 
@@ -340,8 +344,8 @@ function AudioQualityPanel() {
       </p>
 
       {stats === null ? (
-        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-light)' }}>
-          {isOnline ? 'Loading…' : 'Requires internet connection.'}
+        <p style={{ fontSize: '0.85rem', color: loadError ? '#b45309' : 'var(--color-text-light)' }}>
+          {!isOnline ? 'Requires internet connection.' : loadError ?? 'Loading…'}
         </p>
       ) : (
         <p style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>

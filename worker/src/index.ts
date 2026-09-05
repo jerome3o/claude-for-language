@@ -2455,12 +2455,16 @@ async function regenerateSentenceAudio(env: Env, sentenceId: string): Promise<bo
 
 // ============ Audio quality ============
 //
+// Mounted at /api/audio-quality, NOT under /api/audio/: that prefix is public
+// (clip files are served without auth), so a handler there has no user and
+// crashes on c.get('user'). Same reason /api/audio-manifest lives where it does.
+//
 // Every clip records which provider made it. The Google fallback produces a
 // different voice at half the bitrate with time-stretched slow speech — the
 // "crunchy" audio — so these routes exist to count those clips, find the ones
 // stored before the provider was recorded, and replace them.
 
-app.get('/api/audio/quality', async (c) => {
+app.get('/api/audio-quality', async (c) => {
   const userId = c.get('user').id;
   const stats = await db.getAudioQualityStats(c.env.DB, userId);
   return c.json(stats);
@@ -2474,7 +2478,7 @@ const AUDIO_CLASSIFY_MAX_BATCH = 300;
  * first frame header of each from R2 (a 2 KB range read, no download). Bounded
  * per call; the client loops until nothing is left.
  */
-app.post('/api/audio/classify', async (c) => {
+app.post('/api/audio-quality/classify', async (c) => {
   const userId = c.get('user').id;
   let limit = AUDIO_CLASSIFY_BATCH;
   try {
@@ -2541,7 +2545,7 @@ const AUDIO_REGEN_BATCH = 50;
 const AUDIO_REGEN_MAX_BATCH = 250;
 
 /** Queue replacement of known Google-fallback clips with MiniMax. */
-app.post('/api/audio/regenerate-fallback', async (c) => {
+app.post('/api/audio-quality/regenerate', async (c) => {
   const userId = c.get('user').id;
   if (!c.env.MINIMAX_API_KEY) {
     return c.json({ error: 'MiniMax is not configured' }, 500);
