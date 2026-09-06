@@ -770,6 +770,9 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `delete_deck` | Delete a deck and all its notes |
 | `add_note` | Add a vocabulary note (auto-generates TTS audio) |
 | `batch_add_notes` | Add multiple notes at once (more efficient for bulk operations) |
+| `search_notes` | Search notes by hanzi/pinyin/english across all decks (or one deck) — check before adding to avoid duplicates |
+| `batch_search_notes` | Dedup-check many candidate words in one call — use instead of looping `search_notes` when clearing a whole homework list against existing notes |
+| `move_notes` | Move notes to a different deck, keeping SRS state and history |
 | `update_note` | Update an existing note |
 | `delete_note` | Delete a note |
 | `get_note_cards` | Get all cards for a note with their SRS state |

@@ -1162,6 +1162,52 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
     );
 
     this.server.tool(
+      "batch_search_notes",
+      "Check many candidate words against existing notes in a single call. Use this instead of calling search_notes once per word when deduplicating a whole homework list before adding notes — one round trip per candidate adds up fast on a 30-50 word list. Matches hanzi, pinyin, and english with substring matching, across all decks (or one deck).",
+      {
+        queries: z.array(z.string()).min(1).max(100).describe("Words/phrases to check, one per candidate vocabulary item"),
+        deck_id: z.string().optional().describe("Restrict the search to a single deck ID. If omitted, searches across all of the user's decks."),
+        limit_per_query: z.number().optional().describe("Maximum matches returned per query (default 5) — kept small since this tool is for existence-checking, not full search"),
+      },
+      async ({ queries, deck_id, limit_per_query }) => {
+        const cap = limit_per_query && limit_per_query > 0 ? limit_per_query : 5;
+
+        const sql = deck_id
+          ? `SELECT n.id, n.hanzi, n.pinyin, n.english, d.name as deck_name FROM notes n
+             JOIN decks d ON n.deck_id = d.id
+             WHERE d.user_id = ? AND n.deck_id = ?
+               AND (n.hanzi LIKE ? OR n.pinyin LIKE ? OR n.english LIKE ?)
+             ORDER BY n.created_at DESC LIMIT ?`
+          : `SELECT n.id, n.hanzi, n.pinyin, n.english, d.name as deck_name FROM notes n
+             JOIN decks d ON n.deck_id = d.id
+             WHERE d.user_id = ?
+               AND (n.hanzi LIKE ? OR n.pinyin LIKE ? OR n.english LIKE ?)
+             ORDER BY n.created_at DESC LIMIT ?`;
+
+        const results = await Promise.all(queries.map(async (query) => {
+          const like = `%${query}%`;
+          const params = deck_id
+            ? [userId, deck_id, like, like, like, cap]
+            : [userId, like, like, like, cap];
+
+          const res = await this.env.DB
+            .prepare(sql)
+            .bind(...params)
+            .all<Pick<Note, 'id' | 'hanzi' | 'pinyin' | 'english'> & { deck_name: string }>();
+
+          return { query, count: res.results.length, matches: res.results };
+        }));
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ results }, null, 2),
+          }],
+        };
+      }
+    );
+
+    this.server.tool(
       "move_notes",
       "Move one or more notes to a different deck. Cards keep all their SRS state, review history, and scheduling. Useful for reorganizing decks.",
       {
