@@ -24,7 +24,7 @@ import {
   textToFlashcard,
   analyzeSentence,
 } from '../api/client';
-import { createAudioPlayer } from '../utils/audioPlayback';
+import { createAudioPlayer, holdAudioOutputWarm } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
 import { SentenceChunk } from '../types';
 import './RoleplayPage.css';
@@ -2530,6 +2530,10 @@ function SessionRecap({ stats, dayStats, todayTotalTimeMs }: { stats: SessionSta
 }
 
 export function StudyPage() {
+  // Keep the device's audio output awake while studying: a clip that starts on
+  // an idle output stutters for its first second (see holdAudioOutputWarm).
+  useEffect(() => holdAudioOutputWarm(), []);
+
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isOnline } = useNetwork();

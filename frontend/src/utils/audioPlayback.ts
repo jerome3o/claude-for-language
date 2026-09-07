@@ -151,6 +151,98 @@ export function warmAudioOutput(): void {
   }
 }
 
+// ---- Keeping the output warm ----
+//
+// The report from the device: choppy for the first second of a clip, clean on
+// an immediate replay, and it happens to MiniMax clips too. That is not the
+// audio; it is the device's audio output starting from idle. Android's audio
+// HAL drops the output into standby after a few seconds of silence, and the
+// first buffers after it wakes underrun — audible as a stuttering start. The
+// replay is clean because the output is still awake from the first play.
+//
+// A persistent AudioContext alone does not prevent this: with nothing to
+// render, the output goes quiet and the HAL idles anyway. So while a study
+// screen is open (and the app is visible) an inaudible looping source keeps
+// the output stream running, and every clip starts on a live output.
+
+let warmSource: AudioBufferSourceNode | null = null;
+let warmHolders = 0;
+let visibilityHooked = false;
+
+/** Amplitude of the keep-alive signal: about -90 dBFS, far below audibility. */
+const WARM_AMPLITUDE = 3e-5;
+
+function startWarmSource(): void {
+  if (warmSource) return;
+  const ctx = getSharedContext();
+  if (!ctx || typeof ctx.createBuffer !== 'function') return;
+  if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
+
+  const length = Math.max(1, Math.round(ctx.sampleRate));
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  // Faint noise rather than digital silence: an all-zero stream can be
+  // detected and optimised away, which would put the output back to sleep.
+  for (let i = 0; i < data.length; i++) {
+    data[i] = (Math.random() * 2 - 1) * WARM_AMPLITUDE;
+  }
+
+  const node = ctx.createBufferSource();
+  node.buffer = buffer;
+  node.loop = true;
+  node.connect(ctx.destination);
+  node.start();
+  warmSource = node;
+}
+
+function stopWarmSource(): void {
+  if (!warmSource) return;
+  try {
+    warmSource.stop();
+  } catch {
+    // Already stopped
+  }
+  warmSource.disconnect();
+  warmSource = null;
+}
+
+function syncWarmSource(): void {
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  if (warmHolders > 0 && !hidden) {
+    startWarmSource();
+  } else {
+    stopWarmSource();
+  }
+}
+
+/**
+ * Keep the audio output running for as long as the returned release function
+ * has not been called. Screens that play clips hold this for their lifetime;
+ * the output is let go while the app is in the background so it does not
+ * cost battery when nothing can be heard anyway.
+ */
+export function holdAudioOutputWarm(): () => void {
+  if (!visibilityHooked && typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', syncWarmSource);
+    visibilityHooked = true;
+  }
+  warmHolders++;
+  syncWarmSource();
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    warmHolders = Math.max(0, warmHolders - 1);
+    syncWarmSource();
+  };
+}
+
+/** True while the keep-alive source is running — recorded on each clip. */
+export function isAudioOutputWarm(): boolean {
+  return warmSource !== null;
+}
+
 /** MediaError codes are numeric; name them so a report is readable. */
 function describeMediaError(el: HTMLAudioElement): string {
   const code = el.error?.code;

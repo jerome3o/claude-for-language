@@ -89,6 +89,11 @@ export interface AudioClipRecord {
   prefetch: string;
   online: boolean;
   offline_mode: boolean;
+  /**
+   * Whether the keep-alive source was holding the device's audio output awake
+   * when this clip started. A cold output stutters for its first second.
+   */
+  output_warm: boolean;
 }
 
 /** Context the diagnostics layer cannot see for itself. */
@@ -96,12 +101,14 @@ export interface DiagnosticsContext {
   playersLive: () => number;
   prefetchStatus: () => string;
   offlineMode: () => boolean;
+  outputWarm: () => boolean;
 }
 
 let context: DiagnosticsContext = {
   playersLive: () => 0,
   prefetchStatus: () => 'unknown',
   offlineMode: () => false,
+  outputWarm: () => false,
 };
 
 /** Wire up the ambient signals. Called once at startup. */
@@ -171,6 +178,7 @@ export function trackClip(
     prefetch: context.prefetchStatus(),
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
+    output_warm: context.outputWarm(),
   };
 
   const onPlaying = () => {
@@ -291,6 +299,7 @@ export function trackBufferClip(
     prefetch: context.prefetchStatus(),
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
+    output_warm: context.outputWarm(),
   };
 
   let started: number | null = null;

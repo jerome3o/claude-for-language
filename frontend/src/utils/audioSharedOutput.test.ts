@@ -11,6 +11,7 @@ import type { AudioClipRecord } from './audioDiagnostics';
 
 interface FakeNode {
   buffer: unknown;
+  loop: boolean;
   onended: (() => void) | null;
   connected: boolean;
   started: boolean;
@@ -29,6 +30,7 @@ let elements: number;
 function makeNode(): FakeNode {
   const node: FakeNode = {
     buffer: null,
+    loop: false,
     onended: null,
     connected: false,
     started: false,
@@ -45,7 +47,11 @@ function makeNode(): FakeNode {
 function stubAudioContext() {
   vi.stubGlobal('AudioContext', class {
     state = 'running';
+    sampleRate = 48000;
     destination = {};
+    createBuffer(_channels: number, length: number) {
+      return { getChannelData: () => new Float32Array(length) };
+    }
     constructor() { contexts++; }
     resume() { return Promise.resolve(); }
     decodeAudioData() {
@@ -214,5 +220,79 @@ describe('shared audio output', () => {
 
     expect(nodes).toHaveLength(0);
     expect(elements).toBe(1);
+  });
+});
+
+describe('keeping the output warm', () => {
+  const hold = () => playback.holdAudioOutputWarm();
+  const isWarm = () => playback.isAudioOutputWarm();
+
+  it('runs an inaudible looping source while held, and stops it on release', () => {
+    stubAudioContext();
+    const release = hold();
+
+    expect(isWarm()).toBe(true);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].loop).toBe(true);
+    expect(nodes[0].connected).toBe(true);
+    expect(nodes[0].started).toBe(true);
+
+    release();
+    expect(isWarm()).toBe(false);
+    expect(nodes[0].stopped).toBe(true);
+    expect(nodes[0].connected).toBe(false);
+  });
+
+  it('shares one source across several holders', () => {
+    stubAudioContext();
+    const first = hold();
+    const second = hold();
+    expect(nodes).toHaveLength(1);
+
+    first();
+    expect(isWarm()).toBe(true); // still held by the second
+    second();
+    expect(isWarm()).toBe(false);
+  });
+
+  it('ignores a double release', () => {
+    stubAudioContext();
+    const release = hold();
+    const other = hold();
+    release();
+    release(); // must not steal the other holder's hold
+    expect(isWarm()).toBe(true);
+    other();
+    expect(isWarm()).toBe(false);
+  });
+
+  it('lets the output sleep while the app is hidden, and wakes it on return', () => {
+    stubAudioContext();
+    const release = hold();
+    expect(isWarm()).toBe(true);
+
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(isWarm()).toBe(false);
+
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(isWarm()).toBe(true);
+
+    release();
+  });
+
+  it('is a harmless no-op without Web Audio', () => {
+    vi.stubGlobal('AudioContext', undefined);
+    const release = hold();
+    expect(isWarm()).toBe(false);
+    expect(() => release()).not.toThrow();
+  });
+
+  it('does not count the keep-alive as a playing clip', () => {
+    stubAudioContext();
+    const release = hold();
+    expect(isAudioPlaying()).toBe(false); // background caching may proceed
+    release();
   });
 });
