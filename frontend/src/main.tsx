@@ -6,7 +6,7 @@ import { initConsoleBuffer } from './utils/consoleBuffer';
 import { initDebugConsole } from './utils/debugConsole';
 import { initAutoUpdate } from './utils/appUpdates';
 import { setDiagnosticsContext } from './utils/audioDiagnostics';
-import { livePlayerCount, warmAudioOutput } from './utils/audioPlayback';
+import { livePlayerCount, warmAudioOutput, isAudioOutputWarm } from './utils/audioPlayback';
 import { getPrefetchStatus } from './services/audioPrefetch';
 import { getManualOfflineMode } from './services/offlineMode';
 
@@ -23,6 +23,7 @@ setDiagnosticsContext({
   playersLive: livePlayerCount,
   prefetchStatus: getPrefetchStatus,
   offlineMode: getManualOfflineMode,
+  outputWarm: isAudioOutputWarm,
 });
 
 // Opening the audio output takes a moment and can only be done from a user
