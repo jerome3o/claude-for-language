@@ -16,7 +16,7 @@ import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
-import { generateSentenceSet } from './services/sentence-set';
+import { generateSentenceSet, sentenceAudioRetryDelay } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
@@ -1353,7 +1353,39 @@ async function attachSentenceSetAudio(
   };
 
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, sentences.length) }, worker));
+
+  // A row left without a clip (MiniMax rate-limited, most often) would stay
+  // silent for good: nothing revisits a stored set. Queue each one for a
+  // retry after the burst has passed.
+  const silent = sentences.filter((s) => !audioByIdMap.has(s.id));
+  for (const sentence of silent) {
+    await enqueueSentenceAudio(env, sentence.id, 1);
+  }
+  if (silent.length > 0) {
+    console.log('[sentence-set] Queued retries for', silent.length, 'sentences without audio');
+  }
   return audioByIdMap;
+}
+
+/**
+ * Queue one sentence-set row for audio. `attempt` counts retries for a row
+ * that has none yet; the delay grows with it, and the last attempt is the end
+ * of the line for the queue (the hourly sweep and the backfill still find it).
+ */
+async function enqueueSentenceAudio(env: Env, sentenceId: string, attempt = 1): Promise<boolean> {
+  const delaySeconds = sentenceAudioRetryDelay(attempt);
+  if (delaySeconds === null) return false;
+  try {
+    // noteId is required by the message shape but unused for this kind.
+    await env.SENTENCE_SET_QUEUE.send(
+      { noteId: '', kind: 'sentence_audio', sentenceId, attempt },
+      { delaySeconds }
+    );
+    return true;
+  } catch (error) {
+    console.error('[sentence-audio] Failed to enqueue sentence', sentenceId, error);
+    return false;
+  }
 }
 
 // List a note's sentence set
@@ -1525,14 +1557,25 @@ app.post('/api/sentences/clue-audio', async (c) => {
   for (const note of notes) {
     await enqueueClueAudio(c.env, note.id);
   }
+  // Sentence-set rows can be silent for the same reason (a rate-limited
+  // generation stores the row without a clip); the same button fixes them.
+  const sentences = await db.getSentencesMissingAudio(c.env.DB, userId, limit);
+  for (const sentence of sentences) {
+    await enqueueSentenceAudio(c.env, sentence.id, 1);
+  }
 
-  const remaining = await db.countNotesMissingClueAudio(c.env.DB, userId);
-  console.log('[clue-audio] Queued', notes.length, 'notes;', remaining, 'still missing audio');
-  return c.json({ queued: notes.length, remaining });
+  const remaining =
+    (await db.countNotesMissingClueAudio(c.env.DB, userId)) +
+    (await db.countSentencesMissingAudio(c.env.DB, userId));
+  const queued = notes.length + sentences.length;
+  console.log('[clue-audio] Queued', notes.length, 'notes and', sentences.length, 'sentences;', remaining, 'still missing audio');
+  return c.json({ queued, remaining });
 });
 
 /** Default number of notes a single prefetch sweep will enqueue. */
 const SENTENCE_PREFETCH_BATCH = 20;
+/** Silent sentence-set rows a prefetch sweep also queues audio for. */
+const SENTENCE_AUDIO_SWEEP_BATCH = 20;
 const SENTENCE_PREFETCH_MAX_BATCH = 100;
 
 /**
@@ -1565,6 +1608,17 @@ app.post('/api/sentences/prefetch', async (c) => {
   const notes = await db.getNotesNeedingSentenceSets(c.env.DB, userId, limit, noteIds);
   for (const note of notes) {
     await enqueueSentenceSet(c.env, note.id);
+  }
+
+  // The same sweep gives silent set rows another go, a few at a time, so
+  // rows that ran out of queue retries still get their clip without anyone
+  // pressing a button.
+  const silent = await db.getSentencesMissingAudio(c.env.DB, userId, SENTENCE_AUDIO_SWEEP_BATCH);
+  for (const sentence of silent) {
+    await enqueueSentenceAudio(c.env, sentence.id, 1);
+  }
+  if (silent.length > 0) {
+    console.log('[sentence-set] Prefetch also queued audio for', silent.length, 'silent sentences');
   }
 
   const remaining = await db.countNotesWithoutSentenceSets(c.env.DB, userId);
@@ -2442,12 +2496,18 @@ async function regenerateNoteAudio(env: Env, noteId: string): Promise<boolean> {
   return true;
 }
 
-/** Regenerate one sentence-set clip with MiniMax; keeps the old clip on failure. */
+/**
+ * Regenerate one sentence-set clip with MiniMax; keeps the old clip on failure.
+ * A row with no clip at all takes whatever generateTTS produces — under the
+ * current policy that is Google only when MiniMax is permanently unavailable,
+ * and a fallback clip beats a silent row.
+ */
 async function regenerateSentenceAudio(env: Env, sentenceId: string): Promise<boolean> {
   const sentence = await db.getNoteSentenceByIdUnscoped(env.DB, sentenceId);
   if (!sentence) return false;
   const result = await generateTTS(env, sentence.hanzi, `${sentenceId}-sentence`);
-  if (!result || result.provider !== 'minimax') return false;
+  if (!result) return false;
+  if (sentence.audio_url && result.provider !== 'minimax') return false;
   await db.setNoteSentenceAudio(env.DB, sentenceId, result.audioKey, result.provider);
   if (sentence.audio_url) await deleteAudio(env.AUDIO_BUCKET, sentence.audio_url).catch(() => {});
   return true;
@@ -6719,7 +6779,7 @@ export default {
     } else if (queueName === 'sentence-set-queue') {
       // Pre-generate a note's sentence set so study never waits on the AI
       for (const message of batch.messages) {
-        const { noteId, count, kind, sentenceId, force } = message.body as SentenceSetMessage;
+        const { noteId, count, kind, sentenceId, force, attempt: priorAttempt } = message.body as SentenceSetMessage;
 
         // Same queue, much smaller job: just the TTS for a card's own sentence.
         if (kind === 'clue_audio') {
@@ -6741,6 +6801,16 @@ export default {
         if (kind === 'sentence_audio' && sentenceId) {
           const replaced = await regenerateSentenceAudio(env, sentenceId);
           console.log('[Queue] Sentence audio', replaced ? 'replaced' : 'left', sentenceId);
+          if (!replaced) {
+            // Still no clip at all (as opposed to an old clip left in place):
+            // try again later rather than leaving the row silent.
+            const row = await db.getNoteSentenceByIdUnscoped(env.DB, sentenceId);
+            if (row && !row.audio_url) {
+              const attempt = (priorAttempt ?? 1) + 1;
+              const queued = await enqueueSentenceAudio(env, sentenceId, attempt);
+              console.log('[Queue] Sentence audio retry', queued ? `queued (attempt ${attempt})` : 'exhausted', sentenceId);
+            }
+          }
           message.ack();
           continue;
         }

@@ -85,6 +85,12 @@ export interface SentenceSetMessage {
   sentenceId?: string;
   /** For 'clue_audio': replace existing audio rather than only filling a gap. */
   force?: boolean;
+  /**
+   * For 'sentence_audio' on a row with no clip yet: which attempt this is.
+   * A rate-limited MiniMax leaves the row silent, so the consumer re-queues
+   * with a growing delay (see sentenceAudioRetryDelay) instead of giving up.
+   */
+  attempt?: number;
 }
 
 // Audio provider types

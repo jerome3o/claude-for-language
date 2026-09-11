@@ -131,10 +131,16 @@ let contextUnavailable = false;
  * of the same buffer, with nothing else going on, is clean. A report with
  * the output stream held open the whole time was still choppy, so it is not
  * the stream waking up; it is deadlines being missed on a tiny buffer.
- * 'playback' trades a few tens of milliseconds of latency, which nobody can
- * notice on a card reveal, for a buffer that tolerates that contention.
+ * A bigger buffer trades latency nobody can notice on a card reveal for
+ * tolerance of that contention.
+ *
+ * 'playback' got 21 ms on the device, and the first clip of a session still
+ * lost 78 ms (measured as base_latency_ms / stutter_ms in the diagnostics),
+ * so the size is requested outright. 100 ms is well within what Chrome
+ * allows for Web Audio and small next to the ~280 ms the device already
+ * reports downstream of the browser.
  */
-const SHARED_OUTPUT_LATENCY: AudioContextLatencyCategory = 'playback';
+const SHARED_OUTPUT_LATENCY = 0.1;
 
 function getSharedContext(): AudioContext | null {
   if (sharedContext) return sharedContext;

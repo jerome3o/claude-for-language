@@ -136,6 +136,10 @@ export function SentenceCoveragePage() {
 
   const stats = statsQuery.data;
   const missingClueAudio = stats ? stats.notes.with_clue - stats.notes.with_clue_audio : 0;
+  const missingSetAudio = stats ? stats.sentences.total - stats.sentences.with_audio : 0;
+  // One button covers both: card sentences and set rows go silent for the
+  // same reasons, and the backfill endpoint queues both.
+  const missingAudio = missingClueAudio + missingSetAudio;
 
   const handleGenerate = async (limit: number) => {
     setIsBusy(true);
@@ -159,12 +163,12 @@ export function SentenceCoveragePage() {
 
   const handleClueAudio = async () => {
     setIsBusy(true);
-    setStatus('Queueing audio for card sentences…');
+    setStatus('Queueing audio for sentences without it…');
     try {
       const result = await backfillClueAudio(250);
       setStatus(
         result.queued === 0
-          ? 'Every card sentence already has audio.'
+          ? 'Every sentence already has audio.'
           : `Queued audio for ${result.queued} sentences. ${result.remaining.toLocaleString()} still without it. ` +
             'They fill in over the next few minutes.'
       );
@@ -307,14 +311,14 @@ export function SentenceCoveragePage() {
                 >
                   Generate 100
                 </button>
-                {missingClueAudio > 0 && (
+                {missingAudio > 0 && (
                   <button
                     className="btn btn-secondary"
                     onClick={handleClueAudio}
                     disabled={isBusy || !isOnline}
                     title={!isOnline ? 'Requires internet connection' : ''}
                   >
-                    Add audio to {missingClueAudio.toLocaleString()} sentences
+                    Add audio to {missingAudio.toLocaleString()} sentences
                   </button>
                 )}
                 <button

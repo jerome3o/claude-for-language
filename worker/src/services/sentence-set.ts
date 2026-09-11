@@ -261,3 +261,19 @@ export async function generateSentenceSet(
     ? lastError
     : new Error('Failed to generate sentence set');
 }
+
+/**
+ * How long to wait before trying again for a sentence that still has no clip,
+ * by attempt number (1 = the first retry). MiniMax reports rate limits as
+ * empty successes, and bulk generation hits them in bursts, so a few widely
+ * spaced retries recover nearly every row; past that the row is left for the
+ * hourly sweep and the coverage page's backfill. Returns null when the
+ * attempts are used up.
+ */
+export const SENTENCE_AUDIO_RETRY_DELAYS_S = [60, 300, 900] as const;
+
+export function sentenceAudioRetryDelay(attempt: number): number | null {
+  if (!Number.isFinite(attempt) || attempt < 1) return SENTENCE_AUDIO_RETRY_DELAYS_S[0];
+  const index = Math.floor(attempt) - 1;
+  return index < SENTENCE_AUDIO_RETRY_DELAYS_S.length ? SENTENCE_AUDIO_RETRY_DELAYS_S[index] : null;
+}

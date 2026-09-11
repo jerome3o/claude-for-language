@@ -169,7 +169,7 @@ describe('shared audio output', () => {
     player.play(blob());
     await settle();
 
-    expect(contextOptions).toEqual([{ latencyHint: 'playback' }]);
+    expect(contextOptions).toEqual([{ latencyHint: 0.1 }]);
   });
 
   it('reports ending, and goes idle for background work', async () => {
