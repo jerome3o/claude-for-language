@@ -4010,6 +4010,56 @@ export async function countNotesMissingClueAudio(
   return row?.count ?? 0;
 }
 
+/**
+ * Sentence-set rows with no audio. generateTTS returns nothing rather than a
+ * Google clip when MiniMax is rate-limited, so a set generated during a burst
+ * can be stored with silent rows; these are what the retry, the hourly sweep
+ * and the coverage page's backfill go after. Soonest-due first.
+ */
+export async function getSentencesMissingAudio(
+  db: D1Database,
+  userId: string,
+  limit: number
+): Promise<Array<{ id: string; hanzi: string }>> {
+  const result = await db
+    .prepare(`
+      SELECT s.id, s.hanzi, MIN(c.next_review_at) AS due
+      FROM note_sentences s
+      JOIN notes n ON s.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      LEFT JOIN cards c ON c.note_id = n.id
+      WHERE d.user_id = ?
+        AND s.hanzi IS NOT NULL AND s.hanzi != ''
+        AND (s.audio_url IS NULL OR s.audio_url = '')
+      GROUP BY s.id
+      ORDER BY due IS NULL, due ASC
+      LIMIT ?
+    `)
+    .bind(userId, limit)
+    .all<{ id: string; hanzi: string }>();
+  return result.results ?? [];
+}
+
+/** How many sentence-set rows are still without audio. */
+export async function countSentencesMissingAudio(
+  db: D1Database,
+  userId: string
+): Promise<number> {
+  const row = await db
+    .prepare(`
+      SELECT COUNT(*) AS count
+      FROM note_sentences s
+      JOIN notes n ON s.note_id = n.id
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ?
+        AND s.hanzi IS NOT NULL AND s.hanzi != ''
+        AND (s.audio_url IS NULL OR s.audio_url = '')
+    `)
+    .bind(userId)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
 // ---- Custom mini lessons (agent-authored, see shared/lesson) ----
 
 export interface CustomLessonRow {

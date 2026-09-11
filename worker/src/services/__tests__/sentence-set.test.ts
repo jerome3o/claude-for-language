@@ -5,6 +5,8 @@ import {
   SENTENCE_SET_DEFAULT_COUNT,
   SENTENCE_SET_MIN_COUNT,
   SENTENCE_SET_MAX_COUNT,
+  sentenceAudioRetryDelay,
+  SENTENCE_AUDIO_RETRY_DELAYS_S,
 } from '../sentence-set';
 
 describe('clampSentenceCount', () => {
@@ -86,5 +88,20 @@ describe('normalizeGeneratedSentences', () => {
     expect(result[0].pinyin).toBe('');
     expect(result[0].translation).toBe('');
     expect(result[0].focusNote).toBeNull();
+  });
+});
+
+describe('sentenceAudioRetryDelay', () => {
+  it('spaces retries out, then gives the row up to the sweep', () => {
+    expect(sentenceAudioRetryDelay(1)).toBe(SENTENCE_AUDIO_RETRY_DELAYS_S[0]);
+    expect(sentenceAudioRetryDelay(2)).toBe(SENTENCE_AUDIO_RETRY_DELAYS_S[1]);
+    expect(sentenceAudioRetryDelay(3)).toBe(SENTENCE_AUDIO_RETRY_DELAYS_S[2]);
+    expect(sentenceAudioRetryDelay(4)).toBeNull();
+    expect(sentenceAudioRetryDelay(99)).toBeNull();
+  });
+
+  it('treats a missing or nonsense attempt as the first', () => {
+    expect(sentenceAudioRetryDelay(0)).toBe(SENTENCE_AUDIO_RETRY_DELAYS_S[0]);
+    expect(sentenceAudioRetryDelay(NaN)).toBe(SENTENCE_AUDIO_RETRY_DELAYS_S[0]);
   });
 });
