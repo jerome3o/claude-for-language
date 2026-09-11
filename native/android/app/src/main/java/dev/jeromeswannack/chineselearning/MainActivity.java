@@ -157,7 +157,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onDestroy() {
+    public void onDestroy() {
         if (audioBridge != null) {
             audioBridge.release();
         }
