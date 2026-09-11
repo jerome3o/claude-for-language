@@ -19,6 +19,12 @@ Capacitor config, app icon, etc.).
   Implemented via Android's `ACTION_PROCESS_TEXT`.
 - **Deep-link scheme**: `chineselearning:///<route>` opens the app at that route
   (e.g. `chineselearning:///study`). Usable from other apps, Tasker, etc.
+- **Native audio playback**: card and sentence clips play through Android's
+  own `MediaPlayer` (`window.AndroidAudio`, see `AudioBridge.java`) instead of
+  the WebView. The WebView's sandboxed renderer could not keep its audio
+  thread fed while a card revealed, so the first second of every clip
+  stuttered; the system media stack has no such problem. The frontend uses
+  the bridge whenever it is present and an `<audio>` element otherwise.
 - **Homework notifications**: an hourly background check (WorkManager) posts a
   notification when a review card is due — hanzi on the front, **Show answer**
   reveals pinyin/English, and **Again / Good / Easy** record the review through
@@ -78,6 +84,9 @@ can't download its distribution, a system Gradle >= 8.11 works too.
 - `android/app/src/main/java/.../MainActivity.java` — routes intents
   (`route` extra or `chineselearning://` data URI) to the corresponding page by
   loading `server.url + route` in the WebView.
+- `android/app/src/main/java/.../AudioBridge.java` — plays clips the page
+  hands it (bytes as a data: URL, or an https URL) with `MediaPlayer`, and
+  reports `play` / `ended` / `error` back as `android-audio` window events.
 - `android/app/src/main/java/.../ProcessTextActivity.java` — receives
   `ACTION_PROCESS_TEXT` selections and forwards to `/coach?text=...`.
 - `android/app/src/main/java/.../ShortcutsWidgetProvider.java` +

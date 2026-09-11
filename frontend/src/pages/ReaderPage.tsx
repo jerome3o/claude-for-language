@@ -11,7 +11,7 @@ import {
 } from '../api/client';
 import { READER_TTS_SPEED } from '../services/readerSync';
 import { base64ToBlob } from '../services/ttsCache';
-import { createAudioPlayer, holdAudioOutputWarm } from '../utils/audioPlayback';
+import { createAudioPlayer } from '../utils/audioPlayback';
 import { Loading } from '../components/Loading';
 import { SentenceBreakdown } from '../components/SentenceBreakdown';
 import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
@@ -353,9 +353,6 @@ function PageView({
 }
 
 export function ReaderPage() {
-  // Keep the audio output awake while reading (see holdAudioOutputWarm).
-  useEffect(() => holdAudioOutputWarm(), []);
-
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 

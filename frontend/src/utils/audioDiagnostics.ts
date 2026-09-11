@@ -38,8 +38,8 @@ export interface AudioClipRecord {
   /** Which feature played it (note, sentence, reader, grammar, …). */
   label: string;
   source: 'blob' | 'url';
-  /** Which playback path ran it: the shared AudioContext, or an <audio> element. */
-  engine: 'webaudio' | 'element';
+  /** Which playback path ran it: the app's native bridge, or an <audio> element. */
+  engine: 'native' | 'element';
   bytes: number | null;
   mime: string | null;
   /** Network sources only, query string stripped. */
@@ -89,21 +89,6 @@ export interface AudioClipRecord {
   prefetch: string;
   online: boolean;
   offline_mode: boolean;
-  /**
-   * Whether the keep-alive source was holding the device's audio output awake
-   * when this clip started. A cold output stutters for its first second.
-   */
-  output_warm: boolean;
-  /** Web Audio only: the AudioContext's state when the clip started. */
-  ctx_state: string | null;
-  /**
-   * Web Audio only: the render buffer the browser chose, in ms. Every render
-   * callback must be served within this window or the output underruns, so a
-   * few ms here means playback is at the mercy of scheduling jitter.
-   */
-  base_latency_ms: number | null;
-  /** Web Audio only: further latency the browser reports past the buffer. */
-  output_latency_ms: number | null;
 }
 
 /** Context the diagnostics layer cannot see for itself. */
@@ -111,14 +96,12 @@ export interface DiagnosticsContext {
   playersLive: () => number;
   prefetchStatus: () => string;
   offlineMode: () => boolean;
-  outputWarm: () => boolean;
 }
 
 let context: DiagnosticsContext = {
   playersLive: () => 0,
   prefetchStatus: () => 'unknown',
   offlineMode: () => false,
-  outputWarm: () => false,
 };
 
 /** Wire up the ambient signals. Called once at startup. */
@@ -148,7 +131,7 @@ export function clearAudioRecords(): void {
 export interface ClipTracker {
   /** Stop sampling and file the record. Safe to call twice. */
   finish(outcome?: { error?: string | null; ended?: boolean }): void;
-  /** Web Audio only: note the moment the buffer began sounding. */
+  /** Native only: note the moment the bridge reported sound starting. */
   markStarted?(): void;
 }
 
@@ -188,10 +171,6 @@ export function trackClip(
     prefetch: context.prefetchStatus(),
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
-    output_warm: context.outputWarm(),
-    ctx_state: null,
-    base_latency_ms: null,
-    output_latency_ms: null,
   };
 
   const onPlaying = () => {
@@ -277,48 +256,25 @@ export function trackClip(
 }
 
 /**
- * Record a clip played through the shared AudioContext. There is no element to
- * poll: Web Audio schedules against the audio clock, so a started buffer either
- * plays intact or the whole output is broken. Start latency and duration are
- * the signals worth keeping.
+ * Record a clip handed to the app's native bridge. Playback happens outside
+ * the page, so there is nothing to sample; what can be known is how long the
+ * bridge took to start sounding, and whether the clip ended or errored.
  */
-/**
- * The slice of an AudioContext the buffer tracker reads. `currentTime` is the
- * audio thread's own clock: it advances only as render quanta are produced,
- * so when the output underruns it falls behind the wall clock by exactly the
- * time lost — the same measurement as the element path, on a different clock.
- */
-export interface OutputClock {
-  currentTime: number;
-  state: string;
-  baseLatency?: number;
-  outputLatency?: number;
-}
-
-const latencyMs = (seconds: number | undefined): number | null =>
-  typeof seconds === 'number' && Number.isFinite(seconds)
-    ? Math.round(seconds * 1000)
-    : null;
-
-export function trackBufferClip(
-  source: Blob,
-  label: string,
-  durationSeconds: number,
-  clock?: OutputClock
-): ClipTracker {
+export function trackNativeClip(source: Blob | string, label: string): ClipTracker {
   const startedAt = Date.now();
+  const isBlob = typeof source !== 'string';
   const record: AudioClipRecord = {
     seq: nextSeq++,
     at: new Date(startedAt).toISOString(),
     label,
-    source: 'blob',
-    engine: 'webaudio',
-    bytes: source.size,
-    mime: source.type || null,
-    url: null,
+    source: isBlob ? 'blob' : 'url',
+    engine: 'native',
+    bytes: isBlob ? source.size : null,
+    mime: isBlob ? source.type || null : null,
+    url: isBlob ? null : source.split('?')[0],
     start_ms: null,
-    duration_s: Number(durationSeconds.toFixed(2)),
-    kbps: bitrateKbps(source.size, durationSeconds),
+    duration_s: null,
+    kbps: null,
     played_s: null,
     ended: false,
     error: null,
@@ -331,64 +287,25 @@ export function trackBufferClip(
     prefetch: context.prefetchStatus(),
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
-    output_warm: context.outputWarm(),
-    ctx_state: clock?.state ?? null,
-    base_latency_ms: latencyMs(clock?.baseLatency),
-    output_latency_ms: latencyMs(clock?.outputLatency),
   };
 
   let started: number | null = null;
-  let timer: ReturnType<typeof setInterval> | null = null;
   let done = false;
-
-  // A decoded buffer cannot stall for lack of data, so the only way this path
-  // loses time is the audio thread missing its render deadlines. That shows
-  // up as the context clock advancing less than the wall clock.
-  function startSampling(c: OutputClock, firstWall: number) {
-    const firstClock = c.currentTime;
-    let lastWall = firstWall;
-    let lastClock = firstClock;
-    timer = setInterval(() => {
-      const now = Date.now();
-      const clockNow = c.currentTime;
-      const wallDelta = now - lastWall;
-      const clockDelta = (clockNow - lastClock) * 1000;
-      lastWall = now;
-      lastClock = clockNow;
-
-      const timerLate = Math.round(wallDelta - SAMPLE_MS);
-      if (timerLate > 0) {
-        record.worst_timer_late_ms = Math.max(record.worst_timer_late_ms, timerLate);
-      }
-
-      record.samples++;
-      const drift = Math.round(now - firstWall - (clockNow - firstClock) * 1000);
-      record.stutter_ms = Math.max(0, drift);
-
-      const gap = Math.round(wallDelta - clockDelta - TOLERANCE_MS);
-      if (gap > 0) {
-        record.worst_gap_ms = Math.max(record.worst_gap_ms, gap);
-      }
-    }, SAMPLE_MS);
-  }
-
   return {
     finish(outcome = {}) {
       if (done) return;
       done = true;
-      if (timer !== null) clearInterval(timer);
-      const elapsed = (Date.now() - (started ?? startedAt)) / 1000;
-      record.played_s = Number(Math.min(durationSeconds, Math.max(0, elapsed)).toFixed(2));
+      if (started !== null) {
+        record.played_s = Number(((Date.now() - started) / 1000).toFixed(2));
+      }
       record.ended = outcome.ended ?? false;
       record.error = outcome.error ?? null;
       push(record);
     },
-    /** Called when the buffer actually begins sounding. */
     markStarted() {
       if (started !== null || done) return;
       started = Date.now();
       record.start_ms = started - startedAt;
-      if (clock) startSampling(clock, started);
     },
   };
 }
@@ -411,8 +328,8 @@ export interface AudioDiagnosticsSummary {
   /** Choppy clips where the main thread was also visibly blocked. */
   choppy_with_main_thread_block: number;
   worst_timer_late_ms: number;
-  /** Clips that went through the shared AudioContext rather than an element. */
-  via_webaudio: number;
+  /** Clips played by the app's native bridge rather than an element. */
+  via_native: number;
   /** Slowest time-to-first-sound, in ms. */
   worst_start_ms: number;
   /** Clips whose encode is the low-quality fallback (~64 kbps). */
@@ -472,7 +389,7 @@ export function summarize(list: AudioClipRecord[]): AudioDiagnosticsSummary {
     // starved" — the two look identical to the ear.
     choppy_with_main_thread_block: choppy.filter((r) => r.worst_timer_late_ms >= 100).length,
     worst_timer_late_ms: list.reduce((max, r) => Math.max(max, r.worst_timer_late_ms), 0),
-    via_webaudio: list.filter((r) => r.engine === 'webaudio').length,
+    via_native: list.filter((r) => r.engine === 'native').length,
     worst_start_ms: list.reduce((max, r) => Math.max(max, r.start_ms ?? 0), 0),
     low_bitrate_clips: list.filter(isLowBitrate).length,
   };
