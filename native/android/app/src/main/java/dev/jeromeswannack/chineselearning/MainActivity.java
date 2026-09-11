@@ -66,6 +66,7 @@ public class MainActivity extends BridgeActivity {
         setUpKeyboardAwareInsets();
         setUpClipboardBridge();
         setUpDownloadBridge();
+        setUpAudioBridge();
         handleRouteIntent(getIntent());
         setUpHomeworkNotifications();
     }
@@ -141,6 +142,26 @@ public class MainActivity extends BridgeActivity {
                 return false;
             }
         }
+    }
+
+    /**
+     * Card and sentence clips play through Android's media stack rather than
+     * the WebView's, which stuttered at the start of every clip whenever the
+     * page was busy. See AudioBridge.
+     */
+    private AudioBridge audioBridge;
+
+    private void setUpAudioBridge() {
+        audioBridge = new AudioBridge(this, bridge.getWebView());
+        bridge.getWebView().addJavascriptInterface(audioBridge, "AndroidAudio");
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (audioBridge != null) {
+            audioBridge.release();
+        }
+        super.onDestroy();
     }
 
     /**

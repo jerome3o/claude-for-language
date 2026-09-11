@@ -1,21 +1,25 @@
 /**
  * Managed audio playback.
  *
- * Every clip used to get its own `new Audio(...)`, usually wrapped around a
- * fresh `URL.createObjectURL(blob)` that was never revoked. Pausing an element
- * does not release its decoder, so in the Android WebView a study session
- * accumulates one live media player (and one pinned blob) per clip played.
- * Chromium caps how many media players a renderer may hold; past that limit
- * playback degrades instead of failing outright — crunchy, dropping out,
- * distorted. It shows up first on the longest clips (example sentences,
- * reader pages) because they need the most decoder buffer.
+ * Two engines, chosen per environment:
  *
- * An AudioPlayer owns exactly ONE <audio> element and at most one object URL,
- * and releases both before starting the next clip. Callers keep one player for
- * their lifetime and must `dispose()` it on unmount.
+ * - In the Android app, clips go to the native AudioBridge (window.AndroidAudio,
+ *   see native/.../AudioBridge.java) and play through Android's own media
+ *   stack. The WebView's renderer is a sandboxed, low-priority process and
+ *   nothing on the web side can keep its audio thread fed while the page is
+ *   busy — the first second of a clip stuttered on every card reveal, however
+ *   the clip was played. MediaPlayer does not have that problem.
+ * - Everywhere else, one <audio> element per player. Every clip used to get
+ *   its own `new Audio(...)` around an object URL that was never revoked; the
+ *   WebView capped the number of live media players and playback degraded
+ *   past it. A player owns exactly ONE element and at most one object URL and
+ *   releases both before the next clip.
+ *
+ * Callers keep one player for their lifetime and must `dispose()` it on
+ * unmount.
  */
 
-import { trackClip, trackBufferClip, ClipTracker } from './audioDiagnostics';
+import { trackClip, trackNativeClip, ClipTracker } from './audioDiagnostics';
 
 /** Live element count, so diagnostics can catch a leak reappearing. */
 let livePlayers = 0;
@@ -27,9 +31,9 @@ export function livePlayerCount(): number {
 //
 // Bulk media caching (sentence sets, the offline prefetcher) downloads several
 // clips at once and writes each into IndexedDB. Doing that while a clip is
-// playing starves the media pipeline of network, disk and main thread, and the
-// clip comes out choppy. Playback is user-facing and lasts a second or two;
-// caching is background work with no deadline. So caching yields to playback.
+// playing competes with it for network, disk and main thread. Playback is
+// user-facing and lasts a second or two; caching is background work with no
+// deadline. So caching yields to playback.
 
 let activeClips = 0;
 const idleWaiters = new Set<() => void>();
@@ -104,164 +108,53 @@ export interface AudioPlayer {
   isCurrent(playId: number): boolean;
 }
 
-// ---- Shared audio output ----
-//
-// An <audio> element acquires and releases the device's audio output around
-// every clip. On Android that acquisition is not free: a report from the device
-// showed ~1s to first sound for a 17KB clip already in memory, and a `waiting`
-// event on every single clip — with the main thread idle and the bytes local.
-// Short card clips played back to back pay that cost over and over, and the
-// first moments of a clip are exactly where a freshly-opened output glitches.
-//
-// One AudioContext, opened once and kept open for the session, removes the
-// per-clip acquisition entirely: each clip is a buffer scheduled on an output
-// that is already running. Element playback stays as the fallback.
+// ---- Native bridge (the Android app) ----
 
-let sharedContext: AudioContext | null = null;
-let contextUnavailable = false;
+interface AndroidAudioBridge {
+  /** Start a clip. `source` is a data: URL (bytes) or an https URL. */
+  play(id: number, source: string): boolean;
+  /** Stop the clip with this id; a superseded id is ignored. */
+  stop(id: number): void;
+}
 
-/**
- * Buffer size for the shared output. The default ('interactive') asks for
- * the smallest buffer the device supports — a few milliseconds on a Pixel —
- * which is right for a synth and wrong for a flashcard app: every render
- * callback has to be served within that window or the output underruns.
- * The choppy starts on the device fit that exactly: they hit the first
- * second of a clip, right after the reveal renders and the decode lands,
- * while the CPU is still clocked down from idling — and an immediate replay
- * of the same buffer, with nothing else going on, is clean. A report with
- * the output stream held open the whole time was still choppy, so it is not
- * the stream waking up; it is deadlines being missed on a tiny buffer.
- * A bigger buffer trades latency nobody can notice on a card reveal for
- * tolerance of that contention.
- *
- * 'playback' got 21 ms on the device, and the first clip of a session still
- * lost 78 ms (measured as base_latency_ms / stutter_ms in the diagnostics),
- * so the size is requested outright. 100 ms is well within what Chrome
- * allows for Web Audio and small next to the ~280 ms the device already
- * reports downstream of the browser.
- */
-const SHARED_OUTPUT_LATENCY = 0.1;
-
-function getSharedContext(): AudioContext | null {
-  if (sharedContext) return sharedContext;
-  if (contextUnavailable) return null;
-  const Ctor =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctor) {
-    contextUnavailable = true;
-    return null;
-  }
-  try {
-    sharedContext = new Ctor({ latencyHint: SHARED_OUTPUT_LATENCY });
-    return sharedContext;
-  } catch {
-    contextUnavailable = true;
-    return null;
+declare global {
+  interface Window {
+    AndroidAudio?: AndroidAudioBridge;
   }
 }
 
-/**
- * Open (or resume) the shared output. Browsers only allow this from a user
- * gesture, so call it from an early interaction — the output is then warm
- * before the first clip needs it.
- */
-export function warmAudioOutput(): void {
-  const ctx = getSharedContext();
-  if (ctx && ctx.state === 'suspended') {
-    void ctx.resume().catch(() => {});
-  }
+type NativeEvent = 'play' | 'ended' | 'error';
+
+/** True when running inside the Android app with the audio bridge. */
+export function hasNativeAudio(): boolean {
+  return typeof window !== 'undefined' && !!window.AndroidAudio;
 }
 
-// ---- Keeping the output warm ----
-//
-// While a study screen is open (and the app is visible) an inaudible looping
-// source keeps the output stream running, so the device never puts the audio
-// output into standby between clips and every clip starts on a live stream.
-//
-// This was first tried as the fix for the choppy starts, on the theory that
-// they were the output waking from standby. A report from the device with the
-// stream held open (`output_warm: true` on every clip) still had a choppy
-// start, so on its own it is not the fix — see SHARED_OUTPUT_LATENCY. It stays
-// because a stream that never stops is one less thing that can be starting
-// up underneath a clip.
+// Ids handed to the bridge are unique across all players, so its events can
+// be routed back to the right one.
+let nextNativeId = 1;
+const nativeListeners = new Map<number, (event: NativeEvent) => void>();
+let nativeEventsHooked = false;
 
-let warmSource: AudioBufferSourceNode | null = null;
-let warmHolders = 0;
-let visibilityHooked = false;
-
-/** Amplitude of the keep-alive signal: about -90 dBFS, far below audibility. */
-const WARM_AMPLITUDE = 3e-5;
-
-function startWarmSource(): void {
-  if (warmSource) return;
-  const ctx = getSharedContext();
-  if (!ctx || typeof ctx.createBuffer !== 'function') return;
-  if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
-
-  const length = Math.max(1, Math.round(ctx.sampleRate));
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  // Faint noise rather than digital silence: an all-zero stream can be
-  // detected and optimised away, which would put the output back to sleep.
-  for (let i = 0; i < data.length; i++) {
-    data[i] = (Math.random() * 2 - 1) * WARM_AMPLITUDE;
-  }
-
-  const node = ctx.createBufferSource();
-  node.buffer = buffer;
-  node.loop = true;
-  node.connect(ctx.destination);
-  node.start();
-  warmSource = node;
+function hookNativeEvents() {
+  if (nativeEventsHooked) return;
+  nativeEventsHooked = true;
+  window.addEventListener('android-audio', (raw: Event) => {
+    const detail = (raw as CustomEvent<{ id?: number; event?: NativeEvent }>).detail;
+    if (!detail || typeof detail.id !== 'number' || !detail.event) return;
+    nativeListeners.get(detail.id)?.(detail.event);
+  });
 }
 
-function stopWarmSource(): void {
-  if (!warmSource) return;
-  try {
-    warmSource.stop();
-  } catch {
-    // Already stopped
+/** The clip bytes as a data: URL — the one string form the bridge can take. */
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
-  warmSource.disconnect();
-  warmSource = null;
-}
-
-function syncWarmSource(): void {
-  const hidden = typeof document !== 'undefined' && document.hidden;
-  if (warmHolders > 0 && !hidden) {
-    startWarmSource();
-  } else {
-    stopWarmSource();
-  }
-}
-
-/**
- * Keep the audio output running for as long as the returned release function
- * has not been called. Screens that play clips hold this for their lifetime;
- * the output is let go while the app is in the background so it does not
- * cost battery when nothing can be heard anyway.
- */
-export function holdAudioOutputWarm(): () => void {
-  if (!visibilityHooked && typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', syncWarmSource);
-    visibilityHooked = true;
-  }
-  warmHolders++;
-  syncWarmSource();
-
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    warmHolders = Math.max(0, warmHolders - 1);
-    syncWarmSource();
-  };
-}
-
-/** True while the keep-alive source is running — recorded on each clip. */
-export function isAudioOutputWarm(): boolean {
-  return warmSource !== null;
+  return `data:${blob.type || 'audio/mpeg'};base64,${btoa(binary)}`;
 }
 
 /** MediaError codes are numeric; name them so a report is readable. */
@@ -288,8 +181,8 @@ export function createAudioPlayer(): AudioPlayer {
   let tracker: ClipTracker | null = null;
   // At most one clip per player is ever counted as active.
   let clipActive = false;
-  // Web Audio path: the buffer currently scheduled on the shared output.
-  let bufferSource: AudioBufferSourceNode | null = null;
+  // Native path: the bridge id of the clip in flight.
+  let nativeId: number | null = null;
 
   function markActive() {
     if (clipActive) return;
@@ -310,15 +203,14 @@ export function createAudioPlayer(): AudioPlayer {
       tracker.finish();
       tracker = null;
     }
-    if (bufferSource) {
-      bufferSource.onended = null;
+    if (nativeId !== null) {
+      nativeListeners.delete(nativeId);
       try {
-        bufferSource.stop();
+        window.AndroidAudio?.stop(nativeId);
       } catch {
-        // Already finished — stop() on a spent source throws.
+        // Bridge gone (page reloading) — nothing to stop.
       }
-      bufferSource.disconnect();
-      bufferSource = null;
+      nativeId = null;
     }
     if (element) {
       element.onplay = null;
@@ -341,114 +233,119 @@ export function createAudioPlayer(): AudioPlayer {
   }
 
   /**
-   * Play through the shared output. Returns false when Web Audio is
-   * unavailable or the clip cannot be decoded, so the caller falls back to the
-   * element path rather than leaving the user with silence.
+   * Play through the native bridge. Returns false when the bridge is absent,
+   * so the caller uses the element instead.
    */
-  function playViaSharedOutput(
-    id: number,
-    source: Blob,
-    handlers: PlayHandlers
-  ): boolean {
-    const ctx = getSharedContext();
-    if (!ctx) return false;
+  function playViaNative(id: number, source: Blob | string, handlers: PlayHandlers): boolean {
+    const bridge = window.AndroidAudio;
+    if (!bridge) return false;
+    hookNativeEvents();
 
+    const clipId = nextNativeId++;
+    nativeId = clipId;
+    const clip = trackNativeClip(source, handlers.label ?? 'unknown');
+    tracker = clip;
     markActive();
-    if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
 
-    void (async () => {
-      let buffer: AudioBuffer;
-      try {
-        buffer = await ctx.decodeAudioData(await source.arrayBuffer());
-      } catch {
-        // Undecodable here but possibly fine for the element (some WebViews
-        // decode formats Web Audio refuses) — hand it back.
-        if (playId !== id) return;
-        markInactive();
-        playViaElement(id, source, handlers);
-        return;
-      }
+    const finish = (outcome: { ended?: boolean; error?: string }) => {
+      nativeListeners.delete(clipId);
+      if (nativeId === clipId) nativeId = null;
+      clip.finish(outcome);
+      if (tracker === clip) tracker = null;
+    };
+
+    nativeListeners.set(clipId, (event) => {
       if (playId !== id) return;
-
-      const clip = trackBufferClip(source, handlers.label ?? 'unknown', buffer.duration, ctx);
-      tracker = clip;
-
-      const node = ctx.createBufferSource();
-      node.buffer = buffer;
-      node.connect(ctx.destination);
-      node.onended = () => {
-        if (playId !== id) return;
-        clip.finish({ ended: true });
-        tracker = null;
+      if (event === 'play') {
+        clip.markStarted?.();
+        handlers.onPlay?.();
+      } else if (event === 'ended') {
+        finish({ ended: true });
         markInactive();
         handlers.onEnded?.();
-      };
-      bufferSource = node;
-      node.start();
-      clip.markStarted?.();
-      handlers.onPlay?.();
-    })();
+      } else {
+        finish({ error: 'native-error' });
+        markInactive();
+        handlers.onError?.();
+      }
+    });
 
+    const start = (payload: string) => {
+      if (playId !== id) return;
+      let accepted = false;
+      try {
+        accepted = bridge.play(clipId, payload);
+      } catch {
+        accepted = false;
+      }
+      if (!accepted) {
+        finish({ error: 'native-rejected' });
+        markInactive();
+        handlers.onError?.();
+      }
+    };
+
+    if (typeof source === 'string') {
+      start(source);
+    } else {
+      blobToDataUrl(source).then(start, () => start(''));
+    }
     return true;
   }
 
   /** Play through an <audio> element. */
   function playViaElement(id: number, source: Blob | string, handlers: PlayHandlers): void {
     if (!element) {
-        element = new Audio();
-        livePlayers++;
-      }
-      const el = element;
+      element = new Audio();
+      livePlayers++;
+    }
+    const el = element;
 
-      if (typeof source === 'string') {
-        el.src = source;
-      } else {
-        objectUrl = URL.createObjectURL(source);
-        el.src = objectUrl;
-      }
+    if (typeof source === 'string') {
+      el.src = source;
+    } else {
+      objectUrl = URL.createObjectURL(source);
+      el.src = objectUrl;
+    }
 
-      tracker = trackClip(el, source, handlers.label ?? 'unknown');
-      const clip = tracker;
-      markActive();
+    tracker = trackClip(el, source, handlers.label ?? 'unknown');
+    const clip = tracker;
+    markActive();
 
-      el.onplay = () => {
-        if (playId === id) handlers.onPlay?.();
-      };
-      el.onended = () => {
-        clip.finish({ ended: true });
-        if (playId === id) markInactive();
-        if (playId === id) handlers.onEnded?.();
-      };
-      el.onerror = () => {
-        clip.finish({ error: describeMediaError(el) });
-        if (playId === id) markInactive();
-        if (playId === id) handlers.onError?.();
-      };
+    el.onplay = () => {
+      if (playId === id) handlers.onPlay?.();
+    };
+    el.onended = () => {
+      clip.finish({ ended: true });
+      if (playId === id) markInactive();
+      if (playId === id) handlers.onEnded?.();
+    };
+    el.onerror = () => {
+      clip.finish({ error: describeMediaError(el) });
+      if (playId === id) markInactive();
+      if (playId === id) handlers.onError?.();
+    };
 
-      const started = el.play();
-      // Older WebViews return undefined instead of a promise.
-      if (started && typeof started.catch === 'function') {
-        started.catch((err: unknown) => {
-          // An aborted play (superseded by the next clip) is not an error.
-          if (playId !== id) return;
-          clip.finish({ error: err instanceof Error ? err.name : 'play-rejected' });
-          markInactive();
-          handlers.onError?.();
-        });
-      }
+    const started = el.play();
+    // Older WebViews return undefined instead of a promise.
+    if (started && typeof started.catch === 'function') {
+      started.catch((err: unknown) => {
+        // An aborted play (superseded by the next clip) is not an error.
+        if (playId !== id) return;
+        clip.finish({ error: err instanceof Error ? err.name : 'play-rejected' });
+        markInactive();
+        handlers.onError?.();
+      });
+    }
   }
 
   return {
     play(source, handlers = {}) {
       const id = ++playId;
       release();
-
-      // Cached clips (everything in the study session) go through the shared
-      // output; plain URLs stay on the element, which streams them.
-      if (typeof source !== 'string' && playViaSharedOutput(id, source, handlers)) {
-        return id;
+      if (!playViaNative(id, source, handlers)) {
+        playViaElement(id, source, handlers);
       }
-      playViaElement(id, source, handlers);
       return id;
     },
 
