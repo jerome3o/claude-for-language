@@ -120,6 +120,22 @@ export interface AudioPlayer {
 let sharedContext: AudioContext | null = null;
 let contextUnavailable = false;
 
+/**
+ * Buffer size for the shared output. The default ('interactive') asks for
+ * the smallest buffer the device supports — a few milliseconds on a Pixel —
+ * which is right for a synth and wrong for a flashcard app: every render
+ * callback has to be served within that window or the output underruns.
+ * The choppy starts on the device fit that exactly: they hit the first
+ * second of a clip, right after the reveal renders and the decode lands,
+ * while the CPU is still clocked down from idling — and an immediate replay
+ * of the same buffer, with nothing else going on, is clean. A report with
+ * the output stream held open the whole time was still choppy, so it is not
+ * the stream waking up; it is deadlines being missed on a tiny buffer.
+ * 'playback' trades a few tens of milliseconds of latency, which nobody can
+ * notice on a card reveal, for a buffer that tolerates that contention.
+ */
+const SHARED_OUTPUT_LATENCY: AudioContextLatencyCategory = 'playback';
+
 function getSharedContext(): AudioContext | null {
   if (sharedContext) return sharedContext;
   if (contextUnavailable) return null;
@@ -131,7 +147,7 @@ function getSharedContext(): AudioContext | null {
     return null;
   }
   try {
-    sharedContext = new Ctor();
+    sharedContext = new Ctor({ latencyHint: SHARED_OUTPUT_LATENCY });
     return sharedContext;
   } catch {
     contextUnavailable = true;
@@ -153,17 +169,16 @@ export function warmAudioOutput(): void {
 
 // ---- Keeping the output warm ----
 //
-// The report from the device: choppy for the first second of a clip, clean on
-// an immediate replay, and it happens to MiniMax clips too. That is not the
-// audio; it is the device's audio output starting from idle. Android's audio
-// HAL drops the output into standby after a few seconds of silence, and the
-// first buffers after it wakes underrun — audible as a stuttering start. The
-// replay is clean because the output is still awake from the first play.
+// While a study screen is open (and the app is visible) an inaudible looping
+// source keeps the output stream running, so the device never puts the audio
+// output into standby between clips and every clip starts on a live stream.
 //
-// A persistent AudioContext alone does not prevent this: with nothing to
-// render, the output goes quiet and the HAL idles anyway. So while a study
-// screen is open (and the app is visible) an inaudible looping source keeps
-// the output stream running, and every clip starts on a live output.
+// This was first tried as the fix for the choppy starts, on the theory that
+// they were the output waking from standby. A report from the device with the
+// stream held open (`output_warm: true` on every clip) still had a choppy
+// start, so on its own it is not the fix — see SHARED_OUTPUT_LATENCY. It stays
+// because a stream that never stops is one less thing that can be starting
+// up underneath a clip.
 
 let warmSource: AudioBufferSourceNode | null = null;
 let warmHolders = 0;
@@ -349,7 +364,7 @@ export function createAudioPlayer(): AudioPlayer {
       }
       if (playId !== id) return;
 
-      const clip = trackBufferClip(source, handlers.label ?? 'unknown', buffer.duration);
+      const clip = trackBufferClip(source, handlers.label ?? 'unknown', buffer.duration, ctx);
       tracker = clip;
 
       const node = ctx.createBufferSource();

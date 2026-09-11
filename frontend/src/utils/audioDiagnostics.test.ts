@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   trackClip,
+  trackBufferClip,
   getAudioRecords,
   clearAudioRecords,
   setDiagnosticsContext,
@@ -218,6 +219,9 @@ describe('isTruncated', () => {
     online: true,
     offline_mode: false,
     output_warm: false,
+    ctx_state: null,
+    base_latency_ms: null,
+    output_latency_ms: null,
   };
 
   it('is false when playback reached the end', () => {
@@ -328,5 +332,78 @@ describe('bitrate', () => {
     expect(record.kbps).toBe(64);
     expect(isLowBitrate(record)).toBe(true);
     expect(summarize([record]).low_bitrate_clips).toBe(1);
+  });
+});
+
+describe('a decoded buffer on the shared output', () => {
+  // The context clock advances only as the audio thread renders; when it
+  // misses deadlines the clock falls behind the wall clock by the time lost.
+  function fakeClock() {
+    return { currentTime: 0, state: 'running', baseLatency: 0.004, outputLatency: 0.02 };
+  }
+
+  function renderSmoothly(clock: { currentTime: number }, ms: number) {
+    for (let i = 0; i < ms / 250; i++) {
+      clock.currentTime += 0.25;
+      vi.advanceTimersByTime(250);
+    }
+  }
+
+  it('reports a clean clip as clean', () => {
+    const clock = fakeClock();
+    const tracker = trackBufferClip(blob(), 'note', 2, clock);
+    tracker.markStarted?.();
+    renderSmoothly(clock, 2000);
+    tracker.finish({ ended: true });
+
+    const [record] = getAudioRecords();
+    expect(record.samples).toBe(8);
+    expect(record.stutter_ms).toBe(0);
+    expect(record.worst_gap_ms).toBe(0);
+    expect(isChoppy(record)).toBe(false);
+  });
+
+  it('measures the audio thread falling behind', () => {
+    const clock = fakeClock();
+    const tracker = trackBufferClip(blob(), 'note', 2, clock);
+    tracker.markStarted?.();
+    renderSmoothly(clock, 250);
+    // The audio thread is starved: wall time passes, nothing is rendered.
+    vi.advanceTimersByTime(500);
+    renderSmoothly(clock, 1000);
+    tracker.finish({ ended: true });
+
+    const [record] = getAudioRecords();
+    expect(record.stutter_ms).toBe(500);
+    // The gap is per sample: each 250 ms tick during the starve saw no
+    // rendering, less the tolerance.
+    expect(record.worst_gap_ms).toBe(250 - 80);
+    expect(isChoppy(record)).toBe(true);
+  });
+
+  it('records the buffer the browser chose, so a tiny one is visible', () => {
+    const clock = fakeClock();
+    const tracker = trackBufferClip(blob(), 'note', 1, clock);
+    tracker.markStarted?.();
+    tracker.finish({ ended: true });
+
+    const [record] = getAudioRecords();
+    expect(record.ctx_state).toBe('running');
+    expect(record.base_latency_ms).toBe(4);
+    expect(record.output_latency_ms).toBe(20);
+  });
+
+  it('measures nothing before the buffer starts sounding', () => {
+    const clock = fakeClock();
+    const tracker = trackBufferClip(blob(), 'note', 1, clock);
+    // Decode still pending: wall time passing here is start_ms, not stutter.
+    vi.advanceTimersByTime(1000);
+    tracker.markStarted?.();
+    renderSmoothly(clock, 500);
+    tracker.finish({ ended: true });
+
+    const [record] = getAudioRecords();
+    expect(record.start_ms).toBe(1000);
+    expect(record.stutter_ms).toBe(0);
   });
 });

@@ -24,6 +24,7 @@ interface FakeNode {
 
 let nodes: FakeNode[] = [];
 let contexts: number;
+let contextOptions: unknown[] = [];
 let decodeShouldFail: boolean;
 let elements: number;
 
@@ -48,11 +49,14 @@ function stubAudioContext() {
   vi.stubGlobal('AudioContext', class {
     state = 'running';
     sampleRate = 48000;
+    currentTime = 0;
+    baseLatency = 0.02;
+    outputLatency = 0.01;
     destination = {};
     createBuffer(_channels: number, length: number) {
       return { getChannelData: () => new Float32Array(length) };
     }
-    constructor() { contexts++; }
+    constructor(options?: unknown) { contexts++; contextOptions.push(options); }
     resume() { return Promise.resolve(); }
     decodeAudioData() {
       return decodeShouldFail
@@ -100,6 +104,7 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 beforeEach(async () => {
   nodes = [];
   contexts = 0;
+  contextOptions = [];
   elements = 0;
   decodeShouldFail = false;
   stubAudioElement();
@@ -150,6 +155,21 @@ describe('shared audio output', () => {
     expect(record.duration_s).toBe(1.5);
     expect(record.ended).toBe(true);
     expect(record.start_ms).not.toBeNull();
+    expect(record.ctx_state).toBe('running');
+    expect(record.base_latency_ms).toBe(20);
+    expect(record.output_latency_ms).toBe(10);
+  });
+
+  it('asks for a playback-sized buffer, not the smallest interactive one', async () => {
+    // The smallest buffer the device offers is a few milliseconds; a busy
+    // moment (the reveal rendering, the decode landing) misses that deadline
+    // and the start of the clip underruns. Nothing here needs low latency.
+    stubAudioContext();
+    const player = newPlayer();
+    player.play(blob());
+    await settle();
+
+    expect(contextOptions).toEqual([{ latencyHint: 'playback' }]);
   });
 
   it('reports ending, and goes idle for background work', async () => {
