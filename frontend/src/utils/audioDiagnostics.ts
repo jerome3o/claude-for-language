@@ -94,6 +94,16 @@ export interface AudioClipRecord {
    * when this clip started. A cold output stutters for its first second.
    */
   output_warm: boolean;
+  /** Web Audio only: the AudioContext's state when the clip started. */
+  ctx_state: string | null;
+  /**
+   * Web Audio only: the render buffer the browser chose, in ms. Every render
+   * callback must be served within this window or the output underruns, so a
+   * few ms here means playback is at the mercy of scheduling jitter.
+   */
+  base_latency_ms: number | null;
+  /** Web Audio only: further latency the browser reports past the buffer. */
+  output_latency_ms: number | null;
 }
 
 /** Context the diagnostics layer cannot see for itself. */
@@ -179,6 +189,9 @@ export function trackClip(
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
     output_warm: context.outputWarm(),
+    ctx_state: null,
+    base_latency_ms: null,
+    output_latency_ms: null,
   };
 
   const onPlaying = () => {
@@ -269,10 +282,29 @@ export function trackClip(
  * plays intact or the whole output is broken. Start latency and duration are
  * the signals worth keeping.
  */
+/**
+ * The slice of an AudioContext the buffer tracker reads. `currentTime` is the
+ * audio thread's own clock: it advances only as render quanta are produced,
+ * so when the output underruns it falls behind the wall clock by exactly the
+ * time lost — the same measurement as the element path, on a different clock.
+ */
+export interface OutputClock {
+  currentTime: number;
+  state: string;
+  baseLatency?: number;
+  outputLatency?: number;
+}
+
+const latencyMs = (seconds: number | undefined): number | null =>
+  typeof seconds === 'number' && Number.isFinite(seconds)
+    ? Math.round(seconds * 1000)
+    : null;
+
 export function trackBufferClip(
   source: Blob,
   label: string,
-  durationSeconds: number
+  durationSeconds: number,
+  clock?: OutputClock
 ): ClipTracker {
   const startedAt = Date.now();
   const record: AudioClipRecord = {
@@ -300,14 +332,51 @@ export function trackBufferClip(
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
     output_warm: context.outputWarm(),
+    ctx_state: clock?.state ?? null,
+    base_latency_ms: latencyMs(clock?.baseLatency),
+    output_latency_ms: latencyMs(clock?.outputLatency),
   };
 
   let started: number | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
   let done = false;
+
+  // A decoded buffer cannot stall for lack of data, so the only way this path
+  // loses time is the audio thread missing its render deadlines. That shows
+  // up as the context clock advancing less than the wall clock.
+  function startSampling(c: OutputClock, firstWall: number) {
+    const firstClock = c.currentTime;
+    let lastWall = firstWall;
+    let lastClock = firstClock;
+    timer = setInterval(() => {
+      const now = Date.now();
+      const clockNow = c.currentTime;
+      const wallDelta = now - lastWall;
+      const clockDelta = (clockNow - lastClock) * 1000;
+      lastWall = now;
+      lastClock = clockNow;
+
+      const timerLate = Math.round(wallDelta - SAMPLE_MS);
+      if (timerLate > 0) {
+        record.worst_timer_late_ms = Math.max(record.worst_timer_late_ms, timerLate);
+      }
+
+      record.samples++;
+      const drift = Math.round(now - firstWall - (clockNow - firstClock) * 1000);
+      record.stutter_ms = Math.max(0, drift);
+
+      const gap = Math.round(wallDelta - clockDelta - TOLERANCE_MS);
+      if (gap > 0) {
+        record.worst_gap_ms = Math.max(record.worst_gap_ms, gap);
+      }
+    }, SAMPLE_MS);
+  }
+
   return {
     finish(outcome = {}) {
       if (done) return;
       done = true;
+      if (timer !== null) clearInterval(timer);
       const elapsed = (Date.now() - (started ?? startedAt)) / 1000;
       record.played_s = Number(Math.min(durationSeconds, Math.max(0, elapsed)).toFixed(2));
       record.ended = outcome.ended ?? false;
@@ -316,9 +385,10 @@ export function trackBufferClip(
     },
     /** Called when the buffer actually begins sounding. */
     markStarted() {
-      if (started !== null) return;
+      if (started !== null || done) return;
       started = Date.now();
       record.start_ms = started - startedAt;
+      if (clock) startSampling(clock, started);
     },
   };
 }
