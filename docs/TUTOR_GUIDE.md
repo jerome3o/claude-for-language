@@ -430,6 +430,42 @@ Each shared deck has its own **progress page**: completion, progress per card ty
 the mastery percentage of every word in the deck. Words with a low percentage after a
 week are the ones to revisit in class.
 
+### Insights (the pre-lesson briefing)
+
+Opening a student now shows **Insights** as the main button. It is the one page to read
+before a lesson, and it defaults to *since your last lesson*:
+
+- **Time range** — chips for *Since last lesson*, 7, 14 or 30 days, or a custom pair of
+  dates. *Since last lesson* only appears once you have logged a lesson (see below).
+- **Tiles** — attempts, days active, accuracy (and how often they forgot), study time,
+  and how many new words they started.
+- **Needs attention** — the words the student forgot or mistyped most, worst first. The
+  red chips are the **exact characters they typed** (在见 for 再见, 己经 for 已经), which is
+  usually where a tone or look-alike problem shows itself. 🎤 means there is a
+  recording. Tap a row to see every attempt inline, with a play button for each recording.
+- **Going well** — words they got right every time, or that are now scheduled a week or
+  more out.
+- **Also this period** — mini lessons, readers and quests completed, and how many
+  recordings they made.
+- **Summary** — tap **Write summary** and Claude writes 6–10 short lines (about ten
+  seconds): how much they studied, what they nailed, what they struggle with (naming the
+  words and the wrong characters), and what to revisit next lesson. Toggle between
+  **EN** and **中文**. Previous summaries stay available below.
+- **Lessons** — **Log a lesson** with the date and optional notes. The date becomes the
+  new "since last lesson" start, and the notes are copied into the student's **Lesson
+  Notes** automatically (prefixed with your name and the date), so the daily reader and
+  the other AI helpers pick them up without the student having to paste anything.
+
+Two more pages sit in the row under Insights:
+
+- **History** — every attempt, newest first, with a sticky filter bar (search, deck, card
+  type, rating, range). Each row shows the typed answer with wrong characters struck
+  through in red and the expected characters in blue, plus a play button for recordings.
+  Switch **By attempt / By word** to group what is loaded by word.
+- **Recordings** — the student's pronunciation recordings, unlistened first. Play each
+  one and mark it **Listened** or **Needs work**, optionally with a note for yourself
+  (notes are not shown to the student yet). Filter by *all / unlistened / needs work*.
+
 ### What the student sees
 
 <img src="guide-images/connection-detail-student.png" width="300">
