@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { db, LocalNote, LocalCard } from '../db/database';
 import { deleteNote } from '../api/client';
 import { syncService } from '../services/sync';
+import { Toast, useToast } from '../components/Toast';
 
 interface DuplicateGroup {
   hanzi: string;
@@ -20,6 +21,7 @@ export function DuplicateFinderPage() {
   const [scanned, setScanned] = useState(false);
   const [deleting, setDeleting] = useState<Set<string>>(new Set());
   const [deleted, setDeleted] = useState<Set<string>>(new Set());
+  const [toast, showToast] = useToast();
 
   const allNotes = useLiveQuery(() => db.notes.toArray());
   const allCards = useLiveQuery(() => db.cards.toArray());
@@ -99,7 +101,7 @@ export function DuplicateFinderPage() {
       syncService.syncEvents().catch(() => {});
     } catch (err) {
       console.error('Failed to delete note:', err);
-      alert('Failed to delete note. Please try again.');
+      showToast("Couldn't delete that note. Please try again.");
     } finally {
       setDeleting(prev => {
         const next = new Set(prev);
@@ -107,7 +109,7 @@ export function DuplicateFinderPage() {
         return next;
       });
     }
-  }, [cardsByNoteId]);
+  }, [cardsByNoteId, showToast]);
 
   const handleDeleteAllDuplicates = useCallback(async () => {
     const toDelete: string[] = [];
@@ -209,6 +211,7 @@ export function DuplicateFinderPage() {
           )}
         </>
       )}
+      <Toast message={toast} />
     </div>
   );
 }

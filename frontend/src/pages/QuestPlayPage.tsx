@@ -166,7 +166,13 @@ export function QuestPlayPage() {
     return (
       <div className="container quest-page">
         <h1 style={{ fontSize: '1.2rem' }}>That level didn't come out playable</h1>
-        <p style={{ color: 'var(--color-text-light)' }}>{quest.error || 'Generation failed.'}</p>
+        <p style={{ color: 'var(--color-text-light)' }}>Couldn't build this one — tap Retry.</p>
+        {quest.error && (
+          <details className="quest-error-details">
+            <summary>Show details</summary>
+            <pre>{quest.error}</pre>
+          </details>
+        )}
         <button
           className="btn btn-primary btn-block"
           onClick={() => retry.mutate()}

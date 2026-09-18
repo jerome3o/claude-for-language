@@ -5,7 +5,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getDecks, generateGradedReader } from '../api/client';
 import { getDueNoteIds } from '../db/database';
 import { Loading } from '../components/Loading';
+import { InlineError } from '../components/Toast';
 import { DifficultyLevel } from '../types';
+import './GenerateReaderPage.css';
 
 const DIFFICULTY_OPTIONS: { value: DifficultyLevel; label: string; description: string }[] = [
   { value: 'beginner', label: 'Beginner', description: 'Very simple sentences, basic grammar' },
@@ -118,18 +120,7 @@ export function GenerateReaderPage() {
               ]).map((option) => (
                 <label
                   key={option.value}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    padding: '0.75rem',
-                    border: '1px solid',
-                    borderColor: source === option.value ? '#3b82f6' : '#e5e7eb',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    backgroundColor: source === option.value ? '#eff6ff' : 'white',
-                    transition: 'all 0.15s',
-                  }}
+                  className={`gen-option${source === option.value ? ' selected' : ''}`}
                 >
                   <input
                     type="radio"
@@ -137,14 +128,13 @@ export function GenerateReaderPage() {
                     value={option.value}
                     checked={source === option.value}
                     onChange={() => setSource(option.value)}
-                    style={{ width: '1.25rem', height: '1.25rem', accentColor: '#3b82f6' }}
+                    className="gen-option-input"
                   />
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{option.label}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                      {option.description}
-                    </div>
-                  </div>
+                  <span className="gen-option-mark" aria-hidden="true" />
+                  <span className="gen-option-text">
+                    <span className="gen-option-label">{option.label}</span>
+                    <span className="gen-option-desc">{option.description}</span>
+                  </span>
                 </label>
               ))}
             </div>
@@ -160,7 +150,6 @@ export function GenerateReaderPage() {
                   type="button"
                   className="btn btn-sm btn-secondary"
                   onClick={selectAllDecks}
-                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                 >
                   Select All
                 </button>
@@ -168,7 +157,6 @@ export function GenerateReaderPage() {
                   type="button"
                   className="btn btn-sm btn-secondary"
                   onClick={clearSelection}
-                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                 >
                   Clear
                 </button>
@@ -182,33 +170,21 @@ export function GenerateReaderPage() {
                 {decks.map((deck) => (
                   <label
                     key={deck.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.75rem',
-                      padding: '0.75rem',
-                      border: '1px solid',
-                      borderColor: selectedDeckIds.includes(deck.id) ? '#3b82f6' : '#e5e7eb',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      backgroundColor: selectedDeckIds.includes(deck.id) ? '#eff6ff' : 'white',
-                      transition: 'all 0.15s',
-                    }}
+                    className={`gen-option gen-option-check${selectedDeckIds.includes(deck.id) ? ' selected' : ''}`}
                   >
                     <input
                       type="checkbox"
                       checked={selectedDeckIds.includes(deck.id)}
                       onChange={() => toggleDeck(deck.id)}
-                      style={{ width: '1.25rem', height: '1.25rem', accentColor: '#3b82f6' }}
+                      className="gen-option-input"
                     />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 500 }}>{deck.name}</div>
+                    <span className="gen-option-mark" aria-hidden="true" />
+                    <span className="gen-option-text">
+                      <span className="gen-option-label">{deck.name}</span>
                       {deck.description && (
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                          {deck.description}
-                        </div>
+                        <span className="gen-option-desc">{deck.description}</span>
                       )}
-                    </div>
+                    </span>
                   </label>
                 ))}
               </div>
@@ -245,18 +221,7 @@ export function GenerateReaderPage() {
               {DIFFICULTY_OPTIONS.map((option) => (
                 <label
                   key={option.value}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    padding: '0.75rem',
-                    border: '1px solid',
-                    borderColor: difficulty === option.value ? '#3b82f6' : '#e5e7eb',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    backgroundColor: difficulty === option.value ? '#eff6ff' : 'white',
-                    transition: 'all 0.15s',
-                  }}
+                  className={`gen-option${difficulty === option.value ? ' selected' : ''}`}
                 >
                   <input
                     type="radio"
@@ -264,14 +229,13 @@ export function GenerateReaderPage() {
                     value={option.value}
                     checked={difficulty === option.value}
                     onChange={() => setDifficulty(option.value)}
-                    style={{ width: '1.25rem', height: '1.25rem', accentColor: '#3b82f6' }}
+                    className="gen-option-input"
                   />
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{option.label}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                      {option.description}
-                    </div>
-                  </div>
+                  <span className="gen-option-mark" aria-hidden="true" />
+                  <span className="gen-option-text">
+                    <span className="gen-option-label">{option.label}</span>
+                    <span className="gen-option-desc">{option.description}</span>
+                  </span>
                 </label>
               ))}
             </div>
@@ -279,18 +243,9 @@ export function GenerateReaderPage() {
 
           {/* Error Message */}
           {generateMutation.error && (
-            <div
-              className="mb-4"
-              style={{
-                backgroundColor: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: '8px',
-                padding: '0.75rem',
-                color: '#b91c1c',
-              }}
-            >
-              {(generateMutation.error as Error).message || 'Failed to generate story. Please try again.'}
-            </div>
+            <InlineError
+              message={(generateMutation.error as Error).message || "Couldn't start the story. Please try again."}
+            />
           )}
 
           {/* Generate Button */}

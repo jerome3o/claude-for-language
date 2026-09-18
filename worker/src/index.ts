@@ -3359,6 +3359,41 @@ app.post('/api/readers/generate', async (c) => {
   }
 });
 
+// Retry a FAILED reader in place: same id (so the daily slot and the client's
+// cached row stay valid), status back to 'generating', story re-queued with
+// the same shape of request the original was made with.
+app.post('/api/readers/:id/retry', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+
+  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
+  if (!reader) return c.json({ error: 'Reader not found' }, 404);
+  if (reader.status !== 'failed') {
+    return c.json({ error: 'Only a failed reader can be retried' }, 409);
+  }
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI generation is not configured' }, 500);
+  }
+
+  const daily = await db.isDailyReader(c.env.DB, userId, readerId);
+  // 'due_cards' mode treats vocabulary_used as target words merged with the
+  // full learned vocabulary, so it is always safe for a daily reader; manual
+  // readers built from due words are the ones with no source decks.
+  const dueMode = daily || reader.source_deck_ids.length === 0;
+
+  await db.resetReaderForRetry(c.env.DB, readerId);
+  await c.env.STORY_QUEUE.send({
+    readerId,
+    topic: reader.topic ?? undefined,
+    difficulty: reader.difficulty_level,
+    mode: dueMode ? 'due_cards' : undefined,
+    withLessonNotes: dueMode,
+    anchorLessonNotes: daily,
+  });
+
+  return c.json({ ...reader, status: 'generating', error_message: null }, 202);
+});
+
 // Delete a graded reader
 app.delete('/api/readers/:id', async (c) => {
   const userId = c.get('user').id;
@@ -6075,20 +6110,33 @@ async function startDailyReader(
     : [];
   const dueMode = targets.length >= 3;
 
-  const pending = await db.createPendingReader(c.env.DB, userId, {
-    title_chinese: '生成中...',
-    title_english: "Today's story...",
-    difficulty_level: 'beginner' as DifficultyLevel,
-    topic: null,
-    source_deck_ids: deckIds,
-    vocabulary_used: dueMode ? targets : vocabulary,
-  });
-  await db.setDailyReaderId(c.env.DB, userId, pending.id, localDate);
+  // A failed attempt from earlier today is retried IN PLACE (same row) rather
+  // than leaving a dead '生成中…' card behind for every study session that
+  // ended while the AI was unavailable.
+  let readerId: string;
+  if (existing?.status === 'failed' && existing.reader_id) {
+    readerId = existing.reader_id;
+    await db.resetReaderForRetry(c.env.DB, readerId, {
+      source_deck_ids: deckIds,
+      vocabulary_used: dueMode ? targets : vocabulary,
+    });
+  } else {
+    const pending = await db.createPendingReader(c.env.DB, userId, {
+      title_chinese: '生成中...',
+      title_english: "Today's story...",
+      difficulty_level: 'beginner' as DifficultyLevel,
+      topic: null,
+      source_deck_ids: deckIds,
+      vocabulary_used: dueMode ? targets : vocabulary,
+    });
+    readerId = pending.id;
+    await db.setDailyReaderId(c.env.DB, userId, readerId, localDate);
+  }
   // Only the readerId is sent — the consumer loads vocabulary_used from the
   // reader record to stay under the 128 KB Queues message limit.
   c.executionCtx.waitUntil(
     c.env.STORY_QUEUE.send({
-      readerId: pending.id,
+      readerId,
       difficulty: 'beginner',
       mode: dueMode ? 'due_cards' : undefined,
       withLessonNotes: true,
@@ -6098,7 +6146,7 @@ async function startDailyReader(
       anchorLessonNotes: true,
     }),
   );
-  return { reader_id: pending.id, situation_id: DAILY_READER_SOURCE, status: 'generating' };
+  return { reader_id: readerId, situation_id: DAILY_READER_SOURCE, status: 'generating' };
 }
 
 function triggerPracticePregen(

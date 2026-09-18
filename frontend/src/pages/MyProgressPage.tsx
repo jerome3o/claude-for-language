@@ -2,17 +2,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMyDailyProgress } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
+import { formatTime } from '../components/DeckProgress';
 import './StudentProgressPage.css';
-
-function formatTime(ms: number): string {
-  const minutes = Math.floor(ms / 60000);
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMins = minutes % 60;
-  return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`;
-}
 
 function formatDate(dateStr: string): { day: string; full: string } {
   const date = new Date(dateStr + 'T12:00:00');
