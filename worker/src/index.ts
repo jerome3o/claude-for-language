@@ -56,6 +56,7 @@ import invitesRoutes from './routes/invites';
 import { resolveSignup, redeemInvite } from './services/signup';
 import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
+import tutorDashboardRoutes from './routes/tutor-dashboard';
 import {
   createRelationship,
   getMyRelationships,
@@ -399,6 +400,9 @@ app.route('/api', invitesRoutes);
 
 // Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
 app.route('/api', insightsRoutes);
+
+// Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
+app.route('/api', tutorDashboardRoutes);
 
 // ============ Admin Routes ============
 
