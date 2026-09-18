@@ -378,8 +378,8 @@ function NativePlaybackPanel() {
   const version = nativeBridgeVersion();
 
   return (
-    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border, #e5e7eb)' }}>
-      <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.25rem 0' }}>Native Playback (Android app)</h3>
+    <div className="settings-section">
+      <h2>Native Playback (Android app)</h2>
       {version < 2 ? (
         <p className="settings-section-desc">
           This version of the app can only play clips. Update it (Obtainium) to get the
