@@ -14,6 +14,8 @@ import {
   isPlausibleInviteToken,
   listAllInvites,
   listInvitesByUser,
+  markInviteOpened,
+  MAX_WELCOME_MESSAGE_LENGTH,
   revokeInvite,
   userMayInvite,
   listAccessRequests,
@@ -50,6 +52,12 @@ invites.get('/invites/:id/public', async (c) => {
     .bind(invite.created_by)
     .first<{ name: string | null; picture_url: string | null }>();
 
+  // The /join page is the only caller, so this lookup *is* "the link was
+  // opened" — recorded once so the tutor can see "opened, not signed in".
+  if (!invite.opened_at && isInviteValid(invite)) {
+    c.executionCtx.waitUntil(markInviteOpened(c.env.DB, invite.id).catch(() => {}));
+  }
+
   // Deliberately no email (bound or inviter's) and no note.
   return c.json({
     status: inviteStatus(invite),
@@ -79,6 +87,7 @@ interface CreateInviteBody {
   max_uses?: number | null;
   expires_in_days?: number | null;
   note?: string | null;
+  welcome_message?: string | null;
 }
 
 invites.post('/invites', async (c) => {
@@ -128,6 +137,14 @@ invites.post('/invites', async (c) => {
     shareDeckIds = ids;
   }
 
+  const welcomeMessage = body.welcome_message ? String(body.welcome_message).trim() : '';
+  if (welcomeMessage.length > MAX_WELCOME_MESSAGE_LENGTH) {
+    return c.json({ error: `The welcome message must be at most ${MAX_WELCOME_MESSAGE_LENGTH} characters` }, 400);
+  }
+  if (welcomeMessage && role === null) {
+    return c.json({ error: 'A welcome message needs a connection to be delivered in — pick a relationship' }, 400);
+  }
+
   const invite = await createInvite(c.env.DB, {
     created_by: user.id,
     email,
@@ -136,6 +153,7 @@ invites.post('/invites', async (c) => {
     max_uses: body.max_uses ?? 1,
     expires_in_days: body.expires_in_days ?? null,
     note: body.note ? String(body.note).slice(0, 200) : null,
+    welcome_message: welcomeMessage || null,
   });
 
   const frontendUrl = resolveFrontendUrl(c.req.raw);

@@ -21,6 +21,10 @@ export interface Invite {
   revoked_at: string | null;
   created_at: string;
   note: string | null;
+  /** Optional note from the inviter, posted as the first chat message on redemption. */
+  welcome_message: string | null;
+  /** When the /join link was first opened (before any sign-in). */
+  opened_at: string | null;
 }
 
 export interface InviteRedemption {
@@ -103,7 +107,10 @@ export interface CreateInviteInput {
   max_uses?: number | null;
   expires_in_days?: number | null;
   note?: string | null;
+  welcome_message?: string | null;
 }
+
+export const MAX_WELCOME_MESSAGE_LENGTH = 1000;
 
 export async function createInvite(db: D1Database, input: CreateInviteInput): Promise<Invite> {
   const id = generateInviteToken();
@@ -116,13 +123,16 @@ export async function createInvite(db: D1Database, input: CreateInviteInput): Pr
   const shareDeckIds = input.share_deck_ids && input.share_deck_ids.length > 0
     ? JSON.stringify(input.share_deck_ids)
     : null;
+  const welcome = input.welcome_message?.trim()
+    ? input.welcome_message.trim().slice(0, MAX_WELCOME_MESSAGE_LENGTH)
+    : null;
 
   await db
     .prepare(`
-      INSERT INTO invites (id, created_by, email, inviter_role, share_deck_ids, max_uses, expires_at, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO invites (id, created_by, email, inviter_role, share_deck_ids, max_uses, expires_at, note, welcome_message)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
-    .bind(id, input.created_by, email, input.inviter_role ?? null, shareDeckIds, maxUses, expiresAt, input.note ?? null)
+    .bind(id, input.created_by, email, input.inviter_role ?? null, shareDeckIds, maxUses, expiresAt, input.note ?? null, welcome)
     .run();
 
   const invite = await getInviteById(db, id);
@@ -196,6 +206,35 @@ export async function recordRedemption(db: D1Database, inviteId: string, userId:
     .bind(inviteId)
     .run();
   return true;
+}
+
+/**
+ * Record the first time the /join link was opened. Only the first open counts,
+ * so the tutor's list can say "opened, not signed in" without churn.
+ */
+export async function markInviteOpened(db: D1Database, id: string): Promise<void> {
+  await db
+    .prepare("UPDATE invites SET opened_at = datetime('now') WHERE id = ? AND opened_at IS NULL")
+    .bind(id)
+    .run();
+}
+
+/** The most recent invite this user redeemed, with the invite itself. */
+export async function findLatestRedemptionForUser(
+  db: D1Database,
+  userId: string
+): Promise<(Invite & { redeemed_at: string }) | null> {
+  return db
+    .prepare(`
+      SELECT i.*, r.redeemed_at
+      FROM invite_redemptions r
+      JOIN invites i ON i.id = r.invite_id
+      WHERE r.user_id = ?
+      ORDER BY r.redeemed_at DESC
+      LIMIT 1
+    `)
+    .bind(userId)
+    .first<Invite & { redeemed_at: string }>();
 }
 
 export async function revokeInvite(db: D1Database, id: string): Promise<void> {

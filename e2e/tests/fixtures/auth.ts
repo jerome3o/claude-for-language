@@ -74,9 +74,10 @@ export const test = base.extend<AuthFixtures>({
     // This is how the real auth flow works - token is passed via URL query param
     await page.goto(`/?session_token=${testUser.sessionToken}`);
 
-    // Wait for auth to complete - look for the authenticated home page heading
-    // This ensures we're actually logged in, not just past the loading state
-    await page.waitForSelector('h1:has-text("Welcome to 汉语学习")', {
+    // Wait for auth to complete - the home's Study card only renders for a
+    // signed-in user, so this ensures we're actually logged in, not just past
+    // the loading state
+    await page.waitForSelector('.home-study-card', {
       timeout: 30000,
     });
 

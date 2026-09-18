@@ -1,9 +1,55 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPublicInvite, getInviteLoginUrl, redeemInvite } from '../../api/invites';
 import type { PublicInvite } from '../../types/invites';
+import { detectInAppBrowser, suggestedBrowser } from '../../utils/inAppBrowser';
 import './JoinPage.css';
+
+/**
+ * WeChat, Gmail, Facebook and friends open links in their own embedded
+ * browser, where Google sign-in is blocked and the app can't be installed.
+ * Say so, and make getting the link into a real browser one tap.
+ */
+function InAppBrowserNotice() {
+  const info = useMemo(() => detectInAppBrowser(), []);
+  const [copied, setCopied] = useState(false);
+  if (!info.inApp) return null;
+
+  const browser = suggestedBrowser(info.platform);
+  const href = typeof window !== 'undefined' ? window.location.href : '';
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      window.prompt('Copy this link:', href);
+    }
+  };
+  // Android: an intent URL asks the system to hand the page to Chrome directly.
+  const chromeIntent = info.platform === 'android' && href.startsWith('http')
+    ? `intent://${href.replace(/^https?:\/\//, '')}#Intent;scheme=${href.startsWith('https') ? 'https' : 'http'};package=com.android.chrome;end`
+    : null;
+
+  return (
+    <div className="join-inapp" role="alert">
+      <h3 className="join-inapp-title">Open this link in {browser} to sign in</h3>
+      <p className="join-inapp-text">
+        You're viewing it inside {info.name ?? 'another app'}, which can't sign in with Google or install the app.
+        {' '}Copy the link, then paste it into {browser}.
+      </p>
+      <div className="join-inapp-actions">
+        <button type="button" className="join-google-button join-inapp-copy" onClick={copy}>
+          {copied ? 'Copied ✓' : 'Copy link'}
+        </button>
+        {chromeIntent && (
+          <a className="join-secondary" href={chromeIntent}>Try opening in Chrome</a>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * /join/<token> — the very first screen an invited student sees. Public.
@@ -100,6 +146,8 @@ export function JoinPage() {
             : 'Study a few words every day and hear them spoken by a native voice.'}
           {invite.email_bound && ' This invite is for a specific Google account.'}
         </p>
+
+        <InAppBrowserNotice />
 
         {isAuthenticated && user ? (
           <>

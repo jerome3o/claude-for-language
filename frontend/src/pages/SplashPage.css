@@ -189,3 +189,9 @@
     font-size: 0.75rem;
   }
 }
+
+.splash-hint {
+  margin: 0.875rem 0 0;
+  font-size: 0.9375rem;
+  color: #dbe4f5;
+}

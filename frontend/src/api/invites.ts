@@ -5,6 +5,7 @@ import type {
   PublicInvite,
   AccessRequest,
   RedeemResult,
+  StarterDeckResult,
 } from '../types/invites';
 
 const API_PATH = `${API_BASE}/api`;
@@ -53,6 +54,14 @@ export async function listInvites(all = false): Promise<Invite[]> {
 
 export async function createInvite(input: CreateInviteInput): Promise<Invite> {
   return apiFetch<Invite>('/invites', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/**
+ * The built-in "Starter Chinese" deck, created in the caller's account the
+ * first time (idempotent — later calls return the same deck).
+ */
+export async function createStarterDeck(): Promise<StarterDeckResult> {
+  return apiFetch<StarterDeckResult>('/decks/starter', { method: 'POST' });
 }
 
 export async function revokeInvite(id: string): Promise<void> {

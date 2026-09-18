@@ -7,11 +7,19 @@ vi.stubGlobal('crypto', {
 });
 
 const shareDeckMock = vi.fn();
+const createConversationMock = vi.fn();
+const sendMessageMock = vi.fn();
 vi.mock('../conversations', () => ({
   shareDeck: (...args: unknown[]) => shareDeckMock(...args),
+  createConversation: (...args: unknown[]) => createConversationMock(...args),
+  sendMessage: (...args: unknown[]) => sendMessageMock(...args),
+}));
+const createNotificationMock = vi.fn();
+vi.mock('../../db/queries', () => ({
+  createNotification: (...args: unknown[]) => createNotificationMock(...args),
 }));
 
-import { resolveSignup, redeemInvite } from '../signup';
+import { resolveSignup, redeemInvite, deliverWelcomeMessage } from '../signup';
 import {
   Invite,
   inviteStatus,
@@ -38,6 +46,8 @@ function makeInvite(overrides: Partial<Invite> = {}): Invite {
     revoked_at: null,
     created_at: '2026-09-01T00:00:00Z',
     note: null,
+    welcome_message: null,
+    opened_at: null,
     ...overrides,
   };
 }
@@ -223,6 +233,12 @@ describe('redeemInvite', () => {
     db = createMockD1();
     shareDeckMock.mockReset();
     shareDeckMock.mockResolvedValue({});
+    createConversationMock.mockReset();
+    createConversationMock.mockResolvedValue({ id: 'conv-new' });
+    sendMessageMock.mockReset();
+    sendMessageMock.mockResolvedValue({});
+    createNotificationMock.mockReset();
+    createNotificationMock.mockResolvedValue({});
   });
 
   it('records the redemption, creates an active relationship and shares the decks', async () => {
@@ -284,5 +300,65 @@ describe('redeemInvite', () => {
     const r = await redeemInvite(db, tutor as any, makeInvite());
     expect(r.redeemed).toBe(false);
     expect(db.getQueries()).toHaveLength(0);
+  });
+});
+
+describe('welcome message', () => {
+  let db: MockD1Database;
+  const student = createTestUser({ id: 'student-1', email: 'new.student@example.com', name: 'Student' });
+  const Q_CONV = 'SELECT id FROM conversations WHERE relationship_id = ?';
+
+  beforeEach(() => {
+    db = createMockD1();
+    shareDeckMock.mockReset();
+    createConversationMock.mockReset();
+    createConversationMock.mockResolvedValue({ id: 'conv-new' });
+    sendMessageMock.mockReset();
+    sendMessageMock.mockResolvedValue({});
+    createNotificationMock.mockReset();
+    createNotificationMock.mockResolvedValue({});
+  });
+
+  it('posts the message as the inviter in a new conversation and notifies the invitee', async () => {
+    db.addResult('SELECT name, email FROM users WHERE id = ?', { name: 'Wang Laoshi', email: 'wang@example.com' });
+    const r = await redeemInvite(db, student as any, makeInvite({ welcome_message: '欢迎！先学这几个词。' }));
+    expect(r.redeemed).toBe(true);
+    expect(r.welcomeConversationId).toBe('conv-new');
+    expect(createConversationMock).toHaveBeenCalledWith(db, 'uuid-1', 'tutor-1', { title: 'Welcome' });
+    expect(sendMessageMock).toHaveBeenCalledWith(db, 'conv-new', 'tutor-1', '欢迎！先学这几个词。');
+    expect(createNotificationMock).toHaveBeenCalledTimes(1);
+    const [, userId, type, title, , opts] = createNotificationMock.mock.calls[0];
+    expect(userId).toBe('student-1');
+    expect(type).toBe('new_chat_message');
+    expect(title).toBe('New message from Wang Laoshi');
+    expect(opts).toEqual({ conversation_id: 'conv-new', relationship_id: 'uuid-1' });
+  });
+
+  it('reuses the relationship\'s existing conversation', async () => {
+    db.addResult(Q_CONV, { id: 'conv-old' });
+    const id = await deliverWelcomeMessage(db, { created_by: 'tutor-1', welcome_message: 'hi' }, 'rel-1', 'student-1');
+    expect(id).toBe('conv-old');
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).toHaveBeenCalledWith(db, 'conv-old', 'tutor-1', 'hi');
+  });
+
+  it('sends nothing without a message, and only on the first redemption', async () => {
+    await redeemInvite(db, student as any, makeInvite({ welcome_message: '   ' }));
+    expect(sendMessageMock).not.toHaveBeenCalled();
+
+    db.addResult(Q_REDEMPTION, { invite_id: TOKEN });
+    db.addResult(Q_REL, { id: 'rel-1', status: 'active' });
+    const r = await redeemInvite(db, student as any, makeInvite({ welcome_message: 'again?' }));
+    expect(r.redeemed).toBe(false);
+    expect(r.welcomeConversationId).toBeNull();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('a failed welcome never breaks sign-up', async () => {
+    sendMessageMock.mockRejectedValueOnce(new Error('boom'));
+    const r = await redeemInvite(db, student as any, makeInvite({ welcome_message: 'hi', share_deck_ids: '["deck-a"]' }));
+    expect(r.redeemed).toBe(true);
+    expect(r.welcomeConversationId).toBeNull();
+    expect(shareDeckMock).toHaveBeenCalledWith(db, 'uuid-1', 'tutor-1', 'deck-a');
   });
 });
