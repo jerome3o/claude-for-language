@@ -47,13 +47,12 @@ export function SplashPage() {
 
         {signup === 'invite_only' && (
           <div className="splash-notice" role="status">
-            <strong>This app is invite-only.</strong>
+            <strong>Ask your tutor for their invite link.</strong>
             <p>
-              Ask your tutor for an invite link and open it on this device — you'll be in with one tap.
+              Accounts here are created from a tutor's link — open it on this phone and you're in with one tap.
             </p>
             <p className="splash-notice-small">
-              Your sign-in attempt has been noted, so if you're expecting access the admin can approve
-              you; once that's done, just sign in again.
+              No tutor? Your sign-in has been noted and the admin can let you in; once that's done, just sign in again.
             </p>
           </div>
         )}
@@ -77,6 +76,10 @@ export function SplashPage() {
           </svg>
           Sign in with Google
         </button>
+
+        <p className="splash-hint">
+          Got a link from your tutor? Just tap it.
+        </p>
 
         <p className="splash-footer">
           Your vocabulary decks and study progress are saved to your account.

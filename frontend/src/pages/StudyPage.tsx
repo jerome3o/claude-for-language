@@ -46,6 +46,7 @@ import {
   OverviewStats,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -2637,9 +2638,7 @@ export function StudyPage() {
   // Active study - fullscreen mode
   return (
     <div className="study-page-fullscreen">
-      {/* FIRST-SESSION EXPLAINER SLOT — the one-time "how study works" note
-          (home agent) mounts here, above whichever view renders below, so it
-          shows on the very first card. Keep it to a few lines. */}
+      {!isLoading && currentCard && <FirstCardExplainer />}
       {isLoading ? (
         <Loading />
       ) : currentCustomLesson && customLessonIntervalPreviews ? (

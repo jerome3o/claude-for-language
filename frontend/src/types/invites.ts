@@ -22,6 +22,10 @@ export interface Invite {
   revoked_at: string | null;
   created_at: string;
   note: string | null;
+  /** Optional note from the inviter, posted as their first chat message on redemption. */
+  welcome_message: string | null;
+  /** When the /join link was first opened — set even if nobody signed in yet. */
+  opened_at: string | null;
   status: InviteStatus;
   creator_name: string | null;
   creator_email: string | null;
@@ -37,6 +41,14 @@ export interface CreateInviteInput {
   max_uses?: number | null;
   expires_in_days?: number | null;
   note?: string | null;
+  welcome_message?: string | null;
+}
+
+/** POST /api/decks/starter — the tutor's built-in "Starter Chinese" deck. */
+export interface StarterDeckResult {
+  deck: { id: string; name: string };
+  created: boolean;
+  word_count: number;
 }
 
 /** What /join/<token> may see before signing in — no emails. */
@@ -67,4 +79,5 @@ export interface RedeemResult {
   redeemed: boolean;
   relationshipId: string | null;
   sharedDeckIds: string[];
+  welcomeConversationId: string | null;
 }

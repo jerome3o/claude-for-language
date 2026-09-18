@@ -26,6 +26,9 @@ function describeStatus(invite: Invite): { label: string; className: string } {
         const who = invite.redemptions.map(r => r.user_name || r.user_email || 'someone');
         return { label: `Used by ${who.join(', ')} · ${invite.max_uses - invite.use_count} left`, className: 'active' };
       }
+      if (invite.opened_at) {
+        return { label: 'Link opened · not signed in yet', className: 'opened' };
+      }
       return { label: 'Unused', className: 'active' };
     }
   }
@@ -117,6 +120,12 @@ export function InviteList({ invites, onRevoke, showCreator = false, emptyText =
                     </button>
                   )}
                 </div>
+                {invite.opened_at && invite.use_count === 0 && (
+                  <p className="invite-muted">
+                    Opened {new Date(`${invite.opened_at.replace(' ', 'T')}${/Z$|[+-]\d\d:\d\d$/.test(invite.opened_at) ? '' : 'Z'}`).toLocaleString()} but nobody has signed in.
+                    If they saw a blank page or a blocked sign-in, ask them to open the link in Chrome or Safari.
+                  </p>
+                )}
                 {invite.redemptions.length > 0 && (
                   <p className="invite-muted">
                     Joined: {invite.redemptions.map(r => `${r.user_name || r.user_email || 'someone'} (${new Date(r.redeemed_at).toLocaleDateString()})`).join(', ')}
