@@ -86,3 +86,77 @@
     padding-right: 1.5rem;
   }
 }
+
+/* Offline audio: one status line (audio downloads itself after every sync) */
+.settings-audio-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.settings-link-btn {
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  min-height: 44px;
+  color: #2563eb;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.settings-link-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-audio-warn {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: #b45309;
+}
+
+/* "Start on" segmented control */
+.settings-segmented {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.settings-segment {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.settings-segment.selected {
+  border-color: var(--color-primary);
+  background: #fef2f2;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.settings-segment:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.settings-signout {
+  color: #dc2626;
+}
+
+@media (min-width: 640px) {
+  .settings-page .nav-section {
+    max-width: 600px;
+  }
+}

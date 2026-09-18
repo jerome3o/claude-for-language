@@ -126,8 +126,13 @@ export interface User {
   can_invite: number;
   last_login_at: string | null;
   bio: string | null;
+  /** Which tab the app opens on; NULL = automatic (see PUT /api/profile/landing-page). */
+  landing_page: LandingPage | null;
   created_at: string;
 }
+
+export type LandingPage = 'study' | 'students' | 'decks';
+export const LANDING_PAGES: readonly LandingPage[] = ['study', 'students', 'decks'];
 
 export interface AuthSession {
   id: string;

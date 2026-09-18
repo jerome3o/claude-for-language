@@ -95,7 +95,7 @@ import {
   saveMessageDiscussion,
 } from './services/conversations';
 import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress } from './services/shared-deck-progress';
-import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest } from './types';
+import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
 import {
   computeCardState,
   initialCardState,
@@ -378,6 +378,7 @@ app.get('/api/auth/me', async (c) => {
     is_admin: !!user.is_admin,
     can_invite: userMayInvite(user),
     bio: user.bio || null,
+    landing_page: user.landing_page || null,
   });
 });
 
@@ -545,6 +546,18 @@ app.put('/api/profile/bio', async (c) => {
 
   await c.env.DB.prepare('UPDATE users SET bio = ? WHERE id = ?').bind(trimmed, userId).run();
   return c.json({ bio: trimmed });
+});
+
+// Which tab the app opens on. null = automatic (Students when the account has
+// active students and nothing due today, otherwise Study).
+app.put('/api/profile/landing-page', async (c) => {
+  const userId = c.get('user').id;
+  const { landing_page } = await c.req.json<{ landing_page: LandingPage | null }>();
+  if (landing_page !== null && !LANDING_PAGES.includes(landing_page)) {
+    return c.json({ error: `landing_page must be one of ${LANDING_PAGES.join(', ')} or null` }, 400);
+  }
+  await c.env.DB.prepare('UPDATE users SET landing_page = ? WHERE id = ?').bind(landing_page, userId).run();
+  return c.json({ landing_page });
 });
 
 // ============ Decks ============

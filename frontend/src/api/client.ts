@@ -1,5 +1,6 @@
 import {
   Deck,
+  LandingPage,
   Note,
   DeckWithNotes,
   NoteWithCards,
@@ -1432,6 +1433,15 @@ export async function updateUserBio(bio: string | null): Promise<string | null> 
     body: JSON.stringify({ bio }),
   });
   return data.bio;
+}
+
+/** Set the "Start on" tab (null = automatic). */
+export async function updateLandingPage(landing_page: LandingPage | null): Promise<LandingPage | null> {
+  const data = await fetchJSON<{ landing_page: LandingPage | null }>('/profile/landing-page', {
+    method: 'PUT',
+    body: JSON.stringify({ landing_page }),
+  });
+  return data.landing_page;
 }
 
 export async function getFeatureRequests(options?: { status?: string; all?: boolean }): Promise<FeatureRequest[]> {

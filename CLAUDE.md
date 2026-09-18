@@ -118,7 +118,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── frontend/              # React + Vite frontend
 │   ├── src/
 │   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms)
-│   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.; pages/editor/ = library + editor)
+│   │   ├── components/nav/ # Bottom tab bar (TabBar), role derivation (useNavRole), landing rule (landing.ts), maintenance actions
+│   │   ├── pages/         # Page components (StudyPage, DecksPage, MorePage, DeckDetailPage, etc.; pages/editor/ = library + editor)
 │   │   ├── services/anki/ # Client-side Anki .apkg export (sql.js + JSZip): builder, deck/lesson/reader adapters, audio resolution
 │   │   ├── components/export/ # AnkiExportModal — options / progress / result UI (lazy-loads services/anki)
 │   │   ├── hooks/         # Custom React hooks (useAudio, etc.)
@@ -1142,6 +1143,11 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- `/` - Study home. On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
+- `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
+- `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
+- `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
 - `/connections` - List all connections and pending requests
 - `/connections/:relId` - View a specific connection (conversations, shared decks)
 - `/connections/:relId/chat/:convId` - Chat interface
