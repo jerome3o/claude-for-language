@@ -32,6 +32,40 @@ const TOLERANCE_MS = 80;
 
 const MAX_RECORDS = 60;
 
+/**
+ * What the Android app's media stack reported about a clip (see
+ * AudioBridge.ClipStats). The page cannot sample a MediaPlayer itself, so
+ * the bridge samples it the same way and sends the result with 'ended'.
+ */
+export interface NativeClipStats {
+  /** Bridge protocol version. */
+  bridge: number;
+  /** Played from the app's own clip cache rather than bytes sent across. */
+  cached: boolean;
+  /** ms from the page's request to the decoder being ready. */
+  prepare_ms: number;
+  /** ms from the page's request to sound starting. */
+  start_ms: number;
+  /** Wall clock minus media position at the end: time lost, in ms. */
+  drift_ms: number;
+  worst_drift_ms: number;
+  samples: number;
+  /** MEDIA_INFO_AUDIO_NOT_PLAYING count: the output starved. */
+  not_playing: number;
+  buffering: number;
+  duration_ms: number;
+  position_ms: number;
+  /** 'speaker' | 'bluetooth' | 'wired' | 'unknown' */
+  route: string;
+  volume: number;
+  volume_max: number;
+  /** Compressor state when the clip started: 'on' | 'off' | 'unavailable' | 'unsupported'. */
+  effect: string;
+  /** Whether the keep-alive stream was holding the output open. */
+  output_held: boolean;
+  error?: string;
+}
+
 export interface AudioClipRecord {
   seq: number;
   at: string;
@@ -89,6 +123,8 @@ export interface AudioClipRecord {
   prefetch: string;
   online: boolean;
   offline_mode: boolean;
+  /** Native engine only: the media stack's own measurement of the clip. */
+  native: NativeClipStats | null;
 }
 
 /** Context the diagnostics layer cannot see for itself. */
@@ -130,7 +166,7 @@ export function clearAudioRecords(): void {
 /** A single clip's in-flight measurement. */
 export interface ClipTracker {
   /** Stop sampling and file the record. Safe to call twice. */
-  finish(outcome?: { error?: string | null; ended?: boolean }): void;
+  finish(outcome?: { error?: string | null; ended?: boolean; native?: NativeClipStats }): void;
   /** Native only: note the moment the bridge reported sound starting. */
   markStarted?(): void;
 }
@@ -171,6 +207,7 @@ export function trackClip(
     prefetch: context.prefetchStatus(),
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
+    native: null,
   };
 
   const onPlaying = () => {
@@ -257,8 +294,10 @@ export function trackClip(
 
 /**
  * Record a clip handed to the app's native bridge. Playback happens outside
- * the page, so there is nothing to sample; what can be known is how long the
- * bridge took to start sounding, and whether the clip ended or errored.
+ * the page, so there is nothing to sample here; the bridge samples the
+ * MediaPlayer itself and hands its numbers over when the clip finishes,
+ * and they are folded into the same fields the element path fills so the
+ * summary treats both engines alike.
  */
 export function trackNativeClip(source: Blob | string, label: string): ClipTracker {
   const startedAt = Date.now();
@@ -287,6 +326,7 @@ export function trackNativeClip(source: Blob | string, label: string): ClipTrack
     prefetch: context.prefetchStatus(),
     online: navigator.onLine,
     offline_mode: context.offlineMode(),
+    native: null,
   };
 
   let started: number | null = null;
@@ -297,6 +337,22 @@ export function trackNativeClip(source: Blob | string, label: string): ClipTrack
       done = true;
       if (started !== null) {
         record.played_s = Number(((Date.now() - started) / 1000).toFixed(2));
+      }
+      const native = outcome.native;
+      if (native) {
+        record.native = native;
+        if (record.start_ms === null && native.start_ms >= 0) record.start_ms = native.start_ms;
+        record.stutter_ms = Math.max(0, native.drift_ms);
+        record.worst_gap_ms = Math.max(0, native.worst_drift_ms);
+        record.stalls = native.not_playing + native.buffering;
+        record.samples = native.samples;
+        if (native.duration_ms > 0) {
+          record.duration_s = Number((native.duration_ms / 1000).toFixed(2));
+          record.kbps = bitrateKbps(record.bytes, record.duration_s);
+        }
+        if (native.position_ms >= 0) {
+          record.played_s = Number((native.position_ms / 1000).toFixed(2));
+        }
       }
       record.ended = outcome.ended ?? false;
       record.error = outcome.error ?? null;
@@ -334,6 +390,16 @@ export interface AudioDiagnosticsSummary {
   worst_start_ms: number;
   /** Clips whose encode is the low-quality fallback (~64 kbps). */
   low_bitrate_clips: number;
+  /** Native clips played from the app's own clip cache. */
+  native_cached: number;
+  /** Native clips that went through the compressor. */
+  native_compressed: number;
+  /** Native clips that started on an output the keep-alive was holding open. */
+  native_output_held: number;
+  /** Native clips by output route (speaker / bluetooth / wired). */
+  native_routes: Record<string, number>;
+  /** Choppy native clips whose output was NOT held — the standby-wake case. */
+  choppy_on_cold_output: number;
 }
 
 function median(values: number[]): number | null {
@@ -368,6 +434,12 @@ export function isTruncated(record: AudioClipRecord): boolean {
 
 export function summarize(list: AudioClipRecord[]): AudioDiagnosticsSummary {
   const choppy = list.filter(isChoppy);
+  const measuredNative = list.filter((r) => r.native !== null);
+  const routes: Record<string, number> = {};
+  for (const r of measuredNative) {
+    const route = r.native!.route || 'unknown';
+    routes[route] = (routes[route] ?? 0) + 1;
+  }
   return {
     clips: list.length,
     choppy_clips: choppy.length,
@@ -392,6 +464,11 @@ export function summarize(list: AudioClipRecord[]): AudioDiagnosticsSummary {
     via_native: list.filter((r) => r.engine === 'native').length,
     worst_start_ms: list.reduce((max, r) => Math.max(max, r.start_ms ?? 0), 0),
     low_bitrate_clips: list.filter(isLowBitrate).length,
+    native_cached: measuredNative.filter((r) => r.native!.cached).length,
+    native_compressed: measuredNative.filter((r) => r.native!.effect === 'on').length,
+    native_output_held: measuredNative.filter((r) => r.native!.output_held).length,
+    native_routes: routes,
+    choppy_on_cold_output: choppy.filter((r) => r.native !== null && !r.native.output_held).length,
   };
 }
 

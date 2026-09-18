@@ -321,6 +321,9 @@ For manual state adjustments (e.g., admin resetting a card), we may add a `set_c
 - `frontend/src/services/review-events.ts` - Review event creation and state computation
 - `frontend/src/contexts/NetworkContext.tsx` - Online/offline detection
 - `shared/scheduler/compute-state.ts` - Pure function to compute card state from events
+- `frontend/src/utils/audioPlayback.ts` - The one audio player: native bridge in the Android app (`window.AndroidAudio`, see `native/README.md`), one `<audio>` element elsewhere
+- `frontend/src/services/nativeAudioPrefs.ts` - Android-app playback tuning (compressor, keep-awake), toggled in Settings
+- `frontend/src/utils/audioDiagnostics.ts` - Per-clip playback measurement behind Settings → "Copy Audio Report"
 
 ### When Adding Features
 - **Study-related features**: Must work offline. Use `useOfflineData` hooks, store data in IndexedDB.

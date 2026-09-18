@@ -20,6 +20,14 @@ import {
   buildAudioDiagnosticsReport,
 } from '../utils/audioDiagnostics';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { hasNativeAudio, nativeBridgeVersion, describeNativeBridge } from '../utils/audioPlayback';
+import type { NativeBridgeState } from '../utils/audioPlayback';
+import {
+  useNativeCompressionPref,
+  setNativeCompressionPref,
+  useNativeKeepAwakePref,
+  setNativeKeepAwakePref,
+} from '../services/nativeAudioPrefs';
 import './MorePage.css';
 import './SettingsPage.css';
 
@@ -331,6 +339,95 @@ function AudioQualityPanel() {
         <div style={{ fontSize: '0.8rem', color: 'var(--color-text-light)', marginTop: '0.5rem' }}>
           {status}
         </div>
+      )}
+    </div>
+  );
+}
+
+function describeEffect(state: NativeBridgeState): string {
+  switch (state.effect) {
+    case 'on':
+      return 'compressor active';
+    case 'unavailable':
+      return 'compressor unavailable on this device';
+    case 'unsupported':
+      return 'compressor needs Android 9+';
+    default:
+      return 'compressor off';
+  }
+}
+
+/**
+ * Tuning for the Android app's native player (see services/nativeAudioPrefs.ts).
+ * Only rendered inside the app; a browser has nothing to tune. Each toggle is
+ * an experiment Jerome can A/B on the phone, and the status line says what the
+ * app is actually doing so the report and the ear can be lined up.
+ */
+function NativePlaybackPanel() {
+  const compression = useNativeCompressionPref();
+  const keepAwake = useNativeKeepAwakePref();
+  const [state, setState] = useState<NativeBridgeState | null>(() => describeNativeBridge());
+
+  useEffect(() => {
+    if (!hasNativeAudio()) return;
+    const id = setInterval(() => setState(describeNativeBridge()), 2000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!hasNativeAudio()) return null;
+  const version = nativeBridgeVersion();
+
+  return (
+    <div className="settings-section">
+      <h2>Native Playback (Android app)</h2>
+      {version < 2 ? (
+        <p className="settings-section-desc">
+          This version of the app can only play clips. Update it (Obtainium) to get the
+          compressor, the keep-awake stream, the clip cache, and playback measurement.
+        </p>
+      ) : (
+        <>
+          <p className="settings-section-desc" style={{ marginBottom: '0.5rem' }}>
+            Two experiments for popping and crackly clips. Flip one, play a few cards,
+            then copy the report below — each clip records which were on.
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minHeight: '44px', fontSize: '0.9rem' }}>
+            <input
+              type="checkbox"
+              checked={compression}
+              onChange={(e) => {
+                setNativeCompressionPref(e.target.checked);
+                setState(describeNativeBridge());
+              }}
+            />
+            <span>
+              <strong>Compress &amp; limit</strong> — evens out the speech level and keeps peaks
+              off the speaker's ceiling, so it plays loud without crackle.
+            </span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minHeight: '44px', fontSize: '0.9rem' }}>
+            <input
+              type="checkbox"
+              checked={keepAwake}
+              onChange={(e) => {
+                setNativeKeepAwakePref(e.target.checked);
+                setState(describeNativeBridge());
+              }}
+            />
+            <span>
+              <strong>Keep audio output awake</strong> — holds the output open while studying
+              so the first clip after a pause doesn't start on a cold output and pop.
+              Doesn't interrupt other apps' music.
+            </span>
+          </label>
+          {state && (
+            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-light)', marginTop: '0.5rem' }}>
+              Now: {describeEffect(state)}; output {state.output_held ? 'held open' : 'idle'}
+              ; route {state.route}; volume {state.volume}/{state.volume_max}
+              ; {state.cached_clips} clips in the app cache.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -696,6 +793,7 @@ export function SettingsPage() {
           {showAdvanced && (
             <div id="settings-advanced">
               <AudioQualityPanel />
+              <NativePlaybackPanel />
               <AudioDiagnosticsPanel />
 
               <div className="settings-section">

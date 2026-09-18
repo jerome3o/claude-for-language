@@ -25,6 +25,26 @@ Capacitor config, app icon, etc.).
   thread fed while a card revealed, so the first second of every clip
   stuttered; the system media stack has no such problem. The frontend uses
   the bridge whenever it is present and an `<audio>` element otherwise.
+  Bridge **v2** (app ≥ 1.52) adds, all switchable from Settings → Offline
+  Audio → Native Playback:
+  - a **compressor + limiter** (`DynamicsProcessing` on a shared audio
+    session) so quiet, spiky TTS speech plays loud without hitting the
+    speaker's ceiling;
+  - a **keep-alive stream** (a looping ±1 LSB `AudioTrack`) held while a
+    study/reader screen is up and the app is visible, so the output never
+    drops into standby between clips — the first clip after a pause used to
+    start on a cold output and pop. No audio focus is requested, so other
+    apps' music is untouched;
+  - an **on-device clip cache** keyed by the R2 audio key (`hasClip` /
+    `playClip`), so a replay skips the base64 hand-off across the bridge;
+    trimmed oldest-first past 256 MB;
+  - **measurement**: each clip's prepare/start latency, clock drift,
+    `MEDIA_INFO_AUDIO_NOT_PLAYING` count, route (speaker/bluetooth/wired),
+    volume and effect state come back with `ended` and land in the Settings
+    audio report;
+  - a `superseded` event when another page player takes the single output,
+    so the displaced button goes quiet instead of staying lit.
+  The page feature-detects `playClip` and still works with the v1 bridge.
 - **Homework notifications**: an hourly background check (WorkManager) posts a
   notification when a review card is due — hanzi on the front, **Show answer**
   reveals pinyin/English, and **Again / Good / Easy** record the review through

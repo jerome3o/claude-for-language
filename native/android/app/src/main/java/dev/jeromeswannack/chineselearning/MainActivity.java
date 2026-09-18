@@ -156,6 +156,23 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().addJavascriptInterface(audioBridge, "AndroidAudio");
     }
 
+    /** The keep-alive output stream only runs while the app is visible. */
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (audioBridge != null) {
+            audioBridge.setForeground(true);
+        }
+    }
+
+    @Override
+    public void onPause() {
+        if (audioBridge != null) {
+            audioBridge.setForeground(false);
+        }
+        super.onPause();
+    }
+
     @Override
     public void onDestroy() {
         if (audioBridge != null) {

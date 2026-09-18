@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { SentenceChunk } from '../types';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -356,6 +357,7 @@ function PageView({
 export function ReaderPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  useNativeOutputHold();
 
   const [currentPage, setCurrentPage] = useState(0);
   const [showPinyin, setShowPinyin] = useState(false);

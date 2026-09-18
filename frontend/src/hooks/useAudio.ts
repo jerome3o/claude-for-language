@@ -275,6 +275,8 @@ export function useNoteAudio(label: string = 'note') {
     const playSource = (source: Blob | string) => {
       playerRef.current.play(source, {
         label,
+        // The R2 key: lets the Android app keep its own copy of the clip.
+        cacheKey: audioUrl,
         onPlay: () => {
           if (playIdRef.current === currentPlayId) setIsPlaying(true);
         },

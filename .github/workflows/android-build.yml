@@ -47,6 +47,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list includes the legacy 'tools'
+          # package, which Google removed from the SDK repository; asking for
+          # it fails the whole step. platform-tools is all the build needs.
+          packages: platform-tools
 
       - name: Install Capacitor dependencies
         run: npm ci
