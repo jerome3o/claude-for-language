@@ -47,8 +47,8 @@ function makeApp(db: MockD1Database, userId = OWNER, envOverrides: Partial<Env> 
   });
   app.route('/api', readerEditor);
   app.route('/api', lessonEditor);
-  const sendBatch = vi.fn(async () => undefined);
-  const del = vi.fn(async () => undefined);
+  const sendBatch = vi.fn<(messages: Array<{ body: { readerId: string; pageId: string; imagePrompt: string } }>) => Promise<void>>(async () => undefined);
+  const del = vi.fn<(key: string) => Promise<void>>(async () => undefined);
   const env = {
     DB: db,
     ANTHROPIC_API_KEY: '',
@@ -146,7 +146,7 @@ describe('reader editor routes', () => {
 
       // Image jobs go on the shared image queue with the reader message shape
       expect(sendBatch).toHaveBeenCalledTimes(1);
-      const messages = sendBatch.mock.calls[0][0] as Array<{ body: { readerId: string; pageId: string; imagePrompt: string } }>;
+      const messages = sendBatch.mock.calls[0][0];
       expect(messages.map(m => [m.body.readerId, m.body.pageId, m.body.imagePrompt])).toEqual([
         ['reader-1', 'p1', 'a snowy street with a red bus'],
         ['reader-1', 'uuid-1', 'wind blowing snow'],

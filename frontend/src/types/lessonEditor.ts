@@ -92,29 +92,33 @@ export interface StudentLessonSummary {
   last_score: { correct: number; total: number } | null;
 }
 
-export type EditorTargetType = 'lesson' | 'library';
+/** What an editor chat is about: a student's lesson, a tutor's library item,
+ * or a graded reader (types/readerEditor.ts). */
+export type EditorTargetType = 'lesson' | 'library' | 'reader';
 
-export interface EditorChatMessage {
+/** The chat is spec-agnostic; TSpec/TDiff are the lesson types by default and
+ * the reader types for a reader target. */
+export interface EditorChatMessage<TSpec = CustomLessonSpec, TDiff = LessonDiff> {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   created_at: string;
   proposal_status: 'pending' | 'accepted' | 'rejected' | null;
-  proposed_spec: CustomLessonSpec | null;
-  proposal_diff: LessonDiff | null;
+  proposed_spec: TSpec | null;
+  proposal_diff: TDiff | null;
   author_changes: string[];
 }
 
-export interface EditorChatState {
+export interface EditorChatState<TSpec = CustomLessonSpec, TDiff = LessonDiff> {
   chat: { id: string; target_type: string; target_id: string };
   ai_available: boolean;
-  messages: EditorChatMessage[];
+  messages: EditorChatMessage<TSpec, TDiff>[];
 }
 
-export interface SendEditorMessageResult {
-  user_message: EditorChatMessage;
-  message: EditorChatMessage;
-  proposal: { id: string; spec: CustomLessonSpec; diff: LessonDiff | null } | null;
+export interface SendEditorMessageResult<TSpec = CustomLessonSpec, TDiff = LessonDiff> {
+  user_message: EditorChatMessage<TSpec, TDiff>;
+  message: EditorChatMessage<TSpec, TDiff>;
+  proposal: { id: string; spec: TSpec; diff: TDiff | null } | null;
 }
 
 export type ExportFormat = 'md' | 'json' | 'csv';
