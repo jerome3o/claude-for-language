@@ -170,7 +170,7 @@ export function MessageDiscussionModal({ message, onClose }: MessageDiscussionMo
       <div className="modal claude-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">Discuss Message</div>
-          <button className="modal-close" onClick={onClose}>x</button>
+          <button className="modal-close discuss-modal-close" onClick={onClose} aria-label="Close" title="Close">×</button>
         </div>
 
         {/* Original message banner */}
