@@ -9,8 +9,26 @@ students' progress, and for the **students** who will study on their phones.
 The app lives at **https://chinese-learning-2x9.pages.dev** and works in any browser.
 Students mostly use it on a phone; tutors may prefer a laptop for adding vocabulary.
 
-All screenshots in this guide were taken on a phone-sized screen. The red numbered
-circles are explained in the text under each picture.
+All screenshots in this guide were taken on a phone-sized screen (the editors also
+have a laptop-sized shot). The red numbered circles are explained in the text under
+each picture.
+
+### What's new (18 Sep 2026)
+
+If you have read this guide before, these are the sections that changed:
+
+- **Invite links and QR codes** replace email invitations — [Signing in](#signing-in)
+  and [Inviting a student](#inviting-a-student). An [admin page](#for-the-admin-access-requests-and-who-may-invite)
+  approves people who tried to sign in without a link.
+- **Insights** — a one-page briefing before each lesson, with a **History** explorer, a
+  **Recordings** inbox and a **lesson log** — [section 8](#insights-the-pre-lesson-briefing).
+- **Lesson Library and the lesson editor** — write mini lessons (with Claude as a
+  co-editor), assign them to students and push updates — [section 10](#lesson-library--editor).
+- **Reader editor** — edit or hand-write graded readers page by page, with print and
+  export — [section 10](#the-reader-editor).
+- **Export to Anki** — decks, lessons and readers as `.apkg` files — [section 6](#export-and-import).
+- The future-ideas list in [section 14](#14-ideas-for-future-features-not-built-yet)
+  was pruned: several items are now built.
 
 ---
 
@@ -23,9 +41,9 @@ circles are explained in the text under each picture.
 5. [Studying (the student's daily routine)](#5-studying)
 6. [Managing vocabulary](#6-managing-vocabulary)
 7. [For tutors: connecting with students](#7-for-tutors-connecting-with-students)
-8. [For tutors: chat, homework decks and progress](#8-for-tutors-chat-homework-decks-and-progress)
+8. [For tutors: chat, homework decks, Insights and progress](#8-for-tutors-chat-homework-decks-insights-and-progress)
 9. [AI helpers: Ask Claude, Sentence Coach, Sentence Breakdown](#9-ai-helpers)
-10. [Readers, Mini Lessons and Quests](#10-readers-mini-lessons-and-quests)
+10. [Readers, Mini Lessons, the Lesson Library and Quests](#10-readers-mini-lessons-the-lesson-library-and-quests)
 11. [Progress and statistics](#11-progress-and-statistics)
 12. [Settings, backups and offline use](#12-settings-backups-and-offline-use)
 13. [Suggested weekly workflow for a tutor](#13-suggested-weekly-workflow-for-a-tutor)
@@ -41,12 +59,14 @@ circles are explained in the text under each picture.
   their time on the words they are about to forget.
 - **Native-sounding audio** is generated automatically for every word and sentence.
 - **Tutor ↔ student connections.** A tutor can chat with a student, send them a deck of
-  homework words, and see exactly what they reviewed each day — including the answers
-  they typed and the pronunciation recordings they made.
+  homework words, assign mini lessons, and see exactly what they reviewed — including
+  the answers they typed and the pronunciation recordings they made — summarised in a
+  one-page **Insights** briefing before each lesson.
 - **AI helpers** (powered by Claude) for generating decks, explaining sentences,
   correcting the student's own sentences, writing graded-reader stories and building
-  small lessons and games.
+  small lessons and games — and co-editing lessons and readers with you.
 - **Works offline.** Study sessions run entirely on the phone; reviews sync later.
+- **Export to Anki** for anyone who also uses Anki.
 
 ---
 
@@ -54,21 +74,25 @@ circles are explained in the text under each picture.
 
 ### Signing in
 
-<img src="guide-images/splash.png" width="300">
-
 The app is **invite-only**. The first time you sign in you need an invite; after that
 you sign in normally.
 
-1. **With an invite link (the usual way):** your tutor sends you a link like
-   `…/join/abc…` or shows you a QR code. Open it on the phone you will study on,
-   tap **Continue with Google** and pick your Google account. That is the whole
-   sign-up: you land on the home screen already connected to your tutor, with any
-   decks they chose for you ready to study.
-2. **Without a link:** open https://chinese-learning-2x9.pages.dev and tap
-   **Sign in with Google** (①). If your email has been invited (or approved by the
-   admin) you are in. Otherwise you see *"This app is invite-only"* — ask your tutor
-   for a link. The attempt is also noted for the admin, who can approve you; then
-   simply sign in again.
+<img src="guide-images/join-page.png" width="300">
+
+**With an invite link (the usual way):** your tutor sends you a link like
+`…/join/abc…` or shows you a QR code. Open it on the phone you will study on. The page
+shows who invited you and what is waiting for you; tap **Continue with Google** (1) and
+pick your Google account. That is the whole sign-up: you land on the home screen already
+connected to your tutor, with any decks they chose for you ready to study.
+
+<img src="guide-images/splash-invite-only.png" width="300">
+
+**Without a link:** open https://chinese-learning-2x9.pages.dev and tap **Sign in with
+Google** (2). If your email has been invited (or approved by the admin) you are in.
+Otherwise you come back to this screen with the notice *"This app is invite-only"* (1)
+— ask your tutor for a link. The attempt is also noted for the admin, who can approve
+you (see [section 7](#for-the-admin-access-requests-and-who-may-invite)); after that,
+simply sign in again.
 
 Everyone — tutors and students — signs in the same way. There is no separate
 "tutor account"; roles are set per connection (section 7). If an invite was sent to
@@ -128,12 +152,13 @@ notifications. See [native/README.md](../native/README.md) for how to get it.
 1. **Settings** — bio, offline audio, backups, feature requests.
 2. **Lesson Notes** — paste what the tutor sent after a lesson; used as context for AI features.
 3. **Readers** — short graded stories built from the student's own vocabulary.
-4. **Mini Lessons** — small agent-written lessons that appear during study.
-5. **Sentence Analysis** — break a sentence into words with aligned pinyin/English.
-6. **Sentence Coach** — check and correct a sentence the student wrote.
-7. **Quests** — tile-map mini-games driven by Chinese instructions.
-8. **Duplicate Finder** — find the same word added twice.
-9. **Progress** — 30-day statistics and daily history.
+4. **Mini Lessons** — small lessons that appear during study; each can be edited.
+5. **Lesson Library** — a tutor's master copies of mini lessons (section 10).
+6. **Sentence Analysis** — break a sentence into words with aligned pinyin/English.
+7. **Sentence Coach** — check and correct a sentence the student wrote.
+8. **Quests** — tile-map mini-games driven by Chinese instructions.
+9. **Duplicate Finder** — find the same word added twice.
+10. **Progress** — 30-day statistics and daily history.
 
 Below those are maintenance items (Full Sync, Update App, debug tools) and Sign out.
 
@@ -273,7 +298,7 @@ Sessions save every review locally first, so nothing is lost if the connection d
 
 1. **Study** this deck (shows how many cards are due).
 2. **Share with Tutor** — lets a connected tutor see progress on this deck (section 8).
-3. **Settings** — name, description, daily limits and scheduling parameters.
+3. **Settings** — name, description, daily limits, scheduling parameters and the Anki export.
 4. **Delete** the deck.
 5. **Generate All Audio** — appears if some notes are missing audio.
 6. **Completion** — how much of the deck has been seen and mastered.
@@ -312,9 +337,10 @@ Tap a row in the note list. Besides the basic fields you can set:
 
 1. **Deck Info** — name and description.
 2. **Learning** — **New cards per day** (blue budget) and **Secondary cards per day**
-   (purple budget). Advanced scheduling parameters (desired retention, interval
-   multipliers, maximum interval) are further down; the defaults are good for most
-   students.
+   (purple budget), then the learning steps and intervals. Advanced scheduling
+   parameters (desired retention, interval multipliers, maximum interval) are under
+   *Advanced Settings*; the defaults are good for most students.
+3. **Export to Anki (.apkg)** — see below.
 
 ### Generating a deck with AI
 
@@ -339,12 +365,29 @@ suggests which copy to keep.
 - **Settings → Export Data → Download Backup** saves everything (decks, notes, review
   history) as a JSON file.
 - Decks can be imported from JSON — see [IMPORT_EXPORT_FORMAT.md](./IMPORT_EXPORT_FORMAT.md).
-- **Export to Anki**: on the deck page, **Settings → Export to Anki (.apkg)** saves an Anki
-  package with the same three cards per word (Hanzi → Meaning, Meaning → Hanzi, Audio → Hanzi),
-  audio included. Open the file in Anki with File → Import. Exporting the same deck again later
-  updates the notes in Anki rather than duplicating them. "Include review progress" is off by
-  default — turn it on only if you want Anki to start from roughly the same schedule instead of
-  treating every card as new. It works offline when the audio is already cached on the device.
+
+**Export to Anki.** On the deck page, **Settings → Export to Anki (.apkg)** builds an Anki
+package on the phone itself (no server involved, so it works offline once the audio is
+cached):
+
+<img src="guide-images/anki-export.png" width="300">
+
+1. **Include audio** — bundles the pronunciation clips (on by default). Clips not yet on
+   the device are fetched if you are online; missing ones are simply counted.
+2. **Include review progress** — off by default. Turn it on only if you want Anki to start
+   from roughly the same schedule instead of treating every card as new.
+3. **Export .apkg** — builds the file; a progress bar shows the audio being gathered.
+
+<img src="guide-images/anki-result.png" width="300">
+
+1. The saved file name.
+2. What went in — notes, cards and how many audio clips were bundled (or missing).
+3. **Done**. Open the file in Anki (desktop, AnkiDroid or AnkiMobile) with **File →
+   Import**. Each word becomes one note with the same three cards as here (Hanzi →
+   Meaning, Meaning → Hanzi, Audio → Hanzi). Exporting the same deck again later
+   **updates** the notes in Anki rather than duplicating them.
+
+Lessons and readers can be exported to Anki too — see section 10.
 
 ---
 
@@ -354,29 +397,36 @@ Everything tutor-related lives under **Connections** in the top bar.
 
 ### Inviting a student
 
-<img src="guide-images/connections-invite.png" width="300">
+Sign-up is invite-only, and inviting new people is switched on per tutor by the admin
+(below). Once it is on for you, **Connections** shows a **+ Invite student** button
+that opens this sheet:
 
-Sign-up is invite-only, and inviting new people is switched on per tutor by the
-admin. Once it is on for you, **Connections** shows a **+ Invite student** button:
+<img src="guide-images/invite-sheet.png" width="300">
 
-1. Leave **I'm their tutor** selected (it is the default). The other choices are
-   **They're my tutor** and **Just let them in** (an account with no connection).
-2. Optionally tick **Share these decks when they join** — the student starts with a
-   copy of each ticked deck, so their very first screen has something to study.
-3. Tap **Create link**. You get a link with a **Copy** button, a QR code the student
-   can scan from your screen, and **Share…** to send it by WhatsApp, WeChat, email, etc.
+1. **Our relationship** — leave **I'm their tutor** selected (the default). The other
+   choices are **They're my tutor** and **Just let them in** (an account with no
+   connection).
+2. **Share these decks when they join** — tick any of your decks; the student starts
+   with a copy of each, so their very first screen has something to study.
+3. **Options** — limit the link to one email address, set an expiry, allow several
+   people to use the same link (for a class), and add a note to yourself.
+4. **Create link**.
+
+<img src="guide-images/invite-link-qr.png" width="300">
+
+1. A **QR code** the student can scan straight from your screen.
+2. The **link** with a **Copy** button. On a phone there is also a **Share…** button to
+   send it by WhatsApp, WeChat, email, etc.
 
 The student opens the link, taps **Continue with Google**, and is immediately your
 student — no request to accept, no email to type. Each link works once unless you
-change that under **Options**, where you can also limit the link to one email address,
-set an expiry, and add a note to yourself. **Invites I've sent** lists every link with
-its state (unused / used by … / expired / revoked) and a **Revoke** button.
+changed that under **Options**.
 
-If the person already has an account, the link still works (it connects you and
-shares the decks), or use **Connect by email** instead: enter their email and choose
-**Tutor** ("I'll teach them") or **Student** ("They'll teach me"). They then see a
-**Pending Request** on their Connections page and tap **Accept**. Tutors without
-inviting switched on can only connect by email with people who already use the app.
+If the person already has an account, the link still works (it connects you and shares
+the decks), or use **Connect by email** instead: enter their email and choose **Tutor**
+("I'll teach them") or **Student** ("They'll teach me"). They then see a **Pending
+Request** on their Connections page and tap **Accept**. Tutors without inviting switched
+on can only connect by email with people who already use the app.
 
 The same person can be a tutor to some people and a student of others.
 
@@ -384,26 +434,55 @@ The same person can be a tutor to some people and a student of others.
 
 <img src="guide-images/connections-tutor.png" width="300">
 
-1. **My Students** — everyone you teach. Tap a row to open the connection.
+1. **+ Invite student** — the sheet above.
+2. **Connect by email** — for people who already have an account.
+3. **Invites I've sent** — every link you created with its state: *Unused*, *Used by …*,
+   *expired* or *revoked*. Tap a row to see the link and QR code again or to **Revoke** it.
+4. A link that has been used shows who joined with it.
+5. **My Students** — everyone you teach. Tap a row to open the connection.
 
 (Students see the mirror image — **My Tutors** — plus **Claude**, an AI conversation
 partner that is added automatically.)
 
 <img src="guide-images/connection-detail-tutor.png" width="300">
 
-Opening a student shows:
+Opening a student shows the date of your last logged lesson under their name and:
 
-1. **New Chat** — start a conversation thread.
-2. **Share Deck** — copy one of your decks to the student (homework).
-3. **View Progress** — the student's statistics and daily history.
-4. **Decks You Shared** — each has its own progress page.
+1. **Insights** — the pre-lesson briefing (section 8). This is the main button.
+2. **New Chat** — start a conversation thread.
+3. **History** — every attempt the student made, with filters (section 8).
+4. **Recordings** — the inbox of their pronunciation recordings (section 8).
+5. **Progress** — the classic 30-day statistics and day-by-day list.
+6. **Share Deck** — copy one of your decks to the student (homework).
+7. **Decks You Shared** — each has its own progress page.
+8. **Assign from library** — opens your Lesson Library to assign a mini lesson (section 10).
+9. Each of the student's mini lessons, with who made it and how it went; **Edit** opens
+   the ones you assigned in the lesson editor.
 
 Further down: **Student's Shared Decks** (decks the student has chosen to show you)
 and a **Remove Connection** button.
 
+### For the admin: access requests and who may invite
+
+Only the app's admin account sees **Admin** (profile menu). Two things there matter
+for tutors:
+
+<img src="guide-images/admin-access-requests.png" width="300">
+
+1. **Access requests** — people who tried to sign in without an invite (the *invite-only*
+   screen in section 2). Their name and Google email are listed with how many times they
+   tried.
+2. **Approve** lets that email in the next time they sign in (**Dismiss** hides the
+   request). No link needs to be sent — tell the person to sign in again.
+3. **Can invite** — the per-user toggle that gives a tutor the **+ Invite student**
+   button. Admins can always invite. Newly created accounts cannot invite until the
+   admin switches this on.
+4. **All invites** — every link anyone has created, with its state, for auditing or
+   revoking.
+
 ---
 
-## 8. For tutors: chat, homework decks and progress
+## 8. For tutors: chat, homework decks, Insights and progress
 
 ### Chat
 
@@ -438,13 +517,111 @@ The student receives a **copy** named "&lt;deck name&gt; (from tutor)". It appea
 home screen immediately and its new cards enter their daily budget. The copy is theirs
 — they can edit it, and your original is unaffected. If you later change the original,
 share it again (it creates a new copy — see the ideas section for a planned
-improvement).
+improvement; mini lessons already have a "push update", section 10).
 
-### Following progress
+### Insights (the pre-lesson briefing)
+
+Opening a student shows **Insights** as the main button. It is the one page to read
+before a lesson, and it defaults to *since your last lesson*:
+
+<img src="guide-images/insights.png" width="300">
+
+1. The three tutor pages — **Insights**, **History**, **Recordings** — are one tap apart.
+2. **Time range** — *Since last lesson* (with its date), 7, 14 or 30 days, or **Custom**
+   dates. *Since last lesson* only works once you have logged a lesson (below); before
+   that the page shows the last 14 days. The line underneath states the exact range.
+3. **Tiles** — attempts (and how many distinct words), days active, accuracy (and how
+   often they forgot), study time, and how many new words they started.
+4. **Needs attention** — the words the student forgot or mistyped most, worst first. The
+   red chips are the **exact characters they typed** (己经 for 已经, 在见 for 再见, 快子 for
+   筷子), which is usually where a look-alike or tone problem shows itself. *"knew it,
+   then forgot"* means the card had graduated and lapsed again.
+5. The pill on the right says how often they forgot or found it hard, and 🎤 how many
+   recordings they made of the word.
+
+<img src="guide-images/insights-needs-attention.png" width="300">
+
+Tap a row to see every attempt inline, newest first, with the card type (读 Read / 写
+Write / 听 Listen) and rating:
+
+1. For typing cards, the **answer diff**: what they typed on the left with wrong characters
+   in red, and the expected characters in blue on the right.
+2. **▶** plays the recording made on that attempt (speaking cards).
+
+Below that come **Going well** — words they got right every time, or that are now
+scheduled a week or more out — and **Also this period** — mini lessons, readers and
+quests completed, and how many recordings they made.
+
+<img src="guide-images/insights-summary.png" width="300">
+
+1. **Write summary** (later **Write a new summary**) — Claude writes 6–10 short lines
+   in about ten seconds: how much they studied, what they nailed, what they struggle
+   with (naming the words and the wrong characters) and what to revisit next lesson. It
+   is written from the numbers above, never from raw data.
+2. Toggle between **EN** and **中文** — the same summary is written in both languages,
+   so a tutor who prefers Chinese can read it directly.
+3. The narrative. Previous summaries stay available in a fold-out below it.
+4. **+ Log a lesson** — see next.
+5. The **lesson log**: each lesson with its notes; ✕ deletes an entry.
+
+<img src="guide-images/insights-summary-zh.png" width="300">
+
+The same summary after tapping **中文**.
+
+<img src="guide-images/lesson-log.png" width="300">
+
+Logging a lesson takes ten seconds and is worth doing every time:
+
+1. The **date** (today by default).
+2. **Notes** — vocab covered, homework, things to practise. Optional, but useful: the
+   notes are copied into the student's **Lesson Notes** automatically (prefixed with your
+   name and the date), so the daily reader and the other AI helpers pick them up without
+   the student having to paste anything.
+3. **Save lesson**. The date becomes the new *since last lesson* start for Insights,
+   History and Recordings, and appears under the student's name on their connection page.
+
+### History (every attempt)
+
+<img src="guide-images/history.png" width="300">
+
+**History** lists every attempt, newest first, and loads more as you scroll:
+
+1. **Search** by hanzi, pinyin or English.
+2. Filters for **deck**, **card type** and **rating** (e.g. only *Again*).
+3. **Range** — since last lesson, 7 / 30 days, a year.
+4. **By attempt / By word** — switch to grouping what is loaded by word.
+5. Each row shows the typed answer (green when correct; wrong characters struck through
+   in red with the expected characters in blue) and a ▶ button when there is a recording.
+
+<img src="guide-images/history-by-word.png" width="300">
+
+1. **By word** groups the loaded attempts by word, worst first.
+2. The pill says how many attempts were forgotten.
+3. Tap a word to unfold its attempts, with the same answer diff…
+4. …and play buttons for its recordings.
+
+### Recordings (the pronunciation inbox)
+
+<img src="guide-images/recordings.png" width="300">
+
+**Recordings** lists the student's pronunciation recordings, unlistened first (the
+coloured bar on the left of each card is the rating the student gave themselves):
+
+1. Filter **All / Unlistened / Needs work** and choose the time range.
+2. **▶ Play** the recording.
+3. Mark it **Listened**.
+4. Or **Needs work** — the card turns orange so you find it again next lesson.
+5. **+ Note** — a short note for yourself ("second tone sounds like fourth").
+6. The note is shown on the card. Notes are not shown to the student yet — bring them
+   up in the lesson or in chat.
+
+Marks and notes are yours (the student's other tutors have their own).
+
+### Following progress (the classic view)
 
 <img src="guide-images/student-progress.png" width="300">
 
-**View Progress** shows:
+**Progress** shows:
 
 1. **30-Day Summary** — reviews, active days, accuracy (share of non-Again ratings),
    total study time.
@@ -455,51 +632,14 @@ improvement).
 The **day detail** lists every card reviewed that day, hardest first, with the rating
 dot. Cards with a 📝 icon had a typed answer, cards with a 🎤 icon have a **pronunciation
 recording**. Tap a card to open the reviews for that card on that day, where you can
-**read the exact characters the student typed** and **play their recording**. This is the
-most useful page for spotting tone problems and character mix-ups before the next
-lesson.
+**read the exact characters the student typed** and **play their recording**. Insights
+and History (above) show the same information sorted by problem rather than by day.
 
 <img src="guide-images/shared-deck-progress.png" width="300">
 
 Each shared deck has its own **progress page**: completion, progress per card type and
 the mastery percentage of every word in the deck. Words with a low percentage after a
 week are the ones to revisit in class.
-
-### Insights (the pre-lesson briefing)
-
-Opening a student now shows **Insights** as the main button. It is the one page to read
-before a lesson, and it defaults to *since your last lesson*:
-
-- **Time range** — chips for *Since last lesson*, 7, 14 or 30 days, or a custom pair of
-  dates. *Since last lesson* only appears once you have logged a lesson (see below).
-- **Tiles** — attempts, days active, accuracy (and how often they forgot), study time,
-  and how many new words they started.
-- **Needs attention** — the words the student forgot or mistyped most, worst first. The
-  red chips are the **exact characters they typed** (在见 for 再见, 己经 for 已经), which is
-  usually where a tone or look-alike problem shows itself. 🎤 means there is a
-  recording. Tap a row to see every attempt inline, with a play button for each recording.
-- **Going well** — words they got right every time, or that are now scheduled a week or
-  more out.
-- **Also this period** — mini lessons, readers and quests completed, and how many
-  recordings they made.
-- **Summary** — tap **Write summary** and Claude writes 6–10 short lines (about ten
-  seconds): how much they studied, what they nailed, what they struggle with (naming the
-  words and the wrong characters), and what to revisit next lesson. Toggle between
-  **EN** and **中文**. Previous summaries stay available below.
-- **Lessons** — **Log a lesson** with the date and optional notes. The date becomes the
-  new "since last lesson" start, and the notes are copied into the student's **Lesson
-  Notes** automatically (prefixed with your name and the date), so the daily reader and
-  the other AI helpers pick them up without the student having to paste anything.
-
-Two more pages sit in the row under Insights:
-
-- **History** — every attempt, newest first, with a sticky filter bar (search, deck, card
-  type, rating, range). Each row shows the typed answer with wrong characters struck
-  through in red and the expected characters in blue, plus a play button for recordings.
-  Switch **By attempt / By word** to group what is loaded by word.
-- **Recordings** — the student's pronunciation recordings, unlistened first. Play each
-  one and mark it **Listened** or **Needs work**, optionally with a note for yourself
-  (notes are not shown to the student yet). Filter by *all / unlistened / needs work*.
 
 ### What the student sees
 
@@ -517,8 +657,9 @@ can see progress on words they collected themselves.
 After a lesson the student can paste whatever you sent them (a vocab list, sentences,
 homework instructions — any format) into **Lesson Notes** (1) and **Save** (2). These
 notes are used as context by the AI features, for example the daily reader story will
-weave in words from the most recent lesson. Tutors may want to end each lesson by
-sending the student a short list to paste here.
+weave in words from the most recent lesson. **Past notes** (3) also shows the notes you
+wrote when you **logged a lesson** in Insights, marked *[From tutor …]* — so if you log
+lessons with notes, the student does not need to paste anything.
 
 ---
 
@@ -562,31 +703,23 @@ role-play around that word.
 
 ---
 
-## 10. Readers, Mini Lessons and Quests
+## 10. Readers, Mini Lessons, the Lesson Library and Quests
 
 ### Graded readers
 
 <img src="guide-images/readers.png" width="300">
 
 **Readers** (profile menu) are short illustrated stories that only use words the student
-already knows. **AI Generate** (1) builds one from chosen decks (or from today's due
-cards); **Create New** lets a tutor write one by hand, page by page. Tap a reader (2) to
-read it, or **Edit** to open the reader editor.
+already knows.
 
-The **reader editor** works like the lesson editor: title fields at the top, then one card per
-page with the Chinese (🔊 to hear it, **拼音** to fill the pinyin automatically), the pinyin,
-the English (**Translate** asks Claude) and an illustration prompt (**Suggest** drafts one,
-**Illustrate** draws it once the page is saved; new or changed prompts are also drawn in the
-background after **Save**). ▲▼ reorder pages, ⧉ duplicates, ✕ deletes, and "+ Insert page
-after" adds one in the middle. Problems (an empty page, a missing translation) show inline
-and block **Save**. **Preview** is the real reading view — tap to reveal, nothing recorded.
-Beside the form (or under the **Claude** tab on a phone) Claude is a co-editor of *this*
-story: "simplify page 2", "add a page where they go home", "use 刮风 somewhere" — it answers
-with a **proposal** shown as a diff of the pages that you **Accept** or **Reject**, then
-**Save**. The ⋯ menu has **Export** as Markdown (with a glossary), **Print view** (one sheet
-per page with the picture, pinyin under the hanzi, English below), JSON (re-importable) and
-CSV for Quizlet, plus the raw JSON under *Advanced*. The Readers page's ⋯ menu has
-**Import JSON** to bring a reader exported elsewhere into your own list.
+1. **AI Generate** builds one from chosen decks (or from today's due cards).
+2. **Create New** starts an empty reader for a tutor to write by hand, page by page.
+3. The page's ⋯ menu has **Import JSON** — bring a reader exported elsewhere into your
+   own list.
+4. **Read** opens the reader.
+5. **Edit** opens the reader editor (below).
+6. **Anki** exports the reader as an Anki package (one card per page plus its
+   vocabulary).
 
 <img src="guide-images/reader-generate.png" width="300">
 
@@ -601,62 +734,216 @@ pinyin and translation, with audio for each page. A **daily reader** is also gen
 automatically and offered at the end of each study session, anchored on the latest
 lesson notes.
 
+### The reader editor
+
+The reader editor lets a tutor (or student) fix a generated story or write one from
+scratch. It has the same shape as the lesson editor: on a phone the bottom tabs switch
+between **Edit**, **Preview** and **Claude**; on a laptop the form and the Claude chat sit
+side by side.
+
+<img src="guide-images/reader-editor-edit.png" width="300">
+
+1. **Save** — enabled once something changed and there are no problems.
+2. The ⋯ menu — read, print, export, raw JSON, delete (below).
+3. **Titles** (Chinese with a 🔊 button, English), then difficulty and topic.
+4. One card per **page**: ▲▼ reorder, ⧉ duplicates, ✕ deletes. Tap the header to fold or
+   unfold a page.
+5. **拼音** fills the pinyin automatically from the Chinese (you can still edit it).
+6. **Translate** asks Claude for the English.
+7. The **Edit / Preview / Claude** tabs (phone only).
+
+<img src="guide-images/reader-editor-page.png" width="300">
+
+Lower in a page card:
+
+1. **Translate** — as above.
+2. **Suggest** — Claude drafts an illustration prompt from the page text.
+3. **Illustrate** — draws the picture now (the page must have been saved once). New or
+   changed prompts are also drawn in the background after **Save**; leave the prompt
+   blank for no picture.
+4. **+ Insert page after** — add a page in the middle; **+ Add page** at the bottom
+   appends one.
+
+Problems (an empty page, a missing translation) show inline and block **Save**.
+
+<img src="guide-images/reader-editor-preview.png" width="300">
+
+1. **Preview** is the real reading view — tap to reveal, page through, nothing recorded.
+
+<img src="guide-images/reader-editor-claude.png" width="300">
+
+Under **Claude**, Claude is a co-editor of *this* story:
+
+1. Ask in plain words — "simplify page 2", "add a page where they go home", "use 刮风
+   somewhere". The chips above the box are one-tap starters.
+2. Claude answers with a **proposal**: a diff of the pages it would change (~), add (+)
+   or remove (−), with the old text struck through and the new text next to it.
+3. **Accept** puts the change into the form (or **Reject** it); then **Save**. Claude is
+   told what you changed yourself since its last message, so it builds on your edits
+   rather than undoing them. Without an internet connection the chat says so and the
+   editor still works.
+4. The message box.
+
+<img src="guide-images/reader-editor-menu.png" width="300">
+
+1. The ⋯ menu: **Preview**, **Read it**, **Export Markdown** (with a glossary), **Print
+   view** (one sheet per page with the picture, pinyin under the hanzi and English
+   below), **Export JSON** (re-importable), **Export CSV (Quizlet)**, **Export Anki
+   (.apkg)**, *Advanced: raw JSON*, and **Delete reader**.
+
+<img src="guide-images/reader-print.png" width="300">
+
+The print view — the browser's **Print** button makes a PDF or paper copy for
+students who like to read on paper.
+
+<img src="guide-images/reader-editor-wide.png" width="600">
+
+On a laptop the form (1) and the Claude chat (2) are side by side, so you can watch a
+proposal land in the pages while you read it.
+
 ### Mini lessons
 
 <img src="guide-images/mini-lessons.png" width="300">
 
-A mini lesson is a short, agent-authored lesson: teaching notes with example sentences,
-word-order scrambles, multiple choice, translation, matching, picture description,
-speaking, and listening discrimination (e.g. 有 yǒu vs 又 yòu). Ask for one anywhere
+A mini lesson is a short lesson: teaching notes with example sentences, word-order
+scrambles, multiple choice, translation, matching, picture description, speaking, and
+listening discrimination (e.g. 有 yǒu vs 又 yòu). Students can ask for one anywhere
 Claude is present — "make me a mini lesson on 把 sentences" in Ask Claude or the
-Sentence Coach. Lessons are mixed into study sessions and repeat on the same spaced
-schedule as cards. This page lists what is waiting and what was completed. Every lesson
-has an **Edit** button that opens the lesson editor (below).
+Sentence Coach — and tutors assign them from the Lesson Library (below). Lessons are
+mixed into study sessions and repeat on the same spaced schedule as cards. This page
+lists what is waiting and what was completed; tap a lesson to see its exercises:
 
-### Lesson library & editor
+1. The status chip — *New*, *Learning*, *Due* — and how often it was studied.
+2. **Edit** opens the lesson in the editor (below). A student may edit their own copy of
+   an assigned lesson too.
 
-**Lesson Library** (profile menu → 📚 Lesson Library) is where a tutor keeps master copies
-of mini lessons. **New lesson** opens a sheet: describe the lesson in a sentence or two and
-let Claude draft it (about a minute), or start blank. Each card has **Edit**, **Assign…**
-and a ⋯ menu (Duplicate, Export as Markdown / Print view / JSON / CSV for Quizlet, Archive);
-the page's ⋯ menu has **Import JSON** for a lesson exported elsewhere.
+### Lesson Library & editor
 
-**Assign…** shows your students as a checklist (students who already have the lesson are
-ticked and greyed out). Assigning gives each student their own copy, which appears in their
-study sessions and works offline; the student may also edit their copy. Tap a library card
-to see the **assignments table**: how many times each student has completed it, their last
-rating and score, and whether their copy is still the same as your library version. When
-you edit the library lesson afterwards, a **Push update** button overwrites the students'
-copies with the new content while keeping their history and schedule.
+**Lesson Library** (profile menu → 📚 Lesson Library) is where a tutor keeps master
+copies of mini lessons:
 
-The **editor** is the same for everyone (tutor on a library lesson or a lesson they
-assigned; student on any of their own): a simple form — icon, title, description, then
-sections of exercises. Tap an exercise to expand it, use ▲▼ to reorder, ⧉ to duplicate,
-✕ to delete, **+ Add exercise** to pick one of the nine types (each with a one-line
-description). Chinese fields have a 🔊 play button and a **拼音** button that fills the pinyin
-automatically; "Auto-fill missing pinyin" does it for a whole exercise. Problems (a word-order
-exercise whose tiles don't match, a multiple choice with one option…) show inline and block
-**Save** until fixed. **Preview** runs the real exercises exactly as the student sees them,
-nothing recorded. The ⋯ menu holds Print view, the exports and, under *Advanced*, the raw
-JSON.
+<img src="guide-images/library.png" width="300">
 
-Beside the form (or under the **Claude** tab on a phone) is a chat where Claude is a
-co-editor of *this* lesson: ask for changes in plain words — "add a listening exercise for
-又", "make section 2 easier", "add pinyin everywhere" — and Claude answers with a
-**proposal** shown as a diff (added / removed / changed exercises) that you **Accept** or
-**Reject**. Accepting puts the change into the form; press **Save** to keep it. Claude is
-told what you changed yourself since its last message, so it builds on your edits rather
-than undoing them.
+1. **+ New lesson** — draft with Claude or start blank (next picture).
+2. The page's ⋯ menu — **Import JSON** for a lesson exported elsewhere.
+3. A library card: icon, title, description, how many exercises, how many students
+   have it, tags.
+4. **Edit** — the lesson editor.
+5. **Assign…** — give it to students.
+6. The card's ⋯ menu — Duplicate, exports, Archive.
 
-On the student's connection page, tutors also see a **Mini Lessons** section listing the
-student's lessons (assigned by you, by another tutor, or made by the student) with their
-progress, and an "Assign from library" shortcut.
+<img src="guide-images/library-new.png" width="300">
 
-**Export to Anki.** Lessons and readers can also leave the app as Anki packages: the ⋯ menu of
-a library card or the lesson editor has **Export Anki (.apkg)**, and every reader has an **Anki**
-button (on its card in the Readers list and at the top of the reader). A lesson's words become
-vocabulary cards and its sentences become Chinese → English cards; a reader gives one card per
-page plus its vocabulary. Re-exporting updates the same notes in Anki.
+1. Describe the lesson in a sentence or two — what it covers, which exercise types you
+   want, the level.
+2. **Draft with Claude** writes it in about a minute and opens the editor.
+3. **or start blank** — an empty lesson in the editor.
+
+<img src="guide-images/library-assign.png" width="300">
+
+1. **Assign…** shows your students as a checklist; students who already have the lesson
+   are ticked and greyed out.
+2. **Assign to n** — each student gets their own copy, which appears in their study
+   sessions and works offline.
+
+<img src="guide-images/library-menu.png" width="300">
+
+1. The card's ⋯ menu: **Duplicate**, **Export Markdown** (with an answer key), **Print
+   view**, **Export JSON**, **Export CSV (Quizlet)**, **Export Anki (.apkg)** and
+   **Archive** (hides the lesson without touching the students' copies).
+
+Tap a library card to open it:
+
+<img src="guide-images/library-item.png" width="300">
+
+1. **Edit** the master copy.
+2. **Assign…** to more students.
+3. **Print** the lesson.
+4. **Anki** — export as an Anki package (words become vocabulary cards, sentences
+   become Chinese → English cards).
+5. The **Students** table: how many times each student has completed it, their last
+   rating and score, and **Open copy** to look at (or edit) their copy.
+6. **current / behind** — whether their copy still matches your library version. A copy
+   is *behind* when you edited the library lesson since, or the student edited theirs.
+7. **Push update** overwrites the behind copies with the library content while keeping
+   the students' history and schedule.
+8. **Contents** — the sections and exercises at a glance.
+
+#### The lesson editor
+
+The editor is the same for everyone: a tutor on a library lesson or on a lesson they
+assigned, a student on any of their own (`Edit` on the Mini Lessons page).
+
+<img src="guide-images/lesson-editor-edit.png" width="300">
+
+1. **← Back** (it asks before discarding unsaved changes).
+2. **Save** — enabled once something changed and there are no problems.
+3. The ⋯ menu — preview, duplicate, exports, raw JSON (below).
+4. **Icon**, **title** and description.
+5. A **section**: its title, exercise count, ▲▼ to reorder sections, ✕ to delete one.
+6. An **exercise** row: number, type, a one-line summary; ▶ plays its audio, ▲▼ reorder,
+   ⧉ duplicates, ✕ deletes. Tap the row to expand it.
+7. **+ Add exercise** — pick one of the nine types.
+8. **Edit / Preview / Claude** tabs (phone only).
+
+<img src="guide-images/lesson-editor-exercise.png" width="300">
+
+Inside an exercise (here *Match pairs*), every Chinese field has:
+
+1. **🔊** — hear the text with the app's voice.
+2. **拼音** — fill the pinyin automatically. At the bottom of each exercise, **Auto-fill
+   missing pinyin** does it for the whole exercise at once.
+
+Problems (a word-order exercise whose tiles don't match the answer, a multiple choice
+with one option…) show inline with a red **!** on the row and block **Save** until fixed.
+
+<img src="guide-images/lesson-editor-types.png" width="300">
+
+1. **Add an exercise** lists the nine types, each with a one-line description: Note,
+   Word order, Multiple choice, Translate, Match pairs, Describe picture, Speak…
+2. …**Listen & pick** (audio plays with the text hidden — built for tone and
+   minimal-pair drills like 有/又) and **Listen & translate**.
+
+<img src="guide-images/lesson-editor-preview.png" width="300">
+
+1. **Preview** runs the real exercises exactly as the student sees them — page through
+   with ‹ › or the dropdown — and nothing is recorded.
+
+<img src="guide-images/lesson-editor-claude.png" width="300">
+
+Under **Claude** (or beside the form on a laptop), Claude is a co-editor of *this*
+lesson:
+
+1. Ask for changes in plain words — "add a listening exercise for 又", "make section 2
+   easier", "add pinyin everywhere".
+2. Claude answers with a **proposal** shown as a diff: changed (~), added (+) or removed
+   (−) exercises, with the fields that differ.
+3. **Accept** puts the change into the form (or **Reject** it); press **Save** to keep it.
+   Claude is told what you changed yourself since its last message, so it builds on
+   your edits rather than undoing them.
+4. One-tap starters.
+5. The message box. Without an internet connection the chat says so and the editor
+   still works.
+6. The **Claude** tab.
+
+<img src="guide-images/lesson-editor-menu.png" width="300">
+
+1. The ⋯ menu: **Preview**, **Duplicate**, **Export Markdown** (with an answer key),
+   **Print view**, **Export JSON** (re-importable), **Export CSV (Quizlet)**, **Export
+   Anki (.apkg)**, *Advanced: raw JSON* (for the technically minded) and **Archive** /
+   **Delete lesson**.
+
+<img src="guide-images/lesson-editor-wide.png" width="600">
+
+On a laptop: the form (1) and the Claude chat (2) side by side, and the **Edit /
+Preview** switch (3) in the header.
+
+**Export to Anki.** Lessons and readers can leave the app as Anki packages: the ⋯ menu of
+a library card or the lesson editor has **Export Anki (.apkg)**, and every reader has an
+**Anki** button (on its card in the Readers list and in the reader editor's menu). A
+lesson's words become vocabulary cards and its sentences become Chinese → English cards;
+a reader gives one card per page plus its vocabulary. Re-exporting updates the same
+notes in Anki. The options and result screens are the same as for decks (section 6).
 
 ### Quests
 
@@ -702,8 +989,8 @@ card type** blocks show mastery per skill.
 Study works fully offline once the data has been synced once: card selection, rating,
 audio (if downloaded) and statistics all run on the phone. Reviews upload in the
 background when a connection returns; the same account on another device gets them on
-its next sync. Features that need the AI (generation, Ask Claude, Coach) show a clear
-"requires internet" message rather than hanging.
+its next sync. Features that need the AI (generation, Ask Claude, Coach, the editors'
+Claude tab) show a clear "requires internet" message rather than hanging.
 
 ### Sending feedback
 
@@ -717,17 +1004,20 @@ use this generously — it goes straight to the developer.
 
 ## 13. Suggested weekly workflow for a tutor
 
-1. **After each lesson**, send the student the new words (any format) and ask them to
-   paste them into **Lesson Notes**.
+1. **After each lesson**, open the student's **Insights** and **Log a lesson** with a few
+   lines of notes (new words, homework). They land in the student's Lesson Notes
+   automatically and set the "since last lesson" range.
 2. **Create a homework deck** for the week on your own account — 8–15 words, pinyin with
    tone marks, a short example sentence in the Sentence Clue field. **Generate** can draft
-   it from a description in a few seconds; then edit.
-3. **Share** it with the student under Connections. Confirm in chat that it arrived.
-4. **Mid-week**, open **View Progress**: check the active days, then open a day and listen
-   to a few 🎤 recordings and read the 📝 typed answers. Note tone errors and character
-   mix-ups for the next lesson.
-5. **Before the lesson**, open the shared deck's progress page: words still at 0–30%
-   mastery are the ones to drill together.
+   it from a description in a few seconds; then edit. Add a **mini lesson** from the
+   Lesson Library if the week has a grammar point.
+3. **Share** the deck and **Assign** the lesson under Connections. Confirm in chat that
+   they arrived.
+4. **Mid-week**, open **Recordings**: listen to the new clips and mark *Listened* or
+   *Needs work*. Glance at **History** filtered to *Again* for character mix-ups.
+5. **Before the lesson**, open **Insights**: read *Needs attention* (with the wrong
+   characters typed) and tap **Write summary** for the narrative in English or 中文.
+   The shared deck's progress page shows which words are still at 0–30% mastery.
 6. Encourage students to use **Ask Claude** and the **Sentence Coach** between lessons and
    to bring the saved conversations to class.
 7. If a student is overwhelmed, lower **New cards per day** in the deck settings rather
@@ -741,18 +1031,22 @@ use this generously — it goes straight to the developer.
 tutor-focused version could add, collected while writing this guide. Tutors and students
 can vote for or add to them with the in-app feedback button.
 
+Since the first version of this guide, several ideas from this list *have* been built:
+a recordings inbox (section 8), tutor-authored mini lessons via the Lesson Library, and
+"push update" for assigned lessons (section 10). Tutor marks and notes on recordings
+exist on the tutor's side; what remains of those ideas is listed below.
+
 | Idea | Why it would help |
 |------|-------------------|
 | **Chinese-language interface** | The UI is English-only. A Simplified-Chinese translation (selectable in Settings) would let tutors from mainland China use the app without any English. |
-| **Assignments with due dates** | A shared deck could carry a due date and a target ("all cards seen by Friday"); the student sees it on the home screen and the tutor sees a checklist of who has finished. |
+| **Assignments with due dates** | A shared deck or lesson could carry a due date and a target ("all cards seen by Friday"); the student sees it on the home screen and the tutor sees a checklist of who has finished. |
 | **Groups / classes** | Share a deck, a reader or a mini lesson to a whole class at once, and see a class progress table instead of opening each student. |
-| **Tutor-authored mini lessons** | Let the tutor create a mini lesson (or ask Claude to draft one) and push it to a student, instead of only the student requesting them. |
-| **Recordings inbox** | One page listing a student's newest pronunciation recordings with a "listened / needs work" mark and a quick text or voice comment back to the student. |
-| **Tutor comments on reviews** | Leave a note on a specific review ("second tone, not fourth") that the student sees the next time the card appears. |
-| **Update a shared deck in place** | When the tutor edits the original deck, offer "push changes" so the student's copy gets new words and fixes without losing progress. |
-| **Deck templates / library** | Ready-made HSK 1–6 and topic decks (plus tutor-published public decks) that a tutor can copy and adapt. |
+| **Tutor comments shown to the student** | The notes a tutor leaves on a recording ("second tone, not fourth") are only visible to the tutor today; showing them to the student the next time the card appears would close the loop. |
+| **Update a shared deck in place** | Mini lessons have "push update"; decks do not yet. When the tutor edits the original deck, offer "push changes" so the student's copy gets new words and fixes without losing progress. |
+| **Sharing readers with students** | Readers are per account; a tutor-written reader currently has to be exported as JSON and imported by the student. |
+| **Deck templates / library** | Ready-made HSK 1–6 and topic decks (plus tutor-published public decks) that a tutor can copy and adapt, like the Lesson Library but for vocabulary. |
 | **Tutor-set study settings** | Let the tutor set daily new-card limits and retention targets on the decks they shared. |
-| **Weekly digest email** | An automatic summary to the tutor every Monday: days active, accuracy, weakest words, recordings waiting. |
+| **Weekly digest email** | An automatic summary to the tutor every Monday: days active, accuracy, weakest words, recordings waiting — essentially the Insights summary, delivered. |
 | **Pronunciation scoring** | Compare the student's recording against the reference audio (tone contour / pinyin recognition) and show a score, so tone practice does not depend on the tutor listening to every clip. |
 | **Tone and minimal-pair drills** | A dedicated drill mode built from the student's own words (mā/má/mǎ/mà, 买/卖, 有/又) — the listening exercises in mini lessons already do this in a small way. |
 | **Handwriting and stroke order** | Trace characters on the screen with stroke-order animation, as an optional fourth card type. |
