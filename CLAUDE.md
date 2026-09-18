@@ -117,7 +117,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
-│   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms)
+│   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms; components/tutor/ = students dashboard, setup checklist, send-homework sheet)
 │   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.; pages/editor/ = library + editor)
 │   │   ├── services/anki/ # Client-side Anki .apkg export (sql.js + JSZip): builder, deck/lesson/reader adapters, audio resolution
 │   │   ├── components/export/ # AnkiExportModal — options / progress / result UI (lazy-loads services/anki)
@@ -788,6 +788,33 @@ paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `
 - `GET /api/relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit` -
   Flat review events newest first (keyset cursor); the "by word" view groups client-side
 
+### Tutor dashboard & student page (`worker/src/routes/tutor-dashboard.ts`)
+The tutor's `/connections` becomes a **Students dashboard** once the account has an active
+student (`frontend/src/components/tutor/StudentsDashboard.tsx`): one card per student with a
+status line (studied today / streak / today's accuracy), three pills (words struggling = the
+insights `struggling` list over the last 7 days, 🎤 recordings not yet marked, Homework %), and
+Message / Send homework. A student with no review events gets the **Getting set up** card (signed
+in · homework received · installed the app · first study session) — the same checklist replaces
+the empty progress page on their student page. Pending invite links show as muted rows (Resend /
+Revoke); the tutor's shared decks list under "My homework decks". The student page
+(`ConnectionDetailPage`) is ordered status → Message / Send homework → Needs attention → Homework
+(shared decks with progress bars + the student's lessons) → Conversations → Activity; Remove
+connection and the student's own shared decks live under ⋯. **Message** opens the most recent
+conversation directly (no title modal; a fresh one comes from the chat's own `?new=1` / `chat/new`). Sharing a deck asks for confirmation, and a deck already shared offers **Update their copy**
+(new notes only, progress kept). Pure aggregation lives in `services/tutor-dashboard.ts`
+(unit-tested); SQL in `db/tutor-dashboard-queries.ts`. Homework % = mastered cards + ½ started
+cards + completed lessons, over all cards + lessons the tutor sent.
+The device reports itself during sync (`services/clientState.ts`, throttled to every 30 min):
+`display-mode: standalone` → `pwa`, the Capacitor shell → `android`, else `browser`, plus the
+cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_count`,
+`last_opened_at`). "Send how-to" posts the Obtainium / home-screen steps into the chat.
+- `GET /api/tutor/dashboard?tz_offset=` - Every student card + pending invites + homework decks in one call (client caches 60s)
+- `GET /api/relationships/:relId/overview?tz_offset=` - One student card (status, pills, needs_attention, homework, setup, activity)
+- `POST /api/relationships/:relId/conversations/open` - Most recent conversation id, created if none
+- `POST /api/relationships/:relId/send-howto` - Sends the install how-to as a chat message from the tutor
+- `POST /api/relationships/:relId/shared-decks/:id/update` - Add the tutor's newer notes to the student's copy (matched by hanzi; progress kept)
+- `POST /api/me/client-state` - `{ install_kind, cached_audio_count }` from the device (never downgrades pwa/android to browser)
+
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
 - `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
@@ -1143,8 +1170,8 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- `/connections` - List all connections and pending requests
-- `/connections/:relId` - View a specific connection (conversations, shared decks)
+- `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
+- `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
 - `/connections/:relId/chat/:convId` - Chat interface
 - `/connections/:relId/progress` - Student progress view (tutor only)
 - `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view

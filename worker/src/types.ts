@@ -126,6 +126,10 @@ export interface User {
   can_invite: number;
   last_login_at: string | null;
   bio: string | null;
+  /** Reported by the client during sync (migration 0064). */
+  install_kind?: 'pwa' | 'android' | 'browser' | null;
+  cached_audio_count?: number | null;
+  last_opened_at?: string | null;
   created_at: string;
 }
 
