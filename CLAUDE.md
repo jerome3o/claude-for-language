@@ -673,6 +673,30 @@ menu) inspects pending + completed lessons — full exercise listing per lesson,
 - `GET /api/stats/overview` - Overall statistics
 - `GET /api/stats/deck/:id` - Deck statistics
 
+### Tutor Student Insights (tutor-only, `worker/src/routes/insights.ts`)
+One-page briefing for a tutor before a lesson: pure aggregation over the student's
+`review_events` (`worker/src/services/insights.ts`, unit-tested), a lesson log that anchors
+the default range ("since last lesson", else 14 days; capped at 400 days), a Claude-written
+narrative in English + 简体中文, marks on the student's pronunciation recordings, and a
+paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `/recordings`
+(`frontend/src/pages/tutor/`). Tables (migration 0060): `tutor_lesson_log`,
+`student_summaries`, `tutor_recording_marks`.
+- `GET /api/relationships/:relId/lesson-log` - Logged lessons, newest first
+- `POST /api/relationships/:relId/lesson-log` - `{ lesson_at, notes? }`; non-empty notes are also
+  inserted into the STUDENT's `lesson_notes` prefixed `[From tutor <name>, <date>]` so they feed
+  the daily reader and other AI context
+- `DELETE /api/relationships/:relId/lesson-log/:id`
+- `GET /api/relationships/:relId/insights?from&to` - totals, `struggling` (ranked, with the wrong
+  characters typed), `going_well`, `activity` (lessons/readers/quests), `recordings` (+ marks),
+  plus the `range` used and `since_lesson`
+- `POST /api/relationships/:relId/insights/summary` - `{ from?, to? }` → narrative from the
+  structured report (never raw events), persisted; 503 when `ANTHROPIC_API_KEY` is missing
+- `GET /api/relationships/:relId/insights/summaries` - Past narratives
+- `PUT /api/relationships/:relId/recordings/:eventId/mark` - `{ status: listened|needs_work, comment? }`
+- `DELETE /api/relationships/:relId/recordings/:eventId/mark`
+- `GET /api/relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit` -
+  Flat review events newest first (keyset cursor); the "by word" view groups client-side
+
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
 - `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
@@ -992,3 +1016,6 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId` - View a specific connection (conversations, shared decks)
 - `/connections/:relId/chat/:convId` - Chat interface
 - `/connections/:relId/progress` - Student progress view (tutor only)
+- `/connections/:relId/insights` - Student Insights: range, needs attention / going well, summary, lesson log (tutor only)
+- `/connections/:relId/history` - Full review history explorer with filters (tutor only)
+- `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)

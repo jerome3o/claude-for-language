@@ -53,6 +53,7 @@ import testAuth from './routes/test-auth';
 import invitesRoutes from './routes/invites';
 import { resolveSignup, redeemInvite } from './services/signup';
 import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
+import insightsRoutes from './routes/insights';
 import {
   createRelationship,
   getMyRelationships,
@@ -386,6 +387,9 @@ app.use('/api/*', authMiddleware);
 
 // Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
 app.route('/api', invitesRoutes);
+
+// Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
+app.route('/api', insightsRoutes);
 
 // ============ Admin Routes ============
 
