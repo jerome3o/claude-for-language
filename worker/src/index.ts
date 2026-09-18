@@ -47,6 +47,7 @@ import {
 import { notifyNewUser, notifyNewChatMessage } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
+import insightsRoutes from './routes/insights';
 import {
   createRelationship,
   getMyRelationships,
@@ -313,6 +314,9 @@ app.use('/api/*', authMiddleware);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
+
+// Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
+app.route('/api', insightsRoutes);
 
 // ============ Admin Routes ============
 

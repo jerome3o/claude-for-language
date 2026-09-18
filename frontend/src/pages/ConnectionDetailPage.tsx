@@ -11,6 +11,7 @@ import {
   removeRelationship,
   getDecks,
 } from '../api/client';
+import { getLessonLog } from '../api/insights';
 import {
   getOtherUserInRelationship,
   getMyRoleInRelationship,
@@ -21,6 +22,17 @@ import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
 import { StudentLessonsSection } from '../components/editor/StudentLessonsSection';
 import './ConnectionDetailPage.css';
+
+function formatLessonDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const today = new Date();
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}),
+  });
+}
 
 export function ConnectionDetailPage() {
   const { relId } = useParams<{ relId: string }>();
@@ -64,6 +76,14 @@ export function ConnectionDetailPage() {
     queryKey: ['decks'],
     queryFn: getDecks,
     enabled: showShareModal,
+  });
+
+  const iAmTutorForLog = !!relationshipQuery.data && !!user &&
+    getMyRoleInRelationship(relationshipQuery.data, user.id) === 'tutor';
+  const lessonLogQuery = useQuery({
+    queryKey: ['lessonLog', relId],
+    queryFn: () => getLessonLog(relId!),
+    enabled: !!relId && iAmTutorForLog,
   });
 
   const createConvMutation = useMutation({
@@ -162,26 +182,58 @@ export function ConnectionDetailPage() {
               <span className={`role-badge ${myRole}`}>
                 {iAmTutor ? 'Your Student' : 'Your Tutor'}
               </span>
+              {iAmTutor && lessonLogQuery.data && lessonLogQuery.data.length > 0 && (
+                <div className="connection-last-lesson">
+                  Last lesson: {formatLessonDate(lessonLogQuery.data[0].lesson_at)}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* Quick Actions */}
-        <div className="quick-actions">
-          <button className="btn btn-primary" onClick={handleStartChat}>
-            New Chat
-          </button>
-          {iAmTutor && (
-            <>
-              <button className="btn btn-secondary" onClick={() => setShowShareModal(true)}>
+        {iAmTutor && !isClaudeRelationship ? (
+          <>
+            <div className="quick-actions">
+              <Link to={`/connections/${relId}/insights`} className="btn btn-primary">
+                Insights
+              </Link>
+              <button className="btn btn-secondary" onClick={handleStartChat}>
+                New Chat
+              </button>
+            </div>
+            <div className="quick-actions quick-actions-secondary">
+              <Link to={`/connections/${relId}/history`} className="btn btn-secondary btn-sm">
+                History
+              </Link>
+              <Link to={`/connections/${relId}/recordings`} className="btn btn-secondary btn-sm">
+                Recordings
+              </Link>
+              <Link to={`/connections/${relId}/progress`} className="btn btn-secondary btn-sm">
+                Progress
+              </Link>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowShareModal(true)}>
                 Share Deck
               </button>
-              <Link to={`/connections/${relId}/progress`} className="btn btn-secondary">
-                View Progress
-              </Link>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        ) : (
+          <div className="quick-actions">
+            <button className="btn btn-primary" onClick={handleStartChat}>
+              New Chat
+            </button>
+            {iAmTutor && (
+              <>
+                <button className="btn btn-secondary" onClick={() => setShowShareModal(true)}>
+                  Share Deck
+                </button>
+                <Link to={`/connections/${relId}/progress`} className="btn btn-secondary">
+                  View Progress
+                </Link>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Conversations */}
         <div className="detail-section">

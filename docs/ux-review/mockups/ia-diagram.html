@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>IA before/after</title><link rel="stylesheet" href="mock.css"><style>
+.col{background:#fff;border-radius:12px;padding:.75rem;box-shadow:var(--shadow-md)}
+.tree{font-size:.8125rem;line-height:1.45}.tree div{padding-left:1rem;position:relative}.tree div::before{content:"";position:absolute;left:.25rem;top:0;bottom:0;border-left:1px solid #e5e7eb}
+.tree>div{padding-left:0}.tree>div::before{display:none}
+.lvl0{font-weight:700}.new{color:#166534;background:#dcfce7;border-radius:4px;padding:0 .25rem}.gone{color:#991b1b;text-decoration:line-through}.moved{color:#92400e}
+</style></head><body>
+<div class="container">
+<h1>Navigation: before → after</h1>
+<div class="small muted" style="margin-bottom:.75rem">One learner + one tutor. Phone-first. 5 top-level places instead of 3 header links + a 15-item dropdown.</div>
+<div class="col" style="margin-bottom:.75rem"><h2>Before (today)</h2><div class="tree" style="margin-top:.375rem">
+<div class="lvl0">Header: Home · Search · Connections · 🔔 · avatar</div>
+<div><div class="lvl0">Home</div><div>Streak · Study All · deck cards (Study / +10 / pin) · New Deck · Generate · Analyze</div></div>
+<div><div class="lvl0">Connections</div><div>Invite · My Tutors · My Students → connection page → New Chat / Share Deck / View Progress → day → card → recording; Shared deck progress; Remove connection</div></div>
+<div><div class="lvl0">Avatar menu (15 items)</div><div>Settings · Lesson Notes · Readers · Mini Lessons · Sentence Analysis · Sentence Coach · Quests · Duplicate Finder · Progress · Full Sync · Update App · Debug Console · Copy Debug Dump · (Admin) · Sign out</div></div>
+<div><div class="lvl0">Reachable only from inside other pages</div><div>Deck settings · Share with Tutor · Debug · Sentence Coverage (Settings) · Roleplay (card 🎭) · Session review</div></div>
+</div></div>
+<div class="col"><h2>After (proposed)</h2><div class="tree" style="margin-top:.375rem">
+<div class="lvl0">Bottom tabs: <span class="new">Study</span> · <span class="new">Decks</span> · <span class="new">Tutor</span> · <span class="new">Progress</span> · <span class="new">More</span></div>
+<div><div class="lvl0">Study (home)</div><div>One button "Study today's cards · 24 · ~8 min" · streak · <span class="new">homework card from tutor</span> · deck list collapsed</div></div>
+<div><div class="lvl0">Decks</div><div>List + search field at top (<span class="moved">Search page merged</span>) · deck → notes · <span class="moved">Add / Generate / Import in one "+"</span> · deck settings</div></div>
+<div><div class="lvl0">Tutor  (label becomes "Students" for tutors)</div><div>Chat thread first · homework · <span class="new">needs-attention words + recordings</span> · <span class="gone">30-day summary tiles</span> · <span class="moved">remove connection → ⋯</span></div></div>
+<div><div class="lvl0">Progress</div><div>Streak, mastered %, per-deck bars · day drill-down kept</div></div>
+<div><div class="lvl0">More</div><div>Practice: Coach · Breakdown · Readers · Lessons · Quests &nbsp;|&nbsp; Lesson Notes &nbsp;|&nbsp; Settings &nbsp;|&nbsp; <span class="moved">Advanced: Duplicate finder · Full sync · Update · Debug · Sentence coverage</span> &nbsp;|&nbsp; Sign out</div></div>
+<div><div class="lvl0">Tutor-only home</div><div><span class="new">Students dashboard</span> (when account has ≥1 student and no due cards): per-student status, onboarding checklist, homework decks</div></div>
+</div></div>
+</div>
+</body></html>
