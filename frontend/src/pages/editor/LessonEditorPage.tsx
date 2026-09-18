@@ -38,6 +38,7 @@ import { LessonPreview } from '../../components/editor/LessonPreview';
 import { RawJsonModal } from '../../components/editor/RawJsonModal';
 import { useLessonSpeak } from '../../components/editor/useLessonSpeak';
 import { downloadText } from '../../components/editor/download';
+import { AnkiExportModal } from '../../components/export/AnkiExportModal';
 import { Loading, ErrorMessage } from '../../components/Loading';
 
 function clone<T>(v: T): T {
@@ -87,6 +88,7 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
   const [saved, setSaved] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [showJson, setShowJson] = useState(false);
+  const [showAnki, setShowAnki] = useState(false);
 
   // A different lesson under the same route (duplicate, back button) starts fresh.
   useEffect(() => {
@@ -198,6 +200,7 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
     },
     { label: '⬇ Export JSON', onClick: () => exportAs('json') },
     { label: '⬇ Export CSV (Quizlet)', onClick: () => exportAs('csv') },
+    { label: '⬇ Export Anki (.apkg)', onClick: () => setShowAnki(true) },
     { label: '{ } Advanced: raw JSON', onClick: () => setShowJson(true), section: true },
   );
   if (isOwner) {
@@ -259,6 +262,7 @@ export function LessonEditorPage({ target }: { target: EditorTargetType }) {
         }
       />
       {showJson && <RawJsonModal spec={spec} onApply={next => { setSpec(next); setShowJson(false); }} onClose={() => setShowJson(false)} />}
+      {showAnki && <AnkiExportModal target={{ kind: 'lesson', spec, sourceId: id }} onClose={() => setShowAnki(false)} />}
       {toast && <div className="ed-toast" role="status">{toast}</div>}
     </>
   );

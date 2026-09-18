@@ -17,9 +17,11 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   margin-bottom: 0.75rem;
-  overflow: hidden;
+  /* visible so the ⋯ dropdown isn't clipped by the card; the link below rounds its own corners */
+  overflow: visible;
 }
 .lib-card-main {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   display: flex;
   gap: 0.75rem;
   padding: 0.75rem;

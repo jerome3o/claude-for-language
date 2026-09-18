@@ -13,6 +13,7 @@ import { READER_TTS_SPEED } from '../services/readerSync';
 import { base64ToBlob } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { Loading } from '../components/Loading';
+import { AnkiExportButton } from '../components/export/AnkiExportModal';
 import { SentenceBreakdown } from '../components/SentenceBreakdown';
 import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
 import { markDailyActivity } from '../api/client';
@@ -482,6 +483,13 @@ export function ReaderPage() {
           >
             Edit
           </button>
+          <AnkiExportButton
+            target={{ kind: 'reader', readerId: reader.id, title: reader.title_chinese }}
+            className="btn btn-secondary btn-sm"
+            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+          >
+            ⬇ Anki
+          </AnkiExportButton>
           <span
             className="reader-difficulty-badge"
             style={{

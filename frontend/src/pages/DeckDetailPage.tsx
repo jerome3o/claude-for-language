@@ -6,6 +6,7 @@ import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship, DeckProgress } from '../types';
 import { CompletionSection, CardTypeBreakdownSection, ActivitySection } from '../components/DeckProgress';
 import CardEditModal from '../components/CardEditModal';
+import { AnkiExportButton } from '../components/export/AnkiExportModal';
 import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent, DEFAULT_SECONDARY_CARDS_PER_DAY } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -1200,6 +1201,13 @@ function DeckSettingsModal({
                 Days when pressing Easy on new card
               </p>
             </div>
+          </div>
+
+          {/* Export */}
+          <div style={{ margin: '0.5rem 0 1rem' }}>
+            <AnkiExportButton target={{ kind: 'deck', deckId: deck.id, name: deck.name }} className="btn btn-secondary btn-block">
+              ⬇ Export to Anki (.apkg)
+            </AnkiExportButton>
           </div>
 
           {/* Advanced Settings Toggle */}

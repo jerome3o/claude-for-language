@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { getGradedReaders, deleteGradedReader, createBlankReader } from '../api/client';
 import { Loading, EmptyState } from '../components/Loading';
+import { AnkiExportButton } from '../components/export/AnkiExportModal';
 import { GradedReader, DifficultyLevel } from '../types';
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; label: string }> = {
@@ -134,6 +135,13 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
             >
               Edit
             </button>
+            <AnkiExportButton
+              target={{ kind: 'reader', readerId: reader.id, title: reader.title_chinese }}
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              ⬇ Anki
+            </AnkiExportButton>
           </div>
         )}
         <button
