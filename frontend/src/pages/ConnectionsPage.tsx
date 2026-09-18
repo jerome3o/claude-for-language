@@ -19,12 +19,19 @@ import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
+import { InviteSheet } from '../components/invites/InviteSheet';
+import { InviteList } from '../components/invites/InviteList';
+import { listInvites, revokeInvite } from '../api/invites';
 import './ConnectionsPage.css';
+
+const INVITE_GATE_MESSAGE = 'Only approved inviters can invite new people — ask Jerome to enable inviting for you. (You can still connect with anyone who already has an account.)';
 
 export function ConnectionsPage() {
   const { user } = useAuth();
   const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
+  const canInvite = !!user?.can_invite || !!user?.is_admin;
+  const [showInviteSheet, setShowInviteSheet] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<RelationshipRole>('tutor');
@@ -34,6 +41,19 @@ export function ConnectionsPage() {
   const relationshipsQuery = useQuery({
     queryKey: ['relationships'],
     queryFn: getMyRelationships,
+  });
+
+  const invitesQuery = useQuery({
+    queryKey: ['invites', 'mine'],
+    queryFn: () => listInvites(false),
+    enabled: canInvite,
+  });
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: revokeInvite,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invites'] });
+    },
   });
 
   const createMutation = useMutation({
@@ -161,13 +181,39 @@ export function ConnectionsPage() {
       <div className="container">
         <div className="connections-header">
           <h1>Connections</h1>
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowInviteForm(!showInviteForm)}
-          >
-            {showInviteForm ? 'Cancel' : '+ Invite'}
-          </button>
+          {canInvite ? (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowInviteSheet(true)}
+              disabled={!isOnline}
+            >
+              + Invite student
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowInviteForm(!showInviteForm)}
+            >
+              {showInviteForm ? 'Cancel' : '+ Invite'}
+            </button>
+          )}
         </div>
+
+        {showInviteSheet && (
+          <InviteSheet
+            onClose={() => setShowInviteSheet(false)}
+            onCreated={() => queryClient.invalidateQueries({ queryKey: ['invites'] })}
+          />
+        )}
+
+        {canInvite && (
+          <p className="invite-gate-note">
+            Send someone a link and they're in with one tap. Already have an account?{' '}
+            <button type="button" className="btn-link" onClick={() => setShowInviteForm(!showInviteForm)}>
+              {showInviteForm ? 'Hide' : 'Connect by email'}
+            </button>
+          </p>
+        )}
 
         {/* Success message for sent invitations */}
         {inviteSuccess && (
@@ -179,7 +225,12 @@ export function ConnectionsPage() {
         {/* Invite Form */}
         {showInviteForm && (
           <div className="card mb-4 invite-form">
-            <h3>Invite Someone</h3>
+            <h3>{canInvite ? 'Connect by email' : 'Invite Someone'}</h3>
+            {!canInvite && (
+              <p className="invite-gate-note">
+                Enter the email of someone who already uses the app. {INVITE_GATE_MESSAGE}
+              </p>
+            )}
             <form onSubmit={handleInvite}>
               <div className="form-group">
                 <label htmlFor="invite-email">Their Email</label>
@@ -219,7 +270,11 @@ export function ConnectionsPage() {
                   </label>
                 </div>
               </div>
-              {inviteError && <p className="text-error mb-2">{inviteError}</p>}
+              {inviteError && (
+                <p className="text-error mb-2">
+                  {inviteError.startsWith('Only approved inviters') ? INVITE_GATE_MESSAGE : inviteError}
+                </p>
+              )}
               <div className="mb-2">
                 <OfflineWarning message="You're offline. Invites can't be sent right now." />
               </div>
@@ -231,6 +286,17 @@ export function ConnectionsPage() {
                 {createMutation.isPending ? 'Sending...' : 'Send Invite'}
               </button>
             </form>
+          </div>
+        )}
+
+        {/* Invite links I've sent */}
+        {canInvite && (invitesQuery.data?.length ?? 0) > 0 && (
+          <div className="connections-section">
+            <h2>Invites I've sent</h2>
+            <InviteList
+              invites={invitesQuery.data ?? []}
+              onRevoke={(id) => revokeInviteMutation.mutateAsync(id).then(() => undefined)}
+            />
           </div>
         )}
 

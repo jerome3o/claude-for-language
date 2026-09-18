@@ -6,6 +6,8 @@ export function SplashPage() {
   const { login } = useAuth();
   const [searchParams] = useSearchParams();
   const error = searchParams.get('error');
+  const signup = searchParams.get('signup');
+  const inviter = searchParams.get('inviter');
 
   return (
     <div className="splash-page">
@@ -40,6 +42,29 @@ export function SplashPage() {
             {error === 'auth_failed' && 'Authentication failed. Please try again.'}
             {error === 'invalid_state' && 'Security check failed. Please try again.'}
             {error === 'missing_params' && 'Something went wrong. Please try again.'}
+          </div>
+        )}
+
+        {signup === 'invite_only' && (
+          <div className="splash-notice" role="status">
+            <strong>This app is invite-only.</strong>
+            <p>
+              Ask your tutor for an invite link and open it on this device — you'll be in with one tap.
+            </p>
+            <p className="splash-notice-small">
+              Your sign-in attempt has been noted, so if you're expecting access the admin can approve
+              you; once that's done, just sign in again.
+            </p>
+          </div>
+        )}
+
+        {signup === 'email_mismatch' && (
+          <div className="splash-notice" role="status">
+            <strong>That invite was sent to a different email address.</strong>
+            <p>
+              Sign in with the Google account the invite was addressed to, or ask
+              {inviter ? ` ${inviter}` : ' the person who invited you'} for a new link.
+            </p>
           </div>
         )}
 

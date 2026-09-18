@@ -47,7 +47,12 @@
 
 <img src="guide-images/splash.png" width="300">
 
-1. 打开 https://chinese-learning-2x9.pages.dev ，点击 **Sign in with Google**（用 Google 账号登录）（①）。老师和学生的登录方式完全一样，没有单独的"老师账号"；身份是在建立联系时按每段关系设定的（见第 7 节）。
+这个应用是**邀请制**的：第一次登录需要邀请，之后正常登录即可。
+
+1. **用邀请链接（最常见）：** 老师会发给你一个形如 `…/join/abc…` 的链接，或者给你看一个二维码。在你要用来学习的手机上打开它，点 **Continue with Google**（用 Google 继续），选择你的 Google 账号。这就是全部的注册步骤：进入首页时你已经和老师建立了联系，老师为你准备的卡组也已经在那里等着学。
+2. **没有链接：** 打开 https://chinese-learning-2x9.pages.dev ，点击 **Sign in with Google**（用 Google 账号登录）（①）。如果你的邮箱已被邀请（或已由管理员批准），就能直接进入；否则会看到 *"This app is invite-only"*（本应用仅限受邀用户）——请向老师要一个链接。这次尝试也会记录给管理员，管理员批准后，再登录一次即可。
+
+老师和学生的登录方式完全一样，没有单独的"老师账号"；身份是在建立联系时按每段关系设定的（见第 7 节）。如果邀请是发给某个特定邮箱的，而你用了另一个 Google 账号登录，页面会提示这一点——请切换账号，或者向老师要一个新链接。
 
 ### 安装到手机（建议学生这样做）
 
@@ -62,8 +67,8 @@
 
 ### 新学生的推荐设置
 
-1. 在手机上登录并安装应用（见上）。
-2. 进入 **Connections**（联系人），接受老师的邀请（或者主动邀请老师）。
+1. 在手机上打开老师的邀请链接，点 **Continue with Google**（用 Google 继续），然后安装应用（见上）。和老师的联系已经自动生效。
+2. 如果是没用链接登录的，进入 **Connections**（联系人），接受老师的请求（或者通过邮箱和老师建立联系）。
 3. 连上 Wi-Fi 时，打开 **Settings → Offline Audio → Download All Audio**（设置 → 离线音频 → 下载全部音频）。
 4. 每天点首页的 **Study All**（全部学习）。
 
@@ -275,13 +280,15 @@
 
 <img src="guide-images/connections-invite.png" width="300">
 
-点 **+ Invite（邀请）** 并填写：
+注册是邀请制的，"邀请新人"这个权限由管理员按老师逐个开启。开启后，**Connections（联系人）** 页面会出现 **+ Invite student（邀请学生）** 按钮：
 
-1. 学生的**邮箱** —— 必须是他们用来登录 Google 的那个。
-2. **Tutor** —— "I'll teach them"（我教他们）——邀请学生时选这个。
-3. **Student** —— "They'll teach me"（他们教我）——学生邀请老师时选这个。
+1. 保持默认选中的 **I'm their tutor**（我是他们的老师）。其他选项是 **They're my tutor**（他们是我的老师）和 **Just let them in**（只开通账号，不建立联系）。
+2. 可选：勾选 **Share these decks when they join**（加入时分享这些卡组）——学生一进来就会有每个勾选卡组的副本，第一屏就有东西可学。
+3. 点 **Create link（生成链接）**。你会得到一个链接（带 **Copy** 复制按钮）、一个可以让学生直接扫的二维码，以及 **Share…（分享）** 按钮，可以通过微信、WhatsApp、邮件等发送。
 
-如果对方还没注册，会收到一封邮件，第一次登录时联系自动生效。否则对方会在自己的 Connections 页面看到 **Pending Request（待处理请求）**，点 **Accept（接受）** 即可。
+学生打开链接，点 **Continue with Google（用 Google 继续）**，立刻就成为你的学生——不需要接受请求，也不用输入邮箱。每个链接默认只能用一次；在 **Options（选项）** 里可以改成多人使用、限定只有某个邮箱能用、设置有效期，以及给自己写个备注。**Invites I've sent（我发出的邀请）** 列出每个链接的状态（unused 未使用 / used by … 已被…使用 / expired 已过期 / revoked 已撤销）和 **Revoke（撤销）** 按钮。
+
+如果对方已经有账号，链接同样有效（会建立联系并分享卡组）；也可以改用 **Connect by email（通过邮箱联系）**：输入对方邮箱，选择 **Tutor**（"I'll teach them"，我教他们）或 **Student**（"They'll teach me"，他们教我）。对方会在自己的 Connections 页面看到 **Pending Request（待处理请求）**，点 **Accept（接受）** 即可。没有开启邀请权限的老师，只能通过邮箱和已经在用这个应用的人建立联系。
 
 同一个人可以既是某些人的老师，又是另一些人的学生。
 

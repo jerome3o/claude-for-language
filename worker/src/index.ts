@@ -31,7 +31,11 @@ import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
   getGoogleUserInfo,
-  getOrCreateUser,
+  findExistingUser,
+  touchExistingUser,
+  createUser,
+  encodeOAuthState,
+  parseOAuthState,
   createSession,
   deleteSession,
   createSessionCookie,
@@ -44,9 +48,12 @@ import {
   generateState,
   getAllUsersWithStats,
 } from './services/auth';
-import { notifyNewUser, notifyNewChatMessage } from './services/notifications';
+import { notifyNewUser, notifyNewChatMessage, notifyAccessRequest } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
+import invitesRoutes from './routes/invites';
+import { resolveSignup, redeemInvite } from './services/signup';
+import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
 import {
   createRelationship,
@@ -127,7 +134,11 @@ app.get('/api/health', (c) => c.json({ status: 'ok' }));
 // ============ Auth Routes (public) ============
 
 app.get('/api/auth/login', (c) => {
-  const state = generateState();
+  // An invite token from /join/<token> rides along in the state so the callback
+  // can admit a brand-new account and bind it to the inviter.
+  const inviteParam = c.req.query('invite');
+  const inviteToken = isPlausibleInviteToken(inviteParam) ? inviteParam : null;
+  const state = encodeOAuthState(generateState(), inviteToken);
   const isSecure = c.req.url.startsWith('https');
 
   // Determine redirect URI based on environment
@@ -190,10 +201,72 @@ app.get('/api/auth/callback', async (c) => {
     const googleUser = await getGoogleUserInfo(tokens.access_token);
     console.log('[Auth Callback] Got Google user:', { email: googleUser.email, name: googleUser.name });
 
-    // Create or update user in database
-    const isAdminEmail = googleUser.email === c.env.ADMIN_EMAIL;
+    // Create or update user in database — sign-up is invite-only.
+    const isAdminEmail = !!c.env.ADMIN_EMAIL && normalizeEmail(googleUser.email) === normalizeEmail(c.env.ADMIN_EMAIL);
     console.log('[Auth Callback] Is admin?', isAdminEmail);
-    const { user, isNewUser } = await getOrCreateUser(c.env.DB, googleUser, isAdminEmail);
+    const { inviteToken } = parseOAuthState(state);
+
+    let user: User;
+    let isNewUser = false;
+    const existingUser = await findExistingUser(c.env.DB, googleUser);
+
+    if (existingUser) {
+      user = await touchExistingUser(c.env.DB, existingUser, googleUser, isAdminEmail);
+
+      // An existing user who opened someone's /join link still gets connected
+      // (and the decks) — the inviter sent it to them on purpose.
+      if (inviteToken) {
+        const invite = await getInviteById(c.env.DB, inviteToken);
+        if (isInviteValid(invite) && (!invite.email || invite.email === normalizeEmail(googleUser.email))) {
+          await redeemInvite(c.env.DB, user, invite).catch(err => {
+            console.error('[Auth Callback] Failed to redeem invite for existing user:', err);
+          });
+        }
+      }
+    } else {
+      const resolution = await resolveSignup(c.env.DB, googleUser, {
+        inviteToken,
+        adminEmail: c.env.ADMIN_EMAIL,
+      });
+      console.log('[Auth Callback] Sign-up resolution:', resolution.kind);
+
+      if (resolution.kind === 'denied') {
+        // No user is created. Remember the attempt so the admin can approve it.
+        const { isFirst } = await recordAccessRequest(c.env.DB, {
+          email: googleUser.email,
+          name: googleUser.name,
+          picture_url: googleUser.picture,
+        });
+        if (isFirst && c.env.NTFY_TOPIC) {
+          c.executionCtx.waitUntil(notifyAccessRequest(c.env.NTFY_TOPIC, { email: googleUser.email, name: googleUser.name }));
+        }
+
+        const params = new URLSearchParams({ signup: resolution.reason });
+        if (resolution.reason === 'email_mismatch') {
+          const inviter = await c.env.DB
+            .prepare('SELECT name FROM users WHERE id = ?')
+            .bind(resolution.invite.created_by)
+            .first<{ name: string | null }>();
+          if (inviter?.name) params.set('inviter', inviter.name);
+        }
+        const headers = new Headers();
+        headers.set('Location', `${frontendUrl}?${params.toString()}`);
+        headers.append('Set-Cookie', clearStateCookie(isSecure));
+        return new Response(null, { status: 302, headers });
+      }
+
+      user = await createUser(c.env.DB, googleUser, isAdminEmail);
+      isNewUser = true;
+
+      // Awaited (not waitUntil) so the very first screen already has the deck.
+      if (resolution.kind === 'invite') {
+        await redeemInvite(c.env.DB, user, resolution.invite).catch(err => {
+          console.error('[Auth Callback] Failed to redeem invite:', err);
+        });
+      }
+      // pending_invitation: processPendingInvitations below creates the relationship.
+      await markAccessRequestApprovedByEmail(c.env.DB, googleUser.email).catch(() => {});
+    }
     console.log('[Auth Callback] User:', { id: user.id, email: user.email, isNewUser });
 
     // Send notification for new users (in background)
@@ -302,6 +375,7 @@ app.get('/api/auth/me', async (c) => {
     picture_url: user.picture_url,
     role: user.role,
     is_admin: !!user.is_admin,
+    can_invite: userMayInvite(user),
     bio: user.bio || null,
   });
 });
@@ -314,6 +388,9 @@ app.use('/api/*', authMiddleware);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
+
+// Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
+app.route('/api', invitesRoutes);
 
 // Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
 app.route('/api', insightsRoutes);
@@ -331,6 +408,7 @@ app.get('/api/admin/users', adminMiddleware, async (c) => {
     picture_url: user.picture_url,
     role: user.role,
     is_admin: !!user.is_admin,
+    can_invite: !!user.can_invite,
     created_at: user.created_at,
     last_login_at: user.last_login_at,
     deck_count: user.deck_count,
@@ -3529,6 +3607,20 @@ app.post('/api/relationships', async (c) => {
 
   if (role !== 'tutor' && role !== 'student') {
     return c.json({ error: 'role must be "tutor" or "student"' }, 400);
+  }
+
+  // Sign-up is invite-only: an email invite to someone who has no account is
+  // itself an invite, so only approved inviters may send one. Connecting with
+  // an existing user stays open to everyone.
+  const recipientExists = await c.env.DB
+    .prepare('SELECT id FROM users WHERE email = ?')
+    .bind(recipient_email)
+    .first<{ id: string }>();
+  if (!recipientExists && !userMayInvite(user)) {
+    return c.json({
+      error: 'Only approved inviters can invite new people — ask Jerome to enable inviting for you.',
+      code: 'invite_not_permitted',
+    }, 403);
   }
 
   try {

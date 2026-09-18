@@ -40,6 +40,8 @@ export interface AuthUser {
   picture_url: string | null;
   role: UserRole;
   is_admin: boolean;
+  /** May create invites for new people (admins always can). */
+  can_invite?: boolean;
 }
 
 // Admin user list type

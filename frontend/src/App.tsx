@@ -50,6 +50,7 @@ const LessonEditorPage = lazy(() => import('./pages/editor/LessonEditorPage').th
 const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').then(m => ({ default: m.LessonLibraryPage })));
 const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
 const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
+const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -120,6 +121,8 @@ function AppRoutes() {
     <Suspense fallback={<LazyFallback />}>
     <Routes>
       <Route path="/" element={<HomeOrSplash />} />
+      {/* Public: the invite landing page works before sign-in and has no Header. */}
+      <Route path="/join/:token" element={<JoinPage />} />
       <Route
         path="/decks/:id"
         element={
