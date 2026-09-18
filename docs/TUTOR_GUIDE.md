@@ -56,9 +56,24 @@ circles are explained in the text under each picture.
 
 <img src="guide-images/splash.png" width="300">
 
-1. Open https://chinese-learning-2x9.pages.dev and tap **Sign in with Google** (①).
-   Everyone — tutors and students — signs in the same way. There is no separate
-   "tutor account"; roles are set per connection (section 7).
+The app is **invite-only**. The first time you sign in you need an invite; after that
+you sign in normally.
+
+1. **With an invite link (the usual way):** your tutor sends you a link like
+   `…/join/abc…` or shows you a QR code. Open it on the phone you will study on,
+   tap **Continue with Google** and pick your Google account. That is the whole
+   sign-up: you land on the home screen already connected to your tutor, with any
+   decks they chose for you ready to study.
+2. **Without a link:** open https://chinese-learning-2x9.pages.dev and tap
+   **Sign in with Google** (①). If your email has been invited (or approved by the
+   admin) you are in. Otherwise you see *"This app is invite-only"* — ask your tutor
+   for a link. The attempt is also noted for the admin, who can approve you; then
+   simply sign in again.
+
+Everyone — tutors and students — signs in the same way. There is no separate
+"tutor account"; roles are set per connection (section 7). If an invite was sent to
+a specific email and you signed in with a different Google account, you will see a
+message saying so — switch accounts or ask for a new link.
 
 ### Installing on a phone (recommended for students)
 
@@ -77,8 +92,10 @@ notifications. See [native/README.md](../native/README.md) for how to get it.
 
 ### Recommended setup for a new student
 
-1. Sign in on the phone and install the app (above).
-2. Go to **Connections** and accept the tutor's invitation (or invite the tutor).
+1. Open the tutor's invite link on the phone, tap **Continue with Google**, then
+   install the app (above). The connection to the tutor is already active.
+2. If you signed in without a link, go to **Connections** and accept the tutor's
+   request (or connect with the tutor by email).
 3. Open **Settings → Offline Audio → Download All Audio** while on Wi-Fi.
 4. Tap **Study All** on the home screen every day.
 
@@ -333,15 +350,27 @@ Everything tutor-related lives under **Connections** in the top bar.
 
 <img src="guide-images/connections-invite.png" width="300">
 
-Tap **+ Invite** and fill in:
+Sign-up is invite-only, and inviting new people is switched on per tutor by the
+admin. Once it is on for you, **Connections** shows a **+ Invite student** button:
 
-1. The student's **email** — the one they use to sign in with Google.
-2. **Tutor** — "I'll teach them" (choose this when you invite a student).
-3. **Student** — "They'll teach me" (a student can use this to invite their tutor).
+1. Leave **I'm their tutor** selected (it is the default). The other choices are
+   **They're my tutor** and **Just let them in** (an account with no connection).
+2. Optionally tick **Share these decks when they join** — the student starts with a
+   copy of each ticked deck, so their very first screen has something to study.
+3. Tap **Create link**. You get a link with a **Copy** button, a QR code the student
+   can scan from your screen, and **Share…** to send it by WhatsApp, WeChat, email, etc.
 
-If the person has not signed up yet, they receive an email; the connection becomes
-active the first time they sign in. Otherwise they see a **Pending Request** on their
-Connections page and tap **Accept**.
+The student opens the link, taps **Continue with Google**, and is immediately your
+student — no request to accept, no email to type. Each link works once unless you
+change that under **Options**, where you can also limit the link to one email address,
+set an expiry, and add a note to yourself. **Invites I've sent** lists every link with
+its state (unused / used by … / expired / revoked) and a **Revoke** button.
+
+If the person already has an account, the link still works (it connects you and
+shares the decks), or use **Connect by email** instead: enter their email and choose
+**Tutor** ("I'll teach them") or **Student** ("They'll teach me"). They then see a
+**Pending Request** on their Connections page and tap **Accept**. Tutors without
+inviting switched on can only connect by email with people who already use the app.
 
 The same person can be a tutor to some people and a student of others.
 

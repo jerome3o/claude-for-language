@@ -122,6 +122,8 @@ export interface User {
   picture_url: string | null;
   role: UserRole;
   is_admin: number;
+  /** 1 if this user may create invites for new people (admins always may). */
+  can_invite: number;
   last_login_at: string | null;
   bio: string | null;
   created_at: string;

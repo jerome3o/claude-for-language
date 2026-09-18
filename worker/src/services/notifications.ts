@@ -32,6 +32,19 @@ export async function notifyNewUser(topic: string, user: User): Promise<void> {
   );
 }
 
+/** One line, sent the first time an uninvited Google account tries to sign in. */
+export async function notifyAccessRequest(
+  topic: string,
+  person: { email: string; name?: string | null }
+): Promise<void> {
+  await sendNtfy(
+    topic,
+    'Access request - Chinese Learning App',
+    `${person.name || 'Someone'} (${person.email}) tried to sign in — approve on the admin page`,
+    'raised_hand',
+  );
+}
+
 export async function notifyNewChatMessage(topic: string, senderName: string, messagePreview: string): Promise<void> {
   await sendNtfy(
     topic,

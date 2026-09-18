@@ -209,6 +209,9 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done)
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
+- `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
+- `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
+- `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -693,6 +696,45 @@ paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `
 - `DELETE /api/relationships/:relId/recordings/:eventId/mark`
 - `GET /api/relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit` -
   Flat review events newest first (keyset cursor); the "by word" view groups client-side
+
+### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
+- `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
+- `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
+- `POST /api/invites` - Create one (needs `can_invite` or admin): `{ email?, inviter_role?: 'tutor'|'student'|null, share_deck_ids?, max_uses?, expires_in_days?, note? }` → invite with `url`
+- `DELETE /api/invites/:id` - Revoke (owner or admin)
+- `POST /api/invites/:id/redeem` - A signed-in user accepting someone's link (relationship + decks, no new account)
+- `GET /api/admin/access-requests` - Pending uninvited sign-in attempts (`?status=all|approved|dismissed`)
+- `POST /api/admin/access-requests/:id/approve` - Creates an email-bound invite from the admin; the person just signs in again
+- `POST /api/admin/access-requests/:id/dismiss`
+- `PUT /api/admin/users/:id/can-invite` - `{ can_invite: boolean }`
+- `GET /api/auth/login?invite=<token>` - Starts Google sign-in with the invite riding in the OAuth `state`
+
+## Invite-only sign-up
+
+**A Google sign-in for an email with no `users` row creates a user only if an invite admits it.**
+The gate lives in the `/api/auth/callback` handler (`worker/src/index.ts`) and
+`worker/src/services/signup.ts`:
+
+1. `findExistingUser` — existing users (by google_id, then email) always get in; nothing changes for them.
+2. Otherwise `resolveSignup(db, googleUser, { inviteToken, adminEmail })` tries, in order:
+   the invite token carried in the OAuth `state` (from `/join/<token>` → `/api/auth/login?invite=`),
+   a still-valid `invites` row bound to the Google email, a `pending_invitations` row whose
+   inviter has `can_invite`/is admin (the pre-existing email-invite path), and finally
+   **`ADMIN_EMAIL`, which is permanently invited so the admin can never lock themselves out.**
+3. No match → **no user is created**; the attempt is upserted into `access_requests` (one ntfy
+   ping via `NTFY_TOPIC` the first time) and the browser lands on `/?signup=invite_only`.
+   A valid link whose invite is bound to a *different* email → `/?signup=email_mismatch&inviter=…`.
+4. A match → `createUser`, then `redeemInvite` (idempotent, awaited before the redirect so the
+   first screen already has the deck): records the redemption, creates the relationship in
+   `active` status with the inviter in `inviter_role`, and copies `share_deck_ids` via the
+   existing `shareDeck`. An *existing* user who opens a `/join` link is also redeemed (no account
+   change) so a tutor can connect current students the same way.
+
+**Who may invite** is `users.can_invite` (admin page toggle; admins always may). It gates
+`POST /api/invites` and the email path of `POST /api/relationships` when the target has no
+account; connecting with an existing user stays open to everyone. Invite tokens are 32 random
+bytes base64url — treat them as bearer secrets (don't log them). `E2E_TEST_MODE`'s
+`/api/test/auth` still creates users directly.
 
 ## Common Tasks
 
