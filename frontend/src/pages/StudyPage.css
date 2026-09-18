@@ -145,21 +145,19 @@
   color: #991b1b;
 }
 
-/* The card's own sentence: two quiet lines, no controls */
-.study-clue {
-  margin: 0.875rem auto 0;
+/* The back is top-anchored: the sentence list underneath makes it taller than
+   the viewport more often than not, and a centred block would jump around as
+   rows open. */
+.study-card-main--back {
+  justify-content: flex-start;
+  padding-top: 0.75rem;
+}
+
+/* The example sentences, always under the meaning, scrolling with the card */
+.study-sentences {
+  margin: 1.25rem auto 0.5rem;
+  width: 100%;
   max-width: 34rem;
-  line-height: 1.5;
-}
-
-.study-clue-hanzi {
-  font-size: 1.0625rem;
-  color: var(--color-text);
-}
-
-.study-clue-translation {
-  font-size: 0.9375rem;
-  color: var(--color-text-light);
 }
 
 /* E3: tutor note under the pinyin */
@@ -201,11 +199,17 @@
   text-align: left;
 }
 
-/* ---------- Action row: Ask Claude · Sentences · ⋯ (D1) ---------- */
+/* ---------- Action row: Ask Claude · Edit card · ⋯ (D1) ---------- */
+/* Lives in the sticky footer above the ratings, so the sentence list scrolls
+   underneath it and Ask Claude is always a thumb away. */
 .study-action-row {
   display: flex;
   gap: 0.5rem;
   align-items: stretch;
+}
+
+.study-card-actions--footer {
+  padding: 0 0 0.375rem;
 }
 
 .study-action-btn {

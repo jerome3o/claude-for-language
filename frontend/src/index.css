@@ -1396,10 +1396,16 @@ button.queue-counts:active {
 
 /* ===== Sentence set: graded example sentences for one word ===== */
 
+/* ============================================================
+   Sentence set — the example sentences under a word.
+   On the study card the list is always open: Chinese + play on
+   every row, one tap for pinyin and English. No boxes, no
+   numbers; hairline dividers and a quiet tools line per row.
+   ============================================================ */
 .sentence-set {
   text-align: left;
   width: 100%;
-  max-width: 32rem;
+  max-width: 34rem;
   margin: 0 auto;
 }
 
@@ -1412,6 +1418,8 @@ button.queue-counts:active {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  min-height: 36px;
+  padding: 0 0.125rem;
 }
 
 .sentence-set-toggle {
@@ -1434,8 +1442,9 @@ button.queue-counts:active {
 
 .sentence-set-title {
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  font-size: 0.6875rem;
+  font-weight: 600;
   color: var(--color-text-light);
 }
 
@@ -1458,13 +1467,15 @@ button.queue-counts:active {
   position: relative;
 }
 
+/* Header buttons: text links, no boxes */
 .sentence-set-action {
   background: none;
-  border: 1px solid var(--color-border);
+  border: none;
   border-radius: 6px;
-  padding: 0.25rem 0.5rem;
-  min-height: 32px;
-  font-size: 0.7rem;
+  padding: 0 0.5rem;
+  min-height: 36px;
+  min-width: 36px;
+  font-size: 0.8125rem;
   color: var(--color-text-light);
   cursor: pointer;
 }
@@ -1479,86 +1490,54 @@ button.queue-counts:active {
   cursor: default;
 }
 
+.sentence-set-action--text.is-active {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .sentence-set-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  border-top: 1px solid var(--color-border);
 }
 
 .sentence-set-row {
-  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  gap: 0.625rem;
+  padding: 0.625rem 0.125rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
-/* Tucked into the row's top-left corner and out of the layout, so numbering
-   the row costs no height — the left column is the English toggle's. */
-.sentence-set-step {
-  position: absolute;
-  top: 0.1rem;
-  left: 0.3rem;
-  font-size: 0.55rem;
-  line-height: 1;
-  color: var(--color-text-light);
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-/* Far-left column of a sentence row: the English toggle, where the row's
-   number used to sit. Holds its width when a row has no translation, so the
-   sentences stay aligned down the list. */
-.sentence-set-row-lead {
+/* Play: a soft round button that lines up with the first line of text */
+.sentence-set-play {
   flex: 0 0 auto;
-  width: 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  /* Clears the corner number without pushing the row taller. */
-  margin-top: 0.35rem;
-}
-
-/* Reverse practice: show the English on its own and translate it back. */
-.sentence-set-en {
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  margin-top: 0.125rem;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--color-background, #f3f4f6);
+  color: var(--color-text);
+  font-size: 0.8rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
-  font-size: 0.6rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--color-text-light);
+  padding: 0 0 0 2px;
   cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
 }
 
-.sentence-set-en:hover {
-  color: var(--color-text);
-  background-color: var(--color-background, #f5f5f5);
+.sentence-set-play:hover:not(:disabled) {
+  background-color: var(--color-border);
 }
 
-.sentence-set-en.is-active {
-  color: var(--color-primary, #3b82f6);
-  border-color: var(--color-primary, #3b82f6);
-}
-
-/* The English standing in as the prompt — the thing you translate from, so
-   it reads at full strength rather than as a revealed answer. */
-.sentence-set-prompt {
-  margin: 0 0 0.25rem;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  color: var(--color-text);
+.sentence-set-play.is-playing {
+  background-color: var(--color-primary, #3b82f6);
+  color: white;
+  padding-left: 0;
 }
 
 .sentence-set-body {
@@ -1566,90 +1545,124 @@ button.queue-counts:active {
   min-width: 0;
 }
 
-/* The reveal target: everything uncovered so far, plus what the next tap
-   brings. One button, so a tap anywhere on the text moves it along. */
+/* The tappable text: the Chinese, plus pinyin and English once open */
 .sentence-set-reveal {
   display: block;
   width: 100%;
   text-align: left;
   background: none;
   border: none;
-  padding: 0.125rem 0;
+  padding: 0.25rem 0;
+  min-height: 36px;
   color: var(--color-text);
   cursor: pointer;
-  min-height: 32px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .sentence-set-hanzi {
   display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 0.125rem 0;
+  font-size: 1.0625rem;
+  line-height: 1.55;
   color: var(--color-text);
-  font-size: 1.05rem;
-  line-height: 1.5;
-  cursor: pointer;
   word-break: break-word;
 }
 
-/* What the next tap uncovers — quiet, but enough to say there's more. */
+.sentence-set-pinyin {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-text-light);
+}
+
+.sentence-set-translation {
+  display: block;
+  margin-top: 0.0625rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--color-text);
+  opacity: 0.85;
+}
+
+/* English-first: the prompt reads at full strength, it's the thing you work from */
+.sentence-set-prompt {
+  display: block;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.sentence-set-prompt + .sentence-set-hanzi {
+  margin-top: 0.25rem;
+}
+
+/* The hint on a row waiting for its answer */
 .sentence-set-next {
   display: block;
   margin-top: 0.25rem;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-style: italic;
-  opacity: 0.4;
-  color: var(--color-text);
+  color: var(--color-text-light);
 }
 
-/* Collapsed row: nothing to read, so you listen before you check yourself */
-.sentence-set-hidden {
-  display: block;
-  width: 100%;
-  text-align: left;
+.sentence-set-focus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.125rem;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.sentence-set-badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background-color: var(--color-background, #f5f5f5);
+  color: var(--color-text-light);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+/* Per-row tools: breakdown · reverse practice · add as card */
+.sentence-set-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.25rem;
+  margin: 0.25rem 0 0 -0.375rem;
+}
+
+.sentence-set-tool {
   background: none;
   border: none;
-  padding: 0.375rem 0;
-  min-height: 32px;
-  font-size: 0.8rem;
-  font-style: italic;
-  opacity: 0.4;
-  color: var(--color-text);
-  cursor: pointer;
-}
-
-.sentence-set-details {
-  padding-top: 0.25rem;
-}
-
-.sentence-set-explain {
-  margin-top: 0.5rem;
-  background: none;
-  border: 1px solid var(--color-border);
   border-radius: 6px;
-  padding: 0.25rem 0.5rem;
-  min-height: 32px;
-  font-size: 0.7rem;
+  padding: 0 0.375rem;
+  min-height: 36px;
+  font-size: 0.8125rem;
   color: var(--color-text-light);
   cursor: pointer;
 }
 
-.sentence-set-explain:hover:not(:disabled) {
+.sentence-set-tool:hover:not(:disabled) {
   color: var(--color-text);
   background-color: var(--color-background, #f5f5f5);
 }
 
-.sentence-set-explain:disabled {
+.sentence-set-tool:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
+.sentence-set-tool.is-active {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
 .sentence-set-explanation {
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed var(--color-border);
+  margin-top: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 8px;
+  background-color: var(--color-background, #f5f5f5);
 }
 
 .sentence-set-words {
@@ -1662,7 +1675,7 @@ button.queue-counts:active {
 }
 
 .sentence-set-words li {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 /* Each word doubles as "add this word as a card" */
@@ -1679,56 +1692,50 @@ button.queue-counts:active {
   padding: 0.125rem 0.25rem;
   min-height: 28px;
   color: var(--color-text);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 
 .sentence-set-word:hover {
-  background-color: var(--color-background, #f5f5f5);
+  background-color: var(--color-surface);
 }
 
-.sentence-set-row-actions {
+/* The global .hanzi size is card-sized; inside the gloss list it must stay
+   inline with the pinyin and English. */
+.sentence-set-words .hanzi {
+  font-size: 0.95rem;
+  line-height: 1.4;
   flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
+  min-width: 3.25rem;
 }
 
-.sentence-set-add {
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.9rem;
-  line-height: 1;
-  color: var(--color-text-light);
-  cursor: pointer;
-  padding: 0;
+.sentence-set-word-pinyin {
+  opacity: 0.65;
 }
 
-.sentence-set-add:hover {
-  color: var(--color-primary, #3b82f6);
-  background-color: var(--color-background, #f5f5f5);
+.sentence-set-word-gloss {
+  opacity: 0.85;
 }
 
-/* Sits directly under the list, so on a card that only has its own example
-   sentence it lands right beneath it. */
+.sentence-set-construction {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+/* "+ 5 more sentences": a quiet link under the list, not a dashed box */
 .sentence-set-more {
   display: block;
   width: 100%;
-  margin-top: 0.375rem;
+  margin-top: 0.125rem;
   padding: 0.5rem;
   min-height: 44px;
-  border: 1px dashed var(--color-border);
+  border: none;
   border-radius: 8px;
   background: none;
   color: var(--color-text-light);
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 
@@ -1754,81 +1761,6 @@ button.queue-counts:active {
   font-size: 0.8rem;
 }
 
-/* The global .hanzi size is card-sized; inside the gloss list it must stay
-   inline with the pinyin and English. */
-.sentence-set-words .hanzi {
-  font-size: 0.95rem;
-  line-height: 1.4;
-  flex: 0 0 auto;
-  min-width: 3.25rem;
-}
-
-.sentence-set-word-pinyin {
-  opacity: 0.65;
-}
-
-.sentence-set-word-gloss {
-  opacity: 0.85;
-}
-
-.sentence-set-construction {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  line-height: 1.45;
-  opacity: 0.8;
-}
-
-.sentence-set-pinyin {
-  display: block;
-  font-size: 0.8rem;
-  opacity: 0.75;
-}
-
-.sentence-set-translation {
-  display: block;
-  font-size: 0.8rem;
-  opacity: 0.75;
-  margin-top: 0.125rem;
-}
-
-.sentence-set-focus {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem;
-  margin-top: 0.375rem;
-  font-size: 0.7rem;
-  color: var(--color-text-light);
-}
-
-.sentence-set-badge {
-  padding: 0.05rem 0.4rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background-color: var(--color-background, #f5f5f5);
-  white-space: nowrap;
-}
-
-.sentence-set-play {
-  flex: 0 0 auto;
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  color: var(--color-text);
-  cursor: pointer;
-  padding: 0;
-}
-
-.sentence-set-play:hover:not(:disabled) {
-  background-color: var(--color-background, #f5f5f5);
-}
-
 .sentence-set-error {
   font-size: 0.75rem;
   color: #b91c1c;
@@ -1837,14 +1769,14 @@ button.queue-counts:active {
 
 @media (min-width: 640px) {
   .sentence-set-hanzi {
-    font-size: 1.15rem;
+    font-size: 1.125rem;
   }
 
-  .sentence-set-pinyin,
-  .sentence-set-translation {
-    font-size: 0.85rem;
+  .sentence-set-pinyin {
+    font-size: 0.9rem;
   }
 
+  .sentence-set-translation,
   .sentence-set-prompt {
     font-size: 0.95rem;
   }

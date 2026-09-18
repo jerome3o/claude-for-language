@@ -327,23 +327,29 @@ disappear; the session has the whole screen.
    the card comes up, so the tutor's feedback reaches the student without a chat.
 3. **Play** — replay the word.
 4. **Record again** if the first attempt was poor.
-5. **Ask Claude** — ask anything about this word (usage, grammar, similar words). Claude
+5. **Example sentences** — always there under the meaning: the card's own sentence first
+   (tagged *From the card*), then the graded set (easiest → hardest). Every row has a **▶**
+   to hear it; the Chinese is always visible, and **one tap on the text** brings up the
+   pinyin and the English (tap again to hide them). Once a row is open it also offers
+   *What's going on here?* (a word-by-word breakdown), **EN → 中** (the reverse exercise:
+   the English goes up alone and you translate it back before checking) and **+ Add as
+   card**. The list scrolls underneath the buttons, so the ratings never move.
+6. **Show English** — pinyin and English on every sentence at once. The app remembers
+   this choice.
+7. **⋯** next to it — regenerate the set, add five more, ask for custom sentences, or
+   clear it (needs internet).
+8. **Ask Claude** — ask anything about this word (usage, grammar, similar words). Claude
    can also **edit the current card** and **create a mini lesson** from the chat. Questions
    and answers are saved to the note's history. Needs internet.
-6. **Sentences** — opens the graded example sentences for this word (easiest → hardest,
-   each with audio). Sentences start hidden: tap to reveal hanzi, then pinyin, then
-   English, so they double as a listening exercise. Each sentence has a "what's going on
-   here?" breakdown and a **+** button to add it, or any word in it, as a new card.
-7. **⋯** — everything else (next picture).
-8–11. **Again / Hard / Good / Easy**.
+9. **Edit card** — fix a typo, add alternative answers, change the sentence.
+10. **⋯** — everything else (next picture).
+11–14. **Again / Hard / Good / Easy**.
 
-Between the meaning and the buttons the card shows the note's own example sentence and
-fun facts, if it has them.
+Fun facts, if the note has any, show between the meaning and the sentences.
 
 <img src="guide-images/study-more.png" width="300">
 
-1. The **⋯ sheet**: **Edit card** (fix a typo, add alternatives, add a sentence),
-   **Generate fun fact** (Claude writes a memory aid and saves it to the note),
+1. The **⋯ sheet**: **Generate fun fact** (Claude writes a memory aid and saves it to the note),
    **Regenerate audio**, **New voice**, **Roleplay** (a practice conversation around this
    word), **Play my recording** (after recording) and, at the bottom, when the card was
    added.

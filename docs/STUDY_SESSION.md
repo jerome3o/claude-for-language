@@ -103,14 +103,19 @@ All session logic works offline. Reviews are stored locally and synced when conn
 
 ## Card back layout
 
-The back of a card is deliberately short: hanzi · pinyin · (tutor note) · meaning ·
-**Play** · **Record again** · the card's own sentence (two quiet lines) · one action row
-**Ask Claude · Sentences · ⋯** · the four ratings (64px tall). Everything else is still
-available under **⋯** (a bottom sheet, `components/study/StudyMoreMenu.tsx`): edit card,
-generate fun fact, regenerate audio, new voice, roleplay, play my recording, debug info
-(only with the Debug Console flag on) and the "Added <date>" line. Nothing was removed —
-usage will tell what to cull. *Sentences* opens the full `SentenceSet` list (progressive
-reveal, audio, generated set) in place of the two-line clue.
+The back of a card is: hanzi · pinyin · (tutor note) · meaning · **Play** · **Record
+again** · the **example sentences**, always visible (the card's own sentence first, then
+the generated set — `components/SentenceSet.tsx` in `compact` mode). The list scrolls
+inside the card; the footer stays put: one action row **Ask Claude · Edit card · ⋯**
+(`components/study/StudyActionRow.tsx`) above the four ratings (64px tall). Everything
+else is under **⋯** (a bottom sheet, `components/study/StudyMoreMenu.tsx`): generate fun
+fact, regenerate audio, new voice, roleplay, play my recording, debug info (only with the
+Debug Console flag on) and the "Added <date>" line.
+
+Sentence rows show the Chinese and a play button; one tap on the text opens the pinyin
+and English (plus the row's tools: the word-by-word breakdown, the **EN → 中** reverse
+exercise, and *+ Add as card*). **Show English** in the list header opens every row at
+once and is remembered in localStorage (`sentenceSet.showEnglish`).
 
 On the unfolded Fold (≥ 700px) the whole card column is capped at 640px and centred.
 
