@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Invite a student (proposed)</title><link rel="stylesheet" href="mock.css"></head><body>
+<div class="header"><span class="title">‹ Students</span><div class="right"><div class="avatar">W</div></div></div>
+<div class="container">
+  <h1>Invite a student</h1>
+  <p class="muted small" style="margin:.25rem 0 1rem">They scan this in class, sign in with Google, and land straight in their first session. No email address needed.</p>
+  <div class="card" style="text-align:center">
+    <div id="qr" style="display:grid;grid-template-columns:repeat(21,10px);gap:0;justify-content:center;margin:0 auto .75rem"></div>
+    <div class="small" style="word-break:break-all;color:#374151">chinese-learning-2x9.pages.dev/join/k7Qx…</div>
+    <div class="row" style="gap:.5rem;margin-top:.75rem"><a class="btn btn-secondary" style="flex:1">Copy link</a><a class="btn btn-secondary" style="flex:1">Share…</a></div>
+  </div>
+
+  <div class="card">
+    <h2>Start them with</h2>
+    <div class="list" style="margin-top:.5rem">
+      <div class="item" style="border-color:#dc2626"><span>☑</span><div class="grow">第三周作业：天气<div class="small muted">6 words · copied to them on first sign-in</div></div></div>
+      <div class="item"><span>☐</span><div class="grow">HSK 1 基础词汇 <span class="small muted">· 12 words</span></div></div>
+    </div>
+    <label class="small" style="display:block;margin-top:.75rem">Welcome message <span class="muted">(optional, sent as first chat message)</span></label>
+    <textarea style="width:100%;min-height:64px;border:1px solid #e5e7eb;border-radius:8px;padding:.5rem;font-size:16px;font-family:inherit;margin-top:.25rem">欢迎！先学这六个天气词，有问题在这里问我。</textarea>
+  </div>
+  <div class="note">The link/QR mechanism is already being built. What this adds around it: deck + welcome message chosen at invite time, and one screen instead of "email + role picker + pending list".</div>
+</div>
+<script>
+// deterministic fake QR pattern for the mockup
+const g=document.getElementById('qr');let s=7;const r=()=>{s=(s*16807)%2147483647;return s/2147483647};
+for(let y=0;y<21;y++)for(let x=0;x<21;x++){const d=document.createElement('div');const f=(x<7&&y<7)||(x>13&&y<7)||(x<7&&y>13);let on;
+if(f){const lx=x%7>6?0:x<7?x:x>13?x-14:x, ly=y<7?y:y-14;on=(lx===0||lx===6||ly===0||ly===6)||(lx>=2&&lx<=4&&ly>=2&&ly<=4);}else on=r()>0.55;
+d.style.cssText=`width:10px;height:10px;background:${on?'#111':'#fff'}`;g.appendChild(d);}
+</script>
+</body></html>
