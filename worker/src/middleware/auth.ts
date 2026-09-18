@@ -25,12 +25,20 @@ const PUBLIC_GET_ROUTES = [
   '/api/feature-requests/screenshot/', // Screenshots served via <img> tags which don't send auth headers
 ];
 
+// GET routes that are public but sit under an otherwise-authenticated prefix
+const PUBLIC_GET_PATTERNS = [
+  /^\/api\/invites\/[A-Za-z0-9_-]+\/public$/, // the /join page looks up an invite before sign-in
+];
+
 function isPublicRoute(path: string, method: string): boolean {
   if (PUBLIC_ROUTES.some(route => path.startsWith(route))) {
     return true;
   }
   // Allow GET requests to audio routes (for playback) but require auth for POST (upload)
   if (method === 'GET' && PUBLIC_GET_ROUTES.some(route => path.startsWith(route))) {
+    return true;
+  }
+  if (method === 'GET' && PUBLIC_GET_PATTERNS.some(re => re.test(path))) {
     return true;
   }
   return false;
