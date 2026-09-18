@@ -117,8 +117,9 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
-│   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms)
-│   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.; pages/editor/ = library + editor)
+│   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms; components/tutor/ = students dashboard, setup checklist, send-homework sheet)
+│   │   ├── components/nav/ # Bottom tab bar (TabBar), role derivation (useNavRole), landing rule (landing.ts), maintenance actions
+│   │   ├── pages/         # Page components (StudyPage, DecksPage, MorePage, DeckDetailPage, etc.; pages/editor/ = library + editor)
 │   │   ├── services/anki/ # Client-side Anki .apkg export (sql.js + JSZip): builder, deck/lesson/reader adapters, audio resolution
 │   │   ├── components/export/ # AnkiExportModal — options / progress / result UI (lazy-loads services/anki)
 │   │   ├── hooks/         # Custom React hooks (useAudio, etc.)
@@ -757,6 +758,7 @@ illustrations kept when the prompt is unchanged (stale R2 keys deleted) and new/
 queued on `image-generation-queue` like generated readers. The readers list has **Import JSON**.
 Tutor→student sharing of readers is not built.
 - `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
+- `POST /api/readers/:id/retry` - Re-queue a FAILED reader in place (same id; status back to `generating`). The Readers list folds every failed reader into one "N failed generations" row with Retry / Delete / Delete all; raw API errors only appear behind "Show details" (`services/readerFailures.ts`). `ensureDailyReader` asks the server at most once per local date (`daily-reader-attempt` in localStorage) and the daily reader's failed row is reused on retry instead of a new one being created every session
 - `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)
 - `GET|PUT /api/readers/:id/spec` - The reader as a `ReaderSpec` / replace it whole (`{ spec }`; returns `image_jobs`)
 - `POST /api/readers/import` - New reader from `{ spec }` (owner = caller; page ids never reused)
@@ -798,6 +800,33 @@ on the back of that card ("From <tutor>: …"), cached in IndexedDB (`recordingN
 `services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md.
 - `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name)
 - `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events)
+
+### Tutor dashboard & student page (`worker/src/routes/tutor-dashboard.ts`)
+The tutor's `/connections` becomes a **Students dashboard** once the account has an active
+student (`frontend/src/components/tutor/StudentsDashboard.tsx`): one card per student with a
+status line (studied today / streak / today's accuracy), three pills (words struggling = the
+insights `struggling` list over the last 7 days, 🎤 recordings not yet marked, Homework %), and
+Message / Send homework. A student with no review events gets the **Getting set up** card (signed
+in · homework received · installed the app · first study session) — the same checklist replaces
+the empty progress page on their student page. Pending invite links show as muted rows (Resend /
+Revoke); the tutor's shared decks list under "My homework decks". The student page
+(`ConnectionDetailPage`) is ordered status → Message / Send homework → Needs attention → Homework
+(shared decks with progress bars + the student's lessons) → Conversations → Activity; Remove
+connection and the student's own shared decks live under ⋯. **Message** opens the most recent
+conversation directly (no title modal; a fresh one comes from the chat's own `?new=1` / `chat/new`). Sharing a deck asks for confirmation, and a deck already shared offers **Update their copy**
+(new notes only, progress kept). Pure aggregation lives in `services/tutor-dashboard.ts`
+(unit-tested); SQL in `db/tutor-dashboard-queries.ts`. Homework % = mastered cards + ½ started
+cards + completed lessons, over all cards + lessons the tutor sent.
+The device reports itself during sync (`services/clientState.ts`, throttled to every 30 min):
+`display-mode: standalone` → `pwa`, the Capacitor shell → `android`, else `browser`, plus the
+cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_count`,
+`last_opened_at`). "Send how-to" posts the Obtainium / home-screen steps into the chat.
+- `GET /api/tutor/dashboard?tz_offset=` - Every student card + pending invites + homework decks in one call (client caches 60s)
+- `GET /api/relationships/:relId/overview?tz_offset=` - One student card (status, pills, needs_attention, homework, setup, activity)
+- `POST /api/relationships/:relId/conversations/open` - Most recent conversation id, created if none
+- `POST /api/relationships/:relId/send-howto` - Sends the install how-to as a chat message from the tutor
+- `POST /api/relationships/:relId/shared-decks/:id/update` - Add the tutor's newer notes to the student's copy (matched by hanzi; progress kept)
+- `POST /api/me/client-state` - `{ install_kind, cached_audio_count }` from the device (never downgrades pwa/android to browser)
 
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
@@ -1141,14 +1170,26 @@ The app supports many-to-many tutor-student relationships where users can be tut
 
 ### Features
 - **Pairing**: Either party invites by email, specifying their role (tutor/student)
-- **Chat**: Polling-based messaging (3-second intervals)
+- **Chat**: Polling-based messaging (3-second intervals). Per-message tools: Reply and Play inline
+  (44px), everything else (React, Check my Chinese, Translate / Make a card, Word by word, Discuss
+  with Claude, Copy) under ⋯ / long-press — a bottom sheet on phones, a popover ≥640px. The set is
+  role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
+  Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
+  show as Coach-style inline notices (`InlineNotice`), never `alert()`. `?new=1` on the chat route
+  (or `/chat/new`) opens a fresh untitled conversation; `PATCH /api/conversations/:id` `{ title }`
+  renames it (header ⋯ → Add a title / Rename).
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- `/connections` - List all connections and pending requests
-- `/connections/:relId` - View a specific connection (conversations, shared decks)
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- `/` - Study home. On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
+- `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
+- `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
+- `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
+- `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
+- `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
 - `/connections/:relId/chat/:convId` - Chat interface
 - `/connections/:relId/progress` - Student progress view (tutor only)
 - `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view

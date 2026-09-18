@@ -2200,6 +2200,21 @@ button.queue-counts:active {
   font-size: 1.5rem;
   cursor: pointer;
   color: var(--color-text-light);
+  /* 44px hit area without changing the header's visual size */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  margin: -0.5rem -0.5rem -0.5rem 0;
+  line-height: 1;
+  border-radius: var(--radius-md);
+}
+
+.modal-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text);
 }
 
 .modal-actions {
@@ -3731,4 +3746,56 @@ textarea {
 
 .hanzi-char-clickable:hover {
   opacity: 0.7;
+}
+
+/* ============ Bottom tab bar layout (components/nav/TabBar) ============
+ * The bar itself is styled in components/nav/TabBar.css. This block is what
+ * the rest of the document does while the bar is on screen: `html.has-tab-bar`
+ * is set by the TabBar component and removed on immersive routes.
+ */
+:root {
+  --tab-bar-height: 56px;
+  --tab-bar-total: calc(var(--tab-bar-height) + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-height: 460px) {
+  :root {
+    --tab-bar-height: 48px;
+  }
+}
+
+/* Nothing sits under the bar: the document ends above it… */
+html.has-tab-bar body {
+  padding-bottom: var(--tab-bar-total);
+}
+
+/* …and a focused input (or scrollIntoView) is scrolled clear of it. */
+html.has-tab-bar {
+  scroll-padding-bottom: calc(var(--tab-bar-total) + 12px);
+}
+
+/* Corner badges that used to sit at the very bottom move up above the bar. */
+html.has-tab-bar .sync-badge {
+  bottom: calc(var(--tab-bar-total) + 0.5rem);
+}
+
+/* Decks tab: the search field stays visible while the list scrolls. */
+.decks-search {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-background);
+  padding: 0.25rem 0 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.decks-search .search-input {
+  min-height: 44px;
+  background: var(--color-surface);
+}
+
+@media (min-width: 640px) {
+  .decks-search {
+    padding-bottom: 0.75rem;
+  }
 }

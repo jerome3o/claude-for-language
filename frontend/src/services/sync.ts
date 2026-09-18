@@ -25,6 +25,7 @@ import { syncRecordingNotes } from './recording-notes';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
+import { reportClientStateIfDue } from './clientState';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -343,6 +344,10 @@ class SyncService {
     prefetchAllAudio().catch(err =>
       console.error('[Sync] Full audio prefetch failed:', err)
     );
+
+    // Tell the server how this device runs the app (installed? audio cached?)
+    // so a tutor's setup checklist reflects reality. Throttled, never throws.
+    void reportClientStateIfDue();
   }
 
   /**
@@ -577,6 +582,9 @@ class SyncService {
     prefetchAllAudio().catch(err =>
       console.error('[Sync] Full audio prefetch failed:', err)
     );
+
+    // Device report for the tutor's setup checklist (throttled, never throws).
+    void reportClientStateIfDue();
   }
 
   /**
@@ -856,6 +864,13 @@ class SyncService {
         console.error('[Sync] Error fetching missing deck:', deckId, err);
       }
     }
+
+    // A deck that arrived this way is usually one a tutor just shared — get
+    // its audio onto the device straight away rather than on the next
+    // throttled run.
+    prefetchAllAudio({ force: true }).catch(err =>
+      console.error('[Sync] Audio prefetch after deck fetch failed:', err)
+    );
   }
 
   /**

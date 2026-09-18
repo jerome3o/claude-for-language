@@ -12,7 +12,7 @@
 
 import { db, getDueNoteIds, LocalReader, LocalReaderPage } from '../db/database';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
-import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader } from '../api/client';
+import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader, getLocalDateString } from '../api/client';
 import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE, CardQueue } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 import { base64ToBlob } from './ttsCache';
@@ -148,12 +148,21 @@ export async function ensureDailyReader(): Promise<boolean> {
   const hasUnread = readers.some(r => isStudyableReader(r) && r.queue === CardQueue.NEW);
   if (hasUnread) return false;
 
+  // One generation attempt per local day. Without this, every session end
+  // and every hourly sync re-asked the server while today's reader sat in
+  // 'failed' (e.g. AI keys missing, offline API), and each ask produced a
+  // fresh dead card. A failed story can still be retried by hand from the
+  // Readers list.
+  const today = getLocalDateString();
+  if (!shouldAttemptDailyReader(getDailyReaderAttemptDate(), today)) return false;
+
   try {
     // The story anchors on the tutor's recent lesson notes (server-side);
     // today's due words (from the offline study queue) ride along as
     // secondary targets to weave in — no canned scenarios.
     const dueNoteIds = await getDueNoteIds();
     // Idempotent per-day on the server: repeated calls return today's reader
+    recordDailyReaderAttempt(today);
     const status = await generateDailyReader(dueNoteIds);
     if (status.status === 'generating') return true;
     if (status.status === 'ready') {
@@ -166,6 +175,40 @@ export async function ensureDailyReader(): Promise<boolean> {
   } catch (err) {
     console.error('[ReaderSync] ensureDailyReader failed:', err);
     return false;
+  }
+}
+
+// ============ Daily reader attempt guard ============
+
+const DAILY_READER_ATTEMPT_KEY = 'daily-reader-attempt';
+
+/** Pure: is a generation attempt allowed today, given the last attempt's local date? */
+export function shouldAttemptDailyReader(lastAttemptDate: string | null, today: string): boolean {
+  return lastAttemptDate !== today;
+}
+
+export function getDailyReaderAttemptDate(): string | null {
+  try {
+    return localStorage.getItem(DAILY_READER_ATTEMPT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function recordDailyReaderAttempt(today: string): void {
+  try {
+    localStorage.setItem(DAILY_READER_ATTEMPT_KEY, today);
+  } catch {
+    // localStorage unavailable (private mode) — we just retry next time
+  }
+}
+
+/** Test/debug helper: forget today's attempt so the next call asks again. */
+export function clearDailyReaderAttempt(): void {
+  try {
+    localStorage.removeItem(DAILY_READER_ATTEMPT_KEY);
+  } catch {
+    // ignore
   }
 }
 

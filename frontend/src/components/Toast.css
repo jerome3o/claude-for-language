@@ -1,0 +1,52 @@
+/* Transient notice (replaces alert()) — same look as the lesson editor's toast. */
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  background: #111827;
+  color: #fff;
+  padding: 0.625rem 1rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  z-index: 1200;
+  box-shadow: var(--shadow-lg, 0 10px 25px rgba(0, 0, 0, 0.2));
+  max-width: calc(100vw - 2rem);
+  white-space: pre-line;
+  text-align: center;
+}
+
+/* Inline error next to the control that failed — the Sentence Coach style. */
+.inline-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  margin: 0.75rem 0;
+}
+
+.inline-error-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.inline-error-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  min-width: 32px;
+  min-height: 32px;
+  margin: -0.375rem -0.5rem -0.375rem 0;
+}

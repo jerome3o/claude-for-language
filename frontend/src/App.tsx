@@ -9,6 +9,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { FeedbackFAB } from './components/FeedbackFAB';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/Loading';
+import { LandingResolver } from './components/nav/LandingResolver';
 // Eagerly loaded — these are the landing pages
 import { HomePage } from './pages/HomePage';
 import { SplashPage } from './pages/SplashPage';
@@ -38,12 +39,15 @@ const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => (
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => ({ default: m.LessonNotesPage })));
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
+const NewReaderPage = lazy(() => import('./pages/NewReaderPage').then(m => ({ default: m.NewReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
 const ReaderEditorPage = lazy(() => import('./pages/editor/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
 const ReaderPrintPage = lazy(() => import('./pages/editor/ReaderPrintPage').then(m => ({ default: m.ReaderPrintPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const SentenceCoveragePage = lazy(() => import('./pages/SentenceCoveragePage').then(m => ({ default: m.SentenceCoveragePage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
+const DecksPage = lazy(() => import('./pages/DecksPage').then(m => ({ default: m.DecksPage })));
+const MorePage = lazy(() => import('./pages/MorePage').then(m => ({ default: m.MorePage })));
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
@@ -85,10 +89,14 @@ function HomeOrSplash() {
     return <SplashPage />;
   }
 
+  // `/` applies the "Start on" preference on the app's initial entry only
+  // (see components/nav/LandingResolver); the Study tab always shows home.
   return (
     <>
       <Header />
-      <HomePage />
+      <LandingResolver>
+        <HomePage />
+      </LandingResolver>
     </>
   );
 }
@@ -124,6 +132,25 @@ function AppRoutes() {
       <Route path="/" element={<HomeOrSplash />} />
       {/* Public: the invite landing page works before sign-in and has no Header. */}
       <Route path="/join/:token" element={<JoinPage />} />
+      {/* Bottom tab bar destinations: Decks (deck list + card search) and More. */}
+      <Route
+        path="/decks"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <DecksPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/more"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <MorePage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/decks/:id"
         element={
@@ -381,6 +408,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/readers/new/edit" element={<ProtectedRoute><Header /><NewReaderPage /></ProtectedRoute>} />
       <Route
         path="/readers/:id/edit"
         element={

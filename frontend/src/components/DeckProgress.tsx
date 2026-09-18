@@ -3,10 +3,18 @@ import { CardTypeProgressStats, NoteProgress } from '../types';
 import { EmptyState } from './Loading';
 
 // Utility functions
+
+/**
+ * Study time for stat tiles. Never says "0m" for time that was actually
+ * spent: anything under a minute is "< 1 min", and minutes are rounded to
+ * the nearest whole minute ("1 min", "12 min", "1h 5m").
+ */
 export function formatTime(ms: number): string {
-  const minutes = Math.floor(ms / 60000);
+  if (!ms || ms <= 0) return '0 min';
+  if (ms < 60000) return '< 1 min';
+  const minutes = Math.max(1, Math.round(ms / 60000));
   if (minutes < 60) {
-    return `${minutes}m`;
+    return `${minutes} min`;
   }
   const hours = Math.floor(minutes / 60);
   const remainingMins = minutes % 60;
@@ -368,6 +376,85 @@ export function ActivitySection({ activity }: ActivitySectionProps) {
           <span className="activity-value">{activity.reviews_last_7_days}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============ Merged deck-page progress block ============
+
+const CARD_TYPE_SHORT: Record<'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi', { zh: string; en: string }> = {
+  hanzi_to_meaning: { zh: '字→义', en: 'Hanzi → Meaning' },
+  meaning_to_hanzi: { zh: '义→字', en: 'Meaning → Hanzi' },
+  audio_to_hanzi: { zh: '听→字', en: 'Audio → Hanzi' },
+};
+
+interface DeckProgressSummaryProps {
+  completion: CompletionSectionProps['completion'];
+  breakdown: CardTypeBreakdownSectionProps['breakdown'];
+  /** Server-only; omitted when the page is showing locally computed progress. */
+  activity?: ActivitySectionProps['activity'] | null;
+}
+
+/**
+ * ONE progress block for the deck page: a mastery bar, one compact row per
+ * card type, and a "last studied · reviews this week" line. Replaces the
+ * stat tiles + Completion + Progress by card type + Recent Activity stack.
+ */
+export function DeckProgressSummary({ completion, breakdown, activity }: DeckProgressSummaryProps) {
+  const { total_cards, cards_seen, cards_mastered, percent_seen, percent_mastered } = completion;
+  const learningPct = Math.max(0, percent_seen - percent_mastered);
+  return (
+    <div className="card deck-progress-summary" aria-label="Deck progress">
+      <div className="dps-headline">
+        <span className="dps-headline-main">
+          <strong>{percent_mastered}%</strong> mastered
+        </span>
+        <span className="dps-headline-sub">
+          {cards_mastered} mastered · {cards_seen} seen · {total_cards} cards
+        </span>
+      </div>
+      <div
+        className="dps-bar"
+        role="img"
+        aria-label={`${percent_mastered}% mastered, ${percent_seen}% seen`}
+      >
+        <div className="dps-bar-fill mastered" style={{ width: `${percent_mastered}%` }} />
+        <div className="dps-bar-fill seen" style={{ width: `${learningPct}%` }} />
+      </div>
+
+      <div className="dps-types">
+        {(['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const).map(type => {
+          const stats = breakdown[type];
+          if (!stats || stats.total === 0) return null;
+          const pct = (n: number) => `${(n / stats.total) * 100}%`;
+          return (
+            <div key={type} className="dps-type-row">
+              <span className="dps-type-label">
+                <span className="dps-type-zh">{CARD_TYPE_SHORT[type].zh}</span>
+                <span className="dps-type-en">{CARD_TYPE_SHORT[type].en}</span>
+              </span>
+              <span className="dps-type-bar" aria-hidden="true">
+                {stats.mastered > 0 && <span className="bar-segment mastered" style={{ width: pct(stats.mastered) }} />}
+                {stats.familiar > 0 && <span className="bar-segment familiar" style={{ width: pct(stats.familiar) }} />}
+                {stats.learning > 0 && <span className="bar-segment learning" style={{ width: pct(stats.learning) }} />}
+                {stats.new > 0 && <span className="bar-segment new" style={{ width: pct(stats.new) }} />}
+              </span>
+              <span className="dps-type-count" title={`${stats.mastered} mastered, ${stats.familiar} familiar, ${stats.learning} learning, ${stats.new} new`}>
+                {stats.mastered + stats.familiar}/{stats.total}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {activity && (
+        <div className="dps-activity">
+          Last studied {formatDate(activity.last_studied_at).toLowerCase() === 'never' ? 'never' : formatDate(activity.last_studied_at)}
+          {' · '}
+          {activity.reviews_last_7_days} review{activity.reviews_last_7_days === 1 ? '' : 's'} in the last 7 days
+          {activity.total_study_time_ms > 0 && ` · ${formatTime(activity.total_study_time_ms)} total`}
+        </div>
+      )}
     </div>
   );
 }

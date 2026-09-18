@@ -36,7 +36,15 @@ const IDLE: AudioPrefetchProgress = {
 };
 
 const LAST_RUN_KEY = 'audioPrefetchLastRun';
-const MIN_AUTO_RUN_INTERVAL_MS = 15 * 60 * 1000; // auto-runs at most every 15 min
+/**
+ * Auto-runs (after every sync, on every connection) are throttled only
+ * lightly: the manifest is one small JSON call and nothing is downloaded when
+ * nothing is missing. Everything the user owns should simply be on the
+ * device without them touching a button, so a sync that brings new words
+ * (or a deck a tutor just shared) gets its audio within a couple of minutes
+ * at most — and `force: true` skips the throttle entirely.
+ */
+const MIN_AUTO_RUN_INTERVAL_MS = 2 * 60 * 1000;
 const CONCURRENCY = 4;
 
 let progress: AudioPrefetchProgress = IDLE;
@@ -85,6 +93,23 @@ export async function fetchAudioManifest(): Promise<string[]> {
 }
 
 /**
+ * Refresh the coverage numbers (manifest total vs. cached) without
+ * downloading anything — for the Settings status line. Silent offline.
+ */
+export async function checkAudioCoverage(): Promise<{ total: number; cached: number } | null> {
+  if (!navigator.onLine) return null;
+  try {
+    const [manifest, cachedKeys] = await Promise.all([fetchAudioManifest(), getCachedAudioKeys()]);
+    const cached = manifest.filter((url) => cachedKeys.has(url)).length;
+    // Don't clobber a run in progress — it maintains these itself.
+    if (!running) setProgress({ manifestTotal: manifest.length, cachedCount: cached });
+    return { total: manifest.length, cached };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Compute which manifest URLs are missing from the cache.
  * Exported for tests.
  */
@@ -95,9 +120,10 @@ export function diffManifest(manifest: string[], cachedKeys: Set<string>): strin
 /**
  * Download all missing audio into the cache.
  *
- * @param options.force  Run even if an auto-run happened recently (used by
- *                       the Settings "Download all" button). Auto-runs after
- *                       sync are throttled to every 15 minutes.
+ * @param options.force  Run even if an auto-run happened recently (the
+ *                       Settings "Download now" link, and sync when it just
+ *                       pulled new content). Auto-runs are otherwise throttled
+ *                       to MIN_AUTO_RUN_INTERVAL_MS.
  * @returns summary of the run, or null if skipped (already running/throttled/offline)
  */
 export async function prefetchAllAudio(options: { force?: boolean } = {}): Promise<
@@ -155,7 +181,12 @@ export async function prefetchAllAudio(options: { force?: boolean } = {}): Promi
     }
     await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
-    localStorage.setItem(LAST_RUN_KEY, String(Date.now()));
+    // Only a run that got through the whole list counts for the throttle: a
+    // run cut short by the connection dropping should be retried by the very
+    // next sync, not in two minutes.
+    if (done >= missing.length) {
+      localStorage.setItem(LAST_RUN_KEY, String(Date.now()));
+    }
     setProgress({ status: 'done' });
     console.log(`[AudioPrefetch] Done: ${done - failed}/${missing.length} downloaded, ${failed} failed (${manifest.length} total in manifest)`);
     return { total: missing.length, downloaded: done - failed, failed };

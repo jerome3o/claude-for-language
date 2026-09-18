@@ -57,6 +57,7 @@ import { resolveSignup, redeemInvite } from './services/signup';
 import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
 import recordingNotesRoutes from './routes/recording-notes';
+import tutorDashboardRoutes from './routes/tutor-dashboard';
 import {
   createRelationship,
   getMyRelationships,
@@ -96,7 +97,7 @@ import {
   saveMessageDiscussion,
 } from './services/conversations';
 import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress } from './services/shared-deck-progress';
-import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest } from './types';
+import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
 import {
   computeCardState,
   initialCardState,
@@ -379,6 +380,7 @@ app.get('/api/auth/me', async (c) => {
     is_admin: !!user.is_admin,
     can_invite: userMayInvite(user),
     bio: user.bio || null,
+    landing_page: user.landing_page || null,
   });
 });
 
@@ -402,6 +404,8 @@ app.route('/api', insightsRoutes);
 
 // Student side of recording marks: unseen tutor notes on my recordings (routes/recording-notes.ts)
 app.route('/api', recordingNotesRoutes);
+// Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
+app.route('/api', tutorDashboardRoutes);
 
 // ============ Admin Routes ============
 
@@ -549,6 +553,18 @@ app.put('/api/profile/bio', async (c) => {
 
   await c.env.DB.prepare('UPDATE users SET bio = ? WHERE id = ?').bind(trimmed, userId).run();
   return c.json({ bio: trimmed });
+});
+
+// Which tab the app opens on. null = automatic (Students when the account has
+// active students and nothing due today, otherwise Study).
+app.put('/api/profile/landing-page', async (c) => {
+  const userId = c.get('user').id;
+  const { landing_page } = await c.req.json<{ landing_page: LandingPage | null }>();
+  if (landing_page !== null && !LANDING_PAGES.includes(landing_page)) {
+    return c.json({ error: `landing_page must be one of ${LANDING_PAGES.join(', ')} or null` }, 400);
+  }
+  await c.env.DB.prepare('UPDATE users SET landing_page = ? WHERE id = ?').bind(landing_page, userId).run();
+  return c.json({ landing_page });
 });
 
 // ============ Decks ============
@@ -3359,6 +3375,41 @@ app.post('/api/readers/generate', async (c) => {
   }
 });
 
+// Retry a FAILED reader in place: same id (so the daily slot and the client's
+// cached row stay valid), status back to 'generating', story re-queued with
+// the same shape of request the original was made with.
+app.post('/api/readers/:id/retry', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+
+  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
+  if (!reader) return c.json({ error: 'Reader not found' }, 404);
+  if (reader.status !== 'failed') {
+    return c.json({ error: 'Only a failed reader can be retried' }, 409);
+  }
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI generation is not configured' }, 500);
+  }
+
+  const daily = await db.isDailyReader(c.env.DB, userId, readerId);
+  // 'due_cards' mode treats vocabulary_used as target words merged with the
+  // full learned vocabulary, so it is always safe for a daily reader; manual
+  // readers built from due words are the ones with no source decks.
+  const dueMode = daily || reader.source_deck_ids.length === 0;
+
+  await db.resetReaderForRetry(c.env.DB, readerId);
+  await c.env.STORY_QUEUE.send({
+    readerId,
+    topic: reader.topic ?? undefined,
+    difficulty: reader.difficulty_level,
+    mode: dueMode ? 'due_cards' : undefined,
+    withLessonNotes: dueMode,
+    anchorLessonNotes: daily,
+  });
+
+  return c.json({ ...reader, status: 'generating', error_message: null }, 202);
+});
+
 // Delete a graded reader
 app.delete('/api/readers/:id', async (c) => {
   const userId = c.get('user').id;
@@ -4884,6 +4935,38 @@ app.post('/api/messages/:id/recording', async (c) => {
 });
 
 // Update conversation voice settings
+// Rename a conversation (title is optional; conversations opened via ?new=1 start untitled)
+app.patch('/api/conversations/:id', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const { title } = await c.req.json<{ title?: string | null }>();
+
+  if (title !== undefined && title !== null && typeof title !== 'string') {
+    return c.json({ error: 'title must be a string' }, 400);
+  }
+  if (title === undefined) {
+    return c.json({ error: 'No updates provided' }, 400);
+  }
+
+  try {
+    const conv = await getConversationById(c.env.DB, convId, userId);
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+    const trimmed = (title || '').trim().slice(0, 120);
+    await c.env.DB
+      .prepare('UPDATE conversations SET title = ? WHERE id = ?')
+      .bind(trimmed || null, convId)
+      .run();
+    const updated = await getConversationById(c.env.DB, convId, userId);
+    return c.json(updated);
+  } catch (error) {
+    console.error('Rename conversation error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to rename conversation';
+    return c.json({ error: message }, 500);
+  }
+});
+
 app.patch('/api/conversations/:id/voice-settings', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
@@ -6043,20 +6126,33 @@ async function startDailyReader(
     : [];
   const dueMode = targets.length >= 3;
 
-  const pending = await db.createPendingReader(c.env.DB, userId, {
-    title_chinese: '生成中...',
-    title_english: "Today's story...",
-    difficulty_level: 'beginner' as DifficultyLevel,
-    topic: null,
-    source_deck_ids: deckIds,
-    vocabulary_used: dueMode ? targets : vocabulary,
-  });
-  await db.setDailyReaderId(c.env.DB, userId, pending.id, localDate);
+  // A failed attempt from earlier today is retried IN PLACE (same row) rather
+  // than leaving a dead '生成中…' card behind for every study session that
+  // ended while the AI was unavailable.
+  let readerId: string;
+  if (existing?.status === 'failed' && existing.reader_id) {
+    readerId = existing.reader_id;
+    await db.resetReaderForRetry(c.env.DB, readerId, {
+      source_deck_ids: deckIds,
+      vocabulary_used: dueMode ? targets : vocabulary,
+    });
+  } else {
+    const pending = await db.createPendingReader(c.env.DB, userId, {
+      title_chinese: '生成中...',
+      title_english: "Today's story...",
+      difficulty_level: 'beginner' as DifficultyLevel,
+      topic: null,
+      source_deck_ids: deckIds,
+      vocabulary_used: dueMode ? targets : vocabulary,
+    });
+    readerId = pending.id;
+    await db.setDailyReaderId(c.env.DB, userId, readerId, localDate);
+  }
   // Only the readerId is sent — the consumer loads vocabulary_used from the
   // reader record to stay under the 128 KB Queues message limit.
   c.executionCtx.waitUntil(
     c.env.STORY_QUEUE.send({
-      readerId: pending.id,
+      readerId,
       difficulty: 'beginner',
       mode: dueMode ? 'due_cards' : undefined,
       withLessonNotes: true,
@@ -6066,7 +6162,7 @@ async function startDailyReader(
       anchorLessonNotes: true,
     }),
   );
-  return { reader_id: pending.id, situation_id: DAILY_READER_SOURCE, status: 'generating' };
+  return { reader_id: readerId, situation_id: DAILY_READER_SOURCE, status: 'generating' };
 }
 
 function triggerPracticePregen(

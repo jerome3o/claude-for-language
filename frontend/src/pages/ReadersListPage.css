@@ -1,0 +1,131 @@
+/* Readers list — the folded "N failed generations" row. Mobile-first. */
+
+.failed-readers {
+  border: 1px dashed var(--color-border, #e5e7eb);
+  border-radius: var(--radius-lg, 12px);
+  background: transparent;
+  color: var(--color-text-light, #6b7280);
+  margin-top: 0.25rem;
+}
+
+.failed-readers.open {
+  background: var(--color-surface, #fff);
+  border-style: solid;
+}
+
+.failed-readers-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.625rem 1rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.failed-readers-chevron {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.failed-readers-body {
+  padding: 0 1rem 1rem;
+}
+
+.failed-readers-hint {
+  font-size: 0.8125rem;
+  margin: 0 0 0.75rem;
+}
+
+.failed-readers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.failed-reader {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.failed-reader-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.failed-reader-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text, #111827);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.failed-reader-meta {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  margin-top: 0.125rem;
+}
+
+.failed-reader-details-toggle {
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  min-height: 32px;
+  font-size: 0.75rem;
+  color: var(--color-primary, #3b82f6);
+  cursor: pointer;
+}
+
+.failed-reader-details {
+  margin: 0 0 0.25rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--color-background, #f3f4f6);
+  border-radius: var(--radius-md, 8px);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-light, #6b7280);
+  max-height: 8rem;
+  overflow: auto;
+}
+
+.failed-reader-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.failed-reader-actions .btn {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.failed-reader-delete {
+  color: #dc2626;
+}
+
+.failed-readers-delete-all {
+  width: 100%;
+  margin-top: 0.75rem;
+  color: #dc2626;
+}
+
+@media (min-width: 640px) {
+  .failed-reader-actions {
+    flex-direction: row;
+  }
+}

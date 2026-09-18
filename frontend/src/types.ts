@@ -42,7 +42,12 @@ export interface AuthUser {
   is_admin: boolean;
   /** May create invites for new people (admins always can). */
   can_invite?: boolean;
+  /** Which tab the app opens on; null/undefined = automatic (see components/nav/landing.ts). */
+  landing_page?: LandingPage | null;
 }
+
+/** Explicit "Start on" preference. null = automatic. */
+export type LandingPage = 'study' | 'students' | 'decks';
 
 // Admin user list type
 export interface AdminUser extends AuthUser {
