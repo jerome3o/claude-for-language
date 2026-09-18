@@ -5,6 +5,7 @@ import { getGradedReaders, deleteGradedReader, createBlankReader } from '../api/
 import { importReader } from '../api/readerEditor';
 import { LessonApiError } from '../api/lessonEditor';
 import { Loading, EmptyState } from '../components/Loading';
+import { AnkiExportButton } from '../components/export/AnkiExportModal';
 import { GradedReader, DifficultyLevel } from '../types';
 
 /** Page-level ⋯ menu: Import JSON (a reader exported from the editor). */
@@ -178,6 +179,13 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
             >
               Edit
             </button>
+            <AnkiExportButton
+              target={{ kind: 'reader', readerId: reader.id, title: reader.title_chinese }}
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              ⬇ Anki
+            </AnkiExportButton>
           </div>
         )}
         <button

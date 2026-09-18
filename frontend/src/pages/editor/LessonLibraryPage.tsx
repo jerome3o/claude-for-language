@@ -27,6 +27,7 @@ import { getOtherUserInRelationship } from '../../types';
 import type { LibraryItemSummary } from '../../types/lessonEditor';
 import { Loading, ErrorMessage } from '../../components/Loading';
 import { downloadText } from '../../components/editor/download';
+import { AnkiExportModal, type AnkiExportTarget } from '../../components/export/AnkiExportModal';
 import { useToast } from './LessonEditorPage';
 import './LessonLibraryPage.css';
 
@@ -201,6 +202,7 @@ function LibraryCard({ item, onAssign, onChanged, toast }: {
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [anki, setAnki] = useState<AnkiExportTarget | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -262,6 +264,15 @@ function LibraryCard({ item, onAssign, onChanged, toast }: {
               <button role="menuitem" onClick={() => { setOpen(false); navigate(`/library/${item.id}/print`); }}>🖨 Print view</button>
               <button role="menuitem" onClick={() => exportAs('json')}>⬇ Export JSON</button>
               <button role="menuitem" onClick={() => exportAs('csv')}>⬇ Export CSV (Quizlet)</button>
+              <button role="menuitem" onClick={async () => {
+                setOpen(false);
+                try {
+                  const full = await getLibraryItem(item.id);
+                  setAnki({ kind: 'lesson', spec: full.spec, sourceId: item.id });
+                } catch (err) {
+                  toast(err instanceof Error ? err.message : 'Export failed');
+                }
+              }}>⬇ Export Anki (.apkg)</button>
               <button role="menuitem" className="danger section" onClick={async () => {
                 setOpen(false);
                 if (!confirm(`Archive "${item.title}"? Students keep their copies.`)) return;
@@ -277,6 +288,7 @@ function LibraryCard({ item, onAssign, onChanged, toast }: {
           )}
         </div>
       </div>
+      {anki && <AnkiExportModal target={anki} onClose={() => setAnki(null)} />}
     </div>
   );
 }

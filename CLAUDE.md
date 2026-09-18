@@ -119,6 +119,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── src/
 │   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms)
 │   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.; pages/editor/ = library + editor)
+│   │   ├── services/anki/ # Client-side Anki .apkg export (sql.js + JSZip): builder, deck/lesson/reader adapters, audio resolution
+│   │   ├── components/export/ # AnkiExportModal — options / progress / result UI (lazy-loads services/anki)
 │   │   ├── hooks/         # Custom React hooks (useAudio, etc.)
 │   │   ├── api/           # API client functions
 │   │   └── types.ts       # TypeScript types
@@ -700,7 +702,23 @@ Proposals render as a diff card with Accept / Reject; accepting replaces the edi
 (unsaved until Save). Without `ANTHROPIC_API_KEY` the chat says so and the editor still works.
 Exports (Markdown with answer key, re-importable JSON, Quizlet-style CSV) are pure functions in
 `shared/lesson/export.ts`, served by the worker and also built client-side (works offline);
-print views live at `/library/:id/print` and `/lessons/:id/print`. Anki `.apkg` is not built yet.
+print views live at `/library/:id/print` and `/lessons/:id/print`.
+
+**Anki export (`frontend/src/services/anki/`, UI in `components/export/AnkiExportModal.tsx`)**:
+decks (Deck → Settings → Export to Anki), lessons / library items (⋯ menu → Export Anki) and
+readers (Anki button on the list card and reader page) export a real `.apkg` built entirely in
+the browser — sql.js writes `collection.anki2` (legacy schema 11), JSZip packs it with the audio
+clips. Two note types: **汉语学习 Vocabulary** (Hanzi/Pinyin/English/Audio/Sentence…/Notes/SourceId,
+three templates mirroring the app's card types; the Audio → Hanzi card only exists when Audio is
+non-empty) and **汉语学习 Sentence** (Chinese/Pinyin/English/Audio/SourceId, one card) for reader
+pages and lesson sentences. All ids are deterministic (model/deck ids hash their names, note GUIDs
+hash the source id / hanzi) so re-exporting UPDATES notes in Anki instead of duplicating them —
+never rename model fields or templates. Audio is cache-first (IndexedDB), fetched/generated when
+online, skipped and counted when missing, so the export works offline. "Include progress" (decks,
+off by default) writes an approximation of card state into Anki's scheduling columns. The module
+is `import()`ed on demand and the sql.js `.wasm` is precached by the PWA (`wasm` in the workbox
+glob). `sources.ts` (adapters) and `apkg.ts` (builder) are pure and unit-tested by rebuilding and
+re-reading the package with the same libraries. Format details: docs/IMPORT_EXPORT_FORMAT.md.
 - `GET /api/lesson-library` - Non-archived items with assignment/exercise counts
 - `POST /api/lesson-library` - Create from `{ spec }` or `{ generate: { prompt } }` (Claude drafts it via `generateLessonSpec`)
 - `POST /api/lesson-library/import` - Same as create from `{ spec }`

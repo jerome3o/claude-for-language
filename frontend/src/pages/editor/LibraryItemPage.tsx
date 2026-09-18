@@ -11,6 +11,7 @@ import { Loading, ErrorMessage } from '../../components/Loading';
 import { EXERCISE_ICONS, EXERCISE_TYPE_NAMES } from '../../components/editor/DiffCard';
 import { exercisePrimaryText } from '@shared/lesson';
 import { AssignSheet } from './LessonLibraryPage';
+import { AnkiExportButton } from '../../components/export/AnkiExportModal';
 import { useToast } from './LessonEditorPage';
 import './LessonLibraryPage.css';
 
@@ -74,6 +75,7 @@ export function LibraryItemPage() {
           <button className="btn btn-primary" onClick={() => navigate(`/library/${id}/edit`)}>✏️ Edit</button>
           <button className="btn btn-secondary" onClick={() => setAssigning(true)}>Assign…</button>
           <button className="btn btn-secondary" onClick={() => navigate(`/library/${id}/print`)}>🖨 Print</button>
+          <AnkiExportButton target={{ kind: 'lesson', spec: lesson.spec, sourceId: id }}>⬇ Anki</AnkiExportButton>
         </div>
 
         <h2 className="lib-h2">Students ({rows.length})</h2>

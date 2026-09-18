@@ -339,6 +339,12 @@ suggests which copy to keep.
 - **Settings → Export Data → Download Backup** saves everything (decks, notes, review
   history) as a JSON file.
 - Decks can be imported from JSON — see [IMPORT_EXPORT_FORMAT.md](./IMPORT_EXPORT_FORMAT.md).
+- **Export to Anki**: on the deck page, **Settings → Export to Anki (.apkg)** saves an Anki
+  package with the same three cards per word (Hanzi → Meaning, Meaning → Hanzi, Audio → Hanzi),
+  audio included. Open the file in Anki with File → Import. Exporting the same deck again later
+  updates the notes in Anki rather than duplicating them. "Include review progress" is off by
+  default — turn it on only if you want Anki to start from roughly the same schedule instead of
+  treating every card as new. It works offline when the audio is already cached on the device.
 
 ---
 
@@ -645,6 +651,12 @@ than undoing them.
 On the student's connection page, tutors also see a **Mini Lessons** section listing the
 student's lessons (assigned by you, by another tutor, or made by the student) with their
 progress, and an "Assign from library" shortcut.
+
+**Export to Anki.** Lessons and readers can also leave the app as Anki packages: the ⋯ menu of
+a library card or the lesson editor has **Export Anki (.apkg)**, and every reader has an **Anki**
+button (on its card in the Readers list and at the top of the reader). A lesson's words become
+vocabulary cards and its sentences become Chinese → English cards; a reader gives one card per
+page plus its vocabulary. Re-exporting updates the same notes in Anki.
 
 ### Quests
 
