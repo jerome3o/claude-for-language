@@ -4884,6 +4884,38 @@ app.post('/api/messages/:id/recording', async (c) => {
 });
 
 // Update conversation voice settings
+// Rename a conversation (title is optional; conversations opened via ?new=1 start untitled)
+app.patch('/api/conversations/:id', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const { title } = await c.req.json<{ title?: string | null }>();
+
+  if (title !== undefined && title !== null && typeof title !== 'string') {
+    return c.json({ error: 'title must be a string' }, 400);
+  }
+  if (title === undefined) {
+    return c.json({ error: 'No updates provided' }, 400);
+  }
+
+  try {
+    const conv = await getConversationById(c.env.DB, convId, userId);
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+    const trimmed = (title || '').trim().slice(0, 120);
+    await c.env.DB
+      .prepare('UPDATE conversations SET title = ? WHERE id = ?')
+      .bind(trimmed || null, convId)
+      .run();
+    const updated = await getConversationById(c.env.DB, convId, userId);
+    return c.json(updated);
+  } catch (error) {
+    console.error('Rename conversation error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to rename conversation';
+    return c.json({ error: message }, 500);
+  }
+});
+
 app.patch('/api/conversations/:id/voice-settings', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
