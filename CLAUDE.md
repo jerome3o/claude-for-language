@@ -130,6 +130,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │
 ├── docs/                  # Documentation
 │   ├── SPEC.md           # Feature specification
+│   ├── TUTOR_GUIDE.md    # End-user guide for tutors & students (zh-CN version alongside; screenshots in guide-images/)
 │   ├── ARCHITECTURE.md   # Technical architecture
 │   └── SETUP.md          # Setup and deployment guide
 │

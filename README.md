@@ -2,6 +2,8 @@
 
 A spaced repetition flashcard app specifically designed for learning Mandarin Chinese.
 
+📖 **User guide for tutors and students:** [English](docs/TUTOR_GUIDE.md) · [中文](docs/TUTOR_GUIDE.zh-CN.md)
+
 ## Features
 
 ### Spaced Repetition Learning
