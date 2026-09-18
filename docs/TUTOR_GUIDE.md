@@ -327,15 +327,15 @@ disappear; the session has the whole screen.
    the card comes up, so the tutor's feedback reaches the student without a chat.
 3. **Play** — replay the word.
 4. **Record again** if the first attempt was poor.
-5. **Example sentences** — always there under the meaning: the card's own sentence first
-   (tagged *From the card*), then the graded set (easiest → hardest). Every row has a **▶**
-   to hear it; the Chinese is always visible, and **one tap on the text** brings up the
-   pinyin and the English (tap again to hide them). Once a row is open it also offers
-   *What's going on here?* (a word-by-word breakdown), **EN → 中** (the reverse exercise:
-   the English goes up alone and you translate it back before checking) and **+ Add as
-   card**. The list scrolls underneath the buttons, so the ratings never move.
-6. **Show English** — pinyin and English on every sentence at once. The app remembers
-   this choice.
+5. **Example sentences** — always there under the meaning: the card's own sentence first,
+   then the graded set (easiest → hardest). Every row starts **blank**, so you listen first:
+   **▶** on the right plays it, then each tap on the row uncovers the Chinese, then the
+   pinyin, then the English (a tap on a fully open row hides it again). **EN** on the left
+   flips a row to the reverse exercise: the English goes up alone, you say it in Chinese,
+   then tap to check the characters and pinyin. A fully open row also offers *What's going
+   on here?* (a word-by-word breakdown) and **+ Add as card**; the first row is tagged
+   *From the card*. The list scrolls underneath the buttons, so the ratings never move.
+6. **Show all** — opens every sentence for this card (the next card starts blank again).
 7. **⋯** next to it — regenerate the set, add five more, ask for custom sentences, or
    clear it (needs internet).
 8. **Ask Claude** — ask anything about this word (usage, grammar, similar words). Claude

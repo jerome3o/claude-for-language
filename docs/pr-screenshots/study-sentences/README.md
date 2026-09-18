@@ -17,16 +17,19 @@ Three taps later: hanzi, pinyin, translation, a badge and a boxed "What's going 
 ## After
 
 ![After: card back](04-after-back.png)
-The list is always there under the meaning: play button + Chinese on every row, *From the card* on the note's own sentence, a quiet "+ 5 more sentences". Footer: Ask Claude · **Edit card** · ⋯ above the ratings.
+The list under the meaning, every row blank: **EN** on the left, a faint bar where the sentence will appear, **▶** on the right. Listen first. Footer: Ask Claude · **Edit card** · ⋯ above the ratings.
 
-![After: scrolled](05-after-scrolled.png)
+![After: one tap](05-after-one-tap.png)
+One tap on a row uncovers the Chinese.
+
+![After: fully revealed](06-after-fully-revealed.png)
+Two more taps: pinyin, then English, then the tools line — *What's going on here?* · *+ Add as card*. A tap on a fully open row hides it again.
+
+![After: English first](07-after-english-first.png)
+**EN** flips a row to the reverse exercise: the English goes up alone; the taps then check the Chinese and pinyin.
+
+![After: Show all](08-after-show-all.png)
+*Show all* opens every sentence for this card (the next card starts blank again).
+
+![After: scrolled](09-after-scrolled.png)
 The sentences scroll underneath the footer; the buttons never move.
-
-![After: one row opened](06-after-row-expanded.png)
-One tap on a sentence: pinyin + English, then the tools line — *What's going on here?* · **EN → 中** (reverse practice) · *+ Add as card*.
-
-![After: Show English](07-after-english-shown.png)
-*Show English* opens every row at once (remembered between cards).
-
-![After: ⋯ sheet](08-after-more-menu.png)
-The ⋯ sheet without Edit card, which now lives on the row.

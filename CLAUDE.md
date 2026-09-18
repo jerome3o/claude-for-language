@@ -554,14 +554,15 @@ IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
 On the study card there is ONE sentence list: the note's own `sentence_clue` is rendered as
 row 1 (badged "From the card", read straight from the note — never copied into the set, so
 editing it stays reflected), followed by the generated set. The list is always visible under the
-meaning and scrolls under the card's footer. Every row shows its Chinese with a play button; one
-tap on the text opens the pinyin and the English (another closes them), and **Show English** in
-the list header opens every row at once (remembered in localStorage, `sentenceSet.showEnglish`).
-An open row carries a tools line: "What's going on here?" (an on-demand breakdown — word glosses
-+ the construction — generated with Haiku; each word in it is tappable to add as a card),
-**EN → 中** (the reverse exercise: the translation goes up alone as the prompt and the Chinese
-stays hidden until a tap, so you translate back before checking) and **+ Add as card** for the
-whole sentence.
+meaning and scrolls under the card's footer. Rows start blank (listen first): **▶** on the right
+plays the clip, and each tap on the row uncovers one more line — hanzi, then pinyin, then the
+English — with a tap on a fully open row hiding it again (steps a row hasn't got are skipped;
+"Show all" opens every row for the current card). **EN** on the left flips a row into
+English-first mode for the reverse exercise: the translation goes up alone as the prompt and the
+reveal chain drops the translation step (hanzi, then pinyin) so you translate back into Chinese
+before checking. A fully open row carries a tools line: "What's going on here?" (an on-demand
+breakdown — word glosses + the construction — generated with Haiku; each word in it is tappable
+to add as a card) and **+ Add as card** for the whole sentence.
 Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses
 `/api/sentences/explain-text` and caches in the `sentenceTextExplanations` IndexedDB table.
 
