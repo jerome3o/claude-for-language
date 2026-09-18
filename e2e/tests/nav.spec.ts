@@ -203,7 +203,7 @@ test.describe('bottom tab bar', () => {
     // button shows the counts once it has), then start a session.
     // (/study without autostart bounces home; a running session is the immersive page.)
     await login(page, student, '/');
-    await expect(page.getByRole('button', { name: /Study All/ })).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole('button', { name: /Study today's cards/ })).toBeVisible({ timeout: 30000 });
     await page.goto(`/study?autostart=true&session_token=${student.token}`);
     await expect(page.locator('.study-page-fullscreen')).toBeVisible({ timeout: 30000 });
     await expect(page).toHaveURL(/\/study/);

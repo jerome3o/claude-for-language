@@ -16,8 +16,9 @@ test.describe('New User Onboarding', () => {
   }) => {
     const page = authenticatedPage;
 
-    // Should see the welcome message
-    await expect(page.getByRole('heading', { name: /Welcome to 汉语学习/i })).toBeVisible();
+    // Should see the home with its Study card and the bottom tab bar
+    await expect(page.locator('.home-study-card')).toBeVisible();
+    await expect(page.locator('.tab-bar')).toBeVisible();
 
     // Should see the one Study button (nothing due yet is never "done" before a sync)
     await expect(page.getByText(/Getting your words|Flashcards done/)).toBeVisible();
