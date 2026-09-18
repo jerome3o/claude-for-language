@@ -26,6 +26,7 @@ import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
 import lessonEditor from './routes/lesson-editor';
+import readerEditor from './routes/reader-editor';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
@@ -388,6 +389,9 @@ app.use('/api/*', authMiddleware);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
 app.route('/api', lessonEditor);
+
+// Reader editor: whole-reader spec, import, exports, text assist (routes/reader-editor.ts)
+app.route('/api', readerEditor);
 
 // Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
 app.route('/api', invitesRoutes);

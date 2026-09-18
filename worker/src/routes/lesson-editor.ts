@@ -23,10 +23,14 @@ import {
   lessonExportFilename,
   LessonDiff,
 } from '@shared/lesson';
-import { Env } from '../types';
+import { ReaderSpec, ReaderDiff, diffReaderSpecs, formatReaderDiff } from '@shared/reader';
+import { Env, GradedReaderWithPages } from '../types';
 import * as lib from '../db/lesson-library-queries';
+import { getGradedReader } from '../db/queries';
+import { readerToSpec } from '../db/reader-editor-queries';
 import { queueLessonImages, mergeKeptImages } from '../services/custom-lesson';
 import { generateLessonSpec, proposeLessonRevision, CoEditTurn } from '../services/lesson-editor';
+import { proposeReaderRevision, mergeKeptReaderImages } from '../services/reader-editor';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
 
 type AppEnv = { Bindings: Env };
@@ -130,7 +134,8 @@ function exportResponse(spec: CustomLessonSpec, format: string): Response | null
 
 type EditorTarget =
   | { type: 'lesson'; row: lib.AssignedLessonRow; spec: CustomLessonSpec }
-  | { type: 'library'; row: lib.LessonLibraryRow; spec: CustomLessonSpec };
+  | { type: 'library'; row: lib.LessonLibraryRow; spec: CustomLessonSpec }
+  | { type: 'reader'; row: GradedReaderWithPages; spec: ReaderSpec };
 
 /** Resolve an editor-chat target the user may edit, or null. */
 async function loadTarget(db: D1Database, targetType: string, targetId: string, userId: string): Promise<EditorTarget | null> {
@@ -142,7 +147,48 @@ async function loadTarget(db: D1Database, targetType: string, targetId: string, 
     const row = await lib.getLibraryItem(db, targetId, userId);
     return row ? { type: 'library', row, spec: parseSpec(row.spec) } : null;
   }
+  if (targetType === 'reader') {
+    // Readers are per-user: only the owner edits (routes/reader-editor.ts).
+    const row = await getGradedReader(db, targetId, userId);
+    return row ? { type: 'reader', row, spec: readerToSpec(row) } : null;
+  }
   return null;
+}
+
+// The chat is spec-agnostic: everything that depends on the kind of spec
+// (validation shape, diff, formatting, the Claude call) goes through an
+// adapter chosen from the target type.
+type EditorSpec = CustomLessonSpec | ReaderSpec;
+type EditorDiff = LessonDiff | ReaderDiff;
+
+interface SpecAdapter {
+  /** Cheap shape check for the client-supplied current_spec. */
+  looksLikeSpec(v: unknown): boolean;
+  diff(a: EditorSpec, b: EditorSpec): EditorDiff;
+  format(d: EditorDiff): string[];
+  propose(apiKey: string, input: { spec: EditorSpec; authorChanges: string[]; history: CoEditTurn[]; message: string }): Promise<{ text: string; proposal: EditorSpec | null }>;
+  /** Carry server-filled image keys from the current spec into a proposal. */
+  mergeKept(current: EditorSpec, proposal: EditorSpec): EditorSpec;
+}
+
+const LESSON_ADAPTER: SpecAdapter = {
+  looksLikeSpec: v => !!v && typeof v === 'object' && Array.isArray((v as { sections?: unknown }).sections),
+  diff: (a, b) => diffLessonSpecs(a as CustomLessonSpec, b as CustomLessonSpec),
+  format: d => formatLessonDiff(d as LessonDiff),
+  propose: (apiKey, input) => proposeLessonRevision(apiKey, { ...input, spec: input.spec as CustomLessonSpec }),
+  mergeKept: (current, proposal) => mergeKeptImages(current as CustomLessonSpec, proposal as CustomLessonSpec),
+};
+
+const READER_ADAPTER: SpecAdapter = {
+  looksLikeSpec: v => !!v && typeof v === 'object' && Array.isArray((v as { pages?: unknown }).pages),
+  diff: (a, b) => diffReaderSpecs(a as ReaderSpec, b as ReaderSpec),
+  format: d => formatReaderDiff(d as ReaderDiff),
+  propose: (apiKey, input) => proposeReaderRevision(apiKey, { ...input, spec: input.spec as ReaderSpec }),
+  mergeKept: (current, proposal) => mergeKeptReaderImages(current as ReaderSpec, proposal as ReaderSpec),
+};
+
+function adapterFor(type: EditorTarget['type']): SpecAdapter {
+  return type === 'reader' ? READER_ADAPTER : LESSON_ADAPTER;
 }
 
 // ============ Library ============
@@ -475,26 +521,26 @@ interface ChatMessageJson {
   content: string;
   created_at: string;
   proposal_status: 'pending' | 'accepted' | 'rejected' | null;
-  proposed_spec: CustomLessonSpec | null;
+  proposed_spec: EditorSpec | null;
   /** Assistant proposals: what the proposal changes vs the spec at that time. */
-  proposal_diff: LessonDiff | null;
+  proposal_diff: EditorDiff | null;
   /** User messages: what the author changed since the previous message. */
   author_changes: string[];
 }
 
-function safeParse(json: string | null): CustomLessonSpec | null {
+function safeParse(json: string | null): EditorSpec | null {
   if (!json) return null;
   try {
-    return JSON.parse(json) as CustomLessonSpec;
+    return JSON.parse(json) as EditorSpec;
   } catch {
     return null;
   }
 }
 
-function safeDiff(a: CustomLessonSpec | null, b: CustomLessonSpec | null): LessonDiff | null {
+function safeDiff(adapter: SpecAdapter, a: EditorSpec | null, b: EditorSpec | null): EditorDiff | null {
   if (!a || !b) return null;
   try {
-    return diffLessonSpecs(a, b);
+    return adapter.diff(a, b);
   } catch {
     return null;
   }
@@ -503,7 +549,7 @@ function safeDiff(a: CustomLessonSpec | null, b: CustomLessonSpec | null): Lesso
 /** The spec the next message should diff against: the last message's
  * snapshot — or, if that message was a proposal the author accepted, the
  * proposal itself (accepting it is not "an author change"). */
-function baselineAfter(row: lib.EditorChatMessageRow | undefined, fallback: CustomLessonSpec): CustomLessonSpec {
+function baselineAfter(row: lib.EditorChatMessageRow | undefined, fallback: EditorSpec): EditorSpec {
   if (!row) return fallback;
   if (row.role === 'assistant' && row.proposal_status === 'accepted') {
     return safeParse(row.proposed_spec) ?? safeParse(row.spec_snapshot) ?? fallback;
@@ -511,7 +557,7 @@ function baselineAfter(row: lib.EditorChatMessageRow | undefined, fallback: Cust
   return safeParse(row.spec_snapshot) ?? fallback;
 }
 
-function annotateMessages(rows: lib.EditorChatMessageRow[], storedSpec: CustomLessonSpec): ChatMessageJson[] {
+function annotateMessages(adapter: SpecAdapter, rows: lib.EditorChatMessageRow[], storedSpec: EditorSpec): ChatMessageJson[] {
   const out: ChatMessageJson[] = [];
   let previous: lib.EditorChatMessageRow | undefined;
   for (const row of rows) {
@@ -519,8 +565,8 @@ function annotateMessages(rows: lib.EditorChatMessageRow[], storedSpec: CustomLe
     const proposed = safeParse(row.proposed_spec);
     let authorChanges: string[] = [];
     if (row.role === 'user' && previous) {
-      const diff = safeDiff(baselineAfter(previous, storedSpec), snapshot);
-      authorChanges = diff ? formatLessonDiff(diff) : [];
+      const diff = safeDiff(adapter, baselineAfter(previous, storedSpec), snapshot);
+      authorChanges = diff ? adapter.format(diff) : [];
     }
     out.push({
       id: row.id,
@@ -529,7 +575,7 @@ function annotateMessages(rows: lib.EditorChatMessageRow[], storedSpec: CustomLe
       created_at: row.created_at,
       proposal_status: row.proposal_status,
       proposed_spec: proposed,
-      proposal_diff: proposed ? safeDiff(snapshot, proposed) : null,
+      proposal_diff: proposed ? safeDiff(adapter, snapshot, proposed) : null,
       author_changes: authorChanges,
     });
     previous = row;
@@ -546,7 +592,7 @@ lessonEditor.get('/editor-chat/:targetType/:targetId', async (c) => {
   return c.json({
     chat: { id: chat.id, target_type: chat.target_type, target_id: chat.target_id },
     ai_available: !!c.env.ANTHROPIC_API_KEY,
-    messages: annotateMessages(rows, target.spec),
+    messages: annotateMessages(adapterFor(target.type), rows, target.spec),
   });
 });
 
@@ -555,22 +601,23 @@ lessonEditor.post('/editor-chat/:targetType/:targetId/messages', async (c) => {
   const target = await loadTarget(c.env.DB, c.req.param('targetType'), c.req.param('targetId'), userId);
   if (!target) return c.json({ error: 'Not found' }, 404);
   if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'AI is not configured' }, 503);
+  const adapter = adapterFor(target.type);
 
   const body = await c.req.json<{ message?: unknown; current_spec?: unknown }>().catch(() => ({} as { message?: unknown; current_spec?: unknown }));
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   if (!message) return c.json({ error: 'message is required' }, 400);
   const current = body.current_spec;
-  if (!current || typeof current !== 'object' || !Array.isArray((current as { sections?: unknown }).sections)) {
-    return c.json({ error: 'current_spec must be a lesson spec object' }, 400);
+  if (!adapter.looksLikeSpec(current)) {
+    return c.json({ error: target.type === 'reader' ? 'current_spec must be a reader spec object' : 'current_spec must be a lesson spec object' }, 400);
   }
-  const currentSpec = current as CustomLessonSpec;
+  const currentSpec = current as EditorSpec;
 
   const chat = await lib.getOrCreateEditorChat(c.env.DB, userId, target.type, target.row.id);
   const rows = await lib.listEditorChatMessages(c.env.DB, chat.id);
 
   const baseline = baselineAfter(rows[rows.length - 1], target.spec);
-  const authorDiff = safeDiff(baseline, currentSpec);
-  const authorChanges = authorDiff ? formatLessonDiff(authorDiff) : [];
+  const authorDiff = safeDiff(adapter, baseline, currentSpec);
+  const authorChanges = authorDiff ? adapter.format(authorDiff) : [];
 
   const history: CoEditTurn[] = rows.map(r => ({
     role: r.role,
@@ -588,7 +635,7 @@ lessonEditor.post('/editor-chat/:targetType/:targetId/messages', async (c) => {
 
   let result;
   try {
-    result = await proposeLessonRevision(c.env.ANTHROPIC_API_KEY, {
+    result = await adapter.propose(c.env.ANTHROPIC_API_KEY, {
       spec: currentSpec,
       authorChanges,
       history,
@@ -602,7 +649,7 @@ lessonEditor.post('/editor-chat/:targetType/:targetId/messages', async (c) => {
     }, 502);
   }
 
-  const proposal = result.proposal ? mergeKeptImages(currentSpec, result.proposal) : null;
+  const proposal = result.proposal ? adapter.mergeKept(currentSpec, result.proposal) : null;
   const assistantRow = await lib.insertEditorChatMessage(c.env.DB, {
     chat_id: chat.id,
     role: 'assistant',
@@ -612,7 +659,7 @@ lessonEditor.post('/editor-chat/:targetType/:targetId/messages', async (c) => {
     proposal_status: proposal ? 'pending' : null,
   });
 
-  const proposalDiff = proposal ? safeDiff(currentSpec, proposal) : null;
+  const proposalDiff = proposal ? safeDiff(adapter, currentSpec, proposal) : null;
   return c.json({
     user_message: { id: userRow.id, role: 'user', content: message, created_at: userRow.created_at, author_changes: authorChanges },
     message: {
