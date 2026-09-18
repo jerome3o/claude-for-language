@@ -46,6 +46,7 @@ import {
   OverviewStats,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, toggleManualOfflineMode } from '../services/offlineMode';
@@ -2729,6 +2730,7 @@ export function StudyPage() {
   // Active study - fullscreen mode
   return (
     <div className="study-page-fullscreen">
+      {!isLoading && currentCard && <FirstCardExplainer />}
       {isLoading ? (
         <Loading />
       ) : currentCustomLesson && customLessonIntervalPreviews ? (

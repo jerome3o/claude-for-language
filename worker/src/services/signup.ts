@@ -22,7 +22,8 @@ import {
   parseShareDeckIds,
   recordRedemption,
 } from '../db/invite-queries';
-import { shareDeck } from './conversations';
+import { shareDeck, createConversation, sendMessage } from './conversations';
+import { createNotification } from '../db/queries';
 
 export type SignupResolution =
   | { kind: 'invite'; invite: Invite; source: 'token' | 'email' }
@@ -88,6 +89,52 @@ export interface RedeemResult {
   redeemed: boolean;
   relationshipId: string | null;
   sharedDeckIds: string[];
+  /** Conversation the inviter's welcome message was posted in, if any. */
+  welcomeConversationId: string | null;
+}
+
+/**
+ * Post the inviter's welcome message as the first chat message of the
+ * relationship's conversation (created if the pair has none yet), and leave
+ * the invitee an unread notification so the home screen can say so.
+ * Never throws — a failed welcome must not break sign-up.
+ */
+export async function deliverWelcomeMessage(
+  db: D1Database,
+  invite: Pick<Invite, 'created_by' | 'welcome_message'>,
+  relationshipId: string,
+  inviteeId: string
+): Promise<string | null> {
+  const text = invite.welcome_message?.trim();
+  if (!text) return null;
+  try {
+    const existing = await db
+      .prepare('SELECT id FROM conversations WHERE relationship_id = ? ORDER BY created_at ASC LIMIT 1')
+      .bind(relationshipId)
+      .first<{ id: string }>();
+    const conversationId = existing
+      ? existing.id
+      : (await createConversation(db, relationshipId, invite.created_by, { title: 'Welcome' })).id;
+    await sendMessage(db, conversationId, invite.created_by, text);
+
+    const inviter = await db
+      .prepare('SELECT name, email FROM users WHERE id = ?')
+      .bind(invite.created_by)
+      .first<{ name: string | null; email: string | null }>();
+    const senderName = inviter?.name || inviter?.email || 'Your tutor';
+    await createNotification(
+      db,
+      inviteeId,
+      'new_chat_message',
+      `New message from ${senderName}`,
+      text.length > 100 ? `${text.slice(0, 100)}…` : text,
+      { conversation_id: conversationId, relationship_id: relationshipId }
+    ).catch(() => {});
+    return conversationId;
+  } catch (err) {
+    console.error('[Signup] Failed to deliver welcome message:', err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 /**
@@ -97,7 +144,7 @@ export interface RedeemResult {
  * nothing, and each side-effect checks for itself before acting.
  */
 export async function redeemInvite(db: D1Database, user: User, invite: Invite): Promise<RedeemResult> {
-  const result: RedeemResult = { redeemed: false, relationshipId: null, sharedDeckIds: [] };
+  const result: RedeemResult = { redeemed: false, relationshipId: null, sharedDeckIds: [], welcomeConversationId: null };
 
   if (invite.created_by === user.id) return result; // an inviter opening their own link
 
@@ -133,6 +180,11 @@ export async function redeemInvite(db: D1Database, user: User, invite: Invite): 
       .bind(relId, invite.created_by, user.id, invite.inviter_role)
       .run();
     result.relationshipId = relId;
+  }
+
+  // The welcome message goes out exactly once: with the first redemption.
+  if (result.redeemed && result.relationshipId) {
+    result.welcomeConversationId = await deliverWelcomeMessage(db, invite, result.relationshipId, user.id);
   }
 
   // Decks: only a tutor can copy decks to a student, and only once per invite.

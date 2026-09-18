@@ -4073,6 +4073,10 @@ export interface CustomLessonRow {
   status: string;
   created_at: string;
   updated_at: string;
+  /** Set on a student's copy of a tutor library item (migration 0061). */
+  library_item_id?: string | null;
+  assigned_by?: string | null;
+  assigned_relationship_id?: string | null;
 }
 
 export async function createCustomLesson(

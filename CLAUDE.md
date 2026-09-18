@@ -799,6 +799,31 @@ paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `
 - `PUT /api/admin/users/:id/can-invite` - `{ can_invite: boolean }`
 - `GET /api/auth/login?invite=<token>` - Starts Google sign-in with the invite riding in the OAuth `state`
 
+Invite rows also carry `welcome_message` (optional; `POST /api/invites` accepts it, and on the
+first redemption `deliverWelcomeMessage` in `services/signup.ts` posts it as the inviter's first chat
+message in the relationship's conversation + an unread notification) and `opened_at` (set by the
+first `GET /invites/:id/public`, i.e. the /join page loading — the tutor's list shows
+"Link opened · not signed in yet"). Migration 0065.
+
+### Student onboarding & home (`worker/src/routes/onboarding.ts`)
+- `GET /api/me/onboarding` - What a new invitee's first-open screen needs: `invited`, `inviter`
+  (name/picture), `inviter_role`, `relationship_id`, `welcome_message` + `welcome_conversation_id`,
+  `decks` copied by the invite (id/name/note_count), `has_reviewed`/`review_count`. The client
+  (`components/onboarding/useOnboarding.ts`) caches it in localStorage and shows `FirstOpenScreen`
+  while the user came in via a tutor invite and has zero reviews (server and local); after the
+  first review the normal home renders. `FirstCardExplainer` (rendered once by StudyPage) shows a
+  three-line explainer over the first card when there are no review events yet.
+- `POST /api/decks/starter` - Idempotent: creates the caller's built-in **"Starter Chinese"** deck
+  (`services/starter-deck.ts`, 15 words with tone-marked pinyin + one example sentence each, word and
+  sentence TTS generated after the response) or returns the existing one by name. The invite sheet
+  preselects it and requires at least one deck when inviting a student.
+- The student home (`pages/HomePage.tsx`, `components/home/`) is one **Study today's cards** button
+  with a plain subtitle ("24 cards due · about 8 min", ~20 s/card; four-colour breakdown behind ⓘ),
+  a **From <tutor>** homework card (newest shared deck / assigned lesson + unread tutor message;
+  `homework.ts` is pure and unit-tested), a compact top-5 deck list linking to `/decks`, and one
+  **+ Add a deck** link (modal with "Generate with Claude" inside). It never says "Flashcards done"
+  until a full sync has completed once (`hooks/useSyncStatus.ts`).
+
 ## Invite-only sign-up
 
 **A Google sign-in for an email with no `users` row creates a user only if an invite admits it.**

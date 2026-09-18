@@ -53,6 +53,7 @@ import { notifyNewUser, notifyNewChatMessage, notifyAccessRequest } from './serv
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
 import invitesRoutes from './routes/invites';
+import onboardingRoutes from './routes/onboarding';
 import { resolveSignup, redeemInvite } from './services/signup';
 import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
@@ -395,6 +396,7 @@ app.route('/api', readerEditor);
 
 // Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
 app.route('/api', invitesRoutes);
+app.route('/api', onboardingRoutes); // GET /api/me/onboarding, POST /api/decks/starter (see routes/onboarding.ts)
 
 // Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
 app.route('/api', insightsRoutes);
@@ -6255,6 +6257,8 @@ app.get('/api/custom-lessons', async (c) => {
       source: row.source,
       status: row.status,
       created_at: row.created_at,
+      assigned_by: row.assigned_by ?? null,
+      assigned_relationship_id: row.assigned_relationship_id ?? null,
       spec: JSON.parse(row.spec),
       completions: completionsByLesson.get(row.id) ?? [],
     })),

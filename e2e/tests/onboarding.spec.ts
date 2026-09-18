@@ -19,20 +19,23 @@ test.describe('New User Onboarding', () => {
     // Should see the welcome message
     await expect(page.getByRole('heading', { name: /Welcome to 汉语学习/i })).toBeVisible();
 
-    // Should see empty state with options
-    await expect(page.getByText('No decks yet')).toBeVisible();
-    await expect(page.getByText('Create your first deck or use AI to generate one')).toBeVisible();
+    // Should see the one Study button (nothing due yet is never "done" before a sync)
+    await expect(page.getByText(/Getting your words|Flashcards done/)).toBeVisible();
 
-    // Should have action buttons
-    await expect(page.getByRole('button', { name: 'Create Deck' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Generate' })).toBeVisible();
+    // Should see empty state with the single "Add a deck" action
+    await expect(page.getByText('No decks yet')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Add a deck' })).toBeVisible();
+    // The old three-button row is gone from the home
+    await expect(page.getByRole('link', { name: 'Analyze' })).toHaveCount(0);
   });
 
-  test('new user can navigate to generate page', async ({ authenticatedPage }) => {
+  test('new user can navigate to generate page from the add-deck modal', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
 
-    // Click on Generate link
-    await page.getByRole('link', { name: 'Generate' }).click();
+    // The Claude option lives inside the add-deck modal
+    await page.getByRole('button', { name: '+ Add a deck' }).click();
+    await expect(page.getByRole('heading', { name: 'Create New Deck' })).toBeVisible();
+    await page.getByRole('link', { name: /Generate with Claude/ }).click();
 
     // Should be on the generate page
     await expect(page.getByRole('heading', { name: 'AI Deck Generation' })).toBeVisible();
@@ -52,8 +55,8 @@ test.describe('New User Onboarding', () => {
   test('new user can create an empty deck manually', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
 
-    // Click Create Deck button
-    await page.getByRole('button', { name: 'Create Deck' }).click();
+    // Open the add-deck modal
+    await page.getByRole('button', { name: '+ Add a deck' }).click();
 
     // Modal should appear
     await expect(page.getByRole('heading', { name: 'Create New Deck' })).toBeVisible();

@@ -1,138 +1,37 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { getDecks, createDeck, getDeckStats } from '../api/client';
-import { Loading, EmptyState } from '../components/Loading';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { getDecks } from '../api/client';
+import { Loading } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
-import { Deck, DeckStats, QueueCounts, CardQueue } from '../types';
+import { StudyTodayCard } from '../components/home/StudyTodayCard';
+import { HomeworkCard } from '../components/home/HomeworkCard';
+import { DeckList, HOME_DECK_LIMIT } from '../components/home/DeckList';
+import { AddDeckModal } from '../components/home/AddDeckModal';
+import { useHomework } from '../components/home/useHomework';
+import { useDeckOverview } from '../components/home/useDeckOverview';
+import { totalDue as sumDue } from '../components/home/studyEstimate';
+import { FirstOpenScreen } from '../components/onboarding/FirstOpenScreen';
+import { useOnboarding } from '../components/onboarding/useOnboarding';
+import { QueueCounts, CardQueue } from '../types';
 import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
-import { applyNewCardBonus, sumQueueCounts, EMPTY_QUEUE_COUNTS, DeckQueueCounts } from '../db/database';
+import { useSyncStatus } from '../hooks/useSyncStatus';
+import { useNetwork } from '../contexts/NetworkContext';
+import { useAuth } from '../contexts/AuthContext';
+import { applyNewCardBonus, sumQueueCounts, DeckQueueCounts } from '../db/database';
 import { getDueReaders } from '../services/reader-study';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
-import { useLiveQuery } from 'dexie-react-hooks';
-
-// Queue counts display component
-function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
-  return (
-    <div className="queue-counts" style={{ fontSize: '0.875rem' }}>
-      <span style={{ color: '#3b82f6', fontWeight: 600 }}>{counts.new}</span>
-      <span style={{ color: '#9ca3af' }}>+</span>
-      <span style={{ color: '#8b5cf6', fontWeight: 600 }}>{counts.secondaryNew ?? 0}</span>
-      <span style={{ color: '#9ca3af' }}>+</span>
-      <span style={{ color: '#f97316', fontWeight: 600 }}>{counts.learning}</span>
-      <span style={{ color: '#9ca3af' }}>+</span>
-      <span style={{ color: '#22c55e', fontWeight: 600 }}>{counts.review}</span>
-    </div>
-  );
-}
-
-
-function CompactMasteryBar({ stats }: { stats: DeckStats }) {
-  const { total_cards, cards_mastered, cards_learning } = stats;
-  if (total_cards === 0) return null;
-  const masteredPct = (cards_mastered / total_cards) * 100;
-  const learningPct = (cards_learning / total_cards) * 100;
-  const newPct = 100 - masteredPct - learningPct;
-  return (
-    <div style={{ flex: 1, height: '4px', background: '#e5e7eb', borderRadius: '2px', overflow: 'hidden', display: 'flex' }}>
-      {masteredPct > 0 && <div style={{ width: `${masteredPct}%`, background: '#22c55e' }} />}
-      {learningPct > 0 && <div style={{ width: `${learningPct}%`, background: '#f97316' }} />}
-      {newPct > 0 && <div style={{ width: `${newPct}%`, background: '#d1d5db' }} />}
-    </div>
-  );
-}
-
-function DeckCard({
-  deck,
-  counts,
-  onAddMore,
-  pinned,
-  onTogglePin,
-}: {
-  deck: Deck;
-  counts: DeckQueueCounts;
-  onAddMore: () => void;
-  pinned: boolean;
-  onTogglePin: () => void;
-}) {
-  const navigate = useNavigate();
-  const statsQuery = useQuery({
-    queryKey: ['deckStats', deck.id],
-    queryFn: () => getDeckStats(deck.id),
-    retry: false,
-    staleTime: 60000,
-  });
-
-  const stats = statsQuery.data;
-  const totalDue = counts.new + (counts.secondaryNew ?? 0) + counts.learning + counts.review;
-
-  const handleStudy = () => navigate(`/study?deck=${deck.id}&autostart=true`);
-
-  return (
-    <div className="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative' }}>
-      {/* Pin button */}
-      <button
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(); }}
-        style={{
-          position: 'absolute', top: '0.375rem', right: '0.375rem',
-          background: 'none', border: 'none', cursor: 'pointer',
-          padding: '0.125rem', fontSize: '0.8rem',
-          opacity: pinned ? 1 : 0.3, lineHeight: 1,
-          minHeight: 'unset', minWidth: 'unset',
-        }}
-        title={pinned ? 'Unpin deck' : 'Pin to top'}
-        aria-label={pinned ? 'Unpin deck' : 'Pin to top'}
-      >
-        📌
-      </button>
-
-      <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, paddingRight: '1.25rem' }}>
-        <div className="deck-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem', marginBottom: 0 }}>
-          {deck.name}
-        </div>
-        {stats && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.25rem' }}>
-            <span style={{ fontSize: '0.7rem', color: '#9ca3af', whiteSpace: 'nowrap' }}>{stats.total_notes}n</span>
-            {stats.total_cards > 0 && <CompactMasteryBar stats={stats} />}
-          </div>
-        )}
-      </Link>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.25rem', paddingTop: '0.25rem', borderTop: '1px solid #e5e7eb' }}>
-        <QueueCountsBadge counts={counts} />
-        {totalDue > 0 ? (
-          <button
-            onClick={handleStudy}
-            className="btn btn-primary btn-sm"
-            style={{ padding: '0.25rem 0.625rem', fontSize: '0.8rem' }}
-          >
-            Study ({totalDue})
-          </button>
-        ) : counts.hasMoreNew ? (
-          <button
-            onClick={onAddMore}
-            className="btn btn-secondary btn-sm"
-            style={{ padding: '0.25rem 0.625rem', fontSize: '0.8rem' }}
-          >
-            +10 More
-          </button>
-        ) : (
-          <span className="text-light" style={{ fontSize: '0.7rem' }}>Done ✓</span>
-        )}
-      </div>
-    </div>
-  );
-}
+import './HomePage.css';
 
 const PINNED_DECKS_KEY = 'pinnedDeckIds';
-const UNPINNED_COLLAPSED_KEY = 'unpinnedDecksCollapsed';
+const COUNTS_CACHE_KEY = 'lastQueueCounts';
 
 export function HomePage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  const { isOnline } = useNetwork();
+  const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
 
   const [pinnedDeckIds, setPinnedDeckIds] = useState<Set<string>>(() => {
     try {
@@ -141,31 +40,15 @@ export function HomePage() {
     } catch { return new Set(); }
   });
 
-  const [unpinnedCollapsed, setUnpinnedCollapsed] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem(UNPINNED_COLLAPSED_KEY);
-      return stored !== null ? JSON.parse(stored) : true;
-    } catch { return true; }
-  });
-
   const togglePin = (deckId: string) => {
     setPinnedDeckIds(prev => {
       const next = new Set(prev);
       if (next.has(deckId)) next.delete(deckId);
       else next.add(deckId);
-      localStorage.setItem(PINNED_DECKS_KEY, JSON.stringify([...next]));
+      try { localStorage.setItem(PINNED_DECKS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
   };
-
-  const handleToggleUnpinned = () => {
-    setUnpinnedCollapsed(c => {
-      const next = !c;
-      localStorage.setItem(UNPINNED_COLLAPSED_KEY, JSON.stringify(next));
-      return next;
-    });
-  };
-
 
   const decksQuery = useQuery({
     queryKey: ['decks'],
@@ -175,43 +58,28 @@ export function HomePage() {
     retry: false,
   });
 
-  // OFFLINE-FIRST: Use IndexedDB as primary data source
-  // Pass API decks to enable mismatch detection - if API has decks not in IndexedDB,
-  // it automatically triggers a full sync (fixes MCP-created decks not appearing)
-  const { decks: offlineDecks, isLoading: offlineLoading, isSyncing } = useOfflineDecks(decksQuery.data);
+  // OFFLINE-FIRST: IndexedDB is the source of truth. Passing the API decks
+  // lets the hook notice decks missing locally and pull them in.
+  const { decks, isLoading: offlineLoading, isSyncing } = useOfflineDecks(decksQuery.data);
+  const { hasSyncedOnce } = useSyncStatus();
 
-  // Use offline decks as the source of truth
-  const decks = offlineDecks;
-
-  // ---- Bonus tracking ("+10 more" buttons) ----
-  const deckIdsKey = decks.map(d => d.id).join(',');
+  // ---- Bonus new cards ("Study 10 more") ----
   const [bonusAll, setBonusAll] = useState(() => readBonus(undefined));
-  const [deckBonuses, setDeckBonuses] = useState<Record<string, number>>(() =>
-    Object.fromEntries(decks.map(d => [d.id, readBonus(d.id)]))
-  );
-  useEffect(() => {
-    setDeckBonuses(Object.fromEntries(decks.map(d => [d.id, readBonus(d.id)])));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckIdsKey]);
-
-  const bumpBonus = (deckId: string | undefined) => {
-    const next = readBonus(deckId) + 10;
-    writeBonus(deckId, next);
-    if (deckId) setDeckBonuses(b => ({ ...b, [deckId]: next }));
-    else setBonusAll(next);
+  const bumpBonus = () => {
+    const next = readBonus(undefined) + 10;
+    writeBonus(undefined, next);
+    setBonusAll(next);
   };
 
-  // ---- Queue counts: ONE live query, bonuses applied in-memory ----
+  // ---- Queue counts: ONE live query, bonus applied in-memory ----
   const { byDeck: rawByDeck, isLoading: countsLoading } = useRawQueueCounts();
-
-  // Due graded readers join "Study All" sessions, so count them in the badge
   const dueReaders = useLiveQuery(() => getDueReaders(), []) ?? [];
 
   const { perDeck, liveTotal } = useMemo(() => {
     const perDeck = new Map<string, DeckQueueCounts>();
     const headerCounts: DeckQueueCounts[] = [];
     for (const [id, raw] of rawByDeck) {
-      perDeck.set(id, applyNewCardBonus(raw, deckBonuses[id] ?? 0));
+      perDeck.set(id, applyNewCardBonus(raw, 0));
       headerCounts.push(applyNewCardBonus(raw, bonusAll));
     }
     const liveTotal = sumQueueCounts(headerCounts);
@@ -221,11 +89,10 @@ export function HomePage() {
       else liveTotal.review++;
     }
     return { perDeck, liveTotal };
-  }, [rawByDeck, deckBonuses, bonusAll, dueReaders]);
+  }, [rawByDeck, bonusAll, dueReaders]);
 
-  // Show last-known totals from localStorage while the live query loads.
-  const COUNTS_CACHE_KEY = 'lastQueueCounts';
-  const cachedCountsRef = useState<QueueCounts | null>(() => {
+  // Last-known totals from localStorage while the live query loads.
+  const cachedCounts = useState<QueueCounts | null>(() => {
     try {
       return JSON.parse(localStorage.getItem(COUNTS_CACHE_KEY) || 'null');
     } catch {
@@ -233,256 +100,110 @@ export function HomePage() {
     }
   })[0];
   useEffect(() => {
-    if (!countsLoading) localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(liveTotal));
+    if (!countsLoading) {
+      try { localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(liveTotal)); } catch { /* ignore */ }
+    }
   }, [countsLoading, liveTotal]);
 
-  const totalCounts = countsLoading && cachedCountsRef ? cachedCountsRef : liveTotal;
-  // secondaryNew may be missing from counts cached by an older app version
-  const totalDue = totalCounts.new + (totalCounts.secondaryNew ?? 0) + totalCounts.learning + totalCounts.review;
-  const showStudyLoading = countsLoading && !cachedCountsRef;
+  const totalCounts: QueueCounts = countsLoading && cachedCounts
+    ? { ...cachedCounts, secondaryNew: cachedCounts.secondaryNew ?? 0 }
+    : liveTotal;
+  const totalDue = sumDue(totalCounts);
+  const showStudyLoading = countsLoading && !cachedCounts;
 
-  const handleStudyAll = () => {
-    navigate('/study?autostart=true');
-  };
+  const overview = useDeckOverview();
+  const homework = useHomework(decks);
+  const onboarding = useOnboarding();
 
-  const createMutation = useMutation({
-    mutationFn: () => createDeck(name, description || undefined),
-    onSuccess: (deck) => {
-      queryClient.invalidateQueries({ queryKey: ['decks'] });
-      setShowModal(false);
-      setName('');
-      setDescription('');
-      navigate(`/decks/${deck.id}`);
-    },
-  });
+  const handleStudyAll = () => navigate('/study?autostart=true');
 
-  // OFFLINE-FIRST: Only show loading on initial load when IndexedDB hasn't loaded yet
-  // This is a brief moment on first app launch - after that, cached data renders instantly
-  if (offlineLoading) {
+  // OFFLINE-FIRST: Only show loading on the very first app launch, before
+  // IndexedDB has answered; after that, cached data renders instantly.
+  if (offlineLoading || onboarding.isDeciding) {
     return <Loading />;
   }
 
-  // No error state needed - we use cached offline data as primary source
-  // If offline and no cached data, show empty state (user can still navigate)
+  if (onboarding.showFirstOpen && onboarding.state) {
+    return (
+      <div className="page">
+        <div className="container">
+          <FirstOpenScreen
+            state={onboarding.state}
+            userName={user?.name}
+            totalDue={showStudyLoading ? 0 : totalDue}
+            hasSyncedOnce={hasSyncedOnce}
+            isOnline={isOnline}
+            onDismiss={onboarding.dismiss}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
       <div className="container">
-        {/* Study Streak */}
         <StudyStreak />
 
-        {/* Study All Button */}
-        <div className="card mb-4">
-          {showStudyLoading ? (
-            <div className="text-center" style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-              <div className="spinner" style={{ width: '1rem', height: '1rem' }} />
-              <span className="text-light">Loading cards...</span>
-            </div>
-          ) : totalDue > 0 ? (
-            <button onClick={handleStudyAll} className="btn btn-primary btn-lg btn-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-              <span>Study All</span>
-              <QueueCountsBadge counts={totalCounts} />
-            </button>
-          ) : (
-            <button onClick={handleStudyAll} className="btn btn-secondary btn-lg btn-block" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-              <span>✓ Flashcards done</span>
-            </button>
-          )}
-          {/* Grammar and readers no longer have home buttons — both live at
-              the end of the study session now. */}
-        </div>
+        <StudyTodayCard
+          counts={totalCounts}
+          totalDue={totalDue}
+          isLoading={showStudyLoading}
+          hasSyncedOnce={hasSyncedOnce}
+          isSyncing={isSyncing}
+          isOnline={isOnline}
+          hasDecks={decks.length > 0}
+          hasMoreNew={liveTotal.hasMoreNew}
+          onStudy={handleStudyAll}
+          onMoreNew={bumpBonus}
+        />
 
-        {/* Your Decks */}
-        <div className="card" style={{ position: 'relative' }}>
-          <h2 className="mb-3">Your Decks</h2>
+        <HomeworkCard view={homework} />
 
-          {isSyncing && (
-            <div style={{
-              position: 'absolute',
-              top: '0.5rem',
-              right: '0.5rem',
-              padding: '0.25rem 0.5rem',
-              background: '#dbeafe',
-              color: '#1d4ed8',
-              borderRadius: '1rem',
-              fontSize: '0.6875rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.25rem'
-            }}>
-              <span style={{
-                width: '0.5rem',
-                height: '0.5rem',
-                border: '1.5px solid #93c5fd',
-                borderTopColor: '#3b82f6',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-              }}></span>
-              Syncing
-            </div>
-          )}
-
-          {decks.length === 0 ? (
-            <EmptyState
-              icon="📖"
-              title="No decks yet"
-              description="Create your first deck or use AI to generate one"
-              action={
-                <div className="flex gap-2 justify-center flex-wrap">
-                  <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-                    Create Deck
-                  </button>
-                  <Link to="/generate" className="btn btn-secondary">
-                    Generate
-                  </Link>
-                  <Link to="/analyze" className="btn btn-secondary">
-                    Analyze
-                  </Link>
-                </div>
-              }
-            />
-          ) : (() => {
-            const pinnedDecks = decks.filter(d => pinnedDeckIds.has(d.id));
-            const unpinnedDecks = decks.filter(d => !pinnedDeckIds.has(d.id));
-            // If nothing is pinned, always show all decks expanded so the list isn't empty
-            const unpinnedVisible = pinnedDecks.length === 0 || !unpinnedCollapsed;
-            return (
-              <>
-                {/* Pinned decks */}
-                {pinnedDecks.length > 0 && (
-                  <div className="grid grid-cols-2 gap-1 mb-2">
-                    {pinnedDecks.map((deck) => (
-                      <DeckCard
-                        key={deck.id}
-                        deck={deck}
-                        counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
-                        onAddMore={() => bumpBonus(deck.id)}
-                        pinned={true}
-                        onTogglePin={() => togglePin(deck.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Unpinned decks with collapse toggle */}
-                {unpinnedDecks.length > 0 && (
-                  <div>
-                    {pinnedDecks.length > 0 && (
-                      <button
-                        onClick={handleToggleUnpinned}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '0.375rem',
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          padding: '0.375rem 0', fontSize: '0.8rem', color: '#6b7280',
-                          width: '100%', marginBottom: unpinnedVisible ? '0.5rem' : 0,
-                          minHeight: 'unset',
-                        }}
-                      >
-                        <span style={{
-                          display: 'inline-block',
-                          transform: unpinnedVisible ? 'rotate(0deg)' : 'rotate(-90deg)',
-                          transition: 'transform 0.15s',
-                          fontSize: '0.7rem',
-                        }}>▾</span>
-                        {unpinnedVisible
-                          ? `Other decks (${unpinnedDecks.length})`
-                          : `${unpinnedDecks.length} more deck${unpinnedDecks.length === 1 ? '' : 's'}`}
-                      </button>
-                    )}
-                    {unpinnedVisible && (
-                      <div className="grid grid-cols-2 gap-1">
-                        {unpinnedDecks.map((deck) => (
-                          <DeckCard
-                            key={deck.id}
-                            deck={deck}
-                            counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
-                            onAddMore={() => bumpBonus(deck.id)}
-                            pinned={false}
-                            onTogglePin={() => togglePin(deck.id)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="flex gap-2 justify-center flex-wrap" style={{ paddingTop: '0.75rem', marginTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
-                  <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-                    New Deck
-                  </button>
-                  <Link to="/generate" className="btn btn-secondary">
-                    Generate
-                  </Link>
-                  <Link to="/analyze" className="btn btn-secondary">
-                    Analyze
-                  </Link>
-                </div>
-              </>
-            );
-          })()}
-        </div>
-
-        {/* Create Deck Modal */}
-        {showModal && (
-          <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">Create New Deck</h2>
-                <button className="modal-close" onClick={() => setShowModal(false)}>
-                  &times;
-                </button>
-              </div>
-
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  createMutation.mutate();
-                }}
-              >
-                <div className="form-group">
-                  <label className="form-label">Deck Name</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g., Restaurant Vocabulary"
-                    required
-                    autoFocus
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Description (optional)</label>
-                  <textarea
-                    className="form-textarea"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What will you learn in this deck?"
-                  />
-                </div>
-
-                <div className="modal-actions">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={!name.trim() || createMutation.isPending}
-                  >
-                    {createMutation.isPending ? 'Creating...' : 'Create Deck'}
-                  </button>
-                </div>
-              </form>
+        <section className="card" aria-label="Your decks">
+          <div className="home-decks-head">
+            <h2>Your decks</h2>
+            <div className="flex" style={{ alignItems: 'center', gap: '0.5rem' }}>
+              {isSyncing && (
+                <span className="home-sync-pill">
+                  <span className="spinner home-spinner" />
+                  Syncing
+                </span>
+              )}
+              {decks.length > 0 && (
+                <Link to="/decks" className="home-all-decks">
+                  {decks.length > HOME_DECK_LIMIT ? `All ${decks.length} decks →` : 'All decks →'}
+                </Link>
+              )}
             </div>
           </div>
-        )}
+
+          {decks.length === 0 ? (
+            <div className="home-empty">
+              <div className="home-empty-icon" aria-hidden="true">📖</div>
+              <h3>No decks yet</h3>
+              <p>
+                {hasSyncedOnce === false && isOnline
+                  ? 'Your words are on their way.'
+                  : 'Add a deck to start learning, or wait for your tutor to send one.'}
+              </p>
+            </div>
+          ) : (
+            <DeckList
+              decks={decks}
+              counts={perDeck}
+              overview={overview}
+              pinnedIds={pinnedDeckIds}
+              onTogglePin={togglePin}
+            />
+          )}
+
+          <button type="button" className="home-add-deck" onClick={() => setShowModal(true)}>
+            + Add a deck
+          </button>
+        </section>
+
+        {showModal && <AddDeckModal onClose={() => setShowModal(false)} />}
       </div>
     </div>
   );

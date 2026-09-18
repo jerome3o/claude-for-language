@@ -1667,6 +1667,9 @@ export interface CustomLessonListItem {
   source: string;
   status: 'active' | 'done';
   created_at: string;
+  /** Tutor who assigned this lesson from their library (null for the user's own lessons). */
+  assigned_by?: string | null;
+  assigned_relationship_id?: string | null;
   spec: import('@shared/lesson').CustomLessonSpec;
   /** The lesson's FSRS review events (absent on locally cached fallbacks). */
   completions?: CustomLessonCompletion[];
