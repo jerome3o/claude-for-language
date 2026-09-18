@@ -1110,6 +1110,16 @@ export async function textToFlashcard(
   });
 }
 
+export async function updateConversationTitle(
+  conversationId: string,
+  title: string
+): Promise<Conversation> {
+  return fetchJSON<Conversation>(`/conversations/${conversationId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
 export async function updateConversationVoiceSettings(
   conversationId: string,
   voiceId?: string,

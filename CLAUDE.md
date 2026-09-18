@@ -1130,7 +1130,14 @@ The app supports many-to-many tutor-student relationships where users can be tut
 
 ### Features
 - **Pairing**: Either party invites by email, specifying their role (tutor/student)
-- **Chat**: Polling-based messaging (3-second intervals)
+- **Chat**: Polling-based messaging (3-second intervals). Per-message tools: Reply and Play inline
+  (44px), everything else (React, Check my Chinese, Translate / Make a card, Word by word, Discuss
+  with Claude, Copy) under ⋯ / long-press — a bottom sheet on phones, a popover ≥640px. The set is
+  role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
+  Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
+  show as Coach-style inline notices (`InlineNotice`), never `alert()`. `?new=1` on the chat route
+  (or `/chat/new`) opens a fresh untitled conversation; `PATCH /api/conversations/:id` `{ title }`
+  renames it (header ⋯ → Add a title / Rename).
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics
