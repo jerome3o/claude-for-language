@@ -57,6 +57,7 @@ import onboardingRoutes from './routes/onboarding';
 import { resolveSignup, redeemInvite } from './services/signup';
 import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
+import recordingNotesRoutes from './routes/recording-notes';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import {
   createRelationship,
@@ -403,6 +404,8 @@ app.route('/api', onboardingRoutes); // GET /api/me/onboarding, POST /api/decks/
 // Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
 app.route('/api', insightsRoutes);
 
+// Student side of recording marks: unseen tutor notes on my recordings (routes/recording-notes.ts)
+app.route('/api', recordingNotesRoutes);
 // Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
 app.route('/api', tutorDashboardRoutes);
 

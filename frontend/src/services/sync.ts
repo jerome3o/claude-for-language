@@ -21,6 +21,7 @@ import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-stu
 import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
 import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
+import { syncRecordingNotes } from './recording-notes';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
@@ -395,6 +396,13 @@ class SyncService {
       );
     } catch (err) {
       console.error('[Sync] Custom lesson sync failed:', err);
+    }
+    try {
+      // Tutor notes on my recordings ("second tone, not fourth"): pulled down
+      // so the line on the card back shows offline; local "seen" marks go up.
+      await syncRecordingNotes();
+    } catch (err) {
+      console.error('[Sync] Recording notes sync failed:', err);
     }
     try {
       // Sentence sets are text-only here; their audio comes down with the
