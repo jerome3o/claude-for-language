@@ -25,6 +25,7 @@ import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
+import lessonEditor from './routes/lesson-editor';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
@@ -384,6 +385,9 @@ app.route('/api/test', testAuth);
 
 // Apply auth middleware to all /api/* routes except auth routes
 app.use('/api/*', authMiddleware);
+
+// Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
+app.route('/api', lessonEditor);
 
 // Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
 app.route('/api', invitesRoutes);

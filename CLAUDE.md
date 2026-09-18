@@ -86,8 +86,9 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── worker/                 # Cloudflare Worker (API backend)
 │   ├── src/
 │   │   ├── index.ts       # Main entry point, routes
+│   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, test-auth)
 │   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS)
-│   │   ├── db/            # Database queries and migrations
+│   │   ├── db/            # Database queries and migrations (lesson-library-queries.ts for the library/editor)
 │   │   └── types.ts       # TypeScript types
 │   ├── wrangler.toml      # Cloudflare Worker config
 │   └── package.json
@@ -105,12 +106,14 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   └── lesson/            # Custom mini lessons: agent-authored lesson schema
 │       ├── types.ts       # Lesson spec (sections of exercises, 9 exercise types)
 │       ├── validate.ts    # Structural validation for agent-authored specs
+│       ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
+│       ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
 │       └── index.ts       # Re-exports
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.)
+│   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms)
+│   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.; pages/editor/ = library + editor)
 │   │   ├── hooks/         # Custom React hooks (useAudio, etc.)
 │   │   ├── api/           # API client functions
 │   │   └── types.ts       # TypeScript types
@@ -207,8 +210,10 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
-- `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done)
+- `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
+- `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
+- `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
 - `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
 - `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
@@ -662,12 +667,49 @@ inside `GET /api/custom-lessons`. Authoring paths: the MCP `create_custom_lesson
 Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
 views live in `frontend/src/components/lesson-exercises.tsx` (StudyGrammar reuses the
 scramble/choice/translate ones). The **Mini Lessons page** (`/lessons`, in the profile
-menu) inspects pending + completed lessons — full exercise listing per lesson, delete.
+menu) inspects pending + completed lessons — full exercise listing per lesson, delete, and an
+**Edit** link into the lesson editor (see "Lesson library & editor" below).
 - `GET /api/custom-lessons` - Active lessons with parsed spec (`?status=done|all` for the rest)
 - `POST /api/custom-lessons` - Create from `{ spec }` (validated; queues describe_image illustrations)
 - `PUT /api/custom-lessons/:id` - Replace a lesson's spec in place (validated; same id so history/schedule carry over; keeps generated illustrations whose image_prompt is unchanged)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
 - `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id)
+
+### Lesson library & editor (`worker/src/routes/lesson-editor.ts`, mounted at `/api`)
+A **lesson editor** (structured form for all 9 exercise types with live `validateLessonSpec`
+errors, a preview built from the real `lesson-exercises.tsx` components, auto-pinyin via
+`pinyin-pro`, TTS play buttons, raw JSON under Advanced) with a **Claude co-editor chat** beside
+it, and a tutor **lesson library**. Library model = *copy with link back*: the library item is
+the master; assigning creates a real `custom_lessons` row for the student (works offline, the
+student may edit it) that remembers `library_item_id` / `assigned_by` / `assigned_relationship_id`.
+"Push update" overwrites the copies' specs in place (same ids → completion history and FSRS
+schedule survive) and re-queues describe_image illustrations whose prompt changed
+(`mergeKeptImages` in services/custom-lesson.ts). The editor is for both roles: students on their
+own lessons (`/lessons/:id/edit`), tutors on library items (`/library/:id/edit`) and on lessons
+they assigned. `EditorShell` (components/editor) is generic — main column + chat pane at ≥1024px,
+Edit / Preview / Claude bottom tabs on phones — so a reader editor can reuse it.
+The chat (`services/lesson-editor.ts`, claude-sonnet-5) gets the current spec, the
+`shared/lesson/diff.ts` summary of what the author changed since its last message, and one tool
+`propose_lesson_spec` returning the FULL revised spec (validated; up to 2 repair rounds).
+Proposals render as a diff card with Accept / Reject; accepting replaces the editor state
+(unsaved until Save). Without `ANTHROPIC_API_KEY` the chat says so and the editor still works.
+Exports (Markdown with answer key, re-importable JSON, Quizlet-style CSV) are pure functions in
+`shared/lesson/export.ts`, served by the worker and also built client-side (works offline);
+print views live at `/library/:id/print` and `/lessons/:id/print`. Anki `.apkg` is not built yet.
+- `GET /api/lesson-library` - Non-archived items with assignment/exercise counts
+- `POST /api/lesson-library` - Create from `{ spec }` or `{ generate: { prompt } }` (Claude drafts it via `generateLessonSpec`)
+- `POST /api/lesson-library/import` - Same as create from `{ spec }`
+- `GET|PUT|DELETE /api/lesson-library/:id` - Get with spec / replace spec (+ `tags`; version bumps when content changed) / archive
+- `POST /api/lesson-library/:id/duplicate` - Copy as "Copy of …"
+- `POST /api/lesson-library/:id/assign` - `{ relationship_ids }` (caller must be the tutor); returns `assigned`, `already_had`, `errors`
+- `GET /api/lesson-library/:id/assignments` - Per student: completions, last rating/score, `up_to_date`
+- `POST /api/lesson-library/:id/push-update` - `{ relationship_ids? }` overwrite copies that are behind
+- `GET /api/lesson-library/:id/export.md|json|csv` and `GET /api/lessons/:id/export.md|json|csv`
+- `GET|PUT /api/lessons/:id` - A lesson for the editor: owner or the tutor who assigned it (`is_owner` in the response)
+- `GET /api/relationships/:relId/student-lessons` - Tutor's view of the student's lessons (`assigned_by_me`, completions)
+- `GET /api/editor-chat/:targetType/:targetId` - Get-or-create the chat; messages carry `proposal_diff` and `author_changes`
+- `POST /api/editor-chat/:targetType/:targetId/messages` - `{ message, current_spec }` → `{ user_message, message, proposal? }` (503 without an API key)
+- `POST /api/editor-chat/:targetType/:targetId/messages/:id/accept|reject`
 
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
@@ -1016,6 +1058,8 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId` - View a specific connection (conversations, shared decks)
 - `/connections/:relId/chat/:convId` - Chat interface
 - `/connections/:relId/progress` - Student progress view (tutor only)
+- `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view
+- `/lessons/:id/edit`, `/lessons/:id/print` - Lesson editor / print view for a student's own lesson or one the tutor assigned
 - `/connections/:relId/insights` - Student Insights: range, needs attention / going well, summary, lesson log (tutor only)
 - `/connections/:relId/history` - Full review history explorer with filters (tutor only)
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)
