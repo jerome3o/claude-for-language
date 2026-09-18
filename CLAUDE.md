@@ -1026,6 +1026,33 @@ genuinely destructive or ambiguous changes.
 Jerome does not want to be looped in for any of this. Tell him what landed
 when it's done, not what you're about to do.
 
+### PR Requirements: Screenshots for Frontend Changes (REQUIRED)
+
+**Every PR that touches `frontend/` UI must include screenshots in the PR
+body** — Jerome has no local environment, so the PR is the only place he can
+see what changed before it is live. Describing the screenshots in words is
+not enough; attach the images.
+
+- Capture at the phone viewport (412×915, 2× — the app is used folded on a
+  Pixel Fold) for every new or changed screen and state (empty, loaded,
+  error, modal/sheet open). Add a wider shot (≥1024px) only for screens with
+  a desktop layout (editors, admin).
+- Show before/after when changing an existing screen.
+- How: run the app locally (`E2E_TEST_MODE=true`, `/api/test/auth` for a
+  session, `?session_token=` to log in), seed realistic data (real hanzi,
+  not lorem ipsum), screenshot with Playwright
+  (`chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' })`
+  in the remote container). Scripts go in `e2e/.scratch/` and are deleted
+  before committing.
+- Attach by committing the PNGs under `docs/pr-screenshots/<branch-or-pr>/`
+  on the PR branch and referencing them with
+  `![...](https://github.com/jerome3o/claude-for-language/blob/<branch>/docs/pr-screenshots/<dir>/<file>.png?raw=true)`
+  in the PR body (GitHub renders raw blob URLs from the branch). Keep each
+  image under ~500 KB. Once the PR is merged the folder may be deleted in a
+  later PR if it is not referenced from docs.
+- Docs-only or worker-only PRs are exempt; a PR that changes both must
+  include screenshots for the frontend part.
+
 ### To Deploy
 
 Simply push to main:
