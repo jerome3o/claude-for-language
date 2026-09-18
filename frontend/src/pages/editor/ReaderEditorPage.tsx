@@ -35,6 +35,7 @@ import { ReaderForm } from '../../components/editor/ReaderForm';
 import { ReaderPreview } from '../../components/editor/ReaderPreview';
 import { ReaderDiffCard } from '../../components/editor/ReaderDiffCard';
 import { RawJsonModal } from '../../components/editor/RawJsonModal';
+import { AnkiExportModal } from '../../components/export/AnkiExportModal';
 import { useLessonSpeak } from '../../components/editor/useLessonSpeak';
 import { downloadText } from '../../components/editor/download';
 import { Loading, ErrorMessage } from '../../components/Loading';
@@ -91,6 +92,7 @@ export function ReaderEditorPage() {
   const [savedSpec, setSavedSpec] = useState<ReaderSpec | null>(null);
   const [saving, setSaving] = useState(false);
   const [showJson, setShowJson] = useState(false);
+  const [showAnki, setShowAnki] = useState(false);
   const [pollImages, setPollImages] = useState(0);
 
   useEffect(() => {
@@ -220,6 +222,7 @@ export function ReaderEditorPage() {
       section: i === 0,
       onClick: () => item.run({ spec, readerId: id, navigate }),
     })),
+    { label: '⬇ Export Anki (.apkg)', onClick: () => setShowAnki(true) },
     { label: '{ } Advanced: raw JSON', onClick: () => setShowJson(true), section: true },
     {
       label: '🗑 Delete reader',
@@ -284,6 +287,7 @@ export function ReaderEditorPage() {
           />
         }
       />
+      {showAnki && <AnkiExportModal target={{ kind: 'reader', readerId: id, title: spec.title_chinese }} onClose={() => setShowAnki(false)} />}
       {showJson && (
         <RawJsonModal<ReaderSpec>
           spec={spec}
