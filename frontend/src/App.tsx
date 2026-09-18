@@ -43,6 +43,10 @@ const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default:
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
+const LessonEditorPage = lazy(() => import('./pages/editor/LessonEditorPage').then(m => ({ default: m.LessonEditorPage })));
+const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').then(m => ({ default: m.LessonLibraryPage })));
+const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
+const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -380,6 +384,13 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* Lesson library + editor. The editor and print view have their own chrome (no <Header />). */}
+      <Route path="/library" element={<ProtectedRoute><Header /><LessonLibraryPage /></ProtectedRoute>} />
+      <Route path="/library/:id" element={<ProtectedRoute><Header /><LibraryItemPage /></ProtectedRoute>} />
+      <Route path="/library/:id/edit" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load the editor"><LessonEditorPage target="library" /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/library/:id/print" element={<ProtectedRoute><LessonPrintPage target="library" /></ProtectedRoute>} />
+      <Route path="/lessons/:id/edit" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load the editor"><LessonEditorPage target="lesson" /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/lessons/:id/print" element={<ProtectedRoute><LessonPrintPage target="lesson" /></ProtectedRoute>} />
       <Route
         path="/duplicate-finder"
         element={

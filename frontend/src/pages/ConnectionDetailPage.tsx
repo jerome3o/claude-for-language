@@ -19,6 +19,7 @@ import {
 } from '../types';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
+import { StudentLessonsSection } from '../components/editor/StudentLessonsSection';
 import './ConnectionDetailPage.css';
 
 export function ConnectionDetailPage() {
@@ -318,6 +319,8 @@ export function ConnectionDetailPage() {
             )}
           </div>
         )}
+
+        <StudentLessonsSection relId={relId!} isTutor={iAmTutor} />
 
         {/* Remove Connection */}
         <div className="detail-section danger-zone">

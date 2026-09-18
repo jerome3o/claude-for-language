@@ -133,3 +133,10 @@
   background: #ffedd5;
   color: #9a3412;
 }
+
+.mini-lesson-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}

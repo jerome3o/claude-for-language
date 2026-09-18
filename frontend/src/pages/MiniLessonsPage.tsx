@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CustomLessonSpec, LessonExercise, countScoreable } from '@shared/lesson';
@@ -143,13 +144,16 @@ function LessonCard({ lesson, onDelete, deleting }: {
               ))}
             </div>
           ))}
-          <button
-            className="btn btn-secondary btn-sm mini-lesson-delete"
-            onClick={() => onDelete(lesson)}
-            disabled={deleting}
-          >
-            {deleting ? 'Deleting…' : '🗑 Delete lesson'}
-          </button>
+          <div className="mini-lesson-actions">
+            <Link to={`/lessons/${lesson.id}/edit`} className="btn btn-primary btn-sm">✏️ Edit</Link>
+            <button
+              className="btn btn-secondary btn-sm mini-lesson-delete"
+              onClick={() => onDelete(lesson)}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting…' : '🗑 Delete lesson'}
+            </button>
+          </div>
         </div>
       )}
     </div>

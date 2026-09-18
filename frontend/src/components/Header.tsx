@@ -306,6 +306,12 @@ export function Header() {
                 </button>
                 <button
                   className="user-menu-item"
+                  onClick={() => handleMenuItemClick('/library')}
+                >
+                  📚 Lesson Library
+                </button>
+                <button
+                  className="user-menu-item"
                   onClick={() => handleMenuItemClick('/analyze')}
                 >
                   🔍 Sentence Analysis
