@@ -76,6 +76,21 @@
   min-width: 120px;
 }
 
+.quick-actions-secondary {
+  margin-top: -1.5rem;
+}
+
+.quick-actions-secondary .btn {
+  min-width: 0;
+  flex: 1 1 calc(50% - 0.25rem);
+}
+
+.connection-last-lesson {
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #666);
+  margin-top: 0.25rem;
+}
+
 /* Detail Section */
 .detail-section {
   margin-bottom: 2rem;
