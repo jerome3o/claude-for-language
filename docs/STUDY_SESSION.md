@@ -112,10 +112,12 @@ else is under **⋯** (a bottom sheet, `components/study/StudyMoreMenu.tsx`): ge
 fact, regenerate audio, new voice, roleplay, play my recording, debug info (only with the
 Debug Console flag on) and the "Added <date>" line.
 
-Sentence rows show the Chinese and a play button; one tap on the text opens the pinyin
-and English (plus the row's tools: the word-by-word breakdown, the **EN → 中** reverse
-exercise, and *+ Add as card*). **Show English** in the list header opens every row at
-once and is remembered in localStorage (`sentenceSet.showEnglish`).
+Sentence rows start blank (listen first): **▶** on the right plays the clip, each tap on
+the row uncovers one more line — hanzi, pinyin, English — and a tap on a fully open row
+hides it again. **EN** on the left flips the row to English-first (the translation is the
+prompt; the taps then uncover hanzi and pinyin). A fully open row carries the tools line:
+the word-by-word breakdown and *+ Add as card*. **Show all** in the list header opens
+every row for the current card only; the next card starts blank again.
 
 On the unfolded Fold (≥ 700px) the whole card column is capped at 640px and centred.
 

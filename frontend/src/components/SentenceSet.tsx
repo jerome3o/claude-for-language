@@ -25,11 +25,13 @@ import { AddChunkModal, Chunk } from './AddChunkModal';
  * Reads come from IndexedDB so the whole set — audio included — works offline.
  * Only generation needs a connection.
  *
- * On the study card the list is always there, under the meaning: every
- * sentence shows its Chinese with a play button, and one tap on the text
- * brings up the pinyin and the English (or the "Show English" switch does it
- * for the whole list at once). The reverse exercise — English up first,
- * translate it back — lives on each row's tools line.
+ * On the study card the list is always there, under the meaning, but every
+ * row starts blank: you listen first (▶ on the right), then tap the row to
+ * uncover the Chinese, then the pinyin, then the English — a listening
+ * exercise by default. The EN button on the left flips a row to English-first
+ * for the reverse exercise: the translation goes up alone, and the taps then
+ * uncover the Chinese and pinyin so you translate back before checking.
+ * "Show all" opens everything for the current card.
  */
 
 const FOCUS_LABELS: Record<string, string> = {
@@ -43,23 +45,23 @@ const FOCUS_LABELS: Record<string, string> = {
 
 const COUNT_OPTIONS = [5, 10];
 
-/** Persisted preference: pinyin + English open on every sentence by default. */
-const SHOW_ENGLISH_KEY = 'sentenceSet.showEnglish';
+/**
+ * Progressive reveal: you hear the sentence, then uncover it a line at a time
+ * — characters, then pinyin, then the English — so each one gets read before
+ * the next is there to read instead. Steps a row hasn't got are skipped.
+ */
+type RevealStep = 'hanzi' | 'pinyin' | 'translation';
 
-function readShowEnglish(): boolean {
-  try {
-    return localStorage.getItem(SHOW_ENGLISH_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeShowEnglish(value: boolean) {
-  try {
-    localStorage.setItem(SHOW_ENGLISH_KEY, value ? '1' : '0');
-  } catch {
-    // private mode / storage full — the toggle still works for this card
-  }
+/**
+ * The steps a row still has to uncover. In English-first mode the translation
+ * is already on screen as the prompt, so it drops out of the chain rather than
+ * being shown twice.
+ */
+function revealSteps(row: { pinyin: string | null; translation: string | null }, englishFirst = false): RevealStep[] {
+  const steps: RevealStep[] = ['hanzi'];
+  if (row.pinyin) steps.push('pinyin');
+  if (row.translation && !englishFirst) steps.push('translation');
+  return steps;
 }
 
 /** Read the explanation cached on a synced row, if it has one. */
@@ -123,12 +125,14 @@ export function SentenceSet({
   const [open, setOpen] = useState(compact || defaultOpen);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Rows whose pinyin + English (and tools) are up. The Chinese is always up.
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // How much of each row is showing: 0 = nothing, then one line per tap.
+  const [revealed, setRevealed] = useState<Record<string, number>>({});
   // Rows put into English-first mode: the translation leads, the Chinese is
   // hidden until a tap, so the row reads as a translate-into-Chinese prompt.
   const [englishFirst, setEnglishFirst] = useState<Record<string, boolean>>({});
-  const [showEnglish, setShowEnglish] = useState(readShowEnglish);
+  // Everything open for this card (resets on the next one, so the default
+  // stays listen-first).
+  const [showAll, setShowAll] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   // Explanations fetched this session, keyed by sentence id ('error' = failed)
@@ -169,8 +173,9 @@ export function SentenceSet({
   }, [noteId]);
 
   useEffect(() => {
-    setExpanded({});
+    setRevealed({});
     setEnglishFirst({});
+    setShowAll(false);
     setExplanations({});
     setShowCustom(false);
     setShowMenu(false);
@@ -216,16 +221,13 @@ export function SentenceSet({
     setSentences([]);
   }, [noteId]);
 
-  const toggleShowEnglish = () => {
-    setShowEnglish((v) => {
-      writeShowEnglish(!v);
-      return !v;
+  /** One more tap, one more line — and a tap on a fully open row hides it again. */
+  const advanceRow = (row: DisplayRow) => {
+    const total = revealSteps(row, englishFirst[row.key]).length;
+    setRevealed((prev) => {
+      const stage = prev[row.key] ?? 0;
+      return { ...prev, [row.key]: stage >= total ? 0 : stage + 1 };
     });
-  };
-
-  /** One tap on the text opens the pinyin + English; another closes them. */
-  const toggleRow = (row: DisplayRow) => {
-    setExpanded((prev) => ({ ...prev, [row.key]: !prev[row.key] }));
   };
 
   /**
@@ -236,7 +238,8 @@ export function SentenceSet({
   const toggleEnglishFirst = (row: DisplayRow) => {
     const next = !englishFirst[row.key];
     setEnglishFirst((prev) => ({ ...prev, [row.key]: next }));
-    setExpanded((prev) => ({ ...prev, [row.key]: false }));
+    setRevealed((prev) => ({ ...prev, [row.key]: 0 }));
+    if (next) setShowAll(false);
   };
 
   const playSentence = (row: DisplayRow) => {
@@ -305,11 +308,10 @@ export function SentenceSet({
     );
   };
 
-  /** The row's quiet tools line: breakdown · reverse practice · add as card. */
+  /** The row's quiet tools line: breakdown · add as card. */
   const renderTools = (row: DisplayRow) => {
     const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
     const isLoading = explaining.has(row.key);
-    const isEnglishFirst = !!englishFirst[row.key];
     return (
       <div className="sentence-set-tools">
         {!state || state === 'error' ? (
@@ -326,20 +328,6 @@ export function SentenceSet({
                 : 'What’s going on here?'}
           </button>
         ) : null}
-        {row.translation && (
-          <button
-            className={`sentence-set-tool${isEnglishFirst ? ' is-active' : ''}`}
-            onClick={() => toggleEnglishFirst(row)}
-            aria-pressed={isEnglishFirst}
-            title={
-              isEnglishFirst
-                ? 'Back to Chinese first'
-                : 'Show the English only — translate it back into Chinese'
-            }
-          >
-            {isEnglishFirst ? '中 first' : 'EN → 中'}
-          </button>
-        )}
         {row.pinyin && row.translation && (
           <button
             className="sentence-set-tool"
@@ -493,12 +481,12 @@ export function SentenceSet({
         {open && (
           <div className="sentence-set-actions">
             <button
-              className={`sentence-set-action sentence-set-action--text${showEnglish ? ' is-active' : ''}`}
-              onClick={toggleShowEnglish}
-              aria-pressed={showEnglish}
-              title={showEnglish ? 'Hide the pinyin and English again' : 'Show pinyin and English on every sentence'}
+              className={`sentence-set-action sentence-set-action--text${showAll ? ' is-active' : ''}`}
+              onClick={() => setShowAll((v) => !v)}
+              aria-pressed={showAll}
+              title={showAll ? 'Hide everything again' : 'Show every sentence with pinyin and English'}
             >
-              {showEnglish ? 'Hide English' : 'Show English'}
+              {showAll ? 'Hide all' : 'Show all'}
             </button>
             {regenMenu}
           </div>
@@ -552,15 +540,82 @@ export function SentenceSet({
         <ul className="sentence-set-list">
           {rows.map((row) => {
             const isEnglishFirst = !!englishFirst[row.key];
-            const isOpen = showEnglish || !!expanded[row.key];
+            const steps = revealSteps(row, isEnglishFirst);
+            const stage = showAll ? steps.length : revealed[row.key] ?? 0;
+            const shown = (step: RevealStep) => {
+              const at = steps.indexOf(step);
+              return at !== -1 && at < stage;
+            };
+            const isFullyShown = stage >= steps.length;
+            const isBlank = stage === 0 && !isEnglishFirst;
             const focusLabel = row.focus ? FOCUS_LABELS[row.focus] : null;
             const showFocus = focusLabel && row.focus !== 'core';
             const isThisPlaying = isPlaying && playingId === row.key;
             return (
               <li
                 key={row.key}
-                className={`sentence-set-row${isOpen ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}`}
+                className={`sentence-set-row${isFullyShown ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}`}
               >
+                {/* Left: the reverse exercise — English up alone, translate it
+                    back into Chinese before revealing. */}
+                <button
+                  className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
+                  onClick={() => toggleEnglishFirst(row)}
+                  disabled={!row.translation}
+                  aria-pressed={isEnglishFirst}
+                  title={
+                    !row.translation
+                      ? 'No translation for this sentence'
+                      : isEnglishFirst
+                        ? 'Back to listening first'
+                        : 'Show the English only — translate it back into Chinese'
+                  }
+                >
+                  EN
+                </button>
+                <div className="sentence-set-body">
+                  {/* A row starts blank on purpose: listen first, then uncover
+                      one line per tap so each is read before the next lands. */}
+                  <button
+                    className={isBlank ? 'sentence-set-hidden' : 'sentence-set-reveal'}
+                    onClick={() => advanceRow(row)}
+                    aria-expanded={stage > 0}
+                    aria-label={isBlank ? 'Reveal the sentence' : undefined}
+                    title={
+                      isFullyShown
+                        ? 'Hide again'
+                        : stage === 0
+                          ? (isEnglishFirst ? 'Reveal the Chinese' : 'Reveal the sentence')
+                          : steps[stage] === 'pinyin'
+                            ? 'Reveal the pinyin'
+                            : 'Reveal the English'
+                    }
+                  >
+                    {isEnglishFirst && row.translation && (
+                      <span className="sentence-set-prompt">{row.translation}</span>
+                    )}
+                    {shown('hanzi') && <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>}
+                    {shown('pinyin') && row.pinyin && (
+                      <span className="sentence-set-pinyin">{row.pinyin}</span>
+                    )}
+                    {shown('translation') && row.translation && (
+                      <span className="sentence-set-translation">{row.translation}</span>
+                    )}
+                    {isBlank && <span className="sentence-set-blank" aria-hidden="true" />}
+                  </button>
+                  {isFullyShown && (showFocus || row.fromCard || row.focus_note) && (
+                    <div className="sentence-set-focus">
+                      {row.fromCard && <span className="sentence-set-badge">From the card</span>}
+                      {showFocus && !row.fromCard && (
+                        <span className="sentence-set-badge">{focusLabel}</span>
+                      )}
+                      {row.focus_note && <span>{row.focus_note}</span>}
+                    </div>
+                  )}
+                  {isFullyShown && renderTools(row)}
+                  {isFullyShown && renderExplanation(row)}
+                </div>
+                {/* Right: hear it — the first thing to do on a blank row. */}
                 <button
                   className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}`}
                   onClick={() => playSentence(row)}
@@ -570,48 +625,6 @@ export function SentenceSet({
                 >
                   {isThisPlaying ? '⏸' : '▶'}
                 </button>
-                <div className="sentence-set-body">
-                  {/* One tap on the text: pinyin and English come up (or go away). */}
-                  <button
-                    className="sentence-set-reveal"
-                    onClick={() => toggleRow(row)}
-                    aria-expanded={isOpen}
-                    title={isOpen ? 'Hide pinyin and English' : 'Show pinyin and English'}
-                  >
-                    {isEnglishFirst ? (
-                      <>
-                        <span className="sentence-set-prompt">{row.translation}</span>
-                        {isOpen ? (
-                          <>
-                            <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>
-                            {row.pinyin && <span className="sentence-set-pinyin">{row.pinyin}</span>}
-                          </>
-                        ) : (
-                          <span className="sentence-set-next">Say it in Chinese, then tap to check</span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>
-                        {isOpen && row.pinyin && <span className="sentence-set-pinyin">{row.pinyin}</span>}
-                        {isOpen && row.translation && (
-                          <span className="sentence-set-translation">{row.translation}</span>
-                        )}
-                      </>
-                    )}
-                  </button>
-                  {(row.fromCard || (isOpen && (showFocus || row.focus_note))) && (
-                    <div className="sentence-set-focus">
-                      {row.fromCard && <span className="sentence-set-badge">From the card</span>}
-                      {isOpen && showFocus && !row.fromCard && (
-                        <span className="sentence-set-badge">{focusLabel}</span>
-                      )}
-                      {isOpen && row.focus_note && <span>{row.focus_note}</span>}
-                    </div>
-                  )}
-                  {isOpen && renderTools(row)}
-                  {isOpen && renderExplanation(row)}
-                </div>
               </li>
             );
           })}

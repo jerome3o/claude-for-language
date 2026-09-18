@@ -1511,7 +1511,9 @@ button.queue-counts:active {
   border-bottom: 1px solid var(--color-border);
 }
 
-/* Play: a soft round button that lines up with the first line of text */
+/* Left: the English-first toggle. Right: play. Both soft round buttons that
+   line up with the first line of text. */
+.sentence-set-en,
 .sentence-set-play {
   flex: 0 0 auto;
   width: 36px;
@@ -1521,13 +1523,39 @@ button.queue-counts:active {
   border-radius: 50%;
   background-color: var(--color-background, #f3f4f6);
   color: var(--color-text);
-  font-size: 0.8rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0 0 2px;
+  padding: 0;
   cursor: pointer;
   transition: background-color 0.2s, color 0.2s;
+}
+
+.sentence-set-en {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light);
+}
+
+.sentence-set-en:hover:not(:disabled) {
+  color: var(--color-text);
+  background-color: var(--color-border);
+}
+
+.sentence-set-en:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sentence-set-en.is-active {
+  background-color: var(--color-text);
+  color: var(--color-surface);
+}
+
+.sentence-set-play {
+  font-size: 0.8rem;
+  padding-left: 2px;
 }
 
 .sentence-set-play:hover:not(:disabled) {
@@ -1545,7 +1573,35 @@ button.queue-counts:active {
   min-width: 0;
 }
 
-/* The tappable text: the Chinese, plus pinyin and English once open */
+/* A blank row: nothing to read yet, so you listen (or ask for the English)
+   first. The faint bar is the tap target for the first line. */
+.sentence-set-hidden {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 0.125rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sentence-set-blank {
+  display: block;
+  width: 62%;
+  max-width: 14rem;
+  height: 10px;
+  border-radius: 5px;
+  background-color: var(--color-background, #f3f4f6);
+}
+
+.sentence-set-hidden:hover .sentence-set-blank {
+  background-color: var(--color-border);
+}
+
+/* The tappable text: whatever has been uncovered so far */
 .sentence-set-reveal {
   display: block;
   width: 100%;
