@@ -86,8 +86,9 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── worker/                 # Cloudflare Worker (API backend)
 │   ├── src/
 │   │   ├── index.ts       # Main entry point, routes
+│   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, test-auth)
 │   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS)
-│   │   ├── db/            # Database queries and migrations
+│   │   ├── db/            # Database queries and migrations (lesson-library-queries.ts for the library/editor)
 │   │   └── types.ts       # TypeScript types
 │   ├── wrangler.toml      # Cloudflare Worker config
 │   └── package.json
@@ -102,15 +103,25 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── engine.ts      # Pure game engine — movement, verbs, goal checking
 │   │   ├── validate.ts    # Playability checks for generated worlds
 │   │   └── index.ts       # Re-exports
-│   └── lesson/            # Custom mini lessons: agent-authored lesson schema
-│       ├── types.ts       # Lesson spec (sections of exercises, 9 exercise types)
-│       ├── validate.ts    # Structural validation for agent-authored specs
-│       └── index.ts       # Re-exports
+│   ├── lesson/            # Custom mini lessons: agent-authored lesson schema
+│   │   ├── types.ts       # Lesson spec (sections of exercises, 9 exercise types)
+│   │   ├── validate.ts    # Structural validation for agent-authored specs
+│   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
+│   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
+│   │   └── index.ts       # Re-exports
+│   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
+│       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
+│       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
+│       ├── diff.ts        # Page-level diff (added / removed / moved / changed by id, content or similarity)
+│       └── export.ts      # Markdown / re-importable JSON / Quizlet CSV
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── pages/         # Page components (StudyPage, DeckDetailPage, etc.)
+│   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms; components/tutor/ = students dashboard, setup checklist, send-homework sheet)
+│   │   ├── components/nav/ # Bottom tab bar (TabBar), role derivation (useNavRole), landing rule (landing.ts), maintenance actions
+│   │   ├── pages/         # Page components (StudyPage, DecksPage, MorePage, DeckDetailPage, etc.; pages/editor/ = library + editor)
+│   │   ├── services/anki/ # Client-side Anki .apkg export (sql.js + JSZip): builder, deck/lesson/reader adapters, audio resolution
+│   │   ├── components/export/ # AnkiExportModal — options / progress / result UI (lazy-loads services/anki)
 │   │   ├── hooks/         # Custom React hooks (useAudio, etc.)
 │   │   ├── api/           # API client functions
 │   │   └── types.ts       # TypeScript types
@@ -207,8 +218,13 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
-- `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done)
+- `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
+- `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
+- `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library' | 'reader', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
+- `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
+- `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
+- `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -318,7 +334,12 @@ For manual state adjustments (e.g., admin resetting a card), we may add a `set_c
 ### Study Flow (Offline-First)
 **Study works 100% offline** - no loading spinners between cards, instant transitions.
 
-For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md).
+For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md) — including the
+card-back layout (one action row **Ask Claude · Sentences · ⋯**, everything else under ⋯ in
+`frontend/src/components/study/`), offline mode (automatic from NetworkContext + a forced
+override, `services/offlineMode.ts`), the 8s multiple-choice fallback (`services/multipleChoice.ts`),
+the exit confirm with recap, and tutor notes on recordings. Study-only styles live in
+`frontend/src/pages/StudyPage.css`.
 
 **Card Priority:**
 1. Learning cards due NOW (highest priority - active timers)
@@ -662,16 +683,217 @@ inside `GET /api/custom-lessons`. Authoring paths: the MCP `create_custom_lesson
 Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
 views live in `frontend/src/components/lesson-exercises.tsx` (StudyGrammar reuses the
 scramble/choice/translate ones). The **Mini Lessons page** (`/lessons`, in the profile
-menu) inspects pending + completed lessons — full exercise listing per lesson, delete.
+menu) inspects pending + completed lessons — full exercise listing per lesson, delete, and an
+**Edit** link into the lesson editor (see "Lesson library & editor" below).
 - `GET /api/custom-lessons` - Active lessons with parsed spec (`?status=done|all` for the rest)
 - `POST /api/custom-lessons` - Create from `{ spec }` (validated; queues describe_image illustrations)
 - `PUT /api/custom-lessons/:id` - Replace a lesson's spec in place (validated; same id so history/schedule carry over; keeps generated illustrations whose image_prompt is unchanged)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
 - `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id)
 
+### Lesson library & editor (`worker/src/routes/lesson-editor.ts`, mounted at `/api`)
+A **lesson editor** (structured form for all 9 exercise types with live `validateLessonSpec`
+errors, a preview built from the real `lesson-exercises.tsx` components, auto-pinyin via
+`pinyin-pro`, TTS play buttons, raw JSON under Advanced) with a **Claude co-editor chat** beside
+it, and a tutor **lesson library**. Library model = *copy with link back*: the library item is
+the master; assigning creates a real `custom_lessons` row for the student (works offline, the
+student may edit it) that remembers `library_item_id` / `assigned_by` / `assigned_relationship_id`.
+"Push update" overwrites the copies' specs in place (same ids → completion history and FSRS
+schedule survive) and re-queues describe_image illustrations whose prompt changed
+(`mergeKeptImages` in services/custom-lesson.ts). The editor is for both roles: students on their
+own lessons (`/lessons/:id/edit`), tutors on library items (`/library/:id/edit`) and on lessons
+they assigned. `EditorShell` (components/editor) is generic — main column + chat pane at ≥1024px,
+Edit / Preview / Claude bottom tabs on phones — so a reader editor can reuse it.
+The chat (`services/lesson-editor.ts`, claude-sonnet-5) gets the current spec, the
+`shared/lesson/diff.ts` summary of what the author changed since its last message, and one tool
+`propose_lesson_spec` returning the FULL revised spec (validated; up to 2 repair rounds).
+Proposals render as a diff card with Accept / Reject; accepting replaces the editor state
+(unsaved until Save). Without `ANTHROPIC_API_KEY` the chat says so and the editor still works.
+Exports (Markdown with answer key, re-importable JSON, Quizlet-style CSV) are pure functions in
+`shared/lesson/export.ts`, served by the worker and also built client-side (works offline);
+print views live at `/library/:id/print` and `/lessons/:id/print`.
+
+**Anki export (`frontend/src/services/anki/`, UI in `components/export/AnkiExportModal.tsx`)**:
+decks (Deck → Settings → Export to Anki), lessons / library items (⋯ menu → Export Anki) and
+readers (Anki button on the list card and reader page) export a real `.apkg` built entirely in
+the browser — sql.js writes `collection.anki2` (legacy schema 11), JSZip packs it with the audio
+clips. Two note types: **汉语学习 Vocabulary** (Hanzi/Pinyin/English/Audio/Sentence…/Notes/SourceId,
+three templates mirroring the app's card types; the Audio → Hanzi card only exists when Audio is
+non-empty) and **汉语学习 Sentence** (Chinese/Pinyin/English/Audio/SourceId, one card) for reader
+pages and lesson sentences. All ids are deterministic (model/deck ids hash their names, note GUIDs
+hash the source id / hanzi) so re-exporting UPDATES notes in Anki instead of duplicating them —
+never rename model fields or templates. Audio is cache-first (IndexedDB), fetched/generated when
+online, skipped and counted when missing, so the export works offline. "Include progress" (decks,
+off by default) writes an approximation of card state into Anki's scheduling columns. The module
+is `import()`ed on demand and the sql.js `.wasm` is precached by the PWA (`wasm` in the workbox
+glob). `sources.ts` (adapters) and `apkg.ts` (builder) are pure and unit-tested by rebuilding and
+re-reading the package with the same libraries. Format details: docs/IMPORT_EXPORT_FORMAT.md.
+- `GET /api/lesson-library` - Non-archived items with assignment/exercise counts
+- `POST /api/lesson-library` - Create from `{ spec }` or `{ generate: { prompt } }` (Claude drafts it via `generateLessonSpec`)
+- `POST /api/lesson-library/import` - Same as create from `{ spec }`
+- `GET|PUT|DELETE /api/lesson-library/:id` - Get with spec / replace spec (+ `tags`; version bumps when content changed) / archive
+- `POST /api/lesson-library/:id/duplicate` - Copy as "Copy of …"
+- `POST /api/lesson-library/:id/assign` - `{ relationship_ids }` (caller must be the tutor); returns `assigned`, `already_had`, `errors`
+- `GET /api/lesson-library/:id/assignments` - Per student: completions, last rating/score, `up_to_date`
+- `POST /api/lesson-library/:id/push-update` - `{ relationship_ids? }` overwrite copies that are behind
+- `GET /api/lesson-library/:id/export.md|json|csv` and `GET /api/lessons/:id/export.md|json|csv`
+- `GET|PUT /api/lessons/:id` - A lesson for the editor: owner or the tutor who assigned it (`is_owner` in the response)
+- `GET /api/relationships/:relId/student-lessons` - Tutor's view of the student's lessons (`assigned_by_me`, completions)
+- `GET /api/editor-chat/:targetType/:targetId` - Get-or-create the chat; messages carry `proposal_diff` and `author_changes`
+- `POST /api/editor-chat/:targetType/:targetId/messages` - `{ message, current_spec }` → `{ user_message, message, proposal? }` (503 without an API key)
+- `POST /api/editor-chat/:targetType/:targetId/messages/:id/accept|reject`
+
+### Graded readers & reader editor (`worker/src/routes/reader-editor.ts`, mounted at `/api`)
+Readers (`graded_readers` + `reader_pages`, per-user) are generated on `story-generation-queue`
+(`services/graded-reader.ts`) or written by hand. The **reader editor** (`/readers/:id/edit`,
+`frontend/src/pages/editor/ReaderEditorPage.tsx`) is built on the same `EditorShell` as the lesson
+editor: title fields + collapsible page cards (Chinese with 🔊 and 拼音 auto-fill via `pinyin-pro`,
+pinyin, English with Translate, illustration prompt with Suggest / Illustrate and a thumbnail;
+move / duplicate / insert / delete), live `validateReaderSpec` errors blocking Save, a **Preview**
+that is the real tap-to-reveal reading view, a **Claude** co-editor chat (same `editor_chats`
+tables, target type `reader`; `services/reader-editor.ts` `proposeReaderRevision` with one tool
+`propose_reader_spec`, validated with up to 2 repair rounds, fed the `shared/reader/diff.ts`
+summary of the author's own edits), exports (Markdown with glossary, Print view at
+`/readers/:id/print`, re-importable JSON, Quizlet CSV from `vocabulary_used`; array-driven menu
+in `READER_EXPORTS` so Anki can be appended) and raw JSON under Advanced. The whole reader is
+saved in one `PUT …/spec`: pages are upserted by id, missing ones deleted, numbers rebuilt,
+illustrations kept when the prompt is unchanged (stale R2 keys deleted) and new/changed prompts
+queued on `image-generation-queue` like generated readers. The readers list has **Import JSON**.
+Tutor→student sharing of readers is not built.
+- `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
+- `POST /api/readers/:id/retry` - Re-queue a FAILED reader in place (same id; status back to `generating`). The Readers list folds every failed reader into one "N failed generations" row with Retry / Delete / Delete all; raw API errors only appear behind "Show details" (`services/readerFailures.ts`). `ensureDailyReader` asks the server at most once per local date (`daily-reader-attempt` in localStorage) and the daily reader's failed row is reused on retry instead of a new one being created every session
+- `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)
+- `GET|PUT /api/readers/:id/spec` - The reader as a `ReaderSpec` / replace it whole (`{ spec }`; returns `image_jobs`)
+- `POST /api/readers/import` - New reader from `{ spec }` (owner = caller; page ids never reused)
+- `GET /api/readers/:id/export.md|json|csv`
+- `POST /api/readers/:id/assist` - `{ field: 'english'|'image_prompt', chinese, english? }` → `{ text }` (503 without an API key)
+- `GET|POST /api/editor-chat/reader/:id[/messages]`, `…/messages/:id/accept|reject` - the co-editor chat (see Lesson library & editor)
+
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
 - `GET /api/stats/deck/:id` - Deck statistics
+
+### Tutor Student Insights (tutor-only, `worker/src/routes/insights.ts`)
+One-page briefing for a tutor before a lesson: pure aggregation over the student's
+`review_events` (`worker/src/services/insights.ts`, unit-tested), a lesson log that anchors
+the default range ("since last lesson", else 14 days; capped at 400 days), a Claude-written
+narrative in English + 简体中文, marks on the student's pronunciation recordings, and a
+paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `/recordings`
+(`frontend/src/pages/tutor/`). Tables (migration 0060): `tutor_lesson_log`,
+`student_summaries`, `tutor_recording_marks`.
+- `GET /api/relationships/:relId/lesson-log` - Logged lessons, newest first
+- `POST /api/relationships/:relId/lesson-log` - `{ lesson_at, notes? }`; non-empty notes are also
+  inserted into the STUDENT's `lesson_notes` prefixed `[From tutor <name>, <date>]` so they feed
+  the daily reader and other AI context
+- `DELETE /api/relationships/:relId/lesson-log/:id`
+- `GET /api/relationships/:relId/insights?from&to` - totals, `struggling` (ranked, with the wrong
+  characters typed), `going_well`, `activity` (lessons/readers/quests), `recordings` (+ marks),
+  plus the `range` used and `since_lesson`
+- `POST /api/relationships/:relId/insights/summary` - `{ from?, to? }` → narrative from the
+  structured report (never raw events), persisted; 503 when `ANTHROPIC_API_KEY` is missing
+- `GET /api/relationships/:relId/insights/summaries` - Past narratives
+- `PUT /api/relationships/:relId/recordings/:eventId/mark` - `{ status: listened|needs_work, comment? }`
+- `DELETE /api/relationships/:relId/recordings/:eventId/mark`
+- `GET /api/relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit` -
+  Flat review events newest first (keyset cursor); the "by word" view groups client-side
+
+Student side of the marks (`worker/src/routes/recording-notes.ts`; migration 0066 adds
+`tutor_recording_marks.student_seen_at`): a needs-work comment is shown once under the pinyin
+on the back of that card ("From <tutor>: …"), cached in IndexedDB (`recordingNotes`) by
+`services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md.
+- `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name)
+- `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events)
+
+### Tutor dashboard & student page (`worker/src/routes/tutor-dashboard.ts`)
+The tutor's `/connections` becomes a **Students dashboard** once the account has an active
+student (`frontend/src/components/tutor/StudentsDashboard.tsx`): one card per student with a
+status line (studied today / streak / today's accuracy), three pills (words struggling = the
+insights `struggling` list over the last 7 days, 🎤 recordings not yet marked, Homework %), and
+Message / Send homework. A student with no review events gets the **Getting set up** card (signed
+in · homework received · installed the app · first study session) — the same checklist replaces
+the empty progress page on their student page. Pending invite links show as muted rows (Resend /
+Revoke); the tutor's shared decks list under "My homework decks". The student page
+(`ConnectionDetailPage`) is ordered status → Message / Send homework → Needs attention → Homework
+(shared decks with progress bars + the student's lessons) → Conversations → Activity; Remove
+connection and the student's own shared decks live under ⋯. **Message** opens the most recent
+conversation directly (no title modal; a fresh one comes from the chat's own `?new=1` / `chat/new`). Sharing a deck asks for confirmation, and a deck already shared offers **Update their copy**
+(new notes only, progress kept). Pure aggregation lives in `services/tutor-dashboard.ts`
+(unit-tested); SQL in `db/tutor-dashboard-queries.ts`. Homework % = mastered cards + ½ started
+cards + completed lessons, over all cards + lessons the tutor sent.
+The device reports itself during sync (`services/clientState.ts`, throttled to every 30 min):
+`display-mode: standalone` → `pwa`, the Capacitor shell → `android`, else `browser`, plus the
+cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_count`,
+`last_opened_at`). "Send how-to" posts the Obtainium / home-screen steps into the chat.
+- `GET /api/tutor/dashboard?tz_offset=` - Every student card + pending invites + homework decks in one call (client caches 60s)
+- `GET /api/relationships/:relId/overview?tz_offset=` - One student card (status, pills, needs_attention, homework, setup, activity)
+- `POST /api/relationships/:relId/conversations/open` - Most recent conversation id, created if none
+- `POST /api/relationships/:relId/send-howto` - Sends the install how-to as a chat message from the tutor
+- `POST /api/relationships/:relId/shared-decks/:id/update` - Add the tutor's newer notes to the student's copy (matched by hanzi; progress kept)
+- `POST /api/me/client-state` - `{ install_kind, cached_audio_count }` from the device (never downgrades pwa/android to browser)
+
+### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
+- `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
+- `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
+- `POST /api/invites` - Create one (needs `can_invite` or admin): `{ email?, inviter_role?: 'tutor'|'student'|null, share_deck_ids?, max_uses?, expires_in_days?, note? }` → invite with `url`
+- `DELETE /api/invites/:id` - Revoke (owner or admin)
+- `POST /api/invites/:id/redeem` - A signed-in user accepting someone's link (relationship + decks, no new account)
+- `GET /api/admin/access-requests` - Pending uninvited sign-in attempts (`?status=all|approved|dismissed`)
+- `POST /api/admin/access-requests/:id/approve` - Creates an email-bound invite from the admin; the person just signs in again
+- `POST /api/admin/access-requests/:id/dismiss`
+- `PUT /api/admin/users/:id/can-invite` - `{ can_invite: boolean }`
+- `GET /api/auth/login?invite=<token>` - Starts Google sign-in with the invite riding in the OAuth `state`
+
+Invite rows also carry `welcome_message` (optional; `POST /api/invites` accepts it, and on the
+first redemption `deliverWelcomeMessage` in `services/signup.ts` posts it as the inviter's first chat
+message in the relationship's conversation + an unread notification) and `opened_at` (set by the
+first `GET /invites/:id/public`, i.e. the /join page loading — the tutor's list shows
+"Link opened · not signed in yet"). Migration 0065.
+
+### Student onboarding & home (`worker/src/routes/onboarding.ts`)
+- `GET /api/me/onboarding` - What a new invitee's first-open screen needs: `invited`, `inviter`
+  (name/picture), `inviter_role`, `relationship_id`, `welcome_message` + `welcome_conversation_id`,
+  `decks` copied by the invite (id/name/note_count), `has_reviewed`/`review_count`. The client
+  (`components/onboarding/useOnboarding.ts`) caches it in localStorage and shows `FirstOpenScreen`
+  while the user came in via a tutor invite and has zero reviews (server and local); after the
+  first review the normal home renders. `FirstCardExplainer` (rendered once by StudyPage) shows a
+  three-line explainer over the first card when there are no review events yet.
+- `POST /api/decks/starter` - Idempotent: creates the caller's built-in **"Starter Chinese"** deck
+  (`services/starter-deck.ts`, 15 words with tone-marked pinyin + one example sentence each, word and
+  sentence TTS generated after the response) or returns the existing one by name. The invite sheet
+  preselects it and requires at least one deck when inviting a student.
+- The student home (`pages/HomePage.tsx`, `components/home/`) is one **Study today's cards** button
+  with a plain subtitle ("24 cards due · about 8 min", ~20 s/card; four-colour breakdown behind ⓘ),
+  a **From <tutor>** homework card (newest shared deck / assigned lesson + unread tutor message;
+  `homework.ts` is pure and unit-tested), a compact top-5 deck list linking to `/decks`, and one
+  **+ Add a deck** link (modal with "Generate with Claude" inside). It never says "Flashcards done"
+  until a full sync has completed once (`hooks/useSyncStatus.ts`).
+
+## Invite-only sign-up
+
+**A Google sign-in for an email with no `users` row creates a user only if an invite admits it.**
+The gate lives in the `/api/auth/callback` handler (`worker/src/index.ts`) and
+`worker/src/services/signup.ts`:
+
+1. `findExistingUser` — existing users (by google_id, then email) always get in; nothing changes for them.
+2. Otherwise `resolveSignup(db, googleUser, { inviteToken, adminEmail })` tries, in order:
+   the invite token carried in the OAuth `state` (from `/join/<token>` → `/api/auth/login?invite=`),
+   a still-valid `invites` row bound to the Google email, a `pending_invitations` row whose
+   inviter has `can_invite`/is admin (the pre-existing email-invite path), and finally
+   **`ADMIN_EMAIL`, which is permanently invited so the admin can never lock themselves out.**
+3. No match → **no user is created**; the attempt is upserted into `access_requests` (one ntfy
+   ping via `NTFY_TOPIC` the first time) and the browser lands on `/?signup=invite_only`.
+   A valid link whose invite is bound to a *different* email → `/?signup=email_mismatch&inviter=…`.
+4. A match → `createUser`, then `redeemInvite` (idempotent, awaited before the redirect so the
+   first screen already has the deck): records the redemption, creates the relationship in
+   `active` status with the inviter in `inviter_role`, and copies `share_deck_ids` via the
+   existing `shareDeck`. An *existing* user who opens a `/join` link is also redeemed (no account
+   change) so a tutor can connect current students the same way.
+
+**Who may invite** is `users.can_invite` (admin page toggle; admins always may). It gates
+`POST /api/invites` and the email path of `POST /api/relationships` when the target has no
+account; connecting with an existing user stays open to everyone. Invite tokens are 32 random
+bytes base64url — treat them as bearer secrets (don't log them). `E2E_TEST_MODE`'s
+`/api/test/auth` still creates users directly.
 
 ## Common Tasks
 
@@ -903,6 +1125,39 @@ genuinely destructive or ambiguous changes.
 Jerome does not want to be looped in for any of this. Tell him what landed
 when it's done, not what you're about to do.
 
+### PR Requirements: Screenshots for Frontend Changes (REQUIRED)
+
+**Every PR that touches `frontend/` UI must include screenshots in the PR
+body** — Jerome has no local environment, so the PR is the only place he can
+see what changed before it is live. Describing the screenshots in words is
+not enough; attach the images.
+
+- Capture at the phone viewport (412×915, 2× — the app is used folded on a
+  Pixel Fold) for every new or changed screen and state (empty, loaded,
+  error, modal/sheet open). Add a wider shot (≥1024px) only for screens with
+  a desktop layout (editors, admin).
+- Show before/after when changing an existing screen.
+- How: run the app locally (`E2E_TEST_MODE=true`, `/api/test/auth` for a
+  session, `?session_token=` to log in), seed realistic data (real hanzi,
+  not lorem ipsum), screenshot with Playwright
+  (`chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' })`
+  in the remote container). Scripts go in `e2e/.scratch/` and are deleted
+  before committing.
+- Attach by committing the PNGs under `docs/pr-screenshots/<branch-or-pr>/`
+  on the PR branch **together with a `README.md` in that folder that embeds
+  them with relative paths** (`![Edit tab](02-editor-edit.png)` + a one-line
+  caption each). GitHub renders that README with the images when the file is
+  opened on the branch, and the PNGs also appear in the PR's "Files changed".
+  In the PR body, add a "## Screenshots" section that names the folder path
+  (`docs/pr-screenshots/<dir>/README.md`) and lists each shot with its
+  caption. Do **not** rely on `<img src="https://…">` or `![](https://…)`
+  in the PR body: the GitHub MCP tool used from remote sessions wraps every
+  URL in the body in backticks, which breaks image rendering. Keep each image
+  under ~500 KB. Once the PR is merged the folder may be deleted in a later
+  PR if it is not referenced from docs.
+- Docs-only or worker-only PRs are exempt; a PR that changes both must
+  include screenshots for the frontend part.
+
 ### To Deploy
 
 Simply push to main:
@@ -943,13 +1198,31 @@ The app supports many-to-many tutor-student relationships where users can be tut
 
 ### Features
 - **Pairing**: Either party invites by email, specifying their role (tutor/student)
-- **Chat**: Polling-based messaging (3-second intervals)
+- **Chat**: Polling-based messaging (3-second intervals). Per-message tools: Reply and Play inline
+  (44px), everything else (React, Check my Chinese, Translate / Make a card, Word by word, Discuss
+  with Claude, Copy) under ⋯ / long-press — a bottom sheet on phones, a popover ≥640px. The set is
+  role-aware (`toolsForMessage` in `frontend/src/components/chat/messageTools.ts`, unit-tested):
+  Check my Chinese only on the learner's own messages, Translate only on the other party's. Failures
+  show as Coach-style inline notices (`InlineNotice`), never `alert()`. `?new=1` on the chat route
+  (or `/chat/new`) opens a fresh untitled conversation; `PATCH /api/conversations/:id` `{ title }`
+  renames it (header ⋯ → Add a title / Rename).
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- `/connections` - List all connections and pending requests
-- `/connections/:relId` - View a specific connection (conversations, shared decks)
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- `/` - Study home. On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
+- `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
+- `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
+- `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
+- `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
+- `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
 - `/connections/:relId/chat/:convId` - Chat interface
 - `/connections/:relId/progress` - Student progress view (tutor only)
+- `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view
+- `/lessons/:id/edit`, `/lessons/:id/print` - Lesson editor / print view for a student's own lesson or one the tutor assigned
+- `/readers/:id/edit`, `/readers/:id/print` - Reader editor (form + preview + Claude co-editor + exports) / print view
+- `/connections/:relId/insights` - Student Insights: range, needs attention / going well, summary, lesson log (tutor only)
+- `/connections/:relId/history` - Full review history explorer with filters (tutor only)
+- `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)

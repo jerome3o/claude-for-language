@@ -16,6 +16,11 @@
   height: 36px;
   transition: border-color 0.2s;
   position: relative;
+  text-decoration: none;
+}
+
+.user-button:hover {
+  text-decoration: none;
 }
 
 .user-button:hover {
@@ -43,74 +48,6 @@
   text-transform: uppercase;
 }
 
-/* User menu dropdown */
-.user-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  background: var(--color-surface);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  min-width: 200px;
-  z-index: 1000;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-}
-
-.user-menu-info {
-  padding: 0.75rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.user-menu-name {
-  font-weight: 600;
-  color: var(--color-text);
-  font-size: 0.875rem;
-}
-
-.user-menu-email {
-  font-size: 0.75rem;
-  color: var(--color-text-light);
-  word-break: break-all;
-}
-
-.user-menu-divider {
-  height: 1px;
-  background: var(--color-border);
-}
-
-.user-menu-item {
-  display: block;
-  width: 100%;
-  padding: 0.75rem 1rem;
-  text-align: left;
-  background: none;
-  border: none;
-  font-size: 0.875rem;
-  color: var(--color-text);
-  cursor: pointer;
-  transition: background-color 0.15s;
-}
-
-.user-menu-item:hover {
-  background-color: var(--color-background);
-}
-
-.user-menu-item:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.user-menu-item-danger {
-  color: #dc2626;
-}
-
-.user-menu-item-danger:hover {
-  background-color: #fef2f2;
-}
-
 /* Admin notification badge */
 .admin-notification-badge {
   position: absolute;
@@ -127,35 +64,6 @@
   align-items: center;
   justify-content: center;
   padding: 0 3px;
-  line-height: 1;
-}
-
-/* Review requests menu item */
-.user-menu-item-review {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: rgba(239, 68, 68, 0.06);
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.user-menu-item-review:hover {
-  background: rgba(239, 68, 68, 0.12);
-}
-
-.menu-badge {
-  background: #ef4444;
-  color: white;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
   line-height: 1;
 }
 

@@ -19,7 +19,8 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'apple-touch-icon.svg', 'icon-192.svg', 'icon-512.svg'],
       manifest: false, // Use manifest.json in public folder
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // .wasm is sql.js (SQLite) for the Anki export — precached so it works offline
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,wasm}'],
         runtimeCaching: [
           {
             // API calls - network first with 10s timeout, fallback to cache

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { getAudioWithCache, getCachedAudio, pickChineseVoice } from '../services/audioCache';
-import { getManualOfflineMode } from '../services/offlineMode';
+import { isEffectivelyOffline } from '../services/offlineMode';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { DEFAULT_TTS_SPEED } from '../types';
 
@@ -292,11 +292,12 @@ export function useNoteAudio(label: string = 'note') {
       });
     };
 
-    // Manual offline mode: never touch the network. On spotty connections
-    // (e.g. on the train) network audio requests stall, queue up, and then
-    // all play at once. Play from the IndexedDB cache if available,
-    // otherwise fall back to on-device speech synthesis immediately.
-    if (getManualOfflineMode()) {
+    // Offline (forced by the user, or the browser says so): never touch the
+    // network. On spotty connections (e.g. on the train) network audio
+    // requests stall, queue up, and then all play at once. Play from the
+    // IndexedDB cache if available, otherwise fall back to on-device speech
+    // synthesis immediately.
+    if (isEffectivelyOffline()) {
       getCachedAudio(audioUrl).then((blob) => {
         if (playIdRef.current !== currentPlayId) return; // Superseded
         if (blob) {

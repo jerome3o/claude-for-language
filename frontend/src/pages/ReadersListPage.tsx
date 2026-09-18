@@ -1,9 +1,57 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { getGradedReaders, deleteGradedReader, createBlankReader } from '../api/client';
+import { getGradedReaders, deleteGradedReader, retryGradedReader } from '../api/client';
+import { importReader } from '../api/readerEditor';
+import { LessonApiError } from '../api/lessonEditor';
 import { Loading, EmptyState } from '../components/Loading';
+import { AnkiExportButton } from '../components/export/AnkiExportModal';
+import { Toast, useToast } from '../components/Toast';
 import { GradedReader, DifficultyLevel } from '../types';
+import { partitionReaders, friendlyReaderError, failedReadersLabel } from '../services/readerFailures';
+import './ReadersListPage.css';
+
+/** Page-level ⋯ menu: Import JSON (a reader exported from the editor). */
+function ReadersOverflowMenu({ onImport }: { onImport: (file: File) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button className="btn btn-secondary" onClick={() => setOpen(o => !o)} aria-label="More actions" aria-haspopup="menu" aria-expanded={open} style={{ padding: '0.5rem 0.75rem' }}>
+        ⋯
+      </button>
+      {open && (
+        <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: '200px', zIndex: 20, padding: '0.25rem' }}>
+          <button role="menuitem" className="btn btn-secondary" style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }} onClick={() => { setOpen(false); fileRef.current?.click(); }}>
+            ⬆ Import JSON
+          </button>
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) onImport(file);
+        }}
+      />
+    </div>
+  );
+}
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; label: string }> = {
   beginner: { bg: '#dcfce7', text: '#166534', label: 'Beginner' },
@@ -12,26 +60,22 @@ const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; lab
   advanced: { bg: '#fce7f3', text: '#9d174d', label: 'Advanced' },
 };
 
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+  });
+}
+
 function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () => void }) {
   const navigate = useNavigate();
   const difficultyStyle = DIFFICULTY_COLORS[reader.difficulty_level];
   const isGenerating = reader.status === 'generating';
-  const isFailed = reader.status === 'failed';
-
-  // Format date nicely
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
-    });
-  };
 
   const handleClick = () => {
-    if (!isGenerating && !isFailed) {
-      navigate(`/readers/${reader.id}`);
-    }
+    if (!isGenerating) navigate(`/readers/${reader.id}`);
   };
 
   return (
@@ -45,7 +89,7 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
     >
       <div
         onClick={handleClick}
-        style={{ cursor: isGenerating || isFailed ? 'default' : 'pointer' }}
+        style={{ cursor: isGenerating ? 'default' : 'pointer' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -85,17 +129,6 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
           <p style={{ color: '#3b82f6', margin: 0, fontSize: '0.75rem', fontStyle: 'italic' }}>
             Generating story and illustrations...
           </p>
-        ) : isFailed ? (
-          <div style={{ margin: 0 }}>
-            <p style={{ color: '#dc2626', margin: 0, fontSize: '0.75rem', fontWeight: 600 }}>
-              Generation failed
-            </p>
-            {reader.error_message && (
-              <p style={{ color: '#991b1b', margin: '0.25rem 0 0 0', fontSize: '0.75rem', wordBreak: 'break-word' }}>
-                {reader.error_message}
-              </p>
-            )}
-          </div>
         ) : (
           <p style={{ color: '#9ca3af', margin: 0, fontSize: '0.75rem' }}>
             {reader.vocabulary_used.length} vocabulary items &middot; {formatDate(reader.created_at)}
@@ -114,10 +147,6 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
           <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>
             Generating...
           </span>
-        ) : isFailed ? (
-          <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>
-            Unable to generate
-          </span>
         ) : (
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button
@@ -134,6 +163,13 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
             >
               Edit
             </button>
+            <AnkiExportButton
+              target={{ kind: 'reader', readerId: reader.id, title: reader.title_chinese }}
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '0.375rem 0.75rem', fontSize: '0.875rem' }}
+            >
+              ⬇ Anki
+            </AnkiExportButton>
           </div>
         )}
         <button
@@ -151,53 +187,122 @@ function ReaderCard({ reader, onDelete }: { reader: GradedReader; onDelete: () =
   );
 }
 
-function CreateReaderModal({ onClose, onCreate }: { onClose: () => void; onCreate: (data: { title_chinese: string; title_english: string; difficulty_level: DifficultyLevel; topic?: string }) => void }) {
-  const [titleChinese, setTitleChinese] = useState('');
-  const [titleEnglish, setTitleEnglish] = useState('');
-  const [difficulty, setDifficulty] = useState<DifficultyLevel>('beginner');
-  const [topic, setTopic] = useState('');
+/** What to call a failed reader: most are the daily "生成中…" placeholder. */
+function failedReaderTitle(reader: GradedReader): string {
+  const placeholder = reader.title_chinese === '生成中...' || reader.title_chinese === '生成中…';
+  if (!placeholder) return `${reader.title_chinese} · ${reader.title_english}`;
+  if (reader.topic) return `Story about: ${reader.topic}`;
+  if (/today/i.test(reader.title_english)) return "Today's story";
+  return reader.title_english.replace(/\.\.\.$|…$/, '') || 'Story';
+}
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!titleChinese.trim() || !titleEnglish.trim()) return;
-    onCreate({ title_chinese: titleChinese.trim(), title_english: titleEnglish.trim(), difficulty_level: difficulty, topic: topic.trim() || undefined });
+/**
+ * Every failed generation folded into ONE muted row at the bottom of the
+ * list. Expanded: a friendly reason per row, Retry, Delete, the raw error
+ * behind "Show details", and Delete all failed.
+ */
+function FailedReadersRow({
+  readers,
+  onRetry,
+  onDelete,
+  onDeleteAll,
+  busyIds,
+  deletingAll,
+}: {
+  readers: GradedReader[];
+  onRetry: (reader: GradedReader) => void;
+  onDelete: (reader: GradedReader) => void;
+  onDeleteAll: () => void;
+  busyIds: Set<string>;
+  deletingAll: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [detailsFor, setDetailsFor] = useState<Set<string>>(new Set());
+
+  const toggleDetails = (id: string) => {
+    setDetailsFor(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-        <div className="modal-header">
-          <h2 className="modal-title">Create New Reader</h2>
-          <button className="modal-close" onClick={onClose}>&times;</button>
+    <div className={`failed-readers${open ? ' open' : ''}`}>
+      <button
+        type="button"
+        className="failed-readers-toggle"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        <span>{failedReadersLabel(readers.length)}</span>
+        <span className="failed-readers-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div className="failed-readers-body">
+          <p className="failed-readers-hint">
+            These stories couldn't be written. Retry one, or clear them all — nothing here affects your study queue.
+          </p>
+          <ul className="failed-readers-list">
+            {readers.map(reader => {
+              const busy = busyIds.has(reader.id) || deletingAll;
+              const showDetails = detailsFor.has(reader.id);
+              return (
+                <li key={reader.id} className="failed-reader">
+                  <div className="failed-reader-main">
+                    <div className="failed-reader-title">{failedReaderTitle(reader)}</div>
+                    <div className="failed-reader-meta">
+                      {formatDate(reader.created_at)} · {friendlyReaderError(reader.error_message)}
+                    </div>
+                    {reader.error_message && (
+                      <button
+                        type="button"
+                        className="failed-reader-details-toggle"
+                        onClick={() => toggleDetails(reader.id)}
+                        aria-expanded={showDetails}
+                      >
+                        {showDetails ? 'Hide details' : 'Show details'}
+                      </button>
+                    )}
+                    {showDetails && reader.error_message && (
+                      <pre className="failed-reader-details">{reader.error_message}</pre>
+                    )}
+                  </div>
+                  <div className="failed-reader-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => onRetry(reader)}
+                      disabled={busy}
+                    >
+                      {busyIds.has(reader.id) ? '…' : 'Retry'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm failed-reader-delete"
+                      onClick={() => onDelete(reader)}
+                      disabled={busy}
+                      aria-label="Delete this failed story"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button"
+            className="btn btn-secondary failed-readers-delete-all"
+            onClick={onDeleteAll}
+            disabled={deletingAll}
+          >
+            {deletingAll ? 'Deleting…' : `Delete all failed (${readers.length})`}
+          </button>
         </div>
-        <form onSubmit={handleSubmit} style={{ padding: '1rem' }}>
-          <div className="form-group" style={{ marginBottom: '1rem' }}>
-            <label className="form-label">Chinese Title</label>
-            <input className="form-input" value={titleChinese} onChange={(e) => setTitleChinese(e.target.value)} placeholder="e.g. 小猫的冒险" required />
-          </div>
-          <div className="form-group" style={{ marginBottom: '1rem' }}>
-            <label className="form-label">English Title</label>
-            <input className="form-input" value={titleEnglish} onChange={(e) => setTitleEnglish(e.target.value)} placeholder="e.g. The Kitten's Adventure" required />
-          </div>
-          <div className="form-group" style={{ marginBottom: '1rem' }}>
-            <label className="form-label">Difficulty</label>
-            <select className="form-input" value={difficulty} onChange={(e) => setDifficulty(e.target.value as DifficultyLevel)}>
-              <option value="beginner">Beginner</option>
-              <option value="elementary">Elementary</option>
-              <option value="intermediate">Intermediate</option>
-              <option value="advanced">Advanced</option>
-            </select>
-          </div>
-          <div className="form-group" style={{ marginBottom: '1rem' }}>
-            <label className="form-label">Topic (optional)</label>
-            <input className="form-input" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. animals, food, travel" />
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={!titleChinese.trim() || !titleEnglish.trim()}>Create</button>
-          </div>
-        </form>
-      </div>
+      )}
     </div>
   );
 }
@@ -205,15 +310,9 @@ function CreateReaderModal({ onClose, onCreate }: { onClose: () => void; onCreat
 export function ReadersListPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [showCreateModal, setShowCreateModal] = useState(false);
-
-  const createMutation = useMutation({
-    mutationFn: createBlankReader,
-    onSuccess: (reader) => {
-      queryClient.invalidateQueries({ queryKey: ['readers'] });
-      navigate(`/readers/${reader.id}/edit`);
-    },
-  });
+  const [toast, showToast] = useToast();
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const readersQuery = useQuery({
     queryKey: ['readers'],
@@ -231,7 +330,70 @@ export function ReadersListPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['readers'] });
     },
+    onError: () => showToast("Couldn't delete that story. Please try again."),
   });
+
+  const markBusy = (id: string, busy: boolean) =>
+    setBusyIds(prev => {
+      const next = new Set(prev);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const handleRetry = async (reader: GradedReader) => {
+    markBusy(reader.id, true);
+    try {
+      await retryGradedReader(reader.id);
+      queryClient.invalidateQueries({ queryKey: ['readers'] });
+    } catch (err) {
+      showToast(err instanceof Error && err.message ? `Couldn't retry: ${err.message}` : "Couldn't retry that story.");
+    } finally {
+      markBusy(reader.id, false);
+    }
+  };
+
+  const handleDeleteFailed = async (reader: GradedReader) => {
+    markBusy(reader.id, true);
+    try {
+      await deleteGradedReader(reader.id);
+      queryClient.invalidateQueries({ queryKey: ['readers'] });
+    } catch {
+      showToast("Couldn't delete that story. Please try again.");
+    } finally {
+      markBusy(reader.id, false);
+    }
+  };
+
+  const handleDeleteAllFailed = async (failed: GradedReader[]) => {
+    if (!window.confirm(`Delete all ${failed.length} failed stories? This cannot be undone.`)) return;
+    setDeletingAll(true);
+    const results = await Promise.allSettled(failed.map(r => deleteGradedReader(r.id)));
+    setDeletingAll(false);
+    queryClient.invalidateQueries({ queryKey: ['readers'] });
+    const failures = results.filter(r => r.status === 'rejected').length;
+    if (failures > 0) showToast(`${failures} of ${failed.length} couldn't be deleted. Try again.`);
+  };
+
+  const handleImport = async (file: File) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      showToast('That file is not valid JSON.');
+      return;
+    }
+    try {
+      const reader = await importReader(parsed);
+      queryClient.invalidateQueries({ queryKey: ['readers'] });
+      navigate(`/readers/${reader.id}/edit`);
+    } catch (err) {
+      const msg = err instanceof LessonApiError && err.problems.length
+        ? `Could not import:\n${err.problems.join('\n')}`
+        : `Could not import: ${err instanceof Error ? err.message : 'unknown error'}`;
+      showToast(msg);
+    }
+  };
 
   const handleDelete = (reader: GradedReader) => {
     const message = reader.status === 'generating'
@@ -258,24 +420,25 @@ export function ReadersListPage() {
     );
   }
 
-  const readers = readersQuery.data || [];
+  const { active, failed } = partitionReaders(readersQuery.data || []);
 
   return (
     <div className="page">
       <div className="container">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', gap: '0.5rem', flexWrap: 'wrap' }}>
           <h1 style={{ margin: 0 }}>Graded Readers</h1>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-secondary" onClick={() => setShowCreateModal(true)}>
+            <Link to="/readers/new/edit" className="btn btn-secondary">
               Create New
-            </button>
+            </Link>
             <Link to="/readers/generate" className="btn btn-primary">
               AI Generate
             </Link>
+            <ReadersOverflowMenu onImport={handleImport} />
           </div>
         </div>
 
-        {readers.length === 0 ? (
+        {active.length === 0 && failed.length === 0 ? (
           <EmptyState
             icon="📚"
             title="No stories yet"
@@ -288,25 +451,39 @@ export function ReadersListPage() {
           />
         ) : (
           <div className="flex flex-col gap-3">
-            {readers.map((reader) => (
+            {active.length === 0 && (
+              <EmptyState
+                icon="📚"
+                title="No stories yet"
+                description="Generate AI-powered reading stories using vocabulary from your decks"
+                action={
+                  <Link to="/readers/generate" className="btn btn-primary">
+                    Generate Your First Story
+                  </Link>
+                }
+              />
+            )}
+            {active.map((reader) => (
               <ReaderCard
                 key={reader.id}
                 reader={reader}
                 onDelete={() => handleDelete(reader)}
               />
             ))}
+            {failed.length > 0 && (
+              <FailedReadersRow
+                readers={failed}
+                onRetry={handleRetry}
+                onDelete={handleDeleteFailed}
+                onDeleteAll={() => handleDeleteAllFailed(failed)}
+                busyIds={busyIds}
+                deletingAll={deletingAll}
+              />
+            )}
           </div>
         )}
 
-        {showCreateModal && (
-          <CreateReaderModal
-            onClose={() => setShowCreateModal(false)}
-            onCreate={(data) => {
-              setShowCreateModal(false);
-              createMutation.mutate(data);
-            }}
-          />
-        )}
+        <Toast message={toast} />
       </div>
     </div>
   );

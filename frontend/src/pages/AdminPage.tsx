@@ -3,7 +3,27 @@ import { AdminUser } from '../types';
 import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats, getFeatureRequests, approveFeatureRequest, FeatureRequest, API_BASE } from '../api/client';
 import { syncService } from '../services/sync';
 import { getSyncLogs, SyncLogEntry } from '../db/database';
+import { listAccessRequests, approveAccessRequest, dismissAccessRequest, setUserCanInvite, listInvites, revokeInvite } from '../api/invites';
+import type { AccessRequest, Invite } from '../types/invites';
+import { InviteList } from '../components/invites/InviteList';
 import './AdminPage.css';
+
+/** Per-user "may invite new people" switch. Admins always may, so theirs is fixed on. */
+function CanInviteToggle({ user, busy, onToggle }: { user: AdminUser; busy: boolean; onToggle: (u: AdminUser) => void }) {
+  const on = user.is_admin || !!user.can_invite;
+  return (
+    <label className={`can-invite-toggle${user.is_admin ? ' always' : ''}`} title={user.is_admin ? 'Admins can always invite' : undefined}>
+      <input
+        type="checkbox"
+        checked={on}
+        disabled={user.is_admin || busy}
+        onChange={() => onToggle(user)}
+        aria-label={`Can invite: ${user.name || user.email || user.id}`}
+      />
+      <span>{user.is_admin ? 'Always' : on ? 'Yes' : 'No'}</span>
+    </label>
+  );
+}
 
 export function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -33,6 +53,66 @@ export function AdminPage() {
   // Feature requests state
   const [pendingRequests, setPendingRequests] = useState<FeatureRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+
+  // Invite-only sign-up state
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [accessBusyId, setAccessBusyId] = useState<string | null>(null);
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
+  const [allInvites, setAllInvites] = useState<Invite[]>([]);
+  const [canInviteBusyId, setCanInviteBusyId] = useState<string | null>(null);
+
+  const loadAccessRequests = useCallback(async () => {
+    try {
+      setAccessRequests(await listAccessRequests('pending'));
+    } catch (err) {
+      console.error('Failed to load access requests:', err);
+    }
+  }, []);
+
+  const loadAllInvites = useCallback(async () => {
+    try {
+      setAllInvites(await listInvites(true));
+    } catch (err) {
+      console.error('Failed to load invites:', err);
+    }
+  }, []);
+
+  const handleAccessRequest = useCallback(async (req: AccessRequest, action: 'approve' | 'dismiss') => {
+    setAccessBusyId(req.id);
+    setAccessMessage(null);
+    try {
+      if (action === 'approve') {
+        await approveAccessRequest(req.id);
+        setAccessMessage(`${req.name || req.email} can now sign in with ${req.email} — tell them to try again.`);
+        loadAllInvites();
+      } else {
+        await dismissAccessRequest(req.id);
+      }
+      setAccessRequests(prev => prev.filter(r => r.id !== req.id));
+    } catch (err) {
+      setAccessMessage('Failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setAccessBusyId(null);
+    }
+  }, [loadAllInvites]);
+
+  const handleToggleCanInvite = useCallback(async (user: AdminUser) => {
+    const next = !user.can_invite;
+    setCanInviteBusyId(user.id);
+    try {
+      await setUserCanInvite(user.id, next);
+      setUsers(prev => prev.map(u => (u.id === user.id ? { ...u, can_invite: next } : u)));
+    } catch (err) {
+      console.error('Failed to update can_invite:', err);
+    } finally {
+      setCanInviteBusyId(null);
+    }
+  }, []);
+
+  const handleRevokeInvite = useCallback(async (id: string) => {
+    await revokeInvite(id);
+    loadAllInvites();
+  }, [loadAllInvites]);
 
   const loadSyncLogs = useCallback(async () => {
     setIsLoadingSyncLogs(true);
@@ -82,7 +162,9 @@ export function AdminPage() {
     loadUsers();
     loadPendingRequests();
     loadSyncLogs();
-  }, [loadPendingRequests, loadSyncLogs]);
+    loadAccessRequests();
+    loadAllInvites();
+  }, [loadPendingRequests, loadSyncLogs, loadAccessRequests, loadAllInvites]);
 
   const loadStorageStats = async () => {
     setIsLoadingStorage(true);
@@ -204,6 +286,54 @@ export function AdminPage() {
     <div className="container">
       <div className="admin-page">
         <h1>Admin Dashboard</h1>
+
+        {(accessRequests.length > 0 || accessMessage) && (
+          <div className={`pending-requests-wrapper${accessRequests.length > 0 ? ' has-pending' : ''}`}>
+            <h2 className="pending-requests-heading">
+              🔑 Access requests
+              {accessRequests.length > 0 && (
+                <span className="pending-count-badge">{accessRequests.length}</span>
+              )}
+            </h2>
+            <p className="pending-empty">
+              People who tried to sign in without an invite. Approve lets that Google email in the next time they sign in.
+            </p>
+            {accessMessage && <p className="access-request-message">{accessMessage}</p>}
+            <div className="pending-requests-section">
+              {accessRequests.map(req => (
+                <div key={req.id} className="pending-request-card">
+                  <div className="pending-request-content access-request-content">
+                    {req.picture_url && <img src={req.picture_url} alt="" className="user-avatar" />}
+                    <div>
+                      <p className="pending-request-text">{req.name || 'No name'}</p>
+                      <div className="pending-request-meta">
+                        <span>{req.email}</span>
+                        <span>{req.attempts} attempt{req.attempts === 1 ? '' : 's'}</span>
+                        <span>last {formatDate(req.last_seen_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="pending-request-actions">
+                    <button
+                      className="btn btn-approve btn-sm"
+                      onClick={() => handleAccessRequest(req, 'approve')}
+                      disabled={accessBusyId === req.id}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="btn btn-decline btn-sm"
+                      onClick={() => handleAccessRequest(req, 'dismiss')}
+                      disabled={accessBusyId === req.id}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="admin-stats">
           <div className="admin-stat-card">
@@ -372,6 +502,12 @@ export function AdminPage() {
                   <span className="user-detail-label">Last Login</span>
                   <span className="user-detail-value">{formatDate(user.last_login_at)}</span>
                 </div>
+                <div className="user-detail">
+                  <span className="user-detail-label">Can invite</span>
+                  <span className="user-detail-value">
+                    <CanInviteToggle user={user} busy={canInviteBusyId === user.id} onToggle={handleToggleCanInvite} />
+                  </span>
+                </div>
               </div>
             </div>
           ))}
@@ -386,6 +522,7 @@ export function AdminPage() {
                 <th>Notes</th>
                 <th>Reviews</th>
                 <th>Last Login</th>
+                <th>Can invite</th>
               </tr>
             </thead>
             <tbody>
@@ -407,10 +544,23 @@ export function AdminPage() {
                   <td className="stat-cell">{user.note_count}</td>
                   <td className="stat-cell">{user.review_count}</td>
                   <td>{formatDate(user.last_login_at)}</td>
+                  <td className="stat-cell">
+                    <CanInviteToggle user={user} busy={canInviteBusyId === user.id} onToggle={handleToggleCanInvite} />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+
+        <h2>All invites</h2>
+        <div className="all-invites-section">
+          <InviteList
+            invites={allInvites}
+            onRevoke={handleRevokeInvite}
+            showCreator
+            emptyText="No invite links have been created yet."
+          />
         </div>
 
         <h2>Sync Debug</h2>

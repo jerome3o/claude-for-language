@@ -11,7 +11,7 @@ interface GoogleTokenResponse {
   id_token?: string;
 }
 
-interface GoogleUserInfo {
+export interface GoogleUserInfo {
   id: string;
   email: string;
   verified_email: boolean;
@@ -84,83 +84,64 @@ export async function getGoogleUserInfo(accessToken: string): Promise<GoogleUser
   return response.json();
 }
 
-export async function getOrCreateUser(
-  db: D1Database,
-  googleUser: GoogleUserInfo,
-  isAdminEmail: boolean
-): Promise<{ user: User; isNewUser: boolean }> {
-  // Check if user exists by google_id
-  let user = await db
+/**
+ * Find the users row for a Google account: by google_id first, then by email
+ * (a user created before Google sign-in, or by an invite / test endpoint).
+ */
+export async function findExistingUser(db: D1Database, googleUser: GoogleUserInfo): Promise<User | null> {
+  const byGoogleId = await db
     .prepare('SELECT * FROM users WHERE google_id = ?')
     .bind(googleUser.id)
     .first<User>();
+  if (byGoogleId) return byGoogleId;
 
-  if (user) {
-    // Update last login and potentially other fields
-    await db
-      .prepare(`
-        UPDATE users SET
-          last_login_at = datetime('now'),
-          name = ?,
-          picture_url = ?,
-          email = ?,
-          is_admin = ?
-        WHERE id = ?
-      `)
-      .bind(
-        googleUser.name,
-        googleUser.picture,
-        googleUser.email,
-        isAdminEmail ? 1 : user.is_admin,
-        user.id
-      )
-      .run();
-
-    // Fetch updated user
-    user = await db
-      .prepare('SELECT * FROM users WHERE id = ?')
-      .bind(user.id)
-      .first<User>();
-
-    return { user: user!, isNewUser: false };
-  }
-
-  // Check if user exists by email (migrating existing user)
-  user = await db
+  return db
     .prepare('SELECT * FROM users WHERE email = ?')
     .bind(googleUser.email)
     .first<User>();
+}
 
-  if (user) {
-    // Link Google account to existing user
-    await db
-      .prepare(`
-        UPDATE users SET
-          google_id = ?,
-          name = ?,
-          picture_url = ?,
-          is_admin = ?,
-          last_login_at = datetime('now')
-        WHERE id = ?
-      `)
-      .bind(
-        googleUser.id,
-        googleUser.name,
-        googleUser.picture,
-        isAdminEmail ? 1 : 0,
-        user.id
-      )
-      .run();
+/** Refresh an existing user's profile from Google, link the google_id, stamp last_login_at. */
+export async function touchExistingUser(
+  db: D1Database,
+  user: User,
+  googleUser: GoogleUserInfo,
+  isAdminEmail: boolean
+): Promise<User> {
+  await db
+    .prepare(`
+      UPDATE users SET
+        google_id = ?,
+        last_login_at = datetime('now'),
+        name = ?,
+        picture_url = ?,
+        email = ?,
+        is_admin = ?
+      WHERE id = ?
+    `)
+    .bind(
+      googleUser.id,
+      googleUser.name,
+      googleUser.picture,
+      googleUser.email,
+      isAdminEmail ? 1 : user.is_admin,
+      user.id
+    )
+    .run();
 
-    user = await db
-      .prepare('SELECT * FROM users WHERE id = ?')
-      .bind(user.id)
-      .first<User>();
+  const updated = await db
+    .prepare('SELECT * FROM users WHERE id = ?')
+    .bind(user.id)
+    .first<User>();
+  return updated ?? user;
+}
 
-    return { user: user!, isNewUser: false };
-  }
-
-  // Create new user
+/** Insert a brand-new user for a Google account. Callers gate this on an invite. */
+export async function createUser(
+  db: D1Database,
+  googleUser: GoogleUserInfo,
+  isAdminEmail: boolean
+): Promise<User> {
   const id = generateId();
   await db
     .prepare(`
@@ -177,12 +158,27 @@ export async function getOrCreateUser(
     )
     .run();
 
-  user = await db
+  const user = await db
     .prepare('SELECT * FROM users WHERE id = ?')
     .bind(id)
     .first<User>();
+  return user!;
+}
 
-  return { user: user!, isNewUser: true };
+/**
+ * Ungated get-or-create (kept for callers that have already decided the
+ * account is allowed in). The Google callback uses resolveSignup instead.
+ */
+export async function getOrCreateUser(
+  db: D1Database,
+  googleUser: GoogleUserInfo,
+  isAdminEmail: boolean
+): Promise<{ user: User; isNewUser: boolean }> {
+  const existing = await findExistingUser(db, googleUser);
+  if (existing) {
+    return { user: await touchExistingUser(db, existing, googleUser, isAdminEmail), isNewUser: false };
+  }
+  return { user: await createUser(db, googleUser, isAdminEmail), isNewUser: true };
 }
 
 export async function createSession(db: D1Database, userId: string): Promise<AuthSession> {
@@ -326,6 +322,39 @@ export function parseStateCookie(cookieHeader: string | null): string | null {
 
 export function generateState(): string {
   return generateId();
+}
+
+/**
+ * The OAuth `state` is a CSRF nonce; when sign-in starts from an invite link it
+ * also carries the invite token (`<nonce>.i.<token>`). The whole string goes
+ * into the HttpOnly state cookie and must match on callback, so the token
+ * cannot be swapped in transit.
+ */
+export function encodeOAuthState(nonce: string, inviteToken: string | null | undefined): string {
+  return inviteToken ? `${nonce}.i.${inviteToken}` : nonce;
+}
+
+export function parseOAuthState(state: string | null | undefined): { nonce: string; inviteToken: string | null } {
+  if (!state) return { nonce: '', inviteToken: null };
+  const idx = state.indexOf('.i.');
+  if (idx === -1) return { nonce: state, inviteToken: null };
+  const token = state.slice(idx + 3);
+  return { nonce: state.slice(0, idx), inviteToken: token || null };
+}
+
+/**
+ * Where the SPA lives, for redirects and invite URLs. The API and the frontend
+ * are on different origins in production, so prefer the caller's Origin (or
+ * Referer) and fall back to the deployed Pages URL / local dev server.
+ */
+export function resolveFrontendUrl(req: Request): string {
+  const origin = req.headers.get('Origin');
+  if (origin && /^https?:\/\//.test(origin)) return origin;
+  const referer = req.headers.get('Referer');
+  if (referer) {
+    try { return new URL(referer).origin; } catch { /* fall through */ }
+  }
+  return req.url.startsWith('https') ? 'https://chinese-learning-2x9.pages.dev' : 'http://localhost:3000';
 }
 
 // Get all users for admin page

@@ -1,13 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio } from '../api/client';
+import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio, updateLandingPage } from '../api/client';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
-import { getAudioCacheStats, getCachedAudioKeys } from '../services/audioCache';
+import { getAudioCacheStats } from '../services/audioCache';
 import { saveBlobAs } from '../utils/download';
-import { fetchAudioManifest, prefetchAllAudio, useAudioPrefetchProgress } from '../services/audioPrefetch';
+import { prefetchAllAudio, checkAudioCoverage, useAudioPrefetchProgress } from '../services/audioPrefetch';
 import { getAudioQuality, classifyAudio, regenerateFallbackAudio } from '../api/client';
 import type { AudioQualityStats } from '../api/client';
 import { useNetwork } from '../contexts/NetworkContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavRole } from '../components/nav/useNavRole';
+import { useMaintenanceActions } from '../components/nav/useMaintenanceActions';
+import { NavRow } from './MorePage';
+import type { LandingPage } from '../types';
 import {
   getAudioRecords,
   clearAudioRecords,
@@ -23,6 +28,7 @@ import {
   useNativeKeepAwakePref,
   setNativeKeepAwakePref,
 } from '../services/nativeAudioPrefs';
+import './MorePage.css';
 import './SettingsPage.css';
 
 function formatBytes(bytes: number): string {
@@ -153,114 +159,58 @@ function FeatureRequestDetail({ requestId, onClose }: { requestId: string; onClo
   );
 }
 
-function OfflineAudioSection() {
+/**
+ * One status line. Audio downloads itself after every sync (see
+ * services/audioPrefetch.ts); this only says how far along that is and offers
+ * "Download now" when something is still missing.
+ */
+function OfflineAudioLine() {
   const { isOnline } = useNetwork();
   const progress = useAudioPrefetchProgress();
-  const [cachedCount, setCachedCount] = useState<number | null>(null);
-  const [cachedBytes, setCachedBytes] = useState(0);
-  const [manifestTotal, setManifestTotal] = useState<number | null>(null);
-  const [missingCount, setMissingCount] = useState<number | null>(null);
+  const [deviceCount, setDeviceCount] = useState<number | null>(null);
+  const [checked, setChecked] = useState(false);
 
-  const isDownloading = progress.status === 'running';
+  useEffect(() => {
+    getAudioCacheStats().then((s) => setDeviceCount(s.count)).catch(() => setDeviceCount(0));
+  }, [progress.status]);
 
-  const loadStats = useCallback(async () => {
-    const stats = await getAudioCacheStats();
-    setCachedCount(stats.count);
-    setCachedBytes(stats.totalSize);
-
-    // Manifest requires network — fail gracefully offline
-    try {
-      const [manifest, cachedKeys] = await Promise.all([
-        fetchAudioManifest(),
-        getCachedAudioKeys(),
-      ]);
-      setManifestTotal(manifest.length);
-      setMissingCount(manifest.filter((url) => !cachedKeys.has(url)).length);
-    } catch {
-      setManifestTotal(null);
-      setMissingCount(null);
-    }
+  // Ask the server what we should have (needs a connection; silent otherwise)
+  useEffect(() => {
+    checkAudioCoverage().finally(() => setChecked(true));
   }, []);
 
-  useEffect(() => { loadStats(); }, [loadStats]);
+  const isDownloading = progress.status === 'running';
+  const haveManifest = progress.manifestTotal > 0;
+  const missing = haveManifest ? Math.max(0, progress.manifestTotal - progress.cachedCount) : 0;
 
-  // Refresh stats when a download run finishes
-  useEffect(() => {
-    if (progress.status === 'done' || progress.status === 'error') {
-      loadStats();
-    }
-  }, [progress.status, loadStats]);
-
-  const handleDownloadAll = async () => {
-    await prefetchAllAudio({ force: true });
-  };
-
-  const summary = (() => {
-    if (cachedCount === null) return 'Loading…';
-    const size = formatBytes(cachedBytes);
-    if (manifestTotal !== null && missingCount !== null) {
-      const cachedOfManifest = manifestTotal - missingCount;
-      return `${cachedOfManifest} of ${manifestTotal} clips stored on this device (${size})`;
-    }
-    return `${cachedCount} clips stored on this device (${size})`;
-  })();
+  let text: string;
+  if (isDownloading) {
+    text = `Audio for your words: downloading… ${progress.done}/${progress.total}`;
+  } else if (haveManifest) {
+    text = `Audio for your words: ${progress.cachedCount} of ${progress.manifestTotal} clips on this device${missing === 0 ? ' ✓' : ''}`;
+  } else if (deviceCount !== null && checked) {
+    text = `Audio for your words: ${deviceCount} clip${deviceCount === 1 ? '' : 's'} on this device`;
+  } else {
+    text = 'Audio for your words: checking…';
+  }
 
   return (
-    <div className="settings-section">
-      <h2>Offline Audio</h2>
-      <p className="settings-section-desc">
-        Card audio is downloaded to this device so study works without a
-        connection (use the ✈ toggle in the study screen on the train).
-        Audio also downloads automatically in the background after each sync.
-      </p>
-
-      <p style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>{summary}</p>
-
-      {isDownloading && (
-        <div style={{ marginBottom: '0.75rem' }}>
-          <div style={{
-            height: '8px',
-            background: 'var(--color-background, #f3f4f6)',
-            border: '1px solid var(--color-border, #e5e7eb)',
-            borderRadius: '4px',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              height: '100%',
-              width: progress.total > 0 ? `${Math.round((progress.done / progress.total) * 100)}%` : '100%',
-              background: '#3b82f6',
-              transition: 'width 0.3s',
-            }} />
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-light)', marginTop: '0.25rem' }}>
-            Downloading {progress.done} / {progress.total}
-            {progress.failed > 0 ? ` (${progress.failed} failed)` : ''}
-          </div>
-        </div>
+    <div className="settings-section settings-audio-line" data-testid="offline-audio">
+      <span>{text}</span>
+      {!isDownloading && missing > 0 && (
+        <button
+          type="button"
+          className="settings-link-btn"
+          onClick={() => { prefetchAllAudio({ force: true }); }}
+          disabled={!isOnline}
+          title={!isOnline ? 'Requires internet connection' : ''}
+        >
+          Download now
+        </button>
       )}
-
-      <button
-        className="btn btn-primary"
-        onClick={handleDownloadAll}
-        disabled={isDownloading || !isOnline}
-        title={!isOnline ? 'Requires internet connection' : ''}
-      >
-        {isDownloading
-          ? 'Downloading…'
-          : missingCount !== null && missingCount > 0
-            ? `Download ${missingCount} Missing Clips`
-            : 'Download All Audio'}
-      </button>
-
       {progress.status === 'done' && progress.failed > 0 && (
-        <div style={{ fontSize: '0.8rem', color: '#b45309', marginTop: '0.5rem' }}>
-          {progress.failed} clips failed to download — try again later.
-        </div>
+        <span className="settings-audio-warn">{progress.failed} failed — will retry on the next sync.</span>
       )}
-
-      <AudioQualityPanel />
-      <NativePlaybackPanel />
-      <AudioDiagnosticsPanel />
     </div>
   );
 }
@@ -333,7 +283,7 @@ function AudioQualityPanel() {
       }
       setStatus(
         `Queued ${queued} clips. They regenerate in the background over the next while; ` +
-        'new audio arrives on the next sync, then "Download All Audio" pulls it down.'
+        'new audio arrives on the next sync and downloads automatically.'
       );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Could not queue regeneration');
@@ -344,8 +294,8 @@ function AudioQualityPanel() {
   };
 
   return (
-    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border, #e5e7eb)' }}>
-      <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.25rem 0' }}>Audio Quality</h3>
+    <div className="settings-section">
+      <h2>Audio Quality</h2>
       <p className="settings-section-desc" style={{ marginBottom: '0.5rem' }}>
         Clips are normally generated by MiniMax. When it was rate-limited, some
         fell back to Google — a different voice at half the quality that sounds
@@ -519,8 +469,8 @@ function AudioDiagnosticsPanel() {
   };
 
   return (
-    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border, #e5e7eb)' }}>
-      <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.25rem 0' }}>Playback Quality</h3>
+    <div className="settings-section">
+      <h2>Playback Quality</h2>
       <p className="settings-section-desc" style={{ marginBottom: '0.5rem' }}>
         If audio sounds choppy, clear this, play the cards that sound bad, then
         copy the report and paste it into the Claude chat.
@@ -561,18 +511,9 @@ function AudioDiagnosticsPanel() {
   );
 }
 
-export function SettingsPage() {
-  const [isExporting, setIsExporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function FeatureRequestsSection() {
   const [requests, setRequests] = useState<FeatureRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const [bio, setBio] = useState('');
-  const [bioSaved, setBioSaved] = useState('');
-  const [isSavingBio, setIsSavingBio] = useState(false);
-  const [bioLoaded, setBioLoaded] = useState(false);
-
-  const lastExport = localStorage.getItem('lastExportDate');
-  const lastExportSize = localStorage.getItem('lastExportSize');
 
   const loadRequests = useCallback(async () => {
     try {
@@ -584,6 +525,125 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => { loadRequests(); }, [loadRequests]);
+
+  return (
+    <div className="settings-section">
+      <h2>Feature Requests</h2>
+      <p className="settings-section-desc">
+        Your submitted feedback and feature requests. Use the 💬 button to submit new ones from anywhere in the app.
+      </p>
+
+      {requests.length === 0 ? (
+        <p style={{ color: 'var(--color-text-light)', fontSize: '0.9rem' }}>
+          No feature requests yet. Use the 💬 button in the bottom-right corner to submit feedback.
+        </p>
+      ) : (
+        <div className="feature-requests-list">
+          {requests.map((req) => (
+            <div
+              key={req.id}
+              className="feature-request-card"
+              onClick={() => setSelectedRequestId(req.id)}
+            >
+              <div className="feature-request-header">
+                <span className={`feature-request-status status-${req.status}`}>
+                  {STATUS_LABELS[req.status] || req.status}
+                </span>
+              </div>
+              <div className="feature-request-content">
+                {req.content.length > 150 ? req.content.slice(0, 150) + '...' : req.content}
+              </div>
+              <div className="feature-request-meta">
+                <span>{timeAgo(req.created_at)}</span>
+                {req.comment_count > 0 && <span>{req.comment_count} comment{req.comment_count !== 1 ? 's' : ''}</span>}
+                {req.page_context && <span>from {req.page_context}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {selectedRequestId && (
+        <FeatureRequestDetail
+          requestId={selectedRequestId}
+          onClose={() => { setSelectedRequestId(null); loadRequests(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const LANDING_OPTIONS: { value: LandingPage | ''; label: string; tutorOnly?: boolean }[] = [
+  { value: '', label: 'Automatic' },
+  { value: 'study', label: 'Study' },
+  { value: 'students', label: 'Students', tutorOnly: true },
+  { value: 'decks', label: 'Decks' },
+];
+
+function StartOnSection({ hasStudents }: { hasStudents: boolean }) {
+  const { user, refreshUser } = useAuth();
+  const [value, setValue] = useState<LandingPage | ''>(user?.landing_page ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { setValue(user?.landing_page ?? ''); }, [user?.landing_page]);
+
+  const choose = async (next: LandingPage | '') => {
+    const prev = value;
+    setValue(next);
+    setSaving(true);
+    setError(null);
+    try {
+      await updateLandingPage(next === '' ? null : next);
+      await refreshUser();
+    } catch (err) {
+      setValue(prev);
+      setError(err instanceof Error ? err.message : 'Could not save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="settings-section" data-testid="start-on">
+      <h2>Start on</h2>
+      <p className="settings-section-desc">
+        Automatic opens Students when you have students and nothing due today, otherwise Study.
+      </p>
+      <div className="settings-segmented" role="radiogroup" aria-label="Start on">
+        {LANDING_OPTIONS.filter((o) => !o.tutorOnly || hasStudents || value === 'students').map((o) => (
+          <button
+            key={o.value || 'auto'}
+            type="button"
+            role="radio"
+            aria-checked={value === o.value}
+            className={`settings-segment${value === o.value ? ' selected' : ''}`}
+            onClick={() => choose(o.value)}
+            disabled={saving}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {error && <div className="export-error">{error}</div>}
+    </div>
+  );
+}
+
+export function SettingsPage() {
+  const { logout } = useAuth();
+  const role = useNavRole();
+  const maintenance = useMaintenanceActions();
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [bio, setBio] = useState('');
+  const [bioSaved, setBioSaved] = useState('');
+  const [isSavingBio, setIsSavingBio] = useState(false);
+  const [bioLoaded, setBioLoaded] = useState(false);
+
+  const lastExport = localStorage.getItem('lastExportDate');
+  const lastExportSize = localStorage.getItem('lastExportSize');
 
   useEffect(() => {
     getUserBio().then((b) => {
@@ -641,52 +701,42 @@ export function SettingsPage() {
       <div className="container settings-page">
         <h1>Settings</h1>
 
-        <div className="settings-section">
-          <h2>Personal Bio</h2>
-          <p className="settings-section-desc">
-            Tell us a bit about yourself. This is used to personalize example sentences — e.g. if you mention you like coffee, you might get sentences about ordering coffee.
-          </p>
-          {bioLoaded && (
-            <>
-              <textarea
-                className="feedback-textarea"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder="e.g. I'm a software developer living in New Zealand. I like hiking, coffee, and cooking. I'm learning Chinese to talk to my partner's family."
-                rows={3}
-                maxLength={500}
-                disabled={isSavingBio}
-              />
-              <div className="feedback-actions">
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSaveBio}
-                  disabled={isSavingBio || bio === bioSaved}
-                >
-                  {isSavingBio ? 'Saving...' : 'Save Bio'}
-                </button>
-                <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>{bio.length}/500</span>
-              </div>
-            </>
-          )}
-        </div>
+        {!role.isTutorOnly && (
+          <div className="settings-section" data-testid="personal-bio">
+            <h2>Personal Bio</h2>
+            <p className="settings-section-desc">
+              Tell us a bit about yourself. This is used to personalize example sentences — e.g. if you mention you like coffee, you might get sentences about ordering coffee.
+            </p>
+            {bioLoaded && (
+              <>
+                <textarea
+                  className="feedback-textarea"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="e.g. I'm a software developer living in New Zealand. I like hiking, coffee, and cooking. I'm learning Chinese to talk to my partner's family."
+                  rows={3}
+                  maxLength={500}
+                  disabled={isSavingBio}
+                />
+                <div className="feedback-actions">
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSaveBio}
+                    disabled={isSavingBio || bio === bioSaved}
+                  >
+                    {isSavingBio ? 'Saving...' : 'Save Bio'}
+                  </button>
+                  <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>{bio.length}/500</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
-        <OfflineAudioSection />
-
-        <div className="settings-section">
-          <h2>Example Sentences</h2>
-          <p className="settings-section-desc">
-            How many of your words have example sentences, what the background
-            generation is doing, and a button to push a batch through now.
-          </p>
-          <Link className="btn btn-primary export-btn" to="/settings/sentences">
-            Sentence Coverage →
-          </Link>
-        </div>
-
+        {!role.isTutorOnly && <OfflineAudioLine />}
 
         <div className="settings-section">
-          <h2>Export Data</h2>
+          <h2>Backup</h2>
           <p className="settings-section-desc">
             Download a backup of all your data as a JSON file. Includes decks,
             notes, cards, and review history.
@@ -716,50 +766,83 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="settings-section">
-          <h2>Feature Requests</h2>
-          <p className="settings-section-desc">
-            Your submitted feedback and feature requests. Use the 💬 button to submit new ones from anywhere in the app.
-          </p>
+        <StartOnSection hasStudents={role.hasStudents} />
 
-          {requests.length === 0 ? (
-            <p style={{ color: 'var(--color-text-light)', fontSize: '0.9rem' }}>
-              No feature requests yet. Use the 💬 button in the bottom-right corner to submit feedback.
-            </p>
-          ) : (
-            <div className="feature-requests-list">
-              {requests.map((req) => (
-                <div
-                  key={req.id}
-                  className="feature-request-card"
-                  onClick={() => setSelectedRequestId(req.id)}
-                >
-                  <div className="feature-request-header">
-                    <span className={`feature-request-status status-${req.status}`}>
-                      {STATUS_LABELS[req.status] || req.status}
-                    </span>
-                  </div>
-                  <div className="feature-request-content">
-                    {req.content.length > 150 ? req.content.slice(0, 150) + '...' : req.content}
-                  </div>
-                  <div className="feature-request-meta">
-                    <span>{timeAgo(req.created_at)}</span>
-                    {req.comment_count > 0 && <span>{req.comment_count} comment{req.comment_count !== 1 ? 's' : ''}</span>}
-                    {req.page_context && <span>from {req.page_context}</span>}
-                  </div>
-                </div>
-              ))}
+        <div className="settings-section">
+          <button className="btn btn-secondary export-btn settings-signout" onClick={() => { logout(); }}>
+            Sign out
+          </button>
+        </div>
+
+        <section className="nav-section">
+          <button
+            type="button"
+            className="nav-section-toggle"
+            onClick={() => setShowAdvanced(v => !v)}
+            aria-expanded={showAdvanced}
+            aria-controls="settings-advanced"
+            data-testid="settings-advanced-toggle"
+          >
+            <span className="nav-section-title" style={{ margin: 0 }}>Advanced</span>
+            <span className="nav-section-toggle-hint">
+              {showAdvanced ? 'Hide' : 'Audio quality · Sentence coverage · Feature requests · Sync · Debug'}
+            </span>
+            <span className={`nav-row-chevron nav-section-toggle-chevron${showAdvanced ? ' open' : ''}`} aria-hidden="true">›</span>
+          </button>
+
+          {showAdvanced && (
+            <div id="settings-advanced">
+              <AudioQualityPanel />
+              <NativePlaybackPanel />
+              <AudioDiagnosticsPanel />
+
+              <div className="settings-section">
+                <h2>Example Sentences</h2>
+                <p className="settings-section-desc">
+                  How many of your words have example sentences, what the background
+                  generation is doing, and a button to push a batch through now.
+                </p>
+                <Link className="btn btn-secondary export-btn" to="/settings/sentences">
+                  Sentence Coverage →
+                </Link>
+              </div>
+
+              <FeatureRequestsSection />
+
+              <div className="nav-list" style={{ marginBottom: '1rem' }}>
+                <NavRow icon="🪞" label="Duplicate Finder" desc="Find words that appear in more than one deck" to="/duplicate-finder" />
+                <NavRow
+                  icon="🔄"
+                  label={maintenance.isSyncing ? 'Syncing…' : 'Full Sync'}
+                  desc="Reconcile all reviews with the server and recompute every card"
+                  onClick={maintenance.fullSync}
+                  disabled={maintenance.isSyncing}
+                />
+                <NavRow
+                  icon="⬇️"
+                  label={maintenance.isUpdating ? 'Checking…' : 'Update App'}
+                  desc="Check for a new version now"
+                  onClick={maintenance.updateApp}
+                  disabled={maintenance.isUpdating}
+                />
+                <NavRow
+                  icon="🐞"
+                  label={maintenance.debugConsoleOn ? 'Debug Console: On' : 'Debug Console: Off'}
+                  desc="On-device devtools (reloads the app)"
+                  onClick={maintenance.toggleDebugConsole}
+                />
+                <NavRow
+                  icon="🧪"
+                  label={maintenance.isDumping ? 'Building dump…' : 'Copy Debug Dump'}
+                  desc="Copy logs and local state for a bug report"
+                  onClick={maintenance.copyDump}
+                  disabled={maintenance.isDumping}
+                />
+              </div>
             </div>
           )}
-        </div>
+        </section>
       </div>
-
-      {selectedRequestId && (
-        <FeatureRequestDetail
-          requestId={selectedRequestId}
-          onClose={() => { setSelectedRequestId(null); loadRequests(); }}
-        />
-      )}
     </div>
   );
 }

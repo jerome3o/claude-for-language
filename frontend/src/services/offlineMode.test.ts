@@ -3,8 +3,69 @@ import {
   getManualOfflineMode,
   setManualOfflineMode,
   toggleManualOfflineMode,
+  resolveOfflineMode,
+  nextOfflineModeForced,
+  cycleOfflineMode,
+  isEffectivelyOffline,
 } from './offlineMode';
 import { pickChineseVoice } from './audioCache';
+
+describe('resolveOfflineMode (auto vs forced)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('is online when the browser is online and nothing is forced', () => {
+    const mode = resolveOfflineMode({ forced: false, isOnline: true });
+    expect(mode.state).toBe('auto-online');
+    expect(mode.effectiveOffline).toBe(false);
+    expect(mode.label).toBe('Auto · online');
+  });
+
+  it('goes offline automatically when the browser is offline', () => {
+    const mode = resolveOfflineMode({ forced: false, isOnline: false });
+    expect(mode.state).toBe('auto-offline');
+    expect(mode.effectiveOffline).toBe(true);
+    expect(mode.label).toBe('Auto · offline');
+  });
+
+  it('forced wins over an online browser (the train)', () => {
+    const mode = resolveOfflineMode({ forced: true, isOnline: true });
+    expect(mode.state).toBe('forced-offline');
+    expect(mode.effectiveOffline).toBe(true);
+    expect(mode.label).toBe('Forced offline');
+  });
+
+  it('forced stays forced while the browser is offline too', () => {
+    expect(resolveOfflineMode({ forced: true, isOnline: false }).state).toBe('forced-offline');
+  });
+
+  it('a tap cycles auto → forced → auto', () => {
+    expect(nextOfflineModeForced(resolveOfflineMode({ forced: false, isOnline: true }))).toBe(true);
+    expect(nextOfflineModeForced(resolveOfflineMode({ forced: false, isOnline: false }))).toBe(true);
+    expect(nextOfflineModeForced(resolveOfflineMode({ forced: true, isOnline: true }))).toBe(false);
+
+    expect(cycleOfflineMode(true).state).toBe('forced-offline');
+    expect(getManualOfflineMode()).toBe(true);
+    expect(cycleOfflineMode(true).state).toBe('auto-online');
+    expect(getManualOfflineMode()).toBe(false);
+  });
+
+  it('isEffectivelyOffline combines the flag with navigator.onLine', () => {
+    const original = navigator.onLine;
+    try {
+      Object.defineProperty(navigator, 'onLine', { value: true, configurable: true, writable: true });
+      expect(isEffectivelyOffline()).toBe(false);
+      setManualOfflineMode(true);
+      expect(isEffectivelyOffline()).toBe(true);
+      setManualOfflineMode(false);
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true, writable: true });
+      expect(isEffectivelyOffline()).toBe(true);
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { value: original, configurable: true, writable: true });
+    }
+  });
+});
 
 describe('manual offline mode', () => {
   beforeEach(() => {

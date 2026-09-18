@@ -63,19 +63,6 @@
   color: var(--success-text, #166534);
 }
 
-/* Quick Actions */
-.quick-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
-}
-
-.quick-actions .btn {
-  flex: 1;
-  min-width: 120px;
-}
-
 /* Detail Section */
 .detail-section {
   margin-bottom: 2rem;
@@ -199,22 +186,6 @@
   margin-left: 0.5rem;
 }
 
-/* Danger Zone */
-.danger-zone {
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-color, #e5e5e5);
-}
-
-.btn-danger {
-  background: var(--error-color, #ef4444);
-  color: white;
-  border: none;
-}
-
-.btn-danger:hover {
-  background: #dc2626;
-}
-
 /* Modal */
 .modal-overlay {
   position: fixed;
@@ -291,45 +262,14 @@
   margin-top: 1rem;
 }
 
-/* Share Deck List */
-.share-deck-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+/* The student's mini lessons, folded into the Homework section */
+.td-nested-section .detail-section {
+  margin: 0.75rem 0 0 0;
 }
 
-.share-deck-option {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 0.75rem 1rem;
-  background: white;
-  border: 1px solid var(--border-color, #e5e5e5);
-  border-radius: 0.5rem;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-  transition: border-color 0.2s, background-color 0.2s;
-}
-
-.share-deck-option:hover {
-  border-color: var(--primary-color, #3b82f6);
-  background-color: var(--primary-bg, #eff6ff);
-}
-
-.share-deck-option:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.share-deck-name {
-  font-weight: 500;
-}
-
-.share-deck-desc {
+.td-nested-section .detail-section h2 {
   font-size: 0.875rem;
-  color: var(--text-light, #666);
+  margin-bottom: 0.5rem;
 }
 
 /* Desktop styles */
@@ -341,11 +281,6 @@
 
   .connection-detail-info h1 {
     font-size: 1.75rem;
-  }
-
-  .quick-actions .btn {
-    flex: 0 0 auto;
-    min-width: 140px;
   }
 
   .modal {

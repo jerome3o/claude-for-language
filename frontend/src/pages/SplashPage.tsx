@@ -6,6 +6,8 @@ export function SplashPage() {
   const { login } = useAuth();
   const [searchParams] = useSearchParams();
   const error = searchParams.get('error');
+  const signup = searchParams.get('signup');
+  const inviter = searchParams.get('inviter');
 
   return (
     <div className="splash-page">
@@ -43,6 +45,28 @@ export function SplashPage() {
           </div>
         )}
 
+        {signup === 'invite_only' && (
+          <div className="splash-notice" role="status">
+            <strong>Ask your tutor for their invite link.</strong>
+            <p>
+              Accounts here are created from a tutor's link — open it on this phone and you're in with one tap.
+            </p>
+            <p className="splash-notice-small">
+              No tutor? Your sign-in has been noted and the admin can let you in; once that's done, just sign in again.
+            </p>
+          </div>
+        )}
+
+        {signup === 'email_mismatch' && (
+          <div className="splash-notice" role="status">
+            <strong>That invite was sent to a different email address.</strong>
+            <p>
+              Sign in with the Google account the invite was addressed to, or ask
+              {inviter ? ` ${inviter}` : ' the person who invited you'} for a new link.
+            </p>
+          </div>
+        )}
+
         <button className="splash-login-button" onClick={login}>
           <svg viewBox="0 0 24 24" width="20" height="20" className="google-icon">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -52,6 +76,10 @@ export function SplashPage() {
           </svg>
           Sign in with Google
         </button>
+
+        <p className="splash-hint">
+          Got a link from your tutor? Just tap it.
+        </p>
 
         <p className="splash-footer">
           Your vocabulary decks and study progress are saved to your account.

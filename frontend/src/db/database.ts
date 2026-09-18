@@ -389,6 +389,25 @@ export interface CachedCharacterDefinition {
   cached_at: number;
 }
 
+// A tutor's note on one of the student's pronunciation recordings
+// ("second tone, not fourth"), shown once on the back of that card. Synced
+// down from GET /api/me/recording-notes so it shows offline; `seen_at` is set
+// locally when the card is rated and reported back on the next sync.
+export interface LocalRecordingNote {
+  /** Review event id (the recording the note is on) */
+  id: string;
+  card_id: string;
+  note_id: string;
+  hanzi: string;
+  comment: string;
+  tutor_name: string | null;
+  updated_at: string;
+  /** null until the student has seen it on the card back */
+  seen_at: string | null;
+  // 0 = the seen_at above has not reached the server yet, 1 = synced
+  _synced: number;
+}
+
 // Dexie database class
 export class ChineseLearningDB extends Dexie {
   // Core tables
@@ -422,6 +441,9 @@ export class ChineseLearningDB extends Dexie {
   // Sentence sets: graded example sentences per note (offline, with audio)
   noteSentences!: Table<LocalNoteSentence, string>;
   sentenceTextExplanations!: Table<LocalSentenceTextExplanation, string>;
+
+  // Tutor notes on my recordings (shown once on the card back)
+  recordingNotes!: Table<LocalRecordingNote, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -765,6 +787,36 @@ export class ChineseLearningDB extends Dexie {
       sentenceTextExplanations: 'key, cached_at',
       customLessons: 'id, status, created_at, queue, next_review_at',
       customLessonCompletionEvents: 'id, lesson_id, completed_at, _synced',
+    });
+
+    // Version 16: tutor notes on the student's recordings, cached so the
+    // "From <tutor>: ..." line on the card back works offline. Additive —
+    // every other table keeps its version-15 schema.
+    this.version(16).stores({
+      decks: 'id, user_id, updated_at, _synced_at',
+      notes: 'id, deck_id, updated_at, _synced_at',
+      cards: 'id, note_id, deck_id, queue, next_review_at, due_timestamp, [deck_id+queue], [deck_id+next_review_at]',
+      cachedAudio: 'key, cached_at',
+      cachedAudioMeta: 'key, last_used_at',
+      syncMeta: 'id',
+      studySessions: 'id, deck_id, started_at, _synced',
+      reviewEvents: 'id, card_id, reviewed_at, _synced, [card_id+reviewed_at], [_synced+_created_at]',
+      cardCheckpoints: 'card_id',
+      pendingRecordings: 'id, uploaded',
+      eventSyncMeta: 'id',
+      pendingReviewDeletions: 'id',
+      dailyStats: 'id, date, deck_id, [date+deck_id]',
+      syncLogs: 'id, timestamp',
+      characterDefinitions: 'hanzi, cached_at',
+      readers: 'id, status, queue, next_review_at',
+      readerReviewEvents: 'id, reader_id, reviewed_at, _synced, [reader_id+reviewed_at]',
+      grammarLessons: 'grammar_point_id, position',
+      grammarCompletionEvents: 'id, grammar_point_id, completed_at, _synced',
+      noteSentences: 'id, note_id, updated_at, [note_id+position]',
+      sentenceTextExplanations: 'key, cached_at',
+      customLessons: 'id, status, created_at, queue, next_review_at',
+      customLessonCompletionEvents: 'id, lesson_id, completed_at, _synced',
+      recordingNotes: 'id, card_id, note_id, seen_at, _synced',
     });
   }
 }
@@ -1281,7 +1333,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1296,6 +1348,7 @@ export async function clearAllData(): Promise<void> {
     await db.grammarCompletionEvents.clear();
     await db.noteSentences.clear();
     await db.sentenceTextExplanations.clear();
+    await db.recordingNotes.clear();
   });
 }
 

@@ -100,3 +100,51 @@ The same card is shown immediately and repeatedly, even if just rated, until it 
 
 ### Offline behavior
 All session logic works offline. Reviews are stored locally and synced when connectivity returns. The "Ask Claude" feature gracefully fails when offline.
+
+## Card back layout
+
+The back of a card is deliberately short: hanzi · pinyin · (tutor note) · meaning ·
+**Play** · **Record again** · the card's own sentence (two quiet lines) · one action row
+**Ask Claude · Sentences · ⋯** · the four ratings (64px tall). Everything else is still
+available under **⋯** (a bottom sheet, `components/study/StudyMoreMenu.tsx`): edit card,
+generate fun fact, regenerate audio, new voice, roleplay, play my recording, debug info
+(only with the Debug Console flag on) and the "Added <date>" line. Nothing was removed —
+usage will tell what to cull. *Sentences* opens the full `SentenceSet` list (progressive
+reveal, audio, generated set) in place of the two-line clue.
+
+On the unfolded Fold (≥ 700px) the whole card column is capped at 640px and centred.
+
+## Offline mode
+
+Study is offline whenever **NetworkContext** says the browser is offline (automatic) or the
+learner has **forced** it from the top-bar pill (for a train connection that is nominally
+"online" but stalls). `resolveOfflineMode` in `services/offlineMode.ts` combines the two;
+the pill shows the resolved state ("Auto · online" / "Auto · offline" / "Forced offline",
+shortened on phones) and a tap cycles auto → forced → auto. When offline:
+
+- audio plays from the IndexedDB cache or the device voice, and the card says so in one line
+  when this word's clip was never downloaded;
+- every AI button (Ask Claude, generate sentences/fun fact/audio, new voice, roleplay,
+  multiple choice) is disabled with a "Needs internet" title. Cached sentences and cached
+  multiple-choice options still work.
+
+## Multiple choice
+
+Options come from the note's cached `multiple_choice_options`; otherwise a generation request
+that times out after 8 seconds (`services/multipleChoice.ts`). On timeout, error or offline
+the card falls back to typing with a one-line note. The mode is per card — it never sticks to
+the next one — and nothing is pre-loaded while offline.
+
+## Ending a session
+
+✕ ends the session immediately when nothing has been reviewed yet. After at least one review
+it shows the session recap and asks "End session?" (`components/study/ExitSessionModal.tsx`).
+
+## Tutor notes on recordings
+
+When a tutor marks one of the student's recordings *needs work* with a comment, the student
+sees "From <tutor>: <comment>" under the pinyin the next time that card comes up, once. The
+unseen notes are pulled into IndexedDB (`recordingNotes`) during sync
+(`services/recording-notes.ts`, `GET /api/me/recording-notes`); rating the card marks the note
+seen locally first and `POST /api/me/recording-notes/:eventId/seen` follows, immediately or on
+the next sync.

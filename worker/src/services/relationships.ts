@@ -8,6 +8,7 @@ import {
   CLAUDE_AI_USER_ID,
   PendingInvitation,
   PendingInvitationWithInviter,
+  CardType,
 } from '../types';
 
 function generateId(): string {
@@ -1140,4 +1141,120 @@ export async function getStudentProgress(
     },
     decks: decksResult.results,
   };
+}
+
+// ============ Shared deck: update the student's copy ============
+
+export interface SharedDeckUpdateResult {
+  shared_deck_id: string;
+  target_deck_id: string;
+  /** Notes added to the student's copy (new words in the tutor's deck). */
+  added: number;
+  /** Notes the copy already had (matched by hanzi) — their progress is untouched. */
+  kept: number;
+  /** Existing copies that were missing audio and got the tutor's clip. */
+  audio_filled: number;
+}
+
+/**
+ * Re-sharing a deck used to create a second "(from tutor)" copy for the
+ * student. This instead brings the existing copy up to date: notes the
+ * tutor added since the share are copied over (with their three cards),
+ * notes the student already has are matched by hanzi and left alone so
+ * their scheduling state and review history survive.
+ */
+export async function updateSharedDeckCopy(
+  db: D1Database,
+  relationshipId: string,
+  tutorId: string,
+  sharedDeckId: string
+): Promise<SharedDeckUpdateResult> {
+  const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
+  if (getMyRole(rel, tutorId) !== 'tutor') {
+    throw new Error('Only tutors can update a shared deck');
+  }
+
+  const share = await db
+    .prepare('SELECT * FROM shared_decks WHERE id = ?')
+    .bind(sharedDeckId)
+    .first<{ id: string; relationship_id: string; source_deck_id: string; target_deck_id: string }>();
+  if (!share || share.relationship_id !== relationshipId) {
+    throw new Error('Shared deck not found');
+  }
+
+  const source = await db
+    .prepare('SELECT id, name FROM decks WHERE id = ? AND user_id = ?')
+    .bind(share.source_deck_id, tutorId)
+    .first<{ id: string; name: string }>();
+  if (!source) {
+    throw new Error('Your copy of this deck no longer exists');
+  }
+
+  const studentId = getOtherUserId(rel, tutorId);
+  const target = await db
+    .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
+    .bind(share.target_deck_id, studentId)
+    .first<{ id: string }>();
+  if (!target) {
+    throw new Error('The student no longer has this deck — share it again instead');
+  }
+
+  const sourceNotes = await db
+    .prepare('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC')
+    .bind(share.source_deck_id)
+    .all<{ id: string; hanzi: string; pinyin: string; english: string; audio_url: string | null; fun_facts: string | null }>();
+  const targetNotes = await db
+    .prepare('SELECT id, hanzi, audio_url FROM notes WHERE deck_id = ?')
+    .bind(share.target_deck_id)
+    .all<{ id: string; hanzi: string; audio_url: string | null }>();
+
+  const existingByHanzi = new Map<string, { id: string; audio_url: string | null }>();
+  for (const n of targetNotes.results || []) {
+    const key = n.hanzi.trim();
+    if (!existingByHanzi.has(key)) existingByHanzi.set(key, n);
+  }
+
+  let added = 0;
+  let kept = 0;
+  let audioFilled = 0;
+  const cardTypes: CardType[] = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
+
+  for (const note of sourceNotes.results || []) {
+    const existing = existingByHanzi.get(note.hanzi.trim());
+    if (existing) {
+      kept++;
+      if (!existing.audio_url && note.audio_url) {
+        await db
+          .prepare('UPDATE notes SET audio_url = ? WHERE id = ?')
+          .bind(note.audio_url, existing.id)
+          .run();
+        existing.audio_url = note.audio_url;
+        audioFilled++;
+      }
+      continue;
+    }
+    const newNoteId = generateId();
+    await db
+      .prepare(`INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, fun_facts) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(newNoteId, share.target_deck_id, note.hanzi, note.pinyin, note.english, note.audio_url, note.fun_facts)
+      .run();
+    for (const cardType of cardTypes) {
+      await db
+        .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
+        .bind(generateId(), newNoteId, cardType)
+        .run();
+    }
+    // Same hanzi twice in the source deck must not produce two copies.
+    existingByHanzi.set(note.hanzi.trim(), { id: newNoteId, audio_url: note.audio_url });
+    added++;
+  }
+
+  if (added > 0 || audioFilled > 0) {
+    await db
+      .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
+      .bind(share.target_deck_id)
+      .run();
+  }
+
+  return { shared_deck_id: share.id, target_deck_id: share.target_deck_id, added, kept, audio_filled: audioFilled };
 }

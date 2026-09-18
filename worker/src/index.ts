@@ -25,12 +25,18 @@ import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
+import lessonEditor from './routes/lesson-editor';
+import readerEditor from './routes/reader-editor';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
   getGoogleUserInfo,
-  getOrCreateUser,
+  findExistingUser,
+  touchExistingUser,
+  createUser,
+  encodeOAuthState,
+  parseOAuthState,
   createSession,
   deleteSession,
   createSessionCookie,
@@ -43,9 +49,16 @@ import {
   generateState,
   getAllUsersWithStats,
 } from './services/auth';
-import { notifyNewUser, notifyNewChatMessage } from './services/notifications';
+import { notifyNewUser, notifyNewChatMessage, notifyAccessRequest } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
+import invitesRoutes from './routes/invites';
+import onboardingRoutes from './routes/onboarding';
+import { resolveSignup, redeemInvite } from './services/signup';
+import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
+import insightsRoutes from './routes/insights';
+import recordingNotesRoutes from './routes/recording-notes';
+import tutorDashboardRoutes from './routes/tutor-dashboard';
 import {
   createRelationship,
   getMyRelationships,
@@ -85,7 +98,7 @@ import {
   saveMessageDiscussion,
 } from './services/conversations';
 import { getSharedDeckProgress, getStudentSharedDeckProgress, getOwnDeckProgress } from './services/shared-deck-progress';
-import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest } from './types';
+import { CreateRelationshipRequest, SendMessageRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
 import {
   computeCardState,
   initialCardState,
@@ -125,7 +138,11 @@ app.get('/api/health', (c) => c.json({ status: 'ok' }));
 // ============ Auth Routes (public) ============
 
 app.get('/api/auth/login', (c) => {
-  const state = generateState();
+  // An invite token from /join/<token> rides along in the state so the callback
+  // can admit a brand-new account and bind it to the inviter.
+  const inviteParam = c.req.query('invite');
+  const inviteToken = isPlausibleInviteToken(inviteParam) ? inviteParam : null;
+  const state = encodeOAuthState(generateState(), inviteToken);
   const isSecure = c.req.url.startsWith('https');
 
   // Determine redirect URI based on environment
@@ -188,10 +205,72 @@ app.get('/api/auth/callback', async (c) => {
     const googleUser = await getGoogleUserInfo(tokens.access_token);
     console.log('[Auth Callback] Got Google user:', { email: googleUser.email, name: googleUser.name });
 
-    // Create or update user in database
-    const isAdminEmail = googleUser.email === c.env.ADMIN_EMAIL;
+    // Create or update user in database — sign-up is invite-only.
+    const isAdminEmail = !!c.env.ADMIN_EMAIL && normalizeEmail(googleUser.email) === normalizeEmail(c.env.ADMIN_EMAIL);
     console.log('[Auth Callback] Is admin?', isAdminEmail);
-    const { user, isNewUser } = await getOrCreateUser(c.env.DB, googleUser, isAdminEmail);
+    const { inviteToken } = parseOAuthState(state);
+
+    let user: User;
+    let isNewUser = false;
+    const existingUser = await findExistingUser(c.env.DB, googleUser);
+
+    if (existingUser) {
+      user = await touchExistingUser(c.env.DB, existingUser, googleUser, isAdminEmail);
+
+      // An existing user who opened someone's /join link still gets connected
+      // (and the decks) — the inviter sent it to them on purpose.
+      if (inviteToken) {
+        const invite = await getInviteById(c.env.DB, inviteToken);
+        if (isInviteValid(invite) && (!invite.email || invite.email === normalizeEmail(googleUser.email))) {
+          await redeemInvite(c.env.DB, user, invite).catch(err => {
+            console.error('[Auth Callback] Failed to redeem invite for existing user:', err);
+          });
+        }
+      }
+    } else {
+      const resolution = await resolveSignup(c.env.DB, googleUser, {
+        inviteToken,
+        adminEmail: c.env.ADMIN_EMAIL,
+      });
+      console.log('[Auth Callback] Sign-up resolution:', resolution.kind);
+
+      if (resolution.kind === 'denied') {
+        // No user is created. Remember the attempt so the admin can approve it.
+        const { isFirst } = await recordAccessRequest(c.env.DB, {
+          email: googleUser.email,
+          name: googleUser.name,
+          picture_url: googleUser.picture,
+        });
+        if (isFirst && c.env.NTFY_TOPIC) {
+          c.executionCtx.waitUntil(notifyAccessRequest(c.env.NTFY_TOPIC, { email: googleUser.email, name: googleUser.name }));
+        }
+
+        const params = new URLSearchParams({ signup: resolution.reason });
+        if (resolution.reason === 'email_mismatch') {
+          const inviter = await c.env.DB
+            .prepare('SELECT name FROM users WHERE id = ?')
+            .bind(resolution.invite.created_by)
+            .first<{ name: string | null }>();
+          if (inviter?.name) params.set('inviter', inviter.name);
+        }
+        const headers = new Headers();
+        headers.set('Location', `${frontendUrl}?${params.toString()}`);
+        headers.append('Set-Cookie', clearStateCookie(isSecure));
+        return new Response(null, { status: 302, headers });
+      }
+
+      user = await createUser(c.env.DB, googleUser, isAdminEmail);
+      isNewUser = true;
+
+      // Awaited (not waitUntil) so the very first screen already has the deck.
+      if (resolution.kind === 'invite') {
+        await redeemInvite(c.env.DB, user, resolution.invite).catch(err => {
+          console.error('[Auth Callback] Failed to redeem invite:', err);
+        });
+      }
+      // pending_invitation: processPendingInvitations below creates the relationship.
+      await markAccessRequestApprovedByEmail(c.env.DB, googleUser.email).catch(() => {});
+    }
     console.log('[Auth Callback] User:', { id: user.id, email: user.email, isNewUser });
 
     // Send notification for new users (in background)
@@ -300,7 +379,9 @@ app.get('/api/auth/me', async (c) => {
     picture_url: user.picture_url,
     role: user.role,
     is_admin: !!user.is_admin,
+    can_invite: userMayInvite(user),
     bio: user.bio || null,
+    landing_page: user.landing_page || null,
   });
 });
 
@@ -309,6 +390,24 @@ app.route('/api/test', testAuth);
 
 // Apply auth middleware to all /api/* routes except auth routes
 app.use('/api/*', authMiddleware);
+
+// Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
+app.route('/api', lessonEditor);
+
+// Reader editor: whole-reader spec, import, exports, text assist (routes/reader-editor.ts)
+app.route('/api', readerEditor);
+
+// Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
+app.route('/api', invitesRoutes);
+app.route('/api', onboardingRoutes); // GET /api/me/onboarding, POST /api/decks/starter (see routes/onboarding.ts)
+
+// Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
+app.route('/api', insightsRoutes);
+
+// Student side of recording marks: unseen tutor notes on my recordings (routes/recording-notes.ts)
+app.route('/api', recordingNotesRoutes);
+// Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
+app.route('/api', tutorDashboardRoutes);
 
 // ============ Admin Routes ============
 
@@ -323,6 +422,7 @@ app.get('/api/admin/users', adminMiddleware, async (c) => {
     picture_url: user.picture_url,
     role: user.role,
     is_admin: !!user.is_admin,
+    can_invite: !!user.can_invite,
     created_at: user.created_at,
     last_login_at: user.last_login_at,
     deck_count: user.deck_count,
@@ -455,6 +555,18 @@ app.put('/api/profile/bio', async (c) => {
 
   await c.env.DB.prepare('UPDATE users SET bio = ? WHERE id = ?').bind(trimmed, userId).run();
   return c.json({ bio: trimmed });
+});
+
+// Which tab the app opens on. null = automatic (Students when the account has
+// active students and nothing due today, otherwise Study).
+app.put('/api/profile/landing-page', async (c) => {
+  const userId = c.get('user').id;
+  const { landing_page } = await c.req.json<{ landing_page: LandingPage | null }>();
+  if (landing_page !== null && !LANDING_PAGES.includes(landing_page)) {
+    return c.json({ error: `landing_page must be one of ${LANDING_PAGES.join(', ')} or null` }, 400);
+  }
+  await c.env.DB.prepare('UPDATE users SET landing_page = ? WHERE id = ?').bind(landing_page, userId).run();
+  return c.json({ landing_page });
 });
 
 // ============ Decks ============
@@ -3265,6 +3377,41 @@ app.post('/api/readers/generate', async (c) => {
   }
 });
 
+// Retry a FAILED reader in place: same id (so the daily slot and the client's
+// cached row stay valid), status back to 'generating', story re-queued with
+// the same shape of request the original was made with.
+app.post('/api/readers/:id/retry', async (c) => {
+  const userId = c.get('user').id;
+  const readerId = c.req.param('id');
+
+  const reader = await db.getGradedReader(c.env.DB, readerId, userId);
+  if (!reader) return c.json({ error: 'Reader not found' }, 404);
+  if (reader.status !== 'failed') {
+    return c.json({ error: 'Only a failed reader can be retried' }, 409);
+  }
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI generation is not configured' }, 500);
+  }
+
+  const daily = await db.isDailyReader(c.env.DB, userId, readerId);
+  // 'due_cards' mode treats vocabulary_used as target words merged with the
+  // full learned vocabulary, so it is always safe for a daily reader; manual
+  // readers built from due words are the ones with no source decks.
+  const dueMode = daily || reader.source_deck_ids.length === 0;
+
+  await db.resetReaderForRetry(c.env.DB, readerId);
+  await c.env.STORY_QUEUE.send({
+    readerId,
+    topic: reader.topic ?? undefined,
+    difficulty: reader.difficulty_level,
+    mode: dueMode ? 'due_cards' : undefined,
+    withLessonNotes: dueMode,
+    anchorLessonNotes: daily,
+  });
+
+  return c.json({ ...reader, status: 'generating', error_message: null }, 202);
+});
+
 // Delete a graded reader
 app.delete('/api/readers/:id', async (c) => {
   const userId = c.get('user').id;
@@ -3521,6 +3668,20 @@ app.post('/api/relationships', async (c) => {
 
   if (role !== 'tutor' && role !== 'student') {
     return c.json({ error: 'role must be "tutor" or "student"' }, 400);
+  }
+
+  // Sign-up is invite-only: an email invite to someone who has no account is
+  // itself an invite, so only approved inviters may send one. Connecting with
+  // an existing user stays open to everyone.
+  const recipientExists = await c.env.DB
+    .prepare('SELECT id FROM users WHERE email = ?')
+    .bind(recipient_email)
+    .first<{ id: string }>();
+  if (!recipientExists && !userMayInvite(user)) {
+    return c.json({
+      error: 'Only approved inviters can invite new people — ask Jerome to enable inviting for you.',
+      code: 'invite_not_permitted',
+    }, 403);
   }
 
   try {
@@ -4776,6 +4937,38 @@ app.post('/api/messages/:id/recording', async (c) => {
 });
 
 // Update conversation voice settings
+// Rename a conversation (title is optional; conversations opened via ?new=1 start untitled)
+app.patch('/api/conversations/:id', async (c) => {
+  const userId = c.get('user').id;
+  const convId = c.req.param('id');
+  const { title } = await c.req.json<{ title?: string | null }>();
+
+  if (title !== undefined && title !== null && typeof title !== 'string') {
+    return c.json({ error: 'title must be a string' }, 400);
+  }
+  if (title === undefined) {
+    return c.json({ error: 'No updates provided' }, 400);
+  }
+
+  try {
+    const conv = await getConversationById(c.env.DB, convId, userId);
+    if (!conv) {
+      return c.json({ error: 'Conversation not found' }, 404);
+    }
+    const trimmed = (title || '').trim().slice(0, 120);
+    await c.env.DB
+      .prepare('UPDATE conversations SET title = ? WHERE id = ?')
+      .bind(trimmed || null, convId)
+      .run();
+    const updated = await getConversationById(c.env.DB, convId, userId);
+    return c.json(updated);
+  } catch (error) {
+    console.error('Rename conversation error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to rename conversation';
+    return c.json({ error: message }, 500);
+  }
+});
+
 app.patch('/api/conversations/:id/voice-settings', async (c) => {
   const userId = c.get('user').id;
   const convId = c.req.param('id');
@@ -5935,20 +6128,33 @@ async function startDailyReader(
     : [];
   const dueMode = targets.length >= 3;
 
-  const pending = await db.createPendingReader(c.env.DB, userId, {
-    title_chinese: '生成中...',
-    title_english: "Today's story...",
-    difficulty_level: 'beginner' as DifficultyLevel,
-    topic: null,
-    source_deck_ids: deckIds,
-    vocabulary_used: dueMode ? targets : vocabulary,
-  });
-  await db.setDailyReaderId(c.env.DB, userId, pending.id, localDate);
+  // A failed attempt from earlier today is retried IN PLACE (same row) rather
+  // than leaving a dead '生成中…' card behind for every study session that
+  // ended while the AI was unavailable.
+  let readerId: string;
+  if (existing?.status === 'failed' && existing.reader_id) {
+    readerId = existing.reader_id;
+    await db.resetReaderForRetry(c.env.DB, readerId, {
+      source_deck_ids: deckIds,
+      vocabulary_used: dueMode ? targets : vocabulary,
+    });
+  } else {
+    const pending = await db.createPendingReader(c.env.DB, userId, {
+      title_chinese: '生成中...',
+      title_english: "Today's story...",
+      difficulty_level: 'beginner' as DifficultyLevel,
+      topic: null,
+      source_deck_ids: deckIds,
+      vocabulary_used: dueMode ? targets : vocabulary,
+    });
+    readerId = pending.id;
+    await db.setDailyReaderId(c.env.DB, userId, readerId, localDate);
+  }
   // Only the readerId is sent — the consumer loads vocabulary_used from the
   // reader record to stay under the 128 KB Queues message limit.
   c.executionCtx.waitUntil(
     c.env.STORY_QUEUE.send({
-      readerId: pending.id,
+      readerId,
       difficulty: 'beginner',
       mode: dueMode ? 'due_cards' : undefined,
       withLessonNotes: true,
@@ -5958,7 +6164,7 @@ async function startDailyReader(
       anchorLessonNotes: true,
     }),
   );
-  return { reader_id: pending.id, situation_id: DAILY_READER_SOURCE, status: 'generating' };
+  return { reader_id: readerId, situation_id: DAILY_READER_SOURCE, status: 'generating' };
 }
 
 function triggerPracticePregen(
@@ -6151,6 +6357,8 @@ app.get('/api/custom-lessons', async (c) => {
       source: row.source,
       status: row.status,
       created_at: row.created_at,
+      assigned_by: row.assigned_by ?? null,
+      assigned_relationship_id: row.assigned_relationship_id ?? null,
       spec: JSON.parse(row.spec),
       completions: completionsByLesson.get(row.id) ?? [],
     })),

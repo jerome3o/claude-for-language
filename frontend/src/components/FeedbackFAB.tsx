@@ -5,8 +5,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { createFeatureRequest, uploadFeatureRequestScreenshot } from '../api/client';
 import { getConsoleBuffer } from '../utils/consoleBuffer';
 import { AnnotationCanvas } from './AnnotationCanvas';
+import { isImmersiveRoute } from './nav/tabs';
 
 const FAB_SIZE = 48;
+const TAB_BAR_HEIGHT = 56; // keep in step with --tab-bar-height in index.css
 const STORAGE_KEY = 'feedback-fab-position';
 
 function loadPosition(): { x: number; y: number } | null {
@@ -50,11 +52,13 @@ export function FeedbackFAB() {
   const hasMoved = useRef(false);
   const fabRef = useRef<HTMLButtonElement>(null);
 
-  // Compute default position (bottom-right with 1.5rem margin)
+  // Compute default position (bottom-right with 1.5rem margin, above the
+  // bottom tab bar on the pages that have one — see components/nav/TabBar)
+  const tabBarVisible = isAuthenticated && !isImmersiveRoute(location.pathname);
   const getDefaultPos = useCallback(() => ({
     x: window.innerWidth - FAB_SIZE - 24,
-    y: window.innerHeight - FAB_SIZE - 24,
-  }), []);
+    y: window.innerHeight - FAB_SIZE - 24 - (tabBarVisible ? TAB_BAR_HEIGHT : 0),
+  }), [tabBarVisible]);
 
   // Get effective position
   const getPos = useCallback(() => position || getDefaultPos(), [position, getDefaultPos]);

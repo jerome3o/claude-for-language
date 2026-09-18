@@ -15,16 +15,30 @@ import {
   getOtherUserInRelationship,
   isClaudeUser,
 } from '../types';
-import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
+import { Loading, ErrorMessage } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
+import { InviteSheet } from '../components/invites/InviteSheet';
+import { InviteList } from '../components/invites/InviteList';
+import { StudentsDashboard } from '../components/tutor/StudentsDashboard';
+import { listInvites, revokeInvite } from '../api/invites';
 import './ConnectionsPage.css';
 
+const INVITE_GATE_MESSAGE = 'Only approved inviters can invite new people — ask Jerome to enable inviting for you. (You can still connect with anyone who already has an account.)';
+
+/**
+ * Connections. For a tutor with at least one active student this is the
+ * Students dashboard (one card per student, pending invite links, homework
+ * decks). "My Tutors" only renders when the account has a tutor, and the
+ * plain "My Students" list is gone — the dashboard replaces it.
+ */
 export function ConnectionsPage() {
   const { user } = useAuth();
   const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
+  const canInvite = !!user?.can_invite || !!user?.is_admin;
+  const [showInviteSheet, setShowInviteSheet] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<RelationshipRole>('tutor');
@@ -36,15 +50,33 @@ export function ConnectionsPage() {
     queryFn: getMyRelationships,
   });
 
+  const hasStudents = (relationshipsQuery.data?.students.length ?? 0) > 0;
+
+  // The full invite list (used / expired too) is only interesting when there
+  // is no dashboard to show the pending ones.
+  const invitesQuery = useQuery({
+    queryKey: ['invites', 'mine'],
+    queryFn: () => listInvites(false),
+    enabled: canInvite && relationshipsQuery.isSuccess,
+  });
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: revokeInvite,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invites'] });
+      queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: ({ email, role }: { email: string; role: RelationshipRole }) =>
       createRelationship(email, role),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['relationships'] });
+      queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
       setShowInviteForm(false);
       setInviteEmail('');
       setInviteError(null);
-      // Show success message for invitations to non-users
       if (result.type === 'invitation') {
         setInviteSuccess(`Invitation sent to ${result.data.recipient_email}`);
         setTimeout(() => setInviteSuccess(null), 5000);
@@ -59,6 +91,7 @@ export function ConnectionsPage() {
     mutationFn: acceptRelationship,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['relationships'] });
+      queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
     },
   });
 
@@ -92,24 +125,19 @@ export function ConnectionsPage() {
   }
 
   const relationships = relationshipsQuery.data!;
-  const { tutors, students, pending_incoming, pending_outgoing, pending_invitations } = relationships;
+  const { tutors, pending_incoming, pending_outgoing, pending_invitations } = relationships;
 
-  // Helper to render a pending invitation (for non-users)
-  const renderInvitationInfo = (inv: PendingInvitationWithInviter) => {
-    return (
-      <div className="connection-user">
-        <div className="connection-avatar connection-avatar-placeholder">
-          {inv.recipient_email[0].toUpperCase()}
-        </div>
-        <div className="connection-user-info">
-          <span className="connection-name">{inv.recipient_email}</span>
-          <span className="connection-email">
-            Not signed up yet
-          </span>
-        </div>
+  const renderInvitationInfo = (inv: PendingInvitationWithInviter) => (
+    <div className="connection-user">
+      <div className="connection-avatar connection-avatar-placeholder">
+        {inv.recipient_email[0].toUpperCase()}
       </div>
-    );
-  };
+      <div className="connection-user-info">
+        <span className="connection-name">{inv.recipient_email}</span>
+        <span className="connection-email">Not signed up yet</span>
+      </div>
+    </div>
+  );
 
   const renderUserInfo = (rel: TutorRelationshipWithUsers) => {
     const otherUser = getOtherUserInRelationship(rel, user!.id);
@@ -117,9 +145,7 @@ export function ConnectionsPage() {
     return (
       <div className="connection-user">
         {isClaude ? (
-          <div className="connection-avatar connection-avatar-ai">
-            🤖
-          </div>
+          <div className="connection-avatar connection-avatar-ai">🤖</div>
         ) : otherUser.picture_url ? (
           <img src={otherUser.picture_url} alt="" className="connection-avatar" />
         ) : (
@@ -143,43 +169,73 @@ export function ConnectionsPage() {
   const getPendingDescription = (rel: TutorRelationshipWithUsers) => {
     const otherUser = getOtherUserInRelationship(rel, user!.id);
     const otherName = otherUser.name || otherUser.email || 'Someone';
-
-    // If they are the requester, their role tells us what they want to be
     if (rel.requester_id !== user!.id) {
-      // I'm the recipient - they initiated
-      if (rel.requester_role === 'tutor') {
-        return `${otherName} wants to be your tutor`;
-      } else {
-        return `${otherName} wants you to be their tutor`;
-      }
+      return rel.requester_role === 'tutor'
+        ? `${otherName} wants to be your tutor`
+        : `${otherName} wants you to be their tutor`;
     }
     return '';
   };
+
+  const allInvites = invitesQuery.data ?? [];
+  const nonPendingInvites = allInvites.filter((i) => !(i.status === 'active' && i.use_count === 0));
 
   return (
     <div className="page">
       <div className="container">
         <div className="connections-header">
-          <h1>Connections</h1>
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowInviteForm(!showInviteForm)}
-          >
-            {showInviteForm ? 'Cancel' : '+ Invite'}
-          </button>
+          <h1>{hasStudents ? 'My students' : 'Connections'}</h1>
+          {canInvite ? (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowInviteSheet(true)}
+              disabled={!isOnline}
+            >
+              + Invite student
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowInviteForm(!showInviteForm)}
+            >
+              {showInviteForm ? 'Cancel' : '+ Invite'}
+            </button>
+          )}
         </div>
 
-        {/* Success message for sent invitations */}
+        {showInviteSheet && (
+          <InviteSheet
+            onClose={() => setShowInviteSheet(false)}
+            onCreated={() => {
+              queryClient.invalidateQueries({ queryKey: ['invites'] });
+              queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
+            }}
+          />
+        )}
+
+        {canInvite && (
+          <p className="invite-gate-note">
+            Send someone a link and they're in with one tap. Already have an account?{' '}
+            <button type="button" className="btn-link" onClick={() => setShowInviteForm(!showInviteForm)}>
+              {showInviteForm ? 'Hide' : 'Connect by email'}
+            </button>
+          </p>
+        )}
+
         {inviteSuccess && (
           <div className="card mb-4 invite-success">
             <p className="text-success">{inviteSuccess}</p>
           </div>
         )}
 
-        {/* Invite Form */}
         {showInviteForm && (
           <div className="card mb-4 invite-form">
-            <h3>Invite Someone</h3>
+            <h3>{canInvite ? 'Connect by email' : 'Invite Someone'}</h3>
+            {!canInvite && (
+              <p className="invite-gate-note">
+                Enter the email of someone who already uses the app. {INVITE_GATE_MESSAGE}
+              </p>
+            )}
             <form onSubmit={handleInvite}>
               <div className="form-group">
                 <label htmlFor="invite-email">Their Email</label>
@@ -219,7 +275,11 @@ export function ConnectionsPage() {
                   </label>
                 </div>
               </div>
-              {inviteError && <p className="text-error mb-2">{inviteError}</p>}
+              {inviteError && (
+                <p className="text-error mb-2">
+                  {inviteError.startsWith('Only approved inviters') ? INVITE_GATE_MESSAGE : inviteError}
+                </p>
+              )}
               <div className="mb-2">
                 <OfflineWarning message="You're offline. Invites can't be sent right now." />
               </div>
@@ -231,6 +291,20 @@ export function ConnectionsPage() {
                 {createMutation.isPending ? 'Sending...' : 'Send Invite'}
               </button>
             </form>
+          </div>
+        )}
+
+        {/* Students dashboard: cards, pending invite links, homework decks */}
+        {hasStudents && <StudentsDashboard canInvite={canInvite} />}
+
+        {/* Without a dashboard, the invite links live here */}
+        {!hasStudents && canInvite && allInvites.length > 0 && (
+          <div className="connections-section">
+            <h2>Invites I've sent</h2>
+            <InviteList
+              invites={allInvites}
+              onRevoke={(id) => revokeInviteMutation.mutateAsync(id).then(() => undefined)}
+            />
           </div>
         )}
 
@@ -302,7 +376,7 @@ export function ConnectionsPage() {
           </div>
         )}
 
-        {/* Pending Invitations (to non-users) */}
+        {/* Pending email invitations (to non-users) */}
         {pending_invitations && pending_invitations.length > 0 && (
           <div className="connections-section">
             <h2>Pending Invitations</h2>
@@ -333,16 +407,10 @@ export function ConnectionsPage() {
           </div>
         )}
 
-        {/* My Tutors */}
-        <div className="connections-section">
-          <h2>My Tutors</h2>
-          {tutors.length === 0 ? (
-            <EmptyState
-              icon="👨‍🏫"
-              title="No tutors yet"
-              description="Invite someone to be your tutor"
-            />
-          ) : (
+        {/* My Tutors — only for accounts that have one */}
+        {tutors.length > 0 && (
+          <div className="connections-section">
+            <h2>My Tutors</h2>
             <div className="connections-list">
               {tutors.map((rel) => (
                 <Link
@@ -356,34 +424,27 @@ export function ConnectionsPage() {
                 </Link>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* My Students */}
-        <div className="connections-section">
-          <h2>My Students</h2>
-          {students.length === 0 ? (
-            <EmptyState
-              icon="👨‍🎓"
-              title="No students yet"
-              description="Invite someone to be your student"
+        {/* Used / expired invite links, out of the way once there is a dashboard */}
+        {hasStudents && canInvite && nonPendingInvites.length > 0 && (
+          <details className="connections-section connections-details">
+            <summary>Older invite links ({nonPendingInvites.length})</summary>
+            <InviteList
+              invites={nonPendingInvites}
+              onRevoke={(id) => revokeInviteMutation.mutateAsync(id).then(() => undefined)}
             />
-          ) : (
-            <div className="connections-list">
-              {students.map((rel) => (
-                <Link
-                  key={rel.id}
-                  to={`/connections/${rel.id}`}
-                  className="connection-card active"
-                >
-                  {renderUserInfo(rel)}
-                  <span className="connection-role-badge student">Student</span>
-                  <span className="connection-arrow">→</span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+          </details>
+        )}
+
+        {!hasStudents && tutors.length === 0 && pending_incoming.length === 0 && pending_outgoing.length === 0 && (pending_invitations?.length ?? 0) === 0 && (
+          <p className="connections-empty">
+            {canInvite
+              ? 'No one is connected yet. Tap + Invite student to create a link, or connect by email with someone who already has an account.'
+              : 'No one is connected yet. Invite someone who already has an account by email.'}
+          </p>
+        )}
       </div>
     </div>
   );

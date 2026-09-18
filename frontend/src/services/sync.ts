@@ -21,9 +21,11 @@ import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-stu
 import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
 import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
+import { syncRecordingNotes } from './recording-notes';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
+import { reportClientStateIfDue } from './clientState';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -342,6 +344,10 @@ class SyncService {
     prefetchAllAudio().catch(err =>
       console.error('[Sync] Full audio prefetch failed:', err)
     );
+
+    // Tell the server how this device runs the app (installed? audio cached?)
+    // so a tutor's setup checklist reflects reality. Throttled, never throws.
+    void reportClientStateIfDue();
   }
 
   /**
@@ -390,6 +396,13 @@ class SyncService {
       );
     } catch (err) {
       console.error('[Sync] Custom lesson sync failed:', err);
+    }
+    try {
+      // Tutor notes on my recordings ("second tone, not fourth"): pulled down
+      // so the line on the card back shows offline; local "seen" marks go up.
+      await syncRecordingNotes();
+    } catch (err) {
+      console.error('[Sync] Recording notes sync failed:', err);
     }
     try {
       // Sentence sets are text-only here; their audio comes down with the
@@ -569,6 +582,9 @@ class SyncService {
     prefetchAllAudio().catch(err =>
       console.error('[Sync] Full audio prefetch failed:', err)
     );
+
+    // Device report for the tutor's setup checklist (throttled, never throws).
+    void reportClientStateIfDue();
   }
 
   /**
@@ -848,6 +864,13 @@ class SyncService {
         console.error('[Sync] Error fetching missing deck:', deckId, err);
       }
     }
+
+    // A deck that arrived this way is usually one a tutor just shared — get
+    // its audio onto the device straight away rather than on the next
+    // throttled run.
+    prefetchAllAudio({ force: true }).catch(err =>
+      console.error('[Sync] Audio prefetch after deck fetch failed:', err)
+    );
   }
 
   /**

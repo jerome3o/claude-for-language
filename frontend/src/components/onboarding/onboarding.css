@@ -1,0 +1,249 @@
+/* ===== First-open screen ===== */
+
+.onb-first-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.onb-hero {
+  text-align: center;
+  padding: 1.25rem 1rem 1rem;
+}
+
+.onb-wave {
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.onb-greeting {
+  margin: 0 0 0.375rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.onb-lead {
+  margin: 0 0 1rem;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  color: var(--color-text-light);
+}
+
+.onb-lead strong {
+  color: var(--color-text);
+}
+
+.onb-start-btn {
+  min-height: 56px;
+  font-size: 1.25rem;
+}
+
+.onb-hero-sub {
+  margin: 0.625rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--color-text-light);
+}
+
+/* ===== Checklist ===== */
+
+.onb-checklist-title {
+  margin: 0 0 0.625rem;
+  font-size: 1.125rem;
+}
+
+.onb-check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  min-height: 56px;
+}
+
+.onb-check-row + .onb-check-row {
+  margin-top: 0.5rem;
+}
+
+.onb-check-row.done {
+  border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success) 6%, transparent);
+}
+
+.onb-check-icon {
+  font-size: 1.375rem;
+  flex-shrink: 0;
+  width: 1.75rem;
+  text-align: center;
+}
+
+.onb-check-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.onb-check-label {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.onb-check-sub {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  line-height: 1.4;
+}
+
+.onb-audio-done { color: #15803d; font-weight: 500; }
+.onb-audio-warn { color: #b45309; font-weight: 500; }
+
+.onb-check-btn {
+  flex-shrink: 0;
+  min-height: 44px;
+}
+
+.onb-install-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--color-background);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.onb-kbd {
+  display: inline-block;
+  padding: 0 0.375rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ===== Welcome message ===== */
+
+.onb-welcome {
+  border-left: 4px solid #3b82f6;
+}
+
+.onb-welcome-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.onb-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.onb-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3b82f6;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+
+.onb-welcome-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.onb-welcome-meta {
+  font-size: 0.9375rem;
+  margin-bottom: 0.25rem;
+}
+
+.onb-welcome-text {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.onb-skip {
+  text-align: center;
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+
+.onb-skip .btn-link {
+  min-height: 44px;
+}
+
+/* ===== First-card explainer ===== */
+
+.onb-explainer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+
+.onb-explainer {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 1.25rem 1rem;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0));
+  box-shadow: var(--shadow-lg);
+}
+
+.onb-explainer h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+}
+
+.onb-explainer-list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.onb-explainer-note {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  line-height: 1.5;
+}
+
+@media (min-width: 640px) {
+  .onb-explainer-backdrop {
+    align-items: center;
+    padding: 1.5rem;
+  }
+
+  .onb-explainer {
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+  }
+
+  .onb-greeting {
+    font-size: 1.75rem;
+  }
+}

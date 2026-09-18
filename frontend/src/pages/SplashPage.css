@@ -71,6 +71,37 @@
   font-size: 0.8125rem;
 }
 
+.splash-notice {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #dbeafe;
+  padding: 0.75rem 0.875rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  text-align: left;
+  line-height: 1.5;
+}
+
+.splash-notice strong {
+  display: block;
+  color: #fff;
+  margin-bottom: 0.25rem;
+}
+
+.splash-notice p {
+  margin: 0;
+}
+
+.splash-notice p + p {
+  margin-top: 0.5rem;
+}
+
+.splash-notice-small {
+  font-size: 0.8125rem;
+  color: #b7c4de;
+}
+
 .splash-login-button {
   display: inline-flex;
   align-items: center;
@@ -157,4 +188,10 @@
     margin-top: 2rem;
     font-size: 0.75rem;
   }
+}
+
+.splash-hint {
+  margin: 0.875rem 0 0;
+  font-size: 0.9375rem;
+  color: #dbe4f5;
 }

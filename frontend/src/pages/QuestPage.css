@@ -97,10 +97,42 @@
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #e2e8f0;
   border-radius: 999px;
-  padding: 0.3rem 0.7rem;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.quest-generate-error {
+  color: #fca5a5;
   font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.quest-error-details {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+}
+
+.quest-error-details summary {
   cursor: pointer;
   min-height: 32px;
+  display: flex;
+  align-items: center;
+  color: var(--color-primary);
+}
+
+.quest-error-details pre {
+  margin: 0.25rem 0 0;
+  padding: 0.5rem 0.625rem;
+  background: var(--color-background);
+  border-radius: var(--radius-md);
+  font-size: 0.6875rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 8rem;
+  overflow: auto;
 }
 
 .quest-chip:hover {

@@ -122,10 +122,21 @@ export interface User {
   picture_url: string | null;
   role: UserRole;
   is_admin: number;
+  /** 1 if this user may create invites for new people (admins always may). */
+  can_invite: number;
   last_login_at: string | null;
   bio: string | null;
+  /** Which tab the app opens on; NULL = automatic (see PUT /api/profile/landing-page). */
+  landing_page: LandingPage | null;
+  /** Reported by the client during sync (migration 0064). */
+  install_kind?: 'pwa' | 'android' | 'browser' | null;
+  cached_audio_count?: number | null;
+  last_opened_at?: string | null;
   created_at: string;
 }
+
+export type LandingPage = 'study' | 'students' | 'decks';
+export const LANDING_PAGES: readonly LandingPage[] = ['study', 'students', 'decks'];
 
 export interface AuthSession {
   id: string;

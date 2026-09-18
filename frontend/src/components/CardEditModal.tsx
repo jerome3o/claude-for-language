@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CardWithNote, NoteAudioRecording, MINIMAX_VOICES } from '../types';
 import { DEFAULT_TTS_SPEED } from '../types';
 import {
@@ -14,6 +14,7 @@ import {
 } from '../api/client';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { SentenceSet } from './SentenceSet';
+import './CardEditModal.css';
 
 interface CardEditModalProps {
   card: CardWithNote;
@@ -45,6 +46,18 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the ⋯ menu on an outside tap
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menuOpen]);
 
   // Audio playback tracking
   const [playingRecordingId, setPlayingRecordingId] = useState<string | null>(null);
@@ -227,8 +240,60 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
       <div className="modal card-edit-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">Edit Card</h2>
-          <button className="modal-close" onClick={onClose}>&times;</button>
+          <div className="card-edit-header-actions">
+            {onDeleteCard && (
+              <div className="card-edit-menu-wrap" ref={menuRef}>
+                <button
+                  type="button"
+                  className="card-edit-menu-btn"
+                  onClick={() => setMenuOpen(o => !o)}
+                  aria-label="More actions"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                >
+                  ⋯
+                </button>
+                {menuOpen && (
+                  <div className="card-edit-menu" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="btn btn-secondary danger"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setConfirmDeleteCard(true);
+                      }}
+                    >
+                      🗑 Delete note
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button className="modal-close" onClick={onClose} aria-label="Close">&times;</button>
+          </div>
         </div>
+
+        {confirmDeleteCard && (
+          <div className="card-edit-delete-strip" role="alertdialog" aria-label="Delete this note?">
+            <span>Delete this note and all three of its cards?</span>
+            <span className="card-edit-delete-strip-actions">
+              <button
+                className="btn btn-error btn-sm"
+                onClick={handleDeleteCard}
+                disabled={deleting}
+              >
+                {deleting ? '…' : 'Yes, delete'}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setConfirmDeleteCard(false)}
+              >
+                Keep
+              </button>
+            </span>
+          </div>
+        )}
 
         <div className="card-edit-content">
           {/* Text fields */}
@@ -497,35 +562,8 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
           </div>
         </div>
 
-        {/* Footer: Delete / Cancel / Save */}
+        {/* Footer: Cancel / Save (Delete note lives in the header ⋯ menu) */}
         <div className="card-edit-footer">
-          {onDeleteCard && (
-            confirmDeleteCard ? (
-              <div className="card-edit-delete-confirm">
-                <span className="text-sm">Delete this note?</span>
-                <button
-                  className="btn btn-error btn-sm"
-                  onClick={handleDeleteCard}
-                  disabled={deleting}
-                >
-                  {deleting ? '...' : 'Yes, Delete'}
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setConfirmDeleteCard(false)}
-                >
-                  No
-                </button>
-              </div>
-            ) : (
-              <button
-                className="btn btn-secondary btn-sm card-edit-delete-btn"
-                onClick={() => setConfirmDeleteCard(true)}
-              >
-                Delete Note
-              </button>
-            )
-          )}
           <div className="card-edit-footer-right">
             <button className="btn btn-secondary btn-sm" onClick={onClose}>
               Cancel

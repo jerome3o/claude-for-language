@@ -103,21 +103,7 @@ export async function updateCustomLessonFromSpec(
   if (errors.length > 0) return { ok: false, notFound: false, errors };
   const spec = rawSpec as CustomLessonSpec;
 
-  const oldSpec = JSON.parse(existing.spec) as CustomLessonSpec;
-  const imageByPrompt = new Map<string, string>();
-  for (const section of oldSpec.sections) {
-    for (const ex of section.exercises) {
-      if (ex.type === 'describe_image' && ex.image_url) imageByPrompt.set(ex.image_prompt, ex.image_url);
-    }
-  }
-  for (const section of spec.sections) {
-    for (const ex of section.exercises) {
-      if (ex.type === 'describe_image' && !ex.image_url) {
-        const kept = imageByPrompt.get(ex.image_prompt);
-        if (kept) ex.image_url = kept;
-      }
-    }
-  }
+  mergeKeptImages(JSON.parse(existing.spec) as CustomLessonSpec, spec);
 
   const lesson = await db.updateCustomLesson(env.DB, lessonId, userId, {
     title: spec.title,
@@ -129,6 +115,31 @@ export async function updateCustomLessonFromSpec(
 
   const imageJobs = await queueLessonImages(env, lesson.id, spec);
   return { ok: true, lesson, imageJobs };
+}
+
+/**
+ * Carry generated illustrations over from the previous spec when a
+ * describe_image exercise keeps its image_prompt (agents rarely echo
+ * image_url back), so an edit to a question doesn't re-render every picture.
+ * Mutates and returns `next`. Shared by the REST update, the editor and
+ * library push-updates.
+ */
+export function mergeKeptImages(previous: CustomLessonSpec, next: CustomLessonSpec): CustomLessonSpec {
+  const imageByPrompt = new Map<string, string>();
+  for (const section of previous.sections) {
+    for (const ex of section.exercises) {
+      if (ex.type === 'describe_image' && ex.image_url) imageByPrompt.set(ex.image_prompt, ex.image_url);
+    }
+  }
+  for (const section of next.sections) {
+    for (const ex of section.exercises) {
+      if (ex.type === 'describe_image' && !ex.image_url) {
+        const kept = imageByPrompt.get(ex.image_prompt);
+        if (kept) ex.image_url = kept;
+      }
+    }
+  }
+  return next;
 }
 
 /** Queue illustration generation for describe_image exercises without an

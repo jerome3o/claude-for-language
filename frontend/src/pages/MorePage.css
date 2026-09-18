@@ -1,0 +1,201 @@
+/* More page + the shared grouped-list rows (also used by Settings → Advanced) */
+.more-page {
+  padding: 0.5rem 0 1rem;
+  max-width: 640px;
+}
+
+.more-page h1 {
+  font-size: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.more-user-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 64px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  color: inherit;
+  text-decoration: none;
+}
+
+.more-user-card:hover {
+  text-decoration: none;
+  background: #fff7f6;
+}
+
+.more-user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.more-user-avatar-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.nav-section {
+  margin-bottom: 1rem;
+}
+
+.nav-section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+  margin: 0 0 0.375rem 0.25rem;
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.nav-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  text-align: left;
+  text-decoration: none;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.nav-row:hover {
+  text-decoration: none;
+  background: #fff7f6;
+}
+
+.nav-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.nav-row-danger {
+  color: #dc2626;
+}
+
+.nav-row-icon {
+  flex: none;
+  width: 32px;
+  font-size: 1.375rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.nav-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.nav-row-label {
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-row-desc {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-row-chevron {
+  flex: none;
+  color: var(--color-text-light);
+  font-size: 1.5rem;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.nav-row-badge {
+  background: #ef4444;
+  color: white;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  line-height: 1;
+}
+
+/* Collapsible section header (Advanced) */
+.nav-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.25rem 0.25rem 0.25rem 0.25rem;
+  margin-bottom: 0.375rem;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-text);
+}
+
+.nav-section-toggle-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-section-toggle-chevron {
+  transform: rotate(0deg);
+  transition: transform 0.15s;
+}
+
+.nav-section-toggle-chevron.open {
+  transform: rotate(90deg);
+}
+
+@media (min-width: 640px) {
+  .more-page {
+    padding: 1.5rem 0 3rem;
+  }
+
+  .more-page h1 {
+    font-size: 1.75rem;
+  }
+}

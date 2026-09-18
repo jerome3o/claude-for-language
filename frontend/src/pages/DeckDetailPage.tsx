@@ -1,15 +1,127 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship, DeckProgress } from '../types';
-import { CompletionSection, CardTypeBreakdownSection, ActivitySection } from '../components/DeckProgress';
+import { DeckProgressSummary } from '../components/DeckProgress';
 import CardEditModal from '../components/CardEditModal';
+import { AnkiExportModal } from '../components/export/AnkiExportModal';
+import { Toast, useToast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent, DEFAULT_SECONDARY_CARDS_PER_DAY } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import './SharedDeckProgressPage.css';
+import './DeckDetailPage.css';
+
+// ============ Deck ⋯ menu ============
+
+interface DeckMenuItem {
+  key: string;
+  label: string;
+  onSelect: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+  /** Visually groups the item after a divider. */
+  divider?: boolean;
+}
+
+/**
+ * The deck page's overflow menu: everything that is not "Study" lives here,
+ * so the page opens with one primary action instead of six buttons.
+ */
+function DeckOverflowMenu({ items }: { items: DeckMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="deck-menu-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="btn btn-secondary deck-menu-btn"
+        onClick={() => setOpen(o => !o)}
+        aria-label="More deck actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div className="deck-menu" role="menu">
+          {items.map(item => (
+            <button
+              key={item.key}
+              type="button"
+              role="menuitem"
+              className={`deck-menu-item${item.danger ? ' danger' : ''}${item.divider ? ' after-divider' : ''}`}
+              disabled={item.disabled}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A deck as a self-contained JSON backup (notes only; scheduling is event-sourced elsewhere). */
+function downloadDeckJson(deck: Deck & { notes: Note[] }) {
+  const payload = {
+    format: 'chinese-learning-deck',
+    version: 1,
+    exported_at: new Date().toISOString(),
+    deck: {
+      name: deck.name,
+      description: deck.description,
+      new_cards_per_day: deck.new_cards_per_day,
+      secondary_cards_per_day: deck.secondary_cards_per_day ?? null,
+    },
+    notes: deck.notes.map(n => ({
+      hanzi: n.hanzi,
+      pinyin: n.pinyin,
+      english: n.english,
+      fun_facts: n.fun_facts,
+      context: n.context,
+      sentence_clue: n.sentence_clue,
+      sentence_clue_pinyin: n.sentence_clue_pinyin,
+      sentence_clue_translation: n.sentence_clue_translation,
+      alternatives: n.alternatives,
+      audio_url: n.audio_url,
+      created_at: n.created_at,
+    })),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${deck.name.replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || 'deck'}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 const RATING_LABELS = ['Again', 'Hard', 'Good', 'Easy'];
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -1097,17 +1209,14 @@ function DeckSettingsModal({
             />
           </div>
 
-          {/* How SRS Works Section */}
-          <div style={{ background: 'var(--bg-elevated)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
-            <strong>How Spaced Repetition Works:</strong>
-            <ul style={{ margin: '0.5rem 0 0 1rem', paddingLeft: '0.5rem' }}>
-              <li><strong>New cards</strong> go through learning steps (1min → 10min → graduate)</li>
-              <li><strong>Good</strong> advances to next step or graduates the card</li>
-              <li><strong>Again</strong> resets to the first learning step</li>
-              <li><strong>Graduated cards</strong> use the ease factor to calculate intervals</li>
-              <li><strong>Ease factor</strong> adjusts based on your answers (harder = lower ease)</li>
-            </ul>
-          </div>
+          {/* How scheduling works (FSRS) */}
+          <p className="deck-settings-fsrs-note">
+            Cards are scheduled with FSRS: each card tracks how stable your memory of it is and how
+            hard it is, and the next review lands just before you'd forget — Again brings a card back
+            sooner, Easy pushes it further out. The two daily limits below are the settings that
+            matter day to day: how many brand-new words to introduce, and how many extra cards of
+            words you've already started.
+          </p>
 
           <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Learning</h3>
 
@@ -1223,18 +1332,10 @@ function DeckSettingsModal({
 
           {showAdvanced && (
             <>
-              <div style={{ background: 'var(--bg-elevated)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
-                <strong>Ease Factor Explained:</strong>
-                <p style={{ margin: '0.5rem 0 0 0' }}>
-                  Each card has an "ease factor" (default 2.5). When you review:
-                </p>
-                <ul style={{ margin: '0.25rem 0 0 1rem', paddingLeft: '0.5rem' }}>
-                  <li><strong>Good:</strong> next interval = current × ease (e.g., 10d × 2.5 = 25d)</li>
-                  <li><strong>Hard:</strong> ease drops 15%, interval × hard multiplier</li>
-                  <li><strong>Easy:</strong> ease rises 15%, interval × ease × easy bonus</li>
-                  <li><strong>Again:</strong> ease drops 20%, card enters relearning</li>
-                </ul>
-              </div>
+              <p className="deck-settings-fsrs-note">
+                Legacy SM-2 settings, kept for compatibility. FSRS ignores the ease values; they only
+                affect the approximate "ease" shown in card history.
+              </p>
 
               <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Ease Settings</h3>
 
@@ -1340,14 +1441,6 @@ function DeckSettingsModal({
                 </div>
               </div>
 
-              <div style={{ background: 'var(--bg-elevated)', padding: '0.75rem', borderRadius: '8px', marginTop: '0.5rem', fontSize: '0.8rem' }}>
-                <strong>Example:</strong> Card at 10 days, ease 2.5, interval modifier 1.0:
-                <ul style={{ margin: '0.25rem 0 0 1rem', paddingLeft: '0.5rem' }}>
-                  <li>Good: 10 × 2.5 × 1.0 = 25 days</li>
-                  <li>Hard: 10 × 1.2 × 1.0 = 12 days (ease → 2.35)</li>
-                  <li>Easy: 10 × 2.5 × 1.3 × 1.0 = 33 days (ease → 2.65)</li>
-                </ul>
-              </div>
             </>
           )}
 
@@ -1480,8 +1573,10 @@ export function DeckDetailPage() {
   const [audioGenerationProgress, setAudioGenerationProgress] = useState({ done: 0, total: 0 });
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
   const [showShareTutorModal, setShowShareTutorModal] = useState(false);
+  const [showAnkiExport, setShowAnkiExport] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
+  const [toast, showToast] = useToast();
 
   const deckQuery = useQuery({
     queryKey: ['deck', id],
@@ -1637,12 +1732,13 @@ export function DeckDetailPage() {
     enabled: !!id,
   });
 
-  // Fetch user's relationships to find available tutors
+  // Fetch user's relationships to find available tutors. Always on (cheap):
+  // "Share with tutor" only appears in the menu when there is a tutor.
   const relationshipsQuery = useQuery({
     queryKey: ['relationships'],
     queryFn: getMyRelationships,
-    enabled: showShareTutorModal,
   });
+  const hasTutor = (relationshipsQuery.data?.tutors.length ?? 0) > 0;
 
   // Mutation to share deck with a tutor
   const shareTutorMutation = useMutation({
@@ -1696,17 +1792,20 @@ export function DeckDetailPage() {
     setIsGeneratingAllAudio(true);
     setAudioGenerationProgress({ done: 0, total: notesWithoutAudio.length });
 
+    let failed = 0;
     for (let i = 0; i < notesWithoutAudio.length; i++) {
       try {
         await generateNoteAudio(notesWithoutAudio[i].id);
         setAudioGenerationProgress({ done: i + 1, total: notesWithoutAudio.length });
       } catch (error) {
+        failed++;
         console.error(`Failed to generate audio for ${notesWithoutAudio[i].hanzi}:`, error);
       }
     }
 
     setIsGeneratingAllAudio(false);
     queryClient.invalidateQueries({ queryKey: ['deck', id] });
+    if (failed > 0) showToast(`Audio couldn't be generated for ${failed} of ${notesWithoutAudio.length} words.`);
   };
 
   const regenerateSelectedAudio = async () => {
@@ -1718,11 +1817,13 @@ export function DeckDetailPage() {
     setIsRegeneratingAudio(true);
     setAudioGenerationProgress({ done: 0, total: notesToRegenerate.length });
 
+    let failed = 0;
     for (let i = 0; i < notesToRegenerate.length; i++) {
       try {
         await regenerateNoteAudio(notesToRegenerate[i].id);
         setAudioGenerationProgress({ done: i + 1, total: notesToRegenerate.length });
       } catch (error) {
+        failed++;
         console.error(`Failed to regenerate audio for ${notesToRegenerate[i].hanzi}:`, error);
       }
     }
@@ -1731,6 +1832,7 @@ export function DeckDetailPage() {
     setSelectMode(false);
     setSelectedNotes(new Set());
     queryClient.invalidateQueries({ queryKey: ['deck', id] });
+    if (failed > 0) showToast(`Audio couldn't be regenerated for ${failed} of ${notesToRegenerate.length} words.`);
   };
 
   const toggleNoteSelection = (noteId: string) => {
@@ -1768,74 +1870,56 @@ export function DeckDetailPage() {
 
   const deck = deckQuery.data;
   const stats = statsQuery.data;
+  const missingAudioCount = deck.notes.filter(n => !n.audio_url).length;
+  const cardsDue = stats?.cards_due ?? 0;
+
+  const menuItems: DeckMenuItem[] = [
+    ...(hasTutor
+      ? [{ key: 'share', label: '👩‍🏫 Share with tutor', onSelect: () => setShowShareTutorModal(true) }]
+      : []),
+    { key: 'settings', label: '⚙️ Settings', onSelect: () => setShowSettings(true) },
+    ...(missingAudioCount > 0
+      ? [{
+          key: 'gen-audio',
+          label: isGeneratingAllAudio
+            ? `🔊 Generating audio (${audioGenerationProgress.done}/${audioGenerationProgress.total})…`
+            : `🔊 Generate missing audio (${missingAudioCount})`,
+          onSelect: generateAllMissingAudio,
+          disabled: isGeneratingAllAudio,
+        }]
+      : []),
+    ...(notesWithAudio.length > 0
+      ? [{ key: 'regen-audio', label: '🎙 Regenerate audio…', onSelect: () => setSelectMode(true), disabled: selectMode }]
+      : []),
+    { key: 'export-json', label: '⬇ Export → JSON', onSelect: () => downloadDeckJson(deck), divider: true },
+    { key: 'export-anki', label: '⬇ Export → Anki (.apkg)', onSelect: () => setShowAnkiExport(true) },
+    ...(isDebugConsoleEnabled()
+      ? [{ key: 'debug', label: '🔍 Debug scheduling', onSelect: () => setShowDebug(true), divider: true }]
+      : []),
+    { key: 'delete', label: '🗑 Delete deck', onSelect: () => setShowDeleteConfirm(true), danger: true, divider: true },
+  ];
 
   return (
     <div className="page">
       <div className="container">
         {/* Header */}
         <div className="mb-4">
-          <Link to="/" className="text-light">
+          <Link to="/" className="text-light deck-back-link">
             &larr; Back
           </Link>
           <h1 className="mt-1">{deck.name}</h1>
           {deck.description && <p className="text-light mt-1">{deck.description}</p>}
-          <div className="deck-actions mt-3">
-            {stats && stats.cards_due > 0 && (
-              <Link to={`/study?deck=${id}&autostart=true`} className="btn btn-primary">
-                Study ({stats.cards_due} due)
-              </Link>
-            )}
-            {deck.notes.filter(n => !n.audio_url).length > 0 && (
-              <button
-                className="btn btn-secondary"
-                onClick={generateAllMissingAudio}
-                disabled={isGeneratingAllAudio}
-              >
-                {isGeneratingAllAudio
-                  ? `Generating Audio (${audioGenerationProgress.done}/${audioGenerationProgress.total})`
-                  : `Generate All Audio (${deck.notes.filter(n => !n.audio_url).length})`}
-              </button>
-            )}
-            {notesWithAudio.length > 0 && !selectMode && (
-              <button
-                className="btn"
-                onClick={() => setSelectMode(true)}
-                style={{
-                  background: '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                }}
-                title="Select notes to regenerate audio"
-              >
-                Regenerate Audio
-              </button>
-            )}
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowShareTutorModal(true)}
-            >
-              Share with Tutor
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowSettings(true)}
-            >
-              Settings
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowDebug(true)}
-              title="Debug deck scheduling"
-            >
-              🔍 Debug
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowDeleteConfirm(true)}
-            >
-              Delete
-            </button>
+          <div className="deck-primary-actions mt-3">
+            <Link to={`/study?deck=${id}&autostart=true`} className="btn btn-primary deck-study-btn">
+              {cardsDue > 0 ? `Study · ${cardsDue} due` : 'Study'}
+            </Link>
+            <DeckOverflowMenu items={menuItems} />
           </div>
+          {isGeneratingAllAudio && (
+            <p className="text-light deck-audio-progress">
+              Generating audio… {audioGenerationProgress.done}/{audioGenerationProgress.total}
+            </p>
+          )}
         </div>
 
         {/* Tutor Shares */}
@@ -1915,24 +1999,6 @@ export function DeckDetailPage() {
           </div>
         )}
 
-        {/* Stats */}
-        {stats && (
-          <div className="grid grid-cols-3 mb-4">
-            <div className="card stats-card">
-              <div className="stats-value">{stats.total_notes}</div>
-              <div className="stats-label">Notes</div>
-            </div>
-            <div className="card stats-card">
-              <div className="stats-value">{stats.cards_due}</div>
-              <div className="stats-label">Cards Due</div>
-            </div>
-            <div className="card stats-card">
-              <div className="stats-value">{stats.cards_mastered}</div>
-              <div className="stats-label">Mastered</div>
-            </div>
-          </div>
-        )}
-
         {/* Select Mode Toolbar */}
         {selectMode && (
           <div
@@ -1997,23 +2063,21 @@ export function DeckDetailPage() {
           </div>
         )}
 
-        {/* Progress overview (server data primary, local fallback) */}
+        {/* ONE progress block (server data primary, local fallback) */}
         {(serverProgress || (localProgress && localProgress.completion.total_cards > 0)) && (
-          <>
-            <CompletionSection completion={serverProgress?.completion || localProgress!.completion} />
-            <CardTypeBreakdownSection breakdown={serverProgress?.card_type_breakdown || localProgress!.card_type_breakdown} />
-            {serverProgress?.activity && (
-              <ActivitySection activity={serverProgress.activity} />
-            )}
-          </>
+          <DeckProgressSummary
+            completion={serverProgress?.completion || localProgress!.completion}
+            breakdown={serverProgress?.card_type_breakdown || localProgress!.card_type_breakdown}
+            activity={serverProgress?.activity ?? null}
+          />
         )}
 
         {/* Notes */}
         <div className="card">
           <div className="flex justify-between items-center mb-3">
-            <h2>Notes ({deck.notes.length})</h2>
-            <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
-              Add Note
+            <h2>Words ({deck.notes.length})</h2>
+            <button className="btn btn-secondary" onClick={() => setShowAddModal(true)}>
+              + Add word
             </button>
           </div>
 
@@ -2055,6 +2119,15 @@ export function DeckDetailPage() {
                     <div
                       key={noteProgress.noteId}
                       className={`deck-note-progress-item${selectMode && noteData?.audio_url ? ' selectable' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Edit ${noteProgress.hanzi}`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          (e.currentTarget as HTMLDivElement).click();
+                        }
+                      }}
                       onClick={() => {
                         if (selectMode && noteData) {
                           toggleNoteSelection(noteData.id);
@@ -2136,6 +2209,7 @@ export function DeckDetailPage() {
                         )}
                       </div>
                       <span className="deck-note-mastery">{noteProgress.mastery_percent}%</span>
+                      {!selectMode && <span className="deck-note-chevron" aria-hidden="true">›</span>}
                     </div>
                   );
                 })}
@@ -2263,6 +2337,16 @@ export function DeckDetailPage() {
             onClose={() => setShowDebug(false)}
           />
         )}
+
+        {/* Anki export (from the ⋯ menu) */}
+        {showAnkiExport && (
+          <AnkiExportModal
+            target={{ kind: 'deck', deckId: deck.id, name: deck.name }}
+            onClose={() => setShowAnkiExport(false)}
+          />
+        )}
+
+        <Toast message={toast} />
 
         {/* Share with Tutor Modal */}
         {showShareTutorModal && (

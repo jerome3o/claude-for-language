@@ -9,6 +9,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { FeedbackFAB } from './components/FeedbackFAB';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/Loading';
+import { LandingResolver } from './components/nav/LandingResolver';
 // Eagerly loaded — these are the landing pages
 import { HomePage } from './pages/HomePage';
 import { SplashPage } from './pages/SplashPage';
@@ -25,6 +26,9 @@ const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage').then(m => (
 const ConnectionDetailPage = lazy(() => import('./pages/ConnectionDetailPage').then(m => ({ default: m.ConnectionDetailPage })));
 const ChatPage = lazy(() => import('./pages/ChatPage').then(m => ({ default: m.ChatPage })));
 const StudentProgressPage = lazy(() => import('./pages/StudentProgressPage').then(m => ({ default: m.StudentProgressPage })));
+const StudentInsightsPage = lazy(() => import('./pages/tutor/StudentInsightsPage').then(m => ({ default: m.StudentInsightsPage })));
+const StudentHistoryPage = lazy(() => import('./pages/tutor/StudentHistoryPage').then(m => ({ default: m.StudentHistoryPage })));
+const RecordingsInboxPage = lazy(() => import('./pages/tutor/RecordingsInboxPage').then(m => ({ default: m.RecordingsInboxPage })));
 const SharedDeckProgressPage = lazy(() => import('./pages/SharedDeckProgressPage').then(m => ({ default: m.SharedDeckProgressPage })));
 const DayDetailPage = lazy(() => import('./pages/DayDetailPage').then(m => ({ default: m.DayDetailPage })));
 const CardReviewDetailPage = lazy(() => import('./pages/CardReviewDetailPage').then(m => ({ default: m.CardReviewDetailPage })));
@@ -35,14 +39,23 @@ const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => (
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => ({ default: m.LessonNotesPage })));
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
+const NewReaderPage = lazy(() => import('./pages/NewReaderPage').then(m => ({ default: m.NewReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
-const ReaderEditorPage = lazy(() => import('./pages/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
+const ReaderEditorPage = lazy(() => import('./pages/editor/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
+const ReaderPrintPage = lazy(() => import('./pages/editor/ReaderPrintPage').then(m => ({ default: m.ReaderPrintPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const SentenceCoveragePage = lazy(() => import('./pages/SentenceCoveragePage').then(m => ({ default: m.SentenceCoveragePage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
+const DecksPage = lazy(() => import('./pages/DecksPage').then(m => ({ default: m.DecksPage })));
+const MorePage = lazy(() => import('./pages/MorePage').then(m => ({ default: m.MorePage })));
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
+const LessonEditorPage = lazy(() => import('./pages/editor/LessonEditorPage').then(m => ({ default: m.LessonEditorPage })));
+const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').then(m => ({ default: m.LessonLibraryPage })));
+const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
+const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
+const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -76,10 +89,14 @@ function HomeOrSplash() {
     return <SplashPage />;
   }
 
+  // `/` applies the "Start on" preference on the app's initial entry only
+  // (see components/nav/LandingResolver); the Study tab always shows home.
   return (
     <>
       <Header />
-      <HomePage />
+      <LandingResolver>
+        <HomePage />
+      </LandingResolver>
     </>
   );
 }
@@ -113,6 +130,27 @@ function AppRoutes() {
     <Suspense fallback={<LazyFallback />}>
     <Routes>
       <Route path="/" element={<HomeOrSplash />} />
+      {/* Public: the invite landing page works before sign-in and has no Header. */}
+      <Route path="/join/:token" element={<JoinPage />} />
+      {/* Bottom tab bar destinations: Decks (deck list + card search) and More. */}
+      <Route
+        path="/decks"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <DecksPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/more"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <MorePage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/decks/:id"
         element={
@@ -245,6 +283,33 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/connections/:relId/insights"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <StudentInsightsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId/history"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <StudentHistoryPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/connections/:relId/recordings"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <RecordingsInboxPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/connections/:relId/progress/day/:date"
         element={
           <ProtectedRoute>
@@ -343,15 +408,16 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/readers/new/edit" element={<ProtectedRoute><Header /><NewReaderPage /></ProtectedRoute>} />
       <Route
         path="/readers/:id/edit"
         element={
           <ProtectedRoute>
-            <Header />
-            <ReaderEditorPage />
+            <ErrorBoundary fallbackTitle="Couldn't load the editor"><ReaderEditorPage /></ErrorBoundary>
           </ProtectedRoute>
         }
       />
+      <Route path="/readers/:id/print" element={<ProtectedRoute><ReaderPrintPage /></ProtectedRoute>} />
       <Route
         path="/readers/:id"
         element={
@@ -380,6 +446,13 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* Lesson library + editor. The editor and print view have their own chrome (no <Header />). */}
+      <Route path="/library" element={<ProtectedRoute><Header /><LessonLibraryPage /></ProtectedRoute>} />
+      <Route path="/library/:id" element={<ProtectedRoute><Header /><LibraryItemPage /></ProtectedRoute>} />
+      <Route path="/library/:id/edit" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load the editor"><LessonEditorPage target="library" /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/library/:id/print" element={<ProtectedRoute><LessonPrintPage target="library" /></ProtectedRoute>} />
+      <Route path="/lessons/:id/edit" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load the editor"><LessonEditorPage target="lesson" /></ErrorBoundary></ProtectedRoute>} />
+      <Route path="/lessons/:id/print" element={<ProtectedRoute><LessonPrintPage target="lesson" /></ProtectedRoute>} />
       <Route
         path="/duplicate-finder"
         element={
