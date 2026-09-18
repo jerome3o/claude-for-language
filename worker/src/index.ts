@@ -46,6 +46,7 @@ import {
 import { notifyNewUser, notifyNewChatMessage } from './services/notifications';
 import { authMiddleware, adminMiddleware } from './middleware/auth';
 import testAuth from './routes/test-auth';
+import insightsRoutes from './routes/insights';
 import {
   createRelationship,
   getMyRelationships,
@@ -309,6 +310,9 @@ app.route('/api/test', testAuth);
 
 // Apply auth middleware to all /api/* routes except auth routes
 app.use('/api/*', authMiddleware);
+
+// Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
+app.route('/api', insightsRoutes);
 
 // ============ Admin Routes ============
 
