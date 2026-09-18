@@ -43,6 +43,7 @@ const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default:
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
+const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -113,6 +114,8 @@ function AppRoutes() {
     <Suspense fallback={<LazyFallback />}>
     <Routes>
       <Route path="/" element={<HomeOrSplash />} />
+      {/* Public: the invite landing page works before sign-in and has no Header. */}
+      <Route path="/join/:token" element={<JoinPage />} />
       <Route
         path="/decks/:id"
         element={
