@@ -753,6 +753,7 @@ illustrations kept when the prompt is unchanged (stale R2 keys deleted) and new/
 queued on `image-generation-queue` like generated readers. The readers list has **Import JSON**.
 Tutor→student sharing of readers is not built.
 - `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
+- `POST /api/readers/:id/retry` - Re-queue a FAILED reader in place (same id; status back to `generating`). The Readers list folds every failed reader into one "N failed generations" row with Retry / Delete / Delete all; raw API errors only appear behind "Show details" (`services/readerFailures.ts`). `ensureDailyReader` asks the server at most once per local date (`daily-reader-attempt` in localStorage) and the daily reader's failed row is reused on retry instead of a new one being created every session
 - `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)
 - `GET|PUT /api/readers/:id/spec` - The reader as a `ReaderSpec` / replace it whole (`{ spec }`; returns `image_jobs`)
 - `POST /api/readers/import` - New reader from `{ spec }` (owner = caller; page ids never reused)

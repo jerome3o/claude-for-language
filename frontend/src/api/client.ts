@@ -59,7 +59,7 @@ export const API_BASE = import.meta.env.VITE_API_URL
   : '';
 
 /** Get the client's local date as YYYY-MM-DD (for timezone-correct daily limits). */
-function getLocalDateString(): string {
+export function getLocalDateString(): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -1332,6 +1332,11 @@ export async function generateGradedReader(options: GenerateReaderOptions): Prom
 
 export async function deleteGradedReader(id: string): Promise<void> {
   await fetchJSON<{ success: boolean }>(`/readers/${id}`, { method: 'DELETE' });
+}
+
+/** Re-queue a FAILED reader in place (same id; status goes back to 'generating'). */
+export async function retryGradedReader(id: string): Promise<GradedReader> {
+  return fetchJSON<GradedReader>(`/readers/${id}/retry`, { method: 'POST' });
 }
 
 export async function generateReaderPageImage(

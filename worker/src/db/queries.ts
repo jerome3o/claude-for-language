@@ -1941,6 +1941,49 @@ export async function updateReaderPageImage(
 }
 
 /**
+ * Put a FAILED reader back into 'generating' so it can be re-queued in place
+ * (same id, so the daily_readers slot and the client's local row stay valid).
+ * Any half-written pages from the failed attempt are dropped. The vocabulary
+ * / source decks can be refreshed at the same time (the daily reader re-reads
+ * today's due words on retry).
+ */
+export async function resetReaderForRetry(
+  db: D1Database,
+  readerId: string,
+  data?: {
+    source_deck_ids?: string[];
+    vocabulary_used?: VocabularyItem[];
+    difficulty_level?: DifficultyLevel;
+  }
+): Promise<void> {
+  await db.prepare('DELETE FROM reader_pages WHERE reader_id = ?').bind(readerId).run();
+  const sets: string[] = ["status = 'generating'", 'error_message = NULL'];
+  const binds: unknown[] = [];
+  if (data?.source_deck_ids) {
+    sets.push('source_deck_ids = ?');
+    binds.push(JSON.stringify(data.source_deck_ids));
+  }
+  if (data?.vocabulary_used) {
+    sets.push('vocabulary_used = ?');
+    binds.push(JSON.stringify(data.vocabulary_used));
+  }
+  if (data?.difficulty_level) {
+    sets.push('difficulty_level = ?');
+    binds.push(data.difficulty_level);
+  }
+  binds.push(readerId);
+  await db.prepare(`UPDATE graded_readers SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+}
+
+/** Whether a reader is (or was) one of the user's daily readers. */
+export async function isDailyReader(db: D1Database, userId: string, readerId: string): Promise<boolean> {
+  const r = await db.prepare(
+    'SELECT 1 AS hit FROM daily_readers WHERE user_id = ? AND reader_id = ? LIMIT 1'
+  ).bind(userId, readerId).first<{ hit: number }>();
+  return !!r;
+}
+
+/**
  * Create a pending reader (status='generating', no pages yet)
  */
 export async function createPendingReader(
