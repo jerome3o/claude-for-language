@@ -34,7 +34,9 @@ Capacitor config, app icon, etc.).
     study/reader screen is up and the app is visible, so the output never
     drops into standby between clips — the first clip after a pause used to
     start on a cold output and pop. No audio focus is requested, so other
-    apps' music is untouched;
+    apps' music is untouched. It pauses whenever any app has the microphone
+    open (`AudioRecordingCallback`) — Google's voice typing would not listen
+    while it played — and resumes when the mic is released;
   - an **on-device clip cache** keyed by the R2 audio key (`hasClip` /
     `playClip`), so a replay skips the base64 hand-off across the bridge;
     trimmed oldest-first past 256 MB;

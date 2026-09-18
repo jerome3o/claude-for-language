@@ -173,6 +173,8 @@ export interface NativeBridgeState {
   keep_awake: boolean;
   output_held: boolean;
   holds: number;
+  /** Some app has the microphone open; the keep-alive pauses while it does. */
+  recording_active?: boolean;
   route: string;
   volume: number;
   volume_max: number;
