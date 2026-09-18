@@ -48,8 +48,26 @@ import {
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
-import { useManualOfflineMode, toggleManualOfflineMode } from '../services/offlineMode';
+import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
 import { SyncBadge } from '../components/OfflineBanner';
+import './StudyPage.css';
+import { StudyActionRow, NEEDS_INTERNET } from '../components/study/StudyActionRow';
+import { StudyMenuItem } from '../components/study/StudyMoreMenu';
+import { ExitSessionModal } from '../components/study/ExitSessionModal';
+import { SessionRecap } from '../components/study/SessionRecap';
+import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
+import { TutorNoteLine } from '../components/study/TutorNoteLine';
+import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
+import { isDebugConsoleEnabled } from '../utils/debugConsole';
+import { getUnseenRecordingNotesForCard, markRecordingNoteSeen } from '../services/recording-notes';
+import {
+  loadMultipleChoice,
+  shuffleMcOptions,
+  initialMcSelections,
+  isEnglishEntry,
+  parseMcOptions,
+  McOptionRow,
+} from '../services/multipleChoice';
 import CardEditModal from '../components/CardEditModal';
 import { QueueCountsHeader } from '../components/QueueCountsHeader';
 import { RatingButtons } from '../components/RatingButtons';
@@ -60,8 +78,8 @@ import { SentenceSet } from '../components/SentenceSet';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
-import { useStudySession, SessionStats } from '../hooks/useStudySession';
-import { getCardReviewEvents, LocalReviewEvent, db } from '../db/database';
+import { useStudySession } from '../hooks/useStudySession';
+import { getCardReviewEvents, LocalReviewEvent, LocalRecordingNote, db } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
 import { DEFAULT_TTS_SPEED } from '../types';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -117,6 +135,16 @@ function ToolCallsCollapsible({ calls }: { calls: ReadOnlyToolCall[] }) {
 }
 
 function normalizeHanzi(s: string) { return s.trim().toLowerCase(); }
+
+const EMPTY_TUTOR_NOTES: LocalRecordingNote[] = [];
+
+function formatAddedDate(createdAt: string | null | undefined): string | null {
+  if (!createdAt) return null;
+  const iso = createdAt + (createdAt.endsWith('Z') ? '' : 'Z');
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return null;
+  return `Added ${date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
+}
 
 // Character diff component for typed answers (Anki-style)
 function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick }: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void }) {
@@ -283,26 +311,49 @@ function StudyCard({
   const [isInitiatingConversation, setIsInitiatingConversation] = useState(false);
   const navigate = useNavigate();
 
-  // Manual offline mode: no network audio calls of any kind during study
+  // Offline mode: automatic from NetworkContext, with the user's forced flag
+  // on top (spotty connections). When effectively offline, audio comes from
+  // the cache or device TTS and every AI button is disabled.
   const manualOffline = useManualOfflineMode();
+  const effectiveOffline = resolveOfflineMode({ forced: manualOffline, isOnline }).effectiveOffline;
+  const aiAvailable = !effectiveOffline;
+
+  // Tutor notes on my recordings of this card ("second tone, not fourth"),
+  // shown once under the pinyin; marked seen when the card is rated.
+  const tutorNotes: LocalRecordingNote[] = useLiveQuery(
+    () => getUnseenRecordingNotesForCard(card.id),
+    [card.id]
+  ) ?? EMPTY_TUTOR_NOTES;
+
+  // Whether a sentence set is cached locally: opening Sentences then needs no
+  // connection, so the button stays enabled offline.
+  const localSentenceCount = useLiveQuery(
+    () => db.noteSentences.where('note_id').equals(card.note.id).count(),
+    [card.note.id]
+  ) ?? 0;
+  const [showSentences, setShowSentences] = useState(false);
 
   // Audio recording cycling state
   const queryClient = useQueryClient();
   const recordingsQuery = useQuery({
     queryKey: ['noteRecordings', card.note.id],
     queryFn: () => getNoteAudioRecordings(card.note.id),
-    enabled: !manualOffline,
+    enabled: aiAvailable,
   });
   const recordings = recordingsQuery.data || [];
   const [recordingIndex, setRecordingIndex] = useState(0);
   const [isGeneratingStudyAudio, setIsGeneratingStudyAudio] = useState(false);
 
-  // Reset recording index and MC ready state when card changes; stop any in-progress audio
+  // Reset recording index and MC state when card changes; stop any in-progress
+  // audio. Multiple-choice mode is per card: it never carries over.
   useEffect(() => {
     stopAudio();
     setRecordingIndex(0);
     setMcReady(false);
-    setMcError(null);
+    setShowMultipleChoice(false);
+    setSkipMcForCard(false);
+    setMcFallbackNote(null);
+    setShowSentences(false);
   }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debug modal state
@@ -326,17 +377,21 @@ function StudyCard({
   const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
   const [sentenceChunkCache, setSentenceChunkCache] = useState<Record<string, SentenceChunk[]>>({});
 
-  // Multiple choice state
+  // Multiple choice state (per card — see the reset effect above)
   const [showMultipleChoice, setShowMultipleChoice] = useState(false);
   const [mcReady, setMcReady] = useState(false); // MC loaded but hidden (for audio cards)
   const [isGeneratingMC, setIsGeneratingMC] = useState(false);
-  const [mcError, setMcError] = useState<string | null>(null);
+  // One-line note above the typing input when options could not be had
+  // (offline, timed out, failed) and the card fell back to typing.
+  const [mcFallbackNote, setMcFallbackNote] = useState<string | null>(null);
   const [skipMcForCard, setSkipMcForCard] = useState(false);
   const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
   const [mcSubmitted, setMcSubmitted] = useState(false);
-  const [shuffledMcOptions, setShuffledMcOptions] = useState<{ correct: string; options: string[] }[] | null>(null);
+  const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(null);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
+  // Ask Claude: inline error (never alert())
+  const [askError, setAskError] = useState<string | null>(null);
 
   const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
     useAudioRecorder();
@@ -495,11 +550,11 @@ function StudyCard({
     };
   }, [card.id]);
 
-  // Auto-generate audio if note has no audio_url (skipped in manual offline
-  // mode — no network audio calls while studying on a spotty connection)
+  // Auto-generate audio if note has no audio_url (skipped while offline —
+  // automatic or forced — no network audio calls on a spotty connection)
   const generatingAudioForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!card.note.audio_url && isOnline && !manualOffline && generatingAudioForRef.current !== card.note.id) {
+    if (!card.note.audio_url && aiAvailable && generatingAudioForRef.current !== card.note.id) {
       generatingAudioForRef.current = card.note.id;
       generateNoteAudio(card.note.id).then((updatedNote) => {
         if (updatedNote.audio_url) {
@@ -509,7 +564,7 @@ function StudyCard({
         console.error('[StudyCard] Auto-generate audio failed:', err);
       });
     }
-  }, [card.note.id, card.note.audio_url, isOnline, manualOffline, onUpdateNote]);
+  }, [card.note.id, card.note.audio_url, aiAvailable, onUpdateNote]);
 
   // Load review history and enumerate mics when debug modal opens
   useEffect(() => {
@@ -650,70 +705,52 @@ function StudyCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.note.id, isOnline]);
 
-  // Shuffle options for each row so users don't memorize positions
-  const shuffleOptions = (options: { correct: string; options: string[] }[]) => {
-    return options.map(charData => {
-      const shuffled = [...charData.options];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-      return { correct: charData.correct, options: shuffled };
-    });
+  const applyMcOptions = (rows: McOptionRow[], hideInitially: boolean) => {
+    const shuffled = shuffleMcOptions(rows);
+    setShuffledMcOptions(shuffled);
+    setMcSelections(initialMcSelections(shuffled));
+    setMcSubmitted(false);
+    if (hideInitially) {
+      setMcReady(true);
+    } else {
+      setShowMultipleChoice(true);
+    }
   };
 
-  const handleShowMultipleChoice = async (hideInitially = false) => {
-    if (card.note.multiple_choice_options) {
-      const options = JSON.parse(card.note.multiple_choice_options) as { correct: string; options: string[] }[];
-      const shuffled = shuffleOptions(options);
-      setShuffledMcOptions(shuffled);
-      // Auto-select punctuation (single-option) and English entries
-      setMcSelections(shuffled.map(o => o.options.length === 1 || (/[a-zA-Z]/.test(o.correct) && !/[一-鿿㐀-䶿]/.test(o.correct)) ? o.correct : null));
-      setMcSubmitted(false);
-      if (hideInitially) {
-        setMcReady(true);
-      } else {
-        setShowMultipleChoice(true);
-      }
-      return;
-    }
+  // Generate options on the server and cache them on the note. Wrapped by
+  // loadMultipleChoice, which applies the 8s timeout and the offline rule.
+  const generateMcOptions = async (): Promise<string | null> => {
+    const updatedNote = await generateMultipleChoice(card.note.id);
+    onUpdateNote(updatedNote);
+    await db.notes.update(card.note.id, {
+      multiple_choice_options: updatedNote.multiple_choice_options,
+    });
+    return updatedNote.multiple_choice_options ?? null;
+  };
+
+  /**
+   * Show (or, for audio cards, pre-load) multiple choice. Cached options are
+   * used offline; otherwise a generation request that times out at 8s. On any
+   * failure the card falls back to typing with a one-line note — never a
+   * spinner that hangs, and never a mode that sticks to the next card.
+   */
+  const handleShowMultipleChoice = async (hideInitially = false, options: { forceCached?: boolean } = {}) => {
+    const cardIdAtStart = card.id;
     setIsGeneratingMC(true);
-    setMcError(null);
+    setMcFallbackNote(null);
     try {
-      // Add a 30-second timeout to prevent infinite loading
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Generation timed out')), 30000)
-      );
-      const updatedNote = await Promise.race([
-        generateMultipleChoice(card.note.id),
-        timeoutPromise,
-      ]);
-      onUpdateNote(updatedNote);
-      await db.notes.update(card.note.id, {
-        multiple_choice_options: updatedNote.multiple_choice_options,
+      const result = await loadMultipleChoice({
+        cachedOptions: options.forceCached ? null : card.note.multiple_choice_options,
+        online: aiAvailable,
+        generate: generateMcOptions,
       });
-      if (updatedNote.multiple_choice_options) {
-        const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
-        const shuffled = shuffleOptions(options);
-        setShuffledMcOptions(shuffled);
-        // Auto-select punctuation (single-option) and English entries
-        setMcSelections(shuffled.map(o => o.options.length === 1 || (/[a-zA-Z]/.test(o.correct) && !/[一-鿿㐀-䶿]/.test(o.correct)) ? o.correct : null));
-        setMcSubmitted(false);
-        if (hideInitially) {
-          setMcReady(true);
-        } else {
-          setShowMultipleChoice(true);
-        }
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      console.error('Failed to generate multiple choice options:', errMsg);
-      if (error instanceof Error && error.message === 'Note not found') {
-        setDataError('This card has a missing note in the database. Please skip this card.');
-      } else if (error instanceof Error && error.message === 'Generation timed out') {
-        setMcError('Generation timed out. You can retry or type instead.');
+      if (cardIdAtStart !== card.id) return;
+      if (result.status === 'ready') {
+        applyMcOptions(result.options, hideInitially);
       } else {
-        setMcError(`Failed to generate options: ${errMsg}. You can retry or type instead.`);
+        setSkipMcForCard(true);
+        setShowMultipleChoice(false);
+        setMcFallbackNote(result.message);
       }
     } finally {
       setIsGeneratingMC(false);
@@ -725,54 +762,26 @@ function StudyCard({
     setShowMultipleChoice(true);
   };
 
-  // Auto-show multiple choice for pinyin-only cards or audio_to_hanzi cards
+  // Auto-show multiple choice for pinyin-only cards or audio_to_hanzi cards.
+  // Offline with nothing cached: straight to typing, no pre-load, no spinner.
   const autoMcTriggeredRef = useRef<string | null>(null);
   const isAudioCard = card.card_type === 'audio_to_hanzi';
+  const hasCachedMc = parseMcOptions(card.note.multiple_choice_options) !== null;
   const shouldAutoMC = (card.note.pinyin_only && card.card_type === 'meaning_to_hanzi') || isAudioCard;
   useEffect(() => {
     if (shouldAutoMC && !showMultipleChoice && !mcReady && autoMcTriggeredRef.current !== card.id) {
       autoMcTriggeredRef.current = card.id;
+      if (!aiAvailable && !hasCachedMc) {
+        setSkipMcForCard(true);
+        return;
+      }
       // Audio cards: load MC in background but keep hidden until user reveals
       handleShowMultipleChoice(isAudioCard);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.id, shouldAutoMC]);
 
-
-  const handleRegenerateMC = async () => {
-    setIsGeneratingMC(true);
-    setMcError(null);
-    try {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Generation timed out')), 30000)
-      );
-      const updatedNote = await Promise.race([
-        generateMultipleChoice(card.note.id),
-        timeoutPromise,
-      ]);
-      onUpdateNote(updatedNote);
-      await db.notes.update(card.note.id, {
-        multiple_choice_options: updatedNote.multiple_choice_options,
-      });
-      if (updatedNote.multiple_choice_options) {
-        const options = JSON.parse(updatedNote.multiple_choice_options) as { correct: string; options: string[] }[];
-        const shuffled = shuffleOptions(options);
-        setShuffledMcOptions(shuffled);
-        // Auto-select punctuation (single-option) and English entries
-        setMcSelections(shuffled.map(o => o.options.length === 1 || (/[a-zA-Z]/.test(o.correct) && !/[一-鿿㐀-䶿]/.test(o.correct)) ? o.correct : null));
-        setMcSubmitted(false);
-      }
-    } catch (error) {
-      console.error('Failed to regenerate multiple choice options:', error);
-      if (error instanceof Error && error.message === 'Generation timed out') {
-        setMcError('Regeneration timed out. Try again.');
-      } else {
-        setMcError('Failed to regenerate options. Try again.');
-      }
-    } finally {
-      setIsGeneratingMC(false);
-    }
-  };
+  const handleRegenerateMC = () => handleShowMultipleChoice(false, { forceCached: true });
 
   const playSentenceClue = () => {
     if (card.note.sentence_clue_audio_url) {
@@ -782,6 +791,10 @@ function StudyCard({
 
   const handleRate = (rating: Rating) => {
     const timeSpent = Date.now() - startTime;
+    // The tutor's note was on screen for this review — show it once only.
+    for (const note of tutorNotes) {
+      markRecordingNoteSeen(note.id).catch(() => {});
+    }
     // Call parent's rate function - handles both state update and DB write
     onRate(rating, timeSpent, userAnswer || undefined, audioBlob || undefined);
   };
@@ -858,10 +871,18 @@ function StudyCard({
     setPendingToolResults(null);
   };
 
+  const describeAskError = (error: unknown): string => {
+    if (!aiAvailable) return "Ask Claude needs an internet connection — you're offline right now.";
+    const msg = error instanceof Error ? error.message : '';
+    if (/network|fetch|failed to fetch/i.test(msg)) return "Couldn't reach Claude — check your connection and try again.";
+    return msg ? `Claude couldn't answer: ${msg}` : "Claude couldn't answer that. Try again in a moment.";
+  };
+
   const handleAskClaude = async () => {
     if (!question.trim() || isAsking) return;
 
     setIsAsking(true);
+    setAskError(null);
     try {
       // Include user's answer context for typing cards
       const context = isTypingCard && userAnswer ? {
@@ -886,6 +907,7 @@ function StudyCard({
       }
     } catch (error) {
       console.error('Failed to ask Claude:', error);
+      setAskError(describeAskError(error));
     } finally {
       setIsAsking(false);
     }
@@ -946,17 +968,9 @@ function StudyCard({
               >
                 Play Audio{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
               </button>
-              {isOnline && (
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={generateStudyAudio}
-                  disabled={isGeneratingStudyAudio}
-                  title="Generate new audio with random voice"
-                >
-                  {isGeneratingStudyAudio ? '...' : '+ New Voice'}
-                </button>
-              )}
             </div>
+            {/* "+ New Voice" lives in the ⋯ menu on the back now (D8) */}
+            <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
           </div>
         );
     }
@@ -1029,24 +1043,19 @@ function StudyCard({
               Answer found in your sentence
             </div>
           )}
-          {!isMatch && !containsExpected && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => {
-                resetTranscription();
-                clearRecording();
-                setTimeout(() => startRecordingWithDelay(true), 100);
-              }}
-              style={{ marginTop: '0.375rem', fontSize: '0.75rem' }}
-            >
-              Try Again
-            </button>
-          )}
+          {/* "Record again" under the meaning covers the retry — no second button here */}
         </div>
       );
     }
 
     return null;
+  };
+
+  // Re-record from the back: clear the last take and start straight away.
+  const recordAgain = () => {
+    resetTranscription();
+    clearRecording();
+    setTimeout(() => startRecordingWithDelay(true), 100);
   };
 
   const handleCharacterClick = (char: string) => {
@@ -1103,63 +1112,56 @@ function StudyCard({
 
         {renderTranscriptionResult()}
 
-        {/* Show recording controls on the answer screen when retrying */}
-        {flipped && isSpeakingCard && !audioBlob && !transcriptionComparison && (
-          <div style={{ marginBottom: '0.5rem' }}>
-            {isRecording ? (
+        <div className="pinyin mb-1">{card.note.pinyin}</div>
+        <TutorNoteLine notes={tutorNotes} />
+        <div className="study-back-meaning">{card.note.english}</div>
+
+        {/* Play · Record again — the only controls between the meaning and the action row */}
+        <div className="study-back-pills">
+          <button
+            className={`study-pill${isPlaying ? ' playing' : ''}`}
+            onClick={cycleAndPlay}
+            disabled={isPlaying}
+            aria-label="Play audio"
+          >
+            <span aria-hidden="true">🔊</span> Play{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
+          </button>
+          {isSpeakingCard && (
+            isRecording ? (
               isRecordingDelayActive ? (
-                <div style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '6px',
-                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                  fontSize: '0.875rem',
-                }}>
-                  Transcribing...
-                </div>
+                <span className="study-pill study-pill--recording" aria-live="polite">Recording…</span>
               ) : (
-                <button className="btn btn-error btn-sm" onClick={stopRecordingWithDelay}>
-                  Stop Recording
+                <button className="study-pill study-pill--recording" onClick={stopRecordingWithDelay}>
+                  <span aria-hidden="true">⏹</span> Stop recording
                 </button>
               )
             ) : (
-              <button className="btn btn-primary btn-sm" onClick={() => startRecordingWithDelay()}>
-                Record Again
+              <button className="study-pill" onClick={recordAgain} aria-label="Record again">
+                <span aria-hidden="true">🎤</span> Record again
               </button>
+            )
+          )}
+        </div>
+
+        <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
+
+        {/* The card's own sentence, quietly. The full list (with audio,
+            progressive reveal and the generated set) opens from "Sentences". */}
+        {card.note.sentence_clue && !showSentences && (
+          <div className="study-clue" data-testid="study-clue">
+            <div className="study-clue-hanzi">{card.note.sentence_clue}</div>
+            {card.note.sentence_clue_translation && (
+              <div className="study-clue-translation">{card.note.sentence_clue_translation}</div>
             )}
           </div>
         )}
 
-        <div className="pinyin mb-1">{card.note.pinyin}</div>
-        <div style={{ fontSize: '1.25rem' }}>{card.note.english}</div>
-
-        {card.note.fun_facts ? (
-          <div
-            className="mt-2 text-light claude-response"
-            style={{
-              fontSize: '0.8125rem',
-              backgroundColor: '#f3f4f6',
-              padding: '0.5rem',
-              borderRadius: '6px',
-            }}
-          >
+        {card.note.fun_facts && (
+          <div className="study-fun-fact text-light claude-response">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{card.note.fun_facts}</ReactMarkdown>
           </div>
-        ) : isOnline ? (
-          <button
-            className="btn btn-sm mt-2"
-            style={{ fontSize: '0.75rem', opacity: 0.7 }}
-            onClick={handleGenerateFunFact}
-            disabled={isGeneratingFunFact}
-          >
-            {isGeneratingFunFact ? 'Generating...' : 'Generate Fun Fact'}
-          </button>
-        ) : null}
-
-        {card.note.created_at && (
-          <div style={{ fontSize: '0.6875rem', opacity: 0.4, marginTop: '0.375rem' }}>
-            Added {new Date(card.note.created_at + (card.note.created_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-          </div>
         )}
+        {/* "Generate fun fact" and "Added <date>" moved into the ⋯ menu (D2, D5) */}
       </div>
     );
   };
@@ -1168,6 +1170,7 @@ function StudyCard({
     setQuestion(questionText);
     // Need to call the API directly since setQuestion is async
     setIsAsking(true);
+    setAskError(null);
     try {
       const context = isTypingCard && userAnswer ? {
         userAnswer: userAnswer,
@@ -1185,6 +1188,7 @@ function StudyCard({
       }
     } catch (error) {
       console.error('Failed to ask Claude:', error);
+      setAskError(describeAskError(error));
     } finally {
       setIsAsking(false);
     }
@@ -1531,8 +1535,10 @@ function StudyCard({
       { label: 'Use in sentence', question: 'Please use this word in a few example sentences with pinyin and English translations.' },
       { label: 'Explain characters', question: 'Please break down each character in this word, explaining the radicals, components, and individual meanings.' },
       { label: 'Related words', question: 'What are some related words or phrases I should learn alongside this one?' },
-      { label: 'Check my answer', question: 'Is my answer grammatically and semantically correct? Please explain any errors.' },
-      { label: 'Verify my answer', question: 'Is my answer correct? If not, what\'s wrong with it and how can I improve?' },
+      // One chip, not two that read as duplicates ("Check" + "Verify")
+      ...(isTypingCard && userAnswer
+        ? [{ label: 'Check my answer', question: 'Is my answer correct, grammatically and in meaning? If not, explain what is wrong and how I can improve.' }]
+        : []),
       { label: 'Explain grammar', question: 'Can you explain the grammar of this sentence and break down each word?' },
       { label: 'Add a fun fact', question: 'Add a brief, interesting fun fact or cultural context to this card.' },
       ...(card.note.sentence_clue ? [{ label: 'Explain sentence', question: 'Please explain the example sentence for this card. Break down the grammar, explain each word, and provide any cultural context.' }] : []),
@@ -1744,6 +1750,12 @@ function StudyCard({
             {isAsking && (
               <div className="claude-loading">Thinking...</div>
             )}
+
+            {askError && !isAsking && (
+              <div className="study-inline-error" role="alert" data-testid="ask-claude-error">
+                {askError}
+              </div>
+            )}
           </div>
 
           {!cardDeleted && (
@@ -1807,101 +1819,76 @@ function StudyCard({
     }
   };
 
+  // 🔊↻ — regenerate this word's clip with the default MiniMax voice
+  const regenerateAudio = async () => {
+    setIsRegeneratingAudio(true);
+    try {
+      const options: GenerateAudioOptions = {
+        speed: audioSpeed,
+        provider: 'minimax',
+        voiceId: selectedVoice || DEFAULT_MINIMAX_VOICE,
+      };
+      const updatedNote = await generateNoteAudio(card.note.id, options);
+      await db.notes.update(card.note.id, {
+        audio_url: updatedNote.audio_url,
+        audio_provider: updatedNote.audio_provider,
+        updated_at: updatedNote.updated_at,
+      });
+      onUpdateNote({
+        audio_url: updatedNote.audio_url,
+        audio_provider: updatedNote.audio_provider,
+        updated_at: updatedNote.updated_at,
+      });
+      playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE);
+    } catch (error) {
+      console.error('Failed to regenerate audio:', error);
+    } finally {
+      setIsRegeneratingAudio(false);
+    }
+  };
+
+  /**
+   * The one action row (D1): Ask Claude · Sentences · ⋯. Everything that used
+   * to be a button on the back is still reachable — under ⋯ (D2, D5, D8), so
+   * we can see what gets used before culling anything.
+   */
   const renderBackActions = () => {
+    const needsInternet = aiAvailable ? undefined : NEEDS_INTERNET;
+    const menuItems: StudyMenuItem[] = [
+      { key: 'edit', label: 'Edit card', icon: '✏️', onSelect: () => setShowEditModal(true) },
+      ...(!card.note.fun_facts
+        ? [{ key: 'fun-fact', label: 'Generate fun fact', icon: '💡', hint: needsInternet, disabled: !aiAvailable, busy: isGeneratingFunFact, onSelect: handleGenerateFunFact }]
+        : []),
+      { key: 'regen-audio', label: 'Regenerate audio', icon: '🔊', hint: needsInternet, disabled: !aiAvailable, busy: isRegeneratingAudio, onSelect: regenerateAudio },
+      { key: 'new-voice', label: 'New voice', icon: '🗣️', hint: needsInternet, disabled: !aiAvailable, busy: isGeneratingStudyAudio, onSelect: generateStudyAudio },
+      ...(claudeRelationship
+        ? [{ key: 'roleplay', label: 'Roleplay this word', icon: '🎭', hint: needsInternet, disabled: !aiAvailable, busy: isInitiatingConversation, onSelect: handleUseInConversation }]
+        : []),
+      ...(audioBlob
+        ? [{ key: 'my-recording', label: 'Play my recording', icon: '🎙️', onSelect: playUserRecording }]
+        : []),
+      ...(isDebugConsoleEnabled()
+        ? [{ key: 'debug', label: 'Debug info', icon: '🔍', onSelect: () => setShowDebug(true) }]
+        : []),
+    ];
+
     return (
-      <div className="study-back-actions">
-        <div className="study-back-buttons">
-          <button
-            className={`btn btn-secondary btn-sm${isPlaying ? ' playing' : ''}`}
-            onClick={cycleAndPlay}
-            disabled={isPlaying}
-          >
-            Play Audio{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
-          </button>
-          {audioBlob && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={playUserRecording}
-              title="Play my recording"
-              aria-label="Play my recording"
-            >
-              🎙️
-            </button>
-          )}
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              setShowAskClaude(!showAskClaude);
-              if (!showAskClaude) {
-                setTimeout(() => questionInputRef.current?.focus(), 100);
-              }
-            }}
-          >
-            {showAskClaude ? 'Hide' : 'Ask Claude'}
-          </button>
-          {claudeRelationship && isOnline && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={handleUseInConversation}
-              disabled={isInitiatingConversation}
-              title="Roleplay this word in a conversation with Claude"
-              aria-label="Roleplay this word"
-            >
-              {isInitiatingConversation ? '...' : '🎭'}
-            </button>
-          )}
-          {isOnline && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={async () => {
-                setIsRegeneratingAudio(true);
-                try {
-                  const options: GenerateAudioOptions = {
-                    speed: audioSpeed,
-                    provider: 'minimax',
-                    voiceId: selectedVoice || DEFAULT_MINIMAX_VOICE,
-                  };
-                  const updatedNote = await generateNoteAudio(card.note.id, options);
-                  await db.notes.update(card.note.id, {
-                    audio_url: updatedNote.audio_url,
-                    audio_provider: updatedNote.audio_provider,
-                    updated_at: updatedNote.updated_at,
-                  });
-                  onUpdateNote({
-                    audio_url: updatedNote.audio_url,
-                    audio_provider: updatedNote.audio_provider,
-                    updated_at: updatedNote.updated_at,
-                  });
-                  playAudio(updatedNote.audio_url, card.note.hanzi, API_BASE);
-                } catch (error) {
-                  console.error('Failed to regenerate audio:', error);
-                } finally {
-                  setIsRegeneratingAudio(false);
-                }
-              }}
-              disabled={isRegeneratingAudio}
-              title="Regenerate audio with MiniMax"
-              aria-label="Regenerate audio"
-            >
-              {isRegeneratingAudio ? '...' : '🔊↻'}
-            </button>
-          )}
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowEditModal(true)}
-            title="Edit card"
-          >
-            ✏️
-          </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowDebug(true)}
-            title="Show debug info"
-          >
-            🔍
-          </button>
-        </div>
-      </div>
+      <StudyActionRow
+        onAskClaude={() => {
+          setShowAskClaude(!showAskClaude);
+          if (!showAskClaude) {
+            setAskError(null);
+            setTimeout(() => questionInputRef.current?.focus(), 100);
+          }
+        }}
+        askClaudeOpen={showAskClaude}
+        onToggleSentences={() => setShowSentences((v) => !v)}
+        sentencesOpen={showSentences}
+        sentencesNeedInternet={localSentenceCount === 0 && !card.note.sentence_clue}
+        aiDisabled={!aiAvailable}
+        menuItems={menuItems}
+        menuFooter={formatAddedDate(card.note.created_at)}
+      />
     );
   };
 
@@ -1972,11 +1959,8 @@ function StudyCard({
         <button className="btn btn-primary" onClick={() => startRecordingWithDelay()}>
           Record Your Pronunciation
         </button>
-        <button
-          className="btn-link text-light"
-          onClick={handleFlip}
-          style={{ fontSize: '0.8125rem' }}
-        >
+        {/* The most-used control on the front — a real 44px button, not a link (D6) */}
+        <button className="btn btn-secondary" onClick={handleFlip} data-testid="skip-recording">
           Skip recording
         </button>
       </div>
@@ -1989,7 +1973,6 @@ function StudyCard({
     const options = shuffledMcOptions;
 
     const allSelected = mcSelections.every(s => s !== null);
-    const isEnglishEntry = (correct: string) => /[a-zA-Z]/.test(correct) && !/[一-鿿㐀-䶿]/.test(correct);
 
     const handleMcSubmit = () => {
       setMcSubmitted(true);
@@ -2090,7 +2073,8 @@ function StudyCard({
           <button
             className="btn btn-secondary btn-sm"
             onClick={handleRegenerateMC}
-            disabled={isGeneratingMC || !isOnline}
+            disabled={isGeneratingMC || !aiAvailable}
+            title={!aiAvailable ? NEEDS_INTERNET : 'Build a fresh set of options'}
           >
             {isGeneratingMC ? 'Regenerating...' : 'Regenerate'}
           </button>
@@ -2121,41 +2105,20 @@ function StudyCard({
       );
     }
 
-    // If this card will auto-show MC, don't flash the text input while loading
-    if (shouldAutoMC && !showMultipleChoice && !mcReady && !skipMcForCard) {
+    // If this card will auto-show MC, don't flash the text input while the
+    // (at most 8s) generation is in flight. Failure lands in the typing
+    // fallback below with its one-line note — no retry loop, no hang.
+    if (shouldAutoMC && !showMultipleChoice && !mcReady && !skipMcForCard && isGeneratingMC) {
       return (
         <div className="study-card-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', padding: '1rem' }}>
-          {mcError ? (
-            <>
-              <span style={{ fontSize: '0.875rem', color: '#ef4444' }}>{mcError}</span>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => { setMcError(null); handleShowMultipleChoice(isAudioCard); }}
-                  disabled={!isOnline}
-                >
-                  Retry
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setSkipMcForCard(true)}
-                >
-                  Type instead
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="spinner" />
-              <span className="text-light">{isGeneratingMC ? 'Generating options...' : 'Loading...'}</span>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => setSkipMcForCard(true)}
-              >
-                Type instead
-              </button>
-            </>
-          )}
+          <div className="spinner" />
+          <span className="text-light">Generating options...</span>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setSkipMcForCard(true)}
+          >
+            Type instead
+          </button>
         </div>
       );
     }
@@ -2163,6 +2126,9 @@ function StudyCard({
     const placeholder = card.card_type === 'audio_to_hanzi' ? 'Type what you hear...' : 'Type in Chinese...';
     return (
       <div className="study-card-actions">
+        {mcFallbackNote && (
+          <p className="study-mc-note" data-testid="mc-fallback-note">{mcFallbackNote}</p>
+        )}
         <input
           ref={inputRef}
           type="text"
@@ -2189,7 +2155,8 @@ function StudyCard({
         <div className="study-topbar">
           <QueueCountsHeader counts={counts} activeQueue={card.queue} activeIsSecondary={cardIsSecondaryNew} />
           <div className="study-topbar-controls">
-            <SyncBadge inline />
+            {/* Offline, the pill already says so (and carries the pending count) */}
+            {!effectiveOffline && <SyncBadge inline />}
             <button
               className="study-close-btn study-undo-btn"
               onClick={onUndo}
@@ -2199,21 +2166,13 @@ function StudyCard({
             >
               ↺
             </button>
-            <button
-              className={`study-close-btn study-offline-toggle ${manualOffline ? 'study-offline-toggle--active' : ''}`}
-              onClick={() => toggleManualOfflineMode()}
-              aria-label={manualOffline ? 'Offline mode on — audio uses device TTS' : 'Offline mode off — audio streams from server'}
-              aria-pressed={manualOffline}
-              title={manualOffline
-                ? 'Offline mode ON: audio plays from cache or device TTS (no network)'
-                : 'Offline mode OFF: tap when your connection is spotty'}
-            >
-              ✈
-            </button>
+            {/* D3: automatic from NetworkContext, manual override kept; label says which */}
+            <OfflineModeToggle />
             <button
               className="study-close-btn"
               onClick={onEnd}
               aria-label="End session"
+              data-testid="study-close"
             >
               ✕
             </button>
@@ -2270,19 +2229,19 @@ function StudyCard({
                             handleGenerateSentenceClue();
                           }
                         }}
-                        disabled={isGeneratingSentence || !isOnline}
-                        title={!isOnline ? 'Requires internet connection' : ''}
+                        disabled={isGeneratingSentence || (!card.note.sentence_clue && !aiAvailable)}
+                        title={!card.note.sentence_clue && !aiAvailable ? NEEDS_INTERNET : ''}
                       >
                         {isGeneratingSentence ? 'Generating...' : 'Use in Sentence'}
                       </button>
-                      {(card.card_type === 'meaning_to_hanzi' || card.card_type === 'audio_to_hanzi') && (
+                      {(card.card_type === 'meaning_to_hanzi' || card.card_type === 'audio_to_hanzi') && !showMultipleChoice && (
                         <button
                           className="btn btn-secondary btn-sm"
-                          onClick={() => handleShowMultipleChoice()}
-                          disabled={isGeneratingMC || !isOnline}
-                          title={!isOnline ? 'Requires internet connection' : ''}
+                          onClick={() => { setSkipMcForCard(false); handleShowMultipleChoice(); }}
+                          disabled={isGeneratingMC || (!hasCachedMc && !aiAvailable)}
+                          title={!hasCachedMc && !aiAvailable ? NEEDS_INTERNET : ''}
                         >
-                          {isGeneratingMC ? 'Loading...' : 'Multiple Choice'}
+                          {isGeneratingMC ? 'Building options…' : 'Multiple Choice'}
                         </button>
                       )}
                     </div>
@@ -2335,8 +2294,8 @@ function StudyCard({
                         <button
                           className="btn btn-secondary btn-sm"
                           onClick={() => handleGenerateSentenceClue()}
-                          disabled={isGeneratingSentence || !isOnline}
-                          title="Regenerate sentence with pinyin and translation"
+                          disabled={isGeneratingSentence || !aiAvailable}
+                          title={!aiAvailable ? NEEDS_INTERNET : 'Regenerate sentence with pinyin and translation'}
                         >
                           {isGeneratingSentence ? '...' : '↻'}
                         </button>
@@ -2364,23 +2323,26 @@ function StudyCard({
                 {renderBackMain()}
 
                 {/* One list of sentences for this word: the card's own
-                    example sentence first, then the generated set. */}
-                <div className="mt-2">
-                  <SentenceSet
-                    noteId={card.note.id}
-                    cardSentence={
-                      card.note.sentence_clue
-                        ? {
-                            hanzi: card.note.sentence_clue,
-                            pinyin: card.note.sentence_clue_pinyin,
-                            translation: card.note.sentence_clue_translation,
-                            audio_url: card.note.sentence_clue_audio_url,
-                          }
-                        : null
-                    }
-                    compact
-                  />
-                </div>
+                    example sentence first, then the generated set. Opened
+                    from "Sentences" in the action row (D1). */}
+                {showSentences && (
+                  <div className="mt-2" data-testid="study-sentences">
+                    <SentenceSet
+                      noteId={card.note.id}
+                      cardSentence={
+                        card.note.sentence_clue
+                          ? {
+                              hanzi: card.note.sentence_clue,
+                              pinyin: card.note.sentence_clue_pinyin,
+                              translation: card.note.sentence_clue_translation,
+                              audio_url: card.note.sentence_clue_audio_url,
+                            }
+                          : null
+                      }
+                      compact
+                    />
+                  </div>
+                )}
               </div>
               <div className="study-card-actions">
                 {renderBackActions()}
@@ -2459,73 +2421,6 @@ function StudyCard({
         />
       )}
     </>
-  );
-}
-
-function formatTimeMs(ms: number): string {
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.floor((ms % 60000) / 1000);
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-function SessionRecap({ stats, dayStats, todayTotalTimeMs }: { stats: SessionStats; dayStats?: OverviewStats | null; todayTotalTimeMs?: number }) {
-  if (stats.totalReviews === 0) return null;
-
-  const accuracy = Math.round((stats.correctCount / stats.totalReviews) * 100);
-  const sessionTimeMs = Date.now() - stats.timeStarted;
-  const sessionTimeStr = formatTimeMs(sessionTimeMs);
-  // Total today = previous time from backend + current session time
-  const totalTodayMs = (todayTotalTimeMs || 0) + sessionTimeMs;
-  const totalTodayStr = formatTimeMs(totalTodayMs);
-  const leechCount = stats.cardsRatedAgainMultiple.size;
-
-  return (
-    <div className="session-recap">
-      <h3>Session Recap</h3>
-      <div className="recap-grid">
-        <div className="recap-stat">
-          <div className="recap-stat-value">{stats.totalReviews}</div>
-          <div className="recap-stat-label">Reviews</div>
-        </div>
-        <div className="recap-stat">
-          <div className="recap-stat-value">{accuracy}%</div>
-          <div className="recap-stat-label">Accuracy</div>
-        </div>
-        <div className="recap-stat">
-          <div className="recap-stat-value">{totalTodayStr}</div>
-          <div className="recap-stat-label">Total Study Time Today</div>
-        </div>
-        <div className="recap-stat">
-          <div className="recap-stat-value">{sessionTimeStr}</div>
-          <div className="recap-stat-label">This Session</div>
-        </div>
-        <div className="recap-stat">
-          <div className="recap-stat-value">{stats.bestStreak}</div>
-          <div className="recap-stat-label">Best Streak</div>
-        </div>
-        {leechCount > 0 && (
-          <div className="recap-stat recap-attention">
-            <div className="recap-stat-value">{leechCount}</div>
-            <div className="recap-stat-label">Cards needing attention</div>
-          </div>
-        )}
-      </div>
-      {dayStats && (
-        <>
-          <h3 style={{ marginTop: '1rem' }}>Today's Progress</h3>
-          <div className="recap-grid">
-            <div className="recap-stat">
-              <div className="recap-stat-value">{dayStats.cards_studied_today}</div>
-              <div className="recap-stat-label">Total Reviews Today</div>
-            </div>
-            <div className="recap-stat">
-              <div className="recap-stat-value">{dayStats.cards_due_today}</div>
-              <div className="recap-stat-label">Still Due</div>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 
@@ -2618,8 +2513,10 @@ export function StudyPage() {
   const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
   const [todayTotalTimeMs, setTodayTotalTimeMs] = useState<number>(0);
   const dayStatsFetchedRef = useRef(false);
+  // ✕ mid-session: confirm (with the recap) once at least one review is in (D7)
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   useEffect(() => {
-    if ((isAllDone || isNearlyDone) && isOnline && !dayStatsFetchedRef.current) {
+    if ((isAllDone || isNearlyDone || showExitConfirm) && isOnline && !dayStatsFetchedRef.current) {
       dayStatsFetchedRef.current = true;
       getOverviewStats().then(setDayStats).catch(() => {});
       getMyDailyProgress().then(progress => {
@@ -2628,7 +2525,7 @@ export function StudyPage() {
         setTodayTotalTimeMs(todayEntry?.time_spent_ms || 0);
       }).catch(() => {});
     }
-  }, [isAllDone, isNearlyDone, isOnline]);
+  }, [isAllDone, isNearlyDone, showExitConfirm, isOnline]);
 
   // Auto-start session creation when autostart param is present
   useEffect(() => {
@@ -2645,11 +2542,22 @@ export function StudyPage() {
   }, [rateCard]);
 
   const handleEndSession = useCallback(() => {
+    setShowExitConfirm(false);
     setStudyStarted(false);
     setSessionId(null);
     // Navigate back to home
     navigate('/');
   }, [navigate]);
+
+  // The ✕ in the study top bar: straight out when nothing was reviewed yet,
+  // otherwise the recap + "End session?" so a stray tap can't end the sitting.
+  const requestEndSession = useCallback(() => {
+    if (sessionStats.totalReviews >= 1) {
+      setShowExitConfirm(true);
+    } else {
+      handleEndSession();
+    }
+  }, [sessionStats.totalReviews, handleEndSession]);
 
   // If study hasn't started (no autostart), redirect to home
   // The home page now handles deck selection and study initiation
@@ -2729,6 +2637,9 @@ export function StudyPage() {
   // Active study - fullscreen mode
   return (
     <div className="study-page-fullscreen">
+      {/* FIRST-SESSION EXPLAINER SLOT — the one-time "how study works" note
+          (home agent) mounts here, above whichever view renders below, so it
+          shows on the very first card. Keep it to a few lines. */}
       {isLoading ? (
         <Loading />
       ) : currentCustomLesson && customLessonIntervalPreviews ? (
@@ -2738,7 +2649,7 @@ export function StudyPage() {
           intervalPreviews={customLessonIntervalPreviews}
           counts={counts}
           onComplete={completeCustomLesson}
-          onEnd={handleEndSession}
+          onEnd={requestEndSession}
         />
       ) : currentGrammar ? (
         <StudyGrammar
@@ -2746,7 +2657,7 @@ export function StudyPage() {
           lesson={currentGrammar}
           counts={counts}
           onComplete={completeGrammar}
-          onEnd={handleEndSession}
+          onEnd={requestEndSession}
         />
       ) : currentReader && readerIntervalPreviews ? (
         <StudyReader
@@ -2756,7 +2667,7 @@ export function StudyPage() {
           counts={counts}
           isRating={false}
           onRate={rateReader}
-          onEnd={handleEndSession}
+          onEnd={requestEndSession}
         />
       ) : currentCard && intervalPreviews ? (
         <StudyCard
@@ -2770,7 +2681,7 @@ export function StudyPage() {
           canUndo={canUndo}
           onRate={handleRateCard}
           onUndo={undoLastReview}
-          onEnd={handleEndSession}
+          onEnd={requestEndSession}
           onUpdateNote={updateCurrentNote}
           onDeleteCurrentCard={() => removeNoteFromSession(currentCard.note.id)}
         />
@@ -2794,7 +2705,16 @@ export function StudyPage() {
         </div>
       ) : null}
 
-      {/* Flag modal - rendered at page level to survive card transitions */}
+      {/* Exit confirm — page level so it survives card transitions (D7) */}
+      {showExitConfirm && (
+        <ExitSessionModal
+          stats={sessionStats}
+          dayStats={dayStats}
+          todayTotalTimeMs={todayTotalTimeMs}
+          onKeepStudying={() => setShowExitConfirm(false)}
+          onEndSession={handleEndSession}
+        />
+      )}
     </div>
   );
 }

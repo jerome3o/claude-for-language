@@ -56,6 +56,7 @@ import invitesRoutes from './routes/invites';
 import { resolveSignup, redeemInvite } from './services/signup';
 import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
+import recordingNotesRoutes from './routes/recording-notes';
 import {
   createRelationship,
   getMyRelationships,
@@ -398,6 +399,9 @@ app.route('/api', invitesRoutes);
 
 // Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
 app.route('/api', insightsRoutes);
+
+// Student side of recording marks: unseen tutor notes on my recordings (routes/recording-notes.ts)
+app.route('/api', recordingNotesRoutes);
 
 // ============ Admin Routes ============
 

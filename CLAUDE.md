@@ -330,7 +330,12 @@ For manual state adjustments (e.g., admin resetting a card), we may add a `set_c
 ### Study Flow (Offline-First)
 **Study works 100% offline** - no loading spinners between cards, instant transitions.
 
-For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md).
+For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md) — including the
+card-back layout (one action row **Ask Claude · Sentences · ⋯**, everything else under ⋯ in
+`frontend/src/components/study/`), offline mode (automatic from NetworkContext + a forced
+override, `services/offlineMode.ts`), the 8s multiple-choice fallback (`services/multipleChoice.ts`),
+the exit confirm with recap, and tutor notes on recordings. Study-only styles live in
+`frontend/src/pages/StudyPage.css`.
 
 **Card Priority:**
 1. Learning cards due NOW (highest priority - active timers)
@@ -786,6 +791,13 @@ paginated history explorer. Pages: `/connections/:relId/insights`, `/history`, `
 - `DELETE /api/relationships/:relId/recordings/:eventId/mark`
 - `GET /api/relationships/:relId/history?from&to&deck_id&card_type&rating&q&cursor&limit` -
   Flat review events newest first (keyset cursor); the "by word" view groups client-side
+
+Student side of the marks (`worker/src/routes/recording-notes.ts`; migration 0066 adds
+`tutor_recording_marks.student_seen_at`): a needs-work comment is shown once under the pinyin
+on the back of that card ("From <tutor>: …"), cached in IndexedDB (`recordingNotes`) by
+`services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md.
+- `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name)
+- `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events)
 
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
