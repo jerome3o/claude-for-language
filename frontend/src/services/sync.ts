@@ -856,6 +856,13 @@ class SyncService {
         console.error('[Sync] Error fetching missing deck:', deckId, err);
       }
     }
+
+    // A deck that arrived this way is usually one a tutor just shared — get
+    // its audio onto the device straight away rather than on the next
+    // throttled run.
+    prefetchAllAudio({ force: true }).catch(err =>
+      console.error('[Sync] Audio prefetch after deck fetch failed:', err)
+    );
   }
 
   /**

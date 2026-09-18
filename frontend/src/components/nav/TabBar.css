@@ -1,0 +1,94 @@
+/*
+ * Bottom tab bar.
+ *
+ * Anchoring rules (the part that has bitten before):
+ *  - position: fixed; bottom: 0 — never 100vh arithmetic. A fixed element is
+ *    laid out against the layout viewport, which is what shrinks under the
+ *    keyboard on Android (interactive-widget=resizes-content) and what grows
+ *    and shrinks with the collapsing toolbars in mobile Safari/Chrome, so the
+ *    bar rides along without JavaScript.
+ *  - padding-bottom: env(safe-area-inset-bottom) keeps the tabs above the
+ *    gesture area on a notched/PWA/WebView screen; the bar's background
+ *    extends under it.
+ *  - html.tab-bar-keyboard (set from visualViewport, see TabBar.tsx) hides the
+ *    bar on platforms whose layout viewport does NOT shrink with the keyboard
+ *    (iOS Safari), where it would otherwise be drawn under the keyboard.
+ *  - The document gets matching bottom padding through html.has-tab-bar (see
+ *    the "Bottom tab bar layout" block at the end of index.css) so nothing
+ *    is covered.
+ */
+.tab-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 400;
+  background: var(--color-surface);
+  /* The hairline is drawn inside the box (not a border) so the bar's height
+     is exactly --tab-bar-height + safe area = the document's bottom padding. */
+  box-shadow: inset 0 1px 0 var(--color-border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* A transform on the bar only; children stay positioned normally. */
+  transition: transform 0.15s ease-out;
+}
+
+html.tab-bar-keyboard .tab-bar {
+  transform: translateY(110%);
+  pointer-events: none;
+}
+
+.tab-bar-inner {
+  display: flex;
+  align-items: stretch;
+  height: var(--tab-bar-height, 56px);
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.tab-bar-item {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--color-text-light);
+  text-decoration: none;
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.2;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tab-bar-item:hover {
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.tab-bar-item svg {
+  flex: none;
+}
+
+.tab-bar-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 0 2px;
+}
+
+.tab-bar-item-active,
+.tab-bar-item-active:hover {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* Short landscape (folded Pixel on its side): trim the bar a little. */
+@media (max-height: 460px) {
+  .tab-bar-inner {
+    height: var(--tab-bar-height, 48px);
+  }
+}
