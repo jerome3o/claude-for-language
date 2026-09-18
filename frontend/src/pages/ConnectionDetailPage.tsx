@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getRelationship,
@@ -91,7 +91,6 @@ function studentStatusLine(o: StudentOverview): string {
 export function ConnectionDetailPage() {
   const { relId } = useParams<{ relId: string }>();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
@@ -172,21 +171,6 @@ export function ConnectionDetailPage() {
       navigate('/connections');
     },
   });
-
-  // ?new=1 (from the "+ New" link inside a chat): start a fresh conversation
-  // straight away. The Claude relationship keeps its scenario form.
-  const handledNew = useRef(false);
-  useEffect(() => {
-    if (!relationship || handledNew.current || searchParams.get('new') !== '1') return;
-    handledNew.current = true;
-    setSearchParams({}, { replace: true });
-    if (isClaudeRelationship) {
-      setShowNewConvModal(true);
-    } else {
-      createConvMutation.mutate({});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relationship, searchParams]);
 
   /** Message: most recent conversation, created when there is none (H3). */
   const handleMessage = async () => {

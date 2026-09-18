@@ -799,8 +799,7 @@ Revoke); the tutor's shared decks list under "My homework decks". The student pa
 (`ConnectionDetailPage`) is ordered status → Message / Send homework → Needs attention → Homework
 (shared decks with progress bars + the student's lessons) → Conversations → Activity; Remove
 connection and the student's own shared decks live under ⋯. **Message** opens the most recent
-conversation directly (no title modal; `?new=1` on the page starts a fresh one — the chat's "+ New"
-link). Sharing a deck asks for confirmation, and a deck already shared offers **Update their copy**
+conversation directly (no title modal; a fresh one comes from the chat's own `?new=1` / `chat/new`). Sharing a deck asks for confirmation, and a deck already shared offers **Update their copy**
 (new notes only, progress kept). Pure aggregation lives in `services/tutor-dashboard.ts`
 (unit-tested); SQL in `db/tutor-dashboard-queries.ts`. Homework % = mastered cards + ½ started
 cards + completed lessons, over all cards + lessons the tutor sent.
