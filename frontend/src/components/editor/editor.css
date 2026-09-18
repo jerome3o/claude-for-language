@@ -343,10 +343,10 @@
 .ed-form { display: flex; flex-direction: column; gap: 0.75rem; }
 .ed-head-fields { display: flex; gap: 0.75rem; align-items: flex-end; }
 .ed-head-fields .ed-field:last-child { flex: 1; }
-.ed-icon-input { width: 3.5rem; text-align: center; font-size: 1.5rem !important; padding: 0.25rem; }
+.ed-icon-input { text-align: center; font-size: 1.5rem !important; padding: 0.25rem; }
 
-.ed-field { display: flex; flex-direction: column; gap: 0.25rem; }
-.ed-field.inline { flex: 0 0 auto; }
+.ed-field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.ed-field.inline { flex: 0 0 4.5rem; width: 4.5rem; }
 .ed-label {
   font-size: 0.75rem;
   font-weight: 600;

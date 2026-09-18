@@ -267,11 +267,11 @@ lessonEditor.post('/lesson-library/:id/duplicate', async (c) => {
   return c.json(libraryItemJson(row, { assignment_count: 0 }), 201);
 });
 
-lessonEditor.get('/lesson-library/:id/export.:format', async (c) => {
+lessonEditor.get('/lesson-library/:id/:file{export\\.(md|json|csv)}', async (c) => {
   const userId = c.get('user').id;
   const row = await lib.getLibraryItem(c.env.DB, c.req.param('id'), userId);
   if (!row) return c.json({ error: 'Library item not found' }, 404);
-  const res = exportResponse(parseSpec(row.spec), c.req.param('format') ?? '');
+  const res = exportResponse(parseSpec(row.spec), (c.req.param('file') ?? '').replace(/^export\./, ''));
   return res ?? c.json({ error: 'Unknown export format' }, 400);
 });
 
@@ -420,11 +420,11 @@ lessonEditor.put('/lessons/:id', async (c) => {
   return c.json(lessonJson(row, { is_owner: row.user_id === userId, image_jobs: imageJobs }));
 });
 
-lessonEditor.get('/lessons/:id/export.:format', async (c) => {
+lessonEditor.get('/lessons/:id/:file{export\\.(md|json|csv)}', async (c) => {
   const userId = c.get('user').id;
   const row = await lib.getLessonForEditor(c.env.DB, c.req.param('id'), userId);
   if (!row) return c.json({ error: 'Lesson not found' }, 404);
-  const res = exportResponse(parseSpec(row.spec), c.req.param('format') ?? '');
+  const res = exportResponse(parseSpec(row.spec), (c.req.param('file') ?? '').replace(/^export\./, ''));
   return res ?? c.json({ error: 'Unknown export format' }, 400);
 });
 

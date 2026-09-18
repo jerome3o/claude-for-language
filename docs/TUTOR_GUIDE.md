@@ -560,7 +560,47 @@ word-order scrambles, multiple choice, translation, matching, picture descriptio
 speaking, and listening discrimination (e.g. 有 yǒu vs 又 yòu). Ask for one anywhere
 Claude is present — "make me a mini lesson on 把 sentences" in Ask Claude or the
 Sentence Coach. Lessons are mixed into study sessions and repeat on the same spaced
-schedule as cards. This page lists what is waiting and what was completed.
+schedule as cards. This page lists what is waiting and what was completed. Every lesson
+has an **Edit** button that opens the lesson editor (below).
+
+### Lesson library & editor
+
+**Lesson Library** (profile menu → 📚 Lesson Library) is where a tutor keeps master copies
+of mini lessons. **New lesson** opens a sheet: describe the lesson in a sentence or two and
+let Claude draft it (about a minute), or start blank. Each card has **Edit**, **Assign…**
+and a ⋯ menu (Duplicate, Export as Markdown / Print view / JSON / CSV for Quizlet, Archive);
+the page's ⋯ menu has **Import JSON** for a lesson exported elsewhere.
+
+**Assign…** shows your students as a checklist (students who already have the lesson are
+ticked and greyed out). Assigning gives each student their own copy, which appears in their
+study sessions and works offline; the student may also edit their copy. Tap a library card
+to see the **assignments table**: how many times each student has completed it, their last
+rating and score, and whether their copy is still the same as your library version. When
+you edit the library lesson afterwards, a **Push update** button overwrites the students'
+copies with the new content while keeping their history and schedule.
+
+The **editor** is the same for everyone (tutor on a library lesson or a lesson they
+assigned; student on any of their own): a simple form — icon, title, description, then
+sections of exercises. Tap an exercise to expand it, use ▲▼ to reorder, ⧉ to duplicate,
+✕ to delete, **+ Add exercise** to pick one of the nine types (each with a one-line
+description). Chinese fields have a 🔊 play button and a **拼音** button that fills the pinyin
+automatically; "Auto-fill missing pinyin" does it for a whole exercise. Problems (a word-order
+exercise whose tiles don't match, a multiple choice with one option…) show inline and block
+**Save** until fixed. **Preview** runs the real exercises exactly as the student sees them,
+nothing recorded. The ⋯ menu holds Print view, the exports and, under *Advanced*, the raw
+JSON.
+
+Beside the form (or under the **Claude** tab on a phone) is a chat where Claude is a
+co-editor of *this* lesson: ask for changes in plain words — "add a listening exercise for
+又", "make section 2 easier", "add pinyin everywhere" — and Claude answers with a
+**proposal** shown as a diff (added / removed / changed exercises) that you **Accept** or
+**Reject**. Accepting puts the change into the form; press **Save** to keep it. Claude is
+told what you changed yourself since its last message, so it builds on your edits rather
+than undoing them.
+
+On the student's connection page, tutors also see a **Mini Lessons** section listing the
+student's lessons (assigned by you, by another tutor, or made by the student) with their
+progress, and an "Assign from library" shortcut.
 
 ### Quests
 
