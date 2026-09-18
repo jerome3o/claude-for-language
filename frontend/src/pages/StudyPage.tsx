@@ -46,6 +46,7 @@ import {
   OverviewStats,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
+import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { useTranscription } from '../hooks/useTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, toggleManualOfflineMode } from '../services/offlineMode';
@@ -2533,6 +2534,8 @@ export function StudyPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isOnline } = useNetwork();
+  // Clips play a few seconds apart all session; keep the output warm between them.
+  useNativeOutputHold();
 
   const deckId = searchParams.get('deck') || undefined;
   const autostart = searchParams.get('autostart') === 'true';

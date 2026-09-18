@@ -9,6 +9,7 @@ import { setDiagnosticsContext } from './utils/audioDiagnostics';
 import { livePlayerCount } from './utils/audioPlayback';
 import { getPrefetchStatus } from './services/audioPrefetch';
 import { getManualOfflineMode } from './services/offlineMode';
+import { applyNativeAudioPrefs } from './services/nativeAudioPrefs';
 
 // Initialize console buffer early to capture all logs
 initConsoleBuffer();
@@ -24,6 +25,10 @@ setDiagnosticsContext({
   prefetchStatus: getPrefetchStatus,
   offlineMode: getManualOfflineMode,
 });
+
+// Tell the Android app's player how to behave (compressor, keep-alive) — a
+// no-op in a browser. See services/nativeAudioPrefs.ts.
+applyNativeAudioPrefs();
 
 // Pick up new deploys automatically (on app focus + hourly)
 initAutoUpdate();

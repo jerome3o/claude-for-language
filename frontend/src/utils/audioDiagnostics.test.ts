@@ -218,6 +218,7 @@ describe('isTruncated', () => {
     prefetch: 'idle',
     online: true,
     offline_mode: false,
+    native: null,
   };
 
   it('is false when playback reached the end', () => {
