@@ -1057,11 +1057,17 @@ not enough; attach the images.
   in the remote container). Scripts go in `e2e/.scratch/` and are deleted
   before committing.
 - Attach by committing the PNGs under `docs/pr-screenshots/<branch-or-pr>/`
-  on the PR branch and referencing them with
-  `![...](https://github.com/jerome3o/claude-for-language/blob/<branch>/docs/pr-screenshots/<dir>/<file>.png?raw=true)`
-  in the PR body (GitHub renders raw blob URLs from the branch). Keep each
-  image under ~500 KB. Once the PR is merged the folder may be deleted in a
-  later PR if it is not referenced from docs.
+  on the PR branch **together with a `README.md` in that folder that embeds
+  them with relative paths** (`![Edit tab](02-editor-edit.png)` + a one-line
+  caption each). GitHub renders that README with the images when the file is
+  opened on the branch, and the PNGs also appear in the PR's "Files changed".
+  In the PR body, add a "## Screenshots" section that names the folder path
+  (`docs/pr-screenshots/<dir>/README.md`) and lists each shot with its
+  caption. Do **not** rely on `<img src="https://…">` or `![](https://…)`
+  in the PR body: the GitHub MCP tool used from remote sessions wraps every
+  URL in the body in backticks, which breaks image rendering. Keep each image
+  under ~500 KB. Once the PR is merged the folder may be deleted in a later
+  PR if it is not referenced from docs.
 - Docs-only or worker-only PRs are exempt; a PR that changes both must
   include screenshots for the frontend part.
 
