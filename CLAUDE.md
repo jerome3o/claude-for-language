@@ -103,12 +103,17 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── engine.ts      # Pure game engine — movement, verbs, goal checking
 │   │   ├── validate.ts    # Playability checks for generated worlds
 │   │   └── index.ts       # Re-exports
-│   └── lesson/            # Custom mini lessons: agent-authored lesson schema
-│       ├── types.ts       # Lesson spec (sections of exercises, 9 exercise types)
-│       ├── validate.ts    # Structural validation for agent-authored specs
-│       ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
-│       ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
-│       └── index.ts       # Re-exports
+│   ├── lesson/            # Custom mini lessons: agent-authored lesson schema
+│   │   ├── types.ts       # Lesson spec (sections of exercises, 9 exercise types)
+│   │   ├── validate.ts    # Structural validation for agent-authored specs
+│   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
+│   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
+│   │   └── index.ts       # Re-exports
+│   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
+│       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
+│       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
+│       ├── diff.ts        # Page-level diff (added / removed / moved / changed by id, content or similarity)
+│       └── export.ts      # Markdown / re-importable JSON / Quizlet CSV
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
@@ -215,7 +220,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
-- `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
+- `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library' | 'reader', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
 - `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
 - `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
@@ -729,6 +734,31 @@ re-reading the package with the same libraries. Format details: docs/IMPORT_EXPO
 - `POST /api/editor-chat/:targetType/:targetId/messages` - `{ message, current_spec }` → `{ user_message, message, proposal? }` (503 without an API key)
 - `POST /api/editor-chat/:targetType/:targetId/messages/:id/accept|reject`
 
+### Graded readers & reader editor (`worker/src/routes/reader-editor.ts`, mounted at `/api`)
+Readers (`graded_readers` + `reader_pages`, per-user) are generated on `story-generation-queue`
+(`services/graded-reader.ts`) or written by hand. The **reader editor** (`/readers/:id/edit`,
+`frontend/src/pages/editor/ReaderEditorPage.tsx`) is built on the same `EditorShell` as the lesson
+editor: title fields + collapsible page cards (Chinese with 🔊 and 拼音 auto-fill via `pinyin-pro`,
+pinyin, English with Translate, illustration prompt with Suggest / Illustrate and a thumbnail;
+move / duplicate / insert / delete), live `validateReaderSpec` errors blocking Save, a **Preview**
+that is the real tap-to-reveal reading view, a **Claude** co-editor chat (same `editor_chats`
+tables, target type `reader`; `services/reader-editor.ts` `proposeReaderRevision` with one tool
+`propose_reader_spec`, validated with up to 2 repair rounds, fed the `shared/reader/diff.ts`
+summary of the author's own edits), exports (Markdown with glossary, Print view at
+`/readers/:id/print`, re-importable JSON, Quizlet CSV from `vocabulary_used`; array-driven menu
+in `READER_EXPORTS` so Anki can be appended) and raw JSON under Advanced. The whole reader is
+saved in one `PUT …/spec`: pages are upserted by id, missing ones deleted, numbers rebuilt,
+illustrations kept when the prompt is unchanged (stale R2 keys deleted) and new/changed prompts
+queued on `image-generation-queue` like generated readers. The readers list has **Import JSON**.
+Tutor→student sharing of readers is not built.
+- `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
+- `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)
+- `GET|PUT /api/readers/:id/spec` - The reader as a `ReaderSpec` / replace it whole (`{ spec }`; returns `image_jobs`)
+- `POST /api/readers/import` - New reader from `{ spec }` (owner = caller; page ids never reused)
+- `GET /api/readers/:id/export.md|json|csv`
+- `POST /api/readers/:id/assist` - `{ field: 'english'|'image_prompt', chinese, english? }` → `{ text }` (503 without an API key)
+- `GET|POST /api/editor-chat/reader/:id[/messages]`, `…/messages/:id/accept|reject` - the co-editor chat (see Lesson library & editor)
+
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
 - `GET /api/stats/deck/:id` - Deck statistics
@@ -1045,11 +1075,17 @@ not enough; attach the images.
   in the remote container). Scripts go in `e2e/.scratch/` and are deleted
   before committing.
 - Attach by committing the PNGs under `docs/pr-screenshots/<branch-or-pr>/`
-  on the PR branch and referencing them with
-  `![...](https://github.com/jerome3o/claude-for-language/blob/<branch>/docs/pr-screenshots/<dir>/<file>.png?raw=true)`
-  in the PR body (GitHub renders raw blob URLs from the branch). Keep each
-  image under ~500 KB. Once the PR is merged the folder may be deleted in a
-  later PR if it is not referenced from docs.
+  on the PR branch **together with a `README.md` in that folder that embeds
+  them with relative paths** (`![Edit tab](02-editor-edit.png)` + a one-line
+  caption each). GitHub renders that README with the images when the file is
+  opened on the branch, and the PNGs also appear in the PR's "Files changed".
+  In the PR body, add a "## Screenshots" section that names the folder path
+  (`docs/pr-screenshots/<dir>/README.md`) and lists each shot with its
+  caption. Do **not** rely on `<img src="https://…">` or `![](https://…)`
+  in the PR body: the GitHub MCP tool used from remote sessions wraps every
+  URL in the body in backticks, which breaks image rendering. Keep each image
+  under ~500 KB. Once the PR is merged the folder may be deleted in a later
+  PR if it is not referenced from docs.
 - Docs-only or worker-only PRs are exempt; a PR that changes both must
   include screenshots for the frontend part.
 
@@ -1105,6 +1141,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/progress` - Student progress view (tutor only)
 - `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view
 - `/lessons/:id/edit`, `/lessons/:id/print` - Lesson editor / print view for a student's own lesson or one the tutor assigned
+- `/readers/:id/edit`, `/readers/:id/print` - Reader editor (form + preview + Claude co-editor + exports) / print view
 - `/connections/:relId/insights` - Student Insights: range, needs attention / going well, summary, lesson log (tutor only)
 - `/connections/:relId/history` - Full review history explorer with filters (tutor only)
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)

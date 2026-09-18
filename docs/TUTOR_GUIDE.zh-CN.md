@@ -420,7 +420,9 @@ Insights 下面一行还有两个页面：
 
 <img src="guide-images/readers.png" width="300">
 
-**Readers**（个人菜单）是只用学生已学词汇写成的带插图小故事。**AI Generate**（1）从选定的卡组（或今天到期的卡片）生成一篇；**Create New（新建）** 让老师逐页手写，有自动注拼音和自动翻译按钮，可选配插图。点某篇读物（2）开始阅读。
+**Readers**（个人菜单）是只用学生已学词汇写成的带插图小故事。**AI Generate**（1）从选定的卡组（或今天到期的卡片）生成一篇；**Create New（新建）** 让老师逐页手写。点某篇读物（2）开始阅读，或点 **Edit（编辑）** 打开读物编辑器。
+
+**读物编辑器（Reader editor）** 与课程编辑器的用法一样：顶部是标题栏，下面每页一张卡片，包含中文（🔊 朗读，**拼音** 自动注音）、拼音、英文（**Translate（翻译）** 请 Claude 翻译）和插图提示（**Suggest（建议）** 起草一条，页面保存后 **Illustrate（绘图）** 生成插图；新的或改过的提示在 **Save（保存）** 之后也会在后台自动绘制）。▲▼ 调整页序，⧉ 复制，✕ 删除，"+ Insert page after" 在中间插入一页。问题（空白页、缺少翻译）会内联显示并阻止 **Save**。**Preview（预览）** 就是真实的阅读界面——点击逐步显示，不做记录。表单旁边（手机上在 **Claude** 标签页）Claude 是*这篇故事*的共同编辑："simplify page 2"（简化第 2 页）、"add a page where they go home"（加一页回家的情节）、"use 刮风 somewhere"（在某处用上"刮风"）——它会给出一个**提案（proposal）**，以页面差异的形式展示，你 **Accept（接受）** 或 **Reject（拒绝）**，然后 **Save**。⋯ 菜单里有 **Export（导出）**：Markdown（附词汇表）、**Print view（打印视图）**（每页一张，配图、汉字下面是拼音、下面是英文）、JSON（可重新导入）和 Quizlet 用的 CSV，*Advanced* 下还有原始 JSON。读物列表页的 ⋯ 菜单有 **Import JSON（导入 JSON）**，可把别处导出的读物导入自己的列表。
 
 <img src="guide-images/reader-generate.png" width="300">
 

@@ -5,11 +5,14 @@
  * working copy (unsaved until Save). The current spec always rides along
  * with each message, and a subtle system line shows what the author changed
  * since the previous message.
+ *
+ * Spec-agnostic: the lesson editor uses the defaults (lesson diff + DiffCard);
+ * the reader editor passes its own `pendingChanges` and `renderDiff`.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CustomLessonSpec, diffLessonSpecs, formatLessonDiff } from '@shared/lesson';
+import { CustomLessonSpec, LessonDiff, diffLessonSpecs, formatLessonDiff } from '@shared/lesson';
 import { getEditorChat, sendEditorMessage, setProposalStatus, LessonApiError } from '../../api/lessonEditor';
 import { EditorChatMessage, EditorTargetType } from '../../types/lessonEditor';
 import { DiffCard } from './DiffCard';
@@ -22,29 +25,52 @@ const QUICK_PROMPTS = [
   'Check the Chinese for mistakes',
 ];
 
-export interface EditorChatProps {
+export interface EditorChatProps<TSpec, TDiff> {
   target: EditorTargetType;
   targetId: string;
-  currentSpec: CustomLessonSpec;
-  onAcceptProposal: (spec: CustomLessonSpec) => void;
+  currentSpec: TSpec;
+  onAcceptProposal: (spec: TSpec) => void;
   /** Extra quick prompts for this editor kind. */
   quickPrompts?: string[];
+  /** Lines describing what the author changed between two specs (client-side preview). */
+  pendingChanges?: (baseline: TSpec, current: TSpec) => string[];
+  /** How to render a proposal's diff. */
+  renderDiff?: (diff: TDiff) => ReactNode;
+  /** "co-editor for this lesson" */
+  subject?: string;
+  /** Empty-state hint with example requests. */
+  emptyHint?: string;
 }
 
-export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, quickPrompts = QUICK_PROMPTS }: EditorChatProps) {
+const lessonPending = (a: unknown, b: unknown) => formatLessonDiff(diffLessonSpecs(a as CustomLessonSpec, b as CustomLessonSpec));
+const lessonDiff = (d: unknown) => <DiffCard diff={d as LessonDiff} />;
+
+export function EditorChat<TSpec = CustomLessonSpec, TDiff = LessonDiff>(props: EditorChatProps<TSpec, TDiff>) {
+  const {
+    target,
+    targetId,
+    currentSpec,
+    onAcceptProposal,
+    quickPrompts = QUICK_PROMPTS,
+    pendingChanges: computePending = lessonPending,
+    renderDiff = lessonDiff,
+    subject = 'co-editor for this lesson',
+    emptyHint = 'Ask for changes in plain words — “add a listening exercise for 又”, “make section 2 easier”. Claude answers with a proposal you can accept or reject.',
+  } = props;
+  type Msg = EditorChatMessage<TSpec, TDiff>;
   const queryClient = useQueryClient();
   const queryKey = ['editor-chat', target, targetId];
   const chatQuery = useQuery({
     queryKey,
-    queryFn: () => getEditorChat(target, targetId),
+    queryFn: () => getEditorChat<TSpec, TDiff>(target, targetId),
     retry: false,
   });
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [localMessages, setLocalMessages] = useState<EditorChatMessage[] | null>(null);
+  const [localMessages, setLocalMessages] = useState<Msg[] | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const messages = localMessages ?? chatQuery.data?.messages ?? [];
+  const messages: Msg[] = localMessages ?? chatQuery.data?.messages ?? [];
 
   // Keep the local copy in step with the server once it loads/refreshes.
   useEffect(() => {
@@ -67,7 +93,7 @@ export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, qu
     // accepted proposal; the server computes the authoritative line.
     if (baseline) {
       try {
-        pendingChanges = formatLessonDiff(diffLessonSpecs(baseline, currentSpec));
+        pendingChanges = computePending(baseline, currentSpec);
       } catch {
         pendingChanges = [];
       }
@@ -80,7 +106,7 @@ export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, qu
     setSending(true);
     setError(null);
     setDraft('');
-    const optimistic: EditorChatMessage = {
+    const optimistic: Msg = {
       id: `local-${Date.now()}`,
       role: 'user',
       content: message,
@@ -92,7 +118,7 @@ export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, qu
     };
     setLocalMessages(prev => [...(prev ?? []), optimistic]);
     try {
-      const result = await sendEditorMessage(target, targetId, message, currentSpec);
+      const result = await sendEditorMessage<TSpec, TDiff>(target, targetId, message, currentSpec);
       setLocalMessages(prev => [
         ...(prev ?? []).filter(m => m.id !== optimistic.id),
         result.user_message,
@@ -111,9 +137,9 @@ export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, qu
     }
   }
 
-  async function decide(message: EditorChatMessage, status: 'accept' | 'reject') {
+  async function decide(message: Msg, status: 'accept' | 'reject') {
     if (status === 'accept' && message.proposed_spec) {
-      onAcceptProposal(JSON.parse(JSON.stringify(message.proposed_spec)) as CustomLessonSpec);
+      onAcceptProposal(JSON.parse(JSON.stringify(message.proposed_spec)) as TSpec);
     }
     setLocalMessages(prev => (prev ?? []).map(m => (
       m.id === message.id ? { ...m, proposal_status: status === 'accept' ? 'accepted' : 'rejected' } : m
@@ -131,7 +157,7 @@ export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, qu
     <div className="editor-chat">
       <div className="editor-chat-header">
         <span>✨ Claude</span>
-        <span className="editor-chat-hint">co-editor for this lesson</span>
+        <span className="editor-chat-hint">{subject}</span>
       </div>
 
       <div className="editor-chat-list" ref={listRef}>
@@ -141,9 +167,7 @@ export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, qu
           <div className="editor-chat-system">Claude isn't configured on this server. The editor still works.</div>
         )}
         {messages.length === 0 && !chatQuery.isLoading && aiAvailable && (
-          <div className="editor-chat-system">
-            Ask for changes in plain words — “add a listening exercise for 又”, “make section 2 easier”. Claude answers with a proposal you can accept or reject.
-          </div>
+          <div className="editor-chat-system">{emptyHint}</div>
         )}
         {messages.map(m => (
           <div key={m.id} className={`editor-chat-message ${m.role}`}>
@@ -160,7 +184,7 @@ export function EditorChat({ target, targetId, currentSpec, onAcceptProposal, qu
                   {m.proposal_status === 'accepted' && <span className="proposal-status accepted">Accepted</span>}
                   {m.proposal_status === 'rejected' && <span className="proposal-status rejected">Rejected</span>}
                 </div>
-                {m.proposal_diff && <DiffCard diff={m.proposal_diff} />}
+                {m.proposal_diff && renderDiff(m.proposal_diff)}
                 {m.proposal_status === 'pending' && (
                   <div className="editor-chat-proposal-actions">
                     <button className="btn btn-secondary btn-sm" onClick={() => decide(m, 'reject')}>Reject</button>

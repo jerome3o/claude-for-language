@@ -570,8 +570,23 @@ role-play around that word.
 
 **Readers** (profile menu) are short illustrated stories that only use words the student
 already knows. **AI Generate** (1) builds one from chosen decks (or from today's due
-cards); **Create New** lets a tutor write one by hand, page by page, with auto-pinyin
-and auto-translation buttons and optional illustrations. Tap a reader (2) to read it.
+cards); **Create New** lets a tutor write one by hand, page by page. Tap a reader (2) to
+read it, or **Edit** to open the reader editor.
+
+The **reader editor** works like the lesson editor: title fields at the top, then one card per
+page with the Chinese (🔊 to hear it, **拼音** to fill the pinyin automatically), the pinyin,
+the English (**Translate** asks Claude) and an illustration prompt (**Suggest** drafts one,
+**Illustrate** draws it once the page is saved; new or changed prompts are also drawn in the
+background after **Save**). ▲▼ reorder pages, ⧉ duplicates, ✕ deletes, and "+ Insert page
+after" adds one in the middle. Problems (an empty page, a missing translation) show inline
+and block **Save**. **Preview** is the real reading view — tap to reveal, nothing recorded.
+Beside the form (or under the **Claude** tab on a phone) Claude is a co-editor of *this*
+story: "simplify page 2", "add a page where they go home", "use 刮风 somewhere" — it answers
+with a **proposal** shown as a diff of the pages that you **Accept** or **Reject**, then
+**Save**. The ⋯ menu has **Export** as Markdown (with a glossary), **Print view** (one sheet
+per page with the picture, pinyin under the hanzi, English below), JSON (re-importable) and
+CSV for Quizlet, plus the raw JSON under *Advanced*. The Readers page's ⋯ menu has
+**Import JSON** to bring a reader exported elsewhere into your own list.
 
 <img src="guide-images/reader-generate.png" width="300">
 
