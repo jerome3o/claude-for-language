@@ -39,7 +39,8 @@ const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => (
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then(m => ({ default: m.ReaderPage })));
-const ReaderEditorPage = lazy(() => import('./pages/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
+const ReaderEditorPage = lazy(() => import('./pages/editor/ReaderEditorPage').then(m => ({ default: m.ReaderEditorPage })));
+const ReaderPrintPage = lazy(() => import('./pages/editor/ReaderPrintPage').then(m => ({ default: m.ReaderPrintPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const SentenceCoveragePage = lazy(() => import('./pages/SentenceCoveragePage').then(m => ({ default: m.SentenceCoveragePage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
@@ -384,11 +385,11 @@ function AppRoutes() {
         path="/readers/:id/edit"
         element={
           <ProtectedRoute>
-            <Header />
-            <ReaderEditorPage />
+            <ErrorBoundary fallbackTitle="Couldn't load the editor"><ReaderEditorPage /></ErrorBoundary>
           </ProtectedRoute>
         }
       />
+      <Route path="/readers/:id/print" element={<ProtectedRoute><ReaderPrintPage /></ProtectedRoute>} />
       <Route
         path="/readers/:id"
         element={

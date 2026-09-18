@@ -1,0 +1,50 @@
+/* Reader print view — builds on LessonPrintPage.css (.pr-page, .pr-toolbar, @media print) */
+
+.rp-cover { text-align: center; margin: 1rem 0 1.5rem; }
+.rp-cover h1 { font-size: 2rem; margin: 0 0 0.25rem; }
+.rp-subtitle { font-size: 1.125rem; color: #374151; }
+.rp-meta { font-size: 0.8125rem; color: #6b7280; margin-top: 0.25rem; }
+
+.rp-sheet {
+  position: relative;
+  border-top: 1px solid #e5e7eb;
+  padding: 1.25rem 0 1.25rem 2.25rem;
+  break-inside: avoid;
+}
+.rp-num {
+  position: absolute;
+  left: 0;
+  top: 1.25rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 1px solid #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8125rem;
+  color: #4b5563;
+}
+.rp-image {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  border-radius: 8px;
+  margin: 0 auto 0.75rem;
+}
+.rp-hanzi { font-size: 1.5rem; line-height: 1.8; margin: 0; letter-spacing: 0.04em; }
+.rp-pinyin { font-style: italic; color: #6b7280; margin: 0.25rem 0 0; line-height: 1.5; }
+.rp-english { color: #374151; margin: 0.5rem 0 0; line-height: 1.5; }
+
+.rp-glossary { margin-top: 1.5rem; page-break-before: always; }
+.rp-glossary h2 { font-size: 1.05rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.25rem; }
+.rp-glossary table { border-collapse: collapse; width: 100%; }
+.rp-glossary td { padding: 0.3rem 0.5rem; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+.rp-glossary td:first-child { font-size: 1.125rem; white-space: nowrap; }
+.rp-glossary-pinyin { color: #6b7280; font-style: italic; white-space: nowrap; }
+
+@media print {
+  .rp-sheet { page-break-after: always; border-top: none; min-height: 60vh; }
+  .rp-sheet:last-of-type { page-break-after: auto; }
+  .rp-image { max-height: 55vh; }
+}

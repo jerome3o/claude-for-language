@@ -1,15 +1,18 @@
 /**
  * "Advanced → Raw JSON": edit the spec as text. Parse errors and validator
- * problems are shown before anything is applied to the form.
+ * problems are shown before anything is applied to the form. Defaults to
+ * the lesson validator; the reader editor passes validateReaderSpec.
  */
 
 import { useState } from 'react';
-import { CustomLessonSpec, validateLessonSpec } from '@shared/lesson';
+import { validateLessonSpec } from '@shared/lesson';
 
-export function RawJsonModal({ spec, onApply, onClose }: {
-  spec: CustomLessonSpec;
-  onApply: (spec: CustomLessonSpec) => void;
+export function RawJsonModal<TSpec>({ spec, onApply, onClose, validate = validateLessonSpec, subject = 'lesson' }: {
+  spec: TSpec;
+  onApply: (spec: TSpec) => void;
   onClose: () => void;
+  validate?: (value: unknown) => string[];
+  subject?: string;
 }) {
   const [text, setText] = useState(() => JSON.stringify(spec, null, 2));
   const [problems, setProblems] = useState<string[]>([]);
@@ -22,12 +25,12 @@ export function RawJsonModal({ spec, onApply, onClose }: {
       setProblems([`Not valid JSON: ${err instanceof Error ? err.message : String(err)}`]);
       return;
     }
-    const errors = validateLessonSpec(parsed);
+    const errors = validate(parsed);
     if (errors.length > 0) {
       setProblems(errors);
       return;
     }
-    onApply(parsed as CustomLessonSpec);
+    onApply(parsed as TSpec);
   }
 
   return (
@@ -38,7 +41,7 @@ export function RawJsonModal({ spec, onApply, onClose }: {
           <button type="button" className="ed-mini-btn" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="ed-modal-body">
-          <p className="ed-hint">The lesson spec exactly as it is stored. Edit and apply — changes go into the form (unsaved until you press Save).</p>
+          <p className="ed-hint">The {subject} spec exactly as it is stored. Edit and apply — changes go into the form (unsaved until you press Save).</p>
           <textarea className="ed-input" value={text} onChange={e => setText(e.target.value)} spellCheck={false} />
           {problems.length > 0 && (
             <ul className="ed-errors">{problems.map((p, i) => <li key={i}>{p}</li>)}</ul>

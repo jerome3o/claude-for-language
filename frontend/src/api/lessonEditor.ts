@@ -131,23 +131,26 @@ export async function getStudentLessons(relationshipId: string): Promise<Student
 /** Server-side export URL (used for the download links; the auth cookie
  * rides along). Offline, the frontend builds the same files itself. */
 export function exportUrl(target: EditorTargetType, id: string, format: ExportFormat): string {
-  const base = target === 'library' ? 'lesson-library' : 'lessons';
+  const base = target === 'library' ? 'lesson-library' : target === 'reader' ? 'readers' : 'lessons';
   return `${API_PATH}/${base}/${id}/export.${format}`;
 }
 
-// ============ Editor chat ============
+// ============ Editor chat (lesson, library or reader target) ============
 
-export async function getEditorChat(target: EditorTargetType, id: string): Promise<EditorChatState> {
-  return request<EditorChatState>(`/editor-chat/${target}/${id}`);
+export async function getEditorChat<TSpec = CustomLessonSpec, TDiff = unknown>(
+  target: EditorTargetType,
+  id: string,
+): Promise<EditorChatState<TSpec, TDiff>> {
+  return request<EditorChatState<TSpec, TDiff>>(`/editor-chat/${target}/${id}`);
 }
 
-export async function sendEditorMessage(
+export async function sendEditorMessage<TSpec = CustomLessonSpec, TDiff = unknown>(
   target: EditorTargetType,
   id: string,
   message: string,
-  currentSpec: CustomLessonSpec,
-): Promise<SendEditorMessageResult> {
-  return request<SendEditorMessageResult>(`/editor-chat/${target}/${id}/messages`, {
+  currentSpec: TSpec,
+): Promise<SendEditorMessageResult<TSpec, TDiff>> {
+  return request<SendEditorMessageResult<TSpec, TDiff>>(`/editor-chat/${target}/${id}/messages`, {
     method: 'POST',
     body: JSON.stringify({ message, current_spec: currentSpec }),
   });

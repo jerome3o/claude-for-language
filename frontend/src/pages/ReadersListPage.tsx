@@ -1,9 +1,53 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { getGradedReaders, deleteGradedReader, createBlankReader } from '../api/client';
+import { importReader } from '../api/readerEditor';
+import { LessonApiError } from '../api/lessonEditor';
 import { Loading, EmptyState } from '../components/Loading';
 import { GradedReader, DifficultyLevel } from '../types';
+
+/** Page-level ⋯ menu: Import JSON (a reader exported from the editor). */
+function ReadersOverflowMenu({ onImport }: { onImport: (file: File) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button className="btn btn-secondary" onClick={() => setOpen(o => !o)} aria-label="More actions" aria-haspopup="menu" aria-expanded={open} style={{ padding: '0.5rem 0.75rem' }}>
+        ⋯
+      </button>
+      {open && (
+        <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: '200px', zIndex: 20, padding: '0.25rem' }}>
+          <button role="menuitem" className="btn btn-secondary" style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'transparent' }} onClick={() => { setOpen(false); fileRef.current?.click(); }}>
+            ⬆ Import JSON
+          </button>
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) onImport(file);
+        }}
+      />
+    </div>
+  );
+}
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; label: string }> = {
   beginner: { bg: '#dcfce7', text: '#166534', label: 'Beginner' },
@@ -233,6 +277,26 @@ export function ReadersListPage() {
     },
   });
 
+  const handleImport = async (file: File) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      window.alert('That file is not valid JSON.');
+      return;
+    }
+    try {
+      const reader = await importReader(parsed);
+      queryClient.invalidateQueries({ queryKey: ['readers'] });
+      navigate(`/readers/${reader.id}/edit`);
+    } catch (err) {
+      const msg = err instanceof LessonApiError && err.problems.length
+        ? `Could not import:\n${err.problems.join('\n')}`
+        : `Could not import: ${err instanceof Error ? err.message : 'unknown error'}`;
+      window.alert(msg);
+    }
+  };
+
   const handleDelete = (reader: GradedReader) => {
     const message = reader.status === 'generating'
       ? `Cancel generation of "${reader.title_english}"?`
@@ -272,6 +336,7 @@ export function ReadersListPage() {
             <Link to="/readers/generate" className="btn btn-primary">
               AI Generate
             </Link>
+            <ReadersOverflowMenu onImport={handleImport} />
           </div>
         </div>
 
