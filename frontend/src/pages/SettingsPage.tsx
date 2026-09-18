@@ -417,12 +417,13 @@ function NativePlaybackPanel() {
             <span>
               <strong>Keep audio output awake</strong> — holds the output open while studying
               so the first clip after a pause doesn't start on a cold output and pop.
-              Doesn't interrupt other apps' music.
+              Doesn't interrupt other apps' music, and pauses while any app uses the mic.
             </span>
           </label>
           {state && (
             <p style={{ fontSize: '0.8rem', color: 'var(--color-text-light)', marginTop: '0.5rem' }}>
-              Now: {describeEffect(state)}; output {state.output_held ? 'held open' : 'idle'}
+              Now: {describeEffect(state)}; output{' '}
+              {state.output_held ? 'held open' : state.recording_active ? 'paused while the mic is in use' : 'idle'}
               ; route {state.route}; volume {state.volume}/{state.volume_max}
               ; {state.cached_clips} clips in the app cache.
             </p>

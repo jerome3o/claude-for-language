@@ -5,6 +5,7 @@ import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioManager;
+import android.media.AudioRecordingConfiguration;
 import android.media.AudioTrack;
 import android.media.MediaPlayer;
 import android.media.audiofx.DynamicsProcessing;
@@ -25,6 +26,7 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -113,6 +115,13 @@ class AudioBridge {
     private String effectState = "off";
     private int holds = 0;
     private boolean foreground = true;
+    /**
+     * Someone (any app) has the microphone open. Google's voice typing would
+     * not listen while the keep-alive stream was playing, so the stream
+     * pauses for the duration of any recording — voice typing, a call, the
+     * speaking-card recorder — and resumes when the mic is released.
+     */
+    private boolean recordingActive = false;
     private AudioTrack keepAlive;
 
     AudioBridge(Activity activity, WebView webView) {
@@ -120,6 +129,26 @@ class AudioBridge {
         this.webView = webView;
         this.audioManager = (AudioManager) activity.getSystemService(Activity.AUDIO_SERVICE);
         this.sessionId = audioManager.generateAudioSessionId();
+        watchRecordings();
+    }
+
+    /** Track whether any app is recording, so the keep-alive stays out of its way. */
+    private void watchRecordings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return;
+        }
+        try {
+            recordingActive = !audioManager.getActiveRecordingConfigurations().isEmpty();
+            audioManager.registerAudioRecordingCallback(new AudioManager.AudioRecordingCallback() {
+                @Override
+                public void onRecordingConfigChanged(List<AudioRecordingConfiguration> configs) {
+                    recordingActive = configs != null && !configs.isEmpty();
+                    updateKeepAlive();
+                }
+            }, main);
+        } catch (Exception e) {
+            Log.w(TAG, "recording callback unavailable", e);
+        }
     }
 
     private static AudioAttributes attributes() {
@@ -607,7 +636,7 @@ class AudioBridge {
      * music is untouched.
      */
     private void updateKeepAlive() {
-        boolean want = keepAwakeWanted && holds > 0 && foreground;
+        boolean want = keepAwakeWanted && holds > 0 && foreground && !recordingActive;
         if (want && keepAlive == null) {
             startKeepAlive();
         } else if (!want && keepAlive != null) {
@@ -667,6 +696,7 @@ class AudioBridge {
             o.put("keep_awake", keepAwakeWanted);
             o.put("output_held", keepAlive != null);
             o.put("holds", holds);
+            o.put("recording_active", recordingActive);
             o.put("route", describeRoute());
             o.put("volume", audioManager.getStreamVolume(AudioManager.STREAM_MUSIC));
             o.put("volume_max", audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
