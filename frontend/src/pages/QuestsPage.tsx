@@ -140,8 +140,8 @@ export function QuestsPage() {
           {generate.isPending ? 'Sending to Claude…' : '✨ Build the level'}
         </button>
         {generate.isError && (
-          <div style={{ color: '#fca5a5', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-            {generate.error instanceof Error ? generate.error.message : 'Could not start generation'}
+          <div className="quest-generate-error" role="alert">
+            Couldn't start building the level. Check your connection and try again.
           </div>
         )}
       </div>
@@ -165,7 +165,9 @@ export function QuestsPage() {
                 {quest.status === 'ready' && ` · ${quest.goal_count} instructions · ${quest.object_count} objects`}
                 {quest.completed_at && ` · ✅ done in ${quest.best_moves} moves`}
               </div>
-              {quest.error && <div className="quest-row-error">{quest.error}</div>}
+              {quest.status === 'error' && (
+                <div className="quest-row-error">Couldn't build this one — tap Retry.</div>
+              )}
             </div>
             <StatusBadge status={quest.status} />
             {quest.status === 'ready' && (
