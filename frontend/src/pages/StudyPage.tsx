@@ -327,13 +327,6 @@ function StudyCard({
     [card.id]
   ) ?? EMPTY_TUTOR_NOTES;
 
-  // Whether a sentence set is cached locally: opening Sentences then needs no
-  // connection, so the button stays enabled offline.
-  const localSentenceCount = useLiveQuery(
-    () => db.noteSentences.where('note_id').equals(card.note.id).count(),
-    [card.note.id]
-  ) ?? 0;
-  const [showSentences, setShowSentences] = useState(false);
 
   // Audio recording cycling state
   const queryClient = useQueryClient();
@@ -355,7 +348,6 @@ function StudyCard({
     setShowMultipleChoice(false);
     setSkipMcForCard(false);
     setMcFallbackNote(null);
-    setShowSentences(false);
   }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debug modal state
@@ -1147,17 +1139,6 @@ function StudyCard({
 
         <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
 
-        {/* The card's own sentence, quietly. The full list (with audio,
-            progressive reveal and the generated set) opens from "Sentences". */}
-        {card.note.sentence_clue && !showSentences && (
-          <div className="study-clue" data-testid="study-clue">
-            <div className="study-clue-hanzi">{card.note.sentence_clue}</div>
-            {card.note.sentence_clue_translation && (
-              <div className="study-clue-translation">{card.note.sentence_clue_translation}</div>
-            )}
-          </div>
-        )}
-
         {card.note.fun_facts && (
           <div className="study-fun-fact text-light claude-response">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{card.note.fun_facts}</ReactMarkdown>
@@ -1857,7 +1838,6 @@ function StudyCard({
   const renderBackActions = () => {
     const needsInternet = aiAvailable ? undefined : NEEDS_INTERNET;
     const menuItems: StudyMenuItem[] = [
-      { key: 'edit', label: 'Edit card', icon: '✏️', onSelect: () => setShowEditModal(true) },
       ...(!card.note.fun_facts
         ? [{ key: 'fun-fact', label: 'Generate fun fact', icon: '💡', hint: needsInternet, disabled: !aiAvailable, busy: isGeneratingFunFact, onSelect: handleGenerateFunFact }]
         : []),
@@ -1884,9 +1864,7 @@ function StudyCard({
           }
         }}
         askClaudeOpen={showAskClaude}
-        onToggleSentences={() => setShowSentences((v) => !v)}
-        sentencesOpen={showSentences}
-        sentencesNeedInternet={localSentenceCount === 0 && !card.note.sentence_clue}
+        onEditCard={() => setShowEditModal(true)}
         aiDisabled={!aiAvailable}
         menuItems={menuItems}
         menuFooter={formatAddedDate(card.note.created_at)}
@@ -2321,39 +2299,38 @@ function StudyCard({
             </>
           ) : (
             <>
-              <div className="study-card-main">
+              <div className="study-card-main study-card-main--back">
                 {renderBackMain()}
 
-                {/* One list of sentences for this word: the card's own
-                    example sentence first, then the generated set. Opened
-                    from "Sentences" in the action row (D1). */}
-                {showSentences && (
-                  <div className="mt-2" data-testid="study-sentences">
-                    <SentenceSet
-                      noteId={card.note.id}
-                      cardSentence={
-                        card.note.sentence_clue
-                          ? {
-                              hanzi: card.note.sentence_clue,
-                              pinyin: card.note.sentence_clue_pinyin,
-                              translation: card.note.sentence_clue_translation,
-                              audio_url: card.note.sentence_clue_audio_url,
-                            }
-                          : null
-                      }
-                      compact
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="study-card-actions">
-                {renderBackActions()}
+                {/* One list of sentences for this word, always there under
+                    the meaning: the card's own example sentence first, then
+                    the generated set. It scrolls under the action row and
+                    the ratings, which stay put in the footer. */}
+                <div className="study-sentences" data-testid="study-sentences">
+                  <SentenceSet
+                    noteId={card.note.id}
+                    cardSentence={
+                      card.note.sentence_clue
+                        ? {
+                            hanzi: card.note.sentence_clue,
+                            pinyin: card.note.sentence_clue_pinyin,
+                            translation: card.note.sentence_clue_translation,
+                            audio_url: card.note.sentence_clue_audio_url,
+                          }
+                        : null
+                    }
+                    compact
+                  />
+                </div>
               </div>
             </>
           )}
         </div>
         {flipped && (
           <div className="study-rating-sticky">
+            <div className="study-card-actions study-card-actions--footer">
+              {renderBackActions()}
+            </div>
             <RatingButtons
               intervalPreviews={intervalPreviews}
               onRate={handleRate}

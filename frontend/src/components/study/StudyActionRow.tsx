@@ -4,32 +4,27 @@ import { StudyMoreMenu, StudyMenuItem } from './StudyMoreMenu';
 export const NEEDS_INTERNET = 'Needs internet';
 
 /**
- * The one action row on the card back: Ask Claude · Sentences · ⋯.
- * The AI buttons are disabled with a "needs internet" hint whenever study is
- * offline (automatic or forced); the ⋯ opens the sheet with everything else.
+ * The one action row on the card back: Ask Claude · Edit card · ⋯. It sits
+ * in the sticky footer above the ratings, so the sentences scroll underneath
+ * it. The AI button is disabled with a "needs internet" hint whenever study
+ * is offline (automatic or forced); the ⋯ opens the sheet with everything else.
  */
 export function StudyActionRow({
   onAskClaude,
   askClaudeOpen,
-  onToggleSentences,
-  sentencesOpen,
-  sentencesNeedInternet,
+  onEditCard,
   aiDisabled,
   menuItems,
   menuFooter,
 }: {
   onAskClaude: () => void;
   askClaudeOpen: boolean;
-  onToggleSentences: () => void;
-  sentencesOpen: boolean;
-  /** True when opening Sentences would have to generate them (no cached set). */
-  sentencesNeedInternet: boolean;
+  onEditCard: () => void;
   aiDisabled: boolean;
   menuItems: StudyMenuItem[];
   menuFooter?: string | null;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const sentencesDisabled = aiDisabled && sentencesNeedInternet && !sentencesOpen;
 
   return (
     <div className="study-action-row" data-testid="study-action-row">
@@ -44,12 +39,10 @@ export function StudyActionRow({
       </button>
       <button
         className="btn btn-secondary study-action-btn"
-        onClick={onToggleSentences}
-        disabled={sentencesDisabled}
-        aria-expanded={sentencesOpen}
-        title={sentencesDisabled ? NEEDS_INTERNET : sentencesOpen ? 'Hide the sentences' : 'Example sentences for this word'}
+        onClick={onEditCard}
+        title="Edit this card"
       >
-        <span aria-hidden="true">✨</span> {sentencesOpen ? 'Hide sentences' : 'Sentences'}
+        <span aria-hidden="true">✏️</span> Edit card
       </button>
       <button
         className="btn btn-secondary study-action-btn study-action-more"

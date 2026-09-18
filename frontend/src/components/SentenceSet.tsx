@@ -24,6 +24,12 @@ import { AddChunkModal, Chunk } from './AddChunkModal';
  *
  * Reads come from IndexedDB so the whole set — audio included — works offline.
  * Only generation needs a connection.
+ *
+ * On the study card the list is always there, under the meaning: every
+ * sentence shows its Chinese with a play button, and one tap on the text
+ * brings up the pinyin and the English (or the "Show English" switch does it
+ * for the whole list at once). The reverse exercise — English up first,
+ * translate it back — lives on each row's tools line.
  */
 
 const FOCUS_LABELS: Record<string, string> = {
@@ -37,35 +43,23 @@ const FOCUS_LABELS: Record<string, string> = {
 
 const COUNT_OPTIONS = [5, 10];
 
-/**
- * Progressive reveal: you hear the sentence, then uncover it a line at a time
- * — characters, then pinyin, then the English — so each one gets read before
- * the next is there to read instead. Steps a row hasn't got are skipped.
- */
-type RevealStep = 'hanzi' | 'pinyin' | 'translation';
+/** Persisted preference: pinyin + English open on every sentence by default. */
+const SHOW_ENGLISH_KEY = 'sentenceSet.showEnglish';
 
-const NEXT_STEP_LABEL: Record<RevealStep, string> = {
-  hanzi: 'Tap to reveal',
-  pinyin: 'Tap for pinyin',
-  translation: 'Tap for the translation',
-};
+function readShowEnglish(): boolean {
+  try {
+    return localStorage.getItem(SHOW_ENGLISH_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
-/** With the English already up as the prompt, the reveal is the answer. */
-const NEXT_STEP_LABEL_EN_FIRST: Record<RevealStep, string> = {
-  ...NEXT_STEP_LABEL,
-  hanzi: 'Tap for the Chinese',
-};
-
-/**
- * The steps a row still has to uncover. In English-first mode the translation
- * is already on screen as the prompt, so it drops out of the chain rather than
- * being shown twice.
- */
-function revealSteps(row: DisplayRow, englishFirst = false): RevealStep[] {
-  const steps: RevealStep[] = ['hanzi'];
-  if (row.pinyin) steps.push('pinyin');
-  if (row.translation && !englishFirst) steps.push('translation');
-  return steps;
+function writeShowEnglish(value: boolean) {
+  try {
+    localStorage.setItem(SHOW_ENGLISH_KEY, value ? '1' : '0');
+  } catch {
+    // private mode / storage full — the toggle still works for this card
+  }
 }
 
 /** Read the explanation cached on a synced row, if it has one. */
@@ -109,10 +103,9 @@ interface SentenceSetProps {
    * to look for sentences rather than two stacked panels.
    */
   cardSentence?: CardSentence | null;
-  /** Rendered inside the study card (tighter spacing). */
+  /** Rendered inside the study card: always open, tighter spacing. */
   compact?: boolean;
-  /** Start with the list expanded. Open by default: the card's own sentence
-   *  is in here, and it shouldn't take a tap to get at. */
+  /** Start with the list expanded (non-compact only; the study card is always open). */
   defaultOpen?: boolean;
 }
 
@@ -127,15 +120,15 @@ export function SentenceSet({
 
   const [sentences, setSentences] = useState<LocalNoteSentence[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(compact || defaultOpen);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // How much of each row is showing: 0 = nothing, then one step per tap.
-  const [revealed, setRevealed] = useState<Record<string, number>>({});
+  // Rows whose pinyin + English (and tools) are up. The Chinese is always up.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   // Rows put into English-first mode: the translation leads, the Chinese is
-  // hidden, so the row reads as a translate-into-Chinese prompt.
+  // hidden until a tap, so the row reads as a translate-into-Chinese prompt.
   const [englishFirst, setEnglishFirst] = useState<Record<string, boolean>>({});
-  const [showAll, setShowAll] = useState(false);
+  const [showEnglish, setShowEnglish] = useState(readShowEnglish);
   const [showMenu, setShowMenu] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   // Explanations fetched this session, keyed by sentence id ('error' = failed)
@@ -176,16 +169,16 @@ export function SentenceSet({
   }, [noteId]);
 
   useEffect(() => {
-    setRevealed({});
+    setExpanded({});
     setEnglishFirst({});
     setExplanations({});
-    setShowAll(false);
     setShowCustom(false);
+    setShowMenu(false);
     setCustomPrompt('');
     setError(null);
-    setOpen(defaultOpen);
+    setOpen(compact || defaultOpen);
     void load();
-  }, [noteId, defaultOpen, load]);
+  }, [noteId, compact, defaultOpen, load]);
 
   const handleGenerate = useCallback(
     async (options: { count?: number; keepExisting?: boolean; customPrompt?: string } = {}) => {
@@ -223,26 +216,27 @@ export function SentenceSet({
     setSentences([]);
   }, [noteId]);
 
-  /** One more tap, one more line — and a tap on a fully open row hides it again. */
-  const advanceRow = (row: DisplayRow) => {
-    const total = revealSteps(row, englishFirst[row.key]).length;
-    setRevealed((prev) => {
-      const stage = prev[row.key] ?? 0;
-      return { ...prev, [row.key]: stage >= total ? 0 : stage + 1 };
+  const toggleShowEnglish = () => {
+    setShowEnglish((v) => {
+      writeShowEnglish(!v);
+      return !v;
     });
   };
 
+  /** One tap on the text opens the pinyin + English; another closes them. */
+  const toggleRow = (row: DisplayRow) => {
+    setExpanded((prev) => ({ ...prev, [row.key]: !prev[row.key] }));
+  };
+
   /**
-   * The reverse exercise: show only the English and hide everything else, so
-   * the sentence can be translated back into Chinese from memory. Turning it
-   * on re-collapses the row — there's nothing to work out if the answer is
-   * already up.
+   * The reverse exercise: show only the English and hide the Chinese, so the
+   * sentence can be translated back from memory. Turning it on re-collapses
+   * the row — there's nothing to work out if the answer is already up.
    */
   const toggleEnglishFirst = (row: DisplayRow) => {
     const next = !englishFirst[row.key];
     setEnglishFirst((prev) => ({ ...prev, [row.key]: next }));
-    setRevealed((prev) => ({ ...prev, [row.key]: 0 }));
-    if (next) setShowAll(false);
+    setExpanded((prev) => ({ ...prev, [row.key]: false }));
   };
 
   const playSentence = (row: DisplayRow) => {
@@ -282,29 +276,7 @@ export function SentenceSet({
    */
   const renderExplanation = (row: DisplayRow) => {
     const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
-    const isLoading = explaining.has(row.key);
-
-    if (!state) {
-      return (
-        <button
-          className="sentence-set-explain"
-          onClick={() => handleExplain(row)}
-          disabled={isLoading || !isOnline}
-          title={!isOnline ? 'Requires internet connection' : 'Break this sentence down'}
-        >
-          {isLoading ? 'Explaining...' : 'What’s going on here?'}
-        </button>
-      );
-    }
-
-    if (state === 'error') {
-      return (
-        <button className="sentence-set-explain" onClick={() => handleExplain(row)}>
-          Explain failed — tap to retry
-        </button>
-      );
-    }
-
+    if (!state || state === 'error') return null;
     return (
       <div className="sentence-set-explanation">
         {/* Each word is tappable: the breakdown doubles as the old
@@ -328,6 +300,60 @@ export function SentenceSet({
         </ul>
         {state.construction && (
           <p className="sentence-set-construction">{state.construction}</p>
+        )}
+      </div>
+    );
+  };
+
+  /** The row's quiet tools line: breakdown · reverse practice · add as card. */
+  const renderTools = (row: DisplayRow) => {
+    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
+    const isLoading = explaining.has(row.key);
+    const isEnglishFirst = !!englishFirst[row.key];
+    return (
+      <div className="sentence-set-tools">
+        {!state || state === 'error' ? (
+          <button
+            className="sentence-set-tool"
+            onClick={() => handleExplain(row)}
+            disabled={isLoading || !isOnline}
+            title={!isOnline ? 'Requires internet connection' : 'Break this sentence down'}
+          >
+            {isLoading
+              ? 'Explaining…'
+              : state === 'error'
+                ? 'Explain failed — retry'
+                : 'What’s going on here?'}
+          </button>
+        ) : null}
+        {row.translation && (
+          <button
+            className={`sentence-set-tool${isEnglishFirst ? ' is-active' : ''}`}
+            onClick={() => toggleEnglishFirst(row)}
+            aria-pressed={isEnglishFirst}
+            title={
+              isEnglishFirst
+                ? 'Back to Chinese first'
+                : 'Show the English only — translate it back into Chinese'
+            }
+          >
+            {isEnglishFirst ? '中 first' : 'EN → 中'}
+          </button>
+        )}
+        {row.pinyin && row.translation && (
+          <button
+            className="sentence-set-tool"
+            onClick={() =>
+              setAddingChunk({
+                hanzi: row.hanzi,
+                pinyin: row.pinyin || '',
+                english: row.translation || '',
+              })
+            }
+            title="Add this sentence as a card"
+          >
+            + Add as card
+          </button>
         )}
       </div>
     );
@@ -370,22 +396,23 @@ export function SentenceSet({
   }
 
   const hasSet = sentences.length > 0;
+  const rootClass = `sentence-set${compact ? ' sentence-set--compact' : ''}`;
 
   if (loading && rows.length === 0) {
     return null;
   }
 
-  // Nothing at all yet: a single button that generates the set.
+  // Nothing at all yet: a single quiet button that generates the set.
   if (rows.length === 0) {
     return (
-      <div className={`sentence-set sentence-set--empty${compact ? ' sentence-set--compact' : ''}`}>
+      <div className={`${rootClass} sentence-set--empty`} data-testid="sentence-set">
         <button
-          className="btn btn-secondary btn-sm"
+          className="sentence-set-more"
           onClick={() => handleGenerate({ count: 6 })}
           disabled={generating || !isOnline}
           title={!isOnline ? 'Requires internet connection' : 'Generate a graded set of example sentences'}
         >
-          {generating ? 'Generating sentences...' : '✨ Generate sentences'}
+          {generating ? 'Generating sentences…' : '✨ Generate example sentences'}
         </button>
         {error && <div className="sentence-set-error">{error}</div>}
         {addingChunk && (
@@ -395,73 +422,85 @@ export function SentenceSet({
     );
   }
 
+  const regenMenu = (
+    <div className="sentence-set-menu-wrap">
+      <button
+        className="sentence-set-action"
+        onClick={() => setShowMenu((v) => !v)}
+        disabled={generating || !isOnline}
+        aria-haspopup="menu"
+        aria-expanded={showMenu}
+        aria-label="Sentence options"
+        title={!isOnline ? 'Requires internet connection' : 'Regenerate the set'}
+      >
+        {generating ? '…' : '⋯'}
+      </button>
+      {showMenu && (
+        <div className="regen-menu" role="menu">
+          {COUNT_OPTIONS.map((count) => (
+            <button
+              key={count}
+              className="regen-menu-item"
+              onClick={() => handleGenerate({ count })}
+            >
+              {hasSet ? `New set of ${count}` : `Generate ${count}`}
+            </button>
+          ))}
+          {hasSet && (
+            <button
+              className="regen-menu-item"
+              onClick={() => handleGenerate({ count: 5, keepExisting: true })}
+            >
+              Add 5 more
+            </button>
+          )}
+          <button
+            className="regen-menu-item"
+            onClick={() => {
+              setShowMenu(false);
+              setShowCustom(true);
+            }}
+          >
+            Custom…
+          </button>
+          {hasSet && (
+            <button className="regen-menu-item" onClick={handleClear}>
+              Clear set
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className={`sentence-set${compact ? ' sentence-set--compact' : ''}`}>
+    <div className={rootClass} data-testid="sentence-set">
       <div className="sentence-set-header">
-        <button
-          className="sentence-set-toggle"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-        >
-          <span className="sentence-set-caret">{open ? '▾' : '▸'}</span>
-          <span className="sentence-set-title">Sentences</span>
-          <span className="sentence-set-count">{rows.length}</span>
-        </button>
+        {compact ? (
+          <span className="sentence-set-title">Example sentences</span>
+        ) : (
+          <button
+            className="sentence-set-toggle"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+          >
+            <span className="sentence-set-caret">{open ? '▾' : '▸'}</span>
+            <span className="sentence-set-title">Sentences</span>
+            <span className="sentence-set-count">{rows.length}</span>
+          </button>
+        )}
 
         {open && (
           <div className="sentence-set-actions">
             <button
-              className="sentence-set-action"
-              onClick={() => setShowAll((v) => !v)}
-              title={showAll ? 'Hide pinyin and translations' : 'Show pinyin and translations'}
+              className={`sentence-set-action sentence-set-action--text${showEnglish ? ' is-active' : ''}`}
+              onClick={toggleShowEnglish}
+              aria-pressed={showEnglish}
+              title={showEnglish ? 'Hide the pinyin and English again' : 'Show pinyin and English on every sentence'}
             >
-              {showAll ? 'Hide all' : 'Show all'}
+              {showEnglish ? 'Hide English' : 'Show English'}
             </button>
-            <div className="sentence-set-menu-wrap">
-              <button
-                className="sentence-set-action"
-                onClick={() => setShowMenu((v) => !v)}
-                disabled={generating || !isOnline}
-                title={!isOnline ? 'Requires internet connection' : 'Regenerate the set'}
-              >
-                {generating ? '...' : '↻'}
-              </button>
-              {showMenu && (
-                <div className="regen-menu">
-                  {COUNT_OPTIONS.map((count) => (
-                    <button
-                      key={count}
-                      className="regen-menu-item"
-                      onClick={() => handleGenerate({ count })}
-                    >
-                      {hasSet ? `New set of ${count}` : `Generate ${count}`}
-                    </button>
-                  ))}
-                  {hasSet && (
-                    <button
-                      className="regen-menu-item"
-                      onClick={() => handleGenerate({ count: 5, keepExisting: true })}
-                    >
-                      Add 5 more
-                    </button>
-                  )}
-                  <button
-                    className="regen-menu-item"
-                    onClick={() => {
-                      setShowMenu(false);
-                      setShowCustom(true);
-                    }}
-                  >
-                    Custom...
-                  </button>
-                  {hasSet && (
-                    <button className="regen-menu-item" onClick={handleClear}>
-                      Clear set
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+            {regenMenu}
           </div>
         )}
       </div>
@@ -473,7 +512,7 @@ export function SentenceSet({
           <input
             type="text"
             className="form-control form-control-sm"
-            placeholder="Describe the sentences you want..."
+            placeholder="Describe the sentences you want…"
             value={customPrompt}
             onChange={(e) => setCustomPrompt(e.target.value)}
             onKeyDown={(e) => {
@@ -510,109 +549,73 @@ export function SentenceSet({
       )}
 
       {open && (
-        <ol className="sentence-set-list">
-          {rows.map((row, index) => {
+        <ul className="sentence-set-list">
+          {rows.map((row) => {
             const isEnglishFirst = !!englishFirst[row.key];
-            const steps = revealSteps(row, isEnglishFirst);
-            const stage = showAll ? steps.length : revealed[row.key] ?? 0;
-            const shown = (step: RevealStep) => {
-              const at = steps.indexOf(step);
-              return at !== -1 && at < stage;
-            };
-            const isFullyShown = stage >= steps.length;
-            const nextStep = isFullyShown ? null : steps[stage];
+            const isOpen = showEnglish || !!expanded[row.key];
             const focusLabel = row.focus ? FOCUS_LABELS[row.focus] : null;
             const showFocus = focusLabel && row.focus !== 'core';
+            const isThisPlaying = isPlaying && playingId === row.key;
             return (
-              <li key={row.key} className="sentence-set-row">
-                {/* Out of the flow in the corner: it numbers the row without
-                    costing it a line of height. */}
-                <span className="sentence-set-step" title={`Sentence ${index + 1} of ${rows.length}`}>
-                  {index + 1}
-                </span>
-                <div className="sentence-set-row-lead">
-                  {/* Reverse practice: put the English up on its own and
-                      translate it back into Chinese before revealing. */}
-                  {row.translation && (
-                    <button
-                      className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
-                      onClick={() => toggleEnglishFirst(row)}
-                      aria-pressed={isEnglishFirst}
-                      title={
-                        isEnglishFirst
-                          ? 'Hide the English prompt'
-                          : 'Show the English only — translate it back into Chinese'
-                      }
-                    >
-                      EN
-                    </button>
-                  )}
-                </div>
+              <li
+                key={row.key}
+                className={`sentence-set-row${isOpen ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}`}
+              >
+                <button
+                  className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}`}
+                  onClick={() => playSentence(row)}
+                  disabled={isThisPlaying}
+                  aria-label="Play sentence"
+                  title="Play sentence"
+                >
+                  {isThisPlaying ? '⏸' : '▶'}
+                </button>
                 <div className="sentence-set-body">
-                  {isEnglishFirst && row.translation && (
-                    <p className="sentence-set-prompt">{row.translation}</p>
-                  )}
-                  {/* A row starts blank on purpose: listen first, then uncover
-                      one line per tap so each is read before the next lands. */}
+                  {/* One tap on the text: pinyin and English come up (or go away). */}
                   <button
-                    className={stage === 0 ? 'sentence-set-hidden' : 'sentence-set-reveal'}
-                    onClick={() => advanceRow(row)}
-                    aria-expanded={stage > 0}
+                    className="sentence-set-reveal"
+                    onClick={() => toggleRow(row)}
+                    aria-expanded={isOpen}
+                    title={isOpen ? 'Hide pinyin and English' : 'Show pinyin and English'}
                   >
-                    {shown('hanzi') && <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>}
-                    {shown('pinyin') && row.pinyin && (
-                      <span className="sentence-set-pinyin">{row.pinyin}</span>
-                    )}
-                    {shown('translation') && row.translation && (
-                      <span className="sentence-set-translation">{row.translation}</span>
-                    )}
-                    {nextStep && (
-                      <span className="sentence-set-next">
-                        {(isEnglishFirst ? NEXT_STEP_LABEL_EN_FIRST : NEXT_STEP_LABEL)[nextStep]}
-                      </span>
+                    {isEnglishFirst ? (
+                      <>
+                        <span className="sentence-set-prompt">{row.translation}</span>
+                        {isOpen ? (
+                          <>
+                            <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>
+                            {row.pinyin && <span className="sentence-set-pinyin">{row.pinyin}</span>}
+                          </>
+                        ) : (
+                          <span className="sentence-set-next">Say it in Chinese, then tap to check</span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>
+                        {isOpen && row.pinyin && <span className="sentence-set-pinyin">{row.pinyin}</span>}
+                        {isOpen && row.translation && (
+                          <span className="sentence-set-translation">{row.translation}</span>
+                        )}
+                      </>
                     )}
                   </button>
-                  {isFullyShown && (
-                    <div className="sentence-set-details">
-                      {(showFocus || row.focus_note) && (
-                        <div className="sentence-set-focus">
-                          {showFocus && <span className="sentence-set-badge">{focusLabel}</span>}
-                          {row.focus_note && <span>{row.focus_note}</span>}
-                        </div>
+                  {(row.fromCard || (isOpen && (showFocus || row.focus_note))) && (
+                    <div className="sentence-set-focus">
+                      {row.fromCard && <span className="sentence-set-badge">From the card</span>}
+                      {isOpen && showFocus && !row.fromCard && (
+                        <span className="sentence-set-badge">{focusLabel}</span>
                       )}
-                      {renderExplanation(row)}
+                      {isOpen && row.focus_note && <span>{row.focus_note}</span>}
                     </div>
                   )}
-                </div>
-                <div className="sentence-set-row-actions">
-                  <button
-                    className="sentence-set-play"
-                    onClick={() => playSentence(row)}
-                    disabled={isPlaying && playingId === row.key}
-                    title="Play sentence"
-                  >
-                    {isPlaying && playingId === row.key ? '⏸' : '▶'}
-                  </button>
-                  {isFullyShown && row.pinyin && row.translation && (
-                    <button
-                      className="sentence-set-add"
-                      onClick={() =>
-                        setAddingChunk({
-                          hanzi: row.hanzi,
-                          pinyin: row.pinyin || '',
-                          english: row.translation || '',
-                        })
-                      }
-                      title="Add this sentence as a card"
-                    >
-                      +
-                    </button>
-                  )}
+                  {isOpen && renderTools(row)}
+                  {isOpen && renderExplanation(row)}
                 </div>
               </li>
             );
           })}
-        </ol>
+        </ul>
       )}
 
       {open && (
@@ -624,7 +627,7 @@ export function SentenceSet({
           disabled={generating || !isOnline}
           title={!isOnline ? 'Requires internet connection' : 'Generate more example sentences'}
         >
-          {generating ? 'Generating...' : hasSet ? '+ Generate 5 more' : '+ Generate more sentences'}
+          {generating ? 'Generating…' : hasSet ? '+ 5 more sentences' : '✨ Generate example sentences'}
         </button>
       )}
 

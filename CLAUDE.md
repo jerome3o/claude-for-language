@@ -335,7 +335,7 @@ For manual state adjustments (e.g., admin resetting a card), we may add a `set_c
 **Study works 100% offline** - no loading spinners between cards, instant transitions.
 
 For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md) — including the
-card-back layout (one action row **Ask Claude · Sentences · ⋯**, everything else under ⋯ in
+card-back layout (always-visible example sentences, one footer action row **Ask Claude · Edit card · ⋯**, everything else under ⋯ in
 `frontend/src/components/study/`), offline mode (automatic from NetworkContext + a forced
 override, `services/offlineMode.ts`), the 8s multiple-choice fallback (`services/multipleChoice.ts`),
 the exit confirm with recap, and tutor notes on recordings. Study-only styles live in
@@ -553,15 +553,15 @@ word, one shows the usual collocation). Each sentence gets its own TTS clip and 
 IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
 On the study card there is ONE sentence list: the note's own `sentence_clue` is rendered as
 row 1 (badged "From the card", read straight from the note — never copied into the set, so
-editing it stays reflected), followed by the generated set. Sentences start hidden and reveal
-progressively — you hear the audio first, then one tap uncovers the hanzi, the next the pinyin,
-the next the English, and a tap on a fully open row hides it again (steps a row hasn't got are
-skipped; "Show all" jumps straight to everything). Each row also has an **EN** button in its
-far-left column that flips it into English-first mode for the reverse exercise: the translation
-goes up on its own as the prompt, everything else re-collapses, and the reveal chain drops the
-translation step (hanzi, then pinyin) so you translate back into Chinese before checking. Each row has an
-on-demand "what's going on here?" breakdown (word glosses + the construction), generated with
-Haiku; each word in it is tappable to add as a card, and `+` adds the whole sentence.
+editing it stays reflected), followed by the generated set. The list is always visible under the
+meaning and scrolls under the card's footer. Every row shows its Chinese with a play button; one
+tap on the text opens the pinyin and the English (another closes them), and **Show English** in
+the list header opens every row at once (remembered in localStorage, `sentenceSet.showEnglish`).
+An open row carries a tools line: "What's going on here?" (an on-demand breakdown — word glosses
++ the construction — generated with Haiku; each word in it is tappable to add as a card),
+**EN → 中** (the reverse exercise: the translation goes up alone as the prompt and the Chinese
+stays hidden until a tap, so you translate back before checking) and **+ Add as card** for the
+whole sentence.
 Set rows cache their breakdown server-side; the clue row has no row to cache on, so it uses
 `/api/sentences/explain-text` and caches in the `sentenceTextExplanations` IndexedDB table.
 
