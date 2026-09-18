@@ -1,0 +1,106 @@
+/* Card edit modal — phone-first field sizing and the header ⋯ menu.
+   Overrides the compact defaults in index.css. */
+
+.card-edit-modal .card-edit-field .form-input {
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem; /* 16px: no iOS zoom on focus */
+  line-height: 1.4;
+}
+
+.card-edit-modal .card-edit-field textarea.form-input {
+  min-height: 44px;
+}
+
+.card-edit-modal .card-edit-field label {
+  font-size: 0.75rem;
+}
+
+.card-edit-modal .card-edit-fields {
+  gap: 0.625rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Header: title · ⋯ · × */
+.card-edit-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.card-edit-menu-wrap {
+  position: relative;
+}
+
+.card-edit-menu-btn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--color-text-light);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: var(--radius-md);
+}
+
+.card-edit-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text);
+}
+
+.card-edit-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  min-width: 200px;
+  z-index: 30;
+  padding: 0.25rem;
+}
+
+.card-edit-menu .btn {
+  width: 100%;
+  justify-content: flex-start;
+  border: none;
+  background: transparent;
+  font-size: 0.9375rem;
+}
+
+.card-edit-menu .btn.danger {
+  color: var(--color-error, #dc2626);
+}
+
+/* Confirmation strip shown under the header after "Delete note" */
+.card-edit-delete-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+}
+
+.card-edit-delete-strip .card-edit-delete-strip-actions {
+  display: flex;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+/* Footer: Cancel / Save only, both 44px */
+.card-edit-modal .card-edit-footer .btn {
+  font-size: 0.9375rem;
+  padding: 0.5rem 1rem;
+  min-height: 44px;
+}

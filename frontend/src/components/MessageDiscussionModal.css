@@ -1,5 +1,22 @@
 /* Message Discussion Modal - only new styles needed beyond existing claude-modal classes */
 
+/* 44px close target (the shared .modal-close is text-sized) */
+.discuss-modal-close {
+  width: 44px;
+  height: 44px;
+  margin: -0.5rem -0.5rem -0.5rem 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.discuss-modal-close:hover {
+  background: var(--muted-bg, #f5f5f5);
+}
+
 /* Original message banner at top of modal */
 .discuss-original-msg {
   padding: 0.625rem 1rem;
