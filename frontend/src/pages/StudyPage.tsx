@@ -2351,8 +2351,10 @@ function StudyCard({
       {/* Debug Modal */}
       {renderDebugModal()}
 
-      {/* Floating audio replay button for thumb-reach on audio cards (front and back) */}
-      {isAudioCard && (
+      {/* Floating audio replay button for thumb-reach on the FRONT of audio cards.
+          The back has its own play button in the reveal area, and a fixed FAB
+          there sat on top of the rating buttons. */}
+      {isAudioCard && !flipped && (
         <button
           className={`audio-replay-fab${isPlaying ? ' audio-replay-fab--playing' : ''}`}
           onClick={cycleAndPlay}
