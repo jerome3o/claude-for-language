@@ -59,6 +59,8 @@ import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessReque
 import insightsRoutes from './routes/insights';
 import recordingNotesRoutes from './routes/recording-notes';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
+import sharedReadersRoutes from './routes/shared-readers';
+import { unreferencedImageKeys } from './services/shared-readers';
 import {
   createRelationship,
   getMyRelationships,
@@ -408,6 +410,8 @@ app.route('/api', insightsRoutes);
 app.route('/api', recordingNotesRoutes);
 // Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
 app.route('/api', tutorDashboardRoutes);
+// Tutor → student sharing of graded readers (routes/shared-readers.ts)
+app.route('/api', sharedReadersRoutes);
 
 // ============ Admin Routes ============
 
@@ -3423,14 +3427,14 @@ app.delete('/api/readers/:id', async (c) => {
     return c.json({ error: 'Reader not found' }, 404);
   }
 
-  // Delete images from R2
-  for (const page of reader.pages) {
-    if (page.image_url) {
-      try {
-        await c.env.AUDIO_BUCKET.delete(page.image_url);
-      } catch (err) {
-        console.error('Failed to delete image:', page.image_url, err);
-      }
+  // Delete images from R2 — unless a shared copy of this reader (tutor →
+  // student) still references the same key (services/shared-readers.ts).
+  const imageKeys = reader.pages.map(p => p.image_url).filter((k): k is string => !!k);
+  for (const key of await unreferencedImageKeys(c.env.DB, imageKeys, readerId)) {
+    try {
+      await c.env.AUDIO_BUCKET.delete(key);
+    } catch (err) {
+      console.error('Failed to delete image:', key, err);
     }
   }
 
