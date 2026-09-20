@@ -1,3 +1,4 @@
+import { noteCopyValues } from './note-copy';
 import {
   Conversation,
   ConversationWithLastMessage,
@@ -539,18 +540,10 @@ export async function shareDeck(
 
     await db
       .prepare(`
-        INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, fun_facts)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, audio_provider, fun_facts, context, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, sentence_clue_audio_url, sentence_clue_audio_provider, alternatives, multiple_choice_options, pinyin_only)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .bind(
-        newNoteId,
-        targetDeckId,
-        note.hanzi,
-        note.pinyin,
-        note.english,
-        note.audio_url, // Share the same audio file
-        note.fun_facts
-      )
+      .bind(...noteCopyValues(newNoteId, targetDeckId, note as unknown as Record<string, unknown>))
       .run();
 
     // Create cards for each type

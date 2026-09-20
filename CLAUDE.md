@@ -229,6 +229,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
 - `shared_decks` - Record of decks shared from tutor to student
+- `shared_readers` - Record of graded readers copied from tutor to student (source/target reader ids; the copies share R2 image keys)
 
 ### Audio Storage
 - Generated TTS audio and user recordings stored in Cloudflare R2
@@ -760,7 +761,17 @@ in `READER_EXPORTS` so Anki can be appended) and raw JSON under Advanced. The wh
 saved in one `PUT …/spec`: pages are upserted by id, missing ones deleted, numbers rebuilt,
 illustrations kept when the prompt is unchanged (stale R2 keys deleted) and new/changed prompts
 queued on `image-generation-queue` like generated readers. The readers list has **Import JSON**.
-Tutor→student sharing of readers is not built.
+**Tutor→student sharing** (`worker/src/services/shared-readers.ts`, routes in
+`worker/src/routes/shared-readers.ts`, migration 0067 `shared_readers`): modelled on `shareDeck` —
+the tutor's reader is copied into the student's account (new reader + page ids; status `ready`,
+`is_published` 1, `creator_role` 'tutor') and the row links source and target. Page illustrations
+are NOT copied: **both copies reference the same R2 image key**, so every place that deletes reader
+images (`DELETE /api/readers/:id`, stale keys on `PUT …/spec`) goes through `unreferencedImageKeys`
+and only removes a key no other page references. The student's copy arrives with their normal
+`GET /api/readers` sync; there is no tutor UI yet — the MCP `share_reader_with_student` tool is the
+interface. A second share makes a second, independent copy.
+- `POST /api/relationships/:relId/share-reader` - `{ reader_id }` (caller must be the tutor and own a `ready` reader) → 201 `{ share, reader }` (the student's copy)
+- `GET /api/relationships/:relId/shared-readers` - Shares in the relationship (either party) with the student's read status from `reader_review_events`: `page_count`, `read_count`, `last_read_at`, `last_rating`, `target_deleted`
 - `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
 - `POST /api/readers/:id/retry` - Re-queue a FAILED reader in place (same id; status back to `generating`). The Readers list folds every failed reader into one "N failed generations" row with Retry / Delete / Delete all; raw API errors only appear behind "Show details" (`services/readerFailures.ts`). `ensureDailyReader` asks the server at most once per local date (`daily-reader-attempt` in localStorage) and the daily reader's failed row is reused on retry instead of a new one being created every session
 - `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)
@@ -922,6 +933,10 @@ The app includes an MCP (Model Context Protocol) server that allows AI assistant
 
 ### Architecture Overview
 
+Tool modules live in `mcp-server/src/tools/` (`students.ts`, `content.ts`, `apps.ts`) and call the main API
+through `ApiClient` (`mcp-server/src/api.ts`) as the signed-in user — each call mints a short-lived
+`auth_sessions` token and revokes it afterwards — so tutor access checks stay in the API worker.
+
 The MCP server uses several key technologies:
 - **`@cloudflare/workers-oauth-provider`**: Wraps the worker with OAuth 2.1 support
 - **`agents/mcp` (McpAgent)**: Class-based MCP server pattern from the `agents` package
@@ -1015,6 +1030,98 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
+
+#### Tutor tools — students (`mcp-server/src/tools/students.ts`)
+
+All of these go through the main API as the signed-in user (`ApiClient`), so "is this user the
+tutor of this relationship?" is decided by the API, never re-implemented in the MCP server.
+`relationship_id` comes from `list_students`. Responses are trimmed to what a chat needs
+(recording keys become playable `audio_url`s, ratings become again/hard/good/easy); the pure
+shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/students.test.ts`.
+
+| Tool | What it does |
+|------|--------------|
+| `list_students` | Every student card from `/api/tutor/dashboard` (status, streak, pills, needs-attention words, homework %, setup checklist for new students, `last_conversation_id`) + pending invite links + the tutor's homework decks, plus `my_tutors` / pending requests from `/api/relationships` |
+| `get_student_overview` | One student's full card (`/relationships/:relId/overview`): all needs-attention words, homework decks and lessons with progress, setup/install state, recent days |
+| `get_student_insights` | Pre-lesson briefing over a range (`/insights`): totals, ranked `struggling` with the wrong answers typed, `going_well`, activity, recordings with marks; `top_n` trims the lists; default range = since last logged lesson, else 14 days |
+| `get_student_history` | Individual review events newest first with filters (deck, card type, rating, text) and keyset paging (`next_cursor`) |
+| `get_student_daily_progress` | Last 30 days day-by-day + headline stats and per-deck counts (`/student-progress/daily` + `/student-progress`) |
+| `get_student_day` | Everything reviewed on one date (`/student-progress/day/:date`) |
+| `write_student_summary` / `list_student_summaries` | Claude-written narrative (EN + 中文) for a range, persisted; 503 message surfaced when no API key |
+| `list_student_recordings` | Pronunciation recordings in a range with `audio_url` and tutor marks; `only_unmarked` = the "recordings to hear" pile |
+| `mark_recording` / `clear_recording_mark` | `listened` or `needs_work` + comment (shown to the student once on the back of that card) / remove the mark |
+| `log_lesson` / `list_lesson_log` / `delete_lesson_log_entry` | Lesson log; the newest entry anchors "since last lesson"; notes are copied into the student's lesson notes |
+| `send_message_to_student` | Opens the latest conversation (creating one if none) and posts a chat message as the tutor |
+| `list_conversations` / `get_conversation_messages` | Read the chat (last N messages, `from: "me"` for the caller) |
+| `send_install_howto` | Posts the install instructions (Obtainium / Add to Home screen) into the chat |
+| `list_student_homework` | Shared decks with completion + activity, and the student's mini lessons with completions |
+| `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
+| `share_deck_with_student` / `update_student_deck_copy` | Copy a tutor deck to the student / add the tutor's newer words to an existing copy (progress kept) |
+| `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
+#### Tutor tools — content (`mcp-server/src/tools/content.ts`)
+
+Registered by `registerContentTools(ctx)` from `mcp-server/src/tools/content/{readers,lessons,decks}.ts`.
+Every tool calls the main API as the signed-in user through `ctx.api` (`ApiClient`), so the API's
+ownership checks, validators and queues (TTS, illustrations, story generation) apply unchanged;
+reader and lesson specs are pre-validated with the shared `validateReaderSpec` / `validateLessonSpec`
+so Claude gets the problem list without a round trip. `content/specs.ts` holds the spec documentation
+pasted into the descriptions plus the pure helpers (trimming, note normalisation), unit-tested in
+`content.test.ts` together with a fake-context test that records the API paths each tool hits.
+
+| Tool | Description |
+|------|-------------|
+| `list_readers` | The user's graded readers, trimmed (id, titles, difficulty, topic, status, page_count, creator_role); `status` filter |
+| `get_reader` | One reader as a full `ReaderSpec` (page ids + image urls); poll while `generating` |
+| `create_reader` | New reader from a hand-written `ReaderSpec` (`POST /api/readers/import`) |
+| `update_reader` | Whole-reader replace (`PUT /api/readers/:id/spec`); keeping page `id`s keeps illustrations whose prompt is unchanged |
+| `generate_reader` | Queue a Claude-written story from learned vocabulary of given decks (`POST /api/readers/generate`); returns id + `generating` |
+| `retry_reader` / `delete_reader` | Re-queue a failed reader / delete one (images kept if a shared copy uses them) |
+| `share_reader_with_student` | Copy one of the tutor's readers into the student's account (`POST /api/relationships/:relId/share-reader`) |
+| `list_student_readers` | Shares in a relationship with the student's read status (`GET …/shared-readers`) |
+| `export_reader` | Markdown / re-importable JSON / Quizlet CSV as text |
+| `list_lesson_library` / `get_library_lesson` | The tutor's library items / one with its full spec |
+| `create_library_lesson` | From a `spec` or a `generate_prompt` (Claude drafts it server-side), optional `tags` |
+| `update_library_lesson` | Full-spec replace (+ tags); version bumps; reminds to push when copies exist |
+| `duplicate_library_lesson` / `archive_library_lesson` | Copy as "Copy of …" / archive |
+| `assign_lesson_to_students` | One `custom_lessons` copy per relationship (tutor only); `assigned` / `already_had` / `errors` |
+| `get_lesson_assignments` | Per student: completions, last rating/score, `up_to_date` |
+| `push_lesson_update` | Overwrite assigned copies in place (history + FSRS kept), optionally only some relationships |
+| `export_library_lesson` | Markdown with answer key / JSON / CSV |
+| `list_student_lessons` | Tutor's view of a student's lessons (`GET /api/relationships/:relId/student-lessons`) |
+| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (TTS per note), wait for the clips, then share the deck; per-note failures are reported, not fatal |
+| `add_words_to_student_deck` | Add notes to the tutor's source deck, then `POST …/shared-decks/:id/update` so the student's copy gets them (empty list = just re-sync) |
+| `get_starter_deck` | `POST /api/decks/starter` — the idempotent built-in "Starter Chinese" deck |
+#### Tutor apps (`mcp-server/src/tools/apps.ts`, UIs in `src/ui/apps/`)
+
+Four interactive MCP Apps for tutors, each a model-facing tool that opens the UI plus
+**app-only tools** (prefix `app_`, `_meta.ui.visibility: ['app']`, hidden from the model) the UI
+calls back into. Server modules live in `src/tools/apps/` (one per app, `shared.ts` for the
+`appTool` helper / students / `withProblems`, `types.ts` for the payload shapes the UIs import as
+types); every call goes through `ctx.api` (the main API as the signed-in tutor).
+
+| App / opening tool | What the tutor can do | App-only tools |
+|---|---|---|
+| `students_dashboard` — `open_students_dashboard(tz_offset_minutes?)` | One card per student from `GET /api/tutor/dashboard`: status, pills, needs-attention words with the wrong answers typed, setup checklist for new students; expand for recordings inbox + homework; log a lesson, message, mark recordings (comment shown to the student); "Ask Claude" chips send a prepared prompt into the chat | `app_refresh_dashboard`, `app_student_detail` (overview + insights recordings), `app_log_lesson`, `app_send_message`, `app_mark_recording` |
+| `review_reader` — `review_reader(reader_id)` | Pages with Chinese / pinyin / English / illustration (`<api>/api/audio/<key>`); inline editing, add / delete / reorder pages, titles; Save (`PUT /api/readers/:id/spec`, page ids kept), Send to student (share-reader endpoint), "Ask Claude to revise" | `app_save_reader_spec`, `app_share_reader` |
+| `review_lesson` — `review_lesson(library_item_id? \| lesson_id?)` | All 9 exercise types rendered and editable, add / remove / reorder; Save (library or a student's copy), Assign (multi-select), Push update, assignments with up-to-date / behind | `app_save_library_lesson`, `app_save_lesson`, `app_assign_lesson`, `app_push_lesson_update` |
+| `review_deck` — `review_deck(deck_id)` | Word table with audio, inline row edit / add / delete saved per note; Send to student or Update their copy (from the dashboard's `homework.decks`); "Ask Claude to add 5 more words…" | `app_update_note`, `app_add_note`, `app_delete_note`, `app_share_deck`, `app_update_shared_deck` |
+
+Saves validate with `shared/{reader,lesson}/validate` on both sides; a 400 with `problems` comes
+back as `{ ok: false, problems }` and is shown inline. After every save / send the UI calls
+`updateModelContext` with a text summary so Claude's next revision starts from the edited content;
+"Ask Claude" buttons use `sendMessage` and are hidden when the host lacks that capability.
+
+**UI mechanics**: vanilla TS, one folder per app (`index.html`, `main.ts`, `app.css`) sharing
+`src/ui/apps/_shared/` (`host.ts` = the ext-apps `App` bridge with capability flags, `dom.ts` =
+element builder / speech / toast / sheet, `picker.ts` = student picker, `base.css` = theme tokens
+that follow the host variables and `data-theme`). `scripts/build-apps.mjs` builds `src/ui` (study)
+and every `src/ui/apps/<name>/index.html` as its own single-file bundle and regenerates
+`src/app-html.ts` (`APP_HTML[name]`, committed) — run `npm run build:ui` after touching a UI.
+`registerApp(ctx, name)` serves the bundle as `ui://<name>/mcp-app.html` with a CSP allowing the
+API origin. **Screenshots / dev preview**: set `window.__MCP_APP_PREVIEW__` to an object shaped
+like the tool's `structuredContent` (and optionally `__MCP_APP_PREVIEW_TOOLS__ = { app_x: result }`
+for canned app-only results) before the bundle runs and the app renders without a host — see
+`docs/pr-screenshots/mcp-tutor-apps/`.
 
 ### Study Tool (MCP App)
 

@@ -11,17 +11,14 @@ import {
   registerAppResource,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { STUDY_APP_HTML } from "./study-app-html.js";
+import { STUDY_APP_HTML } from "./app-html.js";
+import { appServer } from "./tools/apps.js";
 
-// Types
-interface Env {
-  DB: D1Database;
-  GOOGLE_CLIENT_ID: string;
-  GOOGLE_CLIENT_SECRET: string;
-  COOKIE_ENCRYPTION_KEY: string;
-  ENVIRONMENT: string;
-  OAUTH_KV: KVNamespace;
-}
+import type { Env, Props } from './types.js';
+import { ApiClient } from './api.js';
+import { registerStudentTools } from './tools/students.js';
+import { registerContentTools } from './tools/content.js';
+import { registerTutorApps } from './tools/apps.js';
 
 interface User {
   id: string;
@@ -58,13 +55,6 @@ interface Note {
   created_at: string;
   updated_at: string;
 }
-
-// Props passed to MCP server after authentication
-type Props = {
-  userId: string;
-  userEmail: string | null;
-  userName: string | null;
-};
 
 // Utility function to generate IDs
 function generateId(): string {
@@ -1822,14 +1812,14 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
 
     // Study tool - opens interactive flashcard UI
     registerAppTool(
-      this.server,
+      appServer(this.server),
       "study",
       {
         title: "Study Flashcards",
         description: "Open an interactive flashcard study session for a deck. Use list_decks first to get deck IDs.",
-        inputSchema: z.object({
+        inputSchema: {
           deck_id: z.string().describe("The deck ID to study"),
-        }),
+        },
         _meta: {
           ui: { resourceUri: studyResourceUri },
         },
@@ -1929,17 +1919,17 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
     // Submit review tool - called by the UI to record reviews
     // Hidden from model (app-only visibility)
     registerAppTool(
-      this.server,
+      appServer(this.server),
       "submit_review",
       {
         title: "Submit Review",
         description: "Submit a card review rating (called by study UI)",
-        inputSchema: z.object({
+        inputSchema: {
           card_id: z.string().describe("The card ID"),
           rating: z.number().min(0).max(3).describe("Rating: 0=again, 1=hard, 2=good, 3=easy"),
           time_spent_ms: z.number().optional().describe("Time spent in milliseconds"),
           user_answer: z.string().optional().describe("User's typed answer"),
-        }),
+        },
         _meta: {
           ui: {
             resourceUri: studyResourceUri,
@@ -2353,7 +2343,7 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
 
     // Register the study app HTML resource
     registerAppResource(
-      this.server,
+      appServer(this.server),
       studyResourceUri,
       studyResourceUri,
       { mimeType: RESOURCE_MIME_TYPE },
@@ -2365,6 +2355,22 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
         }],
       })
     );
+
+    // ============ Tutor tooling (src/tools/) ============
+    // Students, their activity and what they find hard; readers, lessons and
+    // decks for students; and the interactive tutor apps. All of it calls the
+    // main API as this user, so ownership and tutor checks stay in one place.
+    const ctx = {
+      server: this.server,
+      env: this.env,
+      userId,
+      userName: this.props!.userName,
+      userEmail: this.props!.userEmail,
+      api: new ApiClient(this.env, userId),
+    };
+    registerStudentTools(ctx);
+    registerContentTools(ctx);
+    registerTutorApps(ctx);
   }
 }
 
@@ -2549,7 +2555,8 @@ export default new OAuthProvider({
   apiHandlers: {
     "/mcp": ChineseLearningMCPv2.serve("/mcp"),
   },
-  defaultHandler: app,
+  // Hono's fetch signature is narrower than ExportedHandler's; same contract at runtime.
+  defaultHandler: app as unknown as ExportedHandler,
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",

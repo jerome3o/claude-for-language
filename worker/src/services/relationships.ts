@@ -1,3 +1,4 @@
+import { noteCopyValues } from './note-copy';
 import {
   TutorRelationship,
   TutorRelationshipWithUsers,
@@ -1235,8 +1236,8 @@ export async function updateSharedDeckCopy(
     }
     const newNoteId = generateId();
     await db
-      .prepare(`INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, fun_facts) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(newNoteId, share.target_deck_id, note.hanzi, note.pinyin, note.english, note.audio_url, note.fun_facts)
+      .prepare(`INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, audio_provider, fun_facts, context, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, sentence_clue_audio_url, sentence_clue_audio_provider, alternatives, multiple_choice_options, pinyin_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(...noteCopyValues(newNoteId, share.target_deck_id, note as unknown as Record<string, unknown>))
       .run();
     for (const cardType of cardTypes) {
       await db
