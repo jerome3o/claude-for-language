@@ -1,0 +1,277 @@
+@import '../_shared/base.css';
+
+.lesson-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.lesson-icon {
+  font-size: 1.6rem;
+}
+.meta {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+.desc {
+  color: var(--fg2);
+  margin-top: 0.35rem;
+}
+
+.section {
+  padding: 0;
+  overflow: hidden;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+}
+.section-head h2 {
+  flex: 1;
+  min-width: 0;
+}
+.section-body {
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.exercise {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.8rem;
+}
+.ex-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.ex-head .spacer {
+  flex: 1;
+}
+.ex-type {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+}
+.ex-type.listen {
+  color: var(--purple);
+}
+.ex-body p + p {
+  margin-top: 0.35rem;
+}
+.question {
+  font-weight: 500;
+  margin-bottom: 0.35rem;
+}
+.sentence {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+.sentence .text {
+  flex: 1;
+  min-width: 0;
+}
+.sentence .zh {
+  font-size: 1.3rem;
+}
+.tiles {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin: 0.3rem 0;
+}
+.tile {
+  padding: 0.25rem 0.6rem;
+  border-radius: 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+.tile-arrow {
+  align-self: center;
+  color: var(--fg3);
+}
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.option.correct {
+  border-color: var(--success);
+  background: var(--success-bg);
+}
+.option .mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.option.correct .mark {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+.option .zh {
+  font-size: 1.2rem;
+}
+.pairs {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.8rem;
+  align-items: baseline;
+}
+.pairs .zh {
+  font-size: 1.2rem;
+}
+.hidden-audio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--purple);
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+.ref {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  border-left: 3px solid var(--border2);
+  background: var(--bg2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.ref .zh {
+  font-size: 1.3rem;
+}
+.illus {
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  max-width: 260px;
+  margin: 0.4rem 0;
+}
+.illus img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.illus .pending {
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  text-align: center;
+  color: var(--fg3);
+  font-size: 0.8rem;
+}
+.note-body {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+/* Edit mode */
+.edit-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+.edit-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1.2fr auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+.edit-row.pairs-row {
+  grid-template-columns: 1fr 1fr 1fr auto;
+}
+.edit-row .input {
+  min-height: 40px;
+  padding: 0.35rem 0.5rem;
+}
+.ex-tools {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.add-ex {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.correct-pick {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: var(--fg2);
+}
+.correct-pick input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--success);
+}
+
+.assignments {
+  display: flex;
+  flex-direction: column;
+}
+.assignment {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--border);
+}
+.assignment:first-child {
+  border-top: none;
+}
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  z-index: 5;
+}

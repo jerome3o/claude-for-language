@@ -1,0 +1,150 @@
+@import '../_shared/base.css';
+
+.title-zh {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.title-en {
+  color: var(--fg2);
+  font-size: 1rem;
+}
+.meta {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+
+.page {
+  padding: 0;
+  overflow: hidden;
+}
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.page-head .spacer {
+  flex: 1;
+}
+.page-body {
+  padding: 0.9rem;
+}
+@media (min-width: 640px) {
+  .page-body.with-image {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 1rem;
+    align-items: start;
+  }
+}
+.page-zh {
+  font-size: 1.7rem;
+  line-height: 1.6;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  white-space: pre-wrap;
+}
+.page-py {
+  color: var(--fg2);
+  margin-top: 0.35rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.page-en {
+  margin-top: 0.5rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.illustration {
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  margin-top: 0.75rem;
+}
+@media (min-width: 640px) {
+  .illustration {
+    margin-top: 0;
+  }
+}
+.illustration img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.illustration .pending {
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.75rem;
+  color: var(--fg3);
+  font-size: 0.85rem;
+}
+.prompt-line {
+  font-size: 0.8rem;
+  color: var(--fg3);
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--border);
+  font-style: italic;
+}
+
+.edit-grid {
+  display: grid;
+  gap: 0.6rem;
+}
+.edit-grid .textarea.zh-edit {
+  font-size: 1.45rem;
+  line-height: 1.55;
+}
+.page-tools {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.add-page {
+  display: flex;
+  justify-content: center;
+  margin: 0.5rem 0;
+}
+
+.ask-card {
+  margin-top: 1rem;
+}
+.vocab {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.vocab .pill {
+  font-size: 0.9rem;
+}
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  z-index: 5;
+}
+.sticky-actions .btn {
+  flex: 1;
+}
