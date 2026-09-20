@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "npm run build:ui && wrangler dev",
     "deploy": "npm run build:ui && wrangler deploy",
-    "typecheck": "tsc --noEmit",
-    "build:ui": "vite build && node scripts/embed-html.js"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/tsconfig.json",
+    "build:ui": "node scripts/build-apps.mjs"
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
