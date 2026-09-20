@@ -28,6 +28,7 @@ import {
 import { Env } from '../types';
 import * as db from '../db/queries';
 import { readerToSpec, applyReaderSpec, createReaderFromSpec } from '../db/reader-editor-queries';
+import { unreferencedImageKeys } from '../services/shared-readers';
 
 type AppEnv = { Bindings: Env };
 
@@ -47,8 +48,10 @@ async function queueReaderImages(env: Env, readerId: string, jobs: Array<{ pageI
   }
 }
 
-async function deleteImages(env: Env, keys: string[]): Promise<void> {
-  for (const key of keys) {
+/** Delete stale illustration keys — except any a shared copy (tutor → student)
+ * of another reader still references; see services/shared-readers.ts. */
+async function deleteImages(env: Env, keys: string[], readerId: string): Promise<void> {
+  for (const key of await unreferencedImageKeys(env.DB, keys, readerId)) {
     try {
       await env.AUDIO_BUCKET.delete(key);
     } catch (err) {
@@ -119,7 +122,7 @@ readerEditor.put('/readers/:id/spec', async (c) => {
   const spec = normalizeReaderSpec(body.spec as ReaderSpec);
 
   const applied = await applyReaderSpec(c.env.DB, existing, spec);
-  await deleteImages(c.env, applied.removedImageKeys);
+  await deleteImages(c.env, applied.removedImageKeys, existing.id);
   const queued = await queueReaderImages(c.env, existing.id, applied.imageJobs);
 
   const updated: typeof existing = {

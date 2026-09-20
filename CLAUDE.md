@@ -229,6 +229,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
 - `shared_decks` - Record of decks shared from tutor to student
+- `shared_readers` - Record of graded readers copied from tutor to student (source/target reader ids; the copies share R2 image keys)
 
 ### Audio Storage
 - Generated TTS audio and user recordings stored in Cloudflare R2
@@ -760,7 +761,17 @@ in `READER_EXPORTS` so Anki can be appended) and raw JSON under Advanced. The wh
 saved in one `PUT …/spec`: pages are upserted by id, missing ones deleted, numbers rebuilt,
 illustrations kept when the prompt is unchanged (stale R2 keys deleted) and new/changed prompts
 queued on `image-generation-queue` like generated readers. The readers list has **Import JSON**.
-Tutor→student sharing of readers is not built.
+**Tutor→student sharing** (`worker/src/services/shared-readers.ts`, routes in
+`worker/src/routes/shared-readers.ts`, migration 0067 `shared_readers`): modelled on `shareDeck` —
+the tutor's reader is copied into the student's account (new reader + page ids; status `ready`,
+`is_published` 1, `creator_role` 'tutor') and the row links source and target. Page illustrations
+are NOT copied: **both copies reference the same R2 image key**, so every place that deletes reader
+images (`DELETE /api/readers/:id`, stale keys on `PUT …/spec`) goes through `unreferencedImageKeys`
+and only removes a key no other page references. The student's copy arrives with their normal
+`GET /api/readers` sync; there is no tutor UI yet — the MCP `share_reader_with_student` tool is the
+interface. A second share makes a second, independent copy.
+- `POST /api/relationships/:relId/share-reader` - `{ reader_id }` (caller must be the tutor and own a `ready` reader) → 201 `{ share, reader }` (the student's copy)
+- `GET /api/relationships/:relId/shared-readers` - Shares in the relationship (either party) with the student's read status from `reader_review_events`: `page_count`, `read_count`, `last_read_at`, `last_rating`, `target_deleted`
 - `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
 - `POST /api/readers/:id/retry` - Re-queue a FAILED reader in place (same id; status back to `generating`). The Readers list folds every failed reader into one "N failed generations" row with Retry / Delete / Delete all; raw API errors only appear behind "Show details" (`services/readerFailures.ts`). `ensureDailyReader` asks the server at most once per local date (`daily-reader-attempt` in localStorage) and the daily reader's failed row is reused on retry instead of a new one being created every session
 - `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)
@@ -1047,6 +1058,39 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
 | `share_deck_with_student` / `update_student_deck_copy` | Copy a tutor deck to the student / add the tutor's newer words to an existing copy (progress kept) |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
+#### Tutor tools — content (`mcp-server/src/tools/content.ts`)
+
+Registered by `registerContentTools(ctx)` from `mcp-server/src/tools/content/{readers,lessons,decks}.ts`.
+Every tool calls the main API as the signed-in user through `ctx.api` (`ApiClient`), so the API's
+ownership checks, validators and queues (TTS, illustrations, story generation) apply unchanged;
+reader and lesson specs are pre-validated with the shared `validateReaderSpec` / `validateLessonSpec`
+so Claude gets the problem list without a round trip. `content/specs.ts` holds the spec documentation
+pasted into the descriptions plus the pure helpers (trimming, note normalisation), unit-tested in
+`content.test.ts` together with a fake-context test that records the API paths each tool hits.
+
+| Tool | Description |
+|------|-------------|
+| `list_readers` | The user's graded readers, trimmed (id, titles, difficulty, topic, status, page_count, creator_role); `status` filter |
+| `get_reader` | One reader as a full `ReaderSpec` (page ids + image urls); poll while `generating` |
+| `create_reader` | New reader from a hand-written `ReaderSpec` (`POST /api/readers/import`) |
+| `update_reader` | Whole-reader replace (`PUT /api/readers/:id/spec`); keeping page `id`s keeps illustrations whose prompt is unchanged |
+| `generate_reader` | Queue a Claude-written story from learned vocabulary of given decks (`POST /api/readers/generate`); returns id + `generating` |
+| `retry_reader` / `delete_reader` | Re-queue a failed reader / delete one (images kept if a shared copy uses them) |
+| `share_reader_with_student` | Copy one of the tutor's readers into the student's account (`POST /api/relationships/:relId/share-reader`) |
+| `list_student_readers` | Shares in a relationship with the student's read status (`GET …/shared-readers`) |
+| `export_reader` | Markdown / re-importable JSON / Quizlet CSV as text |
+| `list_lesson_library` / `get_library_lesson` | The tutor's library items / one with its full spec |
+| `create_library_lesson` | From a `spec` or a `generate_prompt` (Claude drafts it server-side), optional `tags` |
+| `update_library_lesson` | Full-spec replace (+ tags); version bumps; reminds to push when copies exist |
+| `duplicate_library_lesson` / `archive_library_lesson` | Copy as "Copy of …" / archive |
+| `assign_lesson_to_students` | One `custom_lessons` copy per relationship (tutor only); `assigned` / `already_had` / `errors` |
+| `get_lesson_assignments` | Per student: completions, last rating/score, `up_to_date` |
+| `push_lesson_update` | Overwrite assigned copies in place (history + FSRS kept), optionally only some relationships |
+| `export_library_lesson` | Markdown with answer key / JSON / CSV |
+| `list_student_lessons` | Tutor's view of a student's lessons (`GET /api/relationships/:relId/student-lessons`) |
+| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (TTS per note), wait for the clips, then share the deck; per-note failures are reported, not fatal |
+| `add_words_to_student_deck` | Add notes to the tutor's source deck, then `POST …/shared-decks/:id/update` so the student's copy gets them (empty list = just re-sync) |
+| `get_starter_deck` | `POST /api/decks/starter` — the idempotent built-in "Starter Chinese" deck |
 
 ### Study Tool (MCP App)
 
