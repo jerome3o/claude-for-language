@@ -869,15 +869,38 @@ export interface NewCardsStudiedToday {
   secondary: number; // Note already had a reviewed card when this one was introduced
 }
 
-/** Fetch a card's first-ever review timestamp via the [card_id+reviewed_at] index. */
-async function getFirstReviewedAt(cardId: string): Promise<string | undefined> {
-  const keys = await db.reviewEvents
-    .where('[card_id+reviewed_at]')
-    .between([cardId, ''], [cardId, '\uffff'])
-    .limit(1)
-    .keys();
-  const firstKey = keys[0] as unknown as [string, string] | undefined;
-  return firstKey?.[1];
+/**
+ * First-ever review timestamp of each card (absent when the card has no
+ * reviews). One read-only transaction fires a one-record `getAll` on the
+ * [card_id+reviewed_at] index per card; the requests are pipelined by the
+ * browser instead of round-tripping per event like a cursor would, and a
+ * single shared pass (see computeNewCardsStudiedTodayByDeckShared) replaces
+ * the two or three concurrent recomputes that used to run at app start.
+ */
+async function getFirstReviewedAtMap(cardIds: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const ids = [...new Set(cardIds)];
+  if (ids.length === 0) return result;
+  if (!db.isOpen()) await db.open();
+  const tx = db.backendDB().transaction('reviewEvents', 'readonly');
+  const index = tx.objectStore('reviewEvents').index('[card_id+reviewed_at]');
+  await Promise.all(
+    ids.map(
+      id =>
+        new Promise<void>((resolve, reject) => {
+          // getAll (not getAllKeys: an index's keys are the primary keys) —
+          // one record, the earliest event of this card.
+          const req = index.getAll(IDBKeyRange.bound([id, ''], [id, '\uffff']), 1);
+          req.onsuccess = () => {
+            const first = req.result[0] as LocalReviewEvent | undefined;
+            if (first) result.set(id, first.reviewed_at);
+            resolve();
+          };
+          req.onerror = () => reject(req.error);
+        })
+    )
+  );
+  return result;
 }
 
 /**
@@ -903,15 +926,10 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCards
   const cardIds = [...new Set(todayEvents.map(e => e.card_id))];
 
   // A card was NEW before today iff it has no review events before today.
-  const [firstEventTimes, cards] = await Promise.all([
-    Promise.all(cardIds.map(getFirstReviewedAt)),
+  const [firstReviewedAt, cards] = await Promise.all([
+    getFirstReviewedAtMap(cardIds),
     db.cards.bulkGet(cardIds),
   ]);
-
-  const firstReviewedAt = new Map<string, string>();
-  for (let i = 0; i < cardIds.length; i++) {
-    if (firstEventTimes[i]) firstReviewedAt.set(cardIds[i], firstEventTimes[i]!);
-  }
 
   const introduced = cards.filter(
     (card): card is LocalCard => !!card && (firstReviewedAt.get(card.id) ?? '') >= today
@@ -922,11 +940,8 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCards
   // each introduced card can be classified as primary or secondary.
   const noteIds = [...new Set(introduced.map(c => c.note_id))];
   const siblings = await db.cards.where('note_id').anyOf(noteIds).toArray();
-  const unknownFirst = siblings.filter(s => !firstReviewedAt.has(s.id));
-  const siblingTimes = await Promise.all(unknownFirst.map(s => getFirstReviewedAt(s.id)));
-  for (let i = 0; i < unknownFirst.length; i++) {
-    if (siblingTimes[i]) firstReviewedAt.set(unknownFirst[i].id, siblingTimes[i]!);
-  }
+  const unknownFirst = siblings.filter(s => !firstReviewedAt.has(s.id)).map(s => s.id);
+  for (const [id, at] of await getFirstReviewedAtMap(unknownFirst)) firstReviewedAt.set(id, at);
 
   const siblingsByNote = new Map<string, LocalCard[]>();
   for (const s of siblings) {
@@ -950,11 +965,37 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCards
 }
 
 /**
+ * Single-flight wrapper: app start, the home page counts and the study queue
+ * all ask for today's recompute within the same second, so concurrent callers
+ * share one pass instead of each scanning the events again.
+ */
+let computeTodayInFlight: Promise<Map<string, NewCardsStudiedToday>> | null = null;
+function computeNewCardsStudiedTodayByDeckShared(): Promise<Map<string, NewCardsStudiedToday>> {
+  if (!computeTodayInFlight) {
+    computeTodayInFlight = computeNewCardsStudiedTodayByDeck().finally(() => {
+      computeTodayInFlight = null;
+    });
+  }
+  return computeTodayInFlight;
+}
+
+/**
  * Seed today's dailyStats counters for every deck so that subsequent reads never
  * fall through to event scanning. Call once on app load (and at day rollover).
- * Safe to call repeatedly; only writes rows that don't already exist.
+ * Safe to call repeatedly; only writes rows that don't already exist, and
+ * concurrent calls share one run.
  */
-export async function ensureDailyStatsInitialized(): Promise<void> {
+let ensureDailyStatsInFlight: Promise<void> | null = null;
+export function ensureDailyStatsInitialized(): Promise<void> {
+  if (!ensureDailyStatsInFlight) {
+    ensureDailyStatsInFlight = ensureDailyStatsInitializedNow().finally(() => {
+      ensureDailyStatsInFlight = null;
+    });
+  }
+  return ensureDailyStatsInFlight;
+}
+
+async function ensureDailyStatsInitializedNow(): Promise<void> {
   const today = getTodayString();
   const [decks, existing] = await Promise.all([
     db.decks.toArray(),
@@ -965,7 +1006,7 @@ export async function ensureDailyStatsInitialized(): Promise<void> {
   const missing = decks.filter(d => !have.has(d.id));
   if (missing.length === 0) return;
 
-  const computed = await computeNewCardsStudiedTodayByDeck();
+  const computed = await computeNewCardsStudiedTodayByDeckShared();
   await db.dailyStats.bulkPut(
     missing.map(d => ({
       id: getDailyStatsId(today, d.id),
@@ -989,7 +1030,7 @@ async function getNewCardsStudiedTodayMap(deckIds: string[]): Promise<Map<string
   );
   if (deckIds.every(id => result.has(id))) return result;
 
-  const computed = await computeNewCardsStudiedTodayByDeck();
+  const computed = await computeNewCardsStudiedTodayByDeckShared();
   for (const id of deckIds) {
     if (!result.has(id)) result.set(id, computed.get(id) ?? { primary: 0, secondary: 0 });
   }
@@ -1080,6 +1121,33 @@ async function loadCards(deckId?: string): Promise<LocalCard[]> {
   return deckId ? db.cards.where('deck_id').equals(deckId).toArray() : db.cards.toArray();
 }
 
+/** Everything the queue functions need, loaded once: decks, cards, today's new-card counters. */
+interface StudyInputs {
+  decks: LocalDeck[];
+  cards: LocalCard[];
+  studied: Map<string, NewCardsStudiedToday>;
+}
+
+async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
+  const decks = deckId
+    ? await db.decks.get(deckId).then(d => (d ? [d] : []))
+    : await db.decks.toArray();
+  const [cards, studied] = await Promise.all([
+    loadCards(deckId),
+    getNewCardsStudiedTodayMap(decks.map(d => d.id)),
+  ]);
+  return { decks, cards, studied };
+}
+
+/** Notes with at least one reviewed card (queue != NEW). */
+function collectReviewedNoteIds(cards: LocalCard[]): Set<string> {
+  const ids = new Set<string>();
+  for (const card of cards) {
+    if (card.queue !== CardQueue.NEW) ids.add(card.note_id);
+  }
+  return ids;
+}
+
 /** Raw per-deck counts before applying the daily new-card limit/bonus. */
 export interface DeckQueueRaw {
   learning: number;
@@ -1154,20 +1222,15 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
 }
 
 /**
- * Single scan of the cards table producing raw per-deck counts. Bonus/limit
+ * Raw per-deck counts from an already-loaded card list. Bonus/limit
  * application is left to the caller (see applyNewCardBonus) so that one scan
  * can serve multiple views with different bonuses.
  */
-export async function getRawQueueCounts(deckId?: string): Promise<Map<string, DeckQueueRaw>> {
-  const cutoff = getStudyCutoff();
-  const decks = deckId
-    ? await db.decks.get(deckId).then(d => (d ? [d] : []))
-    : await db.decks.toArray();
-  const [cards, studied] = await Promise.all([
-    loadCards(deckId),
-    getNewCardsStudiedTodayMap(decks.map(d => d.id)),
-  ]);
-
+function countRawQueues(
+  { decks, cards, studied }: StudyInputs,
+  reviewedNoteIds: Set<string>,
+  cutoff: { iso: string; ts: number }
+): Map<string, DeckQueueRaw> {
   const byDeck = new Map<string, DeckQueueRaw>();
   for (const d of decks) {
     const s = studied.get(d.id) ?? { primary: 0, secondary: 0 };
@@ -1183,16 +1246,11 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
     });
   }
 
-  // Notes with at least one reviewed card — their remaining NEW cards are "secondary"
-  const reviewedNoteIds = new Set<string>();
-  for (const card of cards) {
-    if (card.queue !== CardQueue.NEW) reviewedNoteIds.add(card.note_id);
-  }
-
   for (const card of cards) {
     const bucket = byDeck.get(card.deck_id);
     if (!bucket) continue;
     if (card.queue === CardQueue.NEW) {
+      // Notes with a reviewed card — their remaining NEW cards are "secondary"
       if (reviewedNoteIds.has(card.note_id)) bucket.totalSecondaryNew++;
       else bucket.totalNew++;
     } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
@@ -1203,6 +1261,12 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
   }
 
   return byDeck;
+}
+
+/** Single scan of the cards table producing raw per-deck counts. */
+export async function getRawQueueCounts(deckId?: string): Promise<Map<string, DeckQueueRaw>> {
+  const inputs = await loadStudyInputs(deckId);
+  return countRawQueues(inputs, collectReviewedNoteIds(inputs.cards), getStudyCutoff());
 }
 
 /**
@@ -1224,21 +1288,17 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
  * @param bonusNewCards Extra new cards beyond the daily limit (Infinity = no limit).
  */
 export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<LocalCard[]> {
-  const cutoff = getStudyCutoff();
-  const decks = deckId
-    ? await db.decks.get(deckId).then(d => (d ? [d] : []))
-    : await db.decks.toArray();
-  const [cards, studied] = await Promise.all([
-    loadCards(deckId),
-    getNewCardsStudiedTodayMap(decks.map(d => d.id)),
-  ]);
+  const inputs = await loadStudyInputs(deckId);
+  return selectDueCards(inputs, collectReviewedNoteIds(inputs.cards), bonusNewCards, getStudyCutoff());
+}
 
-  // Notes that have at least one card that's been reviewed (queue != NEW)
-  const reviewedNoteIds = new Set<string>();
-  for (const card of cards) {
-    if (card.queue !== CardQueue.NEW) reviewedNoteIds.add(card.note_id);
-  }
-
+/** The due-card selection described on getDueCards, over already-loaded inputs. */
+function selectDueCards(
+  { decks, cards, studied }: StudyInputs,
+  reviewedNoteIds: Set<string>,
+  bonusNewCards: number,
+  cutoff: { iso: string; ts: number }
+): LocalCard[] {
   const budgets = new Map(
     decks.map(d => {
       const s = studied.get(d.id) ?? { primary: 0, secondary: 0 };
@@ -1299,6 +1359,30 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
   return due;
 }
 
+/** What a study session needs to start, from ONE load of decks, cards and counters. */
+export interface StudyQueue {
+  dueCards: LocalCard[];
+  counts: DeckQueueCounts;
+  reviewedNoteIds: Set<string>;
+}
+
+/**
+ * Due cards + queue counts + reviewed-note ids for the study session in one
+ * pass over the cards table. Equivalent to calling getDueCards, getQueueCounts
+ * and getReviewedNoteIds with the same arguments, minus two full table scans
+ * (at ~8k cards each scan was a few hundred ms on a phone).
+ */
+export async function getStudyQueue(deckId?: string, bonusNewCards = 0): Promise<StudyQueue> {
+  const cutoff = getStudyCutoff();
+  const inputs = await loadStudyInputs(deckId);
+  const reviewedNoteIds = collectReviewedNoteIds(inputs.cards);
+  const dueCards = selectDueCards(inputs, reviewedNoteIds, bonusNewCards, cutoff);
+  const raw = countRawQueues(inputs, reviewedNoteIds, cutoff);
+  const applied = [...raw.values()].map(r => applyNewCardBonus(r, bonusNewCards));
+  const counts = deckId ? applied[0] ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied);
+  return { dueCards, counts, reviewedNoteIds };
+}
+
 /**
  * Note ids of all cards due today, in study order. Used to point AI story
  * generation ("story from today's due words") at what the learner is about
@@ -1314,12 +1398,7 @@ export async function getDueNoteIds(): Promise<string[]> {
  * Used by the study session to prioritize unreviewed notes when selecting new cards.
  */
 export async function getReviewedNoteIds(deckId?: string): Promise<Set<string>> {
-  const cards = await loadCards(deckId);
-  const ids = new Set<string>();
-  for (const card of cards) {
-    if (card.queue !== CardQueue.NEW) ids.add(card.note_id);
-  }
-  return ids;
+  return collectReviewedNoteIds(await loadCards(deckId));
 }
 
 // ============ Sync Metadata ============
