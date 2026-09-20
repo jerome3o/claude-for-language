@@ -1016,6 +1016,38 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
 
+#### Tutor apps (`mcp-server/src/tools/apps.ts`, UIs in `src/ui/apps/`)
+
+Four interactive MCP Apps for tutors, each a model-facing tool that opens the UI plus
+**app-only tools** (prefix `app_`, `_meta.ui.visibility: ['app']`, hidden from the model) the UI
+calls back into. Server modules live in `src/tools/apps/` (one per app, `shared.ts` for the
+`appTool` helper / students / `withProblems`, `types.ts` for the payload shapes the UIs import as
+types); every call goes through `ctx.api` (the main API as the signed-in tutor).
+
+| App / opening tool | What the tutor can do | App-only tools |
+|---|---|---|
+| `students_dashboard` — `open_students_dashboard(tz_offset_minutes?)` | One card per student from `GET /api/tutor/dashboard`: status, pills, needs-attention words with the wrong answers typed, setup checklist for new students; expand for recordings inbox + homework; log a lesson, message, mark recordings (comment shown to the student); "Ask Claude" chips send a prepared prompt into the chat | `app_refresh_dashboard`, `app_student_detail` (overview + insights recordings), `app_log_lesson`, `app_send_message`, `app_mark_recording` |
+| `review_reader` — `review_reader(reader_id)` | Pages with Chinese / pinyin / English / illustration (`<api>/api/audio/<key>`); inline editing, add / delete / reorder pages, titles; Save (`PUT /api/readers/:id/spec`, page ids kept), Send to student (share-reader endpoint), "Ask Claude to revise" | `app_save_reader_spec`, `app_share_reader` |
+| `review_lesson` — `review_lesson(library_item_id? \| lesson_id?)` | All 9 exercise types rendered and editable, add / remove / reorder; Save (library or a student's copy), Assign (multi-select), Push update, assignments with up-to-date / behind | `app_save_library_lesson`, `app_save_lesson`, `app_assign_lesson`, `app_push_lesson_update` |
+| `review_deck` — `review_deck(deck_id)` | Word table with audio, inline row edit / add / delete saved per note; Send to student or Update their copy (from the dashboard's `homework.decks`); "Ask Claude to add 5 more words…" | `app_update_note`, `app_add_note`, `app_delete_note`, `app_share_deck`, `app_update_shared_deck` |
+
+Saves validate with `shared/{reader,lesson}/validate` on both sides; a 400 with `problems` comes
+back as `{ ok: false, problems }` and is shown inline. After every save / send the UI calls
+`updateModelContext` with a text summary so Claude's next revision starts from the edited content;
+"Ask Claude" buttons use `sendMessage` and are hidden when the host lacks that capability.
+
+**UI mechanics**: vanilla TS, one folder per app (`index.html`, `main.ts`, `app.css`) sharing
+`src/ui/apps/_shared/` (`host.ts` = the ext-apps `App` bridge with capability flags, `dom.ts` =
+element builder / speech / toast / sheet, `picker.ts` = student picker, `base.css` = theme tokens
+that follow the host variables and `data-theme`). `scripts/build-apps.mjs` builds `src/ui` (study)
+and every `src/ui/apps/<name>/index.html` as its own single-file bundle and regenerates
+`src/app-html.ts` (`APP_HTML[name]`, committed) — run `npm run build:ui` after touching a UI.
+`registerApp(ctx, name)` serves the bundle as `ui://<name>/mcp-app.html` with a CSP allowing the
+API origin. **Screenshots / dev preview**: set `window.__MCP_APP_PREVIEW__` to an object shaped
+like the tool's `structuredContent` (and optionally `__MCP_APP_PREVIEW_TOOLS__ = { app_x: result }`
+for canned app-only results) before the bundle runs and the app renders without a host — see
+`docs/pr-screenshots/mcp-tutor-apps/`.
+
 ### Study Tool (MCP App)
 
 The `study` tool is special - it renders an interactive flashcard UI directly in Claude.ai or other MCP hosts that support MCP Apps. Usage:
