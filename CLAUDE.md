@@ -922,6 +922,10 @@ The app includes an MCP (Model Context Protocol) server that allows AI assistant
 
 ### Architecture Overview
 
+Tool modules live in `mcp-server/src/tools/` (`students.ts`, `content.ts`, `apps.ts`) and call the main API
+through `ApiClient` (`mcp-server/src/api.ts`) as the signed-in user — each call mints a short-lived
+`auth_sessions` token and revokes it afterwards — so tutor access checks stay in the API worker.
+
 The MCP server uses several key technologies:
 - **`@cloudflare/workers-oauth-provider`**: Wraps the worker with OAuth 2.1 support
 - **`agents/mcp` (McpAgent)**: Class-based MCP server pattern from the `agents` package
@@ -1015,6 +1019,34 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
+
+#### Tutor tools — students (`mcp-server/src/tools/students.ts`)
+
+All of these go through the main API as the signed-in user (`ApiClient`), so "is this user the
+tutor of this relationship?" is decided by the API, never re-implemented in the MCP server.
+`relationship_id` comes from `list_students`. Responses are trimmed to what a chat needs
+(recording keys become playable `audio_url`s, ratings become again/hard/good/easy); the pure
+shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/students.test.ts`.
+
+| Tool | What it does |
+|------|--------------|
+| `list_students` | Every student card from `/api/tutor/dashboard` (status, streak, pills, needs-attention words, homework %, setup checklist for new students, `last_conversation_id`) + pending invite links + the tutor's homework decks, plus `my_tutors` / pending requests from `/api/relationships` |
+| `get_student_overview` | One student's full card (`/relationships/:relId/overview`): all needs-attention words, homework decks and lessons with progress, setup/install state, recent days |
+| `get_student_insights` | Pre-lesson briefing over a range (`/insights`): totals, ranked `struggling` with the wrong answers typed, `going_well`, activity, recordings with marks; `top_n` trims the lists; default range = since last logged lesson, else 14 days |
+| `get_student_history` | Individual review events newest first with filters (deck, card type, rating, text) and keyset paging (`next_cursor`) |
+| `get_student_daily_progress` | Last 30 days day-by-day + headline stats and per-deck counts (`/student-progress/daily` + `/student-progress`) |
+| `get_student_day` | Everything reviewed on one date (`/student-progress/day/:date`) |
+| `write_student_summary` / `list_student_summaries` | Claude-written narrative (EN + 中文) for a range, persisted; 503 message surfaced when no API key |
+| `list_student_recordings` | Pronunciation recordings in a range with `audio_url` and tutor marks; `only_unmarked` = the "recordings to hear" pile |
+| `mark_recording` / `clear_recording_mark` | `listened` or `needs_work` + comment (shown to the student once on the back of that card) / remove the mark |
+| `log_lesson` / `list_lesson_log` / `delete_lesson_log_entry` | Lesson log; the newest entry anchors "since last lesson"; notes are copied into the student's lesson notes |
+| `send_message_to_student` | Opens the latest conversation (creating one if none) and posts a chat message as the tutor |
+| `list_conversations` / `get_conversation_messages` | Read the chat (last N messages, `from: "me"` for the caller) |
+| `send_install_howto` | Posts the install instructions (Obtainium / Add to Home screen) into the chat |
+| `list_student_homework` | Shared decks with completion + activity, and the student's mini lessons with completions |
+| `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
+| `share_deck_with_student` / `update_student_deck_copy` | Copy a tutor deck to the student / add the tutor's newer words to an existing copy (progress kept) |
+| `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 
 ### Study Tool (MCP App)
 
