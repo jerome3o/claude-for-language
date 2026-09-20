@@ -1,0 +1,370 @@
+/* Paste a word list — mobile first. */
+.pw-modal {
+  max-width: 640px;
+}
+
+.pw-textarea {
+  width: 100%;
+  min-height: 9rem;
+  font-size: 1rem; /* ≥16px: no iOS zoom */
+  line-height: 1.45;
+  resize: vertical;
+  tab-size: 8;
+}
+
+.pw-detected {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.4rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+}
+
+.pw-link {
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  min-height: 44px;
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pw-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg, #f9fafb);
+}
+
+.pw-option-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pw-option-label {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  min-width: 100%;
+}
+
+.pw-pill {
+  min-height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.pw-pill--on {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.pw-custom {
+  width: 7rem;
+  min-height: 36px;
+}
+
+.pw-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.pw-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+}
+
+.pw-policy select {
+  min-height: 44px;
+  font-size: 1rem;
+}
+
+.pw-gloss {
+  align-self: flex-start;
+}
+
+.pw-error {
+  font-size: 0.85rem;
+  color: var(--color-error);
+}
+
+.pw-group {
+  margin-bottom: 0.75rem;
+}
+
+.pw-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+}
+
+.pw-count {
+  font-weight: 500;
+  color: var(--color-text-light);
+}
+
+.pw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.pw-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pw-row-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.5rem 0.25rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.pw-hanzi {
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.pw-hanzi em {
+  font-size: 0.95rem;
+  color: var(--color-text-light);
+}
+
+.pw-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--color-text-light);
+}
+
+.pw-dot {
+  opacity: 0.6;
+}
+
+.pw-filled {
+  color: #7c3aed;
+}
+
+.pw-hint {
+  font-size: 0.8rem;
+  color: var(--color-warning);
+}
+
+.pw-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+}
+
+.pw-change-field {
+  display: inline-block;
+  min-width: 3.5rem;
+  margin-right: 0.35rem;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.pw-row-side {
+  padding: 0.6rem 0 0 0.5rem;
+}
+
+.pw-chip {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pw-chip--new { background: #dcfce7; color: #166534; }
+.pw-chip--update { background: #dbeafe; color: #1e40af; }
+.pw-chip--same { background: #f3f4f6; color: #4b5563; }
+.pw-chip--skip { background: #f3f4f6; color: #6b7280; }
+.pw-chip--problem { background: #ffedd5; color: #9a3412; }
+
+.pw-row--skip .pw-row-main,
+.pw-row--unchanged .pw-row-main {
+  opacity: 0.7;
+}
+
+.pw-editor {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.25rem 0.25rem 0.75rem;
+}
+
+.pw-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+}
+
+.pw-editor .form-input {
+  font-size: 1rem;
+  min-height: 44px;
+}
+
+.pw-editor .hanzi {
+  font-size: 1.25rem;
+}
+
+.pw-skip {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+  min-height: 44px;
+}
+
+.pw-footer {
+  position: sticky;
+  bottom: -1rem;
+  margin: 0.5rem -1rem -1rem;
+  padding: 0.75rem 1rem 1rem;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+
+.pw-summary {
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+  margin-bottom: 0.25rem;
+}
+
+.pw-actions {
+  margin-top: 0.5rem;
+}
+
+.pw-running {
+  padding: 1rem 0;
+}
+
+.pw-progress {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-border);
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+
+.pw-progress-bar {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.2s;
+}
+
+.pw-done-line {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.pw-muted {
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+}
+
+.pw-failed {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--color-error);
+}
+
+.pw-shares {
+  margin-top: 1rem;
+}
+
+.pw-share {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pw-share-name {
+  display: flex;
+  flex-direction: column;
+  font-weight: 500;
+}
+
+.btn-sm {
+  min-height: 40px;
+  padding: 0 0.85rem;
+  font-size: 0.9rem;
+}
+
+@media (min-width: 640px) {
+  .pw-option-label {
+    min-width: 0;
+    margin-right: 0.25rem;
+  }
+  .pw-controls {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+  .pw-footer {
+    margin: 0.5rem -1.5rem -1.5rem;
+    padding: 0.75rem 1.5rem 1.25rem;
+    bottom: -1.5rem;
+  }
+  .pw-editor {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .pw-editor label:nth-child(4),
+  .pw-skip,
+  .pw-editor > button {
+    grid-column: 1 / -1;
+  }
+}

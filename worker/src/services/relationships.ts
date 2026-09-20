@@ -1155,6 +1155,8 @@ export interface SharedDeckUpdateResult {
   kept: number;
   /** Existing copies that were missing audio and got the tutor's clip. */
   audio_filled: number;
+  /** Existing copies whose text fields were brought up to date with the tutor's newer edits. */
+  updated: number;
 }
 
 /**
@@ -1203,13 +1205,13 @@ export async function updateSharedDeckCopy(
   const sourceNotes = await db
     .prepare('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC')
     .bind(share.source_deck_id)
-    .all<{ id: string; hanzi: string; pinyin: string; english: string; audio_url: string | null; fun_facts: string | null }>();
+    .all<CopyNoteRow>();
   const targetNotes = await db
-    .prepare('SELECT id, hanzi, audio_url FROM notes WHERE deck_id = ?')
+    .prepare(`SELECT ${COPY_NOTE_COLUMNS} FROM notes WHERE deck_id = ?`)
     .bind(share.target_deck_id)
-    .all<{ id: string; hanzi: string; audio_url: string | null }>();
+    .all<CopyNoteRow>();
 
-  const existingByHanzi = new Map<string, { id: string; audio_url: string | null }>();
+  const existingByHanzi = new Map<string, CopyNoteRow>();
   for (const n of targetNotes.results || []) {
     const key = n.hanzi.trim();
     if (!existingByHanzi.has(key)) existingByHanzi.set(key, n);
@@ -1218,6 +1220,7 @@ export async function updateSharedDeckCopy(
   let added = 0;
   let kept = 0;
   let audioFilled = 0;
+  let updated = 0;
   const cardTypes: CardType[] = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
 
   for (const note of sourceNotes.results || []) {
@@ -1231,6 +1234,18 @@ export async function updateSharedDeckCopy(
           .run();
         existing.audio_url = note.audio_url;
         audioFilled++;
+      }
+      // The tutor edited the word after the copy was last touched (a fixed
+      // pinyin, a better gloss, a new example sentence): carry the text over.
+      // A copy the student edited more recently keeps their version. Cards and
+      // review history are untouched either way.
+      const changes = copyFieldChanges(note, existing);
+      if (changes.length > 0) {
+        await db
+          .prepare(`UPDATE notes SET ${changes.map(ch => `${ch.column} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`)
+          .bind(...changes.map(ch => ch.value), existing.id)
+          .run();
+        updated++;
       }
       continue;
     }
@@ -1246,16 +1261,99 @@ export async function updateSharedDeckCopy(
         .run();
     }
     // Same hanzi twice in the source deck must not produce two copies.
-    existingByHanzi.set(note.hanzi.trim(), { id: newNoteId, audio_url: note.audio_url });
+    existingByHanzi.set(note.hanzi.trim(), { ...note, id: newNoteId });
     added++;
   }
 
-  if (added > 0 || audioFilled > 0) {
+  if (added > 0 || audioFilled > 0 || updated > 0) {
     await db
       .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
       .bind(share.target_deck_id)
       .run();
   }
 
-  return { shared_deck_id: share.id, target_deck_id: share.target_deck_id, added, kept, audio_filled: audioFilled };
+  return { shared_deck_id: share.id, target_deck_id: share.target_deck_id, added, kept, audio_filled: audioFilled, updated };
+}
+
+/** The note columns a shared copy mirrors from the tutor's source note (exported for the D1 mock in tests). */
+export const COPY_NOTE_COLUMNS =
+  'id, hanzi, pinyin, english, audio_url, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, sentence_clue_audio_url, sentence_clue_audio_provider, alternatives, updated_at';
+
+interface CopyNoteRow {
+  id: string;
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  audio_url: string | null;
+  fun_facts: string | null;
+  sentence_clue: string | null;
+  sentence_clue_pinyin: string | null;
+  sentence_clue_translation: string | null;
+  sentence_clue_audio_url: string | null;
+  sentence_clue_audio_provider: string | null;
+  alternatives: string | null;
+  updated_at: string;
+}
+
+const MIRRORED_TEXT_COLUMNS = [
+  'pinyin',
+  'english',
+  'fun_facts',
+  'sentence_clue',
+  'sentence_clue_pinyin',
+  'sentence_clue_translation',
+  'sentence_clue_audio_url',
+  'sentence_clue_audio_provider',
+  'alternatives',
+] as const;
+
+/**
+ * Which text columns of a student's copy should take the tutor's value: only
+ * when the source note was edited after the copy (newer wins), and only the
+ * columns that actually differ. Pure; exported for tests.
+ */
+export function copyFieldChanges(
+  source: CopyNoteRow,
+  target: CopyNoteRow
+): Array<{ column: (typeof MIRRORED_TEXT_COLUMNS)[number]; value: string | null }> {
+  if (!(source.updated_at > target.updated_at)) return [];
+  const changes: Array<{ column: (typeof MIRRORED_TEXT_COLUMNS)[number]; value: string | null }> = [];
+  for (const column of MIRRORED_TEXT_COLUMNS) {
+    const from = target[column] ?? null;
+    const to = source[column] ?? null;
+    if (to !== null && to !== from) changes.push({ column, value: to });
+  }
+  return changes;
+}
+
+/**
+ * How far a student's copy of a deck is behind the tutor's source deck:
+ * words the copy does not have, and words whose text the tutor changed since.
+ */
+export async function sharedCopyDrift(
+  db: D1Database,
+  sourceDeckId: string,
+  targetDeckId: string
+): Promise<{ missing: number; behind: number }> {
+  const [source, target] = await Promise.all([
+    db.prepare(`SELECT ${COPY_NOTE_COLUMNS} FROM notes WHERE deck_id = ?`).bind(sourceDeckId).all<CopyNoteRow>(),
+    db.prepare(`SELECT ${COPY_NOTE_COLUMNS} FROM notes WHERE deck_id = ?`).bind(targetDeckId).all<CopyNoteRow>(),
+  ]);
+  const byHanzi = new Map<string, CopyNoteRow>();
+  for (const n of target.results || []) {
+    const key = n.hanzi.trim();
+    if (!byHanzi.has(key)) byHanzi.set(key, n);
+  }
+  let missing = 0;
+  let behind = 0;
+  const seen = new Set<string>();
+  for (const n of source.results || []) {
+    const key = n.hanzi.trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const existing = byHanzi.get(key);
+    if (!existing) missing++;
+    else if (copyFieldChanges(n, existing).length > 0) behind++;
+  }
+  return { missing, behind };
 }

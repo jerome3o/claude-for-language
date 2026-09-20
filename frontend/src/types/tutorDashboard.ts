@@ -149,4 +149,6 @@ export interface SharedDeckUpdateResult {
   added: number;
   kept: number;
   audio_filled: number;
+  /** Existing copies whose text took the tutor's newer edits (pinyin, meaning, notes, example sentence). */
+  updated: number;
 }

@@ -160,7 +160,7 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
       const { notes: clean, rejected } = normalizeNotes(notes);
       const outcome = clean.length > 0 ? await createNotes(api, share.source_deck_id, clean) : { created: [], failed: [] };
       const audioMissing = await waitForNoteAudio(api, share.source_deck_id, outcome.created.map(n => n.id), wait);
-      const update = await api.post<{ added: number; kept: number; audio_filled: number }>(
+      const update = await api.post<{ added: number; kept: number; audio_filled: number; updated?: number }>(
         `/api/relationships/${encodeURIComponent(relationship_id)}/shared-decks/${encodeURIComponent(shared_deck_id)}/update`,
       );
       return jsonResult({
@@ -171,7 +171,7 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
         rejected,
         audio_missing: audioMissing.length,
         student_copy: update,
-        message: `${outcome.created.length} word(s) added to "${share.source_deck_name}"; the student's copy gained ${update.added} new word(s), kept ${update.kept}, and ${update.audio_filled} clip(s) were filled in.`,
+        message: `${outcome.created.length} word(s) added to "${share.source_deck_name}"; the student's copy gained ${update.added} new word(s), took the tutor's newer text on ${update.updated ?? 0}, kept ${update.kept}, and ${update.audio_filled} clip(s) were filled in.`,
       });
     }),
   );

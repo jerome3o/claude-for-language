@@ -201,10 +201,15 @@ export function ConnectionDetailPage() {
     setUpdateNote(null);
     try {
       const res = await updateSharedDeckCopy(relId!, sharedDeckId);
+      const updated = res.updated ?? 0;
+      const parts = [
+        res.added > 0 ? `added ${plural(res.added, 'new word')}` : null,
+        updated > 0 ? `updated ${plural(updated, 'word')}` : null,
+      ].filter(Boolean);
       setUpdateNote(
-        res.added === 0 && res.audio_filled === 0
+        parts.length === 0 && res.audio_filled === 0
           ? `${name} is already up to date.`
-          : `Added ${plural(res.added, 'new word')} to their copy of ${name}. Their progress is kept.`
+          : `${parts.length ? parts.join(' and ') : 'Filled in audio'} in their copy of ${name}. Their progress is kept.`.replace(/^./, c => c.toUpperCase())
       );
       queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
       queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });

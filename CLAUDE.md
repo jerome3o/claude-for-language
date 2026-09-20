@@ -109,6 +109,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
 │   │   └── index.ts       # Re-exports
+│   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
 │       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
@@ -121,6 +122,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── components/nav/ # Bottom tab bar (TabBar), role derivation (useNavRole), landing rule (landing.ts), maintenance actions
 │   │   ├── pages/         # Page components (StudyPage, DecksPage, MorePage, DeckDetailPage, etc.; pages/editor/ = library + editor)
 │   │   ├── services/anki/ # Client-side Anki .apkg export (sql.js + JSZip): builder, deck/lesson/reader adapters, audio resolution
+│   │   ├── components/import/ # PasteWordsModal — paste a word list, preview add / update rows, fill gaps, save, update students' copies
 │   │   ├── components/export/ # AnkiExportModal — options / progress / result UI (lazy-loads services/anki)
 │   │   ├── hooks/         # Custom React hooks (useAudio, etc.)
 │   │   ├── api/           # API client functions
@@ -368,6 +370,17 @@ the exit confirm with recap, and tutor notes on recordings. Study-only styles li
 ### Deck Management
 - Create/edit/delete decks
 - Add notes manually or via AI generation
+- **Paste a list** (deck page → 📋 Paste list, `components/import/PasteWordsModal.tsx`): add or
+  update many notes from pasted text. `shared/import/parse.ts` detects row/column separators
+  (tab → | → comma → "–"/":" → script-boundary split for `苹果 píngguǒ apple`), votes a role per
+  column (hanzi / pinyin / english / sentence / notes), strips bullets and a header row, converts
+  tone numbers to marks; `shared/import/plan.ts` matches rows to existing notes by normalised
+  hanzi (policy: update / skip / duplicate; pasted blanks never blank a field) and lists the
+  field changes. Missing pinyin comes from `pinyin-pro` on the device, missing English from
+  `POST /api/ai/gloss-words` (Haiku, one call, ≤100 words); filled values are marked ✨ until
+  edited. Saving is one `createNote` / `updateNote` per row (3 in flight, per-row failures
+  reported) so TTS and sentence sets are generated as usual. The done screen lists a tutor's
+  student copies (`GET /api/decks/:id/student-shares`) with "Update their copy".
 - Each note has: hanzi, pinyin (with tone marks), English, optional fun facts
 - Each note auto-generates 3 cards (one per card type)
 - **Play audio** button on each note in deck view
@@ -840,7 +853,9 @@ cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_
 - `GET /api/relationships/:relId/overview?tz_offset=` - One student card (status, pills, needs_attention, homework, setup, activity)
 - `POST /api/relationships/:relId/conversations/open` - Most recent conversation id, created if none
 - `POST /api/relationships/:relId/send-howto` - Sends the install how-to as a chat message from the tutor
-- `POST /api/relationships/:relId/shared-decks/:id/update` - Add the tutor's newer notes to the student's copy (matched by hanzi; progress kept)
+- `POST /api/relationships/:relId/shared-decks/:id/update` - Bring the student's copy up to date (matched by hanzi; progress kept): adds the tutor's newer notes, fills missing audio, and copies the tutor's edited text fields (pinyin, english, fun_facts, sentence clue…) onto copies the tutor edited more recently than the student (`copyFieldChanges`, newer wins). Returns `added`, `kept`, `audio_filled`, `updated`
+- `GET /api/decks/:id/student-shares` - A tutor's copies of this deck in students' accounts with `notes_missing` / `notes_behind` (`routes/word-import.ts`)
+- `POST /api/ai/gloss-words` - `{ words: [{ hanzi, pinyin?, english? }] }` (≤100) → the list with gaps filled by Haiku; 503 without an API key (`services/gloss-words.ts`)
 - `POST /api/me/client-state` - `{ install_kind, cached_audio_count }` from the device (never downgrades pwa/android to browser)
 
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)

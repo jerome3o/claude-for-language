@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createMockD1, createTestRelationship, MockD1Database } from './d1-mock';
-import { updateSharedDeckCopy } from '../relationships';
+import { updateSharedDeckCopy, COPY_NOTE_COLUMNS } from '../relationships';
+
+const TARGET_SQL = `SELECT ${COPY_NOTE_COLUMNS} FROM notes WHERE deck_id = ?`;
 
 describe('updateSharedDeckCopy', () => {
   let db: MockD1Database;
@@ -14,8 +16,8 @@ describe('updateSharedDeckCopy', () => {
   });
   const share = { id: 'share-1', relationship_id: 'rel-1', source_deck_id: 'src', target_deck_id: 'tgt', shared_at: '2026-09-01T00:00:00Z' };
 
-  function note(id: string, hanzi: string, audio_url: string | null = `/audio/${id}.mp3`) {
-    return { id, deck_id: 'src', hanzi, pinyin: 'x', english: 'y', audio_url, fun_facts: null };
+  function note(id: string, hanzi: string, audio_url: string | null = `/audio/${id}.mp3`, extra: Record<string, unknown> = {}) {
+    return { id, deck_id: 'src', hanzi, pinyin: 'x', english: 'y', audio_url, fun_facts: null, updated_at: '2026-09-01 10:00:00', ...extra };
   }
 
   beforeEach(() => {
@@ -33,7 +35,7 @@ describe('updateSharedDeckCopy', () => {
       note('s2', '晴天'),
       note('s3', '下雨'),
     ]);
-    db.addAllResult('SELECT id, hanzi, audio_url FROM notes WHERE deck_id = ?', [
+    db.addAllResult(TARGET_SQL, [
       { id: 't1', hanzi: '刮风', audio_url: '/audio/s1.mp3' },
     ]);
 
@@ -57,7 +59,7 @@ describe('updateSharedDeckCopy', () => {
 
   it('is a no-op when the copy is already up to date', async () => {
     db.addAllResult('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC', [note('s1', '刮风')]);
-    db.addAllResult('SELECT id, hanzi, audio_url FROM notes WHERE deck_id = ?', [{ id: 't1', hanzi: '刮风', audio_url: '/audio/s1.mp3' }]);
+    db.addAllResult(TARGET_SQL, [{ id: 't1', hanzi: '刮风', audio_url: '/audio/s1.mp3' }]);
 
     const result = await updateSharedDeckCopy(db, 'rel-1', 'tutor-1', 'share-1');
 
@@ -67,7 +69,7 @@ describe('updateSharedDeckCopy', () => {
 
   it('fills in audio the copy is missing without touching its cards', async () => {
     db.addAllResult('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC', [note('s1', '刮风', '/audio/s1.mp3')]);
-    db.addAllResult('SELECT id, hanzi, audio_url FROM notes WHERE deck_id = ?', [{ id: 't1', hanzi: '刮风', audio_url: null }]);
+    db.addAllResult(TARGET_SQL, [{ id: 't1', hanzi: '刮风', audio_url: null }]);
 
     const result = await updateSharedDeckCopy(db, 'rel-1', 'tutor-1', 'share-1');
 
@@ -83,11 +85,38 @@ describe('updateSharedDeckCopy', () => {
       note('s2', '晴天'),
       note('s3', '晴天'),
     ]);
-    db.addAllResult('SELECT id, hanzi, audio_url FROM notes WHERE deck_id = ?', [{ id: 't1', hanzi: '刮风', audio_url: '/a.mp3' }]);
+    db.addAllResult(TARGET_SQL, [{ id: 't1', hanzi: '刮风', audio_url: '/a.mp3' }]);
 
     const result = await updateSharedDeckCopy(db, 'rel-1', 'tutor-1', 'share-1');
 
     expect(result).toMatchObject({ added: 1, kept: 2 });
+  });
+
+  it("carries the tutor's newer text onto the copy, cards and history untouched", async () => {
+    db.addAllResult('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC', [
+      note('s1', '刮风', '/a.mp3', { english: 'windy (weather)', sentence_clue: '今天刮风。', updated_at: '2026-09-05 10:00:00' }),
+    ]);
+    db.addAllResult(TARGET_SQL, [{ id: 't1', hanzi: '刮风', pinyin: 'x', english: 'y', audio_url: '/a.mp3', fun_facts: null, sentence_clue: null, updated_at: '2026-09-01 10:00:00' }]);
+
+    const result = await updateSharedDeckCopy(db, 'rel-1', 'tutor-1', 'share-1');
+
+    expect(result).toMatchObject({ added: 0, kept: 1, audio_filled: 0, updated: 1 });
+    const update = db.getQueries().find((q) => q.sql.includes('UPDATE notes SET english = ?, sentence_clue = ?'));
+    expect(update?.params).toEqual(['windy (weather)', '今天刮风。', 't1']);
+    expect(db.getQueries().some((q) => q.sql.includes('INSERT INTO'))).toBe(false);
+    expect(db.getQueries().some((q) => q.sql.includes("UPDATE decks SET updated_at") && q.params[0] === 'tgt')).toBe(true);
+  });
+
+  it("keeps the student's own more recent edit", async () => {
+    db.addAllResult('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC', [
+      note('s1', '刮风', '/a.mp3', { english: 'windy (weather)', updated_at: '2026-09-05 10:00:00' }),
+    ]);
+    db.addAllResult(TARGET_SQL, [{ id: 't1', hanzi: '刮风', pinyin: 'x', english: 'my gloss', audio_url: '/a.mp3', fun_facts: null, sentence_clue: null, updated_at: '2026-09-06 10:00:00' }]);
+
+    const result = await updateSharedDeckCopy(db, 'rel-1', 'tutor-1', 'share-1');
+
+    expect(result).toMatchObject({ added: 0, kept: 1, updated: 0 });
+    expect(db.getQueries().some((q) => q.sql.startsWith('UPDATE notes'))).toBe(false);
   });
 
   it('refuses when the caller is the student', async () => {

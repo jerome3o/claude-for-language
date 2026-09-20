@@ -60,6 +60,7 @@ import insightsRoutes from './routes/insights';
 import recordingNotesRoutes from './routes/recording-notes';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
+import wordImportRoutes from './routes/word-import';
 import { unreferencedImageKeys } from './services/shared-readers';
 import {
   createRelationship,
@@ -412,6 +413,8 @@ app.route('/api', recordingNotesRoutes);
 app.route('/api', tutorDashboardRoutes);
 // Tutor → student sharing of graded readers (routes/shared-readers.ts)
 app.route('/api', sharedReadersRoutes);
+// POST /api/ai/gloss-words, GET /api/decks/:id/student-shares (see routes/word-import.ts)
+app.route('/api', wordImportRoutes);
 
 // ============ Admin Routes ============
 

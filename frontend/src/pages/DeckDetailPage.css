@@ -312,3 +312,14 @@
     max-width: 12rem;
   }
 }
+
+/* "Paste list" + "Add word" side by side above the word list */
+.deck-words-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.deck-words-actions .btn {
+  min-height: 44px;
+}
