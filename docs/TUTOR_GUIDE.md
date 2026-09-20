@@ -46,7 +46,7 @@ If you have read this guide before, these are the sections that changed:
 - **Reader editor** — edit or hand-write graded readers page by page, with print and
   export — [section 10](#the-reader-editor).
 - **Export to Anki** — decks, lessons and readers as `.apkg` files — [section 6](#export-and-import).
-- The future-ideas list in [section 14](#14-ideas-for-future-features-not-built-yet)
+- The future-ideas list in [section 15](#15-ideas-for-future-features-not-built-yet)
   was pruned again: tutor notes on recordings now reach the student, and shared decks
   can be updated in place.
 
@@ -66,8 +66,9 @@ If you have read this guide before, these are the sections that changed:
 10. [Readers, Mini Lessons, the Lesson Library and Quests](#10-readers-mini-lessons-the-lesson-library-and-quests)
 11. [Progress and statistics](#11-progress-and-statistics)
 12. [Settings, backups and offline use](#12-settings-backups-and-offline-use)
-13. [Suggested weekly workflow for a tutor](#13-suggested-weekly-workflow-for-a-tutor)
-14. [Ideas for future features (not built yet)](#14-ideas-for-future-features-not-built-yet)
+13. [Claude as your teaching assistant (the MCP connection)](#13-claude-as-your-teaching-assistant-the-mcp-connection)
+14. [Suggested weekly workflow for a tutor](#14-suggested-weekly-workflow-for-a-tutor)
+15. [Ideas for future features (not built yet)](#15-ideas-for-future-features-not-built-yet)
 
 ---
 
@@ -1255,7 +1256,77 @@ use this generously — it goes straight to the developer.
 
 ---
 
-## 13. Suggested weekly workflow for a tutor
+## 13. Claude as your teaching assistant (the MCP connection)
+
+The app has an **MCP server** — a connector that lets Claude (on claude.ai or in the Claude
+desktop app) see and act on your account: your students, what they studied and found hard,
+their recordings, your homework decks, your readers and your lesson library. Once it is
+connected you can run a lesson's admin from a chat: *"What did 小明 struggle with since our
+last lesson? Write him a short reader about it and send it."*
+
+### Connecting
+
+1. On **claude.ai** open *Settings → Connectors → Add custom connector* and paste
+   `https://chinese-learning-mcp.jeromeswannack.workers.dev/mcp`. In the Claude desktop
+   app the same address goes in as a remote MCP server.
+2. Sign in with the **same Google account** you use in the app. Claude then only sees
+   what you can see in the app — your own students, decks, readers and lessons.
+3. Start a new chat and ask for your students. The first time, Claude may ask permission
+   to use each tool.
+
+### What you can ask for
+
+- **Students** — "List my students." · "Who hasn't studied this week?" · "How is 李华
+  getting on with the weather deck?"
+- **What a student finds hard** — "What has 小明 struggled with since our last lesson?"
+  (the ranked words with the wrong characters he typed) · "Show me his attempts on 点菜."
+  · "Write a summary of the last two weeks in 中文 for his parents."
+- **Recordings** — "Play me 小明's recordings from this week." · "Mark his 点菜 recording
+  as needs work: second tone, not fourth." (the note reaches him on the back of that card)
+- **Lesson log and messages** — "Log today's lesson: we did 把 sentences, homework is the
+  restaurant deck." · "Send 小明 a message reminding him about Thursday." · "Show me what
+  he wrote in the chat."
+- **Homework** — "Make a deck of 10 words about ordering food with example sentences and
+  send it to 小明." · "Add 词汇 to last week's deck and update his copy." · "Assign the
+  weather lesson from my library to 小明 and 李华."
+- **Readers and lessons** — "Write a five-page elementary reader about a trip to the
+  night market using the words 小明 got wrong, then open it for review." · "Make a mini
+  lesson on 了 with a scramble and a listening exercise."
+- **New students** — "Create an invite link for a new student with the Starter Chinese
+  deck and a welcome message."
+
+### Review windows
+
+For anything worth checking before it goes to a student, Claude can open an **interactive
+window** inside the chat:
+
+- **Students dashboard** — the same cards as the app's Students tab (status, struggling
+  words, recordings to hear, homework %) with buttons to log a lesson, message the
+  student or mark a recording.
+- **Reader review** — a generated or hand-written reader page by page: edit the Chinese,
+  pinyin and English in place, reorder pages, save, and **Send to student**.
+- **Lesson review** — every exercise of a mini lesson, editable; save to your library,
+  **Assign** to students, **Push update** to copies they already have.
+- **Deck review** — the word table with inline editing; **Send to student** or update their
+  copy.
+
+Each window has an **Ask Claude to revise** button: type what you want changed ("make page
+3 simpler", "add three more words about drinks") and Claude edits it for you — it sees
+your own edits too, so you can go back and forth.
+
+### Good to know
+
+- Everything Claude does is real: a deck or reader you send appears in the student's app
+  on their next sync, a lesson-log entry sets the "since last lesson" range in Insights,
+  a recording note shows on the student's card.
+- Claude cannot see other tutors' students or a student's private conversations with
+  other people.
+- Be specific with names: if two students are both called 小明, say which relationship or
+  give the email.
+
+---
+
+## 14. Suggested weekly workflow for a tutor
 
 1. **Open the Students tab** whenever you have a minute. The pills tell you what needs
    you: *n words struggling* (open Insights), *🎤 n recordings to hear* (open the
@@ -1283,7 +1354,7 @@ use this generously — it goes straight to the developer.
 
 ---
 
-## 14. Ideas for future features (not built yet)
+## 15. Ideas for future features (not built yet)
 
 **Nothing in this section exists in the app today.** These are suggestions for what a
 tutor-focused version could add, collected while writing this guide. Tutors and students
