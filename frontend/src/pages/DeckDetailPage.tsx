@@ -7,6 +7,7 @@ import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherU
 import { DeckProgressSummary } from '../components/DeckProgress';
 import CardEditModal from '../components/CardEditModal';
 import { AnkiExportModal } from '../components/export/AnkiExportModal';
+import { PasteWordsModal } from '../components/import/PasteWordsModal';
 import { Toast, useToast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent, DEFAULT_SECONDARY_CARDS_PER_DAY } from '../db/database';
@@ -1564,6 +1565,7 @@ export function DeckDetailPage() {
   const { user } = useAuth();
 
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showPasteModal, setShowPasteModal] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteWithCards | null>(null);
   const [historyNote, setHistoryNote] = useState<NoteWithCards | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -2076,9 +2078,14 @@ export function DeckDetailPage() {
         <div className="card">
           <div className="flex justify-between items-center mb-3">
             <h2>Words ({deck.notes.length})</h2>
-            <button className="btn btn-secondary" onClick={() => setShowAddModal(true)}>
-              + Add word
-            </button>
+            <div className="deck-words-actions">
+              <button className="btn btn-secondary" onClick={() => setShowPasteModal(true)} title="Add or update many words from a pasted list">
+                📋 Paste list
+              </button>
+              <button className="btn btn-secondary" onClick={() => setShowAddModal(true)}>
+                + Add word
+              </button>
+            </div>
           </div>
 
           {deck.notes.length === 0 ? (
@@ -2087,9 +2094,14 @@ export function DeckDetailPage() {
               title="No notes yet"
               description="Add vocabulary to this deck"
               action={
-                <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
-                  Add Note
-                </button>
+                <div className="deck-words-actions">
+                  <button className="btn btn-primary" onClick={() => setShowPasteModal(true)}>
+                    📋 Paste a list
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setShowAddModal(true)}>
+                    + Add a word
+                  </button>
+                </div>
               }
             />
           ) : (
@@ -2231,6 +2243,22 @@ export function DeckDetailPage() {
               setCardEditNote(null);
               queryClient.invalidateQueries({ queryKey: ['deck', id] });
               queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
+            }}
+          />
+        )}
+
+        {/* Paste a word list (add / update many words at once) */}
+        {showPasteModal && (
+          <PasteWordsModal
+            deckId={id!}
+            deckName={deck.name}
+            existingNotes={deck.notes}
+            onClose={() => setShowPasteModal(false)}
+            onImported={(outcome) => {
+              queryClient.invalidateQueries({ queryKey: ['deck', id] });
+              queryClient.invalidateQueries({ queryKey: ['deckStats', id] });
+              const bits = [outcome.added ? `Added ${outcome.added}` : '', outcome.updated ? `updated ${outcome.updated}` : ''].filter(Boolean);
+              if (bits.length) showToast(`${bits.join(', ')} — audio is on its way`);
             }}
           />
         )}

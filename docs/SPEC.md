@@ -37,6 +37,10 @@ When a note is updated, its cards are automatically updated.
 - Each deck contains notes (and their generated cards)
 - Study from all decks or select specific ones
 - Decks have a name and optional description
+- **Paste a list**: add or update many notes at once from pasted text (spreadsheet columns,
+  "汉字 pinyin english" lines, or bare characters); separators and columns are detected, rows are
+  matched to existing notes by hanzi (update / skip / duplicate), missing pinyin and English are
+  filled in, and a tutor can push the changes into each student's copy of the deck
 
 ### 3. Spaced Repetition (SM-2 Algorithm)
 

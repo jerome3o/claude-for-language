@@ -261,6 +261,37 @@ export async function updateNote(
   });
 }
 
+/** Fill in missing pinyin / English for pasted words (Haiku, one call, ≤100 words). */
+export async function glossWords(
+  words: Array<{ hanzi: string; pinyin?: string; english?: string }>
+): Promise<Array<{ hanzi: string; pinyin: string; english: string }>> {
+  const res = await fetchJSON<{ words: Array<{ hanzi: string; pinyin: string; english: string }> }>('/ai/gloss-words', {
+    method: 'POST',
+    body: JSON.stringify({ words }),
+  });
+  return res.words;
+}
+
+export interface DeckStudentShare {
+  shared_deck_id: string;
+  relationship_id: string;
+  target_deck_id: string;
+  shared_at: string;
+  student_id: string;
+  student_name: string;
+  target_deleted: boolean;
+  /** Words in this deck the student's copy does not have. */
+  notes_missing: number;
+  /** Words whose text was edited here after the copy was last touched. */
+  notes_behind: number;
+}
+
+/** A tutor's copies of this deck in students' accounts (empty for a student's own deck). */
+export async function getDeckStudentShares(deckId: string): Promise<DeckStudentShare[]> {
+  const res = await fetchJSON<{ shares: DeckStudentShare[] }>(`/decks/${deckId}/student-shares`);
+  return res.shares;
+}
+
 export interface GenerateAudioOptions {
   speed?: number; // 0.3 - 1.5, default 0.8 for MiniMax, 0.9 for Google
   provider?: 'minimax' | 'gtts'; // Prefer a specific provider

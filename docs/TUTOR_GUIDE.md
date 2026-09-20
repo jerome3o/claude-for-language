@@ -13,7 +13,7 @@ All screenshots in this guide were taken on a phone-sized screen (the editors al
 have a laptop-sized shot). The red numbered circles are explained in the text under
 each picture.
 
-### What's new (18 Sep 2026)
+### What's new (20 Sep 2026)
 
 If you have read this guide before, these are the sections that changed:
 
@@ -36,6 +36,10 @@ If you have read this guide before, these are the sections that changed:
 
 **Tutor tools**
 
+- **Paste a list** on the deck page — add or update many words at once from a
+  spreadsheet, a Word table or a WeChat message; pinyin and English are filled in, words
+  already in the deck are updated in place, and one tap sends the changes to each
+  student's copy — [section 6](#adding-many-words-at-once-paste-a-list).
 - **Invite links and QR codes** replace email invitations — [Signing in](#signing-in)
   and [Inviting a student](#inviting-a-student). An [admin page](#for-the-admin-access-requests-and-who-may-invite)
   approves people who tried to sign in without a link.
@@ -422,7 +426,8 @@ Below the list: **New Deck**, **Generate** (Claude writes a deck from a descript
 
 1. **Study · n due** — study this deck.
 2. **⋯** — the deck menu (next picture).
-3. **+ Add word** — add a word by hand.
+3. **📋 Paste list** — add or update many words from a pasted list (below); **+ Add word** —
+   add a word by hand.
 
 Under the buttons, one **progress block**: the mastery percentage, a bar per card type
 (字→义 / 义→字 / 听→字) and when the deck was last studied. Then the **word list** with
@@ -449,6 +454,40 @@ to edit the card.
 
 Audio is generated automatically a few seconds after saving. An example sentence is
 also queued in the background.
+
+### Adding many words at once (paste a list)
+
+This is the quickest way to build a deck or to correct several cards: copy the list out of
+wherever you keep it — a spreadsheet, a Word table, a WeChat message, the notes from a
+lesson — and paste it. Deck page → **📋 Paste list**.
+
+<img src="guide-images/paste-words.png" width="300">
+
+1. **Paste** into the box. One word per line. Columns from a spreadsheet arrive as
+   `汉字 [tab] pinyin [tab] English`; a chat message like `苹果 píngguǒ apple` or
+   `苹果 - apple` works too; so does a bare list of characters (`葡萄`). A fourth column
+   with Chinese in it becomes the example sentence; a header row is skipped.
+2. **Separator** — what sits between the parts of a line. **Auto** works for pastes from a
+   spreadsheet or a chat; or pick Tab, Comma, Space, `|`, `–`/`:`, or type your own in the
+   box (for example `--` if you write `苹果 -- apple`). **One word per** line or semicolon.
+   "Reading it as: …" under the pills says how the text was understood.
+3. **Words already in this deck** — *Update them* (the default: the pasted pinyin,
+   meaning, notes or sentence replace the old ones, and the student's review history on
+   that card is untouched), *Leave them as they are*, or *Add again as new cards*.
+4. The preview groups the rows: **Needs attention** (no Chinese, or English still
+   missing), **Updates** (with the old → new change shown), **New words**, **Skipped**
+   (a word pasted twice), and **Already the same**. Missing **pinyin** is filled in on the
+   phone straight away; missing **English** is filled in by **✨ Fill in English with
+   Claude** (one tap for the whole list). Anything filled in is marked ✨ until you edit
+   it — a one-character word with several readings gets a "check the reading" hint.
+5. Tap a row to edit its hanzi, pinyin, English or sentence, or to **Skip this row**.
+6. **Add n · Update m** saves everything. Audio and example sentences are generated in the
+   background, as for a word added by hand.
+
+If you have shared this deck with students, the last screen lists each of them with
+what their copy is missing and an **Update their copy** button: new words are added
+and your edited text replaces theirs — unless the student changed that card themselves
+more recently, in which case their version is kept. Their progress is never touched.
 
 ### Editing a card
 
