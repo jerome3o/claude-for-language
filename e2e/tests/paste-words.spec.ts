@@ -63,7 +63,7 @@ test('paste a list: preview, fill with Claude, save, update the student copy', a
   await expect(dialog.getByRole('heading', { name: 'Paste a word list' })).toBeVisible();
 
   await dialog.getByLabel('Word list').fill('苹果\tpíng guǒ\tapple\n香蕉\txiāng jiāo\tbanana (fruit)\n葡萄\nhello\tworld');
-  await expect(dialog.getByText(/Detected: tab between columns · 4 rows/)).toBeVisible();
+  await expect(dialog.getByText(/Reading it as: tab between columns · 4 rows/)).toBeVisible();
   await expect(dialog.getByText('New', { exact: true })).toHaveCount(1);
   await expect(dialog.getByText('Update', { exact: true })).toHaveCount(1);
   await expect(dialog.getByText('Needs english')).toBeVisible();
@@ -109,8 +109,14 @@ test('a WeChat-style space separated list and hanzi-only lines parse', async ({ 
   await page.locator('.header').waitFor({ timeout: 30000 });
   await page.getByRole('button', { name: /Paste a list/ }).click();
   const dialog = page.getByRole('dialog');
+  // A custom separator typed into the box takes over from auto-detection
+  await dialog.getByLabel('Word list').fill('咖啡 -- coffee\n火车 -- train');
+  await dialog.getByLabel('Custom separator').fill('--');
+  await expect(dialog.getByText(/Reading it as: your separator · 2 rows/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /^咖啡/ })).toContainText('coffee');
+  await dialog.getByLabel('Custom separator').fill('');
   await dialog.getByLabel('Word list').fill('1. 咖啡 kāfēi coffee\n2. 火车 huǒ chē train\n3. 朋友');
-  await expect(dialog.getByText(/Detected: spaces between word, pinyin and meaning · 3 rows/)).toBeVisible();
+  await expect(dialog.getByText(/Reading it as: spaces between word, pinyin and meaning · 3 rows/)).toBeVisible();
   await expect(dialog.getByText('New', { exact: true })).toHaveCount(2);
   await expect(dialog.getByText('Needs english')).toBeVisible();
   // Type the missing English inline and save

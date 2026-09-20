@@ -467,9 +467,10 @@ lesson — and paste it. Deck page → **📋 Paste list**.
    `汉字 [tab] pinyin [tab] English`; a chat message like `苹果 píngguǒ apple` or
    `苹果 - apple` works too; so does a bare list of characters (`葡萄`). A fourth column
    with Chinese in it becomes the example sentence; a header row is skipped.
-2. **Detected: …** says how the text was read. If it looks wrong, **Not parsed right?**
-   lets you choose what sits between columns (tab, comma, space, `|`, `–`/`:`, or your
-   own) and between words (new line or semicolon).
+2. **Separator** — what sits between the parts of a line. **Auto** works for pastes from a
+   spreadsheet or a chat; or pick Tab, Comma, Space, `|`, `–`/`:`, or type your own in the
+   box (for example `--` if you write `苹果 -- apple`). **One word per** line or semicolon.
+   "Reading it as: …" under the pills says how the text was understood.
 3. **Words already in this deck** — *Update them* (the default: the pasted pinyin,
    meaning, notes or sentence replace the old ones, and the student's review history on
    that card is untouched), *Leave them as they are*, or *Add again as new cards*.

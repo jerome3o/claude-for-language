@@ -9,13 +9,13 @@ The deck page: **📋 Paste list** next to **+ Add word** (also in the empty-dec
 The empty sheet. The placeholder shows the three shapes it takes: spreadsheet columns, "苹果 apple", or bare characters.
 
 ![Preview after pasting six mixed rows: detected separators, policy select, grouped rows with New / Update / No Chinese chips](03-preview.png)
-Straight after pasting: "Detected: tab between columns · 6 rows", the policy for words already in the deck, and the rows grouped as Needs attention / Updates / New words. 香蕉 shows the change it would make (english: ~~banana~~ → banana (the fruit)); 葡萄 and 草莓 had only characters, so pinyin was filled in on the device (✨) and they need English.
+Straight after pasting: "Reading it as: tab between columns · 6 rows", the policy for words already in the deck, and the rows grouped as Needs attention / Updates / New words. 香蕉 shows the change it would make (english: ~~banana~~ → banana (the fruit)); 葡萄 and 草莓 had only characters, so pinyin was filled in on the device (✨) and they need English.
 
 ![After Fill in English with Claude: the two bare words now carry ✨ glosses and count as New](04-filled.png)
 After **✨ Fill in English with Claude**: the bare words are complete and counted in the button. Anything filled in stays marked ✨ until it is edited.
 
-![The Not parsed right? options: separator pills for columns and rows](05-options.png)
-**Not parsed right?** opens the overrides: Auto / Tab / Comma / Space / | / – : / Custom between columns, New line / Semicolon between words.
+![A custom separator typed into the box: "--" lines split into hanzi and English](05-custom-separator.png)
+The separator strip is always visible under the text box: Auto / Tab / Comma / Space / | / – : / Custom, with a box for your own (here `--`), and one word per Line / Semicolon.
 
 ![A row expanded into inline hanzi / pinyin / English / sentence inputs with a Skip this row checkbox](06-edit-row.png)
 Tapping a row opens it for editing (hanzi, pinyin, English, optional example sentence) with **Skip this row**.

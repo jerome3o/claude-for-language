@@ -71,7 +71,6 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
   const [columnSeparator, setColumnSeparator] = useState<ColumnSeparator>('auto');
   const [customSeparator, setCustomSeparator] = useState('');
   const [rowSeparator, setRowSeparator] = useState<RowSeparator>('auto');
-  const [showOptions, setShowOptions] = useState(false);
   const [policy, setPolicy] = useState<ExistingPolicy>('update');
   const [edits, setEdits] = useState<Map<string, RowEdit>>(new Map());
   const [suggested, setSuggested] = useState<Map<string, Suggestion>>(new Map());
@@ -322,44 +321,47 @@ export function PasteWordsModal({ deckId, deckName, existingNotes, onClose, onIm
               value={text}
               onChange={e => setText(e.target.value)}
               placeholder={PLACEHOLDER}
-              rows={6}
+              rows={9}
               aria-label="Word list"
               spellCheck={false}
             />
-            <div className="pw-detected">
-              {detectedCaption ? <span>Detected: {detectedCaption}</span> : <span>Adding to <strong>{deckName}</strong></span>}
-              <button type="button" className="pw-link" onClick={() => setShowOptions(v => !v)} aria-expanded={showOptions}>
-                {showOptions ? 'Hide options' : 'Not parsed right?'}
-              </button>
-            </div>
-            {showOptions && (
-              <div className="pw-options">
-                <div className="pw-option-row">
-                  <span className="pw-option-label">Between columns</span>
-                  {(['auto', 'tab', 'comma', 'space', 'pipe', 'colon', 'custom'] as ColumnSeparator[]).map(v => (
-                    <button
-                      key={v}
-                      type="button"
-                      className={`pw-pill${columnSeparator === v ? ' pw-pill--on' : ''}`}
-                      onClick={() => setColumnSeparator(v)}
-                    >
-                      {v === 'auto' ? 'Auto' : v === 'tab' ? 'Tab' : v === 'comma' ? 'Comma' : v === 'space' ? 'Space' : v === 'pipe' ? '|' : v === 'colon' ? '– / :' : 'Custom'}
-                    </button>
-                  ))}
-                  {columnSeparator === 'custom' && (
-                    <input className="form-input pw-custom" value={customSeparator} onChange={e => setCustomSeparator(e.target.value)} placeholder="e.g. =>" aria-label="Custom separator" />
-                  )}
-                </div>
-                <div className="pw-option-row">
-                  <span className="pw-option-label">Between words</span>
-                  {(['auto', 'newline', 'semicolon'] as RowSeparator[]).map(v => (
-                    <button key={v} type="button" className={`pw-pill${rowSeparator === v ? ' pw-pill--on' : ''}`} onClick={() => setRowSeparator(v)}>
-                      {v === 'auto' ? 'Auto' : v === 'newline' ? 'New line' : 'Semicolon'}
-                    </button>
-                  ))}
-                </div>
+            <div className="pw-options">
+              <div className="pw-option-row">
+                <span className="pw-option-label">Separator</span>
+                {(['auto', 'tab', 'comma', 'space', 'pipe', 'colon', 'custom'] as ColumnSeparator[]).map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`pw-pill${columnSeparator === v ? ' pw-pill--on' : ''}`}
+                    onClick={() => setColumnSeparator(v)}
+                    aria-pressed={columnSeparator === v}
+                  >
+                    {v === 'auto' ? 'Auto' : v === 'tab' ? 'Tab' : v === 'comma' ? 'Comma' : v === 'space' ? 'Space' : v === 'pipe' ? '|' : v === 'colon' ? '– / :' : 'Custom'}
+                  </button>
+                ))}
+                <input
+                  className="form-input pw-custom"
+                  value={customSeparator}
+                  onChange={e => {
+                    setCustomSeparator(e.target.value);
+                    setColumnSeparator(e.target.value ? 'custom' : 'auto');
+                  }}
+                  placeholder="e.g. --"
+                  aria-label="Custom separator"
+                />
               </div>
-            )}
+              <div className="pw-option-row">
+                <span className="pw-option-label">One word per</span>
+                {(['auto', 'newline', 'semicolon'] as RowSeparator[]).map(v => (
+                  <button key={v} type="button" className={`pw-pill${rowSeparator === v ? ' pw-pill--on' : ''}`} onClick={() => setRowSeparator(v)} aria-pressed={rowSeparator === v}>
+                    {v === 'auto' ? 'Auto' : v === 'newline' ? 'Line' : 'Semicolon'}
+                  </button>
+                ))}
+              </div>
+              <div className="pw-detected">
+                {detectedCaption ? <span>Reading it as: {detectedCaption}</span> : <span>Adding to <strong>{deckName}</strong> — paste a list, one word per line.</span>}
+              </div>
+            </div>
 
             {parsed.rows.length > 0 && (
               <div className="pw-controls">
