@@ -95,9 +95,24 @@ ChineseLearningDB
 ### Daily Limit Tracking
 
 New card limits are enforced locally:
-- `LocalReviewEvent.original_queue` tracks if card was NEW when reviewed
-- `getNewCardsStudiedToday()` counts NEW cards reviewed today from reviewEvents
-- `getDueCards(deckId, ignoreDailyLimit)` applies/bypasses limit
+- `dailyStats` caches, per deck and day, how many primary / secondary new cards
+  were introduced. `ensureDailyStatsInitialized()` seeds today's rows once per
+  app load (single-flight: concurrent callers share one run) by recomputing from
+  today's review events — the first-review time of each card involved is fetched
+  with one pipelined `getAll(range, 1)` per card in a single read transaction,
+  not a cursor walk over every event.
+- `getNewCardsStudiedToday()` reads the cache, recomputing only for uncached decks
+- `getDueCards(deckId, bonusNewCards)` applies the limit (+ bonus; `Infinity` bypasses)
+
+### Study Session Load Path
+
+Tapping Study calls `getStudyQueue(deckId, bonus)` once: one load of decks, cards
+and today's counters produces the due cards, the queue counts and the set of
+reviewed notes together. `getDueCards`, `getQueueCounts` and `getReviewedNoteIds`
+still exist for other callers and share the same pure selection code, but each
+of them scans the cards table on its own — never call all three for one screen
+(at ~8k cards each scan was a few hundred ms on a phone, and the loading screen
+showed all of them).
 
 ### Sync Status UI
 

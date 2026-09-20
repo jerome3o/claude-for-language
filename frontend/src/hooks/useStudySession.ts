@@ -14,10 +14,8 @@ import {
   LocalReader,
   LocalGrammarLesson,
   LocalCustomLesson,
-  getDueCards,
-  getQueueCounts,
+  getStudyQueue,
   getStudyCutoff,
-  getReviewedNoteIds,
   ensureDailyStatsInitialized,
   createLocalReviewEvent,
   storePendingRecording,
@@ -398,10 +396,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setIsLoading(true);
     try {
       await ensureDailyStatsInitialized();
-      const [dueCards, counts, reviewedIds, dueReaders, todaysGrammar, pendingLessons] = await Promise.all([
-        getDueCards(deckId, bonusNewCards),
-        getQueueCounts(deckId, bonusNewCards),
-        getReviewedNoteIds(deckId),
+      const [{ dueCards, counts, reviewedNoteIds: reviewedIds }, dueReaders, todaysGrammar, pendingLessons] = await Promise.all([
+        // One pass over the cards table for due cards, counts and reviewed notes.
+        getStudyQueue(deckId, bonusNewCards),
         deckId ? Promise.resolve([]) : getDueReaders(),
         deckId || !GRAMMAR_LESSONS_ENABLED ? Promise.resolve(null) : getTodaysGrammarLesson(),
         deckId ? Promise.resolve([]) : getDueCustomLessons(),
