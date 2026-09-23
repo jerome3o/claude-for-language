@@ -2,6 +2,11 @@
  * Decks for students: build a deck in the tutor's account through the API
  * (so every note gets TTS the normal way) and share it, or top up an
  * already-shared deck so the student's copy receives the new words.
+ *
+ * These tools never wait for TTS. The note route starts it in the background
+ * and the worker copies each clip onto the student's copy as soon as it
+ * exists (propagateNoteAudioToSharedCopies), so a tool call returns in a few
+ * seconds instead of hanging the chat while a minute of audio renders.
  */
 import { z } from 'zod';
 import type { ToolContext } from '../context.js';
@@ -20,12 +25,16 @@ const noteShape = z.object({
 });
 
 export interface AudioWaitOptions {
-  /** How many times to re-read the deck while waiting for background TTS. */
+  /** How many times to re-read the deck to count clips still generating (for the report only). */
   attempts: number;
   delayMs: number;
 }
 
-const DEFAULT_AUDIO_WAIT: AudioWaitOptions = { attempts: 6, delayMs: 1500 };
+/** One quick look, so the reply can say how many clips are still rendering. */
+const DEFAULT_AUDIO_WAIT: AudioWaitOptions = { attempts: 1, delayMs: 800 };
+
+/** Notes posted at once; TTS for each runs server-side in the background. */
+const CREATE_CONCURRENCY = 5;
 
 interface ApiDeck { id: string; name: string; description?: string | null }
 interface ApiNote { id: string; hanzi: string; audio_url: string | null }
@@ -36,10 +45,13 @@ interface CreateNotesOutcome {
   failed: Array<{ hanzi: string; error: string }>;
 }
 
-/** POST each note to the deck; a failure is recorded and the rest continue. */
+/**
+ * POST the notes to the deck a few at a time; a failure is recorded and the
+ * rest continue. Results keep the input order.
+ */
 async function createNotes(api: ApiClient, deckId: string, notes: NoteInput[]): Promise<CreateNotesOutcome> {
   const outcome: CreateNotesOutcome = { created: [], failed: [] };
-  for (const note of notes) {
+  const createOne = async (note: NoteInput): Promise<{ id: string; hanzi: string } | { hanzi: string; error: string }> => {
     try {
       const made = await api.post<ApiNote>(`/api/decks/${encodeURIComponent(deckId)}/notes`, {
         hanzi: note.hanzi,
@@ -56,9 +68,16 @@ async function createNotes(api: ApiClient, deckId: string, notes: NoteInput[]): 
           console.error('[content] sentence_clue not saved for', note.hanzi, err);
         }
       }
-      outcome.created.push({ id: made.id, hanzi: note.hanzi });
+      return { id: made.id, hanzi: note.hanzi };
     } catch (err) {
-      outcome.failed.push({ hanzi: note.hanzi, error: err instanceof Error ? err.message : String(err) });
+      return { hanzi: note.hanzi, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+  for (let i = 0; i < notes.length; i += CREATE_CONCURRENCY) {
+    const results = await Promise.all(notes.slice(i, i + CREATE_CONCURRENCY).map(createOne));
+    for (const r of results) {
+      if ('id' in r) outcome.created.push(r);
+      else outcome.failed.push(r);
     }
   }
   return outcome;
@@ -69,13 +88,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * The note route starts TTS in the background; sharing copies audio_url as
- * it is at that moment. Wait a little for the clips, then generate the
- * stragglers synchronously so the student's copy is not silent. Returns the
- * ids still without audio (the shared-deck update can fill them in later).
+ * How many of the new notes have no clip yet. Purely informational: sharing
+ * does not wait for audio, because the worker copies each clip onto the
+ * student's copy when TTS finishes. Never generates audio synchronously — a
+ * minute of TTS inside a tool call is what used to hang the tutor's chat.
  */
-async function waitForNoteAudio(api: ApiClient, deckId: string, noteIds: string[], wait: AudioWaitOptions): Promise<string[]> {
-  if (noteIds.length === 0) return [];
+async function countNotesMissingAudio(api: ApiClient, deckId: string, noteIds: string[], wait: AudioWaitOptions): Promise<number> {
+  if (noteIds.length === 0) return 0;
   let missing = noteIds;
   for (let attempt = 0; attempt < wait.attempts && missing.length > 0; attempt++) {
     await sleep(wait.delayMs);
@@ -83,19 +102,10 @@ async function waitForNoteAudio(api: ApiClient, deckId: string, noteIds: string[
       const deck = await api.get<DeckWithNotes>(`/api/decks/${encodeURIComponent(deckId)}`);
       missing = notesMissingAudio(deck.notes ?? [], noteIds);
     } catch (err) {
-      console.error('[content] deck re-read failed while waiting for audio:', err);
+      console.error('[content] deck re-read failed while counting audio:', err);
     }
   }
-  const still: string[] = [];
-  for (const id of missing) {
-    try {
-      const note = await api.post<ApiNote>(`/api/notes/${encodeURIComponent(id)}/generate-audio`);
-      if (!note?.audio_url) still.push(id);
-    } catch {
-      still.push(id);
-    }
-  }
-  return still;
+  return missing.length;
 }
 
 interface RelationshipRow {
@@ -134,7 +144,7 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
 
   server.tool(
     'create_deck_for_student',
-    `Build a vocabulary deck for a student and send it as homework in one go: creates the deck and its notes in YOUR (the tutor's) account — every note gets TTS audio and three cards — then shares a copy with the student (it lands in their app as "<name> (from tutor)" on their next sync and counts towards their Homework %). You must be the tutor in the relationship. Keep the words the student does not already have (batch_search_notes checks your own decks, list_student_lessons / the students tools show what they received). Notes with a missing field, tone-number pinyin or a duplicate hanzi in the batch are rejected up front and listed; a note the API refuses is skipped and listed under failed while the rest continue. Later additions go through add_words_to_student_deck (the returned shared_deck_id is what it needs).`,
+    `Build a vocabulary deck for a student and send it as homework in one go: creates the deck and its notes in YOUR (the tutor's) account — every note gets three cards, and TTS audio is generated in the background (it reaches the student's copy automatically, so the call returns in seconds) — then shares a copy with the student (it lands in their app as "<name> (from tutor)" on their next sync and counts towards their Homework %). You must be the tutor in the relationship. Keep the words the student does not already have (batch_search_notes checks your own decks, list_student_lessons / the students tools show what they received). Notes with a missing field, tone-number pinyin or a duplicate hanzi in the batch are rejected up front and listed; a note the API refuses is skipped and listed under failed while the rest continue. Later additions go through add_words_to_student_deck (the returned shared_deck_id is what it needs).`,
     {
       relationship_id: RELATIONSHIP_ID,
       name: z.string().min(1).describe('Deck name as the student will see it (the app appends "(from tutor)")'),
@@ -156,7 +166,7 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
         await api.delete(`/api/decks/${encodeURIComponent(deck.id)}`).catch(() => {});
         return errorResult(`No note could be added, so the deck was not kept:\n- ${outcome.failed.map(f => `${f.hanzi}: ${f.error}`).join('\n- ')}`);
       }
-      const audioMissing = await waitForNoteAudio(api, deck.id, outcome.created.map(n => n.id), wait);
+      const audioMissing = await countNotesMissingAudio(api, deck.id, outcome.created.map(n => n.id), wait);
       let shared: { id: string; target_deck_id: string; target_deck_name: string };
       try {
         shared = await api.post<{ id: string; target_deck_id: string; target_deck_name: string }>(
@@ -176,15 +186,15 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
         created: outcome.created.length,
         failed: outcome.failed,
         rejected,
-        audio_missing: audioMissing.length,
-        message: `Deck "${deck.name}" with ${outcome.created.length} word(s) is on its way to the student as "${shared.target_deck_name}".${audioMissing.length ? ` ${audioMissing.length} word(s) still have no audio — add_words_to_student_deck (even with an empty list) copies clips across once they exist.` : ''}`,
+        audio_generating: audioMissing,
+        message: `Deck "${deck.name}" with ${outcome.created.length} word(s) is on its way to the student as "${shared.target_deck_name}".${audioMissing ? ` Audio for ${audioMissing} word(s) is still generating in the background and reaches the student's copy automatically — nothing more to do.` : ''}`,
       });
     }),
   );
 
   server.tool(
     'add_words_to_student_deck',
-    `Add words to a deck you already shared with a student: the notes go into YOUR source deck (with TTS), then the student's copy is brought up to date — new words are added to it, words it already has (matched by hanzi) keep their progress, and copies missing audio get your clip. Pass the shared_deck_id from create_deck_for_student or the students tools' homework list (not a plain deck id). An empty notes list just re-syncs the copy (useful to fill in audio that was still generating).`,
+    `Add words to a deck you already shared with a student: the notes go into YOUR source deck (TTS generated in the background, copied to the student automatically), then the student's copy is brought up to date — new words are added to it, words it already has (matched by hanzi) keep their progress, and copies missing audio get your clip. Pass the shared_deck_id from create_deck_for_student or the students tools' homework list (not a plain deck id). An empty notes list just re-syncs the copy.`,
     {
       relationship_id: RELATIONSHIP_ID,
       shared_deck_id: z.string().describe('The share record id (shared_deck_id), from create_deck_for_student or the homework deck list'),
@@ -201,7 +211,7 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
       }
       const { notes: clean, rejected } = normalizeNotes(notes);
       const outcome = clean.length > 0 ? await createNotes(api, share.source_deck_id, clean) : { created: [], failed: [] };
-      const audioMissing = await waitForNoteAudio(api, share.source_deck_id, outcome.created.map(n => n.id), wait);
+      const audioMissing = await countNotesMissingAudio(api, share.source_deck_id, outcome.created.map(n => n.id), wait);
       const update = await api.post<{ added: number; kept: number; audio_filled: number; updated?: number }>(
         `/api/relationships/${encodeURIComponent(relationship_id)}/shared-decks/${encodeURIComponent(shared_deck_id)}/update`,
       );
@@ -211,9 +221,9 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
         created: outcome.created.length,
         failed: outcome.failed,
         rejected,
-        audio_missing: audioMissing.length,
+        audio_generating: audioMissing,
         student_copy: update,
-        message: `${outcome.created.length} word(s) added to "${share.source_deck_name}"; the student's copy gained ${update.added} new word(s), took the tutor's newer text on ${update.updated ?? 0}, kept ${update.kept}, and ${update.audio_filled} clip(s) were filled in.`,
+        message: `${outcome.created.length} word(s) added to "${share.source_deck_name}"; the student's copy gained ${update.added} new word(s), took the tutor's newer text on ${update.updated ?? 0}, kept ${update.kept}, and ${update.audio_filled} clip(s) were filled in.${audioMissing ? ` Audio for ${audioMissing} word(s) is still generating and reaches the student's copy automatically.` : ''}`,
       });
     }),
   );

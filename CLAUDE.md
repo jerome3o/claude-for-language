@@ -1106,7 +1106,7 @@ pasted into the descriptions plus the pure helpers (trimming, note normalisation
 | `push_lesson_update` | Overwrite assigned copies in place (history + FSRS kept), optionally only some relationships |
 | `export_library_lesson` | Markdown with answer key / JSON / CSV |
 | `list_student_lessons` | Tutor's view of a student's lessons (`GET /api/relationships/:relId/student-lessons`) |
-| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (TTS per note), wait for the clips, then share the deck; per-note failures are reported, not fatal |
+| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (a few at a time), then share the deck at once — it never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`, called from the note-create TTS callback and `generate-audio`); per-note failures are reported, not fatal |
 | `add_words_to_student_deck` | Add notes to the tutor's source deck, then `POST …/shared-decks/:id/update` so the student's copy gets them (empty list = just re-sync) |
 | `get_starter_deck` | `POST /api/decks/starter` — the idempotent built-in "Starter Chinese" deck |
 #### Tutor apps (`mcp-server/src/tools/apps.ts`, UIs in `src/ui/apps/`)
