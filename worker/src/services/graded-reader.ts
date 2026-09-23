@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, VocabularyItem, GeneratedStory, DifficultyLevel } from '../types';
 import { storeAudio } from './audio';
+import { READER_STANDARD, readerPageWarnings } from '@shared/reader/standard';
 
 const STORY_SYSTEM_PROMPT = `You are an expert Chinese language author creating graded reading stories for adult language learners.
 
@@ -10,7 +11,7 @@ CRITICAL RULES:
 1. You MUST use ONLY the vocabulary words provided. Do not introduce any new vocabulary.
 2. You may use common grammatical particles and conjunctions (的, 了, 吗, 吧, 和, 但是, 因为, 所以, etc.)
 3. The story should feel natural despite the vocabulary constraint.
-4. Create 4-6 pages, with 2-4 sentences per page depending on difficulty.
+4. Create 6-10 SHORT pages. A page is one picture and one moment: 1-2 sentences (3 at the very most), about 15-45 characters, at most one line of dialogue each way, no line breaks. Split rather than pack.
 5. Use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers (ni3 hao3).
 6. First, define all characters and key locations that appear in the story.
 7. Each page should have a detailed image_prompt that references the character/location descriptions.
@@ -20,6 +21,8 @@ Difficulty level guidelines:
 - elementary: Simple sentences with some connectors, basic time expressions
 - intermediate: More complex sentences, varied grammar patterns
 - advanced: Natural flowing prose, idiomatic expressions within vocabulary
+
+${READER_STANDARD}
 
 CHARACTER & LOCATION DESCRIPTIONS:
 - Define each character with: name, age range, appearance (hair, clothing, distinguishing features)
@@ -68,13 +71,13 @@ const CREATE_STORY_TOOL: Anthropic.Tool = {
       },
       pages: {
         type: 'array',
-        description: 'The story pages (4-6 pages)',
+        description: 'The story pages (6-10 short pages, one moment each)',
         items: {
           type: 'object',
           properties: {
             content_chinese: {
               type: 'string',
-              description: 'The Chinese text for this page'
+              description: 'The Chinese text for this page: 1-2 sentences (3 at most), about 15-45 characters, one short paragraph with no line breaks'
             },
             content_pinyin: {
               type: 'string',
@@ -240,7 +243,7 @@ ${formatVocabList(vocabulary)}
 ${lessonNotesSection}${targetSection}${recentStoriesSection}
 Remember:
 - Use ONLY the vocabulary provided above${anchored ? ' (plus lesson-material words)' : ''}
-- Create 4-6 pages with engaging content
+- Create 6-10 short pages, 1-2 sentences each (one picture, one moment)
 - Each page needs an image_prompt for illustration
 - Use proper pinyin with tone marks
 
@@ -258,16 +261,45 @@ Use the create_story tool to return your story.`;
     recent_story_count: options.recentStories?.length ?? 0,
   }));
 
-  const response = await client.messages.create({
+  // One repair round: pages over the reader page standard (too many
+  // sentences / characters, line breaks) are sent back to be split.
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userPrompt }];
+  let response = await client.messages.create({
     model: STORY_MODEL,
     max_tokens: 8000,
-    messages: [
-      { role: 'user', content: userPrompt }
-    ],
+    messages,
     system: STORY_SYSTEM_PROMPT,
     tools: [CREATE_STORY_TOOL],
     tool_choice: { type: 'tool', name: 'create_story' },
   });
+  {
+    const firstTool = response.content.find(c => c.type === 'tool_use');
+    const draft = firstTool && firstTool.type === 'tool_use' ? (firstTool.input as GeneratedStory) : null;
+    const warnings = draft?.pages && Array.isArray(draft.pages) ? readerPageWarnings({ difficulty_level: difficulty, pages: draft.pages }) : [];
+    if (firstTool && firstTool.type === 'tool_use' && warnings.length > 0) {
+      console.log('[Story] Pages over the page standard, asking for a split:', warnings.map(w => w.message).join(' | '));
+      messages.push(
+        { role: 'assistant', content: response.content },
+        {
+          role: 'user',
+          content: [{
+            type: 'tool_result',
+            tool_use_id: firstTool.id,
+            is_error: true,
+            content: `Some pages are too long for a graded reader. Split them so every page is one picture and one moment — 1-2 sentences (3 at most), about 15-45 characters, no line breaks — adding pages as needed (each with its own image_prompt), and call create_story again with the COMPLETE story:\n\n${warnings.map(w => `- ${w.message}`).join('\n')}`,
+          }],
+        },
+      );
+      response = await client.messages.create({
+        model: STORY_MODEL,
+        max_tokens: 8000,
+        messages,
+        system: STORY_SYSTEM_PROMPT,
+        tools: [CREATE_STORY_TOOL],
+        tool_choice: { type: 'tool', name: 'create_story' },
+      });
+    }
+  }
 
   console.log('[Story] AI response:', JSON.stringify({
     stop_reason: response.stop_reason,
@@ -301,6 +333,8 @@ Use the create_story tool to return your story.`;
   if (result.pages.length < 1) {
     throw new Error('Story must have at least one page');
   }
+  const stillLong = readerPageWarnings({ difficulty_level: difficulty, pages: result.pages });
+  if (stillLong.length) console.warn('[Story] Pages still over the page standard after repair:', stillLong.map(w => w.message).join(' | '));
 
   // Ensure characters and locations exist (provide defaults if missing)
   result.characters = result.characters || {};

@@ -11,3 +11,4 @@ export {
   readerExportFilename,
   readerDifficultyLabel,
 } from './export';
+export * from './standard';

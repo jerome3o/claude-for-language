@@ -6,6 +6,7 @@
  * API's — this module only shapes the calls and the replies.
  */
 import { z } from 'zod';
+import { readerPageWarnings } from '../../../../shared/reader/standard';
 import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
 import {
@@ -84,11 +85,13 @@ ${READER_SPEC_DOC}`,
       const problems = readerSpecProblems(spec);
       if (problems.length > 0) return errorResult(formatProblems('Reader spec', problems));
       const created = await api.post<{ id: string; status: string; image_jobs?: number; spec: unknown }>('/api/readers/import', { spec });
+      const warnings = readerPageWarnings(spec).map(w => w.message);
       return jsonResult({
         id: created.id,
         status: created.status,
         image_jobs: created.image_jobs ?? 0,
-        message: `Created reader "${spec.title_english}" (id=${created.id}).${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}`,
+        warnings,
+        message: `Created reader "${spec.title_english}" (id=${created.id}).${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}`,
       });
     }),
   );
@@ -105,10 +108,12 @@ ${READER_SPEC_DOC}`,
       const problems = readerSpecProblems(spec);
       if (problems.length > 0) return errorResult(formatProblems('Reader spec', problems));
       const res = await api.put<SpecResponse>(`/api/readers/${encodeURIComponent(reader_id)}/spec`, { spec });
+      const warnings = readerPageWarnings(spec).map(w => w.message);
       return jsonResult({
         id: res.id,
         status: res.status,
         image_jobs: res.image_jobs ?? 0,
+        warnings,
         page_count: Array.isArray((res.spec as { pages?: unknown[] })?.pages) ? (res.spec as { pages: unknown[] }).pages.length : undefined,
         message: `Updated reader ${res.id}. The device picks up the new content on its next sync; reading history is unchanged.${res.image_jobs ? ` ${res.image_jobs} illustration(s) generating in the background.` : ''}`,
       });

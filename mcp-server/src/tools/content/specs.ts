@@ -7,6 +7,7 @@
  * Nothing here touches the network, so it is unit-tested directly.
  */
 import { validateReaderSpec } from '../../../../shared/reader/validate';
+import { READER_STANDARD_SHORT } from '../../../../shared/reader/standard';
 import type { ReaderSpec } from '../../../../shared/reader/types';
 import { validateLessonSpec } from '../../../../shared/lesson/validate';
 import { cardTextProblems } from '../../../../shared/cards/standard';
@@ -33,7 +34,7 @@ export const READER_SPEC_DOC = `ReaderSpec shape (JSON):
     }
   ]
 }
-Rules: one short paragraph per page (a graded reader is read page by page, tap to reveal pinyin/English); keep to the learner's level; always tone marks, never tone numbers; image_prompt in English, no text in the picture.`;
+Rules: ${READER_STANDARD_SHORT} Keep to the learner's level; always tone marks, never tone numbers; image_prompt in English, no text in the picture. Pages over the standard come back as warnings (the reader is still saved).`;
 
 export const LESSON_SPEC_DOC = `CustomLessonSpec shape (JSON): { "title": string, "icon"?: string (one emoji), "description"?: string, "sections": [{ "title"?: string, "exercises": [Exercise, ...] }] }.
 Exercise objects (each needs a "type"):
