@@ -19,6 +19,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   ReaderSpec,
   validateReaderSpec,
+  readerPageWarnings,
   normalizeReaderSpec,
   readerToMarkdown,
   readerToJson,
@@ -94,7 +95,7 @@ readerEditor.post('/readers/import', async (c) => {
   const spec = normalizeReaderSpec(body.spec as ReaderSpec);
   const { reader, imageJobs } = await createReaderFromSpec(c.env.DB, userId, spec);
   const queued = await queueReaderImages(c.env, reader.id, imageJobs);
-  return c.json({ ...reader, spec: readerToSpec(reader), image_jobs: queued }, 201);
+  return c.json({ ...reader, spec: readerToSpec(reader), image_jobs: queued, warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message) }, 201);
 });
 
 // ============ Spec read / replace ============
@@ -141,6 +142,7 @@ readerEditor.put('/readers/:id/spec', async (c) => {
     created_at: updated.created_at,
     spec: readerToSpec(updated),
     image_jobs: queued,
+    warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message),
   });
 });
 

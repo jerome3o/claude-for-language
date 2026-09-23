@@ -10,6 +10,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { READER_STANDARD_SHORT } from '@shared/reader/standard';
 import { ReaderSpec, validateReaderSpec, READER_DIFFICULTIES } from '@shared/reader';
 
 const MODEL = 'claude-sonnet-5';
@@ -72,7 +73,7 @@ Writing rules for graded readers:
 - Stay at the reader's difficulty level. If the current text sticks to a small set of known words (the vocabulary list, HSK-1-ish grammar), stay inside it — introduce a new word only when asked, and add it to vocabulary_used.
 - Simplified characters, mainland (普通话) vocabulary and usage.
 - Tone-marked pinyin (nǐ hǎo), never tone numbers, one space between words; pinyin must match the Chinese exactly.
-- One idea per page. For beginner readers keep a page to about 40 characters or less (2-3 short sentences); elementary up to ~80; intermediate/advanced may be longer.
+- ${READER_STANDARD_SHORT} When the author asks for more content, add pages rather than lengthening one.
 - English should be a natural translation of the page, not word-for-word.
 - Every page's image_prompt is an English scene description for a warm children's-book illustration, consistent characters across pages, no text in the picture. Update it when the page's content changes; null means no picture.
 

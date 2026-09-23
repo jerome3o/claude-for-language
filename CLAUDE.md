@@ -297,6 +297,14 @@ card that breaks them is refused with a message saying where the content belongs
   no brackets, slashes, ellipses or blanks.
 Change the rules in `shared/cards/standard.ts` only; everything else reads from it.
 
+### Reader page standard
+`shared/reader/standard.ts` — `READER_STANDARD`: a page is one picture and one moment, 1–2 sentences
+(3 at most, ~15–45 characters), at most one exchange of dialogue, no line breaks; split rather than
+pack. The story generator carries it in its prompt and gets ONE repair round when
+`readerPageWarnings` flags a page; the reader co-editor chat and the MCP `READER_SPEC_DOC` repeat it;
+`POST /api/readers/import`, `PUT /api/readers/:id/spec` and the MCP create / update tools return
+`warnings` for pages over it (soft — the reader is still saved). Yardstick: "小明在巴黎".
+
 ### Pinyin Format
 - Always use **tone marks** (nǐ hǎo), NOT tone numbers (ni3 hao3)
 - Use proper Unicode: ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ
