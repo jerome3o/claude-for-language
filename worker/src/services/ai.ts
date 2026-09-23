@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GeneratedDeck, GeneratedNote, GeneratedNoteWithContext, Note, Conversation, CheckMessageResponse, MessageCheckStatus } from '../types';
 import { LESSON_SPEC_INPUT_SCHEMA } from './custom-lesson';
 import { validateLessonSpec } from '@shared/lesson';
+import { CARD_STANDARD, CARD_STANDARD_SHORT } from '@shared/cards';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -21,6 +22,8 @@ Important guidelines:
   - WRONG: "qǐng wèn xǐ shǒu jiān zài nǎ lǐ" - splits every syllable
 - Prefer practical sentences and phrases over single words - things the learner would actually say or hear in real conversations
 - In fun_facts, prioritize: grammar explanations, cultural nuance, common errors learners make, and disambiguation — not amusing trivia
+
+${CARD_STANDARD}
 
 Always respond with valid JSON.`;
 
@@ -173,7 +176,10 @@ Tool usage guidelines:
 - Use get_deck_info to understand the deck context
 
 When editing, only change the fields that need fixing. When creating cards, use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers.
-After using a tool, briefly confirm what you did in your text response.`;
+After using a tool, briefly confirm what you did in your text response.
+
+Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:
+${CARD_STANDARD}`;
 
 export interface AskContext {
   userAnswer?: string;
@@ -312,10 +318,10 @@ function getAskNoteTools(note: Note) {
       input_schema: {
         type: 'object' as const,
         properties: {
-          hanzi: { type: 'string', description: 'Updated Chinese characters (simplified)' },
+          hanzi: { type: 'string', description: 'Updated Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
           pinyin: { type: 'string', description: 'Updated pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers.' },
           english: { type: 'string', description: 'Updated English translation' },
-          fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words' },
+          fun_facts: { type: 'string', description: `The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}` },
           sentence_clue: { type: 'string', description: 'A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words. Useful for homophones.' },
           sentence_clue_pinyin: { type: 'string', description: 'Pinyin for the sentence clue' },
           sentence_clue_translation: { type: 'string', description: 'English translation of the sentence clue' },
@@ -335,10 +341,10 @@ function getAskNoteTools(note: Note) {
             items: {
               type: 'object',
               properties: {
-                hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
+                hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
                 pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
                 english: { type: 'string', description: 'Clear, concise English translation' },
-                fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words' },
+                fun_facts: { type: 'string', description: `The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}` },
               },
               required: ['hanzi', 'pinyin', 'english'],
             },
@@ -973,7 +979,10 @@ You have tools. Read-only tools run automatically; use them freely.
 - Use search_cards to check what the user already knows or avoid duplicate cards.
 - Use get_note_cards / get_note_history for details on specific existing cards.
 - Use get_overall_stats for study-progress questions.
-After using a tool, briefly confirm what you did. When creating cards, pinyin uses tone marks, NOT tone numbers.`;
+After using a tool, briefly confirm what you did. When creating cards, pinyin uses tone marks, NOT tone numbers.
+
+Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:
+${CARD_STANDARD}`;
 
 function getCoachChatTools() {
   return [
@@ -990,10 +999,10 @@ function getCoachChatTools() {
             items: {
               type: 'object',
               properties: {
-                hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
+                hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
                 pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
                 english: { type: 'string', description: 'Clear, concise English translation' },
-                fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words' },
+                fun_facts: { type: 'string', description: `The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}` },
               },
               required: ['hanzi', 'pinyin', 'english'],
             },
@@ -1278,7 +1287,10 @@ Respond with JSON in this exact format:
 }
 
 IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).
-If the message is correct, set corrections to null.`;
+If the message is correct, set corrections to null.
+
+Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:
+${CARD_STANDARD}`;
 
 /**
  * Check if a user's Chinese message is correct
@@ -1347,7 +1359,10 @@ Respond with JSON in this exact format:
   ]
 }
 
-IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).`;
+IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).
+
+Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:
+${CARD_STANDARD}`;
 
 /**
  * Generate "I don't know" response options with conversation context
@@ -1419,7 +1434,10 @@ You have tools available. Read-only tools (search_cards, list_student_decks) exe
 Use examples with both Chinese characters and pinyin (with tone marks) when relevant.
 Keep your responses concise and focused on language learning.
 
-When you identify vocabulary or phrases worth learning, proactively suggest creating flashcards. Before creating flashcards, consider using search_cards to check if similar cards already exist. Use the create_flashcards tool to create them.`;
+When you identify vocabulary or phrases worth learning, proactively suggest creating flashcards. Before creating flashcards, consider using search_cards to check if similar cards already exist. Use the create_flashcards tool to create them.
+
+Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:
+${CARD_STANDARD}`;
 
 const CREATE_FLASHCARDS_TOOL = {
   name: 'create_flashcards',
@@ -1433,10 +1451,10 @@ const CREATE_FLASHCARDS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            hanzi: { type: 'string', description: 'Chinese characters (simplified)' },
+            hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
             pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use proper tone marks, NOT tone numbers. Put spaces between words, not syllables.' },
             english: { type: 'string', description: 'Clear, concise English translation' },
-            fun_facts: { type: 'string', description: 'Substantive learning note: grammar patterns, cultural context, common mistakes, or disambiguation from similar words. Focus on what helps the learner understand and remember correctly.' },
+            fun_facts: { type: 'string', description: `The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}` },
           },
           required: ['hanzi', 'pinyin', 'english'],
         },

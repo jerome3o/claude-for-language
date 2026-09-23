@@ -1,4 +1,5 @@
 import { copyDeckForUser } from './content';
+import { CARD_STANDARD } from '@shared/cards';
 import {
   Conversation,
   ConversationWithLastMessage,
@@ -808,9 +809,9 @@ Generate a flashcard with:
 - hanzi: The Chinese characters
 - pinyin: The pronunciation with tone marks (NOT tone numbers)
 - english: English translation
-- fun_facts: Substantive learning note — grammar patterns, cultural context, common mistakes, or disambiguation from similar words (optional)
+- fun_facts: the explanation (see the card standard below)
 
-IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).
+${CARD_STANDARD}
 
 Respond with ONLY a JSON object in this exact format:
 {
@@ -840,6 +841,9 @@ ${chatContext}
 Generate response options as flashcards the student can study. Each option should be something the student might want to say in response to the latest message(s).
 
 IMPORTANT: Use tone marks (nǐ hǎo) NOT tone numbers (ni3 hao3).
+
+Each option is a flashcard, so it follows the card standard:
+${CARD_STANDARD}
 
 Respond with ONLY a JSON array in this exact format:
 [

@@ -1249,7 +1249,7 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
       // No body or invalid JSON — that's fine, use default
     }
 
-    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones. IMPORTANT: Do NOT use commas or semicolons in the sentence — write a single clause with no internal punctuation breaks (only a final period/question mark is OK). This is critical because the text-to-speech system may cut off at commas.${bioContext}${modifier}`;
+    const prompt = `Create a short, simple Chinese example sentence (5-10 characters) that uses the word/character "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}) in a natural context. The sentence should help disambiguate this word from homophones. IMPORTANT: Do NOT use commas or semicolons in the sentence — write a single clause with no internal punctuation breaks (only a final period/question mark is OK). This is critical because the text-to-speech system may cut off at commas. No brackets, slashes or placeholders: one real sentence, the word exactly as written.${bioContext}${modifier}`;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',

@@ -89,14 +89,16 @@ describe('normalizeNotes', () => {
       { hanzi: '再见', pinyin: '', english: 'bye' },
       { hanzi: '你好', pinyin: 'nǐ hǎo', english: 'hi again' },
       { hanzi: '猫', pinyin: 'māo', english: 'cat', sentence_clue: '我有一只猫。' },
+      { hanzi: '(请)坐', pinyin: 'qǐng zuò', english: 'sit' },
     ]);
     expect(notes).toEqual([
       { hanzi: '你好', pinyin: 'nǐ hǎo', english: 'hello' },
       { hanzi: '猫', pinyin: 'māo', english: 'cat', sentence_clue: '我有一只猫。' },
     ]);
-    expect(rejected.map(r => r.hanzi)).toEqual(['谢谢', '再见', '你好']);
+    expect(rejected.map(r => r.hanzi)).toEqual(['谢谢', '再见', '你好', '(请)坐']);
     expect(rejected[0].reason).toContain('tone numbers');
     expect(rejected[2].reason).toContain('duplicate');
+    expect(rejected[3].reason).toContain('fun_facts');
   });
 
   it('lists the notes still without audio', () => {

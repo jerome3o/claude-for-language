@@ -9,6 +9,7 @@
 import { validateReaderSpec } from '../../../../shared/reader/validate';
 import type { ReaderSpec } from '../../../../shared/reader/types';
 import { validateLessonSpec } from '../../../../shared/lesson/validate';
+import { cardTextProblems } from '../../../../shared/cards/standard';
 import type { CustomLessonSpec } from '../../../../shared/lesson/types';
 
 export type { ReaderSpec, CustomLessonSpec };
@@ -133,7 +134,6 @@ export interface NormalizedNotes {
   rejected: Array<{ hanzi: string; reason: string }>;
 }
 
-const TONE_NUMBER = /[a-zü]+[1-5](?=\s|$)/i;
 
 /**
  * Trim, drop notes missing a required field, drop duplicate hanzi within the
@@ -151,8 +151,11 @@ export function normalizeNotes(input: NoteInput[]): NormalizedNotes {
       rejected.push({ hanzi: hanzi || '(blank)', reason: 'hanzi, pinyin and english are all required' });
       continue;
     }
-    if (TONE_NUMBER.test(pinyin)) {
-      rejected.push({ hanzi, reason: `pinyin "${pinyin}" uses tone numbers — use tone marks (nǐ hǎo)` });
+    // The HARD rules of the card standard, checked here so Claude gets the
+    // reason without a round trip (the API checks them again).
+    const problems = cardTextProblems({ hanzi, pinyin, sentence_clue: raw.sentence_clue });
+    if (problems.length) {
+      rejected.push({ hanzi, reason: problems.map(p => p.message).join('; ') });
       continue;
     }
     if (seen.has(hanzi)) {
