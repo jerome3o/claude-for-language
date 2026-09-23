@@ -1,4 +1,4 @@
-import { noteCopyValues } from './note-copy';
+import { copyDeckForUser } from './content';
 import {
   Conversation,
   ConversationWithLastMessage,
@@ -18,7 +18,7 @@ import {
 } from '../types';
 import { verifyRelationshipAccess, getOtherUserId, getMyRole } from './relationships';
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from './audio';
-import { generateId, CARD_TYPES } from './cards';
+import { generateId } from './cards';
 
 type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 
@@ -497,64 +497,11 @@ export async function shareDeck(
 
   const studentId = getOtherUserId(rel, tutorId);
 
-  // Create a copy of the deck for the student
-  const targetDeckId = generateId();
+  // A new deck in the student's account: shared defaults (3 + 6 a day), the
+  // tutor's notes with their clips (same R2 keys) and fresh cards.
   const targetDeckName = `${sourceDeck.name} (from tutor)`;
-
-  await db
-    .prepare(`
-      INSERT INTO decks (id, user_id, name, description, new_cards_per_day, secondary_cards_per_day, learning_steps,
-        graduating_interval, easy_interval, relearning_steps, starting_ease,
-        minimum_ease, maximum_ease, interval_modifier, hard_multiplier, easy_bonus)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .bind(
-      targetDeckId,
-      studentId,
-      targetDeckName,
-      sourceDeck.description,
-      sourceDeck.new_cards_per_day,
-      sourceDeck.secondary_cards_per_day,
-      sourceDeck.learning_steps,
-      sourceDeck.graduating_interval,
-      sourceDeck.easy_interval,
-      sourceDeck.relearning_steps,
-      sourceDeck.starting_ease,
-      sourceDeck.minimum_ease,
-      sourceDeck.maximum_ease,
-      sourceDeck.interval_modifier,
-      sourceDeck.hard_multiplier,
-      sourceDeck.easy_bonus
-    )
-    .run();
-
-  // Get all notes from source deck
-  const notes = await db
-    .prepare('SELECT * FROM notes WHERE deck_id = ?')
-    .bind(sourceDeckId)
-    .all<Note>();
-
-  // Copy notes and create cards
-  for (const note of notes.results) {
-    const newNoteId = generateId();
-
-    await db
-      .prepare(`
-        INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, audio_provider, fun_facts, context, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, sentence_clue_audio_url, sentence_clue_audio_provider, alternatives, multiple_choice_options, pinyin_only)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .bind(...noteCopyValues(newNoteId, targetDeckId, note as unknown as Record<string, unknown>))
-      .run();
-
-    // Create cards for each type
-    for (const cardType of CARD_TYPES) {
-      const cardId = generateId();
-      await db
-        .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
-        .bind(cardId, newNoteId, cardType)
-        .run();
-    }
-  }
+  const { deck: targetDeck } = await copyDeckForUser(db, sourceDeck, studentId, targetDeckName);
+  const targetDeckId = targetDeck.id;
 
   // Record the share
   const shareId = generateId();

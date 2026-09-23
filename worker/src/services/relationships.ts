@@ -1,4 +1,4 @@
-import { noteCopyValues } from './note-copy';
+import { insertNoteCopy } from '../db/queries';
 import {
   TutorRelationship,
   TutorRelationshipWithUsers,
@@ -1221,7 +1221,6 @@ export async function updateSharedDeckCopy(
   let kept = 0;
   let audioFilled = 0;
   let updated = 0;
-  const cardTypes: CardType[] = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
 
   for (const note of sourceNotes.results || []) {
     const existing = existingByHanzi.get(note.hanzi.trim());
@@ -1229,8 +1228,8 @@ export async function updateSharedDeckCopy(
       kept++;
       if (!existing.audio_url && note.audio_url) {
         await db
-          .prepare('UPDATE notes SET audio_url = ? WHERE id = ?')
-          .bind(note.audio_url, existing.id)
+          .prepare("UPDATE notes SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE id = ?")
+          .bind(note.audio_url, note.audio_provider ?? null, existing.id)
           .run();
         existing.audio_url = note.audio_url;
         audioFilled++;
@@ -1249,17 +1248,7 @@ export async function updateSharedDeckCopy(
       }
       continue;
     }
-    const newNoteId = generateId();
-    await db
-      .prepare(`INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, audio_provider, fun_facts, context, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, sentence_clue_audio_url, sentence_clue_audio_provider, alternatives, multiple_choice_options, pinyin_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(...noteCopyValues(newNoteId, share.target_deck_id, note as unknown as Record<string, unknown>))
-      .run();
-    for (const cardType of cardTypes) {
-      await db
-        .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
-        .bind(generateId(), newNoteId, cardType)
-        .run();
-    }
+    const newNoteId = await insertNoteCopy(db, share.target_deck_id, note as unknown as Record<string, unknown>);
     // Same hanzi twice in the source deck must not produce two copies.
     existingByHanzi.set(note.hanzi.trim(), { ...note, id: newNoteId });
     added++;
@@ -1285,6 +1274,7 @@ interface CopyNoteRow {
   pinyin: string;
   english: string;
   audio_url: string | null;
+  audio_provider?: string | null;
   fun_facts: string | null;
   sentence_clue: string | null;
   sentence_clue_pinyin: string | null;

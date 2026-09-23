@@ -24,6 +24,8 @@ import {
   NoteSentence,
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
+import { noteCopyValues } from '../services/note-copy';
+import { DECK_SETTING_KEYS, type DeckSettings as DeckSettingsRow } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
 
@@ -466,16 +468,22 @@ export async function getDeckWithNotesAndCards(db: D1Database, id: string, userI
   return { ...deck, notes: notesWithCards };
 }
 
+/**
+ * Insert a deck row. `settings` must be complete: the content service
+ * (services/content) is the only caller and fills it from the shared
+ * DEFAULT_DECK_SETTINGS, so the D1 column defaults never decide a new deck.
+ */
 export async function createDeck(
   db: D1Database,
   userId: string,
-  name: string,
-  description?: string
+  input: { name: string; description?: string | null; settings: DeckSettingsRow }
 ): Promise<Deck> {
   const id = generateId();
+  const columns = ['id', 'user_id', 'name', 'description', ...DECK_SETTING_KEYS];
+  const values: (string | number | null)[] = [id, userId, input.name, input.description || null, ...DECK_SETTING_KEYS.map(k => input.settings[k])];
   await db
-    .prepare('INSERT INTO decks (id, user_id, name, description) VALUES (?, ?, ?, ?)')
-    .bind(id, userId, name, description || null)
+    .prepare(`INSERT INTO decks (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
+    .bind(...values)
     .run();
 
   const deck = await db
@@ -622,48 +630,100 @@ export async function getNoteWithCards(db: D1Database, id: string, userId: strin
   return { ...note, cards: cards.results };
 }
 
-export async function createNote(
-  db: D1Database,
-  deckId: string,
-  hanzi: string,
-  pinyin: string,
-  english: string,
-  audioUrl?: string,
-  funFacts?: string
-): Promise<NoteWithCards> {
-  const noteId = generateId();
+/** The columns a caller may set when inserting a note. Everything else is generated. */
+export interface NoteRowInput {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  audio_url?: string | null;
+  audio_provider?: 'minimax' | 'gtts' | null;
+  fun_facts?: string | null;
+  context?: string | null;
+  sentence_clue?: string | null;
+  sentence_clue_pinyin?: string | null;
+  sentence_clue_translation?: string | null;
+  alternatives?: string | null;
+}
 
-  // Insert note
+/** The three cards every note has. The ONE place card rows are generated. */
+export async function insertCardsForNote(db: D1Database, noteId: string): Promise<void> {
+  await db.batch(
+    CARD_TYPES.map((cardType) =>
+      db.prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)').bind(generateId(), noteId, cardType)
+    )
+  );
+}
+
+async function touchDeck(db: D1Database, deckId: string): Promise<void> {
+  await db.prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?").bind(deckId).run();
+}
+
+/**
+ * Insert a note with its three cards and bump the deck. No side effects (TTS,
+ * sentence sets) — those belong to services/content, which is the only caller.
+ */
+export async function createNote(db: D1Database, deckId: string, input: NoteRowInput): Promise<NoteWithCards> {
+  const noteId = generateId();
   await db
     .prepare(
-      'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, fun_facts) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, audio_provider, fun_facts, context, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, alternatives) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
-    .bind(noteId, deckId, hanzi, pinyin, english, audioUrl || null, funFacts || null)
+    .bind(
+      noteId, deckId, input.hanzi, input.pinyin, input.english,
+      input.audio_url ?? null, input.audio_provider ?? null, input.fun_facts || null, input.context || null,
+      input.sentence_clue || null, input.sentence_clue_pinyin || null, input.sentence_clue_translation || null,
+      input.alternatives ?? null,
+    )
     .run();
+  await insertCardsForNote(db, noteId);
+  await touchDeck(db, deckId);
 
-  // Create cards for each type
-  const cardInserts = CARD_TYPES.map((cardType) => {
-    const cardId = generateId();
-    return db
-      .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
-      .bind(cardId, noteId, cardType)
-      .run();
-  });
-
-  await Promise.all(cardInserts);
-
-  // Update deck's updated_at
-  await db
-    .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-    .bind(deckId)
-    .run();
-
-  // Return the note with cards (no user check needed since we just created it)
   const note = await db.prepare('SELECT * FROM notes WHERE id = ?').bind(noteId).first<Note>();
   const cards = await db.prepare('SELECT * FROM cards WHERE note_id = ?').bind(noteId).all<Card>();
-
   if (!note) throw new Error('Failed to create note');
   return { ...note, cards: cards.results };
+}
+
+/**
+ * Copy a note (word, clips, sentence, alternatives…) into another deck with
+ * fresh cards. The R2 clips are shared between the copies, which is why deletes
+ * go through deleteUnreferencedAudio. Used for tutor → student copies.
+ */
+export async function insertNoteCopy(db: D1Database, targetDeckId: string, note: Record<string, unknown>): Promise<string> {
+  const newNoteId = generateId();
+  await db
+    .prepare(
+      'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url, audio_provider, fun_facts, context, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, sentence_clue_audio_url, sentence_clue_audio_provider, alternatives, multiple_choice_options, pinyin_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    .bind(...noteCopyValues(newNoteId, targetDeckId, note))
+    .run();
+  await insertCardsForNote(db, newNoteId);
+  return newNoteId;
+}
+
+/**
+ * Move notes the user owns into one of their decks. Cards keep their ids and
+ * scheduling; both the old and the new decks are bumped so every device
+ * re-syncs them. Returns the ids actually moved.
+ */
+export async function moveNotes(db: D1Database, userId: string, noteIds: string[], targetDeckId: string): Promise<string[]> {
+  const target = await getDeckById(db, targetDeckId, userId);
+  if (!target) throw new Error('Target deck not found');
+  if (noteIds.length === 0) return [];
+  const placeholders = noteIds.map(() => '?').join(', ');
+  const owned = await db
+    .prepare(`SELECT n.id, n.deck_id FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ? AND n.id IN (${placeholders})`)
+    .bind(userId, ...noteIds)
+    .all<{ id: string; deck_id: string }>();
+  const rows = owned.results || [];
+  if (rows.length === 0) return [];
+  await db
+    .prepare(`UPDATE notes SET deck_id = ?, updated_at = datetime('now') WHERE id IN (${rows.map(() => '?').join(', ')})`)
+    .bind(targetDeckId, ...rows.map(r => r.id))
+    .run();
+  const touched = new Set<string>([targetDeckId, ...rows.map(r => r.deck_id)]);
+  for (const deckId of touched) await touchDeck(db, deckId);
+  return rows.map(r => r.id);
 }
 
 export async function updateNote(
@@ -1710,6 +1770,7 @@ export async function updateDeckSettings(
   settings: Partial<{
     new_cards_per_day: number;
     secondary_cards_per_day: number;
+    request_retention: number;
     learning_steps: string;
     graduating_interval: number;
     easy_interval: number;
@@ -1736,6 +1797,10 @@ export async function updateDeckSettings(
   if (settings.secondary_cards_per_day !== undefined) {
     updates.push('secondary_cards_per_day = ?');
     values.push(settings.secondary_cards_per_day);
+  }
+  if (settings.request_retention !== undefined) {
+    updates.push('request_retention = ?');
+    values.push(settings.request_retention);
   }
   if (settings.learning_steps !== undefined) {
     updates.push('learning_steps = ?');

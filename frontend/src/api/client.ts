@@ -243,8 +243,18 @@ export async function getNote(id: string): Promise<NoteWithCards> {
 
 export async function createNote(
   deckId: string,
-  data: { hanzi: string; pinyin: string; english: string; fun_facts?: string; context?: string }
+  data: {
+    hanzi: string;
+    pinyin: string;
+    english: string;
+    fun_facts?: string;
+    context?: string;
+    sentence_clue?: string;
+    sentence_clue_pinyin?: string;
+    sentence_clue_translation?: string;
+  }
 ): Promise<NoteWithCards> {
+  // The server makes the cards, the word and sentence clips, and queues the sentence set.
   return fetchJSON<NoteWithCards>(`/decks/${deckId}/notes`, {
     method: 'POST',
     body: JSON.stringify(data),

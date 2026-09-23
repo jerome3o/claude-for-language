@@ -11,6 +11,7 @@ import { PasteWordsModal } from '../components/import/PasteWordsModal';
 import { Toast, useToast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
 import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent, DEFAULT_SECONDARY_CARDS_PER_DAY, removeDecksLocally } from '../db/database';
+import { DEFAULT_DECK_SETTINGS } from '@shared/decks';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import './SharedDeckProgressPage.css';
@@ -1100,23 +1101,25 @@ function DeckSettingsModal({
   const [name, setName] = useState(deck.name);
   const [description, setDescription] = useState(deck.description || '');
 
-  // Basic settings
-  const [newCardsPerDay, setNewCardsPerDay] = useState(deck.new_cards_per_day?.toString() || '20');
+  // Basic settings. Fallbacks are the shared new-deck defaults (shared/decks),
+  // the same values the server gives a deck it creates.
+  const D = DEFAULT_DECK_SETTINGS;
+  const [newCardsPerDay, setNewCardsPerDay] = useState((deck.new_cards_per_day ?? D.new_cards_per_day).toString());
   const [secondaryCardsPerDay, setSecondaryCardsPerDay] = useState(
     (deck.secondary_cards_per_day ?? DEFAULT_SECONDARY_CARDS_PER_DAY).toString()
   );
-  const [learningSteps, setLearningSteps] = useState(deck.learning_steps || '1 10');
-  const [graduatingInterval, setGraduatingInterval] = useState(deck.graduating_interval?.toString() || '1');
-  const [easyInterval, setEasyInterval] = useState(deck.easy_interval?.toString() || '4');
-  const [relearningSteps, setRelearningSteps] = useState(deck.relearning_steps || '10');
+  const [learningSteps, setLearningSteps] = useState(deck.learning_steps || D.learning_steps);
+  const [graduatingInterval, setGraduatingInterval] = useState((deck.graduating_interval ?? D.graduating_interval).toString());
+  const [easyInterval, setEasyInterval] = useState((deck.easy_interval ?? D.easy_interval).toString());
+  const [relearningSteps, setRelearningSteps] = useState(deck.relearning_steps || D.relearning_steps);
 
   // Advanced settings (stored as percentages in DB)
-  const [startingEase, setStartingEase] = useState(((deck.starting_ease || 250) / 100).toString());
-  const [minimumEase, setMinimumEase] = useState(((deck.minimum_ease || 130) / 100).toString());
-  const [maximumEase, setMaximumEase] = useState(((deck.maximum_ease || 300) / 100).toString());
-  const [intervalModifier, setIntervalModifier] = useState(((deck.interval_modifier || 100) / 100).toString());
-  const [hardMultiplier, setHardMultiplier] = useState(((deck.hard_multiplier || 120) / 100).toString());
-  const [easyBonus, setEasyBonus] = useState(((deck.easy_bonus || 130) / 100).toString());
+  const [startingEase, setStartingEase] = useState(((deck.starting_ease || D.starting_ease) / 100).toString());
+  const [minimumEase, setMinimumEase] = useState(((deck.minimum_ease || D.minimum_ease) / 100).toString());
+  const [maximumEase, setMaximumEase] = useState(((deck.maximum_ease || D.maximum_ease) / 100).toString());
+  const [intervalModifier, setIntervalModifier] = useState(((deck.interval_modifier || D.interval_modifier) / 100).toString());
+  const [hardMultiplier, setHardMultiplier] = useState(((deck.hard_multiplier || D.hard_multiplier) / 100).toString());
+  const [easyBonus, setEasyBonus] = useState(((deck.easy_bonus || D.easy_bonus) / 100).toString());
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -1124,20 +1127,20 @@ function DeckSettingsModal({
       await updateDeck(deck.id, { name, description: description || undefined });
       // Update SRS settings
       const updatedDeck = await updateDeckSettings(deck.id, {
-        new_cards_per_day: isNaN(parseInt(newCardsPerDay, 10)) ? 20 : parseInt(newCardsPerDay, 10),
+        new_cards_per_day: isNaN(parseInt(newCardsPerDay, 10)) ? D.new_cards_per_day : parseInt(newCardsPerDay, 10),
         secondary_cards_per_day: isNaN(parseInt(secondaryCardsPerDay, 10))
-          ? DEFAULT_SECONDARY_CARDS_PER_DAY
+          ? D.secondary_cards_per_day
           : parseInt(secondaryCardsPerDay, 10),
         learning_steps: learningSteps,
-        graduating_interval: parseInt(graduatingInterval, 10) || 1,
-        easy_interval: parseInt(easyInterval, 10) || 4,
+        graduating_interval: parseInt(graduatingInterval, 10) || D.graduating_interval,
+        easy_interval: parseInt(easyInterval, 10) || D.easy_interval,
         relearning_steps: relearningSteps,
-        starting_ease: Math.round(parseFloat(startingEase) * 100) || 250,
-        minimum_ease: Math.round(parseFloat(minimumEase) * 100) || 130,
-        maximum_ease: Math.round(parseFloat(maximumEase) * 100) || 300,
-        interval_modifier: Math.round(parseFloat(intervalModifier) * 100) || 100,
-        hard_multiplier: Math.round(parseFloat(hardMultiplier) * 100) || 120,
-        easy_bonus: Math.round(parseFloat(easyBonus) * 100) || 130,
+        starting_ease: Math.round(parseFloat(startingEase) * 100) || D.starting_ease,
+        minimum_ease: Math.round(parseFloat(minimumEase) * 100) || D.minimum_ease,
+        maximum_ease: Math.round(parseFloat(maximumEase) * 100) || D.maximum_ease,
+        interval_modifier: Math.round(parseFloat(intervalModifier) * 100) || D.interval_modifier,
+        hard_multiplier: Math.round(parseFloat(hardMultiplier) * 100) || D.hard_multiplier,
+        easy_bonus: Math.round(parseFloat(easyBonus) * 100) || D.easy_bonus,
       });
 
       // Also update IndexedDB so offline queue counts reflect the new settings

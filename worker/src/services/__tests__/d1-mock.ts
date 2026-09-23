@@ -106,7 +106,9 @@ export function createMockD1(): MockD1Database {
       return new ArrayBuffer(0);
     },
     async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
-      return [];
+      const results: D1Result<T>[] = [];
+      for (const stmt of statements) results.push((await stmt.run()) as D1Result<T>);
+      return results;
     },
     async exec(query: string): Promise<D1ExecResult> {
       return { count: 0, duration: 0 };
@@ -211,6 +213,7 @@ export function createTestDeck(overrides: Partial<{
     easy_bonus: 130,
     request_retention: 0.9,
     fsrs_weights: null,
+    maximum_interval: 36500,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   };

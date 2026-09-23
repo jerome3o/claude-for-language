@@ -3,6 +3,8 @@ import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
+import * as content from './services/content';
+import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { calculateSM2 } from './services/sm2';
 import {
   scheduleCard,
@@ -117,6 +119,14 @@ declare module 'hono' {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+/** A content-service refusal (bad input, not yours, not found) as an HTTP response. */
+function contentErrorResponse(c: { json: (body: unknown, status: number) => Response }, err: unknown): Response | null {
+  if (err instanceof ContentError) {
+    return c.json({ error: err.message, ...(err.problems ? { problems: err.problems } : {}) }, err.status);
+  }
+  return null;
+}
 
 // CORS middleware - allow credentials for cookie-based auth
 app.use('/api/*', cors({
@@ -586,12 +596,17 @@ app.get('/api/decks', async (c) => {
 
 app.post('/api/decks', async (c) => {
   const userId = c.get('user').id;
-  const { name, description } = await c.req.json<{ name: string; description?: string }>();
-  if (!name) {
-    return c.json({ error: 'Name is required' }, 400);
+  const body = await c.req.json<{ name: string; description?: string; settings?: Record<string, unknown> }>();
+  try {
+    const deck = await content.createDeck(c.env.DB, userId, {
+      name: body.name,
+      description: body.description,
+      settings: body.settings ? content.pickDeckSettingsOrThrow(body.settings) : undefined,
+    });
+    return c.json(deck, 201);
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
   }
-  const deck = await db.createDeck(c.env.DB, userId, name, description);
-  return c.json(deck, 201);
 });
 
 app.get('/api/decks/:id', async (c) => {
@@ -624,33 +639,23 @@ app.get('/api/decks/:id', async (c) => {
 app.put('/api/decks/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
-  const { name, description } = await c.req.json<{ name?: string; description?: string }>();
-  const deck = await db.updateDeck(c.env.DB, id, userId, name, description);
-  if (!deck) {
-    return c.json({ error: 'Deck not found' }, 404);
+  const { name, description } = await c.req.json<{ name?: string; description?: string | null }>();
+  try {
+    const deck = await content.updateDeck(c.env.DB, userId, id, { name, description });
+    if (!deck) {
+      return c.json({ error: 'Deck not found' }, 404);
+    }
+    return c.json(deck);
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
   }
-  return c.json(deck);
 });
 
 app.delete('/api/decks/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
 
-  // Get all notes in deck to delete their audio
-  const deck = await db.getDeckWithNotes(c.env.DB, id, userId);
-  if (deck) {
-    for (const note of deck.notes) {
-      if (note.audio_url) {
-        try {
-          await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
-        } catch (err) {
-          console.error('[Delete Deck] Failed to delete audio for note', note.id, err);
-        }
-      }
-    }
-  }
-
-  await db.deleteDeck(c.env.DB, id, userId);
+  await content.deleteDeck(c.env, userId, id, c.executionCtx);
   return c.json({ success: true });
 });
 
@@ -764,7 +769,7 @@ app.post('/api/decks/import', async (c) => {
     console.log('[Import] Appending to deck:', deck.id, 'with', data.notes.length, 'notes');
   } else {
     // Create new deck
-    deck = await db.createDeck(c.env.DB, userId, data.deck.name, data.deck.description);
+    deck = await content.createDeck(c.env.DB, userId, { name: data.deck.name, description: data.deck.description });
     console.log('[Import] Created deck:', deck.id, 'with', data.notes.length, 'notes to import');
   }
 
@@ -789,15 +794,14 @@ app.post('/api/decks/import', async (c) => {
             continue;
           }
 
-          // Create note
-          const note = await db.createNote(
-            c.env.DB,
+          // Create note. Audio goes through the queue (an import can outlive
+          // this context); sentence sets come from the hourly top-up.
+          const note = await content.createNote(
+            c.env,
+            userId,
             deck.id,
-            noteData.hanzi,
-            noteData.pinyin,
-            noteData.english,
-            undefined,
-            noteData.fun_facts
+            { hanzi: noteData.hanzi, pinyin: noteData.pinyin, english: noteData.english, fun_facts: noteData.fun_facts },
+            { audio: 'queue', sentences: false }
           );
 
           // Set card progress if provided
@@ -815,15 +819,6 @@ app.post('/api/decks/import', async (c) => {
               }
             }
           }
-
-          // Generate TTS audio (don't await, let it run in parallel)
-          generateTTS(c.env, noteData.hanzi, note.id).then(async (result) => {
-            if (result) {
-              await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
-            }
-          }).catch((err) => {
-            console.error('[Import] TTS failed for', noteData.hanzi, err);
-          });
 
           successCount++;
         } catch (err) {
@@ -874,45 +869,53 @@ app.get('/api/decks/:deckId/notes', async (c) => {
 app.post('/api/decks/:deckId/notes', async (c) => {
   const userId = c.get('user').id;
   const deckId = c.req.param('deckId');
-  const { hanzi, pinyin, english, fun_facts } = await c.req.json<{
-    hanzi: string;
-    pinyin: string;
-    english: string;
-    fun_facts?: string;
-  }>();
-
-  if (!hanzi || !pinyin || !english) {
-    return c.json({ error: 'hanzi, pinyin, and english are required' }, 400);
+  const body = await c.req.json<content.NoteInput>();
+  try {
+    // TTS + clue audio after the response; sentence set queued.
+    const note = await content.createNote(c.env, userId, deckId, body, { audio: 'background', bg: c.executionCtx });
+    console.log('[API] Created note:', note.id, 'hanzi:', note.hanzi);
+    return c.json(note, 201);
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
   }
+});
 
-  const deck = await db.getDeckById(c.env.DB, deckId, userId);
-  if (!deck) {
-    return c.json({ error: 'Deck not found' }, 404);
+/**
+ * Many notes into one deck in one request (paste imports, the MCP batch tool).
+ * Each row stands alone: failures come back by index, the rest are created.
+ * Audio is queued so a big batch never hangs the caller.
+ */
+app.post('/api/decks/:deckId/notes/batch', async (c) => {
+  const userId = c.get('user').id;
+  const deckId = c.req.param('deckId');
+  const body = await c.req.json<{ notes: content.NoteInput[] }>();
+  if (!Array.isArray(body.notes) || body.notes.length === 0) {
+    return c.json({ error: 'notes must be a non-empty array' }, 400);
   }
+  if (body.notes.length > 500) {
+    return c.json({ error: 'At most 500 notes per batch' }, 400);
+  }
+  try {
+    const result = await content.createNotes(c.env, userId, deckId, body.notes, { audio: 'queue', sentences: true });
+    return c.json(result, 201);
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
+  }
+});
 
-  const note = await db.createNote(c.env.DB, deckId, hanzi, pinyin, english, undefined, fun_facts);
-  console.log('[API] Created note:', note.id, 'hanzi:', hanzi);
-
-  // Generate TTS audio in background (don't await to keep response fast)
-  c.executionCtx.waitUntil(
-    generateTTS(c.env, hanzi, note.id).then(async (result) => {
-      console.log('[API] TTS generation result for note', note.id, ':', result);
-      if (result) {
-        await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
-        console.log('[API] Updated note with audioUrl:', result.audioKey, 'provider:', result.provider);
-        // A deck shared before its clips existed: give the copies the clip too.
-        await db.propagateNoteAudioToSharedCopies(c.env.DB, note.id);
-      }
-    }).catch((err) => {
-      console.error('[API] TTS generation failed for note', note.id, ':', err);
-    })
-  );
-
-  // Start the sentence set now so the card already has one by the time it
-  // comes up in study.
-  c.executionCtx.waitUntil(enqueueSentenceSet(c.env, note.id));
-
-  return c.json(note, 201);
+/** Move notes between the caller's own decks, keeping cards, scheduling and history. */
+app.post('/api/notes/move', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ note_ids: string[]; deck_id: string }>();
+  if (!Array.isArray(body.note_ids) || !body.deck_id) {
+    return c.json({ error: 'note_ids and deck_id are required' }, 400);
+  }
+  try {
+    const moved = await content.moveNotes(c.env.DB, userId, body.note_ids, body.deck_id);
+    return c.json({ moved: moved.length, note_ids: moved, deck_id: body.deck_id });
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
+  }
 });
 
 app.get('/api/notes/:id', async (c) => {
@@ -928,68 +931,23 @@ app.get('/api/notes/:id', async (c) => {
 app.put('/api/notes/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
-  const before = await db.getNoteById(c.env.DB, id, userId);
-  const updates = await c.req.json<{
-    hanzi?: string;
-    pinyin?: string;
-    english?: string;
-    fun_facts?: string;
-    sentence_clue?: string | null;
-    sentence_clue_pinyin?: string | null;
-    sentence_clue_translation?: string | null;
-    sentence_clue_audio_url?: string | null;
-    pinyin_only?: number;
-    alternatives?: string | null;
-  }>();
-
-  const note = await db.updateNote(c.env.DB, id, userId, {
-    hanzi: updates.hanzi,
-    pinyin: updates.pinyin,
-    english: updates.english,
-    funFacts: updates.fun_facts,
-    sentenceClue: updates.sentence_clue ?? undefined,
-    sentenceCluePinyin: updates.sentence_clue_pinyin ?? undefined,
-    sentenceClueTranslation: updates.sentence_clue_translation ?? undefined,
-    sentenceClueAudioUrl: updates.sentence_clue_audio_url ?? undefined,
-    pinyinOnly: updates.pinyin_only,
-    alternatives: updates.alternatives,
-  });
-
-  if (!note) {
-    return c.json({ error: 'Note not found' }, 404);
+  const updates = await c.req.json<content.NotePatch>();
+  try {
+    const note = await content.updateNote(c.env, userId, id, updates, c.executionCtx);
+    if (!note) {
+      return c.json({ error: 'Note not found' }, 404);
+    }
+    return c.json(note);
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
   }
-
-  // A changed example sentence needs new audio: the old clip is of the old
-  // sentence, and an edit that adds a clue for the first time has none at all.
-  // Skipped when the caller supplied the audio itself.
-  const clueChanged =
-    updates.sentence_clue_audio_url === undefined &&
-    !!note.sentence_clue &&
-    note.sentence_clue !== before?.sentence_clue;
-  if (clueChanged || (note.sentence_clue && !note.sentence_clue_audio_url)) {
-    c.executionCtx.waitUntil(
-      ensureSentenceClueAudio(c.env, note.id, { force: clueChanged })
-    );
-  }
-
-  return c.json(note);
 });
 
 app.delete('/api/notes/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
 
-  // Get note to find audio_url before deleting
-  const note = await db.getNoteById(c.env.DB, id, userId);
-  if (note?.audio_url) {
-    try {
-      await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
-    } catch (err) {
-      console.error('[Delete Note] Failed to delete audio:', err);
-    }
-  }
-
-  await db.deleteNote(c.env.DB, id, userId);
+  await content.deleteNote(c.env, userId, id, c.executionCtx);
   return c.json({ success: true });
 });
 
@@ -1053,14 +1011,16 @@ app.post('/api/notes/:id/ask', async (c) => {
             if (input.sentence_clue_pinyin !== undefined) updates.sentenceCluePinyin = input.sentence_clue_pinyin;
             if (input.sentence_clue_translation !== undefined) updates.sentenceClueTranslation = input.sentence_clue_translation;
 
-            const updatedNote = await db.updateNote(c.env.DB, id, userId, updates);
+            const updatedNote = await content.updateNote(c.env, userId, id, {
+              hanzi: updates.hanzi,
+              pinyin: updates.pinyin,
+              english: updates.english,
+              fun_facts: updates.funFacts,
+              sentence_clue: updates.sentenceClue,
+              sentence_clue_pinyin: updates.sentenceCluePinyin,
+              sentence_clue_translation: updates.sentenceClueTranslation,
+            }, c.executionCtx);
             if (updatedNote) {
-              // A clue Claude just wrote has no audio yet — give it one.
-              if (updates.sentenceClue) {
-                c.executionCtx.waitUntil(
-                  ensureSentenceClueAudio(c.env, id, { force: true })
-                );
-              }
               toolResults.push({
                 tool: 'edit_current_card',
                 success: true,
@@ -1088,19 +1048,8 @@ app.post('/api/notes/:id/ask', async (c) => {
                 break;
               }
             }
-            const createdNotes = [];
-            for (const fc of input.flashcards) {
-              const newNote = await db.createNote(
-                c.env.DB,
-                targetDeckId,
-                fc.hanzi,
-                fc.pinyin,
-                fc.english,
-                undefined,
-                fc.fun_facts
-              );
-              createdNotes.push(newNote);
-            }
+            const made = await content.createNotes(c.env, userId, targetDeckId, input.flashcards, { audio: 'background', bg: c.executionCtx });
+            const createdNotes = made.created;
             toolResults.push({
               tool: 'create_flashcards',
               success: true,
@@ -1114,7 +1063,7 @@ app.post('/api/notes/:id/ask', async (c) => {
           }
 
           case 'delete_current_card': {
-            await db.deleteNote(c.env.DB, id, userId);
+            await content.deleteNote(c.env, userId, id, c.executionCtx);
             toolResults.push({
               tool: 'delete_current_card',
               success: true,
@@ -1214,11 +1163,8 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
   try {
     const result = await generateTTS(c.env, note.hanzi, note.id, { speed, preferProvider, voiceId });
     if (result) {
-      await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
-      // Copies in students' accounts that were shared before this clip existed.
-      await db.propagateNoteAudioToSharedCopies(c.env.DB, note.id);
-      // The note's example sentence needs audio too — this is the path the MCP
-      // add_note tools call, and they save a clue without ever generating one.
+      await content.setNoteAudio(c.env, note.id, result.audioKey, result.provider);
+      // The note's example sentence needs audio too.
       c.executionCtx.waitUntil(ensureSentenceClueAudio(c.env, note.id));
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
@@ -1246,18 +1192,11 @@ app.post('/api/notes/:id/regenerate-audio', async (c) => {
   }
 
   try {
-    // Delete old audio if exists
-    if (note.audio_url) {
-      try {
-        await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
-      } catch (err) {
-        console.error('[Regenerate Audio] Failed to delete old audio:', err);
-      }
-    }
-
     const result = await generateTTS(c.env, note.hanzi, note.id, { preferProvider: 'minimax' });
     if (result) {
-      await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
+      await content.setNoteAudio(c.env, note.id, result.audioKey, result.provider);
+      // Only once the new clip is stored; a student's copy may share the old key.
+      if (note.audio_url) c.executionCtx.waitUntil(content.deleteUnreferencedAudio(c.env, [note.audio_url]));
       const updatedNote = await db.getNoteById(c.env.DB, note.id, userId);
       return c.json(updatedNote);
     } else {
@@ -1385,69 +1324,6 @@ app.post('/api/notes/:id/generate-sentence-clue', async (c) => {
 });
 
 // ============ Sentence sets (a graded list of examples per note) ============
-
-/**
- * Queue a note for background sentence-set generation.
- * Best-effort: a failure here just means the set gets made on demand instead.
- */
-async function enqueueSentenceSet(env: Env, noteId: string, count?: number): Promise<void> {
-  try {
-    // Send first, mark second: a job marked 'queued' is skipped by future
-    // sweeps, so marking a send that never happened would starve the note.
-    await env.SENTENCE_SET_QUEUE.send({ noteId, count });
-    await db.markSentenceSetJobQueued(env.DB, noteId);
-  } catch (error) {
-    console.error('[sentence-set] Failed to enqueue note', noteId, error);
-  }
-}
-
-/**
- * Give a note's own example sentence its audio.
- *
- * The clue is written by several paths that don't generate TTS (the MCP
- * add_note tools, a plain note edit, Claude's edit_note), which leaves the ▶
- * next to that sentence with nothing to play. Best-effort: returns whether it
- * stored anything.
- */
-async function ensureSentenceClueAudio(
-  env: Env,
-  noteId: string,
-  options: { force?: boolean } = {}
-): Promise<boolean> {
-  if (!env.GOOGLE_TTS_API_KEY && !env.MINIMAX_API_KEY) return false;
-
-  try {
-    const note = await db.getNoteByIdUnscoped(env.DB, noteId);
-    if (!note?.sentence_clue) return false;
-    if (note.sentence_clue_audio_url && !options.force) return false;
-
-    const result = await generateTTS(env, note.sentence_clue, `${noteId}-sentence`);
-    if (!result) return false;
-
-    await db.updateNote(env.DB, noteId, {
-      sentenceClueAudioUrl: result.audioKey,
-      sentenceClueAudioProvider: result.provider,
-    });
-    // Only once the replacement is stored and pointed at — a failed
-    // regeneration must leave the old clip playable.
-    if (options.force && note.sentence_clue_audio_url) {
-      await deleteAudio(env.AUDIO_BUCKET, note.sentence_clue_audio_url).catch(() => {});
-    }
-    return true;
-  } catch (error) {
-    console.error('[clue-audio] Failed for note', noteId, error);
-    return false;
-  }
-}
-
-/** Queue a note for background clue-audio generation. Best-effort. */
-async function enqueueClueAudio(env: Env, noteId: string): Promise<void> {
-  try {
-    await env.SENTENCE_SET_QUEUE.send({ noteId, kind: 'clue_audio' });
-  } catch (error) {
-    console.error('[clue-audio] Failed to enqueue note', noteId, error);
-  }
-}
 
 /** Generate TTS for a list of sentences, a few at a time, and store the keys. */
 async function attachSentenceSetAudio(
@@ -2063,18 +1939,10 @@ app.post('/api/decks/:id/regenerate-all-audio', async (c) => {
   c.executionCtx.waitUntil((async () => {
     for (const note of notesToRegenerate) {
       try {
-        // Delete old audio
-        if (note.audio_url) {
-          try {
-            await deleteAudio(c.env.AUDIO_BUCKET, note.audio_url);
-          } catch (err) {
-            console.error('[Regenerate All] Failed to delete old audio for', note.hanzi, err);
-          }
-        }
-
         const result = await generateTTS(c.env, note.hanzi, note.id, { preferProvider: 'minimax' });
         if (result) {
-          await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
+          await content.setNoteAudio(c.env, note.id, result.audioKey, result.provider);
+          if (note.audio_url) await content.deleteUnreferencedAudio(c.env, [note.audio_url]);
           regenerated++;
           console.log('[Regenerate All] Regenerated', note.hanzi, 'with', result.provider);
         } else {
@@ -2291,26 +2159,16 @@ app.post('/api/study/review', async (c) => {
 app.put('/api/decks/:id/settings', async (c) => {
   const userId = c.get('user').id;
   const deckId = c.req.param('id');
-  const settings = await c.req.json<{
-    new_cards_per_day?: number;
-    secondary_cards_per_day?: number;
-    learning_steps?: string;
-    graduating_interval?: number;
-    easy_interval?: number;
-    relearning_steps?: string;
-    starting_ease?: number;
-    minimum_ease?: number;
-    maximum_ease?: number;
-    interval_modifier?: number;
-    hard_multiplier?: number;
-    easy_bonus?: number;
-  }>();
-
-  const deck = await db.updateDeckSettings(c.env.DB, deckId, userId, settings);
-  if (!deck) {
-    return c.json({ error: 'Deck not found' }, 404);
+  const settings = await c.req.json<Record<string, unknown>>();
+  try {
+    const deck = await content.updateDeckSettings(c.env.DB, userId, deckId, settings);
+    if (!deck) {
+      return c.json({ error: 'Deck not found' }, 404);
+    }
+    return c.json(deck);
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
   }
-  return c.json(deck);
 });
 
 // ============ Study Sessions ============
@@ -2608,17 +2466,6 @@ app.get('/api/audio-manifest', async (c) => {
   return c.json({ urls });
 });
 
-/** Regenerate a note's word audio with MiniMax; keeps the old clip on failure. */
-async function regenerateNoteAudio(env: Env, noteId: string): Promise<boolean> {
-  const note = await db.getNoteByIdUnscoped(env.DB, noteId);
-  if (!note) return false;
-  const result = await generateTTS(env, note.hanzi, noteId);
-  if (!result || result.provider !== 'minimax') return false;
-  await db.updateNote(env.DB, noteId, { audioUrl: result.audioKey, audioProvider: result.provider });
-  if (note.audio_url) await deleteAudio(env.AUDIO_BUCKET, note.audio_url).catch(() => {});
-  return true;
-}
-
 /**
  * Regenerate one sentence-set clip with MiniMax; keeps the old clip on failure.
  * A row with no clip at all takes whatever generateTTS produces — under the
@@ -2865,41 +2712,12 @@ app.post('/api/ai/generate-deck', async (c) => {
   try {
     const generated = await generateDeck(c.env.ANTHROPIC_API_KEY, prompt, deck_name);
 
-    // Create the deck
-    const deck = await db.createDeck(c.env.DB, userId, generated.deck_name, generated.deck_description);
-
-    // Create all notes
-    const notes = await Promise.all(
-      generated.notes.map((note) =>
-        db.createNote(
-          c.env.DB,
-          deck.id,
-          note.hanzi,
-          note.pinyin,
-          note.english,
-          undefined,
-          note.fun_facts
-        )
-      )
-    );
-
-    // Generate TTS audio for all notes (wait for completion so frontend has audio URLs)
-    console.log('[API] Starting TTS generation for', notes.length, 'notes');
-    const notesWithAudio = await Promise.all(
-      notes.map(async (note) => {
-        console.log('[API] Generating TTS for AI note:', note.id, note.hanzi);
-        const result = await generateTTS(c.env, note.hanzi, note.id);
-        console.log('[API] TTS result for AI note', note.id, ':', result);
-        if (result) {
-          const updated = await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
-          console.log('[API] Updated AI note with audioUrl:', result.audioKey, 'provider:', result.provider);
-          return updated || note;
-        }
-        return note;
-      })
-    );
-
-    return c.json({ deck, notes: notesWithAudio }, 201);
+    const deck = await content.createDeck(c.env.DB, userId, { name: generated.deck_name, description: generated.deck_description });
+    // Audio is awaited so the response already carries the clip URLs.
+    const made = await content.createNotes(c.env, userId, deck.id, generated.notes, { audio: 'await', sentences: true, bg: c.executionCtx });
+    if (made.failed.length) console.warn('[API] generate-deck skipped notes:', made.failed);
+    const notes = await Promise.all(made.created.map(async (n) => (await db.getNoteById(c.env.DB, n.id)) ?? n));
+    return c.json({ deck, notes }, 201);
   } catch (error) {
     console.error('AI generation error:', error);
     return c.json({ error: 'Failed to generate deck' }, 500);
@@ -3154,13 +2972,8 @@ app.post('/api/coach/conversations/:id/messages', async (c) => {
           toolResults.push({ tool: 'create_flashcards', success: false, error: 'Target deck not found' });
           continue;
         }
-        const createdNotes = [];
-        for (const fc of input.flashcards || []) {
-          const newNote = await db.createNote(
-            c.env.DB, targetDeck.id, fc.hanzi, fc.pinyin, fc.english, undefined, fc.fun_facts
-          );
-          createdNotes.push(newNote);
-        }
+        const made = await content.createNotes(c.env, userId, targetDeck.id, input.flashcards || [], { audio: 'background', bg: c.executionCtx });
+        const createdNotes = made.created;
         toolResults.push({
           tool: 'create_flashcards',
           success: true,
@@ -7015,8 +6828,11 @@ export default {
         // rather than falling back, so a rate limit here leaves the old clip in
         // place for the next sweep instead of storing another bad one.
         if (kind === 'note_audio') {
-          const replaced = await regenerateNoteAudio(env, noteId);
-          console.log('[Queue] Note audio', replaced ? 'replaced' : 'left', noteId);
+          // Either a brand-new note (any clip beats silence) or a Google
+          // fallback clip to replace with MiniMax; then the sentence's clip.
+          const stored = await content.ensureNoteAudio(env, noteId);
+          await ensureSentenceClueAudio(env, noteId);
+          console.log('[Queue] Note audio', stored ? 'stored' : 'left', noteId);
           message.ack();
           continue;
         }

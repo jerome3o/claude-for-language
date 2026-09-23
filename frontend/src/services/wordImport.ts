@@ -36,16 +36,13 @@ export async function runImport(
   async function one(item: PlannedRow): Promise<void> {
     const r = item.row;
     if (item.action === 'add') {
-      const note = await createNote(deckId, {
+      await createNote(deckId, {
         hanzi: r.hanzi,
         pinyin: r.pinyin,
         english: r.english,
         fun_facts: r.notes || undefined,
+        sentence_clue: r.sentence || undefined,
       });
-      if (r.sentence) {
-        // createNote has no sentence field; the update also queues the clue's audio.
-        await updateNote(note.id, { sentence_clue: r.sentence });
-      }
       outcome.added++;
     } else if (item.action === 'update' && item.existing) {
       const updates: Parameters<typeof updateNote>[1] = {};

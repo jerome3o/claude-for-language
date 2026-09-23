@@ -288,18 +288,21 @@ describe('lesson library tools', () => {
 });
 
 describe('student deck tools', () => {
-  it('create_deck_for_student creates the deck and notes, then shares without waiting for audio — continuing past a failed note', async () => {
-    let noteN = 0;
+  it('create_deck_for_student creates the deck and notes in one batch, then shares without waiting for audio — continuing past a failed note', async () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active' }], tutors: [] }),
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
-      'POST /api/decks/deck-1/notes': (body) => {
-        const b = body as { hanzi: string };
-        if (b.hanzi === '下雨') throw new ApiError(500, 'TTS exploded', null);
-        noteN++;
-        return { id: `n${noteN}`, hanzi: b.hanzi, audio_url: null };
+      'POST /api/decks/deck-1/notes/batch': (body) => {
+        // The API creates each row on its own and reports the failures by index.
+        const rows = (body as { notes: Array<{ hanzi: string }> }).notes;
+        const created: Array<{ id: string; hanzi: string; audio_url: null }> = [];
+        const failed: Array<{ index: number; hanzi: string; error: string }> = [];
+        rows.forEach((r, index) => {
+          if (r.hanzi === '下雨') failed.push({ index, hanzi: r.hanzi, error: 'TTS exploded' });
+          else created.push({ id: `n${created.length + 1}`, hanzi: r.hanzi, audio_url: null });
+        });
+        return { created, failed };
       },
-      'PUT /api/notes/n1': () => ({ id: 'n1' }),
       'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }, { id: 'n2', audio_url: null }] }),
       'POST /api/relationships/rel-1/share-deck': () => ({ id: 'share-1', target_deck_id: 'deck-s', target_deck_name: 'Weather (from tutor)' }),
     });
@@ -321,20 +324,23 @@ describe('student deck tools', () => {
       failed: [{ hanzi: '下雨', error: 'TTS exploded' }],
     });
     expect(result.rejected).toEqual([{ hanzi: '雪', reason: expect.stringContaining('tone numbers') }]);
-    // Notes are posted concurrently, so the sentence_clue PUT lands after the
-    // batch; there is no synchronous generate-audio call anywhere.
+    // One batch POST carries the sentence_clue in the row (no follow-up PUT);
+    // there is no synchronous generate-audio call anywhere.
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'GET /api/relationships',
       'POST /api/decks',
-      'POST /api/decks/deck-1/notes',
-      'POST /api/decks/deck-1/notes',
-      'POST /api/decks/deck-1/notes',
-      'PUT /api/notes/n1',
+      'POST /api/decks/deck-1/notes/batch',
       'GET /api/decks/deck-1',
       'POST /api/relationships/rel-1/share-deck',
     ]);
-    expect(calls[5].body).toEqual({ sentence_clue: '今天刮风。' });
-    expect(calls[7].body).toEqual({ deck_id: 'deck-1' });
+    expect(calls[2].body).toEqual({
+      notes: [
+        { hanzi: '刮风', pinyin: 'guā fēng', english: 'windy', fun_facts: undefined, sentence_clue: '今天刮风。' },
+        { hanzi: '下雨', pinyin: 'xià yǔ', english: 'rain', fun_facts: undefined, sentence_clue: undefined },
+        { hanzi: '晴天', pinyin: 'qíng tiān', english: 'sunny', fun_facts: undefined, sentence_clue: undefined },
+      ],
+    });
+    expect(calls[4].body).toEqual({ deck_id: 'deck-1' });
     expect(result.message).toContain('still generating in the background');
   });
 
@@ -361,7 +367,7 @@ describe('student deck tools', () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 's', requester_role: 'tutor', status: 'active' }], tutors: [] }),
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
-      'POST /api/decks/deck-1/notes': (body) => ({ id: 'n1', hanzi: (body as { hanzi: string }).hanzi, audio_url: 'a.mp3' }),
+      'POST /api/decks/deck-1/notes/batch': (body) => ({ created: (body as { notes: Array<{ hanzi: string }> }).notes.map(n => ({ id: 'n1', hanzi: n.hanzi, audio_url: 'a.mp3' })), failed: [] }),
       'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }] }),
       'POST /api/relationships/rel-1/share-deck': () => { throw new ApiError(400, 'The student no longer has an account', null); },
       'DELETE /api/decks/deck-1': () => ({ success: true }),
@@ -379,7 +385,7 @@ describe('student deck tools', () => {
   it('add_words_to_student_deck resolves the source deck from the share and updates the copy', async () => {
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships/rel-1/shared-decks': () => [{ id: 'share-1', source_deck_id: 'src', target_deck_id: 'tgt', source_deck_name: 'Weather' }],
-      'POST /api/decks/src/notes': () => ({ id: 'n9', hanzi: '雾', audio_url: null }),
+      'POST /api/decks/src/notes/batch': () => ({ created: [{ id: 'n9', hanzi: '雾', audio_url: null }], failed: [] }),
       'GET /api/decks/src': () => ({ id: 'src', notes: [{ id: 'n9', audio_url: 'c.mp3' }] }),
       'POST /api/relationships/rel-1/shared-decks/share-1/update': () => ({ shared_deck_id: 'share-1', target_deck_id: 'tgt', added: 1, kept: 3, audio_filled: 0 }),
     });
@@ -391,7 +397,7 @@ describe('student deck tools', () => {
     expect(result).toMatchObject({ tutor_deck_id: 'src', student_deck_id: 'tgt', created: 1, student_copy: { added: 1, kept: 3 } });
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'GET /api/relationships/rel-1/shared-decks',
-      'POST /api/decks/src/notes',
+      'POST /api/decks/src/notes/batch',
       'GET /api/decks/src',
       'POST /api/relationships/rel-1/shared-decks/share-1/update',
     ]);

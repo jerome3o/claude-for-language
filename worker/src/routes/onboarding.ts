@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { Env } from '../types';
 import { getOnboardingState } from '../services/onboarding';
-import { ensureStarterDeck, generateStarterDeckAudio, STARTER_WORDS } from '../services/starter-deck';
+import { ensureStarterDeck, STARTER_WORDS } from '../services/starter-deck';
 
 /**
  * New-student onboarding: what the first-open screen shows, and the built-in
@@ -23,10 +23,7 @@ onboarding.get('/me/onboarding', async (c) => {
  */
 onboarding.post('/decks/starter', async (c) => {
   const user = c.get('user');
-  const result = await ensureStarterDeck(c.env.DB, user.id);
-  if (result.created && result.noteIds.length > 0) {
-    c.executionCtx.waitUntil(generateStarterDeckAudio(c.env, result.noteIds));
-  }
+  const result = await ensureStarterDeck(c.env, user.id, c.executionCtx);
   return c.json(
     { deck: result.deck, created: result.created, word_count: STARTER_WORDS.length },
     result.created ? 201 : 200

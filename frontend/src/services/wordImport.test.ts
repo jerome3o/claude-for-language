@@ -17,14 +17,14 @@ describe('runImport', () => {
     vi.mocked(updateNote).mockClear();
   });
 
-  it('creates new notes, updates changed ones, sets sentences via update, reports progress', async () => {
+  it('creates new notes (sentence included), updates changed ones, reports progress', async () => {
     const { rows } = parseWordList('苹果\tpíng guǒ\tapple\t我吃苹果。\n香蕉\txiāng jiāo\tbanana (fruit)\n葡萄');
     const plan = planImport(rows, existing, 'update');
     const progress: number[] = [];
     const out = await runImport('deck-1', plan, p => progress.push(p.done));
     expect(out).toEqual({ added: 1, updated: 1, failed: [] });
-    expect(createNote).toHaveBeenCalledWith('deck-1', { hanzi: '苹果', pinyin: 'píng guǒ', english: 'apple', fun_facts: undefined });
-    expect(updateNote).toHaveBeenCalledWith('new-苹果', { sentence_clue: '我吃苹果。' });
+    expect(createNote).toHaveBeenCalledWith('deck-1', { hanzi: '苹果', pinyin: 'píng guǒ', english: 'apple', fun_facts: undefined, sentence_clue: '我吃苹果。' });
+    expect(updateNote).not.toHaveBeenCalledWith('new-苹果', expect.anything());
     expect(updateNote).toHaveBeenCalledWith('n1', { english: 'banana (fruit)' });
     expect(progress[progress.length - 1]).toBe(2);
     // The incomplete row (葡萄) is a problem row and is not sent

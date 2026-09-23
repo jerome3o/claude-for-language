@@ -42,7 +42,7 @@ These are Jerome's stated preferences — respect them in all implementations:
 
 - **Study sessions**: Drill ALL cards due today in one sitting (endOfToday, not "right now"). Show the same card immediately after rating — no cooldown wait screen.
 - **Card types**: All three types (hanzi→meaning, meaning→hanzi, audio→hanzi) are fine as-is.
-- **New cards per day**: Default 20 per deck is acceptable (10 would also be fine).
+- **New cards per day**: A NEW deck gets 3 new words + 6 secondary (purple) cards a day (`DEFAULT_DECK_SETTINGS` in `shared/decks`), whichever path created it — including a tutor's copy landing in his account.
 - **Audio recordings**: Queue locally, upload during background sync (offline-first). Tutor should be able to listen to recordings.
 - **Offline mode**: Must work well on the train with low/no connection. Prefetch aggressively (audio, cards, etc.) — up to ~1GB is fine.
 - **Progress metrics**: Cards mastered, percentage through each deck, daily review counts. Goal: know at a glance if making good progress.
@@ -87,7 +87,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── src/
 │   │   ├── index.ts       # Main entry point, routes
 │   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, test-auth)
-│   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS)
+│   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS); services/content = the ONE write path for decks / notes / cards
 │   │   ├── db/            # Database queries and migrations (lesson-library-queries.ts for the library/editor)
 │   │   └── types.ts       # TypeScript types
 │   ├── wrangler.toml      # Cloudflare Worker config
@@ -109,6 +109,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
 │   │   └── index.ts       # Re-exports
+│   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
@@ -162,6 +163,37 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ```
 
 ## Key Concepts
+
+### Content service (decks, notes, cards) — the one write path
+
+`worker/src/services/content/` is the semantic layer every deck / note / card write goes through:
+
+```
+route / Ask-Claude tool / coach tool / queue job / MCP (via HTTP)  →  services/content  →  db/queries  →  D1
+```
+
+- `decks.ts` — `createDeck` (fills the row from the shared `DEFAULT_DECK_SETTINGS`), `updateDeck`,
+  `updateDeckSettings` (validated with `pickDeckSettings`; 400 + `problems` on bad values), `deleteDeck`
+  (tombstones + R2 clean-up), `copyDeckForUser` (tutor → student copies: a NEW deck with the defaults,
+  notes copied with their clips and fresh cards).
+- `notes.ts` — `createNote` / `createNotes` (validate, insert note + the 3 cards, then the side effects by
+  `audio` mode: `background` = waitUntil, `queue` = `note_audio` job, `await`, `none`; sentence set queued),
+  `updateNote` (a changed hanzi regenerates the word clip, a changed clue regenerates the sentence clip),
+  `deleteNote`, `moveNotes`.
+- `audio.ts` — `setNoteAudio` (store + propagate to student copies), `ensureNoteAudio`,
+  `ensureSentenceClueAudio`, `enqueueSentenceSet`, `deleteUnreferencedAudio` (a tutor's note and the
+  student's copy share R2 keys, so a delete only removes clips nothing else points at).
+- **New-deck defaults live in `shared/decks/defaults.ts`** (`DEFAULT_DECK_SETTINGS`: 3 new + 6 secondary
+  cards a day). Change them there and every creation path follows — the app, Generate with Claude, JSON
+  import, the starter deck, share / invite copies, the MCP tools. Existing decks are untouched. The D1
+  column DEFAULTs are legacy.
+- `db/queries.ts` is the raw SQL layer (`createDeck` takes the full settings row, `createNote` takes a
+  `NoteRowInput` incl. the sentence clue, `insertCardsForNote` is the single card generator,
+  `insertNoteCopy`, `moveNotes`). Nothing outside `services/content` should INSERT / UPDATE / DELETE
+  decks, notes or cards (exceptions: card *scheduling* writes from reviews, `routes/test-auth.ts` cleanup).
+- The MCP server never writes D1 for content: its deck / note tools call the API
+  (`POST /api/decks`, `PUT /api/decks/:id[/settings]`, `DELETE /api/decks/:id`, `POST /api/decks/:id/notes`,
+  `POST /api/decks/:id/notes/batch`, `PUT|DELETE /api/notes/:id`, `POST /api/notes/move`).
 
 ### Data Model
 - **Note**: The source of truth. Contains hanzi, pinyin, english, audio URL, fun facts.
@@ -549,14 +581,17 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `GET /api/decks` - List all decks
 - `POST /api/decks` - Create deck
 - `GET /api/decks/:id` - Get deck with notes
-- `PUT /api/decks/:id` - Update deck
-- `DELETE /api/decks/:id` - Delete deck
+- `PUT /api/decks/:id` - Update deck name / description
+- `PUT /api/decks/:id/settings` - Any subset of the deck settings (validated; 400 with `problems`)
+- `DELETE /api/decks/:id` - Delete deck (tombstones for every device; audio clean-up in the background)
 
 ### Notes
 - `GET /api/notes/:id` - Get note with cards
-- `POST /api/decks/:deckId/notes` - Create note (auto-generates TTS)
-- `PUT /api/notes/:id` - Update note
-- `DELETE /api/notes/:id` - Delete note
+- `POST /api/decks/:deckId/notes` - Create note (`hanzi`, `pinyin`, `english`, `fun_facts?`, `context?`, `sentence_clue?` + pinyin / translation, `alternatives?`); cards made, word + sentence TTS in the background, sentence set queued
+- `POST /api/decks/:deckId/notes/batch` - `{ notes: [...] }` (≤500) → `{ created, failed: [{ index, hanzi, error }] }`; audio queued
+- `PUT /api/notes/:id` - Update note (a changed hanzi gets a new word clip, a changed clue a new sentence clip)
+- `DELETE /api/notes/:id` - Delete note (tombstone; clips removed only if no copy references them)
+- `POST /api/notes/move` - `{ note_ids, deck_id }` move notes between your decks, cards and history kept
 - `GET /api/notes/:id/history` - Get review history and card stats
 - `POST /api/notes/:id/ask` - Ask Claude about a note
 - `GET /api/notes/:id/questions` - Get Q&A history
@@ -1025,14 +1060,14 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `list_decks` | List all decks with stats (note count, cards due, mastered) |
 | `get_deck` | Get a deck with all its notes |
 | `get_deck_progress` | Get detailed study progress for a deck |
-| `create_deck` | Create a new deck |
+| `create_deck` | Create a new deck (`POST /api/decks`; shared defaults: 3 new + 6 secondary cards a day) |
 | `update_deck` | Update deck name/description and SRS parameters (interval_modifier, request_retention, easy_interval, maximum_interval) |
 | `delete_deck` | Delete a deck and all its notes |
-| `add_note` | Add a vocabulary note (auto-generates TTS audio) |
-| `batch_add_notes` | Add multiple notes at once (more efficient for bulk operations) |
+| `add_note` | Add a vocabulary note incl. example sentence (`POST /api/decks/:id/notes`; TTS in the background) |
+| `batch_add_notes` | Add up to 500 notes in one `POST /api/decks/:id/notes/batch`; duplicates skipped, per-row failures listed |
 | `search_notes` | Search notes by hanzi/pinyin/english across all decks (or one deck) — check before adding to avoid duplicates |
 | `batch_search_notes` | Dedup-check many candidate words in one call — use instead of looping `search_notes` when clearing a whole homework list against existing notes |
-| `move_notes` | Move notes to a different deck, keeping SRS state and history |
+| `move_notes` | Move notes to a different deck, keeping SRS state and history (`POST /api/notes/move`) |
 | `update_note` | Update an existing note |
 | `delete_note` | Delete a note |
 | `get_note_cards` | Get all cards for a note with their SRS state |
@@ -1157,8 +1192,9 @@ cd mcp-server && npm run build:ui
 ```
 
 ### Notes on MCP Usage
-- When `add_note` is called, the MCP server automatically calls the main API to generate TTS audio
-- Notes created via MCP will have audio available for playback
+- The deck / note tools (`create_deck`, `update_deck`, `delete_deck`, `add_note`, `batch_add_notes`, `update_note`, `delete_note`, `move_notes`) call the main API, so the worker's content service makes the cards, generates TTS in the background (word + example sentence), queues the sentence set and writes deletion tombstones. The MCP server only reads D1 directly (lists, searches, duplicate pre-checks).
+- A deck created through MCP gets the shared new-deck defaults (3 new + 6 secondary cards a day)
+- Notes created via MCP have audio shortly after the call returns; the tool never waits for it
 - Use `get_note_history` to see a user's study progress and questions asked about a note
 
 ### Connecting to Claude.ai

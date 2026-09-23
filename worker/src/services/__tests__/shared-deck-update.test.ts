@@ -75,7 +75,7 @@ describe('updateSharedDeckCopy', () => {
 
     expect(result).toMatchObject({ added: 0, kept: 1, audio_filled: 1 });
     const update = db.getQueries().find((q) => q.sql.includes('UPDATE notes SET audio_url'));
-    expect(update?.params).toEqual(['/audio/s1.mp3', 't1']);
+    expect(update?.params).toEqual(['/audio/s1.mp3', null, 't1']);
     expect(db.getQueries().some((q) => q.sql.includes('INSERT INTO cards'))).toBe(false);
   });
 
