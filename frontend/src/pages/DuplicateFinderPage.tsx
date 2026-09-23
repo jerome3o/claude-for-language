@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom';
-import { db, LocalNote, LocalCard } from '../db/database';
+import { db, LocalNote, LocalCard, removeNotesLocally } from '../db/database';
 import { deleteNote } from '../api/client';
 import { syncService } from '../services/sync';
 import { Toast, useToast } from '../components/Toast';
@@ -92,11 +92,7 @@ export function DuplicateFinderPage() {
     setDeleting(prev => new Set(prev).add(noteId));
     try {
       await deleteNote(noteId);
-      await db.notes.delete(noteId);
-      const cards = cardsByNoteId.get(noteId) ?? [];
-      for (const card of cards) {
-        await db.cards.delete(card.id);
-      }
+      await removeNotesLocally([noteId]);
       setDeleted(prev => new Set(prev).add(noteId));
       syncService.syncEvents().catch(() => {});
     } catch (err) {
@@ -109,7 +105,7 @@ export function DuplicateFinderPage() {
         return next;
       });
     }
-  }, [cardsByNoteId, showToast]);
+  }, [showToast]);
 
   const handleDeleteAllDuplicates = useCallback(async () => {
     const toDelete: string[] = [];
@@ -126,11 +122,7 @@ export function DuplicateFinderPage() {
       setDeleting(prev => new Set(prev).add(noteId));
       try {
         await deleteNote(noteId);
-        await db.notes.delete(noteId);
-        const cards = cardsByNoteId.get(noteId) ?? [];
-        for (const card of cards) {
-          await db.cards.delete(card.id);
-        }
+        await removeNotesLocally([noteId]);
         setDeleted(prev => new Set(prev).add(noteId));
       } catch (err) {
         console.error('Failed to delete note:', noteId, err);
@@ -143,7 +135,7 @@ export function DuplicateFinderPage() {
       }
     }
     syncService.syncEvents().catch(() => {});
-  }, [duplicateGroups, cardsByNoteId]);
+  }, [duplicateGroups]);
 
   const isLoading = !allNotes || !allCards || !allReviewEvents;
 

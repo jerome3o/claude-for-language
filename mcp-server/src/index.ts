@@ -15,7 +15,8 @@ import { STUDY_APP_HTML } from "./app-html.js";
 import { appServer } from "./tools/apps.js";
 
 import type { Env, Props } from './types.js';
-import { ApiClient } from './api.js';
+import { ApiClient, ApiError } from './api.js';
+import { errorResult, guard, textResult, type ToolContext } from './tools/context.js';
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
 import { registerTutorApps } from './tools/apps.js';
@@ -32,6 +33,8 @@ interface Deck {
   id: string;
   name: string;
   description: string | null;
+  new_cards_per_day?: number;
+  secondary_cards_per_day?: number;
   interval_modifier: number;
   request_retention: number;
   easy_interval: number;
@@ -61,15 +64,32 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
-const CARD_TYPES = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const;
+/** The daily new-card budgets a freshly created deck gets (shared/decks defaults, applied by the API). */
+const NEW_DECK_DEFAULTS = { new_cards_per_day: 3, secondary_cards_per_day: 6 } as const;
 
-// Background TTS queue tuning (see processTtsQueue).
-const TTS_CHUNK_SIZE = 8;          // notes processed per scheduled alarm run
-const TTS_MAX_ATTEMPTS = 5;        // per-note retries before giving up
-const TTS_RETRY_DELAY_SECONDS = 2; // delay before processing the next chunk
+/** Deck scheduling fields `update_deck` accepts; each goes to PUT /api/decks/:id/settings. */
+const DECK_SETTING_FIELDS = ['new_cards_per_day', 'secondary_cards_per_day', 'interval_modifier', 'request_retention', 'easy_interval', 'maximum_interval'] as const;
 
-type TtsQueueItem = { id: string; attempts: number };
-type TtsQueuePayload = { userId: string; items: TtsQueueItem[] };
+/** Fields `update_note` may change through PUT /api/notes/:id. */
+const NOTE_PATCH_FIELDS = ['hanzi', 'pinyin', 'english', 'fun_facts', 'sentence_clue', 'sentence_clue_pinyin', 'sentence_clue_translation'] as const;
+
+/** Only the keys whose value was given, so an omitted field is left alone by the API. */
+function definedFields<T extends Record<string, unknown>>(input: T, keys: readonly (keyof T)[]): Partial<T> {
+  const out: Partial<T> = {};
+  for (const key of keys) {
+    if (input[key] !== undefined) out[key] = input[key];
+  }
+  return out;
+}
+
+/** The `problems` list of a 400 from the content service, one per line, or ''. */
+function problemLines(err: ApiError): string {
+  const body = err.body as { problems?: unknown } | null;
+  if (!body || typeof body !== 'object' || !Array.isArray(body.problems)) return '';
+  return '\n- ' + body.problems
+    .map((p: unknown) => (typeof p === 'string' ? p : p && typeof p === 'object' && 'message' in p ? `${'field' in p ? `${(p as { field: string }).field}: ` : ''}${(p as { message: string }).message}` : JSON.stringify(p)))
+    .join('\n- ');
+}
 
 // Legacy class (non-SQLite) - kept for migration compatibility
 export class ChineseLearningMCP extends McpAgent<Env, Record<string, never>, Props> {
@@ -84,144 +104,22 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     version: "1.0.0",
   });
 
-  /**
-   * Create a temporary session token for authenticated API calls.
-   * The MCP server needs to call the main API for operations like TTS generation,
-   * but the API requires authentication. This creates a short-lived session.
-   */
-  private async getApiSessionToken(userId: string): Promise<string> {
-    const sessionId = generateId();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 min expiry
-
-    await this.env.DB
-      .prepare('INSERT INTO auth_sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
-      .bind(sessionId, userId, expiresAt)
-      .run();
-
-    return sessionId;
-  }
-
-  /**
-   * Clean up a temporary session token after use.
-   */
-  private async cleanupSessionToken(sessionId: string): Promise<void> {
-    try {
-      await this.env.DB
-        .prepare('DELETE FROM auth_sessions WHERE id = ?')
-        .bind(sessionId)
-        .run();
-    } catch (e) {
-      console.error('Failed to cleanup session token:', e);
-    }
-  }
-
-  /**
-   * Get the base URL for the main API.
-   */
-  private getApiUrl(): string {
-    return this.env.ENVIRONMENT === 'production'
-      ? 'https://chinese-learning-api.jeromeswannack.workers.dev'
-      : 'http://localhost:8787';
-  }
-
-  /**
-   * Call the generate-audio API endpoint with proper authentication.
-   */
-  private async generateAudioForNote(noteId: string, userId: string): Promise<boolean> {
-    let sessionToken: string | null = null;
-    try {
-      sessionToken = await this.getApiSessionToken(userId);
-      const response = await fetch(`${this.getApiUrl()}/api/notes/${noteId}/generate-audio`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${sessionToken}`,
-        },
-      });
-      return response.ok;
-    } catch (e) {
-      console.error('Failed to generate audio:', e);
-      return false;
-    } finally {
-      if (sessionToken) {
-        await this.cleanupSessionToken(sessionToken);
-      }
-    }
-  }
-
-  /**
-   * Durable background TTS generation, driven by the Agents scheduler.
-   *
-   * `batch_add_notes` enqueues the inserted note IDs via `this.schedule(...)`,
-   * which persists the task in the Durable Object's storage and fires it via
-   * an alarm — so it survives eviction and never blocks (or times out) the
-   * tool response.
-   *
-   * The Agents runtime catches exceptions thrown by a scheduled callback and
-   * then deletes the schedule, so it does NOT retry a failed callback on its
-   * own. We therefore drive retries ourselves: each run processes a small
-   * chunk (bounded so a single alarm stays well within limits) and
-   * re-schedules whatever is left plus any failures, up to a per-note attempt
-   * cap. Notes that never succeed are left with audio_url = null and can be
-   * backfilled via the existing "generate audio" (🔊+) button.
-   */
-  async processTtsQueue(payload: TtsQueuePayload): Promise<void> {
-    const items = payload?.items ?? [];
-    if (items.length === 0) return;
-
-    const chunk = items.slice(0, TTS_CHUNK_SIZE);
-    const rest = items.slice(TTS_CHUNK_SIZE);
-    const retry: TtsQueueItem[] = [];
-
-    const requeueOnFailure = (item: TtsQueueItem) => {
-      const attempts = item.attempts + 1;
-      if (attempts < TTS_MAX_ATTEMPTS) {
-        retry.push({ id: item.id, attempts });
-      } else {
-        console.error(`Giving up on TTS for note ${item.id} after ${attempts} attempts`);
-      }
-    };
-
-    let sessionToken: string | null = null;
-    try {
-      sessionToken = await this.getApiSessionToken(payload.userId);
-      const apiUrl = this.getApiUrl();
-      // Sequential to avoid hammering the TTS provider with one shared session.
-      for (const item of chunk) {
-        let ok = false;
-        try {
-          const res = await fetch(`${apiUrl}/api/notes/${item.id}/generate-audio`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${sessionToken}` },
-          });
-          ok = res.ok;
-        } catch (e) {
-          console.error(`TTS generation errored for note ${item.id}:`, e);
-        }
-        if (!ok) requeueOnFailure(item);
-      }
-    } catch (e) {
-      // Couldn't even get a session token — retry the whole chunk later.
-      console.error('TTS queue processing failed to start:', e);
-      for (const item of chunk) requeueOnFailure(item);
-    } finally {
-      if (sessionToken) {
-        await this.cleanupSessionToken(sessionToken);
-      }
-    }
-
-    const remaining = [...rest, ...retry];
-    if (remaining.length > 0) {
-      // Re-schedule the remainder. This new task is persisted independently,
-      // so progress is never lost if the DO is evicted between chunks.
-      await this.schedule(TTS_RETRY_DELAY_SECONDS, "processTtsQueue", {
-        userId: payload.userId,
-        items: remaining,
-      });
-    }
-  }
-
   async init() {
     const userId = this.props!.userId;
+
+    // Every write to decks / notes / cards goes through the main API as this
+    // user (the worker's content service owns card generation, tombstones,
+    // TTS and the sentence-set queue). The legacy tools below and the tutor
+    // tool modules at the end share this one context.
+    const ctx: ToolContext = {
+      server: this.server,
+      env: this.env,
+      userId,
+      userName: this.props!.userName,
+      userEmail: this.props!.userEmail,
+      api: new ApiClient(this.env, userId),
+    };
+    const api = ctx.api;
 
     // ============ Deck Tools ============
 
@@ -393,30 +291,15 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "create_deck",
-      "Create a new vocabulary deck",
+      `Create a new vocabulary deck. New decks default to ${NEW_DECK_DEFAULTS.new_cards_per_day} new cards + ${NEW_DECK_DEFAULTS.secondary_cards_per_day} secondary cards a day (change them with update_deck).`,
       {
         name: z.string().describe("Name of the deck"),
         description: z.string().optional().describe("Description of the deck"),
       },
-      async ({ name, description }) => {
-        const id = generateId();
-        await this.env.DB
-          .prepare('INSERT INTO decks (id, user_id, name, description) VALUES (?, ?, ?, ?)')
-          .bind(id, userId, name, description || null)
-          .run();
-
-        const deck = await this.env.DB
-          .prepare('SELECT * FROM decks WHERE id = ?')
-          .bind(id)
-          .first<Deck>();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Created deck: ${JSON.stringify(deck, null, 2)}`,
-          }],
-        };
-      }
+      async ({ name, description }) => guard(async () => {
+        const deck = await api.post<Deck>('/api/decks', { name, description });
+        return textResult(`Created deck: ${JSON.stringify(deck, null, 2)}`);
+      })
     );
 
     this.server.tool(
@@ -426,125 +309,64 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
         deck_id: z.string().describe("The deck ID"),
         name: z.string().optional().describe("New name for the deck"),
         description: z.string().optional().describe("New description for the deck"),
-        new_cards_per_day: z.number().int().min(0).optional().describe("Maximum number of new cards introduced per day (default: 30)"),
-        secondary_cards_per_day: z.number().int().min(0).optional().describe("Daily quota for secondary new cards — new cards whose note already has a reviewed card. Additive to new_cards_per_day (default: 10)"),
+        new_cards_per_day: z.number().int().min(0).optional().describe(`Maximum number of new cards introduced per day (new decks start at ${NEW_DECK_DEFAULTS.new_cards_per_day})`),
+        secondary_cards_per_day: z.number().int().min(0).optional().describe(`Daily quota for secondary new cards — new cards whose note already has a reviewed card. Additive to new_cards_per_day (new decks start at ${NEW_DECK_DEFAULTS.secondary_cards_per_day})`),
         interval_modifier: z.number().optional().describe("Multiplier for review intervals as percentage (e.g., 100 = default, 110 = 10% longer)"),
         request_retention: z.number().optional().describe("Target retention rate (e.g., 0.85 = 85%). Range: 0.7 to 0.97"),
         easy_interval: z.number().optional().describe("Interval in days for cards rated easy"),
         maximum_interval: z.number().optional().describe("Maximum review interval in days"),
       },
-      async ({ deck_id, name, description, new_cards_per_day, secondary_cards_per_day, interval_modifier, request_retention, easy_interval, maximum_interval }) => {
-        const existing = await this.env.DB
-          .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
-          .bind(deck_id, userId)
-          .first<Deck>();
-
-        if (!existing) {
-          return {
-            content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
-            isError: true,
-          };
+      async ({ deck_id, ...fields }) => guard(async () => {
+        const details = definedFields(fields, ['name', 'description']);
+        const settings = definedFields(fields, DECK_SETTING_FIELDS);
+        if (Object.keys(details).length === 0 && Object.keys(settings).length === 0) {
+          return errorResult("No updates provided");
         }
 
-        const updates: string[] = [];
-        const values: (string | number | null)[] = [];
-
-        if (name !== undefined) {
-          updates.push('name = ?');
-          values.push(name);
+        let deck: Deck | null = null;
+        if (Object.keys(details).length > 0) {
+          deck = await api.put<Deck>(`/api/decks/${encodeURIComponent(deck_id)}`, details);
         }
-        if (description !== undefined) {
-          updates.push('description = ?');
-          values.push(description);
-        }
-        if (new_cards_per_day !== undefined) {
-          updates.push('new_cards_per_day = ?');
-          values.push(new_cards_per_day);
-        }
-        if (secondary_cards_per_day !== undefined) {
-          updates.push('secondary_cards_per_day = ?');
-          values.push(secondary_cards_per_day);
-        }
-        if (interval_modifier !== undefined) {
-          updates.push('interval_modifier = ?');
-          values.push(interval_modifier);
-        }
-        if (request_retention !== undefined) {
-          updates.push('request_retention = ?');
-          values.push(request_retention);
-        }
-        if (easy_interval !== undefined) {
-          updates.push('easy_interval = ?');
-          values.push(easy_interval);
-        }
-        if (maximum_interval !== undefined) {
-          updates.push('maximum_interval = ?');
-          values.push(maximum_interval);
+        if (Object.keys(settings).length > 0) {
+          try {
+            deck = await api.put<Deck>(`/api/decks/${encodeURIComponent(deck_id)}/settings`, settings);
+          } catch (err) {
+            if (err instanceof ApiError && deck) {
+              // Name/description already landed; say so rather than hiding it.
+              return errorResult(`Deck name/description updated, but the settings were rejected: ${err.message} (HTTP ${err.status})${problemLines(err)}`);
+            }
+            if (err instanceof ApiError && err.status === 400) {
+              return errorResult(`Settings rejected: ${err.message}${problemLines(err)}`);
+            }
+            throw err;
+          }
         }
 
-        if (updates.length === 0) {
-          return {
-            content: [{ type: "text" as const, text: "No updates provided" }],
-            isError: true,
-          };
-        }
-
-        updates.push("updated_at = datetime('now')");
-        values.push(deck_id);
-
-        await this.env.DB
-          .prepare(`UPDATE decks SET ${updates.join(', ')} WHERE id = ?`)
-          .bind(...values)
-          .run();
-
-        const deck = await this.env.DB
-          .prepare('SELECT * FROM decks WHERE id = ?')
-          .bind(deck_id)
-          .first<Deck>();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Updated deck: ${JSON.stringify(deck, null, 2)}`,
-          }],
-        };
-      }
+        return textResult(`Updated deck: ${JSON.stringify(deck, null, 2)}`);
+      })
     );
 
     this.server.tool(
       "delete_deck",
       "Delete a deck and all its notes/cards",
       { deck_id: z.string().describe("The deck ID to delete") },
-      async ({ deck_id }) => {
+      async ({ deck_id }) => guard(async () => {
+        // Read-only pre-check: the API's delete is a silent no-op for a deck
+        // that isn't the caller's, and the name makes a better confirmation.
         const deck = await this.env.DB
-          .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
+          .prepare('SELECT id, name FROM decks WHERE id = ? AND user_id = ?')
           .bind(deck_id, userId)
-          .first<Deck>();
+          .first<Pick<Deck, 'id' | 'name'>>();
 
         if (!deck) {
-          return {
-            content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
-            isError: true,
-          };
+          return errorResult(`Deck not found: ${deck_id}`);
         }
 
-        // Tombstones first (deck + its notes) so every device drops it on sync.
-        const noteRows = await this.env.DB.prepare('SELECT id FROM notes WHERE deck_id = ?').bind(deck_id).all<{ id: string }>();
-        const tomb = this.env.DB.prepare('INSERT INTO deleted_items (id, user_id, kind, item_id) VALUES (?, ?, ?, ?)');
-        const tombRows = [tomb.bind(crypto.randomUUID(), userId, 'deck', deck_id), ...(noteRows.results || []).map(n => tomb.bind(crypto.randomUUID(), userId, 'note', n.id))];
-        for (let i = 0; i < tombRows.length; i += 50) await this.env.DB.batch(tombRows.slice(i, i + 50));
-        await this.env.DB
-          .prepare('DELETE FROM decks WHERE id = ?')
-          .bind(deck_id)
-          .run();
+        // The API writes the tombstones (deck + notes) and cleans up audio.
+        await api.delete(`/api/decks/${encodeURIComponent(deck_id)}`);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Deleted deck: "${deck.name}" (${deck_id})`,
-          }],
-        };
-      }
+        return textResult(`Deleted deck: "${deck.name}" (${deck_id})`);
+      })
     );
 
     // ============ Lesson Notes (external tutor homework) ============
@@ -627,39 +449,18 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
           exercises: z.array(z.record(z.unknown())).describe("Exercise objects as documented in the tool description"),
         })).describe("Ordered sections of exercises"),
       },
-      async ({ title, icon, description, sections }) => {
-        const sessionToken = await this.getApiSessionToken(userId);
+      async ({ title, icon, description, sections }) => guard(async () => {
+        // The main API is the single write path: it validates the spec and
+        // queues illustration generation for describe_image exercises.
+        let data: { id?: string; image_jobs?: number };
         try {
-          // The main API is the single write path: it validates the spec and
-          // queues illustration generation for describe_image exercises.
-          const response = await fetch(`${this.getApiUrl()}/api/custom-lessons`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${sessionToken}`,
-            },
-            body: JSON.stringify({ spec: { title, icon, description, sections } }),
-          });
-          const data = await response.json() as { id?: string; image_jobs?: number; error?: string; problems?: string[] };
-          if (!response.ok) {
-            return {
-              content: [{
-                type: "text" as const,
-                text: `Lesson rejected: ${data.error || response.status}${data.problems ? `\n- ${data.problems.join('\n- ')}` : ''}`,
-              }],
-              isError: true,
-            };
-          }
-          return {
-            content: [{
-              type: "text" as const,
-              text: `Created custom lesson "${title}" (id=${data.id}). It will appear in the user's next study session.${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}`,
-            }],
-          };
-        } finally {
-          await this.cleanupSessionToken(sessionToken);
+          data = await api.post<{ id?: string; image_jobs?: number }>('/api/custom-lessons', { spec: { title, icon, description, sections } });
+        } catch (err) {
+          if (err instanceof ApiError) return errorResult(`Lesson rejected: ${err.message}${problemLines(err)}`);
+          throw err;
         }
-      }
+        return textResult(`Created custom lesson "${title}" (id=${data.id}). It will appear in the user's next study session.${data.image_jobs ? ` ${data.image_jobs} illustration(s) generating in the background.` : ''}`);
+      })
     );
 
     this.server.tool(
@@ -739,46 +540,25 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
           exercises: z.array(z.record(z.unknown())).describe("Exercise objects as documented in create_custom_lesson"),
         })).describe("The complete, updated list of sections"),
       },
-      async ({ lesson_id, title, icon, description, sections }) => {
-        const sessionToken = await this.getApiSessionToken(userId);
+      async ({ lesson_id, title, icon, description, sections }) => guard(async () => {
+        // Same single write path as create: the main API validates the spec,
+        // preserves generated illustrations, and queues any new ones.
+        let data: { id?: string; image_jobs?: number };
         try {
-          // Same single write path as create: the main API validates the spec,
-          // preserves generated illustrations, and queues any new ones.
-          const response = await fetch(`${this.getApiUrl()}/api/custom-lessons/${encodeURIComponent(lesson_id)}`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${sessionToken}`,
-            },
-            body: JSON.stringify({ spec: { title, icon, description, sections } }),
-          });
-          const data = await response.json() as { id?: string; image_jobs?: number; error?: string; problems?: string[] };
-          if (!response.ok) {
-            return {
-              content: [{
-                type: "text" as const,
-                text: `Update rejected: ${data.error || response.status}${data.problems ? `\n- ${data.problems.join('\n- ')}` : ''}`,
-              }],
-              isError: true,
-            };
-          }
-          return {
-            content: [{
-              type: "text" as const,
-              text: `Updated custom lesson "${title}" (id=${lesson_id}). The user's device picks up the new content on its next sync; completion history and scheduling are unchanged.${data.image_jobs ? ` ${data.image_jobs} new illustration(s) generating in the background.` : ''}`,
-            }],
-          };
-        } finally {
-          await this.cleanupSessionToken(sessionToken);
+          data = await api.put<{ id?: string; image_jobs?: number }>(`/api/custom-lessons/${encodeURIComponent(lesson_id)}`, { spec: { title, icon, description, sections } });
+        } catch (err) {
+          if (err instanceof ApiError) return errorResult(`Update rejected: ${err.message}${problemLines(err)}`);
+          throw err;
         }
-      }
+        return textResult(`Updated custom lesson "${title}" (id=${lesson_id}). The user's device picks up the new content on its next sync; completion history and scheduling are unchanged.${data.image_jobs ? ` ${data.image_jobs} new illustration(s) generating in the background.` : ''}`);
+      })
     );
 
     // ============ Note Tools ============
 
     this.server.tool(
       "add_note",
-      "Add a vocabulary note to a deck (creates 3 cards automatically)",
+      "Add a vocabulary note to a deck (creates 3 cards automatically). TTS audio for the word and its example sentence is generated in the background — the note is usable at once and audio_url fills in shortly after. Pinyin must use tone marks (nǐ hǎo); tone numbers are rejected.",
       {
         deck_id: z.string().describe("The deck ID"),
         hanzi: z.string().describe("Chinese characters (simplified)"),
@@ -789,68 +569,37 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
         sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
         sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
       },
-      async ({ deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation }) => {
-        const deck = await this.env.DB
-          .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
-          .bind(deck_id, userId)
-          .first();
-
-        if (!deck) {
-          return {
-            content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
-            isError: true,
-          };
-        }
-
+      async ({ deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation }) => guard(async () => {
+        // Read-only pre-check across every deck the user owns; the API itself
+        // only rejects duplicates within a deck.
         const existing = await this.env.DB
           .prepare('SELECT n.id FROM notes n JOIN decks d ON n.deck_id = d.id WHERE d.user_id = ? AND n.hanzi = ?')
           .bind(userId, hanzi)
           .first();
 
         if (existing) {
-          return {
-            content: [{ type: "text" as const, text: `Duplicate hanzi: "${hanzi}" already exists in your decks. Skipping to avoid duplicates.` }],
-            isError: true,
-          };
+          return errorResult(`Duplicate hanzi: "${hanzi}" already exists in your decks. Skipping to avoid duplicates.`);
         }
 
-        const noteId = generateId();
+        // The API creates the note + 3 cards, validates the pinyin, starts
+        // TTS for the word and the sentence, and queues the sentence set.
+        const note = await api.post<Note>(`/api/decks/${encodeURIComponent(deck_id)}/notes`, {
+          hanzi,
+          pinyin,
+          english,
+          fun_facts,
+          sentence_clue,
+          sentence_clue_pinyin,
+          sentence_clue_translation,
+        });
 
-        await this.env.DB
-          .prepare(
-            'INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          )
-          .bind(noteId, deck_id, hanzi, pinyin, english, fun_facts || null, sentence_clue || null, sentence_clue_pinyin || null, sentence_clue_translation || null)
-          .run();
-
-        for (const cardType of CARD_TYPES) {
-          const cardId = generateId();
-          await this.env.DB
-            .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
-            .bind(cardId, noteId, cardType)
-            .run();
-        }
-
-        await this.env.DB
-          .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-          .bind(deck_id)
-          .run();
-
-        // Generate TTS audio via main API (with proper authentication)
-        const audioGenerated = await this.generateAudioForNote(noteId, userId);
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Added note: ${hanzi} (${pinyin}) - ${english}${audioGenerated ? ' (with audio)' : ' (audio generation pending)'}`,
-          }],
-        };
-      }
+        return textResult(`Added note: ${note.hanzi} (${note.pinyin}) - ${note.english} (id=${note.id}). Audio is being generated in the background.`);
+      })
     );
 
     this.server.tool(
       "batch_add_notes",
-      "Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly)",
+      "Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly; up to 500 per call). Each note gets 3 cards; TTS audio is queued server-side and fills in shortly after, so the call returns without waiting. Hanzi already in any of your decks (or repeated in the request) are skipped; a note the API rejects (missing field, tone-number pinyin) is listed under failed while the rest are created.",
       {
         deck_id: z.string().describe("The deck ID"),
         notes: z.array(z.object({
@@ -861,126 +610,63 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
           sentence_clue: z.string().optional().describe("A contextual example sentence (in Chinese) that helps disambiguate this word from similar-sounding words"),
           sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
           sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
-        })).describe("Array of notes to add"),
+        })).min(1).max(500).describe("Array of notes to add (max 500)"),
       },
-      async ({ deck_id, notes }) => {
-        const deck = await this.env.DB
-          .prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?')
-          .bind(deck_id, userId)
-          .first();
-
-        if (!deck) {
-          return {
-            content: [{ type: "text" as const, text: `Deck not found: ${deck_id}` }],
-            isError: true,
-          };
-        }
-
-        // Find which hanzi already exist across all user decks
+      async ({ deck_id, notes }) => guard(async () => {
+        // Read-only pre-check: which hanzi already exist across all the user's decks.
         const incomingHanzi = notes.map(n => n.hanzi);
         const placeholders = incomingHanzi.map(() => '?').join(', ');
         const existingRows = await this.env.DB
           .prepare(`SELECT n.hanzi FROM notes n JOIN decks d ON n.deck_id = d.id WHERE d.user_id = ? AND n.hanzi IN (${placeholders})`)
           .bind(userId, ...incomingHanzi)
-          .all();
-        const duplicateHanziSet = new Set((existingRows.results as { hanzi: string }[]).map(r => r.hanzi));
+          .all<{ hanzi: string }>();
+        const duplicateHanziSet = new Set((existingRows.results || []).map(r => r.hanzi));
 
-        const results: { hanzi: string; pinyin: string; success: boolean; skipped?: boolean }[] = [];
-        const noteIds: string[] = [];
-        // Track hanzi inserted within THIS batch so repeated hanzi in the same
-        // call don't create duplicates (the pre-check above only catches hanzi
-        // that already existed in the DB before this call).
+        // Repeated hanzi within THIS call are also skipped (the pre-check only
+        // sees what was in the DB before the call).
         const seenInBatch = new Set<string>();
-
-        // Build all insert statements first, then commit them in a single
-        // atomic D1 batch. This (a) is much faster than awaiting each statement
-        // sequentially, and (b) is transactional — either every note in the
-        // batch is committed or none are, so a failure can't leave a partial
-        // batch behind. TTS audio is generated AFTERWARDS in the background, so
-        // the request never blocks on external TTS latency and can't time out
-        // mid-batch (which previously left notes committed while the caller saw
-        // an error and retried, creating duplicates).
-        const statements: D1PreparedStatement[] = [];
+        const skipped: { hanzi: string; pinyin: string }[] = [];
+        const toCreate: typeof notes = [];
         for (const note of notes) {
           if (duplicateHanziSet.has(note.hanzi) || seenInBatch.has(note.hanzi)) {
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: false, skipped: true });
+            skipped.push({ hanzi: note.hanzi, pinyin: note.pinyin });
             continue;
           }
-          const noteId = generateId();
           seenInBatch.add(note.hanzi);
-          noteIds.push(noteId);
-
-          statements.push(
-            this.env.DB
-              .prepare('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-              .bind(noteId, deck_id, note.hanzi, note.pinyin, note.english, note.fun_facts || null, note.sentence_clue || null, note.sentence_clue_pinyin || null, note.sentence_clue_translation || null)
-          );
-          for (const cardType of CARD_TYPES) {
-            statements.push(
-              this.env.DB
-                .prepare('INSERT INTO cards (id, note_id, card_type) VALUES (?, ?, ?)')
-                .bind(generateId(), noteId, cardType)
-            );
-          }
-
-          results.push({ hanzi: note.hanzi, pinyin: note.pinyin, success: true });
+          toCreate.push(note);
         }
 
-        if (statements.length > 0) {
-          // Bump the deck timestamp as part of the same atomic batch.
-          statements.push(
-            this.env.DB
-              .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-              .bind(deck_id)
+        // One request: the API creates each note with its cards, records
+        // per-row failures, and queues TTS + sentence sets in the background.
+        let created: Note[] = [];
+        let failed: { index: number; hanzi: string; error: string }[] = [];
+        if (toCreate.length > 0) {
+          const result = await api.post<{ created: Note[]; failed: { index: number; hanzi: string; error: string }[] }>(
+            `/api/decks/${encodeURIComponent(deck_id)}/notes/batch`,
+            { notes: toCreate },
           );
-          try {
-            await this.env.DB.batch(statements);
-          } catch (e) {
-            console.error('Failed to insert note batch:', e);
-            return {
-              content: [{
-                type: "text" as const,
-                text: `Failed to add notes (database error, nothing was saved): ${e instanceof Error ? e.message : String(e)}`,
-              }],
-              isError: true,
-            };
-          }
-
-          // Durably enqueue TTS generation. The Agents scheduler persists this
-          // task in the Durable Object's storage and runs it via an alarm, so
-          // it survives eviction and is processed in chunks with retries —
-          // even large batches eventually get audio without blocking (or
-          // timing out) this response. Notes are usable immediately; audio_url
-          // fills in shortly after.
-          await this.schedule(0, "processTtsQueue", {
-            userId,
-            items: noteIds.map((id) => ({ id, attempts: 0 })),
-          } satisfies TtsQueuePayload);
+          created = result.created ?? [];
+          failed = result.failed ?? [];
         }
 
-        const successful = results.filter(r => r.success);
-        const skipped = results.filter(r => r.skipped);
-
-        let summary = `Added ${successful.length}/${notes.length} notes:\n${successful.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
-        if (successful.length > 0) {
+        let summary = `Added ${created.length}/${notes.length} notes:\n${created.map(n => `  - ${n.hanzi} (${n.pinyin})`).join('\n')}`;
+        if (created.length > 0) {
           summary += `\n\nAudio is being generated in the background and will be available shortly.`;
+        }
+        if (failed.length > 0) {
+          summary += `\n\nFailed ${failed.length} (not saved):\n${failed.map(f => `  - ${f.hanzi}: ${f.error}`).join('\n')}`;
         }
         if (skipped.length > 0) {
           summary += `\n\nSkipped ${skipped.length} duplicate(s) (hanzi already exists in your decks or appeared more than once in this request):\n${skipped.map(r => `  - ${r.hanzi} (${r.pinyin})`).join('\n')}`;
         }
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: summary,
-          }],
-        };
-      }
+        return textResult(summary);
+      })
     );
 
     this.server.tool(
       "update_note",
-      "Update an existing note",
+      "Update an existing note. Only the fields given change. A changed hanzi gets a new word clip and a changed sentence_clue a new sentence clip, both generated in the background.",
       {
         note_id: z.string().describe("The note ID"),
         hanzi: z.string().optional().describe("New Chinese characters"),
@@ -991,131 +677,43 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
         sentence_clue_pinyin: z.string().optional().describe("Pinyin for the sentence clue"),
         sentence_clue_translation: z.string().optional().describe("English translation of the sentence clue"),
       },
-      async ({ note_id, hanzi, pinyin, english, fun_facts, sentence_clue, sentence_clue_pinyin, sentence_clue_translation }) => {
-        const note = await this.env.DB
-          .prepare(`
-            SELECT n.* FROM notes n
-            JOIN decks d ON n.deck_id = d.id
-            WHERE n.id = ? AND d.user_id = ?
-          `)
-          .bind(note_id, userId)
-          .first<Note>();
-
-        if (!note) {
-          return {
-            content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
-            isError: true,
-          };
+      async ({ note_id, ...fields }) => guard(async () => {
+        const patch = definedFields(fields, NOTE_PATCH_FIELDS);
+        if (Object.keys(patch).length === 0) {
+          return errorResult("No updates provided");
         }
 
-        const updates: string[] = [];
-        const values: (string | null)[] = [];
+        // Ownership is checked by the API (404 when the note isn't the user's).
+        const updatedNote = await api.put<Note>(`/api/notes/${encodeURIComponent(note_id)}`, patch);
 
-        if (hanzi !== undefined) {
-          updates.push('hanzi = ?');
-          values.push(hanzi);
-        }
-        if (pinyin !== undefined) {
-          updates.push('pinyin = ?');
-          values.push(pinyin);
-        }
-        if (english !== undefined) {
-          updates.push('english = ?');
-          values.push(english);
-        }
-        if (fun_facts !== undefined) {
-          updates.push('fun_facts = ?');
-          values.push(fun_facts);
-        }
-        if (sentence_clue !== undefined) {
-          updates.push('sentence_clue = ?');
-          values.push(sentence_clue);
-        }
-        if (sentence_clue_pinyin !== undefined) {
-          updates.push('sentence_clue_pinyin = ?');
-          values.push(sentence_clue_pinyin);
-        }
-        if (sentence_clue_translation !== undefined) {
-          updates.push('sentence_clue_translation = ?');
-          values.push(sentence_clue_translation);
-        }
-
-        if (updates.length === 0) {
-          return {
-            content: [{ type: "text" as const, text: "No updates provided" }],
-            isError: true,
-          };
-        }
-
-        updates.push("updated_at = datetime('now')");
-        values.push(note_id);
-
-        await this.env.DB
-          .prepare(`UPDATE notes SET ${updates.join(', ')} WHERE id = ?`)
-          .bind(...values)
-          .run();
-
-        await this.env.DB
-          .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-          .bind(note.deck_id)
-          .run();
-
-        const updatedNote = await this.env.DB
-          .prepare('SELECT * FROM notes WHERE id = ?')
-          .bind(note_id)
-          .first<Note>();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Updated note: ${JSON.stringify(updatedNote, null, 2)}`,
-          }],
-        };
-      }
+        return textResult(`Updated note: ${JSON.stringify(updatedNote, null, 2)}`);
+      })
     );
 
     this.server.tool(
       "delete_note",
       "Delete a note and its cards",
       { note_id: z.string().describe("The note ID to delete") },
-      async ({ note_id }) => {
+      async ({ note_id }) => guard(async () => {
+        // Read-only pre-check so the confirmation can name the word.
         const note = await this.env.DB
           .prepare(`
-            SELECT n.* FROM notes n
+            SELECT n.id, n.hanzi, n.pinyin FROM notes n
             JOIN decks d ON n.deck_id = d.id
             WHERE n.id = ? AND d.user_id = ?
           `)
           .bind(note_id, userId)
-          .first<Note>();
+          .first<Pick<Note, 'id' | 'hanzi' | 'pinyin'>>();
 
         if (!note) {
-          return {
-            content: [{ type: "text" as const, text: `Note not found: ${note_id}` }],
-            isError: true,
-          };
+          return errorResult(`Note not found: ${note_id}`);
         }
 
-        await this.env.DB
-          .prepare('DELETE FROM notes WHERE id = ?')
-          .bind(note_id)
-          .run();
-        await this.env.DB
-          .prepare('INSERT INTO deleted_items (id, user_id, kind, item_id) VALUES (?, ?, ?, ?)')
-          .bind(crypto.randomUUID(), userId, 'note', note_id)
-          .run();
+        // The API writes the tombstone and bumps the deck for sync.
+        await api.delete(`/api/notes/${encodeURIComponent(note_id)}`);
 
-        await this.env.DB
-          .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-          .bind(note.deck_id)
-          .run();
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Deleted note: ${note.hanzi} (${note.pinyin})`,
-          }],
-        };
-      }
+        return textResult(`Deleted note: ${note.hanzi} (${note.pinyin})`);
+      })
     );
 
     this.server.tool(
@@ -1210,91 +808,37 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
       "move_notes",
       "Move one or more notes to a different deck. Cards keep all their SRS state, review history, and scheduling. Useful for reorganizing decks.",
       {
-        note_ids: z.array(z.string()).describe("Array of note IDs to move"),
+        note_ids: z.array(z.string()).min(1).describe("Array of note IDs to move"),
         target_deck_id: z.string().describe("The destination deck ID"),
       },
-      async ({ note_ids, target_deck_id }) => {
-        // Verify target deck exists and belongs to user
+      async ({ note_ids, target_deck_id }) => guard(async () => {
+        // Read-only pre-check so the summary can name the deck; the API 404s
+        // when the target deck isn't the caller's.
         const targetDeck = await this.env.DB
           .prepare('SELECT id, name FROM decks WHERE id = ? AND user_id = ?')
           .bind(target_deck_id, userId)
           .first<{ id: string; name: string }>();
 
         if (!targetDeck) {
-          return {
-            content: [{ type: "text" as const, text: `Target deck not found: ${target_deck_id}` }],
-            isError: true,
-          };
+          return errorResult(`Target deck not found: ${target_deck_id}`);
         }
 
-        const results: { hanzi: string; pinyin: string; from_deck: string; success: boolean; error?: string }[] = [];
-        const affectedDeckIds = new Set<string>();
-        affectedDeckIds.add(target_deck_id);
-
-        for (const noteId of note_ids) {
-          // Verify note exists and belongs to user
-          const note = await this.env.DB
-            .prepare(`
-              SELECT n.*, d.name as deck_name FROM notes n
-              JOIN decks d ON n.deck_id = d.id
-              WHERE n.id = ? AND d.user_id = ?
-            `)
-            .bind(noteId, userId)
-            .first<Note & { deck_name: string }>();
-
-          if (!note) {
-            results.push({ hanzi: '?', pinyin: '?', from_deck: '?', success: false, error: `Note not found: ${noteId}` });
-            continue;
-          }
-
-          // Skip if already in target deck
-          if (note.deck_id === target_deck_id) {
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, from_deck: note.deck_name, success: true, error: 'Already in target deck' });
-            continue;
-          }
-
-          try {
-            affectedDeckIds.add(note.deck_id);
-
-            // Move the note — cards, review events, etc. all stay linked via note_id/card_id
-            await this.env.DB
-              .prepare("UPDATE notes SET deck_id = ?, updated_at = datetime('now') WHERE id = ?")
-              .bind(target_deck_id, noteId)
-              .run();
-
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, from_deck: note.deck_name, success: true });
-          } catch (e) {
-            console.error(`Failed to move note ${noteId}:`, e);
-            results.push({ hanzi: note.hanzi, pinyin: note.pinyin, from_deck: note.deck_name, success: false, error: String(e) });
-          }
-        }
-
-        // Update timestamps on all affected decks so sync picks up changes
-        for (const deckId of affectedDeckIds) {
-          await this.env.DB
-            .prepare("UPDATE decks SET updated_at = datetime('now') WHERE id = ?")
-            .bind(deckId)
-            .run();
-        }
-
-        const moved = results.filter(r => r.success && !r.error);
-        const skipped = results.filter(r => r.success && r.error);
-        const failed = results.filter(r => !r.success);
+        // The API moves only notes the caller owns and bumps every affected
+        // deck's timestamp so sync picks the move up.
+        const result = await api.post<{ moved: number; note_ids: string[]; deck_id: string }>('/api/notes/move', {
+          note_ids,
+          deck_id: target_deck_id,
+        });
+        const movedIds = new Set(result.note_ids ?? []);
+        const notMoved = note_ids.filter(id => !movedIds.has(id));
 
         const lines = [
-          `Moved ${moved.length}/${note_ids.length} notes to "${targetDeck.name}":`,
-          ...moved.map(r => `  - ${r.hanzi} (${r.pinyin}) from "${r.from_deck}"`),
-          ...(skipped.length > 0 ? [`Skipped ${skipped.length}: ${skipped.map(r => `${r.hanzi} (${r.error})`).join(', ')}`] : []),
-          ...(failed.length > 0 ? [`Failed ${failed.length}: ${failed.map(r => `${r.hanzi || r.error}`).join(', ')}`] : []),
+          `Moved ${result.moved}/${note_ids.length} notes to "${targetDeck.name}" (${target_deck_id}).`,
+          ...(notMoved.length > 0 ? [`Not moved ${notMoved.length} (not found, not yours, or already in the target deck): ${notMoved.join(', ')}`] : []),
         ];
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: lines.join('\n'),
-          }],
-        };
-      }
+        return textResult(lines.join('\n'));
+      })
     );
 
     // ============ Card Configuration Tools ============
@@ -2369,14 +1913,6 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
     // Students, their activity and what they find hard; readers, lessons and
     // decks for students; and the interactive tutor apps. All of it calls the
     // main API as this user, so ownership and tutor checks stay in one place.
-    const ctx = {
-      server: this.server,
-      env: this.env,
-      userId,
-      userName: this.props!.userName,
-      userEmail: this.props!.userEmail,
-      api: new ApiClient(this.env, userId),
-    };
     registerStudentTools(ctx);
     registerContentTools(ctx);
     registerTutorApps(ctx);

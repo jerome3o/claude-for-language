@@ -164,26 +164,21 @@ export function registerDeckApp(ctx: ToolContext): void {
     async ({ deck_id, hanzi, pinyin, english, sentence_clue, sentence_clue_pinyin, sentence_clue_translation, fun_facts }) => {
       const problems = noteProblems({ hanzi, pinyin, english }, true);
       if (problems.length > 0) return appResult(`Not added: ${problems.join('; ')}`, { ok: false, problems } satisfies NoteSaveResult);
+      // One POST: the create route takes the sentence fields too and
+      // generates the word's and the sentence's audio in the background.
       const created = await withProblems(() =>
         ctx.api.post<ApiNote>(`/api/decks/${encodeURIComponent(deck_id)}/notes`, {
           hanzi: hanzi.trim(),
           pinyin: pinyin.trim(),
           english: english.trim(),
           fun_facts: fun_facts?.trim() || undefined,
+          sentence_clue: sentence_clue?.trim() || undefined,
+          sentence_clue_pinyin: sentence_clue_pinyin?.trim() || undefined,
+          sentence_clue_translation: sentence_clue_translation?.trim() || undefined,
         }),
       );
       if (!created.ok) return appResult(`Not added: ${created.problems.join('; ')}`, { ok: false, problems: created.problems } satisfies NoteSaveResult);
-      let note = created.value;
-      if (sentence_clue?.trim()) {
-        // The create route has no sentence fields; the update route does (and
-        // generates the sentence's audio when it changed).
-        note = await ctx.api.put<ApiNote>(`/api/notes/${encodeURIComponent(note.id)}`, {
-          sentence_clue: sentence_clue.trim(),
-          sentence_clue_pinyin: sentence_clue_pinyin?.trim() || null,
-          sentence_clue_translation: sentence_clue_translation?.trim() || null,
-        });
-      }
-      const out = toDeckNote(note);
+      const out = toDeckNote(created.value);
       return appResult(`Added ${out.hanzi} (${out.pinyin}) — ${out.english} to deck ${deck_id}.`, { ok: true, note: out } satisfies NoteSaveResult);
     },
   );

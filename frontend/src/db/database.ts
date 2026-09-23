@@ -860,7 +860,11 @@ function getTodayString(): string {
   return `${year}-${month}-${day}`;
 }
 
-/** Default daily quota for secondary new cards (kept in sync with the D1 column default). */
+/**
+ * Fallback for deck rows cached before `secondary_cards_per_day` existed
+ * (migration 0050 gave those decks 10). NOT the new-deck default — that is
+ * DEFAULT_DECK_SETTINGS in shared/decks, applied by the server.
+ */
 export const DEFAULT_SECONDARY_CARDS_PER_DAY = 10;
 
 /** Per-deck split of new cards introduced today. */

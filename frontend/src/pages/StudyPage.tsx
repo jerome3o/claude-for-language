@@ -81,7 +81,7 @@ import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import { useStudySession } from '../hooks/useStudySession';
-import { getCardReviewEvents, LocalReviewEvent, LocalRecordingNote, db } from '../db/database';
+import { getCardReviewEvents, LocalReviewEvent, LocalRecordingNote, db, removeNotesLocally } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
 import { DEFAULT_TTS_SPEED } from '../types';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -828,9 +828,8 @@ function StudyCard({
         }
         case 'delete_current_card': {
           setCardDeleted(true);
-          // Remove from IndexedDB
-          db.notes.delete(card.note.id);
-          db.cards.where('note_id').equals(card.note.id).delete();
+          // Remove from IndexedDB (note, cards, checkpoints, sentences)
+          removeNotesLocally([card.note.id]).catch(err => console.error('[Study] local removal failed', err));
           // Advance after a short delay so user can see the confirmation
           setTimeout(() => onDeleteCurrentCard(), 2000);
           break;
@@ -2394,9 +2393,7 @@ function StudyCard({
             queryClient.invalidateQueries({ queryKey: ['noteRecordings', card.note.id] });
           }}
           onDeleteCard={() => {
-            // Remove from IndexedDB and move to next card
-            db.notes.delete(card.note.id);
-            db.cards.where('note_id').equals(card.note.id).delete();
+            // CardEditModal already removed the note locally; just move on.
             onDeleteCurrentCard();
           }}
         />

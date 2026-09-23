@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, LocalNote, LocalCard } from '../db/database';
+import { db, LocalNote, LocalCard, removeNotesLocally } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { deleteNote } from '../api/client';
 import CardEditModal from './CardEditModal';
@@ -139,12 +139,7 @@ export function NoteSearchResults({ query }: { query: string }) {
     if (deletingNoteId === noteId) {
       try {
         await deleteNote(noteId);
-        // Remove from local DB
-        await db.notes.delete(noteId);
-        const cardIds = (cardsByNoteId.get(noteId) || []).map(c => c.id);
-        if (cardIds.length > 0) {
-          await db.cards.bulkDelete(cardIds);
-        }
+        await removeNotesLocally([noteId]);
         queryClient.invalidateQueries({ queryKey: ['deck'] });
         setDeletingNoteId(null);
       } catch (err) {
@@ -156,7 +151,7 @@ export function NoteSearchResults({ query }: { query: string }) {
       // Auto-cancel confirm after 3 seconds
       setTimeout(() => setDeletingNoteId(prev => prev === noteId ? null : prev), 3000);
     }
-  }, [deletingNoteId, cardsByNoteId, queryClient]);
+  }, [deletingNoteId, queryClient]);
 
   if (!query.trim()) return null;
 

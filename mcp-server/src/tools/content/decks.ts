@@ -33,9 +33,6 @@ export interface AudioWaitOptions {
 /** One quick look, so the reply can say how many clips are still rendering. */
 const DEFAULT_AUDIO_WAIT: AudioWaitOptions = { attempts: 1, delayMs: 800 };
 
-/** Notes posted at once; TTS for each runs server-side in the background. */
-const CREATE_CONCURRENCY = 5;
-
 interface ApiDeck { id: string; name: string; description?: string | null }
 interface ApiNote { id: string; hanzi: string; audio_url: string | null }
 interface DeckWithNotes extends ApiDeck { notes: ApiNote[] }
@@ -45,42 +42,39 @@ interface CreateNotesOutcome {
   failed: Array<{ hanzi: string; error: string }>;
 }
 
+/** What POST /api/decks/:id/notes/batch returns: each row stands alone. */
+interface BatchCreateResponse {
+  created: ApiNote[];
+  failed: Array<{ index: number; hanzi: string; error: string }>;
+}
+
 /**
- * POST the notes to the deck a few at a time; a failure is recorded and the
- * rest continue. Results keep the input order.
+ * One batch POST: the API creates each note with its cards (sentence_clue
+ * included, so the sentence gets its own clip), queues TTS + sentence sets,
+ * and reports per-row failures while the rest are created. A failure of the
+ * request itself (deck not found, network) counts against every note, so the
+ * caller's "nothing was created" path still works.
  */
 async function createNotes(api: ApiClient, deckId: string, notes: NoteInput[]): Promise<CreateNotesOutcome> {
-  const outcome: CreateNotesOutcome = { created: [], failed: [] };
-  const createOne = async (note: NoteInput): Promise<{ id: string; hanzi: string } | { hanzi: string; error: string }> => {
-    try {
-      const made = await api.post<ApiNote>(`/api/decks/${encodeURIComponent(deckId)}/notes`, {
+  if (notes.length === 0) return { created: [], failed: [] };
+  try {
+    const result = await api.post<BatchCreateResponse>(`/api/decks/${encodeURIComponent(deckId)}/notes/batch`, {
+      notes: notes.map(note => ({
         hanzi: note.hanzi,
         pinyin: note.pinyin,
         english: note.english,
         fun_facts: note.fun_facts,
-      });
-      if (note.sentence_clue) {
-        // The create route has no sentence field; the update route saves it
-        // and generates the sentence's own audio.
-        try {
-          await api.put(`/api/notes/${encodeURIComponent(made.id)}`, { sentence_clue: note.sentence_clue });
-        } catch (err) {
-          console.error('[content] sentence_clue not saved for', note.hanzi, err);
-        }
-      }
-      return { id: made.id, hanzi: note.hanzi };
-    } catch (err) {
-      return { hanzi: note.hanzi, error: err instanceof Error ? err.message : String(err) };
-    }
-  };
-  for (let i = 0; i < notes.length; i += CREATE_CONCURRENCY) {
-    const results = await Promise.all(notes.slice(i, i + CREATE_CONCURRENCY).map(createOne));
-    for (const r of results) {
-      if ('id' in r) outcome.created.push(r);
-      else outcome.failed.push(r);
-    }
+        sentence_clue: note.sentence_clue,
+      })),
+    });
+    return {
+      created: (result.created ?? []).map(n => ({ id: n.id, hanzi: n.hanzi })),
+      failed: (result.failed ?? []).map(f => ({ hanzi: f.hanzi, error: f.error })),
+    };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return { created: [], failed: notes.map(n => ({ hanzi: n.hanzi, error })) };
   }
-  return outcome;
 }
 
 function sleep(ms: number): Promise<void> {

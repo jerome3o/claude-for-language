@@ -6,12 +6,11 @@
  * deck is found by name, so calling it twice never makes a second copy. The
  * invite then shares it to the student the same way as any other deck.
  *
- * Audio is generated after the response, one note at a time, exactly as a
- * note created through the app gets it (word clip, then the sentence clip).
+ * Audio is generated after the response exactly as a note created through
+ * the app gets it (word clip, then the sentence clip), via services/content.
  */
 import { Env, Deck } from '../types';
-import { createDeck, createNote, updateNote } from '../db/queries';
-import { generateTTS } from './audio';
+import { createDeck, createNotes, type Background } from './content';
 
 export const STARTER_DECK_NAME = 'Starter Chinese';
 export const STARTER_DECK_DESCRIPTION =
@@ -52,9 +51,13 @@ export interface EnsureStarterDeckResult {
   noteIds: string[];
 }
 
-/** Find the user's starter deck, or build it. Idempotent by deck name. */
-export async function ensureStarterDeck(db: D1Database, userId: string): Promise<EnsureStarterDeckResult> {
-  const existing = await db
+/**
+ * Find the user's starter deck, or build it. Idempotent by deck name. Notes go
+ * through the content service like any other, so word + sentence audio run
+ * after the response (`bg`) and the sentence sets are queued.
+ */
+export async function ensureStarterDeck(env: Env, userId: string, bg?: Background): Promise<EnsureStarterDeckResult> {
+  const existing = await env.DB
     .prepare('SELECT * FROM decks WHERE user_id = ? AND name = ? ORDER BY created_at ASC LIMIT 1')
     .bind(userId, STARTER_DECK_NAME)
     .first<Deck>();
@@ -62,47 +65,21 @@ export async function ensureStarterDeck(db: D1Database, userId: string): Promise
     return { deck: existing, created: false, noteIds: [] };
   }
 
-  const deck = await createDeck(db, userId, STARTER_DECK_NAME, STARTER_DECK_DESCRIPTION);
-  const noteIds: string[] = [];
-  for (const word of STARTER_WORDS) {
-    const note = await createNote(db, deck.id, word.hanzi, word.pinyin, word.english);
-    await updateNote(db, note.id, {
-      sentenceClue: word.sentence,
-      sentenceCluePinyin: word.sentence_pinyin,
-      sentenceClueTranslation: word.sentence_translation,
-    });
-    noteIds.push(note.id);
-  }
-  return { deck, created: true, noteIds };
-}
-
-/**
- * Word + sentence audio for freshly created starter notes, one at a time.
- * Runs after the response (waitUntil); each failure is logged and skipped so
- * one bad clip never blocks the rest.
- */
-export async function generateStarterDeckAudio(env: Env, noteIds: string[]): Promise<void> {
-  if (!env.GOOGLE_TTS_API_KEY && !env.MINIMAX_API_KEY) return;
-
-  for (const noteId of noteIds) {
-    try {
-      const note = await env.DB
-        .prepare('SELECT id, hanzi, sentence_clue FROM notes WHERE id = ?')
-        .bind(noteId)
-        .first<{ id: string; hanzi: string; sentence_clue: string | null }>();
-      if (!note) continue;
-      const word = await generateTTS(env, note.hanzi, note.id);
-      if (word) {
-        await updateNote(env.DB, note.id, { audioUrl: word.audioKey, audioProvider: word.provider });
-      }
-      if (note.sentence_clue) {
-        const clue = await generateTTS(env, note.sentence_clue, `${note.id}-sentence`);
-        if (clue) {
-          await updateNote(env.DB, note.id, { sentenceClueAudioUrl: clue.audioKey, sentenceClueAudioProvider: clue.provider });
-        }
-      }
-    } catch (err) {
-      console.error('[starter-deck] Audio failed for note', noteId, err instanceof Error ? err.message : err);
-    }
-  }
+  const deck = await createDeck(env.DB, userId, { name: STARTER_DECK_NAME, description: STARTER_DECK_DESCRIPTION });
+  const made = await createNotes(
+    env,
+    userId,
+    deck.id,
+    STARTER_WORDS.map(word => ({
+      hanzi: word.hanzi,
+      pinyin: word.pinyin,
+      english: word.english,
+      sentence_clue: word.sentence,
+      sentence_clue_pinyin: word.sentence_pinyin,
+      sentence_clue_translation: word.sentence_translation,
+    })),
+    { audio: 'background', sentences: true, bg }
+  );
+  if (made.failed.length) console.error('[starter-deck] Some words were not created:', made.failed);
+  return { deck, created: true, noteIds: made.created.map(n => n.id) };
 }
