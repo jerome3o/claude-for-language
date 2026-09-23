@@ -526,10 +526,42 @@ export async function updateDeck(
 
 export async function deleteDeck(db: D1Database, id: string, userId: string): Promise<void> {
   // Only delete if user owns the deck
-  await db
-    .prepare('DELETE FROM decks WHERE id = ? AND user_id = ?')
-    .bind(id, userId)
-    .run();
+  const owned = await db.prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?').bind(id, userId).first<{ id: string }>();
+  if (!owned) return;
+  const noteIds = (await db.prepare('SELECT id FROM notes WHERE deck_id = ?').bind(id).all<{ id: string }>()).results?.map(n => n.id) ?? [];
+  await db.prepare('DELETE FROM decks WHERE id = ? AND user_id = ?').bind(id, userId).run();
+  await recordDeletedItems(db, userId, 'deck', [id]);
+  await recordDeletedItems(db, userId, 'note', noteIds);
+}
+
+// ============ Deletion tombstones (offline clients drop these on sync) ============
+
+export type DeletedItemKind = 'deck' | 'note';
+
+/** Remember that these decks/notes are gone so /api/sync/changes can tell every device. */
+export async function recordDeletedItems(db: D1Database, userId: string, kind: DeletedItemKind, itemIds: string[]): Promise<void> {
+  if (itemIds.length === 0) return;
+  const stmt = db.prepare('INSERT INTO deleted_items (id, user_id, kind, item_id) VALUES (?, ?, ?, ?)');
+  // D1 batches are limited in size; 50 rows per batch keeps a big deck comfortable.
+  for (let i = 0; i < itemIds.length; i += 50) {
+    await db.batch(itemIds.slice(i, i + 50).map(itemId => stmt.bind(generateId(), userId, kind, itemId)));
+  }
+}
+
+/** Ids deleted since a SQLite datetime string ('YYYY-MM-DD HH:MM:SS'), grouped by kind. */
+export async function getDeletedItemsSince(
+  db: D1Database,
+  userId: string,
+  sinceDate: string
+): Promise<{ deck_ids: string[]; note_ids: string[] }> {
+  const rows = await db
+    .prepare('SELECT kind, item_id FROM deleted_items WHERE user_id = ? AND deleted_at > ?')
+    .bind(userId, sinceDate)
+    .all<{ kind: DeletedItemKind; item_id: string }>();
+  const deck_ids = new Set<string>();
+  const note_ids = new Set<string>();
+  for (const r of rows.results || []) (r.kind === 'deck' ? deck_ids : note_ids).add(r.item_id);
+  return { deck_ids: [...deck_ids], note_ids: [...note_ids] };
 }
 
 // ============ Notes ============
@@ -766,6 +798,7 @@ export async function deleteNote(db: D1Database, id: string, userId: string): Pr
   // their R2 audio) orphaned if foreign keys are ever off.
   await db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(id).run();
   await db.prepare('DELETE FROM notes WHERE id = ?').bind(id).run();
+  await recordDeletedItems(db, userId, 'note', [id]);
 
   // Update deck's updated_at
   await db

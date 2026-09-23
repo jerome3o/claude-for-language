@@ -528,6 +528,11 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           };
         }
 
+        // Tombstones first (deck + its notes) so every device drops it on sync.
+        const noteRows = await this.env.DB.prepare('SELECT id FROM notes WHERE deck_id = ?').bind(deck_id).all<{ id: string }>();
+        const tomb = this.env.DB.prepare('INSERT INTO deleted_items (id, user_id, kind, item_id) VALUES (?, ?, ?, ?)');
+        const tombRows = [tomb.bind(crypto.randomUUID(), userId, 'deck', deck_id), ...(noteRows.results || []).map(n => tomb.bind(crypto.randomUUID(), userId, 'note', n.id))];
+        for (let i = 0; i < tombRows.length; i += 50) await this.env.DB.batch(tombRows.slice(i, i + 50));
         await this.env.DB
           .prepare('DELETE FROM decks WHERE id = ?')
           .bind(deck_id)
@@ -1093,6 +1098,10 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
         await this.env.DB
           .prepare('DELETE FROM notes WHERE id = ?')
           .bind(note_id)
+          .run();
+        await this.env.DB
+          .prepare('INSERT INTO deleted_items (id, user_id, kind, item_id) VALUES (?, ?, ?, ?)')
+          .bind(crypto.randomUUID(), userId, 'note', note_id)
           .run();
 
         await this.env.DB

@@ -98,6 +98,36 @@ async function waitForNoteAudio(api: ApiClient, deckId: string, noteIds: string[
   return still;
 }
 
+interface RelationshipRow {
+  id: string;
+  requester_id: string;
+  recipient_id: string;
+  requester_role: 'tutor' | 'student';
+  status: string;
+  requester?: { name?: string | null; email?: string | null };
+  recipient?: { name?: string | null; email?: string | null };
+}
+
+/**
+ * Why the caller may not send homework in this relationship, or null when they
+ * are its (active) tutor. Uses GET /api/relationships, the same list
+ * list_students shows as `students` / `my_tutors`.
+ */
+async function notTutorReason(api: ApiClient, userId: string, relationshipId: string): Promise<string | null> {
+  const rels = await api.get<{ tutors?: RelationshipRow[]; students?: RelationshipRow[]; pending_incoming?: RelationshipRow[]; pending_outgoing?: RelationshipRow[] }>('/api/relationships');
+  const all = [...(rels.students ?? []), ...(rels.tutors ?? []), ...(rels.pending_incoming ?? []), ...(rels.pending_outgoing ?? [])];
+  const rel = all.find(r => r.id === relationshipId);
+  if (!rel) return `No relationship ${relationshipId} on this account — take relationship_id from list_students (the students list, not my_tutors).`;
+  const tutorId = rel.requester_role === 'tutor' ? rel.requester_id : rel.recipient_id;
+  if (tutorId !== userId) {
+    const tutor = rel.requester_role === 'tutor' ? rel.requester : rel.recipient;
+    const who = tutor?.name || tutor?.email || 'someone else';
+    return `In relationship ${relationshipId} you are the STUDENT (the tutor is ${who}); only the tutor can send homework. If you meant to make a deck for yourself, use create_deck + batch_add_notes.`;
+  }
+  if (rel.status !== 'active') return `Relationship ${relationshipId} is ${rel.status}, not active yet.`;
+  return null;
+}
+
 export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?: AudioWaitOptions } = {}): void {
   const { server, api } = ctx;
   const wait = options.audioWait ?? DEFAULT_AUDIO_WAIT;
@@ -116,16 +146,28 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
       if (clean.length === 0) {
         return errorResult(`No usable notes:\n- ${rejected.map(r => `${r.hanzi}: ${r.reason}`).join('\n- ')}`);
       }
+      // Check the role BEFORE creating anything: sharing is tutor-only, and a
+      // failed share used to leave a fully built deck orphaned in the account.
+      const roleProblem = await notTutorReason(api, ctx.userId, relationship_id);
+      if (roleProblem) return errorResult(`${roleProblem} Nothing was created.`);
       const deck = await api.post<ApiDeck>('/api/decks', { name: name.trim(), description: description?.trim() || undefined });
       const outcome = await createNotes(api, deck.id, clean);
       if (outcome.created.length === 0) {
-        return errorResult(`Deck "${deck.name}" (id=${deck.id}) was created but no note could be added:\n- ${outcome.failed.map(f => `${f.hanzi}: ${f.error}`).join('\n- ')}`);
+        await api.delete(`/api/decks/${encodeURIComponent(deck.id)}`).catch(() => {});
+        return errorResult(`No note could be added, so the deck was not kept:\n- ${outcome.failed.map(f => `${f.hanzi}: ${f.error}`).join('\n- ')}`);
       }
       const audioMissing = await waitForNoteAudio(api, deck.id, outcome.created.map(n => n.id), wait);
-      const shared = await api.post<{ id: string; target_deck_id: string; target_deck_name: string }>(
-        `/api/relationships/${encodeURIComponent(relationship_id)}/share-deck`,
-        { deck_id: deck.id },
-      );
+      let shared: { id: string; target_deck_id: string; target_deck_name: string };
+      try {
+        shared = await api.post<{ id: string; target_deck_id: string; target_deck_name: string }>(
+          `/api/relationships/${encodeURIComponent(relationship_id)}/share-deck`,
+          { deck_id: deck.id },
+        );
+      } catch (err) {
+        // Don't leave the half-finished deck behind.
+        await api.delete(`/api/decks/${encodeURIComponent(deck.id)}`).catch(() => {});
+        return errorResult(`The deck was built but could not be shared (${err instanceof Error ? err.message : String(err)}), so it was removed again. Check the relationship_id with list_students.`);
+      }
       return jsonResult({
         tutor_deck_id: deck.id,
         student_deck_id: shared.target_deck_id,

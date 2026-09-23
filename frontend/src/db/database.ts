@@ -1401,6 +1401,36 @@ export async function getReviewedNoteIds(deckId?: string): Promise<Set<string>> 
   return collectReviewedNoteIds(await loadCards(deckId));
 }
 
+// ============ Local removal (deletes + sync tombstones) ============
+
+/**
+ * Drop decks and everything under them from IndexedDB: notes, cards, card
+ * checkpoints and sentence sets. Review events are kept (they are the source
+ * of truth for history and harmless without a card). Used right after a
+ * successful server delete and when a sync reports deleted deck ids.
+ */
+export async function removeDecksLocally(deckIds: string[]): Promise<void> {
+  if (deckIds.length === 0) return;
+  const noteIds = (await db.notes.where('deck_id').anyOf(deckIds).primaryKeys()) as string[];
+  await removeNotesLocally(noteIds);
+  await db.decks.bulkDelete(deckIds);
+  await db.dailyStats.where('deck_id').anyOf(deckIds).delete();
+}
+
+/** Drop notes and their cards / checkpoints / sentence sets from IndexedDB. */
+export async function removeNotesLocally(noteIds: string[]): Promise<void> {
+  if (noteIds.length === 0) return;
+  const cardIds = (await db.cards.where('note_id').anyOf(noteIds).primaryKeys()) as string[];
+  await db.transaction('rw', [db.notes, db.cards, db.cardCheckpoints, db.noteSentences], async () => {
+    if (cardIds.length) {
+      await db.cards.bulkDelete(cardIds);
+      await db.cardCheckpoints.bulkDelete(cardIds);
+    }
+    await db.noteSentences.where('note_id').anyOf(noteIds).delete();
+    await db.notes.bulkDelete(noteIds);
+  });
+}
+
 // ============ Sync Metadata ============
 
 export async function getSyncMeta(): Promise<SyncMeta | undefined> {
