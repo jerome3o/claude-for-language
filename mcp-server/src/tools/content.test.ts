@@ -291,6 +291,7 @@ describe('student deck tools', () => {
   it('create_deck_for_student creates the deck and notes, waits for audio, then shares — continuing past a failed note', async () => {
     let noteN = 0;
     const { ctx, tools, calls } = fakeContext({
+      'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active' }], tutors: [] }),
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
       'POST /api/decks/deck-1/notes': (body) => {
         const b = body as { hanzi: string };
@@ -322,6 +323,7 @@ describe('student deck tools', () => {
     });
     expect(result.rejected).toEqual([{ hanzi: '雪', reason: expect.stringContaining('tone numbers') }]);
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
+      'GET /api/relationships',
       'POST /api/decks',
       'POST /api/decks/deck-1/notes',
       'PUT /api/notes/n1',
@@ -331,8 +333,46 @@ describe('student deck tools', () => {
       'POST /api/notes/n2/generate-audio',
       'POST /api/relationships/rel-1/share-deck',
     ]);
-    expect(calls[2].body).toEqual({ sentence_clue: '今天刮风。' });
-    expect(calls[7].body).toEqual({ deck_id: 'deck-1' });
+    expect(calls[3].body).toEqual({ sentence_clue: '今天刮风。' });
+    expect(calls[8].body).toEqual({ deck_id: 'deck-1' });
+  });
+
+  it('create_deck_for_student refuses before creating anything when the caller is the student', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'GET /api/relationships': () => ({
+        students: [],
+        tutors: [{ id: 'rel-9', requester_id: 'tutor-x', recipient_id: 'tutor-1', requester_role: 'tutor', status: 'active', requester: { name: 'Stephanie' } }],
+      }),
+      'POST /api/decks': () => { throw new Error('must not be called'); },
+    });
+    registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
+    const result = await tools.get('create_deck_for_student')!({
+      relationship_id: 'rel-9', name: 'Weather', notes: [{ hanzi: '刮风', pinyin: 'guā fēng', english: 'windy' }],
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain('you are the STUDENT');
+    expect(text(result)).toContain('Stephanie');
+    expect(text(result)).toContain('Nothing was created');
+    expect(calls.map(c => `${c.method} ${c.path}`)).toEqual(['GET /api/relationships']);
+  });
+
+  it('create_deck_for_student removes the deck again when sharing fails', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 's', requester_role: 'tutor', status: 'active' }], tutors: [] }),
+      'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
+      'POST /api/decks/deck-1/notes': (body) => ({ id: 'n1', hanzi: (body as { hanzi: string }).hanzi, audio_url: 'a.mp3' }),
+      'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }] }),
+      'POST /api/relationships/rel-1/share-deck': () => { throw new ApiError(400, 'The student no longer has an account', null); },
+      'DELETE /api/decks/deck-1': () => ({ success: true }),
+    });
+    registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
+    const result = await tools.get('create_deck_for_student')!({
+      relationship_id: 'rel-1', name: 'Weather', notes: [{ hanzi: '刮风', pinyin: 'guā fēng', english: 'windy' }],
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain('could not be shared');
+    expect(text(result)).toContain('removed again');
+    expect(calls.map(c => `${c.method} ${c.path}`).slice(-2)).toEqual(['POST /api/relationships/rel-1/share-deck', 'DELETE /api/decks/deck-1']);
   });
 
   it('add_words_to_student_deck resolves the source deck from the share and updates the copy', async () => {

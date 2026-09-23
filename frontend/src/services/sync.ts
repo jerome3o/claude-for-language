@@ -12,6 +12,8 @@ import {
   resetSyncTimestamps,
   addSyncLog,
   SyncLogEntry,
+  removeDecksLocally,
+  removeNotesLocally,
 } from '../db/database';
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
@@ -477,14 +479,15 @@ class SyncService {
     this.lastSyncDetails.cards_synced = changes.cards.length;
     const currentSyncMeta = await getSyncMeta();
 
+    // Apply deletions first (decks take their notes and cards with them; the
+    // server only tombstones decks and notes — see deleted_items).
+    await removeDecksLocally(changes.deleted.deck_ids);
+    await removeNotesLocally(changes.deleted.note_ids);
+    if (changes.deleted.deck_ids.length || changes.deleted.note_ids.length) {
+      console.log('[Sync] Removed', changes.deleted.deck_ids.length, 'deleted decks and', changes.deleted.note_ids.length, 'deleted notes');
+    }
+
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
-      // Apply deletions first
-      if (changes.deleted.deck_ids.length > 0) {
-        await db.decks.bulkDelete(changes.deleted.deck_ids);
-      }
-      if (changes.deleted.note_ids.length > 0) {
-        await db.notes.bulkDelete(changes.deleted.note_ids);
-      }
       if (changes.deleted.card_ids.length > 0) {
         await db.cards.bulkDelete(changes.deleted.card_ids);
       }

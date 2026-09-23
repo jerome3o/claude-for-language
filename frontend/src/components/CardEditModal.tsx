@@ -1,3 +1,4 @@
+import { removeNotesLocally } from '../db/database';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CardWithNote, NoteAudioRecording, MINIMAX_VOICES } from '../types';
 import { DEFAULT_TTS_SPEED } from '../types';
@@ -156,6 +157,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard }: C
     setDeleting(true);
     try {
       await deleteNote(card.note.id);
+      await removeNotesLocally([card.note.id]);
       onDeleteCard();
       onClose();
     } catch (err) {

@@ -10,7 +10,7 @@ import { AnkiExportModal } from '../components/export/AnkiExportModal';
 import { PasteWordsModal } from '../components/import/PasteWordsModal';
 import { Toast, useToast } from '../components/Toast';
 import { useAuth } from '../contexts/AuthContext';
-import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent, DEFAULT_SECONDARY_CARDS_PER_DAY } from '../db/database';
+import { db, LocalCard, LocalDeck, getNewCardsStudiedToday, LocalReviewEvent, DEFAULT_SECONDARY_CARDS_PER_DAY, removeDecksLocally } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import './SharedDeckProgressPage.css';
@@ -1778,10 +1778,19 @@ export function DeckDetailPage() {
   });
 
   const deleteDeckMutation = useMutation({
-    mutationFn: () => deleteDeck(id!),
+    mutationFn: async () => {
+      await deleteDeck(id!);
+      // The app is offline-first: drop the deck from IndexedDB now rather than
+      // waiting for the next sync to deliver the deletion.
+      await removeDecksLocally([id!]);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decks'] });
       navigate('/');
+    },
+    onError: (err) => {
+      setShowDeleteConfirm(false);
+      showToast(err instanceof Error ? `Could not delete the deck: ${err.message}` : 'Could not delete the deck');
     },
   });
 

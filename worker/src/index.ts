@@ -5866,11 +5866,12 @@ app.get('/api/sync/changes', async (c) => {
     console.log('[API sync/changes] card:', card.id, 'note_id:', card.note_id, 'queue:', card.queue, 'updated_at:', card.updated_at);
   }
 
-  // For deletions, we'd need a deleted_items table (not implemented yet)
-  // For now, return empty arrays for deleted items
+  // Deletions come from the deleted_items tombstones (migration 0068). Cards
+  // are not tombstoned: the client drops a deleted note's / deck's cards itself.
+  const tombstones = await db.getDeletedItemsSince(c.env.DB, userId, sinceDate);
   const deleted = {
-    deck_ids: [] as string[],
-    note_ids: [] as string[],
+    deck_ids: tombstones.deck_ids,
+    note_ids: tombstones.note_ids,
     card_ids: [] as string[],
   };
 
@@ -5878,6 +5879,8 @@ app.get('/api/sync/changes', async (c) => {
     decks: decksResult.results?.length || 0,
     notes: notesResult.results?.length || 0,
     cards: cardsResult.results?.length || 0,
+    deleted_decks: deleted.deck_ids.length,
+    deleted_notes: deleted.note_ids.length,
   });
 
   return c.json({
