@@ -900,6 +900,8 @@ app.post('/api/decks/:deckId/notes', async (c) => {
       if (result) {
         await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
         console.log('[API] Updated note with audioUrl:', result.audioKey, 'provider:', result.provider);
+        // A deck shared before its clips existed: give the copies the clip too.
+        await db.propagateNoteAudioToSharedCopies(c.env.DB, note.id);
       }
     }).catch((err) => {
       console.error('[API] TTS generation failed for note', note.id, ':', err);
@@ -1213,6 +1215,8 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
     const result = await generateTTS(c.env, note.hanzi, note.id, { speed, preferProvider, voiceId });
     if (result) {
       await db.updateNote(c.env.DB, note.id, { audioUrl: result.audioKey, audioProvider: result.provider });
+      // Copies in students' accounts that were shared before this clip existed.
+      await db.propagateNoteAudioToSharedCopies(c.env.DB, note.id);
       // The note's example sentence needs audio too — this is the path the MCP
       // add_note tools call, and they save a clue without ever generating one.
       c.executionCtx.waitUntil(ensureSentenceClueAudio(c.env, note.id));

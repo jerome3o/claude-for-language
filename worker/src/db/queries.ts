@@ -534,6 +534,35 @@ export async function deleteDeck(db: D1Database, id: string, userId: string): Pr
   await recordDeletedItems(db, userId, 'note', noteIds);
 }
 
+// ============ Audio follows shared copies ============
+
+/**
+ * When a note's TTS clip arrives after the deck was already shared, the
+ * student's copy (same hanzi, no clip yet) gets the same key. R2 keys are
+ * shared between copies exactly as shareDeck does at share time, so a tutor
+ * tool never has to wait for audio before sharing.
+ */
+export async function propagateNoteAudioToSharedCopies(db: D1Database, noteId: string): Promise<number> {
+  const note = await db
+    .prepare('SELECT id, deck_id, hanzi, audio_url, audio_provider FROM notes WHERE id = ?')
+    .bind(noteId)
+    .first<{ id: string; deck_id: string; hanzi: string; audio_url: string | null; audio_provider: string | null }>();
+  if (!note?.audio_url) return 0;
+  const shares = await db
+    .prepare('SELECT target_deck_id FROM shared_decks WHERE source_deck_id = ?')
+    .bind(note.deck_id)
+    .all<{ target_deck_id: string }>();
+  let updated = 0;
+  for (const share of shares.results || []) {
+    const res = await db
+      .prepare("UPDATE notes SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE deck_id = ? AND hanzi = ? AND audio_url IS NULL")
+      .bind(note.audio_url, note.audio_provider, share.target_deck_id, note.hanzi.trim())
+      .run();
+    updated += res.meta?.changes ?? 0;
+  }
+  return updated;
+}
+
 // ============ Deletion tombstones (offline clients drop these on sync) ============
 
 export type DeletedItemKind = 'deck' | 'note';

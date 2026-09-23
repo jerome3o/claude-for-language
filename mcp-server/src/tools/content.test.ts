@@ -288,7 +288,7 @@ describe('lesson library tools', () => {
 });
 
 describe('student deck tools', () => {
-  it('create_deck_for_student creates the deck and notes, waits for audio, then shares — continuing past a failed note', async () => {
+  it('create_deck_for_student creates the deck and notes, then shares without waiting for audio — continuing past a failed note', async () => {
     let noteN = 0;
     const { ctx, tools, calls } = fakeContext({
       'GET /api/relationships': () => ({ students: [{ id: 'rel-1', requester_id: 'tutor-1', recipient_id: 'student-1', requester_role: 'tutor', status: 'active' }], tutors: [] }),
@@ -301,7 +301,6 @@ describe('student deck tools', () => {
       },
       'PUT /api/notes/n1': () => ({ id: 'n1' }),
       'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }, { id: 'n2', audio_url: null }] }),
-      'POST /api/notes/n2/generate-audio': () => ({ id: 'n2', audio_url: 'b.mp3' }),
       'POST /api/relationships/rel-1/share-deck': () => ({ id: 'share-1', target_deck_id: 'deck-s', target_deck_name: 'Weather (from tutor)' }),
     });
     registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
@@ -318,23 +317,25 @@ describe('student deck tools', () => {
     })));
 
     expect(result).toMatchObject({
-      tutor_deck_id: 'deck-1', student_deck_id: 'deck-s', shared_deck_id: 'share-1', created: 2, audio_missing: 0,
+      tutor_deck_id: 'deck-1', student_deck_id: 'deck-s', shared_deck_id: 'share-1', created: 2, audio_generating: 1,
       failed: [{ hanzi: '下雨', error: 'TTS exploded' }],
     });
     expect(result.rejected).toEqual([{ hanzi: '雪', reason: expect.stringContaining('tone numbers') }]);
+    // Notes are posted concurrently, so the sentence_clue PUT lands after the
+    // batch; there is no synchronous generate-audio call anywhere.
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'GET /api/relationships',
       'POST /api/decks',
       'POST /api/decks/deck-1/notes',
+      'POST /api/decks/deck-1/notes',
+      'POST /api/decks/deck-1/notes',
       'PUT /api/notes/n1',
-      'POST /api/decks/deck-1/notes',
-      'POST /api/decks/deck-1/notes',
       'GET /api/decks/deck-1',
-      'POST /api/notes/n2/generate-audio',
       'POST /api/relationships/rel-1/share-deck',
     ]);
-    expect(calls[3].body).toEqual({ sentence_clue: '今天刮风。' });
-    expect(calls[8].body).toEqual({ deck_id: 'deck-1' });
+    expect(calls[5].body).toEqual({ sentence_clue: '今天刮风。' });
+    expect(calls[7].body).toEqual({ deck_id: 'deck-1' });
+    expect(result.message).toContain('still generating in the background');
   });
 
   it('create_deck_for_student refuses before creating anything when the caller is the student', async () => {
