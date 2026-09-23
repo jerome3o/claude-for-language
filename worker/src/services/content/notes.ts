@@ -16,16 +16,19 @@ import {
   generateNoteAudioNow,
 } from './audio';
 import type { Background, CreateNoteOptions, NoteInput, NotePatch } from './types';
+import { cardTextProblems } from '@shared/cards';
 
-const TONE_NUMBER = /[a-zü]+[1-5]\b/i;
-
-/** Trim and check a note before it is stored. Returns the reason it is unusable, else null. */
+/**
+ * Trim and check a note before it is stored: the required fields, then the
+ * HARD rules of the card standard (shared/cards). Returns the reason it is
+ * unusable, else null.
+ */
 export function noteInputProblem(input: Partial<NoteInput>): string | null {
   if (!input.hanzi?.trim()) return 'hanzi is required';
   if (!input.pinyin?.trim()) return 'pinyin is required';
   if (!input.english?.trim()) return 'english is required';
-  if (TONE_NUMBER.test(input.pinyin)) return 'pinyin must use tone marks (nǐ hǎo), not tone numbers';
-  return null;
+  const problems = cardTextProblems({ hanzi: input.hanzi.trim(), pinyin: input.pinyin, sentence_clue: input.sentence_clue });
+  return problems.length ? problems.map(p => p.message).join('; ') : null;
 }
 
 function cleanInput(input: NoteInput): NoteInput {
@@ -137,12 +140,11 @@ export async function updateNote(
 ): Promise<Note | null> {
   const before = await db.getNoteById(env.DB, noteId, userId);
   if (!before) return null;
-  if (patch.pinyin !== undefined && TONE_NUMBER.test(patch.pinyin)) {
-    throw new ContentError('pinyin must use tone marks (nǐ hǎo), not tone numbers');
-  }
   for (const key of ['hanzi', 'pinyin', 'english'] as const) {
     if (patch[key] !== undefined && !patch[key]!.trim()) throw new ContentError(`${key} cannot be empty`);
   }
+  const problems = cardTextProblems({ hanzi: patch.hanzi?.trim(), pinyin: patch.pinyin, sentence_clue: patch.sentence_clue });
+  if (problems.length) throw new ContentError(problems.map(p => p.message).join('; '));
 
   const note = await db.updateNote(env.DB, noteId, {
     hanzi: patch.hanzi?.trim(),

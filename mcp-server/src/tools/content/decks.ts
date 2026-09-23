@@ -13,14 +13,15 @@ import type { ToolContext } from '../context.js';
 import type { ApiClient } from '../../api.js';
 import { jsonResult, errorResult, guard } from '../context.js';
 import { normalizeNotes, notesMissingAudio, type NoteInput } from './specs.js';
+import { CARD_STANDARD_SHORT } from '../../../../shared/cards/standard';
 
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
 
 const noteShape = z.object({
-  hanzi: z.string().describe('Chinese characters (simplified)'),
+  hanzi: z.string().describe('Chinese characters (simplified). ONE clean form — no slashes, parentheses, brackets, ellipses or blanks (rejected); alternatives go in fun_facts'),
   pinyin: z.string().describe('Pinyin with tone marks (nǐ hǎo) — tone numbers are rejected'),
   english: z.string().describe('English meaning'),
-  fun_facts: z.string().optional().describe('Substantive learning note: grammar pattern, usage, common mistake, or how it differs from a similar word'),
+  fun_facts: z.string().optional().describe(`The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}`),
   sentence_clue: z.string().optional().describe('One short example sentence in Chinese using the word (gets its own TTS)'),
 });
 

@@ -4,6 +4,7 @@
  * Send to a student / Update their copy.
  */
 import { z } from 'zod';
+import { cardTextProblems } from '../../../../shared/cards/standard';
 import type { ToolContext } from '../context.js';
 import { registerApp } from '../apps.js';
 import { appResult, appTool, loadStudents, mediaBase, toStudentPick, withProblems } from './shared.js';
@@ -73,7 +74,7 @@ const noteFields = {
   fun_facts: z.string().nullable().optional(),
 };
 
-function noteProblems(n: { hanzi?: string; pinyin?: string; english?: string }, requireAll: boolean): string[] {
+function noteProblems(n: { hanzi?: string; pinyin?: string; english?: string; sentence_clue?: string | null }, requireAll: boolean): string[] {
   const problems: string[] = [];
   const check = (key: 'hanzi' | 'pinyin' | 'english', label: string) => {
     const v = n[key];
@@ -84,7 +85,8 @@ function noteProblems(n: { hanzi?: string; pinyin?: string; english?: string }, 
   check('hanzi', 'Hanzi');
   check('pinyin', 'Pinyin');
   check('english', 'English');
-  if (n.pinyin && /[a-z]+[1-5]/i.test(n.pinyin)) problems.push('Pinyin should use tone marks (nǐ hǎo), not tone numbers');
+  // The HARD rules of the card standard (shared/cards): symbols on the card, tone numbers, clause breaks.
+  for (const p of cardTextProblems({ hanzi: n.hanzi, pinyin: n.pinyin, sentence_clue: n.sentence_clue })) problems.push(p.message);
   return problems;
 }
 

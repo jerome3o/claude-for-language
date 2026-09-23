@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
+import { CARD_STANDARD, CARD_STANDARD_SHORT } from '../../shared/cards/standard';
 import OAuthProvider, {
   type AuthRequest,
   type OAuthHelpers,
@@ -99,10 +100,14 @@ export class ChineseLearningMCP extends McpAgent<Env, Record<string, never>, Pro
 
 // MCP Server with tools (v2 uses SQLite-backed Durable Object)
 export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, Props> {
-  server = new McpServer({
-    name: "Chinese Learning App",
-    version: "1.0.0",
-  });
+  server = new McpServer(
+    { name: "Chinese Learning App", version: "1.0.0" },
+    {
+      // Every Claude that makes cards through this server sees the house style
+      // (shared/cards/standard.ts); the API enforces the HARD rules.
+      instructions: `This server manages a Chinese learner's flashcards, homework decks, readers and lessons.\n\n${CARD_STANDARD}`,
+    }
+  );
 
   async init() {
     const userId = this.props!.userId;
@@ -558,7 +563,7 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
 
     this.server.tool(
       "add_note",
-      "Add a vocabulary note to a deck (creates 3 cards automatically). TTS audio for the word and its example sentence is generated in the background — the note is usable at once and audio_url fills in shortly after. Pinyin must use tone marks (nǐ hǎo); tone numbers are rejected.",
+      `Add a vocabulary note to a deck (creates 3 cards automatically). TTS audio for the word and its example sentence is generated in the background — the note is usable at once and audio_url fills in shortly after. ${CARD_STANDARD_SHORT}`,
       {
         deck_id: z.string().describe("The deck ID"),
         hanzi: z.string().describe("Chinese characters (simplified)"),
@@ -599,7 +604,7 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
 
     this.server.tool(
       "batch_add_notes",
-      "Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly; up to 500 per call). Each note gets 3 cards; TTS audio is queued server-side and fills in shortly after, so the call returns without waiting. Hanzi already in any of your decks (or repeated in the request) are skipped; a note the API rejects (missing field, tone-number pinyin) is listed under failed while the rest are created.",
+      `Add multiple vocabulary notes to a deck at once (more efficient than calling add_note repeatedly; up to 500 per call). Each note gets 3 cards; TTS audio is queued server-side and fills in shortly after, so the call returns without waiting. Hanzi already in any of your decks (or repeated in the request) are skipped; a note the API rejects (missing field, tone-number pinyin, symbols on the card) is listed under failed while the rest are created. ${CARD_STANDARD_SHORT}`,
       {
         deck_id: z.string().describe("The deck ID"),
         notes: z.array(z.object({
@@ -666,7 +671,7 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
 
     this.server.tool(
       "update_note",
-      "Update an existing note. Only the fields given change. A changed hanzi gets a new word clip and a changed sentence_clue a new sentence clip, both generated in the background.",
+      `Update an existing note. Only the fields given change. A changed hanzi gets a new word clip and a changed sentence_clue a new sentence clip, both generated in the background. ${CARD_STANDARD_SHORT}`,
       {
         note_id: z.string().describe("The note ID"),
         hanzi: z.string().optional().describe("New Chinese characters"),

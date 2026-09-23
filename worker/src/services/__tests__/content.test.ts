@@ -95,6 +95,9 @@ describe('content service: notes', () => {
   it('createNote validates, inserts the note + three cards, queues audio in queue mode and the sentence set', async () => {
     db.addResult('SELECT * FROM notes WHERE id = ?', NOTE_ROW);
     await expect(content.createNote(env, 'u1', 'd1', { hanzi: '刮风', pinyin: 'gua1 feng1', english: 'windy' })).rejects.toThrow(/tone marks/);
+    // the card standard: one clean form on the card
+    await expect(content.createNote(env, 'u1', 'd1', { hanzi: '刮风/起风', pinyin: 'guā fēng', english: 'windy' })).rejects.toThrow(/fun_facts/);
+    await expect(content.createNote(env, 'u1', 'd1', { hanzi: '刮风', pinyin: 'guā fēng', english: 'windy', sentence_clue: '今天刮风(很冷)。' })).rejects.toThrow(/brackets/);
 
     const note = await content.createNote(env, 'u1', 'd1', { hanzi: ' 刮风 ', pinyin: 'guā fēng', english: 'windy', sentence_clue: '今天刮风。' }, { audio: 'queue' });
     expect(note.id).toBe('n1');

@@ -281,6 +281,22 @@ Uses Anthropic Claude API for several features:
    - Questions and answers are stored in `note_questions` table
    - Visible in note history modal
 
+### Card standard (the house style for every card)
+`shared/cards/standard.ts` holds `CARD_STANDARD`, the one text every Claude that makes cards reads:
+the worker's Generate / Ask Claude / coach / chat / discuss prompts include it, the MCP server sends it
+as its `instructions` and repeats the short form in the add / update tool descriptions. The HARD rules
+are enforced by `cardTextProblems` in the content service (and pre-checked by the MCP tools), so a
+card that breaks them is refused with a message saying where the content belongs:
+- **hanzi is ONE clean form** — no slashes, parentheses, brackets, pipes, ellipses or blanks. Alternatives,
+  optional characters and variants go in `fun_facts` (accepted typed answers can go in `alternatives`).
+  No placeholders: fill the slot with a real word. TTS reads every symbol aloud and pauses at it.
+- **pinyin** with tone marks, spaces between words. **english**: one clear meaning; other senses in fun_facts.
+- **fun_facts is the explanation**: every word of a sentence (汉字 (pīnyīn) meaning) then the structure, or
+  every character of a word then its usage; then the common mistake / contrast / register. No trivia.
+- **sentence_clue** is one short real sentence containing the word exactly; prefer a single clause;
+  no brackets, slashes, ellipses or blanks.
+Change the rules in `shared/cards/standard.ts` only; everything else reads from it.
+
 ### Pinyin Format
 - Always use **tone marks** (nǐ hǎo), NOT tone numbers (ni3 hao3)
 - Use proper Unicode: ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ
