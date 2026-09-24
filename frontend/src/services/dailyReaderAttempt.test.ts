@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as client from '../api/client';
+import { db, LocalReader } from '../db/database';
+import { recordReaderReview } from './reader-study';
+import { CardQueue } from '../types';
 import {
   ensureDailyReader,
   shouldAttemptDailyReader,
@@ -31,9 +34,65 @@ describe('attempt date storage', () => {
   });
 });
 
-describe('ensureDailyReader — one attempt per local date', () => {
-  beforeEach(() => {
+function readyReader(overrides: Partial<LocalReader> = {}): LocalReader {
+  const id = overrides.id ?? `reader-${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    id,
+    title_chinese: '小明在巴黎',
+    title_english: 'Xiao Ming in Paris',
+    difficulty_level: 'beginner',
+    status: 'ready',
+    created_at: new Date().toISOString(),
+    pages: [{ id: `${id}-p1`, page_number: 1, content_chinese: '小明到了巴黎。', content_pinyin: 'xiǎo míng dào le bā lí.', content_english: 'Xiao Ming arrived in Paris.', image_url: null, image_prompt: null }],
+    queue: CardQueue.NEW, stability: 0, difficulty: 0, lapses: 0, interval: 0, repetitions: 0,
+    next_review_at: null, due_timestamp: null, last_reviewed_at: null, _synced_at: null,
+    ...overrides,
+  };
+}
+
+describe('ensureDailyReader — one reader a day', () => {
+  beforeEach(async () => {
     clearDailyReaderAttempt();
+    await db.readers.clear();
+    await db.readerReviewEvents.clear();
+    Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
+  });
+
+  it('does not generate while an unread story is waiting', async () => {
+    const gen = vi.spyOn(client, 'generateDailyReader');
+    await db.readers.put(readyReader({ id: 'unread' }));
+    expect(await ensureDailyReader()).toBe(false);
+    expect(gen).not.toHaveBeenCalled();
+  });
+
+  it('does not generate when a review reader is due today — that one is the day\'s reader', async () => {
+    const gen = vi.spyOn(client, 'generateDailyReader');
+    await db.readers.put(readyReader({ id: 'due', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() - 86_400_000).toISOString() }));
+    expect(await ensureDailyReader()).toBe(false);
+    expect(gen).not.toHaveBeenCalled();
+  });
+
+  it('does not generate once a reader has been read today', async () => {
+    const gen = vi.spyOn(client, 'generateDailyReader');
+    await db.readers.put(readyReader({ id: 'done' }));
+    await recordReaderReview('done', 3, 1000);
+    expect(await ensureDailyReader()).toBe(false);
+    expect(gen).not.toHaveBeenCalled();
+  });
+
+  it('generates when nothing is due today', async () => {
+    const gen = vi.spyOn(client, 'generateDailyReader').mockResolvedValue({ reader_id: 'r1', situation_id: 'due-cards', status: 'generating' });
+    await db.readers.put(readyReader({ id: 'future', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() + 3 * 86_400_000).toISOString() }));
+    expect(await ensureDailyReader()).toBe(true);
+    expect(gen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ensureDailyReader — one attempt per local date', () => {
+  beforeEach(async () => {
+    clearDailyReaderAttempt();
+    await db.readers.clear();
+    await db.readerReviewEvents.clear();
     Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
   });
 
