@@ -10,13 +10,13 @@
  *   cache it ahead of time for readers that are due soon.
  */
 
-import { db, getDueNoteIds, LocalReader, LocalReaderPage } from '../db/database';
+import { db, getDueNoteIds, getStudyCutoff, LocalReader, LocalReaderPage } from '../db/database';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, generatePracticeTTS, generateReaderPageImage, generateDailyReader, getLocalDateString } from '../api/client';
-import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE, CardQueue } from '../types';
+import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 import { base64ToBlob } from './ttsCache';
-import { readerSchedulingFields, getDueReaders, isStudyableReader } from './reader-study';
+import { readerSchedulingFields, getDueReaders, pickTodaysReader, readersReadToday } from './reader-study';
 
 function pageToLocal(page: GradedReaderWithPages['pages'][number]): LocalReaderPage {
   return {
@@ -133,20 +133,19 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
  * Reader button) AND from the background sync (throttled), so generation
  * usually starts well before the session reaches the reader slot.
  *
- * No-buildup rule: if an unread (NEW) reader already exists — e.g. yesterday's
- * story was never read — nothing new is generated; that one IS today's reader.
+ * One reader a day: nothing is generated while today already has a reader —
+ * one was read today, or a learning repeat / review / unread story is due
+ * (pickTodaysReader). A new story is asked for only when nothing is due.
  *
  * Returns true when a fresh reader is being generated and will arrive shortly
  * (the caller should poll sync until it lands), false when there's nothing to
- * wait for (a reader already exists locally, today's was already read,
- * offline, or generation failed).
+ * wait for (today already has a reader, offline, or generation failed).
  */
 export async function ensureDailyReader(): Promise<boolean> {
   if (!navigator.onLine) return false;
 
-  const readers = await db.readers.toArray();
-  const hasUnread = readers.some(r => isStudyableReader(r) && r.queue === CardQueue.NEW);
-  if (hasUnread) return false;
+  const [readers, readToday] = await Promise.all([db.readers.toArray(), readersReadToday()]);
+  if (readToday.size > 0 || pickTodaysReader(readers, readToday, getStudyCutoff())) return false;
 
   // One generation attempt per local day. Without this, every session end
   // and every hourly sync re-asked the server while today's reader sat in

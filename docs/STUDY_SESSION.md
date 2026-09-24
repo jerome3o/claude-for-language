@@ -91,6 +91,21 @@ own still charges what was already studied today in other decks against the glob
 
 When the daily new card limit is reached, the "All Done!" screen offers a **"Study More"** button to add 10 bonus new cards.
 
+## Graded readers: one a day
+
+Graded readers close out an all-decks session (after the cards and any mini lessons), and
+there is **one reader a day** (`READERS_PER_DAY` in `frontend/src/services/reader-study.ts`):
+
+- `pickTodaysReader` chooses the day's story: a learning repeat due by the study cutoff first,
+  then the most overdue review, then the newest unread story. Only that one enters the
+  session; other due readers wait for later days, so a missed week never piles stories up.
+- Once a reader has been read today (a `readerReviewEvents` row on today's local date) nothing
+  else is offered until tomorrow. The only exception is that same story coming back as an
+  Again repeat inside the session.
+- `ensureDailyReader` (study start + background sync) generates a new story **only when
+  nothing is due today** — no unread story, no review or learning repeat due, none read yet.
+  A due review *is* the day's reader, so no new story is written that day.
+
 ## Example Session Flow
 
 ```

@@ -31,12 +31,14 @@ import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE } from '../api/client';
 
 /**
- * Daily cap on NEW readers entering the rotation. One per day: skipping a
- * day must not stack up a backlog of stories at the end of a session — the
- * unread one from before is the day's reader (see ensureDailyReader, which
- * also skips generating while an unread reader exists).
+ * ONE graded reader a day (Jerome's rule). The day's reader is whichever
+ * story is due — a learning repeat, a review that has come round, or an
+ * unread new story — and once it has been read nothing else is offered until
+ * tomorrow; when nothing is due at all, a new story is generated
+ * (ensureDailyReader). Extra due readers wait their turn on later days, so a
+ * missed week never turns into a pile of stories at the end of a session.
  */
-export const NEW_READERS_PER_DAY = 1;
+export const READERS_PER_DAY = 1;
 
 /** A reader is studyable once generation finished and it actually has pages. */
 export function isStudyableReader(reader: LocalReader): boolean {
@@ -167,58 +169,75 @@ function isTodayLocal(iso: string): boolean {
   );
 }
 
-/** Count readers whose first-ever review happened today (for the daily cap). */
-async function countReadersIntroducedToday(): Promise<number> {
+/** Ids of readers with at least one review on today's LOCAL date. */
+export async function readersReadToday(): Promise<Set<string>> {
   const events = await db.readerReviewEvents.toArray();
-  const firstReviewByReader = new Map<string, string>();
+  const ids = new Set<string>();
   for (const e of events) {
-    const existing = firstReviewByReader.get(e.reader_id);
-    if (!existing || e.reviewed_at < existing) {
-      firstReviewByReader.set(e.reader_id, e.reviewed_at);
-    }
+    if (isTodayLocal(e.reviewed_at)) ids.add(e.reader_id);
   }
+  return ids;
+}
 
-  let count = 0;
-  for (const first of firstReviewByReader.values()) {
-    if (isTodayLocal(first)) count++;
-  }
-  return count;
+function isLearning(reader: LocalReader): boolean {
+  return reader.queue === CardQueue.LEARNING || reader.queue === CardQueue.RELEARNING;
+}
+
+function learningDueBy(reader: LocalReader, cutoffTs: number): boolean {
+  return isLearning(reader) && (!reader.due_timestamp || reader.due_timestamp <= cutoffTs);
 }
 
 /**
- * Readers due for study right now:
- * - Learning/relearning readers due by the study cutoff (end of today)
- * - Review readers due by the cutoff
- * - NEW readers, newest first, capped at NEW_READERS_PER_DAY per day
+ * Pure: the ONE reader for today, or null.
+ *
+ * - A reader already read today owns the day. It is returned only while it is
+ *   still in learning and due again by the cutoff (an Again repeat inside the
+ *   same session); otherwise today's slot is spent and nothing is offered.
+ * - Otherwise the first of: a learning repeat due by the cutoff (earliest
+ *   first), a review due by the cutoff (most overdue first), an unread NEW
+ *   story (newest first — today's generated story before older leftovers).
+ *
+ * Exported for tests.
+ */
+export function pickTodaysReader(
+  readers: LocalReader[],
+  readToday: Set<string>,
+  cutoff: { iso: string; ts: number },
+): LocalReader | null {
+  const studyable = readers.filter(isStudyableReader);
+
+  if (readToday.size > 0) {
+    const repeat = studyable
+      .filter(r => readToday.has(r.id) && learningDueBy(r, cutoff.ts))
+      .sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+    return repeat[0] ?? null;
+  }
+
+  const learning = studyable
+    .filter(r => learningDueBy(r, cutoff.ts))
+    .sort((a, b) => (a.due_timestamp || 0) - (b.due_timestamp || 0));
+  if (learning[0]) return learning[0];
+
+  const review = studyable
+    .filter(r => r.queue === CardQueue.REVIEW && (!r.next_review_at || r.next_review_at <= cutoff.iso))
+    .sort((a, b) => (a.next_review_at || '').localeCompare(b.next_review_at || ''));
+  if (review[0]) return review[0];
+
+  const fresh = studyable
+    .filter(r => r.queue === CardQueue.NEW)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return fresh[0] ?? null;
+}
+
+/**
+ * Readers for this study session: at most ONE (READERS_PER_DAY) — see
+ * pickTodaysReader. An empty array means today's story has been read (or
+ * there is none yet; ensureDailyReader generates one when nothing is due).
  */
 export async function getDueReaders(): Promise<LocalReader[]> {
-  const cutoff = getStudyCutoff();
-  const readers = (await db.readers.toArray()).filter(isStudyableReader);
-
-  const due: LocalReader[] = [];
-  const newReaders: LocalReader[] = [];
-
-  for (const reader of readers) {
-    if (reader.queue === CardQueue.NEW) {
-      newReaders.push(reader);
-    } else if (reader.queue === CardQueue.LEARNING || reader.queue === CardQueue.RELEARNING) {
-      if (!reader.due_timestamp || reader.due_timestamp <= cutoff.ts) due.push(reader);
-    } else if (reader.queue === CardQueue.REVIEW) {
-      if (!reader.next_review_at || reader.next_review_at <= cutoff.iso) due.push(reader);
-    }
-  }
-
-  if (newReaders.length > 0) {
-    const introducedToday = await countReadersIntroducedToday();
-    const budget = Math.max(0, NEW_READERS_PER_DAY - introducedToday);
-    if (budget > 0) {
-      // Newest first so today's daily reader shows up today
-      newReaders.sort((a, b) => b.created_at.localeCompare(a.created_at));
-      due.push(...newReaders.slice(0, budget));
-    }
-  }
-
-  return due;
+  const [readers, readToday] = await Promise.all([db.readers.toArray(), readersReadToday()]);
+  const reader = pickTodaysReader(readers, readToday, getStudyCutoff());
+  return reader ? [reader] : [];
 }
 
 // ============ Event Sync ============

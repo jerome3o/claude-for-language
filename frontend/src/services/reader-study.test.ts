@@ -5,7 +5,8 @@ import {
   fixReaderState,
   isStudyableReader,
   getReaderIntervalPreviews,
-  NEW_READERS_PER_DAY,
+  READERS_PER_DAY,
+  pickTodaysReader,
 } from './reader-study';
 import { readerTtsKey } from './readerSync';
 import { db, LocalReader } from '../db/database';
@@ -114,7 +115,11 @@ describe('fixReaderState', () => {
   });
 });
 
-describe('getDueReaders', () => {
+describe('getDueReaders — one reader a day', () => {
+  it('is at most one reader', () => {
+    expect(READERS_PER_DAY).toBe(1);
+  });
+
   it('excludes generating/failed/empty readers', async () => {
     await db.readers.bulkPut([
       makeReader({ id: 'r-ready' }),
@@ -127,50 +132,79 @@ describe('getDueReaders', () => {
     expect(due.map(r => r.id)).toEqual(['r-ready']);
   });
 
-  it('caps NEW readers at NEW_READERS_PER_DAY, newest first', async () => {
+  it('offers only the newest unread story when several are waiting', async () => {
     const old = makeReader({ id: 'r-old', created_at: '2026-01-01T00:00:00Z' });
     const mid = makeReader({ id: 'r-mid', created_at: '2026-06-01T00:00:00Z' });
     const fresh = makeReader({ id: 'r-new', created_at: '2026-07-31T00:00:00Z' });
     await db.readers.bulkPut([old, mid, fresh]);
 
     const due = await getDueReaders();
-    expect(due).toHaveLength(NEW_READERS_PER_DAY);
-    expect(due.map(r => r.id)).toEqual(['r-new', 'r-mid'].slice(0, NEW_READERS_PER_DAY));
+    expect(due.map(r => r.id)).toEqual(['r-new']);
   });
 
-  it('counts readers introduced today against the NEW budget', async () => {
-    const introduced = makeReader({ id: 'r-done' });
-    await db.readers.put(introduced);
-    await recordReaderReview(introduced.id, 3, 1000); // introduced today, now REVIEW (future due)
+  it('offers nothing more once a reader has been read today', async () => {
+    const readToday = makeReader({ id: 'r-done' });
+    await db.readers.put(readToday);
+    await recordReaderReview(readToday.id, 3, 1000); // Easy → review, due in days
 
-    await db.readers.bulkPut([makeReader({ id: 'r-a' }), makeReader({ id: 'r-b' })]);
+    await db.readers.bulkPut([
+      makeReader({ id: 'r-unread' }),
+      makeReader({ id: 'r-review-due', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() - 86_400_000).toISOString() }),
+    ]);
 
-    const due = await getDueReaders();
-    // Budget of NEW_READERS_PER_DAY minus the one introduced today
-    const newOnes = due.filter(r => r.queue === CardQueue.NEW);
-    expect(newOnes).toHaveLength(NEW_READERS_PER_DAY - 1);
+    expect(await getDueReaders()).toEqual([]);
   });
 
-  it('includes learning readers due today and review readers due now', async () => {
-    const learning = makeReader({
-      id: 'r-learning',
-      queue: CardQueue.LEARNING,
-      due_timestamp: Date.now() - 1000,
-    });
-    const reviewDue = makeReader({
-      id: 'r-review-due',
-      queue: CardQueue.REVIEW,
-      next_review_at: new Date(Date.now() - 86_400_000).toISOString(),
-    });
-    const reviewFuture = makeReader({
-      id: 'r-review-future',
-      queue: CardQueue.REVIEW,
-      next_review_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
-    });
-    await db.readers.bulkPut([learning, reviewDue, reviewFuture]);
+  it("keeps today's reader for an Again repeat inside the session, and nothing else", async () => {
+    const readToday = makeReader({ id: 'r-again' });
+    await db.readers.put(readToday);
+    await recordReaderReview(readToday.id, 0, 1000); // Again → learning, due in a minute
+    await db.readers.put(makeReader({ id: 'r-unread' }));
 
     const due = await getDueReaders();
-    expect(due.map(r => r.id).sort()).toEqual(['r-learning', 'r-review-due']);
+    expect(due.map(r => r.id)).toEqual(['r-again']);
+  });
+
+  it('picks one of several due readers: learning repeat, then the most overdue review, then unread', async () => {
+    const learning = makeReader({ id: 'r-learning', queue: CardQueue.LEARNING, due_timestamp: Date.now() - 1000 });
+    const reviewDue = makeReader({ id: 'r-review-due', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() - 86_400_000).toISOString() });
+    const reviewOverdue = makeReader({ id: 'r-review-overdue', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() - 5 * 86_400_000).toISOString() });
+    const reviewFuture = makeReader({ id: 'r-review-future', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() + 7 * 86_400_000).toISOString() });
+    const unread = makeReader({ id: 'r-unread' });
+    await db.readers.bulkPut([learning, reviewDue, reviewOverdue, reviewFuture, unread]);
+
+    expect((await getDueReaders()).map(r => r.id)).toEqual(['r-learning']);
+
+    await db.readers.delete('r-learning');
+    expect((await getDueReaders()).map(r => r.id)).toEqual(['r-review-overdue']);
+
+    await db.readers.bulkDelete(['r-review-overdue', 'r-review-due']);
+    expect((await getDueReaders()).map(r => r.id)).toEqual(['r-unread']);
+
+    await db.readers.delete('r-unread');
+    expect(await getDueReaders()).toEqual([]); // only a future review left → nothing today
+  });
+});
+
+describe('pickTodaysReader (pure)', () => {
+  const cutoff = { ts: Date.now() + 3_600_000, iso: new Date(Date.now() + 3_600_000).toISOString() };
+
+  it('returns null when there is nothing to read', () => {
+    expect(pickTodaysReader([], new Set(), cutoff)).toBeNull();
+    const future = makeReader({ id: 'f', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() + 3 * 86_400_000).toISOString() });
+    expect(pickTodaysReader([future], new Set(), cutoff)).toBeNull();
+  });
+
+  it('a reader read today blocks every other reader', () => {
+    const done = makeReader({ id: 'done', queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() + 3 * 86_400_000).toISOString() });
+    const unread = makeReader({ id: 'unread' });
+    expect(pickTodaysReader([done, unread], new Set(['done']), cutoff)).toBeNull();
+  });
+
+  it('a reader read today comes back only as its own learning repeat', () => {
+    const again = makeReader({ id: 'again', queue: CardQueue.LEARNING, due_timestamp: Date.now() + 60_000 });
+    const unread = makeReader({ id: 'unread' });
+    expect(pickTodaysReader([again, unread], new Set(['again']), cutoff)?.id).toBe('again');
   });
 });
 

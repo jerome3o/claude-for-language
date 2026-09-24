@@ -370,8 +370,8 @@ class SyncService {
     // just at session start — generation takes a few minutes, and a short
     // session could otherwise end before the story lands (it then silently
     // becomes tomorrow's reader). Idempotent server-side; throttled here
-    // because sync runs frequently, and skipped entirely while an unread
-    // reader exists (ensureDailyReader's no-buildup check).
+    // because sync runs frequently, and skipped entirely while today already
+    // has a reader (ensureDailyReader's one-reader-a-day check).
     if (Date.now() - this.lastDailyReaderEnsure > SyncService.DAILY_READER_ENSURE_MS) {
       this.lastDailyReaderEnsure = Date.now();
       ensureDailyReader().catch(err =>
