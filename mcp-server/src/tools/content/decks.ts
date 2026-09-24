@@ -145,8 +145,9 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
       name: z.string().min(1).describe('Deck name as the student will see it (the app appends "(from tutor)")'),
       description: z.string().optional().describe('One line on what the deck covers'),
       notes: z.array(noteShape).min(1).describe('The words to put in the deck'),
+      priority: z.enum(['core', 'non_urgent']).optional().describe('Where the packet lands in the student\'s homework queue: "core" (default) = top, studied next; "non_urgent" = bottom. The student introduces a fixed number of new words a day from the top of the queue, so sending more never overloads them.'),
     },
-    async ({ relationship_id, name, description, notes }) => guard(async () => {
+    async ({ relationship_id, name, description, notes, priority }) => guard(async () => {
       const { notes: clean, rejected } = normalizeNotes(notes);
       if (clean.length === 0) {
         return errorResult(`No usable notes:\n- ${rejected.map(r => `${r.hanzi}: ${r.reason}`).join('\n- ')}`);
@@ -166,7 +167,7 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
       try {
         shared = await api.post<{ id: string; target_deck_id: string; target_deck_name: string }>(
           `/api/relationships/${encodeURIComponent(relationship_id)}/share-deck`,
-          { deck_id: deck.id },
+          { deck_id: deck.id, priority: priority ?? 'core' },
         );
       } catch (err) {
         // Don't leave the half-finished deck behind.

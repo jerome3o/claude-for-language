@@ -6,8 +6,11 @@ import { Loading, EmptyState } from '../components/Loading';
 import { NoteSearchResults } from '../components/NoteSearchResults';
 import { Deck, DeckStats, QueueCounts } from '../types';
 import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
-import { applyNewCardBonus, EMPTY_QUEUE_COUNTS, DeckQueueCounts } from '../db/database';
+import { allocateQueueCounts, EMPTY_QUEUE_COUNTS, DeckQueueCounts } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
+import { orderDecksForQueue, moveDeckInQueue, nudgeDeckInQueue } from '../services/deckOrder';
+import { readStudyBudget } from '../services/studyBudget';
+import type { LocalDeck } from '../db/database';
 
 // Queue counts display component
 function QueueCountsBadge({ counts }: { counts: QueueCounts }) {
@@ -43,16 +46,20 @@ function DeckCard({
   deck,
   counts,
   onAddMore,
-  pinned,
-  onTogglePin,
+  position,
+  total,
+  onMove,
 }: {
   deck: Deck;
   counts: DeckQueueCounts;
   onAddMore: () => void;
-  pinned: boolean;
-  onTogglePin: () => void;
+  /** 1-based place in the queue. */
+  position: number;
+  total: number;
+  onMove: (to: 'top' | 'up' | 'down' | 'bottom') => void;
 }) {
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
   const statsQuery = useQuery({
     queryKey: ['deckStats', deck.id],
     queryFn: () => getDeckStats(deck.id),
@@ -66,22 +73,42 @@ function DeckCard({
   const handleStudy = () => navigate(`/study?deck=${deck.id}&autostart=true`);
 
   return (
-    <div className="deck-card" data-testid="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative' }}>
-      {/* Pin button */}
+    <div className="deck-card" data-testid="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative', zIndex: menuOpen ? 20 : undefined }}>
+      {/* Queue position + reorder menu (the card is lifted above its siblings while the menu is open) */}
       <button
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(); }}
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(o => !o); }}
         style={{
-          position: 'absolute', top: '0.375rem', right: '0.375rem',
-          background: 'none', border: 'none', cursor: 'pointer',
-          padding: '0.125rem', fontSize: '0.8rem',
-          opacity: pinned ? 1 : 0.3, lineHeight: 1,
-          minHeight: 'unset', minWidth: 'unset',
+          position: 'absolute', top: '0.25rem', right: '0.25rem',
+          background: position === 1 ? '#fee2e2' : '#f3f4f6', border: 'none', cursor: 'pointer',
+          padding: '0.125rem 0.375rem', fontSize: '0.7rem', fontWeight: 700, borderRadius: '999px',
+          color: position === 1 ? '#b91c1c' : '#4b5563', lineHeight: 1.4,
+          minHeight: 'unset', minWidth: '2rem',
         }}
-        title={pinned ? 'Unpin deck' : 'Pin to top'}
-        aria-label={pinned ? 'Unpin deck' : 'Pin to top'}
+        title={`${position === 1 ? 'Studied first' : `${position}th in the queue`} — tap to move`}
+        aria-label={`Queue position ${position} of ${total}. Reorder`}
+        aria-expanded={menuOpen}
       >
-        📌
+        #{position}
       </button>
+      {menuOpen && (
+        <div role="menu" className="deck-queue-menu" style={{
+          position: 'absolute', top: '1.75rem', right: '0.25rem', zIndex: 5,
+          background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e5e7eb)',
+          borderRadius: '0.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', minWidth: '10rem',
+        }}>
+          {([['top', '⤒ Move to top'], ['up', '↑ Move up'], ['down', '↓ Move down'], ['bottom', '⤓ Move to bottom']] as const).map(([to, label]) => {
+            const disabled = (to === 'top' || to === 'up') ? position === 1 : position === total;
+            return (
+              <button key={to} type="button" role="menuitem" disabled={disabled}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onMove(to); }}
+                style={{ background: 'none', border: 'none', textAlign: 'left', padding: '0.625rem 0.875rem', fontSize: '0.875rem', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1, minHeight: '44px' }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, paddingRight: '1.25rem' }}>
         <div className="deck-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem', marginBottom: 0 }}>
@@ -121,11 +148,8 @@ function DeckCard({
   );
 }
 
-const PINNED_DECKS_KEY = 'pinnedDeckIds';
-const UNPINNED_COLLAPSED_KEY = 'unpinnedDecksCollapsed';
-
 /**
- * The Decks tab: every deck (pinned first), New / Generate / Analyze, and a
+ * The Decks tab: every deck in queue order (new words come from the top down), New / Generate / Analyze, and a
  * search field at the top that searches every card on the device (this
  * absorbed the old Search page; `?q=` deep-links into a search).
  */
@@ -160,37 +184,7 @@ export function DecksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [pinnedDeckIds, setPinnedDeckIds] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem(PINNED_DECKS_KEY);
-      return new Set(stored ? JSON.parse(stored) : []);
-    } catch { return new Set(); }
-  });
-
-  const [unpinnedCollapsed, setUnpinnedCollapsed] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem(UNPINNED_COLLAPSED_KEY);
-      return stored !== null ? JSON.parse(stored) : true;
-    } catch { return true; }
-  });
-
-  const togglePin = (deckId: string) => {
-    setPinnedDeckIds(prev => {
-      const next = new Set(prev);
-      if (next.has(deckId)) next.delete(deckId);
-      else next.add(deckId);
-      localStorage.setItem(PINNED_DECKS_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  };
-
-  const handleToggleUnpinned = () => {
-    setUnpinnedCollapsed(c => {
-      const next = !c;
-      localStorage.setItem(UNPINNED_COLLAPSED_KEY, JSON.stringify(next));
-      return next;
-    });
-  };
+  const budget = readStudyBudget();
 
   const decksQuery = useQuery({
     queryKey: ['decks'],
@@ -204,6 +198,16 @@ export function DecksPage() {
   // to detect decks that are missing locally (which triggers a sync).
   const { decks: offlineDecks, isLoading: offlineLoading, isSyncing } = useOfflineDecks(decksQuery.data);
   const decks = offlineDecks;
+
+  const handleMove = async (deckId: string, to: 'top' | 'up' | 'down' | 'bottom') => {
+    try {
+      if (to === 'top' || to === 'bottom') await moveDeckInQueue(deckId, to);
+      else await nudgeDeckInQueue(decks as LocalDeck[], deckId, to);
+    } catch (err) {
+      console.error('[Decks] reorder failed', err);
+    }
+  };
+
 
   // ---- Bonus tracking ("+10 more" buttons) ----
   const deckIdsKey = decks.map(d => d.id).join(',');
@@ -223,12 +227,10 @@ export function DecksPage() {
 
   // ---- Queue counts: ONE live query, bonuses applied in-memory ----
   const { byDeck: rawByDeck } = useRawQueueCounts();
-  const perDeck = useMemo(() => {
-    const map = new Map<string, DeckQueueCounts>();
-    for (const [id, raw] of rawByDeck) {
-      map.set(id, applyNewCardBonus(raw, deckBonuses[id] ?? 0));
-    }
-    return map;
+  // The budget is global, so every deck's "+10 more" adds to the same pool.
+  const perDeck = useMemo<Map<string, DeckQueueCounts>>(() => {
+    const bonus = Object.values(deckBonuses).reduce((s, b) => s + (b || 0), 0);
+    return allocateQueueCounts(rawByDeck, bonus);
   }, [rawByDeck, deckBonuses]);
 
   const createMutation = useMutation({
@@ -318,67 +320,26 @@ export function DecksPage() {
               }
             />
           ) : (() => {
-            const pinnedDecks = decks.filter(d => pinnedDeckIds.has(d.id));
-            const unpinnedDecks = decks.filter(d => !pinnedDeckIds.has(d.id));
-            // If nothing is pinned, always show all decks expanded so the list isn't empty
-            const unpinnedVisible = pinnedDecks.length === 0 || !unpinnedCollapsed;
+            const ordered = orderDecksForQueue(decks as LocalDeck[]);
             return (
               <>
-                {pinnedDecks.length > 0 && (
-                  <div className="grid grid-cols-2 gap-1 mb-2">
-                    {pinnedDecks.map((deck) => (
-                      <DeckCard
-                        key={deck.id}
-                        deck={deck}
-                        counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
-                        onAddMore={() => bumpBonus(deck.id)}
-                        pinned={true}
-                        onTogglePin={() => togglePin(deck.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {unpinnedDecks.length > 0 && (
-                  <div>
-                    {pinnedDecks.length > 0 && (
-                      <button
-                        onClick={handleToggleUnpinned}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '0.375rem',
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          padding: '0.375rem 0', fontSize: '0.8rem', color: '#6b7280',
-                          width: '100%', marginBottom: unpinnedVisible ? '0.5rem' : 0,
-                          minHeight: 'unset',
-                        }}
-                      >
-                        <span style={{
-                          display: 'inline-block',
-                          transform: unpinnedVisible ? 'rotate(0deg)' : 'rotate(-90deg)',
-                          transition: 'transform 0.15s',
-                          fontSize: '0.7rem',
-                        }}>▾</span>
-                        {unpinnedVisible
-                          ? `Other decks (${unpinnedDecks.length})`
-                          : `${unpinnedDecks.length} more deck${unpinnedDecks.length === 1 ? '' : 's'}`}
-                      </button>
-                    )}
-                    {unpinnedVisible && (
-                      <div className="grid grid-cols-2 gap-1">
-                        {unpinnedDecks.map((deck) => (
-                          <DeckCard
-                            key={deck.id}
-                            deck={deck}
-                            counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
-                            onAddMore={() => bumpBonus(deck.id)}
-                            pinned={false}
-                            onTogglePin={() => togglePin(deck.id)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', color: 'var(--color-text-light)' }} data-testid="queue-caption">
+                  Studied in this order: {budget.new_cards_per_day} new {budget.new_cards_per_day === 1 ? 'word' : 'words'} a day come from the top deck down
+                  {' '}(<Link to="/settings" style={{ color: 'inherit' }}>change</Link>). Tap a deck's number to move it.
+                </p>
+                <div className="grid grid-cols-2 gap-1">
+                  {ordered.map((deck, i) => (
+                    <DeckCard
+                      key={deck.id}
+                      deck={deck}
+                      counts={perDeck.get(deck.id) ?? EMPTY_QUEUE_COUNTS}
+                      onAddMore={() => bumpBonus(deck.id)}
+                      position={i + 1}
+                      total={ordered.length}
+                      onMove={(to) => handleMove(deck.id, to)}
+                    />
+                  ))}
+                </div>
 
                 {/* Action buttons */}
                 <div className="flex gap-2 justify-center flex-wrap" style={{ paddingTop: '0.75rem', marginTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>

@@ -15,6 +15,8 @@ export interface CreateDeckInput {
   description?: string | null;
   /** Explicit settings for this deck; anything omitted takes the shared default. */
   settings?: Partial<DeckSettings>;
+  /** Where the deck joins the learner's new-card queue. Default: top (new things first). */
+  placement?: 'top' | 'bottom';
 }
 
 export class ContentError extends Error {
@@ -26,11 +28,25 @@ export class ContentError extends Error {
 export async function createDeck(d1: D1Database, userId: string, input: CreateDeckInput): Promise<Deck> {
   const name = input.name?.trim();
   if (!name) throw new ContentError('Name is required');
+  const range = await db.getDeckPriorityRange(d1, userId);
   return db.createDeck(d1, userId, {
     name,
     description: input.description?.trim() || null,
     settings: newDeckSettings(input.settings),
+    study_priority: input.placement === 'bottom' ? range.min - 1 : range.max + 1,
   });
+}
+
+/** Move a deck to the top or bottom of the user's queue. */
+export async function moveDeck(d1: D1Database, userId: string, deckId: string, to: 'top' | 'bottom'): Promise<boolean> {
+  return db.moveDeck(d1, userId, deckId, to);
+}
+
+/** Set the queue order outright (first = highest priority). */
+export async function reorderDecks(d1: D1Database, userId: string, orderedIds: string[]): Promise<number> {
+  const ids = orderedIds.filter((id, i) => typeof id === 'string' && id && orderedIds.indexOf(id) === i);
+  if (ids.length > 500) throw new ContentError('Too many decks in one reorder');
+  return db.reorderDecks(d1, userId, ids);
 }
 
 export async function updateDeck(
@@ -100,9 +116,10 @@ export async function copyDeckForUser(
   d1: D1Database,
   sourceDeck: Deck,
   targetUserId: string,
-  name: string
+  name: string,
+  placement: 'top' | 'bottom' = 'top'
 ): Promise<{ deck: Deck; noteIds: string[] }> {
-  const deck = await createDeck(d1, targetUserId, { name, description: sourceDeck.description });
+  const deck = await createDeck(d1, targetUserId, { name, description: sourceDeck.description, placement });
   const notes = await d1.prepare('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC').bind(sourceDeck.id).all<Record<string, unknown>>();
   const noteIds: string[] = [];
   for (const note of notes.results || []) {

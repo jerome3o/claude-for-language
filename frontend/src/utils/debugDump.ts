@@ -9,7 +9,7 @@ import {
   getDatabaseStats,
   getEventSyncMeta,
   getRawQueueCounts,
-  applyNewCardBonus,
+  allocateQueueCounts,
   sumQueueCounts,
   getStudyCutoff,
 } from '../db/database';
@@ -77,14 +77,15 @@ export async function buildDebugDump(): Promise<string> {
 
   // Per-deck view: raw counts + what the UI displays after daily limits
   const deckNames = new Map(decks.map((d) => [d.id, d.name]));
+  const allocated = allocateQueueCounts(rawQueue, 0);
   const perDeck: Record<string, unknown> = {};
   for (const [deckId, raw] of rawQueue) {
     perDeck[deckNames.get(deckId) ?? deckId] = {
       raw,
-      displayed: applyNewCardBonus(raw, 0),
+      displayed: allocated.get(deckId),
     };
   }
-  const totals = sumQueueCounts([...rawQueue.values()].map((r) => applyNewCardBonus(r, 0)));
+  const totals = sumQueueCounts(allocated.values());
 
   const todaysStats = await db.dailyStats.where('date').equals(localDateString()).toArray();
 

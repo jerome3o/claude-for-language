@@ -5,6 +5,7 @@ import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMess
 import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
+import { DEFAULT_STUDY_BUDGET, pickStudyBudget, daysToIntroduce } from '@shared/decks';
 import { calculateSM2 } from './services/sm2';
 import {
   scheduleCard,
@@ -395,6 +396,9 @@ app.get('/api/auth/me', async (c) => {
     can_invite: userMayInvite(user),
     bio: user.bio || null,
     landing_page: user.landing_page || null,
+    // The learner's daily new-card budget across all decks (NULL = default).
+    new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
+    secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
   });
 });
 
@@ -586,6 +590,16 @@ app.put('/api/profile/landing-page', async (c) => {
   return c.json({ landing_page });
 });
 
+/** The learner's daily new-card budget across all decks (see shared/decks/budget.ts). */
+app.put('/api/profile/study-budget', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<Record<string, unknown>>();
+  const { budget, problems } = pickStudyBudget(body);
+  if (problems.length) return c.json({ error: problems.join('; '), problems }, 400);
+  const saved = await db.setStudyBudget(c.env.DB, userId, budget);
+  return c.json(saved);
+});
+
 // ============ Decks ============
 
 app.get('/api/decks', async (c) => {
@@ -633,6 +647,31 @@ app.get('/api/decks/:id', async (c) => {
     }
   }
   console.log('[API decks/:id] Deck:', deck.name, 'notes:', deck.notes.length, 'cards:', totalCards, 'queues:', queueCounts);
+  return c.json(deck);
+});
+
+/** The whole queue order at once: first id = highest priority. Registered before /:id. */
+app.put('/api/decks/reorder', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ deck_ids: string[] }>();
+  if (!Array.isArray(body.deck_ids)) return c.json({ error: 'deck_ids must be an array' }, 400);
+  try {
+    const changed = await content.reorderDecks(c.env.DB, userId, body.deck_ids);
+    return c.json({ reordered: changed });
+  } catch (err) {
+    return contentErrorResponse(c, err) ?? Promise.reject(err);
+  }
+});
+
+/** Move one deck to the top or bottom of the learner's queue. */
+app.post('/api/decks/:id/move', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const { to } = await c.req.json<{ to: 'top' | 'bottom' }>();
+  if (to !== 'top' && to !== 'bottom') return c.json({ error: "to must be 'top' or 'bottom'" }, 400);
+  const moved = await content.moveDeck(c.env.DB, userId, id, to);
+  if (!moved) return c.json({ error: 'Deck not found' }, 404);
+  const deck = await db.getDeckById(c.env.DB, id, userId);
   return c.json(deck);
 });
 
@@ -4843,14 +4882,17 @@ app.patch('/api/conversations/:id/voice-settings', async (c) => {
 app.post('/api/relationships/:relId/share-deck', async (c) => {
   const userId = c.get('user').id;
   const relId = c.req.param('relId');
-  const { deck_id } = await c.req.json<ShareDeckRequest>();
+  const { deck_id, priority } = await c.req.json<ShareDeckRequest>();
 
   if (!deck_id) {
     return c.json({ error: 'deck_id is required' }, 400);
   }
+  if (priority !== undefined && priority !== 'core' && priority !== 'non_urgent') {
+    return c.json({ error: "priority must be 'core' or 'non_urgent'" }, 400);
+  }
 
   try {
-    const shared = await shareDeck(c.env.DB, relId, userId, deck_id);
+    const shared = await shareDeck(c.env.DB, relId, userId, deck_id, priority ?? 'core');
     return c.json(shared, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to share deck';

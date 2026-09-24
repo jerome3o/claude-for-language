@@ -1177,12 +1177,28 @@ export async function updateConversationVoiceSettings(
 
 export async function shareDeck(
   relationshipId: string,
-  deckId: string
+  deckId: string,
+  priority: 'core' | 'non_urgent' = 'core'
 ): Promise<SharedDeckWithDetails> {
   return fetchJSON<SharedDeckWithDetails>(`/relationships/${relationshipId}/share-deck`, {
     method: 'POST',
-    body: JSON.stringify({ deck_id: deckId }),
+    body: JSON.stringify({ deck_id: deckId, priority }),
   });
+}
+
+/** The learner's daily new-card budget across all decks. */
+export async function updateStudyBudget(budget: { new_cards_per_day?: number; secondary_cards_per_day?: number }): Promise<{ new_cards_per_day: number; secondary_cards_per_day: number }> {
+  return fetchJSON('/profile/study-budget', { method: 'PUT', body: JSON.stringify(budget) });
+}
+
+/** Move a deck to the top or bottom of the new-card queue. */
+export async function moveDeck(deckId: string, to: 'top' | 'bottom'): Promise<Deck> {
+  return fetchJSON<Deck>(`/decks/${deckId}/move`, { method: 'POST', body: JSON.stringify({ to }) });
+}
+
+/** Set the whole queue order: first id = studied first. */
+export async function reorderDecks(deckIds: string[]): Promise<{ reordered: number }> {
+  return fetchJSON('/decks/reorder', { method: 'PUT', body: JSON.stringify({ deck_ids: deckIds }) });
 }
 
 export async function getSharedDecks(relationshipId: string): Promise<SharedDeckWithDetails[]> {

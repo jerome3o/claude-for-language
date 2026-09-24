@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   db,
   getDueCards,
-  applyNewCardBonus,
-  newCardBudgets,
+  allocateQueueCounts,
   incrementNewCardsStudiedToday,
   ensureDailyStatsInitialized,
   createLocalReviewEvent,
@@ -78,6 +77,10 @@ function todayString(): string {
 }
 
 describe('Secondary new cards', () => {
+  // The global budget is at least as generous as every deck cap in these tests,
+  // so the per-deck caps are what bind (the scenarios below are about caps).
+  localStorage.setItem('studyBudget', JSON.stringify({ new_cards_per_day: 20, secondary_cards_per_day: 10 }));
+
   describe('getDueCards budgets', () => {
     it('admits secondary cards via their own quota even when unseen notes exceed the primary limit', async () => {
       const deckId = 'deck-1';
@@ -172,43 +175,51 @@ describe('Secondary new cards', () => {
     });
   });
 
-  describe('newCardBudgets / applyNewCardBonus', () => {
+  describe('allocateQueueCounts (global budget over the deck queue)', () => {
     const raw = (overrides: Partial<DeckQueueRaw>): DeckQueueRaw => ({
       learning: 0,
       review: 0,
       totalNew: 0,
       totalSecondaryNew: 0,
+      unseenNotes: 0,
       newCardsPerDay: 20,
       secondaryCardsPerDay: 10,
       studiedToday: 0,
       secondaryStudiedToday: 0,
+      priority: 0,
+      createdAt: '2026-09-01',
       ...overrides,
     });
+    const budget = { new_cards_per_day: 20, secondary_cards_per_day: 10 };
 
     it('splits budgets and reports both counts', () => {
-      const counts = applyNewCardBonus(raw({ totalNew: 50, totalSecondaryNew: 50 }), 0);
+      const counts = allocateQueueCounts(new Map([['d', raw({ totalNew: 50, totalSecondaryNew: 50 })]]), 0, budget).get('d')!;
       expect(counts.new).toBe(20);
       expect(counts.secondaryNew).toBe(10);
       expect(counts.hasMoreNew).toBe(true);
     });
 
     it('spills unused primary budget into the secondary count', () => {
-      const counts = applyNewCardBonus(raw({ totalNew: 0, totalSecondaryNew: 50 }), 0);
+      const counts = allocateQueueCounts(new Map([['d', raw({ totalNew: 0, totalSecondaryNew: 50 })]]), 0, budget).get('d')!;
       expect(counts.new).toBe(0);
       expect(counts.secondaryNew).toBe(30); // 10 quota + 20 unused primary
     });
 
-    it('charges secondary overflow to the primary budget', () => {
-      const budgets = newCardBudgets(
-        { newCardsPerDay: 20, secondaryCardsPerDay: 10, studiedToday: 5, secondaryStudiedToday: 14 },
-        0
+    it('fills from the top of the queue: a higher-priority deck takes the budget first', () => {
+      const counts = allocateQueueCounts(
+        new Map([
+          ['legacy', raw({ totalNew: 50, totalSecondaryNew: 50, priority: 0 })],
+          ['core', raw({ totalNew: 50, totalSecondaryNew: 50, priority: 5 })],
+        ]),
+        0,
+        budget
       );
-      expect(budgets.primary).toBe(11); // 20 - 5 studied - 4 overflow
-      expect(budgets.secondary).toBe(0);
+      expect(counts.get('core')).toMatchObject({ new: 20, secondaryNew: 10 });
+      expect(counts.get('legacy')).toMatchObject({ new: 0, secondaryNew: 0, hasMoreNew: true });
     });
 
     it('supports an infinite bonus (no limit)', () => {
-      const counts = applyNewCardBonus(raw({ totalNew: 7, totalSecondaryNew: 3 }), Infinity);
+      const counts = allocateQueueCounts(new Map([['d', raw({ totalNew: 7, totalSecondaryNew: 3 })]]), Infinity, budget).get('d')!;
       expect(counts.new).toBe(7);
       expect(counts.secondaryNew).toBe(3);
       expect(counts.hasMoreNew).toBe(false);

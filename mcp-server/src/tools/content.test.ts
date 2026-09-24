@@ -342,7 +342,7 @@ describe('student deck tools', () => {
         { hanzi: '晴天', pinyin: 'qíng tiān', english: 'sunny', fun_facts: undefined, sentence_clue: undefined },
       ],
     });
-    expect(calls[4].body).toEqual({ deck_id: 'deck-1' });
+    expect(calls[4].body).toEqual({ deck_id: 'deck-1', priority: 'core' });
     expect(result.message).toContain('still generating in the background');
   });
 

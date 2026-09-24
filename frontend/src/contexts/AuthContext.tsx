@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { writeStudyBudget } from '../services/studyBudget';
 import { AuthUser } from '../types';
 import { getCurrentUser, logout as apiLogout, getLoginUrl, authEvents, setSessionToken, clearSessionToken } from '../api/client';
 
@@ -24,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userData = await getCurrentUser();
       setUser(userData);
+      writeStudyBudget(userData);
       localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
     } catch (err) {
       // Only sign out on a real 401 — a network error must not log the user
@@ -73,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const userData = await getCurrentUser();
         setUser(userData);
+        writeStudyBudget(userData);
         localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userData));
       } catch (err) {
         // Only clear the session on a real 401. Network failures keep the

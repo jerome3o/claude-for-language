@@ -17,7 +17,8 @@ import type {
 export async function fetchStudentUserRow(db: D1Database, studentId: string): Promise<StudentUserRow | null> {
   return db
     .prepare(
-      `SELECT id, email, name, picture_url, last_login_at, install_kind, cached_audio_count, last_opened_at, created_at
+      `SELECT id, email, name, picture_url, last_login_at, install_kind, cached_audio_count, last_opened_at, created_at,
+              new_cards_per_day, secondary_cards_per_day
        FROM users WHERE id = ?`
     )
     .bind(studentId)
@@ -75,6 +76,10 @@ export async function fetchHomeworkDecks(db: D1Database, relationshipId: string)
               (SELECT COUNT(*) FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.deck_id = sd.target_deck_id) AS cards_total,
               (SELECT COUNT(*) FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.deck_id = sd.target_deck_id AND COALESCE(c.queue, 0) != 0) AS cards_started,
               (SELECT COUNT(*) FROM cards c JOIN notes n ON n.id = c.note_id WHERE n.deck_id = sd.target_deck_id AND COALESCE(c.stability, 0) > 21) AS cards_mastered,
+              (SELECT COUNT(*) FROM notes n WHERE n.deck_id = sd.target_deck_id) AS notes_total,
+              (SELECT COUNT(*) FROM notes n WHERE n.deck_id = sd.target_deck_id
+                 AND EXISTS (SELECT 1 FROM cards c WHERE c.note_id = n.id AND COALESCE(c.queue, 0) != 0)) AS notes_introduced,
+              COALESCE(tgt.study_priority, 0) AS study_priority,
               (SELECT COUNT(*) FROM notes s WHERE s.deck_id = sd.source_deck_id
                  AND NOT EXISTS (SELECT 1 FROM notes t WHERE t.deck_id = sd.target_deck_id AND t.hanzi = s.hanzi)) AS notes_missing
        FROM shared_decks sd
@@ -86,7 +91,7 @@ export async function fetchHomeworkDecks(db: D1Database, relationshipId: string)
     .bind(relationshipId)
     .all<HomeworkDeckInput>();
   // A copy the student deleted contributes nothing to progress.
-  return (res.results || []).map((d) => (d.target_deck_name == null ? { ...d, cards_total: 0, cards_started: 0, cards_mastered: 0 } : d));
+  return (res.results || []).map((d) => (d.target_deck_name == null ? { ...d, cards_total: 0, cards_started: 0, cards_mastered: 0, notes_total: 0, notes_introduced: 0 } : d));
 }
 
 /** Lessons the tutor assigned to the student in this relationship, with completion counts. */

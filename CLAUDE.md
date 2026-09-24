@@ -42,7 +42,7 @@ These are Jerome's stated preferences — respect them in all implementations:
 
 - **Study sessions**: Drill ALL cards due today in one sitting (endOfToday, not "right now"). Show the same card immediately after rating — no cooldown wait screen.
 - **Card types**: All three types (hanzi→meaning, meaning→hanzi, audio→hanzi) are fine as-is.
-- **New cards per day**: A NEW deck gets 3 new words + 6 secondary (purple) cards a day (`DEFAULT_DECK_SETTINGS` in `shared/decks`), whichever path created it — including a tutor's copy landing in his account.
+- **New cards per day**: ONE global daily budget per account — 3 new words + 6 secondary (purple) cards a day by default (`DEFAULT_STUDY_BUDGET` in `shared/decks/budget.ts`; Settings → "New cards a day") — filled from the deck queue top-down. A tutor can send as much homework as she likes; the budget decides his daily load, the queue decides which deck it comes from. A NEW deck's own limits (`DEFAULT_DECK_SETTINGS`, 3 + 6) are caps on how much of the budget that deck may take.
 - **Audio recordings**: Queue locally, upload during background sync (offline-first). Tutor should be able to listen to recordings.
 - **Offline mode**: Must work well on the train with low/no connection. Prefetch aggressively (audio, cards, etc.) — up to ~1GB is fine.
 - **Progress metrics**: Cards mastered, percentage through each deck, daily review counts. Goal: know at a glance if making good progress.
@@ -408,9 +408,12 @@ the exit confirm with recap, and tutor notes on recordings. Study-only styles li
 2. Mix of new + review cards (proportional selection)
 3. Learning cards on cooldown but due today (shown immediately when nothing else available)
 
-**New Card Daily Budgets:**
-- **Primary (blue)** — `new_cards_per_day`: cards of unseen notes, hanzi_to_meaning preferred
-- **Secondary (purple)** — `secondary_cards_per_day` (additive, default 10): NEW cards whose note already has a reviewed card, so other card types of started words keep flowing even when brand-new words would fill the primary limit. Leftover primary budget can also admit secondary cards. See docs/STUDY_SESSION.md.
+**New Card Daily Budget (global, filled from the deck queue):**
+- One budget per account (`users.new_cards_per_day` / `secondary_cards_per_day`, NULL = `DEFAULT_STUDY_BUDGET` 3 + 6; `PUT /api/profile/study-budget`, on `/api/auth/me`, mirrored to localStorage by `services/studyBudget.ts` for offline study). Per-deck `new_cards_per_day` / `secondary_cards_per_day` are now **caps** on what one deck may take of it.
+- **Deck queue**: `decks.study_priority` (higher first, ties newest first; `sortDecksForQueue`). `POST /api/decks/:id/move {to: top|bottom}`, `PUT /api/decks/reorder {deck_ids}`; the Decks tab shows #N badges with a move menu, Home has "↑ Top" and the *Next up* line (`components/home/NextUpLine.tsx`: deck, words to go, ~days at the current rate). A shared homework deck lands on top (`priority: 'core'`, the default) or at the bottom (`'non_urgent'`) — `POST /api/relationships/:relId/share-deck { deck_id, priority }`, the Send-homework sheet's Core / Non-urgent choice, the MCP `share_deck_with_student` / `create_deck_for_student` `priority` param. The tutor's student page shows per packet "N/M words met · X to go, ~D days" (`words_to_go` / `days_to_go` from the student's budget in `services/tutor-dashboard.ts`).
+- **Primary (blue)** — cards of unseen notes, hanzi_to_meaning preferred; walked deck by deck in queue order
+- **Secondary (purple)** — additive: NEW cards whose note already has a reviewed card, so other card types of started words keep flowing even when brand-new words would fill the primary limit. Leftover primary budget can also admit secondary cards.
+- The pure allocator is `allocateNewCards` in `shared/decks/budget.ts` (used by `allocateQueueCounts` in `frontend/src/db/database.ts` for the study queue, deck counts and the Study button). See docs/STUDY_SESSION.md.
 
 **Session Flow:**
 1. User selects a deck (or "All Decks") and starts a study session
@@ -606,7 +609,10 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `POST /api/decks` - Create deck
 - `GET /api/decks/:id` - Get deck with notes
 - `PUT /api/decks/:id` - Update deck name / description
-- `PUT /api/decks/:id/settings` - Any subset of the deck settings (validated; 400 with `problems`)
+- `PUT /api/decks/:id/settings` - Any subset of the deck settings (validated; 400 with `problems`) — per-deck caps on the global new-card budget
+- `POST /api/decks/:id/move` - `{ to: 'top' | 'bottom' }` move a deck in the study queue (`study_priority`)
+- `PUT /api/decks/reorder` - `{ deck_ids }` the whole queue, first = studied first
+- `PUT /api/profile/study-budget` - `{ new_cards_per_day?, secondary_cards_per_day? }` the account's global daily new-card budget (0–200; 400 with `problems`); current values on `/api/auth/me`
 - `DELETE /api/decks/:id` - Delete deck (tombstones for every device; audio clean-up in the background)
 
 ### Notes
@@ -1133,7 +1139,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `send_install_howto` | Posts the install instructions (Obtainium / Add to Home screen) into the chat |
 | `list_student_homework` | Shared decks with completion + activity, and the student's mini lessons with completions |
 | `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
-| `share_deck_with_student` / `update_student_deck_copy` | Copy a tutor deck to the student / add the tutor's newer words to an existing copy (progress kept) |
+| `share_deck_with_student` / `update_student_deck_copy` | Copy a tutor deck to the student (`priority: core` = top of their study queue, `non_urgent` = bottom) / add the tutor's newer words to an existing copy (progress kept) |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
 
@@ -1165,7 +1171,7 @@ pasted into the descriptions plus the pure helpers (trimming, note normalisation
 | `push_lesson_update` | Overwrite assigned copies in place (history + FSRS kept), optionally only some relationships |
 | `export_library_lesson` | Markdown with answer key / JSON / CSV |
 | `list_student_lessons` | Tutor's view of a student's lessons (`GET /api/relationships/:relId/student-lessons`) |
-| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (a few at a time), then share the deck at once — it never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`, called from the note-create TTS callback and `generate-audio`); per-note failures are reported, not fatal |
+| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (a few at a time), then share the deck at once (`priority` core / non_urgent decides where it lands in the student's queue) — it never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`, called from the note-create TTS callback and `generate-audio`); per-note failures are reported, not fatal |
 | `add_words_to_student_deck` | Add notes to the tutor's source deck, then `POST …/shared-decks/:id/update` so the student's copy gets them (empty list = just re-sync) |
 | `get_starter_deck` | `POST /api/decks/starter` — the idempotent built-in "Starter Chinese" deck |
 #### Tutor apps (`mcp-server/src/tools/apps.ts`, UIs in `src/ui/apps/`)

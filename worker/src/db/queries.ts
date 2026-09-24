@@ -25,7 +25,7 @@ import {
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { noteCopyValues } from '../services/note-copy';
-import { DECK_SETTING_KEYS, type DeckSettings as DeckSettingsRow } from '@shared/decks';
+import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, type DeckSettings as DeckSettingsRow, type StudyBudget } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
 
@@ -476,11 +476,11 @@ export async function getDeckWithNotesAndCards(db: D1Database, id: string, userI
 export async function createDeck(
   db: D1Database,
   userId: string,
-  input: { name: string; description?: string | null; settings: DeckSettingsRow }
+  input: { name: string; description?: string | null; settings: DeckSettingsRow; study_priority: number }
 ): Promise<Deck> {
   const id = generateId();
-  const columns = ['id', 'user_id', 'name', 'description', ...DECK_SETTING_KEYS];
-  const values: (string | number | null)[] = [id, userId, input.name, input.description || null, ...DECK_SETTING_KEYS.map(k => input.settings[k])];
+  const columns = ['id', 'user_id', 'name', 'description', 'study_priority', ...DECK_SETTING_KEYS];
+  const values: (string | number | null)[] = [id, userId, input.name, input.description || null, input.study_priority, ...DECK_SETTING_KEYS.map(k => input.settings[k])];
   await db
     .prepare(`INSERT INTO decks (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
     .bind(...values)
@@ -492,6 +492,69 @@ export async function createDeck(
     .first<Deck>();
   if (!deck) throw new Error('Failed to create deck');
   return deck;
+}
+
+// ============ Deck queue order (study_priority: higher goes first) ============
+
+export async function getDeckPriorityRange(db: D1Database, userId: string): Promise<{ min: number; max: number }> {
+  const row = await db
+    .prepare('SELECT COALESCE(MIN(study_priority), 0) AS lo, COALESCE(MAX(study_priority), 0) AS hi FROM decks WHERE user_id = ?')
+    .bind(userId)
+    .first<{ lo: number; hi: number }>();
+  return { min: row?.lo ?? 0, max: row?.hi ?? 0 };
+}
+
+/** Put one of the user's decks at the top or bottom of their queue. Returns false if not theirs. */
+export async function moveDeck(db: D1Database, userId: string, deckId: string, to: 'top' | 'bottom'): Promise<boolean> {
+  const owned = await getDeckById(db, deckId, userId);
+  if (!owned) return false;
+  const range = await getDeckPriorityRange(db, userId);
+  const priority = to === 'top' ? range.max + 1 : range.min - 1;
+  await db
+    .prepare("UPDATE decks SET study_priority = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+    .bind(priority, deckId, userId)
+    .run();
+  return true;
+}
+
+/**
+ * Set the whole queue order: the first id gets the highest priority. Decks
+ * not mentioned keep their priority (they sort after the ones given only if
+ * they were already lower). Ignores ids that are not the user's.
+ */
+export async function reorderDecks(db: D1Database, userId: string, orderedIds: string[]): Promise<number> {
+  if (orderedIds.length === 0) return 0;
+  const statements = orderedIds.map((id, i) =>
+    db
+      .prepare("UPDATE decks SET study_priority = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+      .bind(orderedIds.length - i, id, userId)
+  );
+  const results = await db.batch(statements);
+  return results.reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
+}
+
+// ============ Per-learner daily new-card budget ============
+
+export async function getStudyBudget(db: D1Database, userId: string): Promise<StudyBudget> {
+  const row = await db
+    .prepare('SELECT new_cards_per_day, secondary_cards_per_day FROM users WHERE id = ?')
+    .bind(userId)
+    .first<{ new_cards_per_day: number | null; secondary_cards_per_day: number | null }>();
+  return {
+    new_cards_per_day: row?.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
+    secondary_cards_per_day: row?.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
+  };
+}
+
+export async function setStudyBudget(db: D1Database, userId: string, budget: Partial<StudyBudget>): Promise<StudyBudget> {
+  const sets: string[] = [];
+  const values: number[] = [];
+  if (budget.new_cards_per_day !== undefined) { sets.push('new_cards_per_day = ?'); values.push(budget.new_cards_per_day); }
+  if (budget.secondary_cards_per_day !== undefined) { sets.push('secondary_cards_per_day = ?'); values.push(budget.secondary_cards_per_day); }
+  if (sets.length) {
+    await db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).bind(...values, userId).run();
+  }
+  return getStudyBudget(db, userId);
 }
 
 export async function updateDeck(

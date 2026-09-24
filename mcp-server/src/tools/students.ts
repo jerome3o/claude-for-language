@@ -502,11 +502,15 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'share_deck_with_student',
-    `Send one of the tutor's own decks to the student as homework: the app copies the deck (with audio) into the student's account as "<name> (from tutor)" and it appears in their study queue, offline too. Deck ids come from list_decks. To add words to a deck already shared, edit the tutor's deck and call update_student_deck_copy instead of sharing again (sharing twice makes a second copy).`,
-    { relationship_id: RELATIONSHIP_ID, deck_id: z.string().describe("One of the tutor's deck ids (list_decks).") },
-    async ({ relationship_id, deck_id }) =>
+    `Send one of the tutor's own decks to the student as homework: the app copies the deck (with audio) into the student's account as "<name> (from tutor)" and it joins their homework QUEUE — the student introduces a fixed number of new words a day (their daily budget, 3 by default) from the top of the queue down, so sending more packets never adds to their daily load. \`priority\` decides where the packet lands: "core" (default) goes to the top and is studied next; "non_urgent" goes to the bottom. Deck ids come from list_decks. To add words to a deck already shared, edit the tutor's deck and call update_student_deck_copy instead of sharing again (sharing twice makes a second copy).`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      deck_id: z.string().describe("One of the tutor's deck ids (list_decks)."),
+      priority: z.enum(['core', 'non_urgent']).optional().describe('"core" (default): top of the student\'s queue, studied next. "non_urgent": bottom of the queue, after everything else.'),
+    },
+    async ({ relationship_id, deck_id, priority }) =>
       guard(async () => {
-        const r = await api.post<SharedDeckRow>(`${rel(relationship_id)}/share-deck`, { deck_id });
+        const r = await api.post<SharedDeckRow>(`${rel(relationship_id)}/share-deck`, { deck_id, priority: priority ?? 'core' });
         return jsonResult({
           shared_deck_id: r.id,
           tutor_deck_id: r.source_deck_id,

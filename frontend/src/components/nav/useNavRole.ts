@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getMyRelationships } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNetwork } from '../../contexts/NetworkContext';
-import { db, applyNewCardBonus, sumQueueCounts, DeckQueueCounts } from '../../db/database';
+import { db, allocateQueueCounts, sumQueueCounts } from '../../db/database';
 import { useRawQueueCounts } from '../../hooks/useOfflineData';
 import { getDueReaders } from '../../services/reader-study';
 import { readBonus } from '../../utils/bonusNewCards';
@@ -39,9 +39,9 @@ export function useDueCount(): { dueCount: number; isLoading: boolean } {
   const { byDeck, isLoading } = useRawQueueCounts();
   const dueReaders = useLiveQuery(() => getDueReaders(), []);
   return useMemo(() => {
-    const perDeck: DeckQueueCounts[] = [];
-    for (const [id, raw] of byDeck) perDeck.push(applyNewCardBonus(raw, readBonus(id)));
-    const total = sumQueueCounts(perDeck);
+    // One global budget: every deck's bonus adds to the same pool.
+    const bonus = [...byDeck.keys()].reduce((s, id) => s + readBonus(id), 0);
+    const total = sumQueueCounts(allocateQueueCounts(byDeck, bonus).values());
     const readers = (dueReaders ?? []).length;
     const dueCount = total.new + (total.secondaryNew ?? 0) + total.learning + total.review + readers;
     return { dueCount, isLoading: isLoading || dueReaders === undefined };
