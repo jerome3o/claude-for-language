@@ -128,6 +128,9 @@ export interface User {
   bio: string | null;
   /** Which tab the app opens on; NULL = automatic (see PUT /api/profile/landing-page). */
   landing_page: LandingPage | null;
+  /** Daily new-card budget across all decks (migration 0069); NULL = DEFAULT_STUDY_BUDGET. */
+  new_cards_per_day?: number | null;
+  secondary_cards_per_day?: number | null;
   /** Reported by the client during sync (migration 0064). */
   install_kind?: 'pwa' | 'android' | 'browser' | null;
   cached_audio_count?: number | null;
@@ -198,6 +201,8 @@ export interface Deck {
   hard_multiplier: number;  // Stored as percentage, e.g., 120 = 1.2
   easy_bonus: number;  // Stored as percentage, e.g., 130 = 1.3
   maximum_interval: number;  // Maximum review interval in days, default 36500
+  /** Place in the learner's new-card queue: higher goes first (migration 0069). */
+  study_priority: number;
   created_at: string;
   updated_at: string;
 }
@@ -529,6 +534,8 @@ export interface SendMessageRequest {
 
 export interface ShareDeckRequest {
   deck_id: string;
+  /** Where the packet lands in the student's queue: 'core' (top, default) or 'non_urgent' (bottom). */
+  priority?: 'core' | 'non_urgent';
 }
 
 export interface GenerateFlashcardRequest {

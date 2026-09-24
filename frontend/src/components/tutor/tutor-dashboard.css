@@ -928,3 +928,36 @@
     flex: 0 0 auto;
   }
 }
+
+/* Send homework: where the packet lands in the student's queue */
+.td-priority {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.td-priority-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  text-align: left;
+  padding: 0.625rem 0.75rem;
+  min-height: 44px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 0.5rem;
+  background: var(--color-surface, #fff);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.td-priority-opt span {
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+}
+
+.td-priority-opt.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}

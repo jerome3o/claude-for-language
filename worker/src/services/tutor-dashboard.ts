@@ -9,6 +9,7 @@
  */
 
 import type { User } from '../types';
+import { DEFAULT_STUDY_BUDGET, daysToIntroduce, type StudyBudget } from '@shared/decks';
 import {
   rankStruggling,
   listRecordings,
@@ -43,6 +44,11 @@ export interface HomeworkDeckInput {
   cards_mastered: number; // stability > 21 days
   /** Notes in the tutor's source deck that the student's copy does not have yet. */
   notes_missing: number;
+  /** Words in the student's copy, and how many have been introduced (any card reviewed). */
+  notes_total: number;
+  notes_introduced: number;
+  /** The copy's place in the student's queue (higher = sooner). */
+  study_priority?: number;
 }
 
 /** One lesson the tutor assigned to this student. */
@@ -58,6 +64,9 @@ export interface HomeworkLessonInput {
 
 export interface StudentUserRow extends UserSummary {
   last_login_at: string | null;
+  /** Daily new-card budget (NULL = default). */
+  new_cards_per_day?: number | null;
+  secondary_cards_per_day?: number | null;
   install_kind: 'pwa' | 'android' | 'browser' | null;
   cached_audio_count: number | null;
   last_opened_at: string | null;
@@ -122,6 +131,9 @@ export interface NeedsAttentionItem {
 export interface HomeworkDeck extends HomeworkDeckInput {
   percent_started: number;
   percent_mastered: number;
+  /** Words still to be introduced and roughly how many days that takes at the student's daily budget. */
+  words_to_go: number;
+  days_to_go: number;
 }
 
 export interface HomeworkSummary {
@@ -286,7 +298,11 @@ export function homeworkPercent(s: {
   return Math.round((100 * score) / denominator);
 }
 
-export function summarizeHomework(decks: HomeworkDeckInput[], lessons: HomeworkLessonInput[]): HomeworkSummary {
+export function summarizeHomework(
+  decks: HomeworkDeckInput[],
+  lessons: HomeworkLessonInput[],
+  budget: Pick<StudyBudget, 'new_cards_per_day'> = DEFAULT_STUDY_BUDGET
+): HomeworkSummary {
   const cards_total = decks.reduce((s, d) => s + d.cards_total, 0);
   const cards_started = decks.reduce((s, d) => s + d.cards_started, 0);
   const cards_mastered = decks.reduce((s, d) => s + d.cards_mastered, 0);
@@ -295,11 +311,16 @@ export function summarizeHomework(decks: HomeworkDeckInput[], lessons: HomeworkL
   return {
     percent: homeworkPercent(totals),
     ...totals,
-    decks: decks.map((d) => ({
-      ...d,
-      percent_started: d.cards_total ? Math.round((100 * d.cards_started) / d.cards_total) : 0,
-      percent_mastered: d.cards_total ? Math.round((100 * d.cards_mastered) / d.cards_total) : 0,
-    })),
+    decks: decks.map((d) => {
+      const words_to_go = Math.max(0, (d.notes_total ?? 0) - (d.notes_introduced ?? 0));
+      return {
+        ...d,
+        percent_started: d.cards_total ? Math.round((100 * d.cards_started) / d.cards_total) : 0,
+        percent_mastered: d.cards_total ? Math.round((100 * d.cards_mastered) / d.cards_total) : 0,
+        words_to_go,
+        days_to_go: daysToIntroduce(words_to_go, budget),
+      };
+    }),
     lessons,
   };
 }
@@ -433,7 +454,9 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
   const status = computeStudyStatus(input.activity_rows, input.tz_offset_minutes, now);
   const struggling = rankStruggling(input.week_rows);
   const recordings = listRecordings(input.week_rows, input.week_marks);
-  const homework = summarizeHomework(input.homework_decks, input.homework_lessons);
+  const homework = summarizeHomework(input.homework_decks, input.homework_lessons, {
+    new_cards_per_day: input.student.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
+  });
   const setup = deriveSetup({
     student: input.student,
     homework,

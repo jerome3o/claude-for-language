@@ -60,12 +60,34 @@ Once graduated, the card's next review is typically 1+ days away, which ends its
 
 ## Daily Limits
 
-- **New cards per day** (blue): Configurable per deck (default: 20). Reserved for cards of unseen notes, preferring the hanzi_to_meaning card so a brand-new word is introduced by its characters first.
-- **Secondary cards per day** (purple): Configurable per deck (default: 10), additive to the new card limit. Reserved for NEW cards whose note already has at least one reviewed card (e.g. meaning_to_hanzi after hanzi_to_meaning is in circulation). Without this quota, a steady inflow of brand-new words would consume the entire daily limit and the other card types of started words would never be introduced.
+New cards come out of **one global daily budget** for the whole account (Settings → "New cards
+a day"; `users.new_cards_per_day` / `secondary_cards_per_day`, default 3 + 6 from
+`DEFAULT_STUDY_BUDGET` in `shared/decks/budget.ts`), filled from a **priority-ordered deck
+queue** (`decks.study_priority`, highest first; ties by newest deck). A tutor's homework packet
+lands at the top of the queue (core) or the bottom (non-urgent) depending on what she chose
+when sending it; the student can move any deck (Decks tab → tap the #N badge → Move to top /
+up / down / bottom; Home → "↑ Top"). The home page's *Next up* line says which deck is being
+introduced, how many words are left in it and roughly how many days that takes at the current
+rate.
+
+- **New words per day** (blue, primary): cards of unseen notes, preferring the hanzi_to_meaning
+  card so a brand-new word is introduced by its characters first. The budget is walked deck by
+  deck in queue order: the first deck takes as many as it can, the next deck gets the rest.
+- **Extra cards per day** (purple, secondary): additive to the primary budget. NEW cards whose
+  note already has at least one reviewed card (e.g. meaning_to_hanzi after hanzi_to_meaning is in
+  circulation), so the other card types of started words keep flowing even when brand-new words
+  would fill the primary limit. Walked in the same queue order.
+- **Per-deck limits are caps, not budgets**: a deck's own `new_cards_per_day` /
+  `secondary_cards_per_day` (Deck → Settings) only limit how much of the global budget that deck
+  may take in a day. A deck with the default 3 + 6 can never introduce more than 3 new words a
+  day even if the global budget is 10; the remainder flows to the next deck in the queue.
 - **Review cards**: No limit - all due reviews are shown
 - **Learning cards**: No limit - always shown when due
 
-The two new-card budgets are complementary: leftover primary (blue) budget can admit secondary cards when no unseen notes remain, so with no unseen notes both numbers draw from the same pool. Secondary cards studied beyond their own quota count against the primary budget.
+The pure allocator is `allocateNewCards` in `shared/decks/budget.ts` (unit-tested): global
+primary first, then global secondary, each walked in queue order and capped per deck; leftover
+primary budget can admit secondary cards when no unseen notes remain. Studying one deck on its
+own still charges what was already studied today in other decks against the global budget.
 
 When the daily new card limit is reached, the "All Done!" screen offers a **"Study More"** button to add 10 bonus new cards.
 

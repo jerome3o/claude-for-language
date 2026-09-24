@@ -8,6 +8,8 @@ import { StudyStreak } from '../components/StudyStreak';
 import { StudyTodayCard } from '../components/home/StudyTodayCard';
 import { HomeworkCard } from '../components/home/HomeworkCard';
 import { DeckList, HOME_DECK_LIMIT } from '../components/home/DeckList';
+import { NextUpLine } from '../components/home/NextUpLine';
+import { moveDeckInQueue } from '../services/deckOrder';
 import { AddDeckModal } from '../components/home/AddDeckModal';
 import { useHomework } from '../components/home/useHomework';
 import { useDeckOverview } from '../components/home/useDeckOverview';
@@ -19,12 +21,11 @@ import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
-import { applyNewCardBonus, sumQueueCounts, DeckQueueCounts } from '../db/database';
+import { allocateQueueCounts, sumQueueCounts, DeckQueueCounts } from '../db/database';
 import { getDueReaders } from '../services/reader-study';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
 import './HomePage.css';
 
-const PINNED_DECKS_KEY = 'pinnedDeckIds';
 const COUNTS_CACHE_KEY = 'lastQueueCounts';
 
 export function HomePage() {
@@ -33,21 +34,8 @@ export function HomePage() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
 
-  const [pinnedDeckIds, setPinnedDeckIds] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem(PINNED_DECKS_KEY);
-      return new Set(stored ? JSON.parse(stored) : []);
-    } catch { return new Set(); }
-  });
-
-  const togglePin = (deckId: string) => {
-    setPinnedDeckIds(prev => {
-      const next = new Set(prev);
-      if (next.has(deckId)) next.delete(deckId);
-      else next.add(deckId);
-      try { localStorage.setItem(PINNED_DECKS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
-      return next;
-    });
+  const moveTop = (deckId: string) => {
+    moveDeckInQueue(deckId, 'top').catch(err => console.error('[Home] move to top failed', err));
   };
 
   const decksQuery = useQuery({
@@ -76,13 +64,8 @@ export function HomePage() {
   const dueReaders = useLiveQuery(() => getDueReaders(), []) ?? [];
 
   const { perDeck, liveTotal } = useMemo(() => {
-    const perDeck = new Map<string, DeckQueueCounts>();
-    const headerCounts: DeckQueueCounts[] = [];
-    for (const [id, raw] of rawByDeck) {
-      perDeck.set(id, applyNewCardBonus(raw, 0));
-      headerCounts.push(applyNewCardBonus(raw, bonusAll));
-    }
-    const liveTotal = sumQueueCounts(headerCounts);
+    const perDeck: Map<string, DeckQueueCounts> = allocateQueueCounts(rawByDeck, 0);
+    const liveTotal = sumQueueCounts(allocateQueueCounts(rawByDeck, bonusAll).values());
     for (const reader of dueReaders) {
       if (reader.queue === CardQueue.NEW) liveTotal.new++;
       else if (reader.queue === CardQueue.LEARNING || reader.queue === CardQueue.RELEARNING) liveTotal.learning++;
@@ -189,13 +172,15 @@ export function HomePage() {
               </p>
             </div>
           ) : (
-            <DeckList
-              decks={decks}
-              counts={perDeck}
-              overview={overview}
-              pinnedIds={pinnedDeckIds}
-              onTogglePin={togglePin}
-            />
+            <>
+              <NextUpLine decks={decks} raw={rawByDeck} />
+              <DeckList
+                decks={decks}
+                counts={perDeck}
+                overview={overview}
+                onMoveTop={moveTop}
+              />
+            </>
           )}
 
           <button type="button" className="home-add-deck" onClick={() => setShowModal(true)}>

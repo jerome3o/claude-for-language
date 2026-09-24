@@ -70,6 +70,8 @@ function deck(overrides: Partial<HomeworkDeckInput> = {}): HomeworkDeckInput {
     source_deck_name: '第三周作业：天气',
     target_deck_name: '第三周作业：天气 (from tutor)',
     shared_at: '2026-09-15T00:00:00Z',
+    notes_total: 6,
+    notes_introduced: 0,
     cards_total: 18,
     cards_started: 7,
     cards_mastered: 0,

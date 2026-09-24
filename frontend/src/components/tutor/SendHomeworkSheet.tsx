@@ -37,6 +37,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [pendingDeck, setPendingDeck] = useState<Deck | null>(null);
+  const [priority, setPriority] = useState<'core' | 'non_urgent'>('core');
   const [pendingLesson, setPendingLesson] = useState<LibraryItemSummary | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,9 +67,11 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
   };
 
   const shareMutation = useMutation({
-    mutationFn: (deck: Deck) => shareDeck(relId, deck.id),
+    mutationFn: (deck: Deck) => shareDeck(relId, deck.id, priority),
     onSuccess: (_shared, deck) => {
-      setResult(`Sent ${deck.name} to ${studentName}.`);
+      setResult(priority === 'core'
+        ? `Sent ${deck.name} to ${studentName} — it is at the top of their queue, so their new words come from it next.`
+        : `Sent ${deck.name} to ${studentName} — it is at the bottom of their queue, after everything they already have.`);
       setPendingDeck(null);
       setError(null);
       invalidate();
@@ -144,6 +147,18 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                     ? `${studentName} got this deck on ${shortDate(existing.shared_at)}${existing.notes_missing > 0 ? ` and is missing ${plural(existing.notes_missing, 'newer word')}` : ' and has every word in it'}. Updating their copy adds the new words and keeps their progress; sending again would create a second copy.`
                     : `They get their own copy with all ${pendingDeck.name ? 'its' : ''} words and audio. It shows up on their home screen after their next sync.`}
                 </p>
+                {!existing && (
+                  <div className="td-priority" role="radiogroup" aria-label="Where it goes in their queue">
+                    <button type="button" role="radio" aria-checked={priority === 'core'} className={`td-priority-opt${priority === 'core' ? ' selected' : ''}`} onClick={() => setPriority('core')}>
+                      <strong>Core</strong>
+                      <span>Top of their queue — studied next</span>
+                    </button>
+                    <button type="button" role="radio" aria-checked={priority === 'non_urgent'} className={`td-priority-opt${priority === 'non_urgent' ? ' selected' : ''}`} onClick={() => setPriority('non_urgent')}>
+                      <strong>Non-urgent</strong>
+                      <span>Bottom of their queue — after what they have</span>
+                    </button>
+                  </div>
+                )}
                 <div className="td-confirm-actions">
                   {existing ? (
                     <>

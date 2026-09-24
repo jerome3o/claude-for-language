@@ -41,6 +41,13 @@ export interface HomeworkDeck {
   notes_missing: number;
   percent_started: number;
   percent_mastered: number;
+  /** Words in the student's copy and how many they have met; days to go at their daily budget. */
+  notes_total: number;
+  notes_introduced: number;
+  words_to_go: number;
+  days_to_go: number;
+  /** The copy's place in the student's queue (higher = sooner). */
+  study_priority?: number;
 }
 
 export interface HomeworkLesson {

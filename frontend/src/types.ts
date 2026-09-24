@@ -44,6 +44,9 @@ export interface AuthUser {
   can_invite?: boolean;
   /** Which tab the app opens on; null/undefined = automatic (see components/nav/landing.ts). */
   landing_page?: LandingPage | null;
+  /** Daily new-card budget across all decks (shared/decks/budget.ts). */
+  new_cards_per_day?: number;
+  secondary_cards_per_day?: number;
 }
 
 /** Explicit "Start on" preference. null = automatic. */
@@ -64,6 +67,8 @@ export interface Deck {
   user_id: string | null;
   name: string;
   description: string | null;
+  /** Place in the learner's new-card queue: higher goes first. */
+  study_priority?: number;
   new_cards_per_day: number;
   // Daily quota for secondary new cards (note already has a reviewed card).
   // Additive to new_cards_per_day. Optional: decks cached before this field

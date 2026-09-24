@@ -1,4 +1,5 @@
 import { copyDeckForUser } from './content';
+import type { HomeworkPriority } from '@shared/decks';
 import { CARD_STANDARD } from '@shared/cards';
 import {
   Conversation,
@@ -476,7 +477,8 @@ export async function shareDeck(
   db: D1Database,
   relationshipId: string,
   tutorId: string,
-  sourceDeckId: string
+  sourceDeckId: string,
+  priority: HomeworkPriority = 'core'
 ): Promise<SharedDeckWithDetails> {
   // Verify relationship and that user is the tutor
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
@@ -500,8 +502,9 @@ export async function shareDeck(
 
   // A new deck in the student's account: shared defaults (3 + 6 a day), the
   // tutor's notes with their clips (same R2 keys) and fresh cards.
+  // 'core' goes to the top of the student's queue, 'non_urgent' to the bottom.
   const targetDeckName = `${sourceDeck.name} (from tutor)`;
-  const { deck: targetDeck } = await copyDeckForUser(db, sourceDeck, studentId, targetDeckName);
+  const { deck: targetDeck } = await copyDeckForUser(db, sourceDeck, studentId, targetDeckName, priority === 'non_urgent' ? 'bottom' : 'top');
   const targetDeckId = targetDeck.id;
 
   // Record the share
