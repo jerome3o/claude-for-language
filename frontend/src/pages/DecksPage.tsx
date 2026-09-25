@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { QueuePositionMenu } from '../components/QueuePositionMenu';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { getDecks, createDeck, getDeckStats } from '../api/client';
@@ -75,40 +76,9 @@ function DeckCard({
   return (
     <div className="deck-card" data-testid="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative', zIndex: menuOpen ? 20 : undefined }}>
       {/* Queue position + reorder menu (the card is lifted above its siblings while the menu is open) */}
-      <button
-        type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(o => !o); }}
-        style={{
-          position: 'absolute', top: '0.25rem', right: '0.25rem',
-          background: position === 1 ? '#fee2e2' : '#f3f4f6', border: 'none', cursor: 'pointer',
-          padding: '0.125rem 0.375rem', fontSize: '0.7rem', fontWeight: 700, borderRadius: '999px',
-          color: position === 1 ? '#b91c1c' : '#4b5563', lineHeight: 1.4,
-          minHeight: 'unset', minWidth: '2rem',
-        }}
-        title={`${position === 1 ? 'Studied first' : `${position}th in the queue`} — tap to move`}
-        aria-label={`Queue position ${position} of ${total}. Reorder`}
-        aria-expanded={menuOpen}
-      >
-        #{position}
-      </button>
-      {menuOpen && (
-        <div role="menu" className="deck-queue-menu" style={{
-          position: 'absolute', top: '1.75rem', right: '0.25rem', zIndex: 5,
-          background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e5e7eb)',
-          borderRadius: '0.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', minWidth: '10rem',
-        }}>
-          {([['top', '⤒ Move to top'], ['up', '↑ Move up'], ['down', '↓ Move down'], ['bottom', '⤓ Move to bottom']] as const).map(([to, label]) => {
-            const disabled = (to === 'top' || to === 'up') ? position === 1 : position === total;
-            return (
-              <button key={to} type="button" role="menuitem" disabled={disabled}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onMove(to); }}
-                style={{ background: 'none', border: 'none', textAlign: 'left', padding: '0.625rem 0.875rem', fontSize: '0.875rem', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1, minHeight: '44px' }}>
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div style={{ position: 'absolute', top: '0.25rem', right: '0.25rem' }}>
+        <QueuePositionMenu position={position} total={total} onMove={onMove} onOpenChange={setMenuOpen} />
+      </div>
 
       <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, paddingRight: '1.25rem' }}>
         <div className="deck-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem', marginBottom: 0 }}>

@@ -48,6 +48,16 @@ export interface HomeworkDeck {
   days_to_go: number;
   /** The copy's place in the student's queue (higher = sooner). */
   study_priority?: number;
+  /** 1-based place in the student's deck queue (first = studied first); null when the copy is gone. */
+  queue_position: number | null;
+  queue_total: number;
+}
+
+export interface SharedDeckMoveResult {
+  shared_deck_id: string;
+  target_deck_id: string;
+  queue_position: number;
+  queue_total: number;
 }
 
 export interface HomeworkLesson {

@@ -137,6 +137,8 @@ export function compactStudentOverview(o: StudentOverview, apiBase: string) {
         percent_started: d.percent_started,
         percent_mastered: d.percent_mastered,
         words_missing_from_copy: d.notes_missing,
+        queue_position: d.queue_position ?? null,
+        queue_total: d.queue_total ?? null,
       })),
       lessons: o.homework.lessons.map((l) => ({
         lesson_id: l.lesson_id,

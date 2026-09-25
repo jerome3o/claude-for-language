@@ -576,7 +576,8 @@
 
 .td-hw-actions {
   display: flex;
-  gap: 0.25rem;
+  align-items: center;
+  gap: 0.5rem;
   flex-shrink: 0;
 }
 

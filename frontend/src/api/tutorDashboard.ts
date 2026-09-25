@@ -1,3 +1,4 @@
+import type { QueueMove } from '@shared/decks';
 /**
  * API client for the tutor dashboard / student page (worker routes/tutor-dashboard.ts).
  * Same auth/fetch conventions as client.ts (cookie + optional bearer token).
@@ -5,7 +6,7 @@
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
 import type { MessageWithSender } from '../types';
-import type { TutorDashboard, StudentOverview, SharedDeckUpdateResult } from '../types/tutorDashboard';
+import type { TutorDashboard, StudentOverview, SharedDeckUpdateResult, SharedDeckMoveResult } from '../types/tutorDashboard';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -60,6 +61,14 @@ export async function sendInstallHowTo(relId: string): Promise<{ conversation_id
 /** Adds the tutor's new notes to the student's existing copy (keeps their progress). */
 export async function updateSharedDeckCopy(relId: string, sharedDeckId: string): Promise<SharedDeckUpdateResult> {
   return request<SharedDeckUpdateResult>(`/relationships/${relId}/shared-decks/${sharedDeckId}/update`, { method: 'POST' });
+}
+
+/** Move the student's copy of a homework deck within THEIR study queue. */
+export async function moveSharedDeck(relId: string, sharedDeckId: string, to: QueueMove): Promise<SharedDeckMoveResult> {
+  return request<SharedDeckMoveResult>(`/relationships/${relId}/shared-decks/${sharedDeckId}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ to }),
+  });
 }
 
 export async function reportClientState(state: {

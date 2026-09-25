@@ -522,6 +522,24 @@ export function registerStudentTools(ctx: ToolContext): void {
   );
 
   server.tool(
+    'move_student_deck',
+    "Move one homework packet within the STUDENT's study queue: \"top\" makes it the deck they introduce new words from next, \"bottom\" puts it after everything else, \"up\" / \"down\" nudge it one place. The student's daily new-card budget is filled from the top of the queue down, so this is how a tutor says what to learn first without changing how much they study. Returns the packet's new `queue_position` of `queue_total` (the student's own decks count too). The order reaches the student's device on their next sync. Use `shared_deck_id` from list_student_homework or get_student_overview.",
+    {
+      relationship_id: RELATIONSHIP_ID,
+      shared_deck_id: z.string().describe('The `shared_deck_id` from list_student_homework.'),
+      to: z.enum(['top', 'up', 'down', 'bottom']).describe('Where to move it in the student\'s queue.'),
+    },
+    async ({ relationship_id, shared_deck_id, to }) =>
+      guard(async () => {
+        const r = await api.post<{ shared_deck_id: string; target_deck_id: string; queue_position: number; queue_total: number }>(
+          `${rel(relationship_id)}/shared-decks/${encodeURIComponent(shared_deck_id)}/move`,
+          { to }
+        );
+        return jsonResult(r);
+      })
+  );
+
+  server.tool(
     'update_student_deck_copy',
     "Bring the student's copy of a shared deck up to date with the tutor's version: words the tutor added since sharing are copied over (with their cards and audio), words the student already has are matched by hanzi and left untouched so their progress and history survive. Returns how many were added / kept / got missing audio filled.",
     { relationship_id: RELATIONSHIP_ID, shared_deck_id: z.string().describe('The `shared_deck_id` from list_student_homework.') },

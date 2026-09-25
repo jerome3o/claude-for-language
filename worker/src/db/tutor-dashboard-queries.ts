@@ -11,6 +11,7 @@ import type {
   StudentUserRow,
   InviteRef,
 } from '../services/tutor-dashboard';
+import { listDeckQueue, type DeckQueueRow } from './queries';
 
 // ---------- Student row ----------
 
@@ -92,6 +93,27 @@ export async function fetchHomeworkDecks(db: D1Database, relationshipId: string)
     .all<HomeworkDeckInput>();
   // A copy the student deleted contributes nothing to progress.
   return (res.results || []).map((d) => (d.target_deck_name == null ? { ...d, cards_total: 0, cards_started: 0, cards_mastered: 0, notes_total: 0, notes_introduced: 0 } : d));
+}
+
+/** The student's whole deck queue (first = studied first), for queue positions on the homework rows. */
+export async function fetchStudentDeckQueue(db: D1Database, studentId: string): Promise<DeckQueueRow[]> {
+  return listDeckQueue(db, studentId);
+}
+
+export interface SharedDeckRef {
+  id: string;
+  relationship_id: string;
+  source_deck_id: string;
+  target_deck_id: string;
+}
+
+/** One shared_decks row, only if it belongs to the relationship. */
+export async function fetchSharedDeck(db: D1Database, sharedDeckId: string, relationshipId: string): Promise<SharedDeckRef | null> {
+  const row = await db
+    .prepare('SELECT id, relationship_id, source_deck_id, target_deck_id FROM shared_decks WHERE id = ? AND relationship_id = ?')
+    .bind(sharedDeckId, relationshipId)
+    .first<SharedDeckRef>();
+  return row ?? null;
 }
 
 /** Lessons the tutor assigned to the student in this relationship, with completion counts. */
