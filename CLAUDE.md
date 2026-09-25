@@ -345,7 +345,7 @@ pack. The story generator carries it in its prompt and gets ONE repair round whe
 
 5. **Idempotent event sync**: Events are deduplicated by ID. Syncing the same event twice is safe - it's skipped if already exists.
 
-7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has.
+7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has. Syncs never write back an id this device removed during the session (`wasRemovedLocally`), a full sync's cursor is the moment its snapshot was taken (so deletions made mid-sync still arrive), and a deck page that gets a 404 removes the deck locally.
 
 6. **Checkpoints for performance**: `card_checkpoints` table stores computed state at a point in time. This avoids replaying all events from the beginning. Checkpoints are ALWAYS re-derivable from events.
 

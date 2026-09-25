@@ -121,10 +121,15 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    throw Object.assign(new Error(error.error || `HTTP ${response.status}`), { status: response.status });
   }
 
   return response.json();
+}
+
+/** The HTTP status of an error thrown by fetchJSON (undefined for a network error). */
+export function apiErrorStatus(err: unknown): number | undefined {
+  return (err as { status?: number } | null)?.status;
 }
 
 // ============ Auth ============

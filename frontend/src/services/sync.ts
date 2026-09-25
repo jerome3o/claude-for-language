@@ -14,6 +14,7 @@ import {
   SyncLogEntry,
   removeDecksLocally,
   removeNotesLocally,
+  wasRemovedLocally,
 } from '../db/database';
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
@@ -69,6 +70,29 @@ interface SyncChangesResponse {
     card_ids: string[];
   };
   server_time: string;
+}
+
+// Deletion tombstones (migration 0068) exist from 23 Sep 2026. A deck deleted
+// while a full sync was running could be written back with the sync cursor
+// already past its tombstone, leaving it on the device for good. Every device
+// asks once for changes since the tombstones began, which removes such decks.
+const TOMBSTONES_START = Date.UTC(2026, 8, 22);
+const TOMBSTONE_REPLAY_KEY = 'sync-tombstone-replay-v1';
+
+function hasReplayedTombstones(): boolean {
+  try {
+    return localStorage.getItem(TOMBSTONE_REPLAY_KEY) === '1';
+  } catch {
+    return true; // no storage: don't replay on every sync
+  }
+}
+
+function markTombstonesReplayed(): void {
+  try {
+    localStorage.setItem(TOMBSTONE_REPLAY_KEY, '1');
+  } catch {
+    // ignore
+  }
 }
 
 // Convert API types to local DB types
@@ -221,6 +245,10 @@ class SyncService {
   private async _doFullSync(): Promise<void> {
     this.lastSyncDetails = {};
     this.notifyProgress({ phase: 'decks', message: 'Fetching deck list...' });
+    // The snapshot below is as of NOW, so the next incremental sync must ask
+    // for everything since now — not since the end of this (possibly long)
+    // sync, or a deck deleted meanwhile keeps its tombstone out of reach.
+    const snapshotAt = Date.now();
 
     // Fetch all decks
     const decksResponse = await fetch(`${API_PATH}/decks`, {
@@ -248,6 +276,11 @@ class SyncService {
       const deckResponse = await fetch(`${API_PATH}/decks/${deck.id}`, {
         headers: getAuthHeaders(),
       });
+      if (deckResponse.status === 404) {
+        // Deleted between the list and this fetch — just leave it out.
+        console.log('[Sync] Deck', deck.id, 'was deleted during the sync, skipping');
+        continue;
+      }
       if (!deckResponse.ok) {
         throw new Error(`Failed to fetch deck ${deck.id}`);
       }
@@ -286,8 +319,12 @@ class SyncService {
       await db.decks.clear();
       await db.notes.clear();
 
-      await db.decks.bulkPut(fullDecks.map(d => deckToLocal(d)));
-      await db.notes.bulkPut(allNotes.map(n => noteToLocal(n)));
+      // Anything deleted on this device while the sync ran stays deleted
+      // (checked inside the transaction, which local removals queue behind).
+      const keptDecks = fullDecks.filter(d => !wasRemovedLocally('deck', d.id));
+      const keptNotes = allNotes.filter(n => !wasRemovedLocally('note', n.id) && !wasRemovedLocally('deck', n.deck_id));
+      await db.decks.bulkPut(keptDecks.map(d => deckToLocal(d)));
+      await db.notes.bulkPut(keptNotes.map(n => noteToLocal(n)));
 
       // For cards: only INSERT new ones, preserve existing card scheduling state
       // Card scheduling is computed from local review events, not synced from server
@@ -302,7 +339,8 @@ class SyncService {
       }
 
       // Only insert NEW cards (don't overwrite existing scheduling state)
-      const newCards = allCards.filter(c => !existingCardIds.has(c.id));
+      const newCards = allCards.filter(c =>
+        !existingCardIds.has(c.id) && !wasRemovedLocally('deck', c.deck_id) && !wasRemovedLocally('note', c.note_id));
       if (newCards.length > 0) {
         console.log('[Sync] Inserting', newCards.length, 'new cards (preserving', existingCardIds.size - cardsToDelete.length, 'existing)');
         await db.cards.bulkPut(newCards);
@@ -322,7 +360,7 @@ class SyncService {
       await updateSyncMeta({
         id: 'sync_state',
         last_full_sync: Date.now(),
-        last_incremental_sync: Date.now(),
+        last_incremental_sync: snapshotAt,
         user_id: null,
       });
     });
@@ -442,10 +480,13 @@ class SyncService {
     this.notifySyncListeners(true);
     this.notifyProgress({ phase: 'starting', message: 'Checking for updates...' });
     const startTime = Date.now();
-    this.syncPromise = this._doIncrementalSync(syncMeta.last_incremental_sync);
+    const replay = !hasReplayedTombstones();
+    const since = replay ? Math.min(syncMeta.last_incremental_sync, TOMBSTONES_START) : syncMeta.last_incremental_sync;
+    this.syncPromise = this._doIncrementalSync(since);
 
     try {
       await this.syncPromise;
+      if (replay) markTombstonesReplayed();
       this.logSync('incremental', startTime, 'success', this.lastSyncDetails);
     } catch (err) {
       console.error('[Sync] Incremental sync failed:', err);
@@ -491,6 +532,12 @@ class SyncService {
       if (changes.deleted.card_ids.length > 0) {
         await db.cards.bulkDelete(changes.deleted.card_ids);
       }
+
+      // A delete made on this device after the server built this response
+      // must not be undone by it.
+      changes.decks = changes.decks.filter(d => !wasRemovedLocally('deck', d.id));
+      changes.notes = changes.notes.filter(n => !wasRemovedLocally('note', n.id) && !wasRemovedLocally('deck', n.deck_id));
+      changes.cards = changes.cards.filter(c => !wasRemovedLocally('note', c.note_id));
 
       // Apply updates/inserts
       if (changes.decks.length > 0) {
@@ -834,6 +881,7 @@ class SyncService {
     console.log('[Sync] Fetching', deckIds.length, 'missing decks by ID');
 
     for (const deckId of deckIds) {
+      if (wasRemovedLocally('deck', deckId)) continue;
       try {
         const response = await fetch(`${API_PATH}/decks/${deckId}`, {
           headers: getAuthHeaders(),
@@ -843,6 +891,7 @@ class SyncService {
           continue;
         }
         const deck = await response.json() as DeckWithNotesAndCards;
+        if (wasRemovedLocally('deck', deckId)) continue;
 
         await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
           await db.decks.put(deckToLocal(deck));
