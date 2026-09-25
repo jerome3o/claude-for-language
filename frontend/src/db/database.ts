@@ -1436,6 +1436,20 @@ export async function getReviewedNoteIds(deckId?: string): Promise<Set<string>> 
 
 // ============ Local removal (deletes + sync tombstones) ============
 
+// Ids removed on this device during this session. A sync that was already in
+// flight when the user pressed Delete carries a snapshot taken before the
+// delete; without this it would write the deck straight back, and (for a full
+// sync) move the sync cursor past the tombstone so it never came down again —
+// a deck that "won't delete" and whose page only says "Failed to load deck".
+// Ids are never reused, so remembering them for the session is safe.
+const removedDeckIds = new Set<string>();
+const removedNoteIds = new Set<string>();
+
+/** Whether a deck / note was deleted on this device (sync writers skip these). */
+export function wasRemovedLocally(kind: 'deck' | 'note', id: string): boolean {
+  return (kind === 'deck' ? removedDeckIds : removedNoteIds).has(id);
+}
+
 /**
  * Drop decks and everything under them from IndexedDB: notes, cards, card
  * checkpoints and sentence sets. Review events are kept (they are the source
@@ -1444,6 +1458,7 @@ export async function getReviewedNoteIds(deckId?: string): Promise<Set<string>> 
  */
 export async function removeDecksLocally(deckIds: string[]): Promise<void> {
   if (deckIds.length === 0) return;
+  deckIds.forEach(id => removedDeckIds.add(id));
   const noteIds = (await db.notes.where('deck_id').anyOf(deckIds).primaryKeys()) as string[];
   await removeNotesLocally(noteIds);
   await db.decks.bulkDelete(deckIds);
@@ -1453,6 +1468,7 @@ export async function removeDecksLocally(deckIds: string[]): Promise<void> {
 /** Drop notes and their cards / checkpoints / sentence sets from IndexedDB. */
 export async function removeNotesLocally(noteIds: string[]): Promise<void> {
   if (noteIds.length === 0) return;
+  noteIds.forEach(id => removedNoteIds.add(id));
   const cardIds = (await db.cards.where('note_id').anyOf(noteIds).primaryKeys()) as string[];
   await db.transaction('rw', [db.notes, db.cards, db.cardCheckpoints, db.noteSentences], async () => {
     if (cardIds.length) {

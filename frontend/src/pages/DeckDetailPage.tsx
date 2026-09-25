@@ -1,7 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck } from '../api/client';
+import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck, apiErrorStatus } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship, DeckProgress } from '../types';
 import { DeckProgressSummary } from '../components/DeckProgress';
@@ -1561,6 +1561,16 @@ function NoteForm({
   );
 }
 
+/**
+ * Drop a deleted deck from the cached deck list at once. Just invalidating it
+ * leaves the old list on screen until the refetch lands, and the home page's
+ * "API has a deck IndexedDB lacks" check would go and fetch the deck back.
+ */
+function forgetDeckInCache(queryClient: QueryClient, deckId: string) {
+  queryClient.setQueryData<Deck[]>(['decks'], old => old?.filter(d => d.id !== deckId));
+  queryClient.invalidateQueries({ queryKey: ['decks'] });
+}
+
 export function DeckDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -1587,7 +1597,19 @@ export function DeckDetailPage() {
     queryKey: ['deck', id],
     queryFn: () => getDeck(id!),
     enabled: !!id,
+    retry: (count, err) => apiErrorStatus(err) !== 404 && count < 3,
   });
+
+  // The server has no such deck (deleted here or on another device) but it can
+  // still be on this device — take it off, rather than leave a deck in the list
+  // whose page can only say "Failed to load deck".
+  const deckGone = apiErrorStatus(deckQuery.error) === 404;
+  useEffect(() => {
+    if (!deckGone || !id) return;
+    removeDecksLocally([id])
+      .then(() => forgetDeckInCache(queryClient, id))
+      .catch(err => console.error('[DeckDetail] Could not remove a deleted deck locally', err));
+  }, [deckGone, id, queryClient]);
 
   const statsQuery = useQuery({
     queryKey: ['deckStats', id],
@@ -1788,7 +1810,7 @@ export function DeckDetailPage() {
       await removeDecksLocally([id!]);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['decks'] });
+      forgetDeckInCache(queryClient, id!);
       navigate('/');
     },
     onError: (err) => {
@@ -1876,6 +1898,17 @@ export function DeckDetailPage() {
 
   if (deckQuery.isLoading) {
     return <Loading />;
+  }
+
+  if (deckGone) {
+    return (
+      <div className="card" style={{ margin: '1rem', textAlign: 'center' }}>
+        <p style={{ marginBottom: '1rem' }}>This deck has been deleted — it is gone from this device too.</p>
+        <button className="btn btn-primary" onClick={() => navigate('/decks', { replace: true })}>
+          Back to decks
+        </button>
+      </div>
+    );
   }
 
   if (deckQuery.error || !deckQuery.data) {
