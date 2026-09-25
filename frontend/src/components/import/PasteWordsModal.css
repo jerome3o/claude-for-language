@@ -365,3 +365,60 @@
     grid-column: 1 / -1;
   }
 }
+
+/* ---------- Explanations & sentences (second Claude step) ---------- */
+
+.pw-enrich {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-alt, #f9fafb);
+  font-size: 0.875rem;
+}
+
+.pw-enrich--nudge {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+}
+
+.pw-enrich-text {
+  flex: 1 1 16rem;
+  color: var(--color-text, #111827);
+  line-height: 1.4;
+}
+
+.pw-enrich-btn {
+  min-height: 44px;
+}
+
+.pw-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.125rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+}
+
+.pw-notes-flag {
+  font-size: 0.75rem;
+}
+
+.pw-notes-input {
+  font-size: 1rem;
+  min-height: 5rem;
+}
+
+.pw-reminder {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  border-radius: var(--radius-md, 8px);
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}

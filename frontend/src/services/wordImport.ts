@@ -42,6 +42,8 @@ export async function runImport(
         english: r.english,
         fun_facts: r.notes || undefined,
         sentence_clue: r.sentence || undefined,
+        sentence_clue_pinyin: r.sentence ? r.sentencePinyin || undefined : undefined,
+        sentence_clue_translation: r.sentence ? r.sentenceTranslation || undefined : undefined,
       });
       outcome.added++;
     } else if (item.action === 'update' && item.existing) {
@@ -50,7 +52,11 @@ export async function runImport(
         if (ch.field === 'pinyin') updates.pinyin = ch.to;
         else if (ch.field === 'english') updates.english = ch.to;
         else if (ch.field === 'fun_facts') updates.fun_facts = ch.to;
-        else if (ch.field === 'sentence_clue') updates.sentence_clue = ch.to;
+        else if (ch.field === 'sentence_clue') {
+          updates.sentence_clue = ch.to;
+          if (r.sentencePinyin) updates.sentence_clue_pinyin = r.sentencePinyin;
+          if (r.sentenceTranslation) updates.sentence_clue_translation = r.sentenceTranslation;
+        }
       }
       await updateNote(item.existing.id, updates);
       outcome.updated++;
