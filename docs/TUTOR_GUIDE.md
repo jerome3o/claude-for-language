@@ -480,7 +480,16 @@ lesson — and paste it. Deck page → **📋 Paste list**.
    phone straight away; missing **English** is filled in by **✨ Fill in English with
    Claude** (one tap for the whole list). Anything filled in is marked ✨ until you edit
    it — a one-character word with several readings gets a "check the reading" hint.
-5. Tap a row to edit its hanzi, pinyin, English or sentence, or to **Skip this row**.
+   **Then the explanations.** A yellow box counts the words that still have no
+   explanation or example sentence: tap **✨ Write them with Claude** and Claude writes,
+   for every one of them, the explanation that goes on the back of the card (each
+   character or word glossed, then how the word is used and the common mistake) and one
+   short example sentence with pinyin and a translation — the same house style the MCP
+   helper uses. Anything you pasted or typed yourself is kept as it is. A bare list of
+   characters therefore becomes a full deck in three taps: paste, ✨ fill in English,
+   ✨ write the explanations. If you save without this step, the last screen reminds you
+   and you can paste the same list again later to add them (progress is kept).
+5. Tap a row to edit its hanzi, pinyin, English, sentence or explanation, or to **Skip this row**.
 6. **Add n · Update m** saves everything. Audio and example sentences are generated in the
    background, as for a word added by hand.
 

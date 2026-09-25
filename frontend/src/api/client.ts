@@ -276,6 +276,18 @@ export async function updateNote(
   });
 }
 
+export interface EnrichWordInput { hanzi: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string }
+export interface EnrichWordOutput { hanzi: string; fun_facts: string; sentence_clue: string; sentence_clue_pinyin: string; sentence_clue_translation: string }
+
+/** Write the explanation + example sentence (card standard) for up to 30 pasted words; blanks only. */
+export async function enrichWords(words: EnrichWordInput[]): Promise<EnrichWordOutput[]> {
+  const res = await fetchJSON<{ words: EnrichWordOutput[] }>('/ai/enrich-words', {
+    method: 'POST',
+    body: JSON.stringify({ words }),
+  });
+  return res.words;
+}
+
 /** Fill in missing pinyin / English for pasted words (Haiku, one call, ≤100 words). */
 export async function glossWords(
   words: Array<{ hanzi: string; pinyin?: string; english?: string }>

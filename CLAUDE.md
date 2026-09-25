@@ -440,7 +440,14 @@ the exit confirm with recap, and tutor notes on recordings. Study-only styles li
   hanzi (policy: update / skip / duplicate; pasted blanks never blank a field) and lists the
   field changes. Missing pinyin comes from `pinyin-pro` on the device, missing English from
   `POST /api/ai/gloss-words` (Haiku, one call, ≤100 words); filled values are marked ✨ until
-  edited. Saving is one `createNote` / `updateNote` per row (3 in flight, per-row failures
+  edited. A second, prominent step — **"N words have no explanation or example sentence yet
+  → ✨ Write them with Claude"** — calls `POST /api/ai/enrich-words` (Sonnet, `CARD_STANDARD`
+  in the prompt, ≤30 words per call, the client chunks 15 at a time; `services/enrich-words.ts`,
+  `mergeEnrichment` unit-tested) to write `fun_facts` and `sentence_clue` (+ pinyin /
+  translation) for rows whose card, or existing note, has none; a sentence that breaks a HARD
+  rule or lacks the word is dropped. A pasted or edited sentence gets on-device pinyin.
+  Rows show the sentence and an "explanation written" flag; the row editor has an
+  explanation textarea; the done screen reminds the tutor when words were saved bare. Saving is one `createNote` / `updateNote` per row (3 in flight, per-row failures
   reported) so TTS and sentence sets are generated as usual. The done screen lists a tutor's
   student copies (`GET /api/decks/:id/student-shares`) with "Update their copy".
 - Each note has: hanzi, pinyin (with tone marks), English, optional fun facts
@@ -925,6 +932,7 @@ cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_
 - `POST /api/relationships/:relId/shared-decks/:id/update` - Bring the student's copy up to date (matched by hanzi; progress kept): adds the tutor's newer notes, fills missing audio, and copies the tutor's edited text fields (pinyin, english, fun_facts, sentence clue…) onto copies the tutor edited more recently than the student (`copyFieldChanges`, newer wins). Returns `added`, `kept`, `audio_filled`, `updated`
 - `GET /api/decks/:id/student-shares` - A tutor's copies of this deck in students' accounts with `notes_missing` / `notes_behind` (`routes/word-import.ts`)
 - `POST /api/ai/gloss-words` - `{ words: [{ hanzi, pinyin?, english? }] }` (≤100) → the list with gaps filled by Haiku; 503 without an API key (`services/gloss-words.ts`)
+- `POST /api/ai/enrich-words` - `{ words: [{ hanzi, pinyin?, english?, fun_facts?, sentence_clue? }] }` (≤30) → each with `fun_facts`, `sentence_clue`, `sentence_clue_pinyin`, `sentence_clue_translation` written to the card standard, blanks only (Sonnet); 503 without an API key (`services/enrich-words.ts`)
 - `POST /api/me/client-state` - `{ install_kind, cached_audio_count }` from the device (never downgrades pwa/android to browser)
 
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)

@@ -2,6 +2,7 @@
  * Endpoints behind the deck page's "Paste a list" importer:
  *
  *   POST /ai/gloss-words              fill in missing pinyin / English for up to 100 words (Haiku)
+ *   POST /ai/enrich-words             write the explanation (fun_facts) + example sentence for up to 30 words (Sonnet, card standard)
  *   GET  /decks/:id/student-shares    a tutor's copies of this deck in students' accounts, with
  *                                     how far behind each copy is (for "Update their copy")
  *
@@ -12,6 +13,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { glossWords, MAX_GLOSS_WORDS } from '../services/gloss-words';
+import { enrichWords, MAX_ENRICH_WORDS } from '../services/enrich-words';
 import { getDeckById } from '../db/queries';
 import { sharedCopyDrift } from '../services/relationships';
 
@@ -34,6 +36,24 @@ wordImport.post('/ai/gloss-words', async (c) => {
   } catch (error) {
     console.error('[gloss-words] failed:', error);
     return c.json({ error: 'Could not fill in the words right now' }, 502);
+  }
+});
+
+wordImport.post('/ai/enrich-words', async (c) => {
+  type In = { hanzi?: unknown; pinyin?: unknown; english?: unknown; fun_facts?: unknown; sentence_clue?: unknown };
+  const body = await c.req.json<{ words?: In[] }>().catch(() => ({} as { words?: undefined }));
+  const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const words = (body.words || [])
+    .filter(w => w && typeof w.hanzi === 'string' && (w.hanzi as string).trim())
+    .map(w => ({ hanzi: (w.hanzi as string).trim(), pinyin: s(w.pinyin), english: s(w.english), fun_facts: s(w.fun_facts), sentence_clue: s(w.sentence_clue) }));
+  if (words.length === 0) return c.json({ error: 'words is required' }, 400);
+  if (words.length > MAX_ENRICH_WORDS) return c.json({ error: `At most ${MAX_ENRICH_WORDS} words per call` }, 400);
+  if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'AI is not configured' }, 503);
+  try {
+    return c.json({ words: await enrichWords(c.env.ANTHROPIC_API_KEY, words) });
+  } catch (error) {
+    console.error('[enrich-words] failed:', error);
+    return c.json({ error: 'Could not write the explanations right now' }, 502);
   }
 });
 

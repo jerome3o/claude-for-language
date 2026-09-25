@@ -34,6 +34,9 @@ export interface ParsedRow {
   english: string;
   sentence: string;
   notes: string;
+  /** Pinyin / translation for `sentence` when something supplied them (Claude, pinyin-pro); optional. */
+  sentencePinyin?: string;
+  sentenceTranslation?: string;
   problems: RowProblem[];
 }
 
