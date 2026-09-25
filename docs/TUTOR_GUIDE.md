@@ -229,7 +229,8 @@ tutor also studies). Their **Students** tab is the dashboard in section 7. Under
 1. **Your name** — tap to open **Settings** (section 12).
 2. **Practice** — **Sentence Coach** (check a sentence you wrote), **Sentence
    Breakdown** (split any sentence into words), **Readers** (short stories at your
-   level), **Mini Lessons** (lessons made for you, mixed into study), **Quests** (carry
+   level), **Mini Lessons** (lessons made for you, mixed into study), **Claude
+   conversations** (everything you have asked Claude about your cards), **Quests** (carry
    out Chinese instructions in a tiny world) — all in sections 9 and 10.
 3. **From your tutor** — **Lesson Notes**: paste what the tutor sent after a lesson;
    used as context for the AI features.
@@ -328,7 +329,8 @@ disappear; the session has the whole screen.
 
 1. The characters, pinyin and meaning.
 2. **From &lt;tutor&gt;: …** — shown when the tutor marked one of your recordings of
-   this word *needs work* and left a comment (section 8). It appears once, the next time
+   this word *needs work* and left a comment (section 8), or **&lt;tutor&gt; replied to your
+   flag: …** when they answered a card you flagged (below). It appears once, the next time
    the card comes up, so the tutor's feedback reaches the student without a chat.
 3. **Play** — replay the word.
 4. **Record again** if the first attempt was poor.
@@ -356,8 +358,25 @@ Fun facts, if the note has any, show between the meaning and the sentences.
 
 1. The **⋯ sheet**: **Generate fun fact** (Claude writes a memory aid and saves it to the note),
    **Regenerate audio**, **New voice**, **Roleplay** (a practice conversation around this
-   word), **Play my recording** (after recording) and, at the bottom, when the card was
-   added.
+   word), **🚩 Flag for tutor** (below), **Play my recording** (after recording) and, at the
+   bottom, when the card was added.
+
+### Flagging a card for your tutor
+
+<img src="guide-images/flag-card.png" width="300">
+
+When a card confuses you, **⋯ → Flag for tutor** on its back opens a small sheet: write what
+is confusing ("is 行 here háng or xíng?"), pick the tutor if you have more than one, **Send**.
+It works on the train: without a connection the flag is saved and goes out with the next sync.
+Your tutor gets it in the chat with the word, and under **Flagged cards** on your page in
+their app, linked to the card. Their reply comes back the same three ways: in the chat, on
+**Cards you flagged** on your tutor's page (Tutor tab → your tutor), and once on the back of
+the card the next time it comes up.
+
+Every card also has a **card page** (History on the deck page → *Card page*, or from a flag):
+the word, how its three cards are doing, the flags on it, everything you asked Claude about
+it and the recent reviews. **More → Claude conversations** lists every question you have ever
+asked Claude about a card, grouped by card and day.
 
 ### Typing cards ("Meaning → Hanzi" and "Audio → Hanzi")
 
@@ -697,6 +716,15 @@ Tap a student's name on the dashboard to open their page:
 6. **🎤 hear** — the word has a recording you have not listened to yet; plays it right
    here.
 7. **Insights · History · Recordings · Progress** — the four detail pages, below.
+   Above them, two more sections: **🚩 Flagged cards** — cards the student flagged for you
+   from the study screen, each with their note and a **Reply** box (the reply goes into the
+   chat and is shown to the student once on the back of that card; **Resolve** closes one
+   without a reply; resolved flags fold away) — and **💬 Asked Claude** — what they have been
+   asking Claude about their cards (tap a conversation to read the answers; *All
+   conversations* for the full list). Tapping a word in either opens its **card page**: the
+   word, how each of its three cards is doing, every flag and Claude conversation about it,
+   and the recent reviews with typed answers and recordings. The dashboard card shows a
+   **🚩 n flagged cards** pill while any are waiting for a reply.
 8. **Homework** — every deck you sent, with a bar (orange = started, green = mastered)
    and "n/24 cards started · n mastered"…
 9. …and **Update** when your original deck has words the student's copy does not have

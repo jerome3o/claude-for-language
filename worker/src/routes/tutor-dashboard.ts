@@ -28,6 +28,7 @@ import * as q from '../db/tutor-dashboard-queries';
 import { buildStudentOverview, parseTzOffset, type StudentOverview } from '../services/tutor-dashboard';
 import { moveDeckInQueue } from '../services/content';
 import { isQueueMove } from '@shared/decks';
+import { countOpenCardFlags } from '../services/card-flags';
 
 const tutorDashboard = new Hono<{ Bindings: Env }>();
 
@@ -72,7 +73,7 @@ async function loadOverview(
   const from7 = new Date(now.getTime() - 7 * DAY_MS).toISOString();
   const nowIso = now.toISOString();
 
-  const [student, activityRows, weekRows, weekMarks, unheard, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue] =
+  const [student, activityRows, weekRows, weekMarks, unheard, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue, openFlags] =
     await Promise.all([
       q.fetchStudentUserRow(db, studentId),
       q.fetchActivityRows(db, studentId, from30),
@@ -86,6 +87,7 @@ async function loadOverview(
       q.fetchRedeemedInvite(db, tutorId, studentId, frontendUrl),
       q.fetchLastConversationId(db, rel.id),
       q.fetchStudentDeckQueue(db, studentId),
+      countOpenCardFlags(db, rel.id),
     ]);
   if (!student) return null;
 
@@ -97,6 +99,7 @@ async function loadOverview(
     week_rows: weekRows,
     week_marks: weekMarks,
     unheard_recordings: unheard,
+    open_flags: openFlags,
     first_review_at: totals.first_review_at,
     total_reviews: totals.total,
     homework_decks: decks,

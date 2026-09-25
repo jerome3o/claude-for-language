@@ -398,9 +398,12 @@ export interface CachedCharacterDefinition {
 // down from GET /api/me/recording-notes so it shows offline; `seen_at` is set
 // locally when the card is rated and reported back on the next sync.
 export interface LocalRecordingNote {
-  /** Review event id (the recording the note is on) */
+  /** Review event id (the recording the note is on) — or the flag id for a tutor's reply to a flagged card */
   id: string;
-  card_id: string;
+  /** 'recording' (default) or 'flag' = the tutor's reply to a card the student flagged */
+  kind?: 'recording' | 'flag';
+  /** Null for a flag reply not tied to one card: matched on note_id instead */
+  card_id: string | null;
   note_id: string;
   hanzi: string;
   comment: string;
@@ -410,6 +413,23 @@ export interface LocalRecordingNote {
   seen_at: string | null;
   // 0 = the seen_at above has not reached the server yet, 1 = synced
   _synced: number;
+}
+
+/** A card flagged for the tutor, kept until the server has accepted it. */
+export interface LocalPendingCardFlag {
+  /** Client-generated id; the server stores the same id (idempotent re-post) */
+  id: string;
+  relationship_id: string;
+  tutor_name: string | null;
+  note_id: string;
+  card_id: string | null;
+  hanzi: string;
+  message: string;
+  created_at: string;
+  /** 0 = not on the server yet, 1 = accepted (row is deleted once it is) */
+  _synced: number;
+  /** Last upload error, for the debug console */
+  error?: string;
 }
 
 // Dexie database class
@@ -446,8 +466,11 @@ export class ChineseLearningDB extends Dexie {
   noteSentences!: Table<LocalNoteSentence, string>;
   sentenceTextExplanations!: Table<LocalSentenceTextExplanation, string>;
 
-  // Tutor notes on my recordings (shown once on the card back)
+  // Tutor notes on my recordings + replies to my flagged cards (shown once on the card back)
   recordingNotes!: Table<LocalRecordingNote, string>;
+
+  // Cards flagged for the tutor while offline, waiting to be posted
+  pendingCardFlags!: Table<LocalPendingCardFlag, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -821,6 +844,12 @@ export class ChineseLearningDB extends Dexie {
       customLessons: 'id, status, created_at, queue, next_review_at',
       customLessonCompletionEvents: 'id, lesson_id, completed_at, _synced',
       recordingNotes: 'id, card_id, note_id, seen_at, _synced',
+    });
+
+    // Version 17: cards flagged for the tutor from the study screen, queued
+    // locally so flagging works offline and posted by the next sync.
+    this.version(17).stores({
+      pendingCardFlags: 'id, note_id, created_at, _synced',
     });
   }
 }

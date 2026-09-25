@@ -3,7 +3,10 @@
  * what Claude needs in a chat, defaults for dates, audio URLs. No I/O, so
  * everything here is unit-tested in ../students.test.ts.
  */
+import { groupQuestionThreads } from '../../../../shared/chats/threads';
 import type {
+  CardFlagRow,
+  ClaudeChatQuestionRow,
   CardType,
   ConversationRow,
   DashboardInvite,
@@ -349,4 +352,43 @@ export function compactInvite(i: InviteRow) {
       redeemed_at: r.redeemed_at,
     })),
   };
+}
+
+// ---------- Card flags & Ask-Claude history ----------
+
+/** The tutor's page for this card in the app (relative: the MCP server does not know the app origin). */
+export function cardPagePath(relationshipId: string, noteId: string): string {
+  return `/connections/${relationshipId}/cards/${noteId}`;
+}
+
+export function compactCardFlag(f: CardFlagRow, relationshipId: string) {
+  return {
+    flag_id: f.id,
+    status: f.status,
+    word: { note_id: f.note_id, hanzi: f.hanzi, pinyin: f.pinyin, english: f.english, deck: f.deck_name, card_type: f.card_type },
+    student_note: f.message,
+    flagged_at: f.created_at,
+    reply: f.tutor_reply,
+    replied_at: f.replied_at,
+    student_has_seen_reply: !!f.student_seen_reply_at,
+    card_path: cardPagePath(relationshipId, f.note_id),
+  };
+}
+
+function trimText(text: string, chars: number): string {
+  return text.length > chars ? `${text.slice(0, chars).trimEnd()}…` : text;
+}
+
+/** Group Q&A rows into per-card conversations, newest first, answers trimmed. */
+export function compactClaudeThreads(rows: ClaudeChatQuestionRow[], answerChars: number, relationshipId: string) {
+  return groupQuestionThreads(rows).map((t) => {
+    const first = t.questions[0];
+    return {
+      word: { note_id: t.note_id, hanzi: first.hanzi, pinyin: first.pinyin, english: first.english, deck: first.deck_name },
+      started_at: t.started_at,
+      last_at: t.last_at,
+      questions: t.questions.map((q) => ({ asked_at: q.asked_at, question: q.question, answer: trimText(q.answer, answerChars) })),
+      card_path: cardPagePath(relationshipId, t.note_id),
+    };
+  });
 }

@@ -62,6 +62,9 @@ import { TutorNoteLine } from '../components/study/TutorNoteLine';
 import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import { getUnseenRecordingNotesForCard, markRecordingNoteSeen } from '../services/recording-notes';
+import { getRememberedTutors, humanTutors, rememberTutors, type RememberedTutor } from '../services/cardFlags';
+import { FlagCardSheet } from '../components/study/FlagCardSheet';
+import { useAuth } from '../contexts/AuthContext';
 import {
   loadMultipleChoice,
   shuffleMcOptions,
@@ -323,9 +326,19 @@ function StudyCard({
   // Tutor notes on my recordings of this card ("second tone, not fourth"),
   // shown once under the pinyin; marked seen when the card is rated.
   const tutorNotes: LocalRecordingNote[] = useLiveQuery(
-    () => getUnseenRecordingNotesForCard(card.id),
-    [card.id]
+    () => getUnseenRecordingNotesForCard(card.id, card.note.id),
+    [card.id, card.note.id]
   ) ?? EMPTY_TUTOR_NOTES;
+
+  // Flag for tutor: the sheet under ⋯. Human tutors only; the list is
+  // mirrored to localStorage so the item is still there offline.
+  const [showFlagSheet, setShowFlagSheet] = useState(false);
+  const { user } = useAuth();
+  const flagTutors: RememberedTutor[] = useMemo(() => {
+    const live = user ? humanTutors(tutors, user.id) : [];
+    if (live.length > 0) rememberTutors(live);
+    return live.length > 0 ? live : getRememberedTutors();
+  }, [tutors, user]);
 
 
   // Audio recording cycling state
@@ -1845,6 +1858,9 @@ function StudyCard({
       ...(claudeRelationship
         ? [{ key: 'roleplay', label: 'Roleplay this word', icon: '🎭', hint: needsInternet, disabled: !aiAvailable, busy: isInitiatingConversation, onSelect: handleUseInConversation }]
         : []),
+      ...(flagTutors.length > 0
+        ? [{ key: 'flag', label: 'Flag for tutor', icon: '🚩', onSelect: () => setShowFlagSheet(true) }]
+        : []),
       ...(audioBlob
         ? [{ key: 'my-recording', label: 'Play my recording', icon: '🎙️', onSelect: playUserRecording }]
         : []),
@@ -2346,6 +2362,17 @@ function StudyCard({
 
       {/* Ask Claude Modal */}
       {renderAskClaudeModal()}
+
+      {/* Flag for tutor (⋯ menu) */}
+      {showFlagSheet && (
+        <FlagCardSheet
+          tutors={flagTutors}
+          noteId={card.note.id}
+          cardId={card.id}
+          hanzi={card.note.hanzi}
+          onClose={() => setShowFlagSheet(false)}
+        />
+      )}
 
       {/* Debug Modal */}
       {renderDebugModal()}

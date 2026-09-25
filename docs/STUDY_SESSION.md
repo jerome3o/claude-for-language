@@ -147,8 +147,8 @@ the generated set — `components/SentenceSet.tsx` in `compact` mode). The list 
 inside the card; the footer stays put: one action row **Ask Claude · Edit card · ⋯**
 (`components/study/StudyActionRow.tsx`) above the four ratings (64px tall). Everything
 else is under **⋯** (a bottom sheet, `components/study/StudyMoreMenu.tsx`): generate fun
-fact, regenerate audio, new voice, roleplay, play my recording, debug info (only with the
-Debug Console flag on) and the "Added <date>" line.
+fact, regenerate audio, new voice, roleplay, **flag for tutor** (below), play my recording,
+debug info (only with the Debug Console flag on) and the "Added <date>" line.
 
 Sentence rows start blank (listen first): **▶** on the right plays the clip, each tap on
 the row uncovers one more line — hanzi, pinyin, English — and a tap on a fully open row
@@ -193,3 +193,23 @@ unseen notes are pulled into IndexedDB (`recordingNotes`) during sync
 (`services/recording-notes.ts`, `GET /api/me/recording-notes`); rating the card marks the note
 seen locally first and `POST /api/me/recording-notes/:eventId/seen` follows, immediately or on
 the next sync.
+
+## Flag a card for the tutor
+
+**⋯ → Flag for tutor** (`components/study/FlagCardSheet.tsx`; the item only appears when the
+account has a human tutor) opens a sheet: one short note ("is 行 here háng or xíng?"), a
+tutor picker when there is more than one, Send. It works offline: the flag is written to
+IndexedDB first (`pendingCardFlags`, `services/cardFlags.ts` `queueCardFlag`), posted at once
+when online, otherwise by the next sync (`uploadPendingCardFlags`); the id is client-generated
+so a re-post is a no-op. The tutor list is mirrored to localStorage so the item is still there
+without a connection. On the server (`POST /api/card-flags`, `card_flags` table) the flag is
+also mirrored into the relationship's chat ("🚩 Flagged 银行 (yínháng · bank): …") so the tutor's
+unread badge fires, and it appears under **Flagged cards** on the tutor's student page with a
+link to the card's hub page (`/connections/:relId/cards/:noteId`).
+
+The tutor's **reply** resolves the flag, goes into the chat ("🚩 About 银行: …") and rides the
+same `GET /api/me/recording-notes` feed as recording marks with `kind: 'flag'`, so the student
+sees "<tutor> replied to your flag: …" under the pinyin the next time ANY card of that word
+comes up (matched on note_id, not card_id), once; rating the card marks it seen through the
+same `/seen` endpoint. The student's own flags (status, reply) are under **Cards you flagged**
+on their tutor page and on the card's hub page (`/cards/:noteId`), which can also send a flag.

@@ -78,6 +78,11 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
         ) : (
           <span className="td-pill td-pill-ok">No words struggling</span>
         )}
+        {pills.flags_open > 0 && (
+          <Link to={`/connections/${relId}#flags`} className="td-pill td-pill-flags">
+            🚩 {pills.flags_open} flagged card{pills.flags_open === 1 ? '' : 's'}
+          </Link>
+        )}
         {pills.recordings_to_hear > 0 && (
           <Link to={`/connections/${relId}/recordings`} className="td-pill td-pill-recordings">
             🎤 {pills.recordings_to_hear} recording{pills.recordings_to_hear === 1 ? '' : 's'} to hear

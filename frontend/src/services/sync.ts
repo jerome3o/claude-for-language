@@ -25,6 +25,7 @@ import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from '.
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
 import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncRecordingNotes } from './recording-notes';
+import { uploadPendingCardFlags } from './cardFlags';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
@@ -438,8 +439,17 @@ class SyncService {
       console.error('[Sync] Custom lesson sync failed:', err);
     }
     try {
-      // Tutor notes on my recordings ("second tone, not fourth"): pulled down
-      // so the line on the card back shows offline; local "seen" marks go up.
+      // Cards flagged for the tutor while offline go up first, so a reply
+      // can come back down with the notes below on a later sync.
+      const flags = await uploadPendingCardFlags();
+      if (flags.uploaded > 0) console.log('[Sync] Card flags posted:', flags.uploaded);
+    } catch (err) {
+      console.error('[Sync] Card flag upload failed:', err);
+    }
+    try {
+      // Tutor notes on my recordings ("second tone, not fourth") and replies
+      // to my flagged cards: pulled down so the line on the card back shows
+      // offline; local "seen" marks go up.
       await syncRecordingNotes();
     } catch (err) {
       console.error('[Sync] Recording notes sync failed:', err);

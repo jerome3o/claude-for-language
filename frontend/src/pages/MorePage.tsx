@@ -112,6 +112,9 @@ export function MorePage() {
             <NavRow icon="📚" label="Readers" desc="Short stories at your level" to="/readers" />
           )}
           <NavRow icon="🎓" label="Mini Lessons" desc="Lessons made for you, mixed into study" to="/lessons" />
+          {!role.isTutorOnly && (
+            <NavRow icon="💬" label="Claude conversations" desc="Everything you asked Claude about your cards" to="/claude-chats" />
+          )}
           <NavRow icon="🎮" label="Quests" desc="Carry out instructions in a tiny world" to="/quests" />
         </NavSection>
 

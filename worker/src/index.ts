@@ -61,6 +61,8 @@ import { resolveSignup, redeemInvite } from './services/signup';
 import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
 import recordingNotesRoutes from './routes/recording-notes';
+import cardFlagsRoutes from './routes/card-flags';
+import claudeChatsRoutes from './routes/claude-chats';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
 import wordImportRoutes from './routes/word-import';
@@ -423,6 +425,10 @@ app.route('/api', insightsRoutes);
 
 // Student side of recording marks: unseen tutor notes on my recordings (routes/recording-notes.ts)
 app.route('/api', recordingNotesRoutes);
+
+// Flag a card for the tutor (routes/card-flags.ts) and Ask-Claude history + the card hub (routes/claude-chats.ts)
+app.route('/api', cardFlagsRoutes);
+app.route('/api', claudeChatsRoutes);
 // Tutor dashboard, student overview, message/how-to, shared-deck update, client-state report
 app.route('/api', tutorDashboardRoutes);
 // Tutor → student sharing of graded readers (routes/shared-readers.ts)

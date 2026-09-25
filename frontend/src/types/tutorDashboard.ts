@@ -124,6 +124,8 @@ export interface StudentOverview {
     struggling_words: number;
     recordings_to_hear: number;
     homework_percent: number | null;
+    /** Flagged cards waiting for a reply */
+    flags_open: number;
   };
   needs_attention: NeedsAttentionItem[];
   homework: HomeworkSummary;

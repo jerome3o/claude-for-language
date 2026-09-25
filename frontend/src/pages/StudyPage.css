@@ -337,3 +337,76 @@
 .study-exit-modal .session-recap {
   margin-top: 0.75rem;
 }
+
+/* ---------- Flag for tutor sheet ---------- */
+.study-flag-sheet {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.study-flag-title {
+  font-weight: 600;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.study-flag-hanzi {
+  font-size: 1.25rem;
+}
+
+.study-flag-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.study-flag-field select {
+  min-height: 44px;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.study-flag-input {
+  width: 100%;
+  font-size: 1rem;
+  line-height: 1.4;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.625rem 0.75rem;
+  resize: vertical;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.study-flag-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.study-flag-actions .btn {
+  min-height: 44px;
+}
+
+.study-flag-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin: 0.75rem 0 0;
+}
+
+.study-flag-done {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}

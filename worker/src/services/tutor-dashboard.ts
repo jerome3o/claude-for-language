@@ -91,6 +91,8 @@ export interface StudentOverviewInput {
   week_marks: RecordingMark[];
   /** All-time count of the student's recordings the tutor has not marked yet. */
   unheard_recordings: number;
+  /** Cards the student flagged for this tutor that have no reply yet */
+  open_flags?: number;
   first_review_at: string | null;
   total_reviews: number;
   homework_decks: HomeworkDeckInput[];
@@ -190,6 +192,8 @@ export interface StudentOverview {
     struggling_words: number;
     recordings_to_hear: number;
     homework_percent: number | null;
+    /** Flagged cards waiting for a reply */
+    flags_open: number;
   };
   needs_attention: NeedsAttentionItem[];
   homework: HomeworkSummary;
@@ -488,6 +492,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
       struggling_words: struggling.length,
       recordings_to_hear: input.unheard_recordings,
       homework_percent: homework.percent,
+      flags_open: input.open_flags ?? 0,
     },
     needs_attention: pickNeedsAttention(struggling, recordings),
     homework,
