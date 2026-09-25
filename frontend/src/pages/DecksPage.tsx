@@ -9,7 +9,8 @@ import { Deck, DeckStats, QueueCounts } from '../types';
 import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
 import { allocateQueueCounts, EMPTY_QUEUE_COUNTS, DeckQueueCounts } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
-import { orderDecksForQueue, moveDeckInQueue, nudgeDeckInQueue } from '../services/deckOrder';
+import { orderDecksForQueue, moveDeckInQueue, nudgeDeckInQueue, reorderQueue } from '../services/deckOrder';
+import { useLongPressReorder, type LongPressReorder } from '../services/dragReorder';
 import { readStudyBudget } from '../services/studyBudget';
 import type { LocalDeck } from '../db/database';
 
@@ -50,6 +51,7 @@ function DeckCard({
   position,
   total,
   onMove,
+  drag,
 }: {
   deck: Deck;
   counts: DeckQueueCounts;
@@ -58,9 +60,11 @@ function DeckCard({
   position: number;
   total: number;
   onMove: (to: 'top' | 'up' | 'down' | 'bottom') => void;
+  drag: LongPressReorder;
 }) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const dragging = drag.dragId === deck.id;
   const statsQuery = useQuery({
     queryKey: ['deckStats', deck.id],
     queryFn: () => getDeckStats(deck.id),
@@ -74,13 +78,19 @@ function DeckCard({
   const handleStudy = () => navigate(`/study?deck=${deck.id}&autostart=true`);
 
   return (
-    <div className="deck-card" data-testid="deck-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative', zIndex: menuOpen ? 20 : undefined }}>
+    <div
+      className={`deck-card${dragging ? ' deck-card--dragging' : ''}`}
+      data-testid="deck-card"
+      data-drag-id={deck.id}
+      style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative', zIndex: menuOpen ? 20 : undefined }}
+      {...drag.cardProps(deck.id)}
+    >
       {/* Queue position + reorder menu (the card is lifted above its siblings while the menu is open) */}
       <div style={{ position: 'absolute', top: '0.25rem', right: '0.25rem' }}>
         <QueuePositionMenu position={position} total={total} onMove={onMove} onOpenChange={setMenuOpen} />
       </div>
 
-      <Link to={`/decks/${deck.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, paddingRight: '1.25rem' }}>
+      <Link to={`/decks/${deck.id}`} onClick={drag.onLinkClick} draggable={false} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, paddingRight: '1.25rem' }}>
         <div className="deck-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem', marginBottom: 0 }}>
           {deck.name}
         </div>
@@ -168,6 +178,16 @@ export function DecksPage() {
   // to detect decks that are missing locally (which triggers a sync).
   const { decks: offlineDecks, isLoading: offlineLoading, isSyncing } = useOfflineDecks(decksQuery.data);
   const decks = offlineDecks;
+
+  // Press-and-hold to drag a deck to a new place in the queue.
+  const orderedIds = useMemo(() => orderDecksForQueue(decks as LocalDeck[]).map(d => d.id), [decks]);
+  const drag = useLongPressReorder(orderedIds, async (ids) => {
+    try {
+      await reorderQueue(ids);
+    } catch (err) {
+      console.error('[Decks] drag reorder failed', err);
+    }
+  });
 
   const handleMove = async (deckId: string, to: 'top' | 'up' | 'down' | 'bottom') => {
     try {
@@ -290,14 +310,15 @@ export function DecksPage() {
               }
             />
           ) : (() => {
-            const ordered = orderDecksForQueue(decks as LocalDeck[]);
+            const byId = new Map(decks.map(d => [d.id, d]));
+            const ordered = drag.order.map(id => byId.get(id)).filter((d): d is LocalDeck => !!d);
             return (
               <>
                 <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', color: 'var(--color-text-light)' }} data-testid="queue-caption">
                   Studied in this order: {budget.new_cards_per_day} new {budget.new_cards_per_day === 1 ? 'word' : 'words'} a day come from the top deck down
-                  {' '}(<Link to="/settings" style={{ color: 'inherit' }}>change</Link>). Tap a deck's number to move it.
+                  {' '}(<Link to="/settings" style={{ color: 'inherit' }}>change</Link>). <strong>Press and hold a deck to drag it</strong>, or tap its number to move it.
                 </p>
-                <div className="grid grid-cols-2 gap-1">
+                <div className={`grid grid-cols-2 gap-1 deck-grid${drag.dragId ? ' deck-grid--dragging' : ''}`} ref={drag.listRef} data-testid="deck-grid">
                   {ordered.map((deck, i) => (
                     <DeckCard
                       key={deck.id}
@@ -307,6 +328,7 @@ export function DecksPage() {
                       position={i + 1}
                       total={ordered.length}
                       onMove={(to) => handleMove(deck.id, to)}
+                      drag={drag}
                     />
                   ))}
                 </div>
