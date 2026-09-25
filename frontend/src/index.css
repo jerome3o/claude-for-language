@@ -1953,6 +1953,33 @@ button.queue-counts:active {
   transform: scale(0.98);
 }
 
+/* Press-and-hold drag reorder (Decks tab): the card is the touch target,
+   vertical scrolling stays possible until the hold fires. */
+.deck-card {
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.deck-grid--dragging {
+  touch-action: none;
+  cursor: grabbing;
+}
+
+.deck-grid--dragging .deck-card {
+  transition: transform 0.12s ease;
+}
+
+.deck-card--dragging,
+.deck-card--dragging:hover,
+.deck-card--dragging:active {
+  transform: scale(1.03);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  border-color: var(--color-primary, #dc2626);
+  z-index: 30;
+}
+
 .deck-card-title {
   font-size: 1rem;
   font-weight: 600;
