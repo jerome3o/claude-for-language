@@ -56,6 +56,8 @@ const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').
 const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
 const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
 const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
+const CardHubPage = lazy(() => import('./pages/CardHubPage').then(m => ({ default: m.CardHubPage })));
+const ClaudeChatsPage = lazy(() => import('./pages/ClaudeChatsPage').then(m => ({ default: m.ClaudeChatsPage })));
 
 // Preload the study page since it's the most-used route
 const studyPagePreload = () => import('./pages/StudyPage');
@@ -263,6 +265,10 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/connections/:relId/cards/:noteId" element={<ProtectedRoute><Header /><CardHubPage /></ProtectedRoute>} />
+      <Route path="/connections/:relId/claude-chats" element={<ProtectedRoute><Header /><ClaudeChatsPage /></ProtectedRoute>} />
+      <Route path="/cards/:noteId" element={<ProtectedRoute><Header /><CardHubPage /></ProtectedRoute>} />
+      <Route path="/claude-chats" element={<ProtectedRoute><Header /><ClaudeChatsPage /></ProtectedRoute>} />
       <Route
         path="/connections/:relId/chat/:convId"
         element={

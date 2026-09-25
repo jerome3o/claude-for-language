@@ -13,6 +13,8 @@ import { z } from 'zod';
 import type { ToolContext } from './context.js';
 import { guard, jsonResult, textResult } from './context.js';
 import type {
+  CardFlagRow,
+  ClaudeChatQuestionRow,
   ConversationRow,
   HistoryResponse,
   InsightsResponse,
@@ -30,6 +32,8 @@ import type {
 } from './students/types.js';
 import {
   clampInt,
+  compactCardFlag,
+  compactClaudeThreads,
   compactConversation,
   compactDashboardInvite,
   compactGoingWell,
@@ -310,6 +314,68 @@ export function registerStudentTools(ctx: ToolContext): void {
       guard(async () => {
         await api.delete(`${rel(relationship_id)}/recordings/${encodeURIComponent(event_id)}/mark`);
         return textResult(`Cleared the mark on recording ${event_id}.`);
+      })
+  );
+
+  // ============ Flagged cards & Ask-Claude history ============
+
+  server.tool(
+    'list_card_flags',
+    `Cards the student flagged for the tutor from the study screen (⋯ → Flag for tutor), each with the word, the student's note ("I keep mixing this up with 很行"), when, and the tutor's reply if any. \`open\` = still waiting for a reply. Reply with reply_to_card_flag; the reply is shown to the student once on the back of that card and posted into the chat.`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      status: z.enum(['open', 'resolved', 'all']).optional().describe('Default open.'),
+      limit: z.number().int().min(1).max(500).optional().describe('Max flags, newest first (default 50).'),
+    },
+    async ({ relationship_id, status, limit }) =>
+      guard(async () => {
+        const r = await api.get<{ flags: CardFlagRow[]; open: number }>(`${rel(relationship_id)}/card-flags`, {
+          status: status ?? 'open',
+          limit: String(clampInt(limit, 1, 500, 50)),
+        });
+        return jsonResult({
+          open: r.open,
+          total: r.flags.length,
+          flags: r.flags.map((f) => compactCardFlag(f, relationship_id)),
+        });
+      })
+  );
+
+  server.tool(
+    'reply_to_card_flag',
+    `Answer a flagged card. The reply resolves the flag, is shown to the student ONCE on the back of that card the next time it comes up in study ("<tutor> replied to your flag: …"), and is posted into the chat as the tutor. Write it to the student, concretely, in the language they should read.`,
+    {
+      flag_id: z.string().describe('The flag\'s `flag_id` from list_card_flags.'),
+      reply: z.string().min(1).max(2000),
+    },
+    async ({ flag_id, reply }) =>
+      guard(async () => {
+        const r = await api.post<{ flag: CardFlagRow }>(`/api/card-flags/${encodeURIComponent(flag_id)}/reply`, { reply });
+        return jsonResult(compactCardFlag(r.flag, r.flag.relationship_id));
+      })
+  );
+
+  server.tool(
+    'list_student_claude_chats',
+    `What the student has been asking Claude about their cards (the in-app "Ask Claude" on the card back), newest first, grouped into conversations per card — a window on what they find confusing. Each conversation: the word, when, and the questions with Claude's answers (answers trimmed to \`answer_chars\`). \`note_id\` narrows to one card.`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      limit: z.number().int().min(1).max(500).optional().describe('Max questions to fetch, newest first (default 60).'),
+      note_id: z.string().optional().describe('Only conversations about this card.'),
+      answer_chars: z.number().int().min(50).max(5000).optional().describe('Trim each answer to this many characters (default 400).'),
+    },
+    async ({ relationship_id, limit, note_id, answer_chars }) =>
+      guard(async () => {
+        const r = await api.get<{ questions: ClaudeChatQuestionRow[]; next_cursor: string | null; total: number }>(
+          `${rel(relationship_id)}/claude-chats`,
+          { limit: String(clampInt(limit, 1, 500, 60)), ...(note_id ? { note_id } : {}) }
+        );
+        const chars = clampInt(answer_chars, 50, 5000, 400);
+        return jsonResult({
+          total_questions: r.total,
+          more_before: r.next_cursor,
+          conversations: compactClaudeThreads(r.questions, chars, relationship_id),
+        });
       })
   );
 

@@ -2,8 +2,8 @@
  * Student-side view of tutor recording marks. Mounted under /api in index.ts
  * after the auth middleware, so c.get('user') is always set here.
  *
- *   GET  /me/recording-notes                 unseen needs-work notes on my recordings
- *   POST /me/recording-notes/:eventId/seen   I have seen this one (idempotent)
+ *   GET  /me/recording-notes                 unseen needs-work notes on my recordings + unseen tutor replies to my flagged cards (kind 'flag')
+ *   POST /me/recording-notes/:eventId/seen   I have seen this one (idempotent; a flag id marks the reply seen)
  *
  * The tutor writes the mark from the recordings inbox (routes/insights.ts);
  * the student sees the comment once, on the back of that card, the next time
@@ -13,13 +13,17 @@
 
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { listUnseenFlagReplies, markFlagReplySeen } from '../services/card-flags';
 
 const recordingNotes = new Hono<{ Bindings: Env }>();
 
 export interface StudentRecordingNote {
-  /** The review event (recording) the note is on */
+  /** The review event (recording) the note is on — or the flag id for a tutor's reply to a flagged card */
   event_id: string;
-  card_id: string;
+  /** 'recording' = a mark on a recording (default); 'flag' = the tutor's reply to a card the student flagged */
+  kind?: 'recording' | 'flag';
+  /** Null for a flag the student sent from outside study; the client then matches on note_id */
+  card_id: string | null;
   note_id: string;
   hanzi: string;
   comment: string;
@@ -48,7 +52,21 @@ recordingNotes.get('/me/recording-notes', async (c) => {
     )
       .bind(userId)
       .all<StudentRecordingNote>();
-    return c.json({ notes: res.results || [] });
+    const replies = await listUnseenFlagReplies(c.env.DB, userId);
+    const notes: StudentRecordingNote[] = [
+      ...(res.results || []).map((n) => ({ ...n, kind: 'recording' as const })),
+      ...replies.map((r) => ({
+        event_id: r.flag_id,
+        kind: 'flag' as const,
+        card_id: r.card_id,
+        note_id: r.note_id,
+        hanzi: r.hanzi,
+        comment: r.reply,
+        tutor_name: r.tutor_name,
+        updated_at: r.replied_at,
+      })),
+    ].sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));
+    return c.json({ notes });
   } catch (error) {
     console.error('[recording-notes] list failed:', error);
     return c.json({ error: 'Failed to load recording notes' }, 500);
@@ -69,7 +87,9 @@ recordingNotes.post('/me/recording-notes/:eventId/seen', async (c) => {
     )
       .bind(eventId, userId)
       .run();
-    const changed = (result.meta?.changes ?? 0) > 0;
+    let changed = (result.meta?.changes ?? 0) > 0;
+    // Not a recording mark → maybe the tutor's reply to a flagged card (same id space on the client).
+    if (!changed) changed = await markFlagReplySeen(c.env.DB, eventId, userId);
     return c.json({ success: true, updated: changed });
   } catch (error) {
     console.error('[recording-notes] seen failed:', error);

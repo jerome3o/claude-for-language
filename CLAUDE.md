@@ -109,6 +109,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
 │   │   └── index.ts       # Re-exports
+│   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
@@ -249,7 +250,8 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `review_events` - Individual review records (rating, time, answer, recording_url). Card state is computed from these.
 - `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `deleted_items` - Tombstones (`kind` deck|note, `item_id`, `deleted_at`) written whenever a deck or note is deleted (API routes, Ask Claude's delete_current_card, the MCP server's delete_deck/delete_note); `GET /api/sync/changes` returns them as `deleted.deck_ids` / `note_ids` so offline clients drop the rows (with their cards) on the next sync
-- `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at)
+- `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
+- `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
@@ -901,8 +903,31 @@ Student side of the marks (`worker/src/routes/recording-notes.ts`; migration 006
 `tutor_recording_marks.student_seen_at`): a needs-work comment is shown once under the pinyin
 on the back of that card ("From <tutor>: …"), cached in IndexedDB (`recordingNotes`) by
 `services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md.
-- `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name)
-- `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events)
+- `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name) **plus** unseen tutor replies to my flagged cards (`kind: 'flag'`, `event_id` = the flag id, `card_id` may be null → matched on note_id)
+- `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events; a flag id marks that reply seen)
+
+### Card flags & card hub (`worker/src/routes/card-flags.ts`, `routes/claude-chats.ts`, `services/card-flags.ts`)
+A student flags a card for their tutor from the study screen (⋯ → **Flag for tutor**,
+`components/study/FlagCardSheet.tsx`; only with a human tutor) or from the card's hub page. Offline-first:
+`services/cardFlags.ts` writes `pendingCardFlags` (Dexie v17) with a client id, posts at once when online,
+else in sync (`uploadPendingCardFlags`); `POST /api/card-flags` is idempotent by id. Every flag and every
+reply is also mirrored into the relationship's chat as a message from the sender (`flagChatMessage` /
+`replyChatMessage`), so the usual unread badge fires. The tutor's reply resolves the flag and reaches the
+student once on the card back through the recording-notes feed (above). Tutor side: **Flagged cards** and
+**Asked Claude** sections on the student page (`components/tutor/FlaggedCardsSection.tsx`,
+`ClaudeChatsSection.tsx`), a `🚩 n flagged cards` pill (`pills.flags_open`) on the dashboard card, and the
+MCP tools `list_card_flags` / `reply_to_card_flag` / `list_student_claude_chats`. Student side: **Cards you
+flagged** on their tutor page, **More → Claude conversations** (`/claude-chats`). The **card hub page**
+(`pages/CardHubPage.tsx`: `/cards/:noteId` for the owner, `/connections/:relId/cards/:noteId` for the tutor)
+shows the note, each card's state, flags (with reply box / flag form), every Ask-Claude thread about it and
+the recent reviews; the deck page's History modal links to it. Shared list/thread components live in
+`components/cardFlags/`.
+- `POST /api/card-flags` - student: `{ id?, relationship_id, note_id, card_id?, message, created_at? }` → `{ flag, created }` (201 new, 200 existing id)
+- `GET /api/relationships/:relId/card-flags?status=open|resolved|all&limit=` - either party → `{ flags, open }`; flags carry hanzi/pinyin/english/deck_name/card_type/student_name/tutor_name
+- `POST /api/card-flags/:id/reply` - tutor: `{ reply }` → resolves + chat message + shown to the student once on the card
+- `POST /api/card-flags/:id/resolve` | `/reopen` - either party; `DELETE /api/card-flags/:id` - the student who sent it
+- `GET /api/me/claude-chats?limit&before&note_id` and `GET /api/relationships/:relId/claude-chats…` (tutor) - Ask-Claude Q&A rows newest first with note + deck fields, keyset paging on `asked_at` (`next_cursor`), `total`
+- `GET /api/notes/:noteId/hub` (owner) and `GET /api/relationships/:relId/notes/:noteId/hub` (tutor) - `{ note, deck, owner, cards[], recent_reviews[], review_count, questions[], flags[] }`
 
 ### Tutor dashboard & student page (`worker/src/routes/tutor-dashboard.ts`)
 The tutor's `/connections` becomes a **Students dashboard** once the account has an active
@@ -1150,6 +1175,8 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
 | `share_deck_with_student` / `update_student_deck_copy` | Copy a tutor deck to the student (`priority: core` = top of their study queue, `non_urgent` = bottom) / add the tutor's newer words to an existing copy (progress kept) |
 | `move_student_deck` | Move a packet within the student's study queue (`to: top | up | down | bottom`); returns `queue_position` of `queue_total` |
+| `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
+| `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
 
@@ -1428,3 +1455,5 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/insights` - Student Insights: range, needs attention / going well, summary, lesson log (tutor only)
 - `/connections/:relId/history` - Full review history explorer with filters (tutor only)
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)
+- `/connections/:relId/cards/:noteId`, `/connections/:relId/claude-chats` - Tutor's view of one of the student's cards (hub) / all their Ask-Claude conversations
+- `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)

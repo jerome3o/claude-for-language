@@ -1,5 +1,6 @@
 /**
- * Tutor notes on the student's pronunciation recordings.
+ * Tutor notes on the student's pronunciation recordings — and, through the
+ * same endpoint, the tutor's replies to cards the student flagged (kind 'flag').
  *
  * A tutor marks a recording "needs work" with a comment ("second tone, not
  * fourth") from the recordings inbox. The student sees that comment once, as
@@ -19,7 +20,8 @@ const API_PATH = `${API_BASE}/api`;
 
 export interface ServerRecordingNote {
   event_id: string;
-  card_id: string;
+  kind?: 'recording' | 'flag';
+  card_id: string | null;
   note_id: string;
   hanzi: string;
   comment: string;
@@ -92,6 +94,7 @@ export async function syncRecordingNotes(): Promise<{ downloaded: number; upload
       .filter(n => !seenHere.has(n.event_id))
       .map(n => ({
         id: n.event_id,
+        kind: n.kind ?? 'recording',
         card_id: n.card_id,
         note_id: n.note_id,
         hanzi: n.hanzi,
@@ -107,9 +110,16 @@ export async function syncRecordingNotes(): Promise<{ downloaded: number; upload
   return { downloaded: remote.length, uploaded };
 }
 
-/** The unseen tutor notes for one card, newest first (usually zero or one). */
-export async function getUnseenRecordingNotesForCard(cardId: string): Promise<LocalRecordingNote[]> {
-  const rows = await db.recordingNotes.where('card_id').equals(cardId).toArray();
+/**
+ * The unseen tutor notes for one card, newest first (usually zero or one).
+ * A recording mark belongs to the card it was recorded on; a reply to a
+ * flagged card shows on any card of that word.
+ */
+export async function getUnseenRecordingNotesForCard(cardId: string, noteId?: string): Promise<LocalRecordingNote[]> {
+  const byCard = await db.recordingNotes.where('card_id').equals(cardId).toArray();
+  const byNote = noteId ? await db.recordingNotes.where('note_id').equals(noteId).toArray() : [];
+  const seen = new Set(byCard.map(n => n.id));
+  const rows = [...byCard, ...byNote.filter(n => n.kind === 'flag' && !seen.has(n.id))];
   return rows
     .filter(n => n.seen_at === null)
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));

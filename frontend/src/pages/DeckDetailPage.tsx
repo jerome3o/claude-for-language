@@ -321,6 +321,9 @@ function NoteHistoryModal({
         )}
 
         <div className="modal-actions" style={{ marginTop: '1rem' }}>
+          <Link to={`/cards/${note.id}`} className="btn btn-secondary">
+            Card page: flags &amp; Claude chats
+          </Link>
           <button className="btn btn-secondary" onClick={onClose}>
             Close
           </button>

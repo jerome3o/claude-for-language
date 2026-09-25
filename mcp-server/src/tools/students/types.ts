@@ -112,6 +112,8 @@ export interface StudentOverview {
     struggling_words: number;
     recordings_to_hear: number;
     homework_percent: number | null;
+    /** Flagged cards waiting for a reply */
+    flags_open: number;
   };
   needs_attention: NeedsAttentionItem[];
   homework: HomeworkSummary;
@@ -373,4 +375,43 @@ export interface InviteRow {
   creator_name?: string | null;
   creator_email?: string | null;
   redemptions: Array<{ user_id: string; redeemed_at: string; user_name: string | null; user_email: string | null }>;
+}
+
+// ---------- Card flags & Ask-Claude history (worker routes/card-flags.ts, routes/claude-chats.ts) ----------
+
+export interface CardFlagRow {
+  id: string;
+  relationship_id: string;
+  student_id: string;
+  tutor_id: string;
+  note_id: string;
+  card_id: string | null;
+  message: string;
+  status: 'open' | 'resolved';
+  tutor_reply: string | null;
+  replied_at: string | null;
+  student_seen_reply_at: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  deck_id: string;
+  deck_name: string;
+  card_type: string | null;
+  student_name: string | null;
+  tutor_name: string | null;
+}
+
+export interface ClaudeChatQuestionRow {
+  id: string;
+  note_id: string;
+  question: string;
+  answer: string;
+  asked_at: string;
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  deck_id: string;
+  deck_name: string;
 }

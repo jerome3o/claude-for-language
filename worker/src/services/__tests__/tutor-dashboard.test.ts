@@ -339,7 +339,7 @@ describe('buildStudentOverview', () => {
     expect(o.is_new).toBe(true);
     expect(o.joined_via_invite).toBe(false);
     expect(o.setup.done_count).toBe(2);
-    expect(o.pills).toEqual({ struggling_words: 0, recordings_to_hear: 0, homework_percent: 19 });
+    expect(o.pills).toEqual({ struggling_words: 0, recordings_to_hear: 0, homework_percent: 19, flags_open: 0 });
     expect(o.needs_attention).toEqual([]);
     expect(o.activity).toEqual([]);
     expect(o.student).toEqual({ id: 'student-1', email: 'li.hua@example.com', name: 'Li Hua', picture_url: null });
@@ -372,7 +372,7 @@ describe('buildStudentOverview', () => {
     expect(o.joined_via_invite).toBe(true);
     expect(o.status.streak_days).toBe(3);
     expect(o.status.today.accuracy).toBe(0.5);
-    expect(o.pills).toEqual({ struggling_words: 2, recordings_to_hear: 2, homework_percent: 19 });
+    expect(o.pills).toEqual({ struggling_words: 2, recordings_to_hear: 2, homework_percent: 19, flags_open: 0 });
     expect(o.needs_attention.map((i) => i.note.hanzi).sort()).toEqual(['刮风', '晴天']);
     expect(o.activity.map((d) => d.day)).toEqual(['2026-09-18', '2026-09-17']);
     expect(o.last_conversation_id).toBe('conv-9');

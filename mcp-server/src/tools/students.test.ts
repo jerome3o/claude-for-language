@@ -48,7 +48,7 @@ function overview(partial: Partial<StudentOverview> = {}): StudentOverview {
       streak_days: 3,
       today: { reviews: 0, accuracy: null, time_ms: 0 },
     },
-    pills: { struggling_words: 2, recordings_to_hear: 1, homework_percent: 40 },
+    pills: { struggling_words: 2, recordings_to_hear: 1, homework_percent: 40 , flags_open: 0},
     needs_attention: Array.from({ length: 7 }, (_, i) => ({
       note: { ...note, id: `n${i}`, hanzi: `词${i}` },
       attempts: 4,
@@ -426,6 +426,9 @@ const EXPECTED_TOOLS = [
   'share_deck_with_student',
   'update_student_deck_copy',
   'move_student_deck',
+  'list_card_flags',
+  'reply_to_card_flag',
+  'list_student_claude_chats',
   'create_student_invite',
   'list_invites',
   'revoke_invite',
@@ -722,5 +725,59 @@ describe('registerStudentTools', () => {
     const result = await tools.get('get_student_insights')!.handler({ relationship_id: 'rel-1', from: 'yesterday' });
     expect(result.isError).toBe(true);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('card flags & Ask-Claude history tools', () => {
+  const flag = {
+    id: 'flag-1', relationship_id: 'rel-1', student_id: 'u', tutor_id: 'me', note_id: 'n1', card_id: 'c1',
+    message: '和很行搞混', status: 'open', tutor_reply: null, replied_at: null, student_seen_reply_at: null,
+    created_at: '2026-09-25T10:00:00Z', resolved_at: null, hanzi: '银行', pinyin: 'yínháng', english: 'bank',
+    deck_id: 'd1', deck_name: 'HSK 1', card_type: 'meaning_to_hanzi', student_name: 'Jerome', tutor_name: 'Wang',
+  };
+
+  it('list_card_flags defaults to open flags and shapes them with the card path', async () => {
+    const { tools, calls } = fakeContext({ 'GET /api/relationships/rel-1/card-flags': { flags: [flag], open: 1 } });
+    const out = parse(await tools.get('list_card_flags')!.handler({ relationship_id: 'rel-1' }));
+    expect(calls[0].query).toEqual({ status: 'open', limit: '50' });
+    expect(out.open).toBe(1);
+    expect((out.flags as Array<Record<string, unknown>>)[0]).toMatchObject({
+      flag_id: 'flag-1',
+      status: 'open',
+      student_note: '和很行搞混',
+      word: { note_id: 'n1', hanzi: '银行', deck: 'HSK 1' },
+      card_path: '/connections/rel-1/cards/n1',
+      student_has_seen_reply: false,
+    });
+  });
+
+  it('reply_to_card_flag POSTs the reply and returns the resolved flag', async () => {
+    const { tools, calls } = fakeContext({
+      'POST /api/card-flags/flag-1/reply': { flag: { ...flag, status: 'resolved', tutor_reply: '银 is metal', replied_at: 'now' } },
+    });
+    const out = parse(await tools.get('reply_to_card_flag')!.handler({ flag_id: 'flag-1', reply: '银 is metal' }));
+    expect(calls[0].body).toEqual({ reply: '银 is metal' });
+    expect(out).toMatchObject({ flag_id: 'flag-1', status: 'resolved', reply: '银 is metal' });
+  });
+
+  it('list_student_claude_chats groups questions into per-card conversations and trims answers', async () => {
+    const q = (id: string, note_id: string, asked_at: string, question: string) => ({
+      id, note_id, question, answer: 'A'.repeat(600), asked_at, hanzi: '银行', pinyin: 'yínháng', english: 'bank', deck_id: 'd1', deck_name: 'HSK 1',
+    });
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-1/claude-chats': {
+        questions: [q('b', 'n1', '2026-09-25T10:05:00Z', 'second'), q('a', 'n1', '2026-09-25T10:00:00Z', 'first'), q('c', 'n2', '2026-09-24T10:00:00Z', 'other')],
+        next_cursor: null,
+        total: 3,
+      },
+    });
+    const out = parse(await tools.get('list_student_claude_chats')!.handler({ relationship_id: 'rel-1', answer_chars: 100 }));
+    expect(calls[0].query).toEqual({ limit: '60' });
+    expect(out.total_questions).toBe(3);
+    const convs = out.conversations as Array<{ word: { note_id: string }; questions: Array<{ question: string; answer: string }>; card_path: string }>;
+    expect(convs.map((c) => c.word.note_id)).toEqual(['n1', 'n2']);
+    expect(convs[0].questions.map((x) => x.question)).toEqual(['first', 'second']);
+    expect(convs[0].questions[0].answer.length).toBeLessThanOrEqual(101);
+    expect(convs[0].card_path).toBe('/connections/rel-1/cards/n1');
   });
 });

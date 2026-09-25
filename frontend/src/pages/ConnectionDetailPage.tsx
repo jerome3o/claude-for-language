@@ -27,6 +27,8 @@ import { OverflowMenu } from '../components/tutor/OverflowMenu';
 import { NeedsAttention } from '../components/tutor/NeedsAttention';
 import { SetupChecklist } from '../components/tutor/SetupChecklist';
 import { SendHomeworkSheet } from '../components/tutor/SendHomeworkSheet';
+import { FlaggedCardsSection } from '../components/tutor/FlaggedCardsSection';
+import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { Avatar } from '../components/tutor/StudentCard';
 import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTime } from '../components/tutor/format';
 import '../components/tutor/tutor-dashboard.css';
@@ -331,6 +333,12 @@ export function ConnectionDetailPage() {
             </section>
           )}
 
+          {/* Cards the student flagged for me, with a reply box */}
+          <FlaggedCardsSection relId={relId!} role="tutor" />
+
+          {/* What the student has been asking Claude about */}
+          {overview && <ClaudeChatsSection relId={relId!} studentName={otherUser.name} hideWhenEmpty={overview.is_new} />}
+
           {/* Deeper pages, one tap away */}
           <nav className="td-nav" aria-label="Student pages">
             <Link to={`/connections/${relId}/insights`}>Insights</Link>
@@ -501,6 +509,8 @@ export function ConnectionDetailPage() {
           <h2>Conversations</h2>
           <ConversationsList relId={relId!} conversations={conversations} isLoading={conversationsQuery.isLoading} onStart={handleMessage} />
         </section>
+
+        {!isClaudeRelationship && <FlaggedCardsSection relId={relId!} role="student" />}
 
         {!isClaudeRelationship && (
           <section className="detail-section">
