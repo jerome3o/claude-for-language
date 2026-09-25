@@ -425,6 +425,7 @@ const EXPECTED_TOOLS = [
   'get_shared_deck_progress',
   'share_deck_with_student',
   'update_student_deck_copy',
+  'move_student_deck',
   'create_student_invite',
   'list_invites',
   'revoke_invite',
@@ -435,6 +436,21 @@ describe('registerStudentTools', () => {
     const { tools } = fakeContext({});
     expect([...tools.keys()].sort()).toEqual([...EXPECTED_TOOLS].sort());
     for (const [name, t] of tools) expect(t.description.length, name).toBeGreaterThan(40);
+  });
+
+  it('move_student_deck posts the move and returns the new position', async () => {
+    const { tools, calls } = fakeContext({
+      'POST /api/relationships/rel-1/shared-decks/sd-1/move': (call: Call) => ({
+        shared_deck_id: 'sd-1',
+        target_deck_id: 'deck-s',
+        queue_position: (call.body as { to: string }).to === 'top' ? 1 : 4,
+        queue_total: 6,
+      }),
+    });
+    const res = await tools.get('move_student_deck')!.handler({ relationship_id: 'rel-1', shared_deck_id: 'sd-1', to: 'top' });
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/api/relationships/rel-1/shared-decks/sd-1/move', body: { to: 'top' } });
+    const text = (res.content[0] as { text: string }).text;
+    expect(JSON.parse(text)).toEqual({ shared_deck_id: 'sd-1', target_deck_id: 'deck-s', queue_position: 1, queue_total: 6 });
   });
 
   it('list_students calls the dashboard with tz_offset and the relationships list, in parallel', async () => {

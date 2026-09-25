@@ -95,6 +95,8 @@ export interface StudentOverviewInput {
   total_reviews: number;
   homework_decks: HomeworkDeckInput[];
   homework_lessons: HomeworkLessonInput[];
+  /** The student's deck queue in study order (ids), for queue positions on the homework rows. */
+  deck_queue?: { id: string }[];
   /** Notes with audio in the student's decks (what a full prefetch would cache). */
   audio_total: number;
   invite: InviteRef | null;
@@ -134,6 +136,9 @@ export interface HomeworkDeck extends HomeworkDeckInput {
   /** Words still to be introduced and roughly how many days that takes at the student's daily budget. */
   words_to_go: number;
   days_to_go: number;
+  /** 1-based place of the student's copy in their deck queue (first = studied first); null when the copy is gone. */
+  queue_position: number | null;
+  queue_total: number;
 }
 
 export interface HomeworkSummary {
@@ -301,8 +306,10 @@ export function homeworkPercent(s: {
 export function summarizeHomework(
   decks: HomeworkDeckInput[],
   lessons: HomeworkLessonInput[],
-  budget: Pick<StudyBudget, 'new_cards_per_day'> = DEFAULT_STUDY_BUDGET
+  budget: Pick<StudyBudget, 'new_cards_per_day'> = DEFAULT_STUDY_BUDGET,
+  deckQueue: { id: string }[] = []
 ): HomeworkSummary {
+  const queueIndex = new Map(deckQueue.map((d, i) => [d.id, i + 1]));
   const cards_total = decks.reduce((s, d) => s + d.cards_total, 0);
   const cards_started = decks.reduce((s, d) => s + d.cards_started, 0);
   const cards_mastered = decks.reduce((s, d) => s + d.cards_mastered, 0);
@@ -319,6 +326,8 @@ export function summarizeHomework(
         percent_mastered: d.cards_total ? Math.round((100 * d.cards_mastered) / d.cards_total) : 0,
         words_to_go,
         days_to_go: daysToIntroduce(words_to_go, budget),
+        queue_position: queueIndex.get(d.target_deck_id) ?? null,
+        queue_total: deckQueue.length,
       };
     }),
     lessons,
@@ -454,9 +463,12 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
   const status = computeStudyStatus(input.activity_rows, input.tz_offset_minutes, now);
   const struggling = rankStruggling(input.week_rows);
   const recordings = listRecordings(input.week_rows, input.week_marks);
-  const homework = summarizeHomework(input.homework_decks, input.homework_lessons, {
-    new_cards_per_day: input.student.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
-  });
+  const homework = summarizeHomework(
+    input.homework_decks,
+    input.homework_lessons,
+    { new_cards_per_day: input.student.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day },
+    input.deck_queue ?? []
+  );
   const setup = deriveSetup({
     student: input.student,
     homework,

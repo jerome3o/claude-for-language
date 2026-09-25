@@ -6,7 +6,7 @@
  */
 import type { Env, Deck } from '../../types';
 import * as db from '../../db/queries';
-import { newDeckSettings, pickDeckSettings, type DeckSettings, type DeckSettingsProblem } from '@shared/decks';
+import { newDeckSettings, pickDeckSettings, type DeckSettings, type DeckSettingsProblem, type QueueMove } from '@shared/decks';
 import { deleteUnreferencedAudio } from './audio';
 import type { Background } from './types';
 
@@ -43,6 +43,11 @@ export async function moveDeck(d1: D1Database, userId: string, deckId: string, t
 }
 
 /** Set the queue order outright (first = highest priority). */
+/** Move one deck a step or to an end of the queue; null when it is not the user's. */
+export async function moveDeckInQueue(d1: D1Database, userId: string, deckId: string, to: QueueMove) {
+  return db.moveDeckInQueue(d1, userId, deckId, to);
+}
+
 export async function reorderDecks(d1: D1Database, userId: string, orderedIds: string[]): Promise<number> {
   const ids = orderedIds.filter((id, i) => typeof id === 'string' && id && orderedIds.indexOf(id) === i);
   if (ids.length > 500) throw new ContentError('Too many decks in one reorder');

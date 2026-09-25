@@ -7,6 +7,7 @@
  *   POST /relationships/:relId/conversations/open  most recent conversation, created if none
  *   POST /relationships/:relId/send-howto          chat message with the install steps
  *   POST /relationships/:relId/shared-decks/:id/update  bring the student's copy up to date
+ *   POST /relationships/:relId/shared-decks/:id/move    move the student's copy in their study queue
  *   POST /me/client-state                          the device reports install kind + cached audio
  */
 
@@ -25,6 +26,8 @@ import { listInvitesByUser } from '../db/invite-queries';
 import { fetchReviewRows, fetchRecordingMarks } from '../db/insights-queries';
 import * as q from '../db/tutor-dashboard-queries';
 import { buildStudentOverview, parseTzOffset, type StudentOverview } from '../services/tutor-dashboard';
+import { moveDeckInQueue } from '../services/content';
+import { isQueueMove } from '@shared/decks';
 
 const tutorDashboard = new Hono<{ Bindings: Env }>();
 
@@ -69,7 +72,7 @@ async function loadOverview(
   const from7 = new Date(now.getTime() - 7 * DAY_MS).toISOString();
   const nowIso = now.toISOString();
 
-  const [student, activityRows, weekRows, weekMarks, unheard, totals, decks, lessons, audioTotal, invite, lastConversationId] =
+  const [student, activityRows, weekRows, weekMarks, unheard, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue] =
     await Promise.all([
       q.fetchStudentUserRow(db, studentId),
       q.fetchActivityRows(db, studentId, from30),
@@ -82,6 +85,7 @@ async function loadOverview(
       q.countStudentAudioClips(db, studentId),
       q.fetchRedeemedInvite(db, tutorId, studentId, frontendUrl),
       q.fetchLastConversationId(db, rel.id),
+      q.fetchStudentDeckQueue(db, studentId),
     ]);
   if (!student) return null;
 
@@ -97,6 +101,7 @@ async function loadOverview(
     total_reviews: totals.total,
     homework_decks: decks,
     homework_lessons: lessons,
+    deck_queue: deckQueue,
     audio_total: audioTotal,
     invite,
     last_conversation_id: lastConversationId,
@@ -250,6 +255,30 @@ tutorDashboard.post('/relationships/:relId/shared-decks/:id/update', async (c) =
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update the shared deck';
     return c.json({ error: message }, 400);
+  }
+});
+
+// Move the student's copy of a homework deck within THEIR study queue. The
+// same move the student has on the Decks tab; the updated_at bump carries
+// the new order to their device on the next sync.
+tutorDashboard.post('/relationships/:relId/shared-decks/:id/move', async (c) => {
+  try {
+    const user = c.get('user');
+    const { studentId } = await requireTutor(c.env.DB, c.req.param('relId'), user.id);
+    const body = await c.req.json<{ to?: unknown }>().catch(() => ({} as { to?: unknown }));
+    if (!isQueueMove(body.to)) throw new HttpError(400, "to must be 'top', 'up', 'down' or 'bottom'");
+    const share = await q.fetchSharedDeck(c.env.DB, c.req.param('id'), c.req.param('relId'));
+    if (!share) throw new HttpError(404, 'Shared deck not found');
+    const moved = await moveDeckInQueue(c.env.DB, studentId, share.target_deck_id, body.to);
+    if (!moved) throw new HttpError(404, 'The student no longer has this deck');
+    return c.json({
+      shared_deck_id: share.id,
+      target_deck_id: share.target_deck_id,
+      queue_position: moved.position,
+      queue_total: moved.total,
+    });
+  } catch (error) {
+    return errorResponse(c, error, 'Failed to move the deck');
   }
 });
 

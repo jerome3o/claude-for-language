@@ -41,6 +41,9 @@ export interface NeedsAttentionItem {
 }
 
 export interface HomeworkDeck {
+  /** 1-based place of the student's copy in their deck queue (first = studied first); null when the copy is gone. */
+  queue_position?: number | null;
+  queue_total?: number;
   shared_deck_id: string;
   source_deck_id: string;
   target_deck_id: string;

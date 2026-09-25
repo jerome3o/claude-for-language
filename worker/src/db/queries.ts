@@ -25,7 +25,7 @@ import {
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { noteCopyValues } from '../services/note-copy';
-import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, type DeckSettings as DeckSettingsRow, type StudyBudget } from '@shared/decks';
+import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, moveInOrder, sortDecksForQueue, type DeckSettings as DeckSettingsRow, type QueueMove, type StudyBudget } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
 
@@ -531,6 +531,41 @@ export async function reorderDecks(db: D1Database, userId: string, orderedIds: s
   );
   const results = await db.batch(statements);
   return results.reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
+}
+
+export interface DeckQueueRow {
+  id: string;
+  name: string;
+  study_priority: number;
+  created_at: string;
+}
+
+/** The user's decks in study order (first = studied first). */
+export async function listDeckQueue(db: D1Database, userId: string): Promise<DeckQueueRow[]> {
+  const res = await db
+    .prepare('SELECT id, name, COALESCE(study_priority, 0) AS study_priority, created_at FROM decks WHERE user_id = ?')
+    .bind(userId)
+    .all<DeckQueueRow>();
+  const rows = res.results || [];
+  return sortDecksForQueue(rows.map((d) => ({ d, priority: d.study_priority, createdAt: d.created_at }))).map((x) => x.d);
+}
+
+/**
+ * Move one deck within the user's queue (top / up / down / bottom) and
+ * return its new 1-based position. Null when the deck is not theirs.
+ */
+export async function moveDeckInQueue(
+  db: D1Database,
+  userId: string,
+  deckId: string,
+  to: QueueMove
+): Promise<{ position: number; total: number } | null> {
+  const queue = await listDeckQueue(db, userId);
+  const ids = queue.map((d) => d.id);
+  if (!ids.includes(deckId)) return null;
+  const next = moveInOrder(ids, deckId, to);
+  if (next !== ids) await reorderDecks(db, userId, next);
+  return { position: next.indexOf(deckId) + 1, total: next.length };
 }
 
 // ============ Per-learner daily new-card budget ============

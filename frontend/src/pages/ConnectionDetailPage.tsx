@@ -10,7 +10,9 @@ import {
   removeRelationship,
 } from '../api/client';
 import { getLessonLog } from '../api/insights';
-import { getStudentOverview, updateSharedDeckCopy, openConversation } from '../api/tutorDashboard';
+import { getStudentOverview, updateSharedDeckCopy, moveSharedDeck, openConversation } from '../api/tutorDashboard';
+import { QueuePositionMenu } from '../components/QueuePositionMenu';
+import type { QueueMove } from '@shared/decks';
 import type { StudentOverview } from '../types/tutorDashboard';
 import {
   getOtherUserInRelationship,
@@ -196,6 +198,22 @@ export function ConnectionDetailPage() {
     }
   };
 
+  const handleMoveShare = async (sharedDeckId: string, name: string, to: QueueMove) => {
+    setUpdateNote(null);
+    try {
+      const res = await moveSharedDeck(relId!, sharedDeckId, to);
+      setUpdateNote(
+        res.queue_position === 1
+          ? `${name} is now first in their queue — the next new words come from it.`
+          : `${name} is now #${res.queue_position} of ${res.queue_total} in their queue.`
+      );
+      queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
+      queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
+    } catch (err) {
+      setUpdateNote(err instanceof Error ? err.message : 'Could not move the deck');
+    }
+  };
+
   const handleUpdateShare = async (sharedDeckId: string, name: string) => {
     setUpdatingShare(sharedDeckId);
     setUpdateNote(null);
@@ -355,6 +373,14 @@ export function ConnectionDetailPage() {
                       </div>
                     </Link>
                     <div className="td-hw-actions">
+                      {d.target_deck_name != null && d.queue_position != null && (
+                        <QueuePositionMenu
+                          position={d.queue_position}
+                          total={d.queue_total}
+                          label="their queue"
+                          onMove={(to) => handleMoveShare(d.shared_deck_id, d.source_deck_name, to)}
+                        />
+                      )}
                       {d.notes_missing > 0 && d.target_deck_name != null ? (
                         <button type="button" className="td-inline-btn" disabled={updatingShare === d.shared_deck_id} onClick={() => handleUpdateShare(d.shared_deck_id, d.source_deck_name)}>
                           {updatingShare === d.shared_deck_id ? 'Updating…' : 'Update'}

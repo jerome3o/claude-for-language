@@ -206,6 +206,23 @@ describe('homework', () => {
     expect(s.decks[1].percent_started).toBe(100);
     expect(s.decks[1].percent_mastered).toBe(50);
   });
+
+  it("places each packet in the student's deck queue", () => {
+    const queue = [{ id: 'own-a' }, { id: 'deck-1-copy' }, { id: 'own-b' }, { id: 'deck-2-copy' }];
+    const s = summarizeHomework(
+      [deck(), deck({ shared_deck_id: 'sd-2', target_deck_id: 'deck-2-copy' }), deck({ shared_deck_id: 'sd-3', target_deck_id: 'gone', target_deck_name: null })],
+      [],
+      undefined,
+      queue
+    );
+    expect(s.decks.map((d) => [d.queue_position, d.queue_total])).toEqual([[2, 4], [4, 4], [null, 4]]);
+  });
+
+  it('has no queue positions when the queue is not supplied', () => {
+    const s = summarizeHomework([deck()], []);
+    expect(s.decks[0].queue_position).toBeNull();
+    expect(s.decks[0].queue_total).toBe(0);
+  });
 });
 
 describe('pickNeedsAttention', () => {

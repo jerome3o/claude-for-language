@@ -66,7 +66,8 @@ a day"; `users.new_cards_per_day` / `secondary_cards_per_day`, default 3 + 6 fro
 queue** (`decks.study_priority`, highest first; ties by newest deck). A tutor's homework packet
 lands at the top of the queue (core) or the bottom (non-urgent) depending on what she chose
 when sending it; the student can move any deck (Decks tab → tap the #N badge → Move to top /
-up / down / bottom; Home → "↑ Top"). The home page's *Next up* line says which deck is being
+up / down / bottom; Home → "↑ Top"), and the tutor can move a packet she sent from the same
+badge on the student page (it moves the student's copy in the student's queue). The home page's *Next up* line says which deck is being
 introduced, how many words are left in it and roughly how many days that takes at the current
 rate.
 
