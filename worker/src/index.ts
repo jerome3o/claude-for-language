@@ -66,6 +66,7 @@ import claudeChatsRoutes from './routes/claude-chats';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
 import wordImportRoutes from './routes/word-import';
+import noteSearchRoutes from './routes/note-search';
 import { unreferencedImageKeys } from './services/shared-readers';
 import {
   createRelationship,
@@ -435,6 +436,9 @@ app.route('/api', tutorDashboardRoutes);
 app.route('/api', sharedReadersRoutes);
 // POST /api/ai/gloss-words, GET /api/decks/:id/student-shares (see routes/word-import.ts)
 app.route('/api', wordImportRoutes);
+
+// Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
+app.route('/api', noteSearchRoutes);
 
 // ============ Admin Routes ============
 

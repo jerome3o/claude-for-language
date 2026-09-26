@@ -590,6 +590,11 @@ export async function askAboutNote(
   });
 }
 
+/** Server-side search of my notes (the fallback when this device has no matching notes). */
+export async function searchNotesOnServer(q: string, limit = 50): Promise<{ notes: Array<Note & { deck_name: string }>; total_notes: number }> {
+  return fetchJSON(`/notes/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+}
+
 export async function getNoteQuestions(noteId: string): Promise<NoteQuestion[]> {
   return fetchJSON<NoteQuestion[]>(`/notes/${noteId}/questions`);
 }

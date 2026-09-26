@@ -634,6 +634,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `GET /api/notes/:id/history` - Get review history and card stats
 - `POST /api/notes/:id/ask` - Ask Claude about a note
 - `GET /api/notes/:id/questions` - Get Q&A history
+- `GET /api/notes/search?q=&limit=` - Server-side search of my notes (hanzi / pinyin, tone-free too / english / card sentence) with `deck_name` + `total_notes` — the Decks tab search is local-first (`services/noteSearch.ts` `noteMatches`, cards + recent ratings loaded only for the notes on screen) and falls back to this when the device finds nothing, saying how many of the account's cards the device holds (`routes/note-search.ts`)
 - `POST /api/notes/:id/generate-audio` - Generate TTS audio for note
 
 ### Sentence sets (graded example sentences per note)
@@ -707,7 +708,18 @@ minutes so a wedged job can't poll forever).
 - `POST /api/sentence/explain` - Thoroughly explain a Chinese sentence
 
 ### Sentence Coach conversations (page at `/coach`, supports `?text=` deep link)
-The Coach page auto-detects input language: Chinese → coach + explain, English → translate + explain. Conversations persist (`coach_conversations` / `coach_messages` tables) and support follow-up chat with agent tools (create_flashcards, search_cards, etc.).
+The Coach page auto-detects input language: Chinese → `coachSentence` (correction + 1–3 sentence critique + up to 2
+alternatives), English → `translateSentence` (recommended translation + up to 2 alternatives + usage note). Both first
+replies are deliberately LEAN (Sonnet, ~900 output tokens) so the answer comes back fast; nothing is added to a deck from
+the analysis itself. Everything deeper is one tap away: **quick-action chips** under the conversation
+(`QUICK_ACTIONS` in `pages/SentenceCoachPage.tsx`: Make a card · Card for the whole sentence · More examples · Other
+ways to say it · Explain the grammar, plus a "Cards go to" deck picker) send a prepared message into the follow-up chat,
+where `coachChatWithTools` has `CARD_STANDARD` in its prompt and the tools. Every `create_flashcards` tool (Ask Claude,
+coach chat, chat "Discuss with Claude") shares ONE item schema, `FLASHCARD_ITEM_SCHEMA` in `services/ai.ts`:
+hanzi / pinyin / english / fun_facts (required) + sentence_clue (+ pinyin, translation) for word cards — the same
+fields the content service validates, so a coach-made card is a full standard card, never the critique as fun_facts.
+Conversations persist (`coach_conversations` / `coach_messages` tables); the chat's tools are create_flashcards,
+create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overall_stats.
 - `POST /api/coach/conversations` - Start a conversation from a sentence (auto-detects language, runs analysis)
 - `GET /api/coach/conversations` - List conversations
 - `GET /api/coach/conversations/:id` - Get conversation with messages

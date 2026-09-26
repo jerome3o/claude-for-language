@@ -9,7 +9,6 @@ import {
   getCoachConversation,
   sendCoachMessage,
   deleteCoachConversation,
-  createNote,
   getDecks,
 } from '../api/client';
 import {
@@ -27,71 +26,102 @@ import './SentenceCoachPage.css';
 
 const LAST_DECK_KEY = 'coach-last-deck-id';
 
-// ============ Add-to-deck plumbing shared by the analysis blocks ============
+// ============ Quick actions: one tap prompts the coach chat ============
 
-interface AddToDeckControls {
+/**
+ * The first reply is deliberately short. Everything deeper — a proper
+ * flashcard to the card standard, more examples, other phrasings, the
+ * grammar — is one tap away: each chip sends a prepared message into the
+ * follow-up chat, where Claude has the card standard and the tools.
+ */
+interface QuickAction {
+  key: string;
+  label: string;
+  message: (ctx: { hanzi: string; deck: Deck | null }) => string;
+}
+
+const deckClause = (deck: Deck | null) => (deck ? ` Put it in my deck "${deck.name}" (deck_id ${deck.id}).` : '');
+
+const QUICK_ACTIONS: QuickAction[] = [
+  {
+    key: 'card-word',
+    label: '🃏 Make a card',
+    message: ({ hanzi, deck }) =>
+      `Make a flashcard for the key word or phrase in "${hanzi}" — the one most worth learning from this sentence.${deckClause(deck)} Check search_cards first so you don't duplicate a card I already have (if I have it, tell me and offer to improve it instead). Follow the card standard fully: one clean hanzi form, pinyin with tone marks, one clear English meaning, a fun_facts explanation (each character, then usage, the common mistake or contrast), and a short natural example sentence with pinyin and translation as the sentence_clue.`,
+  },
+  {
+    key: 'card-sentence',
+    label: '📝 Card for the whole sentence',
+    message: ({ hanzi, deck }) =>
+      `Make a flashcard for the whole sentence "${hanzi}".${deckClause(deck)} Follow the card standard: hanzi is the clean sentence, pinyin with tone marks, one natural English meaning, and fun_facts that gloss every word in order (汉字 (pīnyīn) meaning) then explain the structure and the common mistake. Check search_cards first so it is not a duplicate.`,
+  },
+  {
+    key: 'examples',
+    label: '💬 More examples',
+    message: ({ hanzi }) => `Give me 3 more example sentences using the key word or pattern from "${hanzi}", easiest first, each with pinyin (tone marks) and English.`,
+  },
+  {
+    key: 'alternatives',
+    label: '🔀 Other ways to say it',
+    message: ({ hanzi }) => `Show me 2–3 other natural ways to say "${hanzi}" — more casual, more formal, more idiomatic — each with pinyin and English, and when you would use each.`,
+  },
+  {
+    key: 'grammar',
+    label: '🔍 Explain the grammar',
+    message: ({ hanzi }) => `Explain "${hanzi}" word by word: each word with pinyin and its meaning here, then the structure and any grammar pattern in it, briefly.`,
+  },
+];
+
+/** The Chinese sentence the latest analysis settled on (corrected or translated). */
+function analysisSentence(analysis: CoachAnalysis): string {
+  return analysis.kind === 'chinese' ? analysis.coach.corrected.hanzi : analysis.translation.primary.hanzi;
+}
+
+function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disabled }: {
+  hanzi: string;
   decks: Deck[] | undefined;
   selectedDeckId: string;
   onDeckChange: (deckId: string) => void;
-  addedKeys: Set<string>;
-  addingKey: string | null;
-  addError: string | null;
-  addToDeck: (key: string, note: { hanzi: string; pinyin: string; english: string; fun_facts?: string }) => void;
-}
-
-function AddButton({ controls, itemKey, note }: {
-  controls: AddToDeckControls;
-  itemKey: string;
-  note: { hanzi: string; pinyin: string; english: string; fun_facts?: string };
+  onSend: (message: string) => void;
+  disabled: boolean;
 }) {
-  const { decks, addedKeys, addingKey, addToDeck, selectedDeckId } = controls;
-  if (!decks || decks.length === 0) return null;
-  const added = addedKeys.has(itemKey);
+  const deck = decks?.find((d) => d.id === selectedDeckId) ?? decks?.[0] ?? null;
   return (
-    <button
-      type="button"
-      className={`btn ${added ? 'btn-secondary' : 'btn-primary'}`}
-      onClick={() => addToDeck(itemKey, note)}
-      disabled={added || addingKey !== null || !selectedDeckId}
-    >
-      {added ? 'Added ✓' : addingKey === itemKey ? 'Adding...' : '+ Add'}
-    </button>
-  );
-}
-
-function DeckPicker({ controls }: { controls: AddToDeckControls }) {
-  const { decks, selectedDeckId, onDeckChange, addError } = controls;
-  if (!decks || decks.length === 0) return null;
-  return (
-    <>
-      <select
-        className="coach-deck-select"
-        style={{ marginTop: '0.75rem', marginBottom: 0 }}
-        value={selectedDeckId}
-        onChange={(e) => onDeckChange(e.target.value)}
-      >
-        {decks.map((deck) => (
-          <option key={deck.id} value={deck.id}>
-            Add to: {deck.name}
-          </option>
+    <div className="coach-quick" data-testid="coach-quick-actions">
+      <div className="coach-quick-row" role="group" aria-label="Quick actions">
+        {QUICK_ACTIONS.map((a) => (
+          <button
+            key={a.key}
+            type="button"
+            className="coach-quick-chip"
+            disabled={disabled || (a.key.startsWith('card') && !deck)}
+            onClick={() => onSend(a.message({ hanzi, deck }))}
+            data-testid={`coach-quick-${a.key}`}
+          >
+            {a.label}
+          </button>
         ))}
-      </select>
-      {addError && <div className="coach-error mt-3">{addError}</div>}
-    </>
+      </div>
+      {decks && decks.length > 0 && (
+        <label className="coach-quick-deck">
+          <span>Cards go to</span>
+          <select className="coach-deck-select" value={deck?.id ?? ''} onChange={(e) => onDeckChange(e.target.value)} disabled={disabled}>
+            {decks.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
   );
 }
 
 // ============ Structured analysis blocks ============
 
-// Slimmed-down coach view: the correction + a short explanation, then a couple
-// of example phrasings. Everything else the model produces (per-issue fix list,
-// vocab suggestions, word-by-word breakdown) was more than the user read, so it
-// is no longer surfaced here — follow-up chat can still dig into any of it.
-function CoachResultBlock({ result, keyPrefix, controls }: {
-  result: SentenceCoachResult;
-  keyPrefix: string;
-  controls: AddToDeckControls;
-}) {
+// The first reply, kept short on purpose: the correction + a short
+// explanation, then a couple of example phrasings. Cards, examples and the
+// word-by-word breakdown are one quick-action tap away in the chat.
+function CoachResultBlock({ result }: { result: SentenceCoachResult }) {
   return (
     <>
       <div className="card">
@@ -102,19 +132,6 @@ function CoachResultBlock({ result, keyPrefix, controls }: {
         <div className="coach-corrected-pinyin">{result.corrected.pinyin}</div>
         <div className="coach-corrected-english">{result.corrected.english}</div>
         {result.critique && <p className="coach-critique">{result.critique}</p>}
-        <div style={{ marginTop: '0.5rem' }}>
-          <AddButton
-            controls={controls}
-            itemKey={`${keyPrefix}-sentence`}
-            note={{
-              hanzi: result.corrected.hanzi,
-              pinyin: result.corrected.pinyin,
-              english: result.corrected.english,
-              fun_facts: result.critique || undefined,
-            }}
-          />
-        </div>
-        <DeckPicker controls={controls} />
       </div>
 
       {result.alternatives.length > 0 && (
@@ -127,11 +144,6 @@ function CoachResultBlock({ result, keyPrefix, controls }: {
                 <div className="coach-vocab-detail">{alt.pinyin} — {alt.english}</div>
                 {alt.note && <div className="coach-vocab-reason">{alt.note}</div>}
               </div>
-              <AddButton
-                controls={controls}
-                itemKey={`${keyPrefix}-alt-${i}`}
-                note={{ hanzi: alt.hanzi, pinyin: alt.pinyin, english: alt.english, fun_facts: alt.note || undefined }}
-              />
             </div>
           ))}
         </div>
@@ -140,10 +152,8 @@ function CoachResultBlock({ result, keyPrefix, controls }: {
   );
 }
 
-function ExplanationBlock({ explanation, keyPrefix, controls, showHeader = true }: {
+function ExplanationBlock({ explanation, showHeader = true }: {
   explanation: SentenceExplanation;
-  keyPrefix: string;
-  controls: AddToDeckControls;
   showHeader?: boolean;
 }) {
   return (
@@ -174,14 +184,8 @@ function ExplanationBlock({ explanation, keyPrefix, controls, showHeader = true 
                 <div className="coach-vocab-detail">{word.pinyin} — {word.english}</div>
                 {word.notes && <div className="coach-vocab-reason">{word.notes}</div>}
               </div>
-              <AddButton
-                controls={controls}
-                itemKey={`${keyPrefix}-word-${i}`}
-                note={{ hanzi: word.hanzi, pinyin: word.pinyin, english: word.english, fun_facts: word.notes || undefined }}
-              />
             </div>
           ))}
-          <DeckPicker controls={controls} />
         </div>
       )}
 
@@ -224,11 +228,7 @@ function ExplanationBlock({ explanation, keyPrefix, controls, showHeader = true 
   );
 }
 
-function TranslationBlock({ translation, keyPrefix, controls }: {
-  translation: SentenceTranslation;
-  keyPrefix: string;
-  controls: AddToDeckControls;
-}) {
+function TranslationBlock({ translation }: { translation: SentenceTranslation }) {
   return (
     <>
       <div className="card">
@@ -242,19 +242,6 @@ function TranslationBlock({ translation, keyPrefix, controls }: {
         {translation.usage_note && (
           <p className="coach-critique">{translation.usage_note}</p>
         )}
-        <div style={{ marginTop: '0.5rem' }}>
-          <AddButton
-            controls={controls}
-            itemKey={`${keyPrefix}-primary`}
-            note={{
-              hanzi: translation.primary.hanzi,
-              pinyin: translation.primary.pinyin,
-              english: translation.primary.english,
-              fun_facts: translation.primary.note || undefined,
-            }}
-          />
-        </div>
-        <DeckPicker controls={controls} />
       </div>
 
       {translation.alternatives.length > 0 && (
@@ -267,11 +254,6 @@ function TranslationBlock({ translation, keyPrefix, controls }: {
                 <div className="coach-vocab-detail">{alt.pinyin} — {alt.english}</div>
                 {alt.note && <div className="coach-vocab-reason">{alt.note}</div>}
               </div>
-              <AddButton
-                controls={controls}
-                itemKey={`${keyPrefix}-alt-${i}`}
-                note={{ hanzi: alt.hanzi, pinyin: alt.pinyin, english: alt.english, fun_facts: alt.note || undefined }}
-              />
             </div>
           ))}
         </div>
@@ -335,7 +317,7 @@ function ToolResultChips({ results }: { results: CoachToolResult[] }) {
   );
 }
 
-function CoachMessageView({ message, controls }: { message: CoachMessage; controls: AddToDeckControls }) {
+function CoachMessageView({ message }: { message: CoachMessage }) {
   if (message.role === 'user') {
     return <div className="coach-bubble coach-bubble-user">{message.content}</div>;
   }
@@ -348,17 +330,17 @@ function CoachMessageView({ message, controls }: { message: CoachMessage; contro
     if (analysis.kind === 'chinese') {
       return (
         <div className="coach-analysis">
-          <CoachResultBlock result={analysis.coach} keyPrefix={message.id} controls={controls} />
+          <CoachResultBlock result={analysis.coach} />
           {/* Legacy conversations still carry the full breakdown; new ones omit it. */}
           {analysis.explanation && (
-            <ExplanationBlock explanation={analysis.explanation} keyPrefix={`${message.id}-ex`} controls={controls} showHeader={false} />
+            <ExplanationBlock explanation={analysis.explanation} showHeader={false} />
           )}
         </div>
       );
     }
     return (
       <div className="coach-analysis">
-        <TranslationBlock translation={analysis.translation} keyPrefix={message.id} controls={controls} />
+        <TranslationBlock translation={analysis.translation} />
       </div>
     );
   }
@@ -384,9 +366,6 @@ export function SentenceCoachPage() {
   const [selectedDeckId, setSelectedDeckId] = useState<string>(
     () => localStorage.getItem(LAST_DECK_KEY) ?? ''
   );
-  const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
-  const [addingKey, setAddingKey] = useState<string | null>(null);
-  const [addError, setAddError] = useState<string | null>(null);
   const autoSubmittedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -472,31 +451,16 @@ export function SentenceCoachPage() {
     localStorage.setItem(LAST_DECK_KEY, deckId);
   };
 
-  const addToDeck = async (
-    key: string,
-    note: { hanzi: string; pinyin: string; english: string; fun_facts?: string }
-  ) => {
-    if (!selectedDeckId) return;
-    setAddingKey(key);
-    setAddError(null);
-    try {
-      await createNote(selectedDeckId, note);
-      setAddedKeys((prev) => new Set(prev).add(key));
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add to deck');
-    } finally {
-      setAddingKey(null);
-    }
-  };
+  /** The Chinese sentence this conversation is about (its first analysis). */
+  const latestSentence = (() => {
+    const first = conversationQuery.data?.messages.find((m) => m.content_type === 'analysis');
+    const analysis = first ? parseAnalysis(first.content) : null;
+    return analysis ? analysisSentence(analysis) : null;
+  })();
 
-  const controls: AddToDeckControls = {
-    decks,
-    selectedDeckId,
-    onDeckChange: handleDeckChange,
-    addedKeys,
-    addingKey,
-    addError,
-    addToDeck,
+  const sendQuickAction = (message: string) => {
+    if (!conversationId || replyMutation.isPending) return;
+    replyMutation.mutate({ id: conversationId, message });
   };
 
   const trimmed = sentence.trim();
@@ -558,7 +522,7 @@ export function SentenceCoachPage() {
           {data && (
             <div className="coach-messages mt-3">
               {data.messages.map((m) => (
-                <CoachMessageView key={m.id} message={m} controls={controls} />
+                <CoachMessageView key={m.id} message={m} />
               ))}
 
               {replyMutation.isPending && (
@@ -572,6 +536,17 @@ export function SentenceCoachPage() {
               )}
               <div ref={bottomRef} />
             </div>
+          )}
+
+          {data && latestSentence && (
+            <QuickActions
+              hanzi={latestSentence}
+              decks={decks}
+              selectedDeckId={selectedDeckId}
+              onDeckChange={handleDeckChange}
+              onSend={sendQuickAction}
+              disabled={replyMutation.isPending}
+            />
           )}
 
           {data && (
@@ -709,9 +684,9 @@ export function SentenceCoachPage() {
         <div className="card mt-4">
           <h3 className="mb-2">How it works</h3>
           <ul style={{ paddingLeft: '1.25rem', color: 'var(--color-text-light)' }}>
-            <li>Chinese input → corrected, critiqued, and explained word by word</li>
-            <li>English input → translated with alternatives, then explained</li>
-            <li>Ask follow-up questions — the coach can also add cards to your decks</li>
+            <li>Chinese input → corrected with a short explanation; English input → translated, with alternatives</li>
+            <li>Then one tap: make a card (to the card standard), more examples, other ways to say it, the grammar</li>
+            <li>Or ask anything — the coach can also add cards and build a mini lesson</li>
             <li>Conversations are saved, so you can come back and continue</li>
             <li>Tip: select text anywhere on your phone and choose "Sentence Coach" (Android app)</li>
           </ul>
