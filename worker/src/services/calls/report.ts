@@ -119,6 +119,8 @@ ${chatText ? `\nIN-CALL CHAT:\n${chatText}` : ''}${boardText.length ? `\nWRITTEN
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 8000,
+    // Sonnet 5 thinks by default; forced tool use needs it off (thinking shares max_tokens).
+    thinking: { type: 'disabled' },
     system,
     tools: [
       {

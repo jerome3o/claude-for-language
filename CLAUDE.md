@@ -286,6 +286,18 @@ Uses Anthropic Claude API for several features:
    - Questions and answers are stored in `note_questions` table
    - Visible in note history modal
 
+### Calling Claude reliably (read before adding a Claude call)
+- **Sonnet 5 and Opus 5 think by default** when `thinking` is omitted, and thinking tokens count against
+  `max_tokens`. A small `max_tokens` then truncates or empties the answer — this is what broke the
+  Sentence Coach (PR #392 set 900). With forced `tool_choice`, set `thinking: { type: 'disabled' }`
+  (as `lesson-editor.ts`, `sentence-set.ts`, `enrich-words.ts`, `calls/report.ts` do).
+- For a short user-facing structured reply, use `structuredCall` (`worker/src/services/structured-call.ts`):
+  forced tool + thinking off, `stop_reason` checked (`max_tokens` → retried with double the budget),
+  `validate()` on the shape, every non-4xx failure retried with the last attempt on Haiku, 45 s timeout;
+  it throws `StructuredCallError` with `retryable`. Routes return 503 (retryable, the client retries
+  once) or 502 (declined) with a human reason. The coach's first reply (`sentence-coach.ts`,
+  `sentence-translate.ts`) uses it; unit tests in `services/__tests__/structured-call.test.ts`.
+
 ### Card standard (the house style for every card)
 `shared/cards/standard.ts` holds `CARD_STANDARD`, the one text every Claude that makes cards reads:
 the worker's Generate / Ask Claude / coach / chat / discuss prompts include it, the MCP server sends it

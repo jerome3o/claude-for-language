@@ -17,6 +17,7 @@ import { generateDeck, suggestCards, askAboutNoteWithTools, coachChatWithTools, 
 import type { ToolAction, CoachChatTurn } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
+import { StructuredCallError } from './services/structured-call';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet, sentenceAudioRetryDelay } from './services/sentence-set';
@@ -2917,7 +2918,12 @@ app.post('/api/coach/conversations', async (c) => {
     return c.json({ conversation, messages: [userMsg, assistantMsg] });
   } catch (error) {
     console.error('Coach conversation start error:', error);
-    return c.json({ error: 'Failed to analyze the sentence' }, 500);
+    // 503 = worth another try (the client retries once on its own); 502 = Claude refused / request rejected.
+    const retryable = !(error instanceof StructuredCallError) || error.retryable;
+    return c.json(
+      { error: retryable ? 'Claude is busy right now — try again in a moment.' : 'Claude couldn’t answer this one — try rephrasing it.', retryable },
+      retryable ? 503 : 502,
+    );
   }
 });
 
