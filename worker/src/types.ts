@@ -7,6 +7,7 @@ export interface Env {
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   SENTENCE_SET_QUEUE: Queue<SentenceSetMessage>;
   QUEST_QUEUE: Queue<QuestGenerationMessage>;
+  TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
@@ -67,6 +68,12 @@ export interface QuestGenerationMessage {
   questId: string;
   goalCount?: number;
   deckIds?: string[];
+}
+
+/** One session-notes agent job (tutor_note_jobs, migration 0071). `resume` = a continuation after a checkpoint. */
+export interface TutorNotesJobMessage {
+  jobId: string;
+  resume?: boolean;
 }
 
 /** Background generation of a note's graded sentence set (see 0055). */

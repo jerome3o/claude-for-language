@@ -84,6 +84,21 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
 
+# Queue for the session-notes agent: a tutor's free-form lesson notes become a
+# deck (+ a mini lesson / reader when warranted) through a multi-round tool
+# loop that is checkpointed in D1 after every round. One job per message; a
+# job re-enqueues itself when it runs long, so a delivery stays well inside the
+# consumer's limits. Create with: `wrangler queues create tutor-notes-queue`
+[[queues.producers]]
+queue = "tutor-notes-queue"
+binding = "TUTOR_NOTES_QUEUE"
+
+[[queues.consumers]]
+queue = "tutor-notes-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 2
+
 # Workers AI (for speech-to-text transcription)
 [ai]
 binding = "AI"

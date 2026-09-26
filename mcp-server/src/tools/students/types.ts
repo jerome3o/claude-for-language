@@ -415,3 +415,36 @@ export interface ClaudeChatQuestionRow {
   deck_id: string;
   deck_name: string;
 }
+
+// ---------- Session notes → agent jobs (worker/src/routes/tutor-notes.ts) ----------
+
+export interface SessionNotesStep {
+  at: string;
+  text: string;
+  kind: 'info' | 'tool' | 'warn' | 'done' | 'error';
+}
+
+export interface SessionNotesJobRow {
+  id: string;
+  relationship_id: string;
+  title: string | null;
+  notes: string;
+  notes_chars: number;
+  lesson_at: string | null;
+  priority: 'core' | 'non_urgent';
+  auto_share: boolean;
+  status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+  progress: string | null;
+  steps: SessionNotesStep[];
+  rounds: number;
+  result: {
+    deck?: { id: string; name: string; note_count: number; target_deck_id?: string };
+    lessons?: Array<{ library_item_id: string; title: string; lesson_id?: string; exercise_count: number }>;
+    reader?: { id: string; title_english: string; title_chinese: string; page_count: number; target_reader_id?: string };
+    summary?: string;
+    skipped?: string[];
+  };
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
+import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
@@ -67,6 +67,8 @@ import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
 import wordImportRoutes from './routes/word-import';
 import noteSearchRoutes from './routes/note-search';
+import { tutorNotesRoutes } from './routes/tutor-notes';
+import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { unreferencedImageKeys } from './services/shared-readers';
 import {
   createRelationship,
@@ -439,6 +441,9 @@ app.route('/api', wordImportRoutes);
 
 // Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
 app.route('/api', noteSearchRoutes);
+
+// Session notes → agent jobs for a student (routes/tutor-notes.ts; runs on tutor-notes-queue)
+app.route('/api', tutorNotesRoutes);
 
 // ============ Admin Routes ============
 
@@ -6602,7 +6607,7 @@ export default {
   fetch: app.fetch,
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | SentenceSetMessage | QuestGenerationMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | SentenceSetMessage | QuestGenerationMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6861,6 +6866,21 @@ export default {
             err instanceof Error ? err.message : 'Generation failed'
           );
           message.ack(); // The error is recorded; retrying is the learner's call
+        }
+      }
+    } else if (queueName === 'tutor-notes-queue') {
+      // Session-notes agent: a multi-round tool loop checkpointed in D1. The
+      // job re-enqueues itself when it runs long, so one delivery stays short.
+      for (const message of batch.messages) {
+        const { jobId } = message.body as TutorNotesJobMessage;
+        try {
+          const outcome = await runTutorNotesJob(env, jobId);
+          console.log('[Queue] tutor-notes job', jobId, outcome);
+          message.ack();
+        } catch (err) {
+          // runTutorNotesJob records failures itself; this is a last resort.
+          console.error('[Queue] tutor-notes job crashed:', jobId, err);
+          message.retry();
         }
       }
     } else if (queueName === 'sentence-set-queue') {

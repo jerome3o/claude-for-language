@@ -6,6 +6,7 @@
 import { groupQuestionThreads } from '../../../../shared/chats/threads';
 import type {
   CardFlagRow,
+  SessionNotesJobRow,
   ClaudeChatQuestionRow,
   CardType,
   ConversationRow,
@@ -391,4 +392,33 @@ export function compactClaudeThreads(rows: ClaudeChatQuestionRow[], answerChars:
       card_path: cardPagePath(relationshipId, t.note_id),
     };
   });
+}
+
+// ---------- Session notes jobs ----------
+
+/** A job as a chat needs it: status, progress, what was made and whether it reached the student. Steps only on request. */
+export function compactSessionNotesJob(job: SessionNotesJobRow, opts: { steps?: boolean } = {}): Record<string, unknown> {
+  const r = job.result ?? {};
+  return {
+    job_id: job.id,
+    relationship_id: job.relationship_id,
+    status: job.status,
+    progress: job.progress,
+    title: job.title,
+    lesson_at: job.lesson_at,
+    created_at: job.created_at,
+    finished_at: job.finished_at,
+    notes_chars: job.notes_chars,
+    auto_share: job.auto_share,
+    priority: job.priority,
+    ...(job.error ? { error: job.error } : {}),
+    ...(opts.steps ? { steps: job.steps.map((s) => `${s.kind === 'warn' || s.kind === 'error' ? '! ' : ''}${s.text}`) } : { step_count: job.steps.length }),
+    made: {
+      deck: r.deck ? { deck_id: r.deck.id, name: r.deck.name, cards: r.deck.note_count, sent_to_student: !!r.deck.target_deck_id } : null,
+      lessons: (r.lessons ?? []).map((l) => ({ library_item_id: l.library_item_id, title: l.title, exercises: l.exercise_count, assigned: !!l.lesson_id })),
+      reader: r.reader ? { reader_id: r.reader.id, title: r.reader.title_english, pages: r.reader.page_count, sent_to_student: !!r.reader.target_reader_id } : null,
+    },
+    ...(r.summary ? { summary: r.summary } : {}),
+    ...(r.skipped?.length ? { skipped: r.skipped } : {}),
+  };
 }

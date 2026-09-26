@@ -429,6 +429,9 @@ const EXPECTED_TOOLS = [
   'list_card_flags',
   'reply_to_card_flag',
   'list_student_claude_chats',
+  'submit_session_notes',
+  'get_session_notes_job',
+  'list_session_notes_jobs',
   'create_student_invite',
   'list_invites',
   'revoke_invite',
@@ -779,5 +782,41 @@ describe('card flags & Ask-Claude history tools', () => {
     expect(convs[0].questions.map((x) => x.question)).toEqual(['first', 'second']);
     expect(convs[0].questions[0].answer.length).toBeLessThanOrEqual(101);
     expect(convs[0].card_path).toBe('/connections/rel-1/cards/n1');
+  });
+
+  it('submit_session_notes posts the notes verbatim and returns the job compactly', async () => {
+    const job = {
+      id: 'job-1', relationship_id: 'rel-1', title: 'Restaurant', notes: 'x'.repeat(40), notes_chars: 40, lesson_at: '2026-09-14T12:00:00.000Z',
+      priority: 'core', auto_share: true, status: 'queued', progress: 'Waiting to start', steps: [], rounds: 0, result: {}, error: null,
+      created_at: '2026-09-14T13:00:00.000Z', finished_at: null,
+    };
+    const { tools, calls } = fakeContext({ 'POST /api/relationships/rel-1/session-notes': { job } });
+    const out = parse(await tools.get('submit_session_notes')!.handler({ relationship_id: 'rel-1', notes: 'x'.repeat(40), title: 'Restaurant', lesson_at: '2026-09-14' }));
+    expect(calls[0].body).toMatchObject({ notes: 'x'.repeat(40), title: 'Restaurant', lesson_at: '2026-09-14', priority: 'core', auto_share: true, log_lesson: true });
+    expect(out).toMatchObject({ job_id: 'job-1', status: 'queued', step_count: 0, made: { deck: null, lessons: [], reader: null } });
+    expect(typeof out.hint).toBe('string');
+  });
+
+  it('get_session_notes_job flattens the result and lists the steps', async () => {
+    const job = {
+      id: 'job-1', relationship_id: 'rel-1', title: null, notes: 'n', notes_chars: 1, lesson_at: null, priority: 'non_urgent', auto_share: true,
+      status: 'done', progress: 'Done', rounds: 5, error: null, created_at: '2026-09-14T13:00:00.000Z', finished_at: '2026-09-14T13:02:00.000Z',
+      steps: [{ at: 't', kind: 'tool', text: 'Created the deck "Food"' }, { at: 't', kind: 'warn', text: '1 rejected' }],
+      result: {
+        deck: { id: 'd1', name: 'Food', note_count: 9, target_deck_id: 'sd1' },
+        lessons: [{ library_item_id: 'l1', title: '把', exercise_count: 6 }],
+        summary: 'Made 9 cards.', skipped: ['已经 — already in review'],
+      },
+    };
+    const { tools } = fakeContext({ 'GET /api/relationships/rel-1/session-notes/job-1': { job } });
+    const out = parse(await tools.get('get_session_notes_job')!.handler({ relationship_id: 'rel-1', job_id: 'job-1' }));
+    expect(out.steps).toEqual(['Created the deck "Food"', '! 1 rejected']);
+    expect(out.made).toEqual({
+      deck: { deck_id: 'd1', name: 'Food', cards: 9, sent_to_student: true },
+      lessons: [{ library_item_id: 'l1', title: '把', exercises: 6, assigned: false }],
+      reader: null,
+    });
+    expect(out.summary).toBe('Made 9 cards.');
+    expect(out.skipped).toEqual(['已经 — already in review']);
   });
 });
