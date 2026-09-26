@@ -340,3 +340,60 @@
 .coach-conv-delete:active {
   opacity: 1;
 }
+
+/* ---------- Quick actions (one tap → a prepared follow-up) ---------- */
+.coach-quick {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.coach-quick-row {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.coach-quick-row::-webkit-scrollbar {
+  display: none;
+}
+
+.coach-quick-chip {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.coach-quick-chip:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.coach-quick-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.coach-quick-deck {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.coach-quick-deck .coach-deck-select {
+  flex: 1;
+  margin: 0;
+}

@@ -330,7 +330,9 @@ class SyncService {
 
       // For cards: only INSERT new ones, preserve existing card scheduling state
       // Card scheduling is computed from local review events, not synced from server
-      const existingCardIds = new Set((await db.cards.toArray()).map(c => c.id));
+      const existingLocalCards = await db.cards.toArray();
+      const existingCardIds = new Set(existingLocalCards.map(c => c.id));
+      const localDeckByCardId = new Map(existingLocalCards.map(c => [c.id, c.deck_id]));
       const serverCardIds = new Set(allCards.map(c => c.id));
 
       // Delete cards that no longer exist on server
@@ -349,12 +351,13 @@ class SyncService {
       }
 
       // Update deck_id on existing cards if notes have moved between decks.
-      // This only touches deck_id, not scheduling state.
-      const existingCards = allCards.filter(c => existingCardIds.has(c.id));
-      for (const serverCard of existingCards) {
-        const localCard = await db.cards.get(serverCard.id);
-        if (localCard && localCard.deck_id !== serverCard.deck_id) {
-          console.log('[Sync] Updating card deck_id:', serverCard.id, 'from', localCard.deck_id, 'to', serverCard.deck_id);
+      // This only touches deck_id, not scheduling state. Compared against the
+      // one local read above — a per-card get here held the write transaction
+      // (and every reader, e.g. the card search) for the whole card count.
+      for (const serverCard of allCards) {
+        const localDeckId = localDeckByCardId.get(serverCard.id);
+        if (localDeckId !== undefined && localDeckId !== serverCard.deck_id) {
+          console.log('[Sync] Updating card deck_id:', serverCard.id, 'from', localDeckId, 'to', serverCard.deck_id);
           await db.cards.update(serverCard.id, { deck_id: serverCard.deck_id });
         }
       }

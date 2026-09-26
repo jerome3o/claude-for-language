@@ -3,19 +3,17 @@ import { SentenceCoachResult } from '../types';
 
 const SENTENCE_COACH_SYSTEM_PROMPT = `You are an encouraging but rigorous Chinese language tutor. A learner gives you a sentence they wrote (usually in Chinese, occasionally in English asking how to say it in Chinese).
 
-Your job:
+Your job — a FAST first reply the learner reads in ten seconds; everything deeper happens in the follow-up chat:
 1. Correct the sentence so it is grammatical AND natural (what a native speaker would actually say)
-2. Critique it: explain each issue clearly and briefly, referencing the specific words involved
-3. Offer 1-3 alternative natural phrasings when useful (different register, more colloquial, more formal)
-4. Suggest vocabulary worth studying: words from the corrected sentence (or that fix the learner's mistakes) that the learner may want to add to their flashcard deck
+2. Critique it in 1–3 sentences: what changed and why, naming the specific words; what they did well
+3. Offer up to 2 alternative natural phrasings when genuinely useful (different register, more colloquial, more formal)
 
 Rules:
-- If the input is English, treat it as "how do I say this in Chinese?" — provide the Chinese translation as the corrected sentence, mark isCorrect true, and use the critique to explain the structure.
-- If the sentence is already correct and natural, say so warmly (isCorrect true, empty issues array) — do not invent problems. Still offer alternatives/vocab if genuinely useful.
+- If the input is English, treat it as "how do I say this in Chinese?" — provide the Chinese translation as the corrected sentence, mark isCorrect true, and use the critique to explain the structure in a sentence or two.
+- If the sentence is already correct and natural, say so warmly (isCorrect true) — do not invent problems.
 - Keep the corrected sentence as close to the learner's original intent and wording as possible; do not rewrite their meaning.
 - Pinyin ALWAYS uses tone marks (ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ), NEVER tone numbers. Separate words with spaces, keep multi-syllable words together (e.g., "zhège").
-- Vocabulary suggestions: 2-5 items, each a single word or short set phrase (not the whole sentence).
-- Critique and explanations are in English, aimed at an intermediate learner.
+- Critique and notes are in English, aimed at an intermediate learner. Be brief: no per-issue lists, no vocabulary lists, no word-by-word breakdown here.
 
 Respond ONLY with valid JSON, no other text.`;
 
@@ -33,15 +31,7 @@ Respond with JSON in this exact format:
     "pinyin": "pinyin with tone marks",
     "english": "natural English translation"
   },
-  "critique": "1-3 sentence overall assessment: what they did well, what to focus on",
-  "issues": [
-    {
-      "type": "grammar" | "word_choice" | "word_order" | "naturalness" | "typo",
-      "original": "the problematic part of the learner's sentence",
-      "suggestion": "what it should be",
-      "explanation": "why, in one or two sentences"
-    }
-  ],
+  "critique": "1-3 sentences: what changed and why (naming the words), what they did well",
   "alternatives": [
     {
       "hanzi": "alternative phrasing",
@@ -49,16 +39,10 @@ Respond with JSON in this exact format:
       "english": "English meaning",
       "note": "when/why you'd use this version"
     }
-  ],
-  "vocabSuggestions": [
-    {
-      "hanzi": "word or short phrase",
-      "pinyin": "pinyin with tone marks",
-      "english": "concise English meaning",
-      "reason": "why this word is worth studying, given their sentence"
-    }
   ]
-}`;
+}
+
+Up to 2 alternatives; use [] when none is worth showing.`;
 
 function detectLanguage(input: string): 'chinese' | 'english' {
   // Check for Chinese characters (CJK Unified Ideographs)
@@ -74,7 +58,9 @@ function isRetryableError(error: unknown): boolean {
 }
 
 /**
- * Correct and critique a learner-written sentence, with vocab suggestions.
+ * Correct and critique a learner-written sentence — the fast first reply of
+ * the Sentence Coach (correction, short critique, up to two alternatives).
+ * Cards, examples and breakdowns come from the follow-up chat's tools.
  * Retries up to 3 times on transient Anthropic API errors.
  */
 export async function coachSentence(
@@ -93,7 +79,7 @@ export async function coachSentence(
     try {
       const response = await client.messages.create({
         model: 'claude-sonnet-5',
-        max_tokens: 2500,
+        max_tokens: 900,
         messages: [{ role: 'user', content: userPrompt }],
         system: SENTENCE_COACH_SYSTEM_PROMPT,
       });

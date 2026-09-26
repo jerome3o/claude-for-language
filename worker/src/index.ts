@@ -69,6 +69,7 @@ import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
 import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
+import noteSearchRoutes from './routes/note-search';
 import { unreferencedImageKeys } from './services/shared-readers';
 import {
   createRelationship,
@@ -444,6 +445,9 @@ app.route('/api', wordImportRoutes);
 
 // Video calls (experimental): rooms, recording uploads, transcripts, lesson report
 app.route('/api', callsRoutes);
+
+// Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
+app.route('/api', noteSearchRoutes);
 
 // ============ Admin Routes ============
 
