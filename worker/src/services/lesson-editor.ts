@@ -25,7 +25,7 @@ const EXERCISE_RULES: string = (
   LESSON_SPEC_INPUT_SCHEMA.properties.sections.items.properties.exercises as { description: string }
 ).description;
 
-const STYLE_RULES = `Language rules:
+export const LESSON_STYLE_RULES = `Language rules:
 - Always use tone-marked pinyin (nǐ hǎo), never tone numbers.
 - Use mainland-China (普通话, simplified characters) vocabulary and usage.
 - Chinese text goes in "hanzi", pinyin in "pinyin", English in "english" — never mix scripts in one field.
@@ -36,7 +36,7 @@ const STYLE_RULES = `Language rules:
 - listen_translate audio needs "english" (the answer to check against).
 - describe_image: image_prompt is a detailed English scene description with no text in the image.`;
 
-const SPEC_SCHEMA_TEXT = `Lesson spec shape (JSON):
+export const LESSON_SPEC_SCHEMA_TEXT = `Lesson spec shape (JSON):
 { title, icon? (one emoji), description?, sections: [ { title?, exercises: [ ... ] } ] }
 Exercise types and fields:
 ${EXERCISE_RULES}`;
@@ -77,9 +77,9 @@ function repairMessage(errors: string[], toolName: string): string {
 
 const GENERATE_SYSTEM = `You write short custom mini lessons for a Chinese-learning app. A lesson is sections of exercises in any order (teaching notes, word order, multiple choice, translation, matching, picture description, speaking, listening). Aim for 1-3 sections and 5-10 exercises: open with a note that teaches the point with 2-3 example sentences, then practise it in several exercise types, and end with a production exercise (translate or speak). Return the whole lesson with the create_lesson_spec tool.
 
-${STYLE_RULES}
+${LESSON_STYLE_RULES}
 
-${SPEC_SCHEMA_TEXT}`;
+${LESSON_SPEC_SCHEMA_TEXT}`;
 
 export interface GenerateLessonContext {
   /** e.g. "Tutor of a beginner (HSK 1-2) student" */
@@ -154,9 +154,9 @@ How to respond:
 - Respect the author's own edits: "Changes the author made since your last message" tells you what they did; build on it, never revert it.
 - If a request is ambiguous, propose your best reading rather than asking — the diff makes it cheap to reject.
 
-${STYLE_RULES}
+${LESSON_STYLE_RULES}
 
-${SPEC_SCHEMA_TEXT}`;
+${LESSON_SPEC_SCHEMA_TEXT}`;
 
 export interface CoEditTurn {
   role: 'user' | 'assistant';

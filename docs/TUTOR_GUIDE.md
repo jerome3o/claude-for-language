@@ -17,6 +17,13 @@ each picture.
 
 If you have read this guide before, these are the sections that changed:
 
+**Session notes → homework (26 Sep)**
+
+- Paste your **raw lesson notes** on the student page and an assistant builds the
+  homework in the background: a deck of standard cards for the words you taught (skipping
+  what the student already knows), a mini lesson only when the notes show a grammar point
+  with examples, and sends them to the student — [section 8](#session-notes--homework-written-by-the-assistant).
+
 **New look**
 
 - A **bottom tab bar** replaces the old avatar menu — Study · Decks · Tutor · Progress ·
@@ -827,6 +834,57 @@ added to the original since are added to the student's copy, and their progress 
 other words is kept. **Send a second copy anyway** (2) creates a separate deck instead.
 The same **Update** button appears next to the deck under **Homework** on the student
 page.
+
+### Session notes → homework, written by the assistant
+
+The fastest way to turn a lesson into homework: paste your **raw notes** from the session
+and let the assistant do the rest.
+
+<img src="../docs/pr-screenshots/session-notes-agent/03-upload-sheet.png" width="300">
+
+1. On the student page, under **Session notes**, tap **+ Add notes** and paste whatever
+   you wrote during the lesson — any length, any format, Chinese and English mixed,
+   corrections, "he keeps confusing X and Y", a homework line. You can also attach a text
+   file. Add a title and the lesson date if you like.
+2. Choose what happens when it is ready. By default the results are **sent to the student
+   automatically** (Core = top of their study queue, Non-urgent = after their other decks);
+   untick it to keep them in your library and send them yourself later. The notes are
+   also **logged as a lesson**, so Insights counts "since last lesson" from them.
+3. Tap **Start**. The job runs in the background for a minute or a few; the card under
+   *Session notes* shows what the assistant is doing (words checked against the student's
+   cards, deck created, cards added, lesson written…). You can leave the page.
+
+<img src="../docs/pr-screenshots/session-notes-agent/01-section-jobs.png" width="300">
+
+What it makes, and the rules it follows:
+
+- **A deck of cards** for the words and phrases you actually taught — never padding with
+  related vocabulary. Before adding anything it checks the student's existing cards and
+  **skips words they already have in review** (they are listed under "words left out" with
+  the reason). Every card follows the card standard (one clean hanzi form, tone-marked
+  pinyin, a proper explanation, your own example sentence from the notes where there is
+  one) — cards that break it are refused and rewritten.
+- **A mini lesson only when the notes show a grammar point being taught** — several
+  example sentences around one structure (把, 是…的, 比, 太…了…), or an explicit
+  explanation. A plain word list gets no lesson. When it does write one, the lesson is
+  about that structure specifically, built from your examples.
+- **A graded reader only when the notes ask for one** (a story, a dialogue to practise,
+  "reading practice").
+- It also reads what the student has been getting wrong lately, so a word they keep
+  failing gets a fresh, better explanation rather than being skipped.
+
+**From a recorded video lesson**: on the call's review page (Calls → the lesson → after the
+transcript is ready) a **Make homework from this lesson** button does the same thing with the
+transcript, whatever was written on the whiteboard, the in-call chat and the lesson report as
+the notes — no typing needed. The job appears there and under *Session notes* on the student
+page, marked "from a video lesson".
+
+When it finishes, the card shows the deck (with a link to your copy), the lesson, the
+reader, and a short **summary** of what was made and what was left out and why. *What it
+did* opens the full step list. A job that fails (the AI was overloaded, say) keeps its
+steps and has **Retry**, which continues from where it stopped. Everything it created is
+an ordinary deck / library lesson / reader in your account, so you can edit it and
+**Update their copy** as usual.
 
 ### Insights (the pre-lesson briefing)
 

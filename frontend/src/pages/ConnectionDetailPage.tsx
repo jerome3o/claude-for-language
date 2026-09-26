@@ -30,6 +30,7 @@ import { SetupChecklist } from '../components/tutor/SetupChecklist';
 import { SendHomeworkSheet } from '../components/tutor/SendHomeworkSheet';
 import { FlaggedCardsSection } from '../components/tutor/FlaggedCardsSection';
 import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
+import { SessionNotesSection } from '../components/tutor/SessionNotesSection';
 import { Avatar } from '../components/tutor/StudentCard';
 import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTime } from '../components/tutor/format';
 import '../components/tutor/tutor-dashboard.css';
@@ -384,6 +385,9 @@ export function ConnectionDetailPage() {
             </Link>
             <Link to={`/connections/${relId}/progress`}>Progress</Link>
           </nav>
+
+          {/* Paste the notes from a lesson → the assistant builds the homework */}
+          <SessionNotesSection relId={relId!} studentName={otherName} />
 
           {/* Homework: decks I shared + lessons I assigned */}
           <section className="detail-section">

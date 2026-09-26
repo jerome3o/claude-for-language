@@ -64,6 +64,7 @@ jobs:
           npx wrangler queues create sentence-set-queue || true
           npx wrangler queues create quest-generation-queue || true
           npx wrangler queues create call-processing-queue || true
+          npx wrangler queues create tutor-notes-queue || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT }}

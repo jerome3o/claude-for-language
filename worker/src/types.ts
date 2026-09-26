@@ -10,6 +10,7 @@ export interface Env {
   /** Video calls (experimental): one CallRoom Durable Object per call + the after-call queue. */
   CALL_ROOM: DurableObjectNamespace<import('./durable/call-room').CallRoom>;
   CALL_QUEUE: Queue<CallProcessingMessage>;
+  TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
@@ -84,6 +85,12 @@ export interface QuestGenerationMessage {
   questId: string;
   goalCount?: number;
   deckIds?: string[];
+}
+
+/** One session-notes agent job (tutor_note_jobs, migration 0071). `resume` = a continuation after a checkpoint. */
+export interface TutorNotesJobMessage {
+  jobId: string;
+  resume?: boolean;
 }
 
 /** Background generation of a note's graded sentence set (see 0055). */

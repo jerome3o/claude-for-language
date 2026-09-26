@@ -86,7 +86,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── worker/                 # Cloudflare Worker (API backend)
 │   ├── src/
 │   │   ├── index.ts       # Main entry point, routes
-│   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, test-auth, calls)
+│   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, tutor-notes, test-auth, calls)
 │   │   ├── durable/       # Durable Objects (call-room.ts — video-call signalling / whiteboard / chat)
 │   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS); services/content = the ONE write path for decks / notes / cards
 │   │   ├── db/            # Database queries and migrations (lesson-library-queries.ts for the library/editor)
@@ -264,6 +264,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
 - `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
+- `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -766,7 +767,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`.
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`.
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -1008,6 +1009,51 @@ cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_
 - `POST /api/ai/enrich-words` - `{ words: [{ hanzi, pinyin?, english?, fun_facts?, sentence_clue? }] }` (≤30) → each with `fun_facts`, `sentence_clue`, `sentence_clue_pinyin`, `sentence_clue_translation` written to the card standard, blanks only (Sonnet); 503 without an API key (`services/enrich-words.ts`)
 - `POST /api/me/client-state` - `{ install_kind, cached_audio_count }` from the device (never downgrades pwa/android to browser)
 
+### Session notes → homework agent (`worker/src/services/tutor-notes-agent.ts`, routes in `routes/tutor-notes.ts`)
+A tutor pastes the raw notes of a lesson on the student page (**Session notes → + Add notes**,
+`components/tutor/SessionNotesSheet.tsx`); the notes are NOT turned into cards in one shot. A row
+in `tutor_note_jobs` (migration 0072) is queued on **`tutor-notes-queue`** and a Claude agent
+(`claude-opus-4-6`, `runTutorNotesJob`) works through them with tools as the tutor:
+`check_student_words` / `search_student_cards` / `list_student_deck_words` /
+`get_student_struggles` (read-only lookups on the STUDENT's account, `db/tutor-notes-queries.ts`),
+`create_deck` + `add_cards` (the content service, `CARD_STANDARD` in the prompt, rejected cards
+come back with the reason), `create_mini_lesson` (validated with `validateLessonSpec`, saved to the
+tutor's lesson library, tag `session-notes`), `create_reader` (validated `ReaderSpec`, tutor's
+account) and `finish` (the summary the tutor reads). The first user message is a **briefing**
+(`buildBriefing`: student decks, struggling / going-well words from the insights aggregation, the
+lesson log, earlier jobs' results) followed by the notes verbatim (cut at `MAX_NOTES_CHARS`).
+Prompt rules: cards only for what the lesson taught, skip words the student has in review, a mini
+lesson ONLY when the notes show a taught structure with example sentences (about that structure),
+a reader only when the notes call for one. On `finish` the job **shares the deck**
+(`shareDeck`, `priority` core / non_urgent), **assigns the lesson** (`createAssignedLesson`) and
+**shares the reader** when `auto_share` is set; an empty deck is deleted.
+
+**Reliability**: the transcript is checkpointed in the row after every model turn and after every
+batch of tool results, so a redelivery resumes where it stopped (an assistant turn whose tool calls
+were never answered is executed first, never re-asked); every create tool is idempotent per job
+(one deck, one reader, lessons by title, cards by hanzi within the deck); a delivery past
+~3.5 min re-enqueues itself (`{ jobId, resume: true }`); rounds are capped (`MAX_ROUNDS`); model
+calls retry on 429/5xx/529; a plain-text ending is taken as the summary; failures are written to
+the row with a readable message (`describeError`) and **Retry** resumes from the checkpoint (a job
+out of rounds restarts). `steps` (progress lines from `stepForTool` + the model's own text) and
+`progress` drive the UI, which polls every 3 s while a job is queued / running
+(`SessionNotesSection`, `SessionNotesJobCard`; all jobs at `/connections/:relId/session-notes`).
+Submitting also logs the lesson (`tutor_lesson_log` + the student's `lesson_notes`) unless
+`log_lesson: false`. At most 2 active jobs per relationship. Both entry points go through
+`submitSessionNotes` (`services/tutor-notes-submit.ts`). **Homework from a recorded video lesson**:
+on `/calls/:id/review` the tutor's **Make homework from this lesson** button
+(`components/calls/CallHomeworkSection.tsx`) posts to `POST /api/calls/:id/homework`; the call's
+transcript (speaker-labelled, with translations, middle trimmed), whiteboard text, in-call chat and
+the lesson report become the job's notes (`composeCallNotes`, pure, unit-tested), `source_call_id`
+links the job back to the call, and the briefing tells the agent it is reading speech recognition.
+One active job per call; the job card links back to the review page ("from a video lesson"). The loop is unit-tested with a
+mocked model and stores (`services/__tests__/tutor-notes-agent.test.ts`).
+- `POST /api/relationships/:relId/session-notes` - `{ notes, title?, lesson_at?, priority?, auto_share?, log_lesson? }` → 202 `{ job }` (tutor only; 503 without `ANTHROPIC_API_KEY`; 409 when two jobs are already active)
+- `GET /api/relationships/:relId/session-notes[?limit]` - `{ jobs }` newest first, no transcripts
+- `GET /api/relationships/:relId/session-notes/:id` - the job with `steps`, `progress`, `result` (`deck`, `lessons`, `reader`, `summary`, `skipped`)
+- `POST …/session-notes/:id/retry` | `/cancel`, `DELETE …/session-notes/:id` (what the job created stays)
+- `POST /api/calls/:id/homework` - `{ priority?, auto_share?, log_lesson? }` → 202 `{ job }` from the call's material (tutor of the call's relationship; 409 while live / still transcribing; 200 `{ job, existing: true }` when one is already running) · `GET /api/calls/:id/homework` → `{ jobs }`
+
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
 - `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
@@ -1225,6 +1271,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `move_student_deck` | Move a packet within the student's study queue (`to: top | up | down | bottom`); returns `queue_position` of `queue_total` |
 | `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
 | `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
+| `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, sent to the student by default) / poll one job's progress, steps and result / list a student's jobs |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
 
