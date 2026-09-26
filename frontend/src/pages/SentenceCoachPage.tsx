@@ -10,6 +10,7 @@ import {
   sendCoachMessage,
   deleteCoachConversation,
   getDecks,
+  apiErrorStatus,
 } from '../api/client';
 import {
   CoachAnalysis,
@@ -356,6 +357,24 @@ function CoachMessageView({ message }: { message: CoachMessage }) {
 
 // ============ Page ============
 
+/** A dropped connection or a server that said "try again" (5xx other than 502 = Claude declined). */
+function isRetryableCoachError(err: unknown): boolean {
+  const status = apiErrorStatus(err);
+  return status === undefined || (status >= 500 && status !== 502);
+}
+
+/** What went wrong, in words: offline vs. the server's own reason. */
+function coachErrorText(err: unknown, fallback: string): string {
+  const status = apiErrorStatus(err);
+  if (status === undefined) {
+    return typeof navigator !== 'undefined' && navigator.onLine === false
+      ? "You're offline — the coach needs a connection. Your text is kept; try again when you're back online."
+      : `${fallback} — the connection dropped. Try again.`;
+  }
+  const message = err instanceof Error && err.message && !/^HTTP \d+$/.test(err.message) ? err.message : '';
+  return message || `${fallback} — something went wrong on our side. Try again.`;
+}
+
 export function SentenceCoachPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -385,6 +404,10 @@ export function SentenceCoachPage() {
 
   const startMutation = useMutation({
     mutationFn: (text: string) => startCoachConversation(text),
+    // Starting only analyses and saves, so a retry is safe: once more on a
+    // dropped connection or a busy-server 5xx (the server already retried Claude).
+    retry: (failures, err) => failures < 1 && isRetryableCoachError(err),
+    retryDelay: 1500,
     onSuccess: (res) => {
       queryClient.setQueryData(['coach-conversation', res.conversation.id], res);
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
@@ -532,7 +555,7 @@ export function SentenceCoachPage() {
                 </div>
               )}
               {replyMutation.isError && (
-                <div className="coach-error">Couldn't send that — check your connection and try again.</div>
+                <div className="coach-error">{coachErrorText(replyMutation.error, "Couldn't send that")}</div>
               )}
               <div ref={bottomRef} />
             </div>
@@ -611,8 +634,13 @@ export function SentenceCoachPage() {
             </div>
 
             {startMutation.error && (
-              <div className="coach-error mb-3">
-                Couldn't reach the coach. Check your connection and try again.
+              <div className="coach-error mb-3" role="alert" data-testid="coach-start-error">
+                {coachErrorText(startMutation.error, "Couldn't reach the coach")}
+                {trimmed && (
+                  <button type="button" className="coach-error-retry" onClick={() => startMutation.mutate(trimmed)}>
+                    Try again
+                  </button>
+                )}
               </div>
             )}
 
