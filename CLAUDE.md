@@ -86,7 +86,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── worker/                 # Cloudflare Worker (API backend)
 │   ├── src/
 │   │   ├── index.ts       # Main entry point, routes
-│   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, tutor-notes, test-auth)
+│   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, tutor-notes, test-auth, calls)
+│   │   ├── durable/       # Durable Objects (call-room.ts — video-call signalling / whiteboard / chat)
 │   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS); services/content = the ONE write path for decks / notes / cards
 │   │   ├── db/            # Database queries and migrations (lesson-library-queries.ts for the library/editor)
 │   │   └── types.ts       # TypeScript types
@@ -109,6 +110,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
 │   │   └── index.ts       # Re-exports
+│   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
@@ -262,12 +264,13 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
 - `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
-- `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0071. See "Session notes → homework agent"
+- `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
 - `shared_decks` - Record of decks shared from tutor to student
 - `shared_readers` - Record of graded readers copied from tutor to student (source/target reader ids; the copies share R2 image keys)
+- `calls` / `call_recording_pieces` / `call_recording_chunks` / `call_transcript_segments` - Video calls (experimental, migration 0071): the call (relationship, status live/ended, processing status, board/chat snapshot, Claude report JSON), each person's recorded mic pieces and their uploaded chunks, and the transcript segments (epoch-ms times on the server clock, text, language, pinyin, translation)
 
 ### Audio Storage
 - Generated TTS audio and user recordings stored in Cloudflare R2
@@ -283,6 +286,18 @@ Uses Anthropic Claude API for several features:
 3. **Ask Claude**: During study, ask questions about a card (grammar, usage, cultural context)
    - Questions and answers are stored in `note_questions` table
    - Visible in note history modal
+
+### Calling Claude reliably (read before adding a Claude call)
+- **Sonnet 5 and Opus 5 think by default** when `thinking` is omitted, and thinking tokens count against
+  `max_tokens`. A small `max_tokens` then truncates or empties the answer — this is what broke the
+  Sentence Coach (PR #392 set 900). With forced `tool_choice`, set `thinking: { type: 'disabled' }`
+  (as `lesson-editor.ts`, `sentence-set.ts`, `enrich-words.ts`, `calls/report.ts` do).
+- For a short user-facing structured reply, use `structuredCall` (`worker/src/services/structured-call.ts`):
+  forced tool + thinking off, `stop_reason` checked (`max_tokens` → retried with double the budget),
+  `validate()` on the shape, every non-4xx failure retried with the last attempt on Haiku, 45 s timeout;
+  it throws `StructuredCallError` with `retryable`. Routes return 503 (retryable, the client retries
+  once) or 502 (declined) with a human reason. The coach's first reply (`sentence-coach.ts`,
+  `sentence-translate.ts`) uses it; unit tests in `services/__tests__/structured-call.test.ts`.
 
 ### Card standard (the house style for every card)
 `shared/cards/standard.ts` holds `CARD_STANDARD`, the one text every Claude that makes cards reads:
@@ -884,6 +899,27 @@ interface. A second share makes a second, independent copy.
 - `POST /api/readers/:id/assist` - `{ field: 'english'|'image_prompt', chinese, english? }` → `{ text }` (503 without an API key)
 - `GET|POST /api/editor-chat/reader/:id[/messages]`, `…/messages/:id/accept|reject` - the co-editor chat (see Lesson library & editor)
 
+### Video calls (experimental — `worker/src/routes/calls.ts`, full design in docs/VIDEO_CALLS.md)
+1:1 WebRTC lesson (video, whiteboard, chat, screen share) between the two sides of a tutor
+relationship, or a solo test call. Signalling / whiteboard / chat go through the **CallRoom
+Durable Object** (`worker/src/durable/call-room.ts`, binding `CALL_ROOM`, SQLite class); media is
+peer to peer (STUN, plus Cloudflare Realtime TURN when `TURN_KEY_ID` / `TURN_KEY_API_TOKEN` are
+set). Each participant records **their own mic** (`frontend/src/services/calls/recorder.ts`: a new
+MediaRecorder every 5 min = a standalone webm piece, 10 s chunks) into the IndexedDB upload queue
+(`callUploads`, drained by `services/calls/uploads.ts` during the call and in every sync). After the
+call `call-processing-queue` transcribes each piece (`services/calls/transcribe.ts`: Soniox if
+`SONIOX_API_KEY`, else Gemini with the existing key — pinyin + translation per line — else Workers AI
+Whisper; failures fall back to Whisper) and Claude writes the lesson report (`services/calls/report.ts`:
+summary, corrections, card-standard vocabulary). Processing is readiness-driven
+(`advanceCallProcessing`), so late uploads still get transcribed. Pages: `/calls` (list + start),
+`/calls/:id` (the call, immersive; `hooks/useCall.ts` holds all the logic), `/calls/:id/review`.
+- `GET /api/calls/ice-servers` · `GET /api/calls?relationship_id=&live=1` · `POST /api/calls` `{ relationship_id?, title? }` (posts a Join link into the relationship's chat)
+- `GET /api/calls/:id` (call, participants, board, chat, pieces with `audio_url`, merged transcript, report) · `DELETE /api/calls/:id` (creator)
+- `POST /api/calls/:id/join` → `{ ticket, ws_path, ice_servers }` — `GET /api/calls/:id/ws?ticket=` (WebSocket; one-minute HMAC ticket instead of the session, registered before the auth middleware)
+- `POST /api/calls/:id/end` · `POST /api/calls/:id/process` (force-close stale pieces, retry failures, redo the report)
+- `POST /api/calls/:id/pieces` · `PUT /api/calls/:id/pieces/:pieceId/chunks/:idx` · `POST /api/calls/:id/pieces/:pieceId/close`
+- `POST /api/calls/:id/flashcards` `{ deck_id? | deck_name?, words }` → notes via the content service
+
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
 - `GET /api/stats/deck/:id` - Deck statistics
@@ -976,7 +1012,7 @@ cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_
 ### Session notes → homework agent (`worker/src/services/tutor-notes-agent.ts`, routes in `routes/tutor-notes.ts`)
 A tutor pastes the raw notes of a lesson on the student page (**Session notes → + Add notes**,
 `components/tutor/SessionNotesSheet.tsx`); the notes are NOT turned into cards in one shot. A row
-in `tutor_note_jobs` (migration 0071) is queued on **`tutor-notes-queue`** and a Claude agent
+in `tutor_note_jobs` (migration 0072) is queued on **`tutor-notes-queue`** and a Claude agent
 (`claude-opus-4-6`, `runTutorNotesJob`) works through them with tools as the tutor:
 `check_student_words` / `search_student_cards` / `list_student_deck_words` /
 `get_student_struggles` (read-only lookups on the STUDENT's account, `db/tutor-notes-queries.ts`),
@@ -1508,3 +1544,4 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)
 - `/connections/:relId/cards/:noteId`, `/connections/:relId/claude-chats` - Tutor's view of one of the student's cards (hub) / all their Ask-Claude conversations
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
+- `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards

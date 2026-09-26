@@ -21,6 +21,7 @@ import {
   ConversationWithLastMessage,
 } from '../types';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
+import { createCall, listCalls } from '../api/calls';
 import { useAuth } from '../contexts/AuthContext';
 import { StudentLessonsSection } from '../components/editor/StudentLessonsSection';
 import { OverflowMenu } from '../components/tutor/OverflowMenu';
@@ -153,6 +154,39 @@ export function ConnectionDetailPage() {
     queryFn: () => getLessonLog(relId!),
     enabled: !!relId && tutorView,
   });
+
+  // Video calls (beta): a live call in this relationship shows a Join banner.
+  const liveCallsQuery = useQuery({
+    queryKey: ['calls', 'live', relId],
+    queryFn: () => listCalls({ relationshipId: relId!, live: true }),
+    enabled: !!relId && !!relationship && !isClaudeRelationship,
+    refetchInterval: 15_000,
+  });
+  const liveCall = liveCallsQuery.data?.calls[0] ?? null;
+  const [callBusy, setCallBusy] = useState(false);
+
+  const handleVideoCall = async () => {
+    if (liveCall) {
+      navigate(`/calls/${liveCall.id}`);
+      return;
+    }
+    setCallBusy(true);
+    setPageError(null);
+    try {
+      const { call } = await createCall({ relationship_id: relId! });
+      navigate(`/calls/${call.id}`);
+    } catch (err) {
+      setPageError(err instanceof Error ? err.message : 'Could not start the call');
+      setCallBusy(false);
+    }
+  };
+
+  const liveCallBanner = liveCall ? (
+    <div className="td-live-call" data-testid="live-call-banner">
+      <span>🔴 Video call in progress</span>
+      <button type="button" className="btn btn-primary" onClick={() => navigate(`/calls/${liveCall.id}`)}>Join</button>
+    </div>
+  ) : null;
 
   const createConvMutation = useMutation({
     mutationFn: (options: { title?: string; scenario?: string; user_role?: string; ai_role?: string }) =>
@@ -308,9 +342,11 @@ export function ConnectionDetailPage() {
             </div>
           </div>
 
+          {liveCallBanner}
           <div className="td-actions">
             <button type="button" className="btn btn-primary" onClick={handleMessage} disabled={messageBusy}>💬 Message</button>
             <button type="button" className="btn btn-secondary" onClick={() => setShowHomeworkSheet(true)}>📤 Send homework</button>
+            <button type="button" className="btn btn-secondary" onClick={() => void handleVideoCall()} disabled={callBusy} data-testid="start-video-call">📹 Video call <span className="td-beta">beta</span></button>
           </div>
           {pageError && <div className="td-error">{pageError}</div>}
 
@@ -502,10 +538,16 @@ export function ConnectionDetailPage() {
           </div>
         </div>
 
+        {liveCallBanner}
         <div className="td-actions">
           <button type="button" className="btn btn-primary" onClick={handleMessage} disabled={messageBusy}>
             {isClaudeRelationship ? '💬 New practice conversation' : '💬 Message'}
           </button>
+          {!isClaudeRelationship && (
+            <button type="button" className="btn btn-secondary" onClick={() => void handleVideoCall()} disabled={callBusy} data-testid="start-video-call">
+              📹 Video call <span className="td-beta">beta</span>
+            </button>
+          )}
         </div>
         {pageError && <div className="td-error">{pageError}</div>}
 

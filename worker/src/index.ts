@@ -17,6 +17,7 @@ import { generateDeck, suggestCards, askAboutNoteWithTools, coachChatWithTools, 
 import type { ToolAction, CoachChatTurn } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
+import { StructuredCallError } from './services/structured-call';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet, sentenceAudioRetryDelay } from './services/sentence-set';
@@ -66,6 +67,9 @@ import claudeChatsRoutes from './routes/claude-chats';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
 import wordImportRoutes from './routes/word-import';
+import callsRoutes, { mountCallSocket } from './routes/calls';
+import { handleCallQueueMessage } from './services/calls/processing';
+import type { CallProcessingMessage } from './types';
 import noteSearchRoutes from './routes/note-search';
 import { tutorNotesRoutes } from './routes/tutor-notes';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
@@ -411,6 +415,9 @@ app.get('/api/auth/me', async (c) => {
 app.route('/api/test', testAuth);
 
 // Apply auth middleware to all /api/* routes except auth routes
+// Video-call WebSocket: authenticated by a short-lived join ticket, not the session (see routes/calls.ts).
+mountCallSocket(app);
+
 app.use('/api/*', authMiddleware);
 
 // Lesson library, lesson editor and its Claude side-chat (routes/lesson-editor.ts)
@@ -438,6 +445,9 @@ app.route('/api', tutorDashboardRoutes);
 app.route('/api', sharedReadersRoutes);
 // POST /api/ai/gloss-words, GET /api/decks/:id/student-shares (see routes/word-import.ts)
 app.route('/api', wordImportRoutes);
+
+// Video calls (experimental): rooms, recording uploads, transcripts, lesson report
+app.route('/api', callsRoutes);
 
 // Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
 app.route('/api', noteSearchRoutes);
@@ -2913,7 +2923,12 @@ app.post('/api/coach/conversations', async (c) => {
     return c.json({ conversation, messages: [userMsg, assistantMsg] });
   } catch (error) {
     console.error('Coach conversation start error:', error);
-    return c.json({ error: 'Failed to analyze the sentence' }, 500);
+    // 503 = worth another try (the client retries once on its own); 502 = Claude refused / request rejected.
+    const retryable = !(error instanceof StructuredCallError) || error.retryable;
+    return c.json(
+      { error: retryable ? 'Claude is busy right now — try again in a moment.' : 'Claude couldn’t answer this one — try rephrasing it.', retryable },
+      retryable ? 503 : 502,
+    );
   }
 });
 
@@ -6602,14 +6617,31 @@ app.get('*', async (c) => {
   return c.text('API server running. Frontend served separately in development.', 200);
 });
 
+// The video-call room (Durable Object class must be exported from the entry module)
+export { CallRoom } from './durable/call-room';
+
 // Export worker with fetch and queue handlers
 export default {
   fetch: app.fetch,
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | SentenceSetMessage | QuestGenerationMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | SentenceSetMessage | QuestGenerationMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
+
+    if (queueName === 'call-processing-queue') {
+      // Failures are recorded on the piece / call rows (and retried from the
+      // review page), so every message is acked.
+      for (const message of batch.messages) {
+        try {
+          await handleCallQueueMessage(env, message.body as CallProcessingMessage);
+        } catch (err) {
+          console.error('[Queue] call processing failed:', err);
+        }
+        message.ack();
+      }
+      return;
+    }
 
     if (queueName === 'story-generation-queue') {
       // Handle story generation

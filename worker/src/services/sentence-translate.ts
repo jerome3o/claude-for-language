@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { structuredCall } from './structured-call';
 import { SentenceTranslation } from '../types';
 
 const SENTENCE_TRANSLATE_SYSTEM_PROMPT = `You are a thoughtful Chinese language tutor. A learner gives you an English sentence and wants to know how to say it in Chinese — and to actually understand the translation, not just copy it.
@@ -13,107 +13,67 @@ Rules:
 - Use simplified characters.
 - Explanations are in English, clear and practical. Be brief.
 
-Respond ONLY with valid JSON, no other text.`;
+Answer with the translate_sentence tool.`;
 
-const USER_PROMPT_TEMPLATE = `Translate this English sentence into Chinese and explain the translation:
-
-"{input}"
-
-Respond with JSON in this exact format:
-{
-  "originalInput": "{input}",
-  "primary": {
-    "hanzi": "recommended Chinese translation",
-    "pinyin": "full pinyin with tone marks",
-    "english": "the English sentence (natural back-translation if it differs)",
-    "note": "one sentence on why this is the recommended phrasing"
+const ALT_ITEM = {
+  type: 'object',
+  properties: {
+    hanzi: { type: 'string' },
+    pinyin: { type: 'string', description: 'Full pinyin with tone marks' },
+    english: { type: 'string' },
+    note: { type: 'string' },
   },
-  "alternatives": [
-    {
-      "hanzi": "...",
-      "pinyin": "...",
-      "english": "...",
-      "note": "when/why you'd use this version instead"
-    }
-  ],
-  "usage_note": "register, context, the main pitfall for English speakers (1-2 sentences)"
-}
+  required: ['hanzi', 'pinyin', 'english'],
+};
 
-Up to 2 alternatives; use [] when none is worth showing.`;
+const TRANSLATE_TOOL = {
+  name: 'translate_sentence',
+  description: 'Return the recommended translation, up to two alternatives and a usage note.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      primary: { ...ALT_ITEM, description: 'Recommended translation; note = one sentence on why' },
+      alternatives: { type: 'array', items: ALT_ITEM, description: "Up to 2; note = when/why you'd use it instead" },
+      usage_note: { type: 'string', description: 'Register, context, the main pitfall for English speakers (1-2 sentences)' },
+    },
+    required: ['primary', 'alternatives'],
+  },
+};
 
-function isRetryableError(error: unknown): boolean {
-  if (error instanceof Anthropic.APIError) {
-    return error.status === 429 || error.status === 503 || error.status === 529;
-  }
-  return false;
+const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+
+/** Shape-check and clean the tool input; throws (→ retried) when the essentials are missing. */
+export function normalizeTranslation(raw: unknown, sentence: string): SentenceTranslation {
+  const r = (raw ?? {}) as Record<string, any>;
+  const alt = (a: any) => ({ hanzi: str(a?.hanzi), pinyin: str(a?.pinyin), english: str(a?.english), note: str(a?.note) || undefined });
+  const primary = alt(r.primary);
+  if (!primary.hanzi || !primary.pinyin) throw new Error('Invalid sentence translation structure from AI');
+  if (!primary.english) primary.english = sentence.trim();
+  return {
+    originalInput: sentence.trim(),
+    primary,
+    alternatives: (Array.isArray(r.alternatives) ? r.alternatives : []).map(alt).filter((a: { hanzi: string; pinyin: string }) => a.hanzi && a.pinyin).slice(0, 3),
+    words: [],
+    grammar_points: [],
+    usage_note: str(r.usage_note) || undefined,
+  };
 }
 
 /**
- * Translate an English sentence into Chinese with alternatives and a full
- * explanation of the recommended translation. Retries up to 3 times on
- * transient Anthropic API errors.
+ * Translate an English sentence into Chinese — the Sentence Coach's fast first
+ * reply for English input. Reliability lives in structuredCall.
  */
 export async function translateSentence(
   apiKey: string,
   sentence: string
 ): Promise<SentenceTranslation> {
-  const client = new Anthropic({ apiKey });
-
-  const userPrompt = USER_PROMPT_TEMPLATE.replace(/\{input\}/g, sentence.trim());
-
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
-    }
-    try {
-      const response = await client.messages.create({
-        model: 'claude-sonnet-5',
-        max_tokens: 900,
-        messages: [{ role: 'user', content: userPrompt }],
-        system: SENTENCE_TRANSLATE_SYSTEM_PROMPT,
-      });
-
-      const textContent = response.content.find((c) => c.type === 'text');
-      if (!textContent || textContent.type !== 'text') {
-        throw new Error('No text content in AI response');
-      }
-
-      const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Could not find JSON in AI response');
-      }
-
-      const result = JSON.parse(jsonMatch[0]) as SentenceTranslation;
-
-      if (!result.primary?.hanzi || !result.primary?.pinyin) {
-        throw new Error('Invalid sentence translation structure from AI');
-      }
-
-      result.originalInput = sentence.trim();
-      if (!result.primary.english) {
-        result.primary.english = sentence.trim();
-      }
-      if (!Array.isArray(result.alternatives)) {
-        result.alternatives = [];
-      }
-      result.alternatives = result.alternatives.filter((a) => a.hanzi && a.pinyin);
-      if (!Array.isArray(result.words)) {
-        result.words = [];
-      }
-      result.words = result.words.filter((w) => w.hanzi && w.pinyin && w.english);
-      if (!Array.isArray(result.grammar_points)) {
-        result.grammar_points = [];
-      }
-
-      return result;
-    } catch (error) {
-      lastError = error;
-      if (!isRetryableError(error)) {
-        break;
-      }
-    }
-  }
-
-  throw lastError;
+  return structuredCall({
+    apiKey,
+    model: 'claude-sonnet-5',
+    system: SENTENCE_TRANSLATE_SYSTEM_PROMPT,
+    user: `Translate this English sentence into Chinese and explain the translation:\n\n${sentence.trim()}`,
+    tool: TRANSLATE_TOOL,
+    maxTokens: 2000,
+    validate: (input) => normalizeTranslation(input, sentence),
+  });
 }

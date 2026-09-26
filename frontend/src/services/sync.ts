@@ -26,6 +26,7 @@ import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRA
 import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncRecordingNotes } from './recording-notes';
 import { uploadPendingCardFlags } from './cardFlags';
+import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
@@ -448,6 +449,17 @@ class SyncService {
       if (flags.uploaded > 0) console.log('[Sync] Card flags posted:', flags.uploaded);
     } catch (err) {
       console.error('[Sync] Card flag upload failed:', err);
+    }
+    try {
+      // Video-call recordings that didn't finish uploading during the call
+      // (bad connection, closed tab): close pieces left open by a dead tab,
+      // then push whatever is queued. The call on screen keeps its own pieces open.
+      const onCall = /^\/calls\/([^/]+)\/?$/.exec(window.location.pathname)?.[1] ?? null;
+      await closeOrphanPieces(onCall);
+      const calls = await drainCallUploads();
+      if (calls.sent > 0) console.log('[Sync] Call recording parts uploaded:', calls.sent, 'remaining:', calls.remaining);
+    } catch (err) {
+      console.error('[Sync] Call recording upload failed:', err);
     }
     try {
       // Tutor notes on my recordings ("second tone, not fourth") and replies

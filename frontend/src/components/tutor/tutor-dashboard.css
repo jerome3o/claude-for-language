@@ -963,3 +963,30 @@
   border-color: #3b82f6;
   background: #eff6ff;
 }
+
+/* Video call (beta) button + live-call banner on the student / tutor page */
+.td-actions .btn:nth-child(3):last-child { grid-column: 1 / -1; }
+.td-beta {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #5b21b6;
+  vertical-align: middle;
+}
+.td-live-call {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.6rem 0.6rem 1rem;
+  border-radius: var(--radius-lg);
+  background: #fef2f2;
+  color: #991b1b;
+  font-weight: 600;
+}
+.td-live-call .btn { min-height: 44px; }

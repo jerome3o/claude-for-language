@@ -84,6 +84,29 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
 
+# Queue for after-call processing of video calls (experimental): one message
+# per recording piece (assemble chunks + transcribe) and one for the lesson
+# report. Transcription of a few minutes of audio outlives a waitUntil().
+# Create with: `wrangler queues create call-processing-queue`
+[[queues.producers]]
+queue = "call-processing-queue"
+binding = "CALL_QUEUE"
+
+[[queues.consumers]]
+queue = "call-processing-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
+# Video call rooms: one Durable Object per call relays WebRTC signalling and
+# holds the whiteboard + in-call chat (WebSocket Hibernation API).
+[[durable_objects.bindings]]
+name = "CALL_ROOM"
+class_name = "CallRoom"
+
+[[migrations]]
+tag = "v1-call-room"
+new_sqlite_classes = ["CallRoom"]
 # Queue for the session-notes agent: a tutor's free-form lesson notes become a
 # deck (+ a mini lesson / reader when warranted) through a multi-round tool
 # loop that is checkpointed in D1 after every round. One job per message; a

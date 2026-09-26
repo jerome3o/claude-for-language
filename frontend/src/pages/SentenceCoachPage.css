@@ -182,6 +182,20 @@
   font-size: 0.9375rem;
 }
 
+.coach-error-retry {
+  display: block;
+  margin-top: 0.5rem;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 1px solid #fca5a5;
+  border-radius: 999px;
+  background: #fff;
+  color: #991b1b;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
 @media (min-width: 640px) {
   .coach-corrected-hanzi {
     font-size: 2rem;

@@ -114,11 +114,11 @@ describe('activeTab', () => {
 
 describe('isImmersiveRoute', () => {
   it.each(['/study', '/study/', '/quests/abc', '/readers/r1', '/readers/r1/edit', '/readers/r1/print',
-    '/library/l1/edit', '/lessons/l1/print', '/connections/1/chat/2', '/join/token'])(
+    '/library/l1/edit', '/lessons/l1/print', '/connections/1/chat/2', '/join/token', '/calls/c1'])(
     '%s hides the bar', (p) => expect(isImmersiveRoute(p)).toBe(true),
   );
   it.each(['/', '/study/review/abc', '/quests', '/readers', '/readers/generate', '/library', '/library/l1',
-    '/lessons', '/connections/1', '/decks', '/more', '/settings'])(
+    '/lessons', '/connections/1', '/decks', '/more', '/settings', '/calls', '/calls/c1/review'])(
     '%s keeps the bar', (p) => expect(isImmersiveRoute(p)).toBe(false),
   );
 });

@@ -63,6 +63,7 @@ jobs:
           npx wrangler queues create image-generation-queue || true
           npx wrangler queues create sentence-set-queue || true
           npx wrangler queues create quest-generation-queue || true
+          npx wrangler queues create call-processing-queue || true
           npx wrangler queues create tutor-notes-queue || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
@@ -89,6 +90,9 @@ jobs:
           echo "${{ secrets.ADMIN_EMAIL }}" | npx wrangler secret put ADMIN_EMAIL
           echo "${{ secrets.NTFY_TOPIC }}" | npx wrangler secret put NTFY_TOPIC
           echo "${{ secrets.SENDGRID_API_KEY }}" | npx wrangler secret put SENDGRID_API_KEY
+          echo "${{ secrets.TURN_KEY_ID }}" | npx wrangler secret put TURN_KEY_ID
+          echo "${{ secrets.TURN_KEY_API_TOKEN }}" | npx wrangler secret put TURN_KEY_API_TOKEN
+          echo "${{ secrets.SONIOX_API_KEY }}" | npx wrangler secret put SONIOX_API_KEY
           echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_URL }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_URL
           echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_KEY }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_KEY
         env:

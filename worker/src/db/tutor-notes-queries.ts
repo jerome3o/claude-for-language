@@ -1,5 +1,5 @@
 /**
- * SQL for the session-notes agent (tutor_note_jobs, migration 0071) and the
+ * SQL for the session-notes agent (tutor_note_jobs, migration 0072) and the
  * read-only lookups its tools make on the student's account. Writes to decks /
  * notes / lessons / readers never happen here — the agent goes through the
  * content service, the lesson library and the reader queries like every other
