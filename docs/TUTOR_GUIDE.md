@@ -873,6 +873,12 @@ What it makes, and the rules it follows:
 - It also reads what the student has been getting wrong lately, so a word they keep
   failing gets a fresh, better explanation rather than being skipped.
 
+**From a recorded video lesson**: on the call's review page (Calls → the lesson → after the
+transcript is ready) a **Make homework from this lesson** button does the same thing with the
+transcript, whatever was written on the whiteboard, the in-call chat and the lesson report as
+the notes — no typing needed. The job appears there and under *Session notes* on the student
+page, marked "from a video lesson".
+
 When it finishes, the card shows the deck (with a link to your copy), the lesson, the
 reader, and a short **summary** of what was made and what was left out and why. *What it
 did* opens the full step list. A job that fails (the AI was overloaded, say) keeps its

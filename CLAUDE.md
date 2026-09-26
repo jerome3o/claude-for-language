@@ -1039,12 +1039,20 @@ out of rounds restarts). `steps` (progress lines from `stepForTool` + the model'
 `progress` drive the UI, which polls every 3 s while a job is queued / running
 (`SessionNotesSection`, `SessionNotesJobCard`; all jobs at `/connections/:relId/session-notes`).
 Submitting also logs the lesson (`tutor_lesson_log` + the student's `lesson_notes`) unless
-`log_lesson: false`. At most 2 active jobs per relationship. The loop is unit-tested with a
+`log_lesson: false`. At most 2 active jobs per relationship. Both entry points go through
+`submitSessionNotes` (`services/tutor-notes-submit.ts`). **Homework from a recorded video lesson**:
+on `/calls/:id/review` the tutor's **Make homework from this lesson** button
+(`components/calls/CallHomeworkSection.tsx`) posts to `POST /api/calls/:id/homework`; the call's
+transcript (speaker-labelled, with translations, middle trimmed), whiteboard text, in-call chat and
+the lesson report become the job's notes (`composeCallNotes`, pure, unit-tested), `source_call_id`
+links the job back to the call, and the briefing tells the agent it is reading speech recognition.
+One active job per call; the job card links back to the review page ("from a video lesson"). The loop is unit-tested with a
 mocked model and stores (`services/__tests__/tutor-notes-agent.test.ts`).
 - `POST /api/relationships/:relId/session-notes` - `{ notes, title?, lesson_at?, priority?, auto_share?, log_lesson? }` → 202 `{ job }` (tutor only; 503 without `ANTHROPIC_API_KEY`; 409 when two jobs are already active)
 - `GET /api/relationships/:relId/session-notes[?limit]` - `{ jobs }` newest first, no transcripts
 - `GET /api/relationships/:relId/session-notes/:id` - the job with `steps`, `progress`, `result` (`deck`, `lessons`, `reader`, `summary`, `skipped`)
 - `POST …/session-notes/:id/retry` | `/cancel`, `DELETE …/session-notes/:id` (what the job created stays)
+- `POST /api/calls/:id/homework` - `{ priority?, auto_share?, log_lesson? }` → 202 `{ job }` from the call's material (tutor of the call's relationship; 409 while live / still transcribing; 200 `{ job, existing: true }` when one is already running) · `GET /api/calls/:id/homework` → `{ jobs }`
 
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
@@ -1263,7 +1271,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `move_student_deck` | Move a packet within the student's study queue (`to: top | up | down | bottom`); returns `queue_position` of `queue_total` |
 | `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
 | `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
-| `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`; deck + conditional mini lesson / reader, sent to the student by default) / poll one job's progress, steps and result / list a student's jobs |
+| `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, sent to the student by default) / poll one job's progress, steps and result / list a student's jobs |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
 

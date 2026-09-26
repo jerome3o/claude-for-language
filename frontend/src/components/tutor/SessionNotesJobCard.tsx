@@ -63,6 +63,12 @@ export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId
           <span className="sn-job-when">
             {job.lesson_at ? `Lesson ${shortDateTime(job.lesson_at).replace(/,? \d{1,2}:\d{2}.*$/, '')} · ` : ''}
             sent {shortDateTime(job.created_at)} · {job.notes_chars.toLocaleString()} characters
+            {job.source_call_id && (
+              <>
+                {' · '}
+                <Link to={`/calls/${job.source_call_id}/review`}>🎥 from a video lesson</Link>
+              </>
+            )}
           </span>
         </div>
         <span className={`sn-status sn-status-${job.status}`}>
@@ -84,7 +90,7 @@ export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId
           {hiddenCount > 0 && (
             <li className="sn-step sn-step-more">
               <button type="button" className="btn-link" onClick={() => setShowSteps(true)}>
-                {hiddenCount} earlier {plural(hiddenCount, 'step')}
+                {plural(hiddenCount, 'earlier step')}
               </button>
             </li>
           )}
@@ -155,7 +161,7 @@ export function SessionNotesJobCard({ relId, job, defaultOpen = false }: { relId
           </button>
         )}
         <button type="button" className="btn-link" onClick={() => setShowNotes((v) => !v)}>
-          {showNotes ? 'Hide notes' : 'Show notes'}
+          {showNotes ? 'Hide notes' : job.source_call_id ? 'Show transcript' : 'Show notes'}
         </button>
         {active && (
           <button type="button" className="btn-link sn-danger" onClick={() => cancel.mutate()} disabled={cancel.isPending}>

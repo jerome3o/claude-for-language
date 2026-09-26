@@ -16,6 +16,9 @@ import { deleteCall, getCall, makeCallFlashcards, processCall } from '../api/cal
 import { db } from '../db/database';
 import { drainCallUploads } from '../services/calls/uploads';
 import { BoardSnapshot } from '../components/calls/Whiteboard';
+import { CallHomeworkSection } from '../components/calls/CallHomeworkSection';
+import { getRelationship } from '../api/client';
+import { getMyRoleInRelationship } from '../types';
 import { formatOffset, groupTurns, type TranscriptSegment } from '@shared/calls';
 import type { CallDetail, CallProcessingStatus, CallReportWord } from '../types/calls';
 import './CallPage.css';
@@ -164,6 +167,14 @@ export function CallReviewPage() {
   }, [detail, user]);
   const turns = useMemo(() => groupTurns(detail?.transcript ?? []), [detail]);
   const pieces = useMemo(() => new Map((detail?.pieces ?? []).map((p) => [p.id, p])), [detail]);
+  const relId = detail?.call.relationship_id ?? null;
+  const relQuery = useQuery({
+    queryKey: ['relationship', relId],
+    queryFn: () => getRelationship(relId!),
+    enabled: !!relId,
+    staleTime: 60_000,
+  });
+  const iAmTutor = !!relQuery.data && !!user && getMyRoleInRelationship(relQuery.data, user.id) === 'tutor';
 
   if (query.isLoading) return <div className="page"><div className="container"><p>Loading…</p></div></div>;
   if (query.error || !detail) {
@@ -313,6 +324,15 @@ export function CallReviewPage() {
               </section>
             )}
           </>
+        )}
+
+        {iAmTutor && relId && (
+          <CallHomeworkSection
+            callId={callId}
+            relId={relId}
+            studentName={other?.name || other?.email.split('@')[0] || 'the student'}
+            ready={call.status === 'ended' && !isBusy(detail)}
+          />
         )}
 
         <section className="detail-section cr-section">

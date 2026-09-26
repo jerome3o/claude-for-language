@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS tutor_note_jobs (
   result TEXT NOT NULL DEFAULT '{}',
   error TEXT,
   lesson_log_id TEXT,
+  source_call_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   started_at TEXT,
@@ -31,3 +32,4 @@ CREATE TABLE IF NOT EXISTS tutor_note_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_tutor_note_jobs_rel ON tutor_note_jobs(relationship_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_tutor_note_jobs_tutor ON tutor_note_jobs(tutor_id, status);
+CREATE INDEX IF NOT EXISTS idx_tutor_note_jobs_call ON tutor_note_jobs(source_call_id);

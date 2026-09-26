@@ -56,3 +56,14 @@ export async function cancelSessionNotesJob(relId: string, id: string): Promise<
 export async function deleteSessionNotesJob(relId: string, id: string): Promise<void> {
   await request<{ success: boolean }>(`${base(relId)}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+/** Homework from a recorded video lesson (POST /api/calls/:id/homework): the call's transcript, board, chat and report become the notes. */
+export async function makeHomeworkFromCall(callId: string, input: Pick<SubmitSessionNotesInput, 'priority' | 'auto_share' | 'log_lesson'> = {}): Promise<SessionNotesJob> {
+  const r = await request<{ job: SessionNotesJob }>(`/calls/${encodeURIComponent(callId)}/homework`, { method: 'POST', body: JSON.stringify(input) });
+  return r.job;
+}
+
+export async function listCallHomework(callId: string): Promise<SessionNotesJob[]> {
+  const r = await request<{ jobs: SessionNotesJob[] }>(`/calls/${encodeURIComponent(callId)}/homework`);
+  return r.jobs;
+}

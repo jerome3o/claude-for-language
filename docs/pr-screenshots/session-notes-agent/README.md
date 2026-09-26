@@ -16,3 +16,12 @@ The sheet: paste any amount of raw notes (or attach a text file), optional title
 
 ![Failed job with Retry](05-failed-job.png)
 A failed job keeps its steps and shows a readable error; **Retry** resumes from the last checkpoint. Below the summary, "2 words left out" opens the list of words the agent deliberately skipped with the reason.
+
+![Call review: Make homework from this lesson](06-call-review-button.png)
+On a recorded video lesson's review page (`/calls/:id/review`, tutor only) a **Homework** section with **✨ Make homework from this lesson**: the transcript, whiteboard text, in-call chat and lesson report become the notes of the same agent job.
+
+![Call review: the finished job](06c-call-review-done.png)
+The job card lives on the review page too — here finished, with the deck and mini lesson it made and its summary; "Show transcript" opens the exact text the agent read.
+
+![Student page: job from a video lesson](07-student-page-from-call.png)
+The same job under *Session notes* on the student page, marked "🎥 from a video lesson" with a link back to the review page.

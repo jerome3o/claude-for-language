@@ -11,7 +11,7 @@
  */
 import { z } from 'zod';
 import type { ToolContext } from './context.js';
-import { guard, jsonResult, textResult } from './context.js';
+import { errorResult, guard, jsonResult, textResult } from './context.js';
 import type {
   CardFlagRow,
   ClaudeChatQuestionRow,
@@ -624,25 +624,34 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'submit_session_notes',
-    `Hand the tutor's raw notes from a lesson to the in-app assistant, which works in the background (a minute or a few): it checks the words against the student's existing cards and struggles, builds a deck of standard cards for the words taught in the lesson, writes a mini lesson ONLY when the notes show a grammar point with example sentences, a graded reader only when the notes call for one, and (by default) sends everything to the student as homework. Notes can be any length and format — paste them as they are; do not pre-process them into cards. Returns the job; poll get_session_notes_job for progress and the result. Also logs the lesson (anchors "since last lesson" in Insights) unless \`log_lesson\` is false.`,
+    `Hand the tutor's raw notes from a lesson — or the transcript of a recorded video lesson — to the in-app assistant, which works in the background (a minute or a few): it checks the words against the student's existing cards and struggles, builds a deck of standard cards for the words taught in the lesson, writes a mini lesson ONLY when the notes show a grammar point with example sentences, a graded reader only when the notes call for one, and (by default) sends everything to the student as homework. Pass \`notes\` verbatim (any length and format; do not pre-process them into cards), OR \`call_id\` for a video call whose transcript, whiteboard text, chat and report become the notes (the call must belong to the relationship and be ended). Returns the job; poll get_session_notes_job for progress and the result. Also logs the lesson (anchors "since last lesson" in Insights) unless \`log_lesson\` is false.`,
     {
-      relationship_id: RELATIONSHIP_ID,
-      notes: z.string().min(20).max(120_000).describe('The raw session notes, verbatim.'),
-      title: z.string().max(120).optional().describe('Optional title for the lesson / deck ("Restaurant ordering").'),
-      lesson_at: z.string().optional().describe('When the lesson happened (YYYY-MM-DD or ISO). Default: now.'),
+      relationship_id: RELATIONSHIP_ID.optional().describe('Required with `notes`. Ignored with `call_id` (the call knows its relationship).'),
+      notes: z.string().min(20).max(120_000).optional().describe('The raw session notes, verbatim. Omit when passing call_id.'),
+      call_id: z.string().optional().describe('A recorded video call (from the app\'s Calls page) whose transcript should become the notes.'),
+      title: z.string().max(120).optional().describe('Optional title for the lesson / deck ("Restaurant ordering"). Ignored with call_id (the call\'s title is used).'),
+      lesson_at: z.string().optional().describe('When the lesson happened (YYYY-MM-DD or ISO). Default: now (or the call\'s start).'),
       priority: z.enum(['core', 'non_urgent']).optional().describe('Where the deck lands in the student\'s study queue when sent: core = top (default), non_urgent = bottom.'),
       auto_share: z.boolean().optional().describe('Send the deck / lesson / reader to the student when done (default true). false keeps them in the tutor\'s library to review first.'),
       log_lesson: z.boolean().optional().describe('Also add a lesson-log entry with these notes (default true).'),
     },
-    async ({ relationship_id, notes, title, lesson_at, priority, auto_share, log_lesson }) =>
+    async ({ relationship_id, notes, call_id, title, lesson_at, priority, auto_share, log_lesson }) =>
       guard(async () => {
+        const options = { priority: priority ?? 'core', auto_share: auto_share ?? true, log_lesson: log_lesson ?? true };
+        if (call_id) {
+          const r = await api.post<{ job: SessionNotesJobRow; existing?: boolean }>(`/api/calls/${encodeURIComponent(call_id)}/homework`, options);
+          return jsonResult({
+            ...compactSessionNotesJob(r.job),
+            ...(r.existing ? { note: 'A job for this call is already running; this is it.' } : {}),
+            hint: 'Poll get_session_notes_job until status is done (or failed); a job usually takes one to three minutes.',
+          });
+        }
+        if (!relationship_id || !notes) return errorResult('Pass relationship_id and notes, or call_id.');
         const r = await api.post<{ job: SessionNotesJobRow }>(`${rel(relationship_id)}/session-notes`, {
           notes,
           title: title ?? undefined,
           lesson_at: lesson_at ?? undefined,
-          priority: priority ?? 'core',
-          auto_share: auto_share ?? true,
-          log_lesson: log_lesson ?? true,
+          ...options,
         });
         return jsonResult({ ...compactSessionNotesJob(r.job), hint: 'Poll get_session_notes_job until status is done (or failed); a job usually takes one to three minutes.' });
       })

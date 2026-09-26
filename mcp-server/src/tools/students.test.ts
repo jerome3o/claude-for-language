@@ -797,6 +797,25 @@ describe('card flags & Ask-Claude history tools', () => {
     expect(typeof out.hint).toBe('string');
   });
 
+  it('submit_session_notes with call_id posts to the call homework route', async () => {
+    const job = {
+      id: 'job-2', relationship_id: 'rel-1', title: 'Lesson with Jerome', notes: 'transcript', notes_chars: 10, lesson_at: null,
+      priority: 'core', auto_share: true, status: 'queued', progress: 'Waiting to start', steps: [], rounds: 0, result: {}, error: null,
+      created_at: '2026-09-26T13:00:00.000Z', finished_at: null,
+    };
+    const { tools, calls } = fakeContext({ 'POST /api/calls/call-9/homework': { job } });
+    const out = parse(await tools.get('submit_session_notes')!.handler({ call_id: 'call-9', priority: 'non_urgent' }));
+    expect(calls[0]).toMatchObject({ method: 'POST', path: '/api/calls/call-9/homework', body: { priority: 'non_urgent', auto_share: true, log_lesson: true } });
+    expect(out).toMatchObject({ job_id: 'job-2', status: 'queued' });
+  });
+
+  it('submit_session_notes without notes or call_id is refused', async () => {
+    const { tools, calls } = fakeContext({});
+    const res = await tools.get('submit_session_notes')!.handler({ relationship_id: 'rel-1' });
+    expect(res.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
   it('get_session_notes_job flattens the result and lists the steps', async () => {
     const job = {
       id: 'job-1', relationship_id: 'rel-1', title: null, notes: 'n', notes_chars: 1, lesson_at: null, priority: 'non_urgent', auto_share: true,

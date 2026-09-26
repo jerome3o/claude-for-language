@@ -38,6 +38,8 @@ export interface SessionNotesJob {
   result: SessionNotesResult;
   error: string | null;
   lesson_log_id: string | null;
+  /** The video call whose transcript these notes are, or null for pasted notes. */
+  source_call_id: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;

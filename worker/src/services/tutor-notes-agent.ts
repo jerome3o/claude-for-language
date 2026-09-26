@@ -202,7 +202,7 @@ export interface BriefingInput {
   goingWell: Array<{ hanzi: string; english: string }>;
   lessonLog: Array<{ lesson_at: string; notes: string | null }>;
   earlierJobs: Array<{ created_at: string; title: string | null; result: TutorNotesResult }>;
-  job: Pick<TutorNotesJob, 'title' | 'notes' | 'lesson_at' | 'priority' | 'auto_share'>;
+  job: Pick<TutorNotesJob, 'title' | 'notes' | 'lesson_at' | 'priority' | 'auto_share'> & { source_call_id?: string | null };
 }
 
 /** The first user message: everything the agent should know before it starts, then the notes verbatim. */
@@ -251,7 +251,12 @@ export function buildBriefing(input: BriefingInput): string {
   if (input.job.lesson_at) lines.push(`Lesson date: ${input.job.lesson_at.slice(0, 10)}`);
   lines.push(`Delivery: ${input.job.auto_share ? `the deck goes to the ${input.job.priority === 'core' ? 'top' : 'bottom'} of the student's study queue when you finish` : 'the tutor will send the deck themselves after reviewing it'}.`);
   lines.push('');
-  lines.push(`# Session notes (verbatim from the tutor)`);
+  if (input.job.source_call_id) {
+    lines.push(`# Session notes (the recorded video lesson)`);
+    lines.push(`These notes are the automatic transcript of a recorded video lesson (each speaker's own microphone, so the speaker labels are reliable; the words come from speech recognition and may contain errors, especially in mixed Chinese and English — silently correct obvious mishearings, never invent what was not said), plus anything written on the whiteboard, the in-call chat and, when present, the lesson report. Cards are for what the TUTOR taught or corrected; the learner's own mistakes are what the corrections and explanations should address.`);
+  } else {
+    lines.push(`# Session notes (verbatim from the tutor)`);
+  }
   lines.push(clipNotes(input.job.notes));
   lines.push('');
   lines.push(`Work through the notes now: check the words, create the deck, add the cards, decide about a lesson and a reader, then call finish.`);

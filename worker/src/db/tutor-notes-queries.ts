@@ -43,6 +43,8 @@ export interface TutorNotesJobRow {
   result: string;
   error: string | null;
   lesson_log_id: string | null;
+  /** The video call whose transcript these notes are (null for pasted notes). */
+  source_call_id: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
@@ -83,14 +85,15 @@ export interface CreateJobInput {
   priority: TutorNotesPriority;
   auto_share: boolean;
   lesson_log_id: string | null;
+  source_call_id?: string | null;
 }
 
 export async function createJob(db: D1Database, input: CreateJobInput): Promise<TutorNotesJob> {
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO tutor_note_jobs (id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, lesson_log_id, progress)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Waiting to start')`
+      `INSERT INTO tutor_note_jobs (id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, lesson_log_id, source_call_id, progress)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Waiting to start')`
     )
     .bind(
       id,
@@ -102,7 +105,8 @@ export async function createJob(db: D1Database, input: CreateJobInput): Promise<
       input.lesson_at,
       input.priority,
       input.auto_share ? 1 : 0,
-      input.lesson_log_id
+      input.lesson_log_id,
+      input.source_call_id ?? null
     )
     .run();
   return (await getJob(db, id))!;
@@ -126,10 +130,23 @@ export async function listJobs(db: D1Database, relationshipId: string, limit = 5
   const rows = await db
     .prepare(
       `SELECT id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, status, progress, steps,
-              NULL AS transcript, rounds, result, error, lesson_log_id, created_at, updated_at, started_at, finished_at
+              NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, created_at, updated_at, started_at, finished_at
        FROM tutor_note_jobs WHERE relationship_id = ? ORDER BY created_at DESC LIMIT ?`
     )
     .bind(relationshipId, limit)
+    .all<TutorNotesJobRow>();
+  return rows.results.map(parseJob);
+}
+
+/** Jobs made from one video call's transcript, newest first (no transcripts). */
+export async function listJobsForCall(db: D1Database, callId: string): Promise<TutorNotesJob[]> {
+  const rows = await db
+    .prepare(
+      `SELECT id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, status, progress, steps,
+              NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, created_at, updated_at, started_at, finished_at
+       FROM tutor_note_jobs WHERE source_call_id = ? ORDER BY created_at DESC LIMIT 20`
+    )
+    .bind(callId)
     .all<TutorNotesJobRow>();
   return rows.results.map(parseJob);
 }

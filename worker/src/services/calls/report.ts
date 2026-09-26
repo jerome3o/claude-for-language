@@ -54,7 +54,8 @@ interface SegmentRow {
   translation: string | null;
 }
 
-async function roleNames(db: D1Database, call: CallRow, participants: CallParticipant[]): Promise<Record<string, string>> {
+/** Display names with the role in brackets when the call belongs to a tutor relationship. */
+export async function roleNames(db: D1Database, call: CallRow, participants: CallParticipant[]): Promise<Record<string, string>> {
   const names: Record<string, string> = {};
   let tutorId: string | null = null;
   if (call.relationship_id) {
