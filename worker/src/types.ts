@@ -7,10 +7,22 @@ export interface Env {
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   SENTENCE_SET_QUEUE: Queue<SentenceSetMessage>;
   QUEST_QUEUE: Queue<QuestGenerationMessage>;
+  /** Video calls (experimental): one CallRoom Durable Object per call + the after-call queue. */
+  CALL_ROOM: DurableObjectNamespace<import('./durable/call-room').CallRoom>;
+  CALL_QUEUE: Queue<CallProcessingMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
   MINIMAX_API_KEY: string;
   GEMINI_API_KEY: string;
+  /** Cloudflare Realtime TURN key for video calls (optional — STUN-only without it). */
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
+  /** Call transcription: 'gemini' | 'whisper' | … (default: the best one with a key). */
+  CALL_TRANSCRIBE_PROVIDER?: string;
+  /** Override the Gemini model used for call transcription (default in services/calls/transcribe.ts). */
+  CALL_GEMINI_MODEL?: string;
+  /** Soniox API key — the best code-switching transcription; used for calls when set. */
+  SONIOX_API_KEY?: string;
   CCR_FEATURE_REQUEST_ROUTINE_URL?: string;
   CCR_FEATURE_REQUEST_ROUTINE_KEY?: string;
   ENVIRONMENT: string;
@@ -61,6 +73,11 @@ export interface CustomLessonImageMessage {
   exerciseIndex: number;
   imagePrompt: string;
 }
+
+/** After-call processing: transcribe one recording piece, or write the lesson report. */
+export type CallProcessingMessage =
+  | { kind: 'piece'; pieceId: string }
+  | { kind: 'report'; callId: string };
 
 /** Background generation of a quest world (one Claude call + repair rounds). */
 export interface QuestGenerationMessage {

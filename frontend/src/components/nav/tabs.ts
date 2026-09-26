@@ -63,6 +63,7 @@ const IMMERSIVE = [
   /^\/lessons\/[^/]+\/(edit|print)\/?$/,
   /^\/connections\/[^/]+\/chat\//,
   /^\/join\//,
+  /^\/calls\/[^/]+\/?$/,
 ];
 
 export function isImmersiveRoute(pathname: string): boolean {

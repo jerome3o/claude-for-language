@@ -123,6 +123,12 @@ While editing a deck/note, user can:
 
 ---
 
+### 8. Video Calls (experimental)
+- 1:1 live lesson between a tutor and a student: video, audio, shared whiteboard (draw / type), in-call chat, screen sharing (desktop browsers)
+- Each participant's microphone is recorded (both see a ● REC badge) and uploaded offline-first
+- After the call: a merged Chinese + English transcript with pinyin and translations, a Claude lesson report (summary, corrections, follow-ups) and vocabulary that becomes flashcards in one tap
+- Details, setup and the transcription-provider comparison: [VIDEO_CALLS.md](./VIDEO_CALLS.md)
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

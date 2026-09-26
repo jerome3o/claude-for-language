@@ -221,6 +221,8 @@ export function FeedbackFAB() {
   }, [content, isSubmitting, includeConsoleLogs, includeScreenshot, screenshotDataUrl, location.pathname]);
 
   if (!isAuthenticated) return null;
+  // A video call fills the screen and has its own controls where the FAB would sit.
+  if (/^\/calls\/[^/]+\/?$/.test(location.pathname)) return null;
 
   const isStudying = location.pathname === '/study';
   const pos = getPos();

@@ -1055,7 +1055,17 @@ export function ChatPage() {
                           />
                         ) : (
                           <>
-                            {msg.content}
+                            {/* A video-call invite ("join here: …/calls/<id>") shows a Join button instead of the raw link. */}
+                            {(() => {
+                              const callId = /https?:\/\/\S+\/calls\/([A-Za-z0-9_-]{8,})/.exec(msg.content)?.[1];
+                              if (!callId) return msg.content;
+                              return (
+                                <>
+                                  {msg.content.replace(/\s*(—\s*join here:)?\s*https?:\/\/\S+\/calls\/\S+/, '')}
+                                  <Link to={`/calls/${callId}`} className="chat-call-link" onClick={(e) => e.stopPropagation()}>📹 Join the call</Link>
+                                </>
+                              );
+                            })()}
                             {/* Check status indicator */}
                             {isMe && checkStatus && (
                               <button
