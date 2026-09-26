@@ -1476,3 +1476,18 @@ body:has(.chat-page) #root {
   color: var(--text-secondary, #666);
   margin-top: 0.5rem;
 }
+
+/* Video-call invite in a message */
+.chat-call-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.4rem;
+  min-height: 40px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}

@@ -415,6 +415,27 @@ export interface LocalRecordingNote {
   _synced: number;
 }
 
+/**
+ * One step of uploading a video call's recording (services/calls/uploads.ts):
+ * register a piece, one ~10 s audio chunk, or close the piece. Drained in
+ * `seq` order, during the call and by every sync afterwards, so a recording
+ * survives a dropped connection or a closed tab.
+ */
+export type LocalCallUpload =
+  | { seq?: number; kind: 'register'; call_id: string; piece_id: string; piece_index: number; started_at: number; mime_type: string; attempts?: number }
+  | { seq?: number; kind: 'chunk'; call_id: string; piece_id: string; idx: number; blob: Blob; attempts?: number }
+  | { seq?: number; kind: 'close'; call_id: string; piece_id: string; chunk_count: number; duration_ms: number; attempts?: number };
+
+/** A recording piece this device made; `open` until its close op is queued. */
+export interface LocalCallPiece {
+  id: string;
+  call_id: string;
+  piece_index: number;
+  started_at: number;
+  chunk_count: number;
+  status: 'open' | 'closed';
+}
+
 /** A card flagged for the tutor, kept until the server has accepted it. */
 export interface LocalPendingCardFlag {
   /** Client-generated id; the server stores the same id (idempotent re-post) */
@@ -471,6 +492,8 @@ export class ChineseLearningDB extends Dexie {
 
   // Cards flagged for the tutor while offline, waiting to be posted
   pendingCardFlags!: Table<LocalPendingCardFlag, string>;
+  callUploads!: Table<LocalCallUpload, number>;
+  callPieces!: Table<LocalCallPiece, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -850,6 +873,13 @@ export class ChineseLearningDB extends Dexie {
     // locally so flagging works offline and posted by the next sync.
     this.version(17).stores({
       pendingCardFlags: 'id, note_id, created_at, _synced',
+    });
+
+    // Version 18: video call recordings (experimental) — the upload queue of
+    // pieces / chunks and the pieces this device recorded.
+    this.version(18).stores({
+      callUploads: '++seq, call_id, piece_id',
+      callPieces: 'id, call_id, status',
     });
   }
 }
