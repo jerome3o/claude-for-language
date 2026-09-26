@@ -3,18 +3,15 @@ import { SentenceTranslation } from '../types';
 
 const SENTENCE_TRANSLATE_SYSTEM_PROMPT = `You are a thoughtful Chinese language tutor. A learner gives you an English sentence and wants to know how to say it in Chinese — and to actually understand the translation, not just copy it.
 
-Provide:
-1. The best natural translation (the one you'd recommend they learn)
-2. 1-3 alternative translations with different register, nuance, or structure — say when each is the better choice
-3. A word-by-word breakdown of the recommended translation: each word/phrase, pinyin, meaning, grammatical role, notable usage
-4. The key grammar patterns in the recommended translation, each explained with the general pattern spelled out
-5. A short usage note: register, common contexts, pitfalls for English speakers
+Provide — a FAST first reply the learner reads in ten seconds; the word-by-word breakdown, grammar and cards come from the follow-up chat:
+1. The best natural translation (the one you'd recommend they learn), with one sentence on why
+2. Up to 2 alternative translations with different register, nuance, or structure — say when each is the better choice
+3. A short usage note (1–2 sentences): register, context, the main pitfall for English speakers
 
 Rules:
 - Pinyin ALWAYS uses tone marks (ā á ǎ à, ē é ě è, ī í ǐ ì, ō ó ǒ ò, ū ú ǔ ù, ǖ ǘ ǚ ǜ), NEVER tone numbers. Separate words with spaces, keep multi-syllable words together (e.g., "zhège").
 - Use simplified characters.
-- Explanations are in English, clear and practical.
-- Word entries should cover the full recommended translation in order; particles get their own entries.
+- Explanations are in English, clear and practical. Be brief.
 
 Respond ONLY with valid JSON, no other text.`;
 
@@ -39,24 +36,10 @@ Respond with JSON in this exact format:
       "note": "when/why you'd use this version instead"
     }
   ],
-  "words": [
-    {
-      "hanzi": "word or phrase from the recommended translation",
-      "pinyin": "pinyin with tone marks",
-      "english": "meaning in this sentence",
-      "role": "grammatical role, e.g. subject / verb / aspect particle / measure word",
-      "notes": "optional: usage notes, common confusions, literal meaning"
-    }
-  ],
-  "grammar_points": [
-    {
-      "pattern": "the structure, e.g. 是...的 / Subj + 把 + Obj + Verb",
-      "explanation": "clear explanation of how the pattern works and what it does here",
-      "example": "optional short extra example: hanzi (pinyin) - english"
-    }
-  ],
-  "usage_note": "register, context, pitfalls for English speakers"
-}`;
+  "usage_note": "register, context, the main pitfall for English speakers (1-2 sentences)"
+}
+
+Up to 2 alternatives; use [] when none is worth showing.`;
 
 function isRetryableError(error: unknown): boolean {
   if (error instanceof Anthropic.APIError) {
@@ -86,7 +69,7 @@ export async function translateSentence(
     try {
       const response = await client.messages.create({
         model: 'claude-sonnet-5',
-        max_tokens: 3500,
+        max_tokens: 900,
         messages: [{ role: 'user', content: userPrompt }],
         system: SENTENCE_TRANSLATE_SYSTEM_PROMPT,
       });

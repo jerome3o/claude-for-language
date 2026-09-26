@@ -666,7 +666,7 @@
 
 <img src="guide-images/coach.png" width="300">
 
-**More → Sentence Coach。** 学生输入一句中文（1），会得到批改、点评和逐词解释，以及其他说法；输入英文则会得到翻译和多种表达。每次结果都会开启一个保存下来的对话，学生可以继续追问，教练也可以直接把词加到卡组里。深层链接：`/coach?text=…`；在安卓 App 里，在任何地方选中文字后选择 **Sentence Coach**。
+**More → Sentence Coach。** 学生输入一句中文（1），会得到批改、简短点评和一两种其他说法；输入英文则会得到翻译和多种表达。第一条回复刻意保持简短，所以回来得很快。下面一排按钮，一点就能继续：**Make a card**（按卡片标准做一张完整的卡片——带解释和例句——放进 *Cards go to* 选中的卡组）、**Card for the whole sentence**（整句做卡）、**More examples**（更多例句）、**Other ways to say it**（其他说法）、**Explain the grammar**（讲解语法）。每个按钮都会把一条准备好的问题发进这段保存下来的对话里，学生也可以自己继续追问。深层链接：`/coach?text=…`；在安卓 App 里，在任何地方选中文字后选择 **Sentence Coach**。
 
 ### Sentence Breakdown（句子分析 / Analyze）
 

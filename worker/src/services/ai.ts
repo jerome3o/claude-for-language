@@ -301,6 +301,25 @@ function getTimeAgo(isoDate: string): string {
   return `${days}d ago`;
 }
 
+/**
+ * The ONE shape of a flashcard every create_flashcards tool accepts (Ask
+ * Claude, the Sentence Coach chat, chat "Discuss with Claude"). Mirrors the
+ * card standard: a word card needs its explanation AND an example sentence;
+ * a sentence card (hanzi is a full sentence) glosses every word instead.
+ */
+const FLASHCARD_ITEM_SCHEMA = {
+  properties: {
+    hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
+    pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
+    english: { type: 'string', description: 'ONE clear English meaning (the one this card teaches). Other senses go in fun_facts after "Also:".' },
+    fun_facts: { type: 'string', description: `REQUIRED in practice — the explanation, 3–6 short lines: every word of a sentence (汉字 (pīnyīn) meaning) then the structure, or every character of a word then how the word is used; then the common mistake / contrast / register and any alternatives kept off the card. Never a critique of the learner or trivia. ${CARD_STANDARD_SHORT}` },
+    sentence_clue: { type: 'string', description: 'For a WORD or short phrase card: one short natural example sentence containing the word exactly as written (prefer a single clause; no brackets, slashes, ellipses or blanks). Omit when hanzi is already a full sentence.' },
+    sentence_clue_pinyin: { type: 'string', description: 'Pinyin (tone marks) for sentence_clue.' },
+    sentence_clue_translation: { type: 'string', description: 'English translation of sentence_clue.' },
+  },
+  required: ['hanzi', 'pinyin', 'english', 'fun_facts'],
+} as const;
+
 // ============ Ask About Note with Tool Use (Agent Loop) ============
 
 // Read-only tools that are executed during the agent loop
@@ -340,13 +359,7 @@ function getAskNoteTools(note: Note) {
             description: 'Array of flashcards to create',
             items: {
               type: 'object',
-              properties: {
-                hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
-                pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
-                english: { type: 'string', description: 'Clear, concise English translation' },
-                fun_facts: { type: 'string', description: `The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}` },
-              },
-              required: ['hanzi', 'pinyin', 'english'],
+              ...FLASHCARD_ITEM_SCHEMA,
             },
           },
         },
@@ -974,7 +987,7 @@ Guidelines:
 - Ground answers in the analyzed sentence when relevant, but happily go deeper: grammar, alternatives, register, related vocabulary, example sentences, mnemonics.
 
 You have tools. Read-only tools run automatically; use them freely.
-- The user asks to save words/sentences to a deck → use create_flashcards with a deck_id chosen from the user's decks listed in the context (ask which deck ONLY if genuinely ambiguous and the user has several plausible ones — otherwise pick the most relevant and say which you chose).
+- The user asks to save words/sentences to a deck ("make a card", "add this") → FIRST search_cards for the word so you never duplicate a card they already have (if they have it, say so and offer to improve it instead); THEN use create_flashcards with a deck_id chosen from the user's decks listed in the context (the user's message often names the deck; otherwise ask ONLY if genuinely ambiguous — else pick the most relevant and say which you chose). One card per word or set phrase; make a card for the whole sentence only when asked. Every card is complete: fun_facts written to the standard below and, for a word card, a sentence_clue with pinyin and translation — never a bare hanzi/pinyin/english card, and never the coach's critique as fun_facts.
 - The user is confused about a pattern or asks for practice/a lesson/a drill (e.g. "I don't get 被 vs 把") → use create_custom_lesson to build a targeted mini lesson; it appears in their next study session and works offline. Answer their question in chat too — the lesson reinforces, it doesn't replace the explanation.
 - Use search_cards to check what the user already knows or avoid duplicate cards.
 - Use get_note_cards / get_note_history for details on specific existing cards.
@@ -998,13 +1011,7 @@ function getCoachChatTools() {
             description: 'Array of flashcards to create',
             items: {
               type: 'object',
-              properties: {
-                hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
-                pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },
-                english: { type: 'string', description: 'Clear, concise English translation' },
-                fun_facts: { type: 'string', description: `The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}` },
-              },
-              required: ['hanzi', 'pinyin', 'english'],
+              ...FLASHCARD_ITEM_SCHEMA,
             },
           },
         },
@@ -1450,13 +1457,7 @@ const CREATE_FLASHCARDS_TOOL = {
         description: 'Array of flashcards to create',
         items: {
           type: 'object',
-          properties: {
-            hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
-            pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use proper tone marks, NOT tone numbers. Put spaces between words, not syllables.' },
-            english: { type: 'string', description: 'Clear, concise English translation' },
-            fun_facts: { type: 'string', description: `The explanation: every word of a sentence (汉字 (pīnyīn) meaning) or every character of a word, then usage / common mistake / contrast, and any alternatives kept off the card. ${CARD_STANDARD_SHORT}` },
-          },
-          required: ['hanzi', 'pinyin', 'english'],
+          ...FLASHCARD_ITEM_SCHEMA,
         },
       },
     },

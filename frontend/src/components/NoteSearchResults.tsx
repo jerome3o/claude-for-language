@@ -2,15 +2,16 @@ import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, LocalNote, LocalCard, removeNotesLocally } from '../db/database';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { deleteNote } from '../api/client';
+import { deleteNote, searchNotesOnServer } from '../api/client';
 import CardEditModal from './CardEditModal';
 import { CardWithNote } from '../types';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { syncService } from '../services/sync';
+import { useNetwork } from '../contexts/NetworkContext';
+import { noteMatches, stripTones } from '../services/noteSearch';
 
-function stripTones(str: string): string {
-  return str.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
+/** Render at most this many matches (a one-character query can match thousands). */
+const MAX_RESULTS = 200;
 
 const RATING_COLORS = ['#ef4444', '#f97316', '#22c55e', '#3b82f6'];
 const CARD_TYPE_SHORT: Record<string, string> = {
@@ -38,10 +39,9 @@ export function NoteSearchResults({ query }: { query: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const { isOnline } = useNetwork();
   const decks = useLiveQuery(() => db.decks.toArray());
   const allNotes = useLiveQuery(() => db.notes.toArray());
-  const allCards = useLiveQuery(() => db.cards.toArray());
-  const allReviewEvents = useLiveQuery(() => db.reviewEvents.toArray());
 
   const deckMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -49,59 +49,62 @@ export function NoteSearchResults({ query }: { query: string }) {
     return map;
   }, [decks]);
 
-  const cardsByNoteId = useMemo(() => {
-    const map = new Map<string, LocalCard[]>();
-    allCards?.forEach(c => {
-      const existing = map.get(c.note_id) || [];
-      existing.push(c);
-      map.set(c.note_id, existing);
-    });
-    return map;
-  }, [allCards]);
+  const q = query.trim().toLowerCase();
+  const qStripped = stripTones(q);
 
-  // Build card_id -> (note_id, card_type) lookup and recent ratings by note
-  const ratingsByNoteId = useMemo(() => {
-    if (!allCards || !allReviewEvents) return new Map<string, Record<string, number[]>>();
+  const { results, totalMatches } = useMemo(() => {
+    if (!q || !allNotes) return { results: [] as LocalNote[], totalMatches: 0 };
+    const matches = allNotes.filter(note => noteMatches(note, q, qStripped));
+    return { results: matches.slice(0, MAX_RESULTS), totalMatches: matches.length };
+  }, [q, qStripped, allNotes]);
+
+  // Cards and recent ratings only for the notes on screen — never the whole
+  // review history (tens of thousands of events on a long-running account).
+  const resultKey = results.map(n => n.id).join(',');
+  const detail = useLiveQuery(async () => {
+    if (results.length === 0) return { cardsByNoteId: new Map<string, LocalCard[]>(), ratingsByNoteId: new Map<string, Record<string, number[]>>() };
+    const noteIds = results.map(n => n.id);
+    const cards = await db.cards.where('note_id').anyOf(noteIds).toArray();
+    const cardsByNoteId = new Map<string, LocalCard[]>();
     const cardInfo = new Map<string, { note_id: string; card_type: string }>();
-    for (const card of allCards) {
-      cardInfo.set(card.id, { note_id: card.note_id, card_type: card.card_type });
+    for (const c of cards) {
+      const existing = cardsByNoteId.get(c.note_id) || [];
+      existing.push(c);
+      cardsByNoteId.set(c.note_id, existing);
+      cardInfo.set(c.id, { note_id: c.note_id, card_type: c.card_type });
     }
-
-    const map = new Map<string, Record<string, number[]>>();
-    // Sort events by date descending so we get most recent first
-    const sorted = [...allReviewEvents].sort((a, b) =>
-      b.reviewed_at.localeCompare(a.reviewed_at)
-    );
-    for (const event of sorted) {
+    const events = await db.reviewEvents.where('card_id').anyOf(cards.map(c => c.id)).toArray();
+    // Most recent first, up to 8 per card type
+    events.sort((a, b) => (b.reviewed_at || '').localeCompare(a.reviewed_at || ''));
+    const ratingsByNoteId = new Map<string, Record<string, number[]>>();
+    for (const event of events) {
       const info = cardInfo.get(event.card_id);
       if (!info) continue;
-      let noteRatings = map.get(info.note_id);
+      let noteRatings = ratingsByNoteId.get(info.note_id);
       if (!noteRatings) {
         noteRatings = { hanzi_to_meaning: [], meaning_to_hanzi: [], audio_to_hanzi: [] };
-        map.set(info.note_id, noteRatings);
+        ratingsByNoteId.set(info.note_id, noteRatings);
       }
       const typeRatings = noteRatings[info.card_type];
-      if (typeRatings && typeRatings.length < 8) {
-        typeRatings.push(event.rating);
-      }
+      if (typeRatings && typeRatings.length < 8) typeRatings.push(event.rating);
     }
-    return map;
-  }, [allCards, allReviewEvents]);
+    return { cardsByNoteId, ratingsByNoteId };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultKey]);
+  const cardsByNoteId = detail?.cardsByNoteId ?? new Map<string, LocalCard[]>();
+  const ratingsByNoteId = detail?.ratingsByNoteId ?? new Map<string, Record<string, number[]>>();
 
-  const results = useMemo(() => {
-    if (!query.trim() || !allNotes) return [];
-    const q = query.trim().toLowerCase();
-    const qStripped = stripTones(q);
-
-    return allNotes.filter(note => {
-      if (note.hanzi.toLowerCase().includes(q)) return true;
-      if (note.english.toLowerCase().includes(q)) return true;
-      if (note.pinyin.toLowerCase().includes(q)) return true;
-      if (stripTones(note.pinyin).includes(qStripped)) return true;
-      if (note.sentence_clue && note.sentence_clue.toLowerCase().includes(q)) return true;
-      return false;
-    });
-  }, [query, allNotes]);
+  // Nothing on this device? Ask the server, so a device whose local copy is
+  // behind (or empty) still finds the card — and says so.
+  const localDone = allNotes !== undefined;
+  const serverQuery = useQuery({
+    queryKey: ['server-note-search', q],
+    queryFn: () => searchNotesOnServer(q, 50),
+    enabled: !!q && localDone && results.length === 0 && isOnline,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const serverHits = serverQuery.data?.notes ?? [];
 
   const handleNoteClick = useCallback((note: LocalNote) => {
     const cards = cardsByNoteId.get(note.id) || [];
@@ -155,15 +158,55 @@ export function NoteSearchResults({ query }: { query: string }) {
 
   if (!query.trim()) return null;
 
+  if (!localDone) {
+    return (
+      <div className="search-page" style={{ padding: 0 }}>
+        <div className="search-results-count">Searching…</div>
+      </div>
+    );
+  }
+
   return (
     <div className="search-page" style={{ padding: 0 }}>
-      <div className="search-results-count">
-        {results.length} result{results.length !== 1 ? 's' : ''}
+      <div className="search-results-count" data-testid="search-results-count">
+        {totalMatches > MAX_RESULTS ? `First ${MAX_RESULTS} of ${totalMatches} results` : `${totalMatches} result${totalMatches !== 1 ? 's' : ''}`}
       </div>
 
       {results.length === 0 && (
         <div className="search-empty">
-          No cards found matching "{query}"
+          {serverQuery.isFetching ? (
+            <>Nothing on this device — checking the server…</>
+          ) : serverHits.length > 0 ? (
+            <>
+              Not on this device yet, but the server has {serverHits.length}{serverHits.length === 50 ? '+' : ''} match{serverHits.length === 1 ? '' : 'es'} for "{query}"
+              {serverQuery.data && allNotes && allNotes.length < serverQuery.data.total_notes
+                ? ` (this device has ${allNotes.length} of your ${serverQuery.data.total_notes} cards — Settings → Full Sync brings the rest down)`
+                : ''}
+              :
+            </>
+          ) : (
+            <>No cards found matching "{query}"{serverQuery.isError ? ' (the server could not be reached)' : ''}</>
+          )}
+        </div>
+      )}
+
+      {results.length === 0 && serverHits.length > 0 && (
+        <div className="search-results-list" data-testid="server-search-results">
+          {serverHits.map(note => (
+            <div key={note.id} className="search-result-item" onClick={() => navigate(`/decks/${note.deck_id}`)}>
+              <div className="search-result-info">
+                <span className="search-result-hanzi">{note.hanzi}</span>
+                <span className="search-result-pinyin">{note.pinyin}</span>
+                <span className="search-result-english">{note.english}</span>
+                {note.sentence_clue && <span className="search-result-sentence-clue">{note.sentence_clue}</span>}
+              </div>
+              <div className="search-result-actions" onClick={e => e.stopPropagation()}>
+                <button className="search-action-btn" title="Go to deck" onClick={() => navigate(`/decks/${note.deck_id}`)}>
+                  <span className="search-deck-badge">{note.deck_name || 'Deck'}</span>
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

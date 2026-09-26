@@ -989,11 +989,14 @@ sentence) or create a mini lesson on the spot — the student approves each chan
 <img src="guide-images/coach.png" width="300">
 
 **More → Sentence Coach.** The student types a sentence in Chinese (1) and gets it
-corrected, critiqued and explained word by word, with alternative ways to say it; or
-types English and gets a translation with alternatives. Each result starts a saved
-conversation where the student can ask follow-ups, and the coach can add words straight
-into a deck. Deep link: `/coach?text=…`; on the Android app, select text anywhere and
-choose **Sentence Coach**.
+corrected with a short explanation and one or two other ways to say it; or types English
+and gets a translation with alternatives. The first reply is kept short so it comes back
+fast. Under it, one tap does the rest: **Make a card** (a full card to the card standard,
+with explanation and example sentence, into the deck chosen in *Cards go to*), **Card for
+the whole sentence**, **More examples**, **Other ways to say it**, **Explain the grammar**.
+Each chip sends a prepared question into the saved conversation, where the student can
+also type their own follow-ups. Deep link: `/coach?text=…`; on the Android app, select
+text anywhere and choose **Sentence Coach**.
 
 ### Sentence Breakdown (Analyze)
 
