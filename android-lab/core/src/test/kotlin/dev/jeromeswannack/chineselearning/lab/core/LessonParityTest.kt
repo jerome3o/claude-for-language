@@ -142,6 +142,21 @@ class LessonParityTest {
         }
     }
 
+    @Test fun readerFailures() {
+        for (el in root["failures"]!!.jsonArray) {
+            val c = el.jsonObject
+            assertEquals(c["text"]!!.str, ReaderFailures.friendly(c["raw"]!!.str), c.toString())
+        }
+        for (el in root["labels"]!!.jsonArray) {
+            val c = el.jsonObject
+            assertEquals(c["text"]!!.str, ReaderFailures.label(c["n"]!!.jsonPrimitive.int))
+        }
+        assertEquals("Today's story", ReaderFailures.title("生成中…", "Today's story...", null))
+        assertEquals("Story about: 公园", ReaderFailures.title("生成中...", "Generating...", "公园"))
+        assertEquals("小明在巴黎 · Xiaoming in Paris", ReaderFailures.title("小明在巴黎", "Xiaoming in Paris", null))
+        assertEquals("Generating", ReaderFailures.title("生成中...", "Generating...", null))
+    }
+
     private fun stateOf(queue: Int, due: Long?, next: String?) = CardScheduler.initialCardState().copy(queue = queue, dueTimestamp = due, nextReviewAt = next)
 
     @Suppress("unused") private fun JsonArray.bools() = map { it.jsonPrimitive.booleanOrNull }

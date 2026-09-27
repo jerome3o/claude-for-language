@@ -19,5 +19,6 @@ object FeatureSyncs {
         platform.register("study-notes", dev.jeromeswannack.chineselearning.lab.ui.study.TutorNotes.Sync) // tutor notes on the card back (A)
         platform.register("study-mc", dev.jeromeswannack.chineselearning.lab.ui.study.MultipleChoice.Sync) // multiple-choice options for offline listen cards (A)
         platform.register("lessons", dev.jeromeswannack.chineselearning.lab.data.lessons.LessonsSync) // B: mini lessons (+ media)
+        platform.register("readers", dev.jeromeswannack.chineselearning.lab.data.readers.ReadersSync) // B: graded readers (+ media)
     }
 }
