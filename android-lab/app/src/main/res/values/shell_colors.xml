@@ -1,0 +1,10 @@
+<resources>
+    <!-- Home-screen widget + notifications (shell/): the Lab palette (ui/theme/Theme.kt). -->
+    <color name="shell_widget_bg">#FFFFFDF8</color>
+    <color name="shell_widget_border">#FFE7E0D2</color>
+    <color name="shell_ink">#FF1C1B19</color>
+    <color name="shell_muted">#FF6B665C</color>
+    <color name="shell_accent">#FFC2410C</color>
+    <color name="shell_accent_soft">#FFFFEDD5</color>
+    <color name="shell_on_accent">#FFFFFFFF</color>
+</resources>

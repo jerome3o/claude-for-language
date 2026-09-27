@@ -12,4 +12,6 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
  */
 fun labExtraRows(nav: LabNav): List<@Composable () -> Unit> = listOf(
     { DebugReportRow(nav.app) }, // data/DebugReport.kt
+    { dev.jeromeswannack.chineselearning.lab.shell.NotificationsRow(nav.app) }, // shell/ (package I)
+    { dev.jeromeswannack.chineselearning.lab.shell.WidgetRow(nav.app) }, // shell/ (package I)
 )

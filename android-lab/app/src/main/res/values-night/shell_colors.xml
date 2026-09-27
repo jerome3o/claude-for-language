@@ -1,0 +1,9 @@
+<resources>
+    <color name="shell_widget_bg">#FF1C1C20</color>
+    <color name="shell_widget_border">#FF2C2C33</color>
+    <color name="shell_ink">#FFF5F3EE</color>
+    <color name="shell_muted">#FFA19D94</color>
+    <color name="shell_accent">#FFFB923C</color>
+    <color name="shell_accent_soft">#FF3A2416</color>
+    <color name="shell_on_accent">#FF1C1B19</color>
+</resources>
