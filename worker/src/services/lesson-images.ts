@@ -3,7 +3,7 @@
  *
  * One picture per scene description. The R2 key is derived from a hash of the
  * (whitespace-normalised) image_prompt — `lesson-images/<hash>.<ext>` — and the
- * `lesson_images` table (migration 0076) says whether it exists yet. So:
+ * `lesson_images` table (migration 0077) says whether it exists yet. So:
  *
  *   - a tutor's library item, every student's copy of it, a push-update and the
  *     catalogue sample with the same prompt all share ONE generated picture;
