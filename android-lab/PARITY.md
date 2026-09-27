@@ -146,13 +146,15 @@ Owns `ui/connections/` (incl. the `/connections` stub + role dispatch), `ui/chat
 
 | Feature | Status | Web source |
 |---|---|---|
-| Connections list + pending requests; tutor page (student view) | ⬜ | `ConnectionsPage.tsx`, `ConnectionDetailPage.tsx` |
-| Chat (polling) + message tools (Reply, Play, ⋯: React, Check my Chinese, Translate / Make a card, Word by word, Discuss with Claude, Copy) | ⬜ | `ChatPage.tsx`, `components/chat/messageTools.ts` |
-| Cards you flagged; Claude conversations (`/claude-chats`) | ⬜ | `components/cardFlags/`, `ClaudeChatsPage.tsx`, `shared/chats/threads.ts` |
-| Homework card on Home ("From <tutor>") + Homework due list (overdue / due today / due in N days) | ⬜ | `components/home/HomeworkCard.tsx`, `components/homework/HomeworkDueCard.tsx`, `shared/homework/due.ts` |
-| One-off homework pass (`/homework/:id`): word list with "Not yet" repeats, lesson / reader once; events offline via Outbox (`/api/me/homework/events`); one-off-only lessons/readers out of the FSRS mix | ⬜ | `pages/HomeworkPassPage.tsx`, `HomeworkPage.tsx`, `shared/homework/pass.ts`, docs/HOMEWORK.md |
-| Lesson notes (`/lesson-notes`) | ⬜ | `pages/LessonNotesPage.tsx` |
-| First-open screen for invited students | ⬜ | `components/onboarding/` |
+| Connections list + pending requests (accept / decline / cancel, email invitations, + Invite by email); tutor page (student view: Message → latest conversation or a new one, conversations, homework decks, decks you shared, ⋯ → Remove connection; Claude → New practice conversation) | ✅ cached for offline; avatars are initials (no remote pictures); 📹 Video call hands off (J); the Students dashboard / tutor's student page are F's slots in `ConnectionsNav.kt` | `ConnectionsPage.tsx`, `ConnectionDetailPage.tsx` |
+| Unread badge on the Tutor (Students) tab | ✅ unread chat notifications, polled every 60 s + each sync (`ui/nav/TabBadges.kt`) — the web shows them on its header bell | `components/Header.tsx` |
+| Chat (polling) + message tools (Reply, Play, ⋯: React, Check my Chinese, Translate / Make a card, Word by word, Discuss with Claude, Copy) | ⬜ tool rules ported + parity-tested (`core/…/MessageTools.kt`, `shared/chats/messageTools.ts`); the screen is the next PR | `ChatPage.tsx`, `components/chat/messageTools.ts` |
+| Cards you flagged (resolve / reopen / delete, open the card); Claude conversations (`/claude-chats`, threads, load older) | ✅ threads parity-tested (`core/…/QuestionThreads.kt`); the card link opens C's card hub (placeholder until native) | `components/cardFlags/`, `ClaudeChatsPage.tsx`, `shared/chats/threads.ts` |
+| Homework card on Home ("From <tutor>") + Homework due list (overdue / due today / due in N days) | ✅ parity-tested (`core/…/Homework.kt`, `TutorHomework.kt`; `parity/fixtures/homework.ts`) | `components/home/HomeworkCard.tsx`, `components/homework/HomeworkDueCard.tsx`, `shared/homework/` |
+| One-off homework pass (`/homework/:id`): word list with "Not yet" repeats, lesson / reader once; events offline via Outbox (`/api/me/homework/events`); "Add to my daily review" | 🟡 word pass ✅ (offline, outbox, celebration); a lesson / reader opens the main app's player until B's is native — B: call `HomeworkStore.recordTargetDone(app, kind, id)` when a lesson / reader finishes and leave `HomeworkStore.oneOffOnlyTargetIds(cache)` out of the lesson mix / daily reader | `pages/HomeworkPassPage.tsx`, `HomeworkPage.tsx`, `shared/homework/pass.ts`, docs/HOMEWORK.md |
+| One-off-only decks stay out of the daily new-card budget | ✅ the server caps the copy at 0 + 0; `HomeworkParityTest` checks the Kotlin budget gives such a deck nothing, like `allocateNewCards` | `shared/decks/budget.ts`, docs/HOMEWORK.md §1 |
+| Lesson notes (`/lesson-notes`: add with files, list, delete) | ✅ list cached; saving needs a connection (as on the web) | `pages/LessonNotesPage.tsx` |
+| First-open screen for invited students (`/api/me/onboarding`, cached) | ✅ the install row reads "Installed as an app" (it is one) | `components/onboarding/` |
 
 ## F — Teaching (web: `components/tutor/`, `pages/tutor/`)
 

@@ -156,3 +156,26 @@ data class ClaudeChatsDto(val questions: List<ClaudeChatQuestionDto> = emptyList
 
 suspend fun Api.myClaudeChats(limit: Int = 100, before: String? = null): ClaudeChatsDto =
     get("/api/me/claude-chats?limit=$limit" + (before?.let { "&before=${enc(it)}" } ?: ""))
+
+// ---------------- the student's own lesson notes (/lesson-notes) ----------------
+
+@Serializable
+data class LessonNoteFileDto(val id: String, val filename: String = "")
+
+@Serializable
+data class LessonNoteDto(val id: String, val raw_text: String = "", val given_at: String? = null, val created_at: String = "", val files: List<LessonNoteFileDto> = emptyList())
+
+@Serializable
+data class LessonNotesDto(val notes: List<LessonNoteDto> = emptyList())
+
+@Serializable
+data class NewLessonNoteBody(val raw_text: String, val given_at: String? = null)
+
+@Serializable
+data class NewLessonNoteDto(val id: String)
+
+suspend fun Api.lessonNotes(): List<LessonNoteDto> = get<LessonNotesDto>("/api/lesson-notes").notes
+
+suspend fun Api.createLessonNote(text: String, givenAt: String?): NewLessonNoteDto = post("/api/lesson-notes", NewLessonNoteBody(text, givenAt))
+
+suspend fun Api.deleteLessonNote(id: String): Unit = exchange("DELETE", "/api/lesson-notes/${enc(id)}", null, Unit.serializer())
