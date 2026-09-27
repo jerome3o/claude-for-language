@@ -103,6 +103,8 @@ export interface StudentOverviewInput {
   audio_total: number;
   invite: InviteRef | null;
   last_conversation_id: string | null;
+  /** The tutor has written a student profile for this relationship. */
+  has_profile?: boolean;
   /** Client's Date.getTimezoneOffset() in minutes; days are bucketed in that zone. */
   tz_offset_minutes: number;
   now?: Date;
@@ -201,6 +203,8 @@ export interface StudentOverview {
   /** Most recent days with activity (up to 2). */
   activity: ActivityDay[];
   last_conversation_id: string | null;
+  /** The tutor has written a student profile (student_profiles) — the dashboard hints when not. */
+  has_profile: boolean;
 }
 
 // ---------- Days & streaks ----------
@@ -499,6 +503,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
     setup,
     activity: recentActivityDays(input.activity_rows, input.tz_offset_minutes),
     last_conversation_id: input.last_conversation_id,
+    has_profile: !!input.has_profile,
   };
 }
 

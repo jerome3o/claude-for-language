@@ -48,6 +48,8 @@ import type { TutorNotesJob, TutorNotesResult, TutorNotesStep, StudentWordMatch,
 import * as hw from '../db/homework-queries';
 import { studentLoad } from './homework';
 import { addDays, isHomeworkMode, localDate, normalizeDraftPlan, type DraftContents, type DraftPlan } from '@shared/homework';
+import { studentProfilePrompt, type StudentProfileFields } from '@shared/students';
+import { getStudentProfile } from '../db/student-profile-queries';
 
 export const TUTOR_NOTES_MODEL = 'claude-opus-4-6';
 /** Hard cap on model turns per job. A normal job takes 6–12. */
@@ -84,11 +86,12 @@ What to produce
    - Make one card per word; a full example sentence may be its own card when the sentence itself was the point (a set phrase, a corrected sentence).
    - Prefer the tutor's own example sentences from the notes as sentence_clue. Fix obvious typos in the notes silently.
    - Every card follows the card standard below. The server rejects a card that breaks a HARD rule; add_cards returns those with the reason — fix and resend only the rejected ones.
-   - Aim for the number of words the lesson actually contained, typically 8–25. Send them in batches of at most 15 per add_cards call.
+   - Aim for the number of words the lesson actually contained, typically 8–25 (or the tutor's number of new words per lesson, when their profile of the student gives one). Send them in batches of at most 15 per add_cards call.
 2. A MINI LESSON only when the notes clearly show the tutor teaching a specific grammatical structure or pattern: several example sentences sharing one construction (把, 是…的, 越…越…, 了 vs 过, comparisons with 比, resultative complements, measure words, a sentence pattern…), or an explicit explanation of a grammar point. Vocabulary lists, corrections of unrelated sentences, or a single example are NOT enough — make no lesson then. When you do make one, it is about THAT structure specifically: open with a note exercise that explains it using the tutor's own examples, then practise it (scramble, choice, translate, listen_choice…), end with production (translate or speak). One lesson per structure; two at most per job.
 3. A GRADED READER only when the notes ask for a story, contain a dialogue or narrative the tutor wants practised, or the tutor's notes explicitly mention reading practice. Otherwise none. A reader reuses the lesson's words and stays at the student's level.
 
 How to work
+- When the briefing has the tutor's profile of the student, it is how the tutor wants material made for THIS student: follow it over the defaults here — how many words, which exercise types (handwriting or typed, listening, oral recordings, sentence making, radicals…), the level, and reader topics. It is private: never quote or mention it in cards, lessons or readers.
 - Start from the student briefing and the notes. Use check_student_words liberally (it is cheap) and search_student_cards / list_student_deck_words when you need to see how a word was taught before. get_student_struggles gives more detail on what the student finds hard — a word the student keeps failing deserves a fresh card with a better explanation.
 - Create the deck first (create_deck), then add cards, then the lesson / reader if warranted, then call finish. finish is REQUIRED: its summary is what the tutor reads. Say what you made, what you skipped and why (already known, not in the notes, no clear structure for a lesson), and anything the tutor should check.
 - Name the deck after the lesson content and date, e.g. "Restaurant ordering — 14 Sep" or the tutor's own title when they gave one. Simplified Chinese, mainland usage, tone-marked pinyin everywhere.
@@ -260,6 +263,8 @@ export interface BriefingInput {
   job: Pick<TutorNotesJob, 'title' | 'notes' | 'lesson_at' | 'priority' | 'auto_share'> & { source_call_id?: string | null; review?: number };
   /** The student's homework load in one line (load gauge summary + level). */
   load?: string | null;
+  /** The tutor's private profile of the student (student_profiles); null / empty = none. */
+  profile?: StudentProfileFields | null;
 }
 
 /** The first user message: everything the agent should know before it starts, then the notes verbatim. */
@@ -301,6 +306,11 @@ export function buildBriefing(input: BriefingInput): string {
       const lessons = j.result.lessons?.length ? `, lessons: ${j.result.lessons.map(l => l.title).join('; ')}` : '';
       lines.push(`- ${j.created_at.slice(0, 10)}${j.title ? ` "${j.title}"` : ''}: ${deck}${lessons}`);
     }
+  }
+  const profileBlock = studentProfilePrompt(input.profile, input.studentName);
+  if (profileBlock) {
+    lines.push('');
+    lines.push(profileBlock);
   }
   lines.push('');
   lines.push(`# This session`);
@@ -423,9 +433,10 @@ export function draftContents(result: TutorNotesResult): DraftContents {
  * user turn (appended to the last user message when that one holds tool
  * results, so turns keep alternating) and the chat. Pure — the route saves it.
  */
-export function appendTutorRequest(transcript: unknown[] | null, message: string): unknown[] {
+export function appendTutorRequest(transcript: unknown[] | null, message: string, updatedProfile?: string | null): unknown[] {
   const messages = [...((transcript ?? []) as Anthropic.MessageParam[])];
-  const text = `Tutor's request: ${message.trim()}\n\nAct on the draft with the tools, then call finish with a short reply to the tutor.`;
+  const profileNote = updatedProfile ? `The tutor has changed their profile of this student since you last saw it — this version replaces the one in the briefing:\n\n${updatedProfile}\n\n` : '';
+  const text = `${profileNote}Tutor's request: ${message.trim()}\n\nAct on the draft with the tools, then call finish with a short reply to the tutor.`;
   const last = messages[messages.length - 1];
   if (last && last.role === 'user') {
     const content = Array.isArray(last.content) ? [...last.content] : [{ type: 'text' as const, text: String(last.content) }];
@@ -435,6 +446,31 @@ export function appendTutorRequest(transcript: unknown[] | null, message: string
     messages.push({ role: 'user', content: text });
   }
   return messages;
+}
+
+/** Epoch ms of an ISO string or a SQLite `datetime('now')` (UTC, no zone). NaN when unparseable. */
+function timeOf(value: string | null | undefined): number {
+  if (!value) return NaN;
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(' ', 'T')}Z` : value;
+  return new Date(iso).getTime();
+}
+
+/**
+ * The profile block to pass along with a tutor's draft message: only when the
+ * profile changed after the agent last saw it (the briefing, or the last chat
+ * message, which carried any earlier update). Pure.
+ */
+export function profileUpdateForDraft(
+  profile: (StudentProfileFields & { updated_at: string }) | null,
+  job: Pick<TutorNotesJob, 'created_at' | 'started_at'> & { chat?: Array<{ at: string }> | null },
+  studentName?: string | null
+): string | null {
+  if (!profile) return null;
+  const lastChat = job.chat && job.chat.length ? job.chat[job.chat.length - 1].at : null;
+  const seen = timeOf(lastChat ?? job.started_at ?? job.created_at);
+  const changed = timeOf(profile.updated_at);
+  if (!(changed > seen)) return null;
+  return studentProfilePrompt(profile, studentName) || null;
 }
 
 function isRetryable(error: unknown): boolean {
@@ -617,7 +653,7 @@ async function pushStep(ctx: RunContext, step: TutorNotesStep, progress: string)
 async function loadBriefing(env: Env, job: TutorNotesJob): Promise<string> {
   const to = now();
   const from = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  const [student, tutor, decks, rows, cardStates, log, earlier, load] = await Promise.all([
+  const [student, tutor, decks, rows, cardStates, log, earlier, load, profile] = await Promise.all([
     jobs.getUserBrief(env.DB, job.student_id),
     jobs.getUserBrief(env.DB, job.tutor_id),
     jobs.listStudentDecks(env.DB, job.student_id),
@@ -626,6 +662,7 @@ async function loadBriefing(env: Env, job: TutorNotesJob): Promise<string> {
     iq.listLessonLog(env.DB, job.relationship_id, 5).catch(() => []),
     jobs.listRecentJobSummaries(env.DB, job.relationship_id, job.id),
     job.review ? studentLoad(env.DB, job.student_id, localDate(new Date())).catch(() => null) : Promise.resolve(null),
+    getStudentProfile(env.DB, job.relationship_id, job.tutor_id).catch(() => null),
   ]);
   const struggling = rankStruggling(rows, 15).map(s => ({
     hanzi: s.note.hanzi,
@@ -646,6 +683,7 @@ async function loadBriefing(env: Env, job: TutorNotesJob): Promise<string> {
     earlierJobs: earlier,
     job,
     load: load ? `${load.level} — ${load.summary}` : null,
+    profile,
   });
 }
 

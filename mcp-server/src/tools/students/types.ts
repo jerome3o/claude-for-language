@@ -120,6 +120,8 @@ export interface StudentOverview {
   setup: SetupStatus;
   activity: Array<{ day: string; reviews: number; accuracy: number | null; time_ms: number }>;
   last_conversation_id: string | null;
+  /** The tutor has written a private student profile (get_student_profile). */
+  has_profile?: boolean;
 }
 
 export interface DashboardInvite {

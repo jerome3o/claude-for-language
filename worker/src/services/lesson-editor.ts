@@ -176,6 +176,12 @@ export interface ProposeRevisionInput {
   authorChanges: string[];
   history: CoEditTurn[];
   message: string;
+  /**
+   * The tutor's private profile of the student this lesson is for
+   * (`studentProfilePrompt`), when a tutor edits a lesson they assigned.
+   * Empty / absent otherwise.
+   */
+  studentProfile?: string;
 }
 
 export interface ProposeRevisionResult {
@@ -201,13 +207,10 @@ function historyToMessages(history: CoEditTurn[]): Anthropic.MessageParam[] {
   return out;
 }
 
-export async function proposeLessonRevision(
-  apiKey: string,
-  input: ProposeRevisionInput,
-): Promise<ProposeRevisionResult> {
-  const client = new Anthropic({ apiKey });
-
-  const contextBlock = [
+/** The newest user turn of the co-editor chat: (student profile), current spec, the author's own edits, the message. Pure. */
+export function buildLessonCoEditMessage(input: Pick<ProposeRevisionInput, 'spec' | 'authorChanges' | 'message' | 'studentProfile'>): string {
+  return [
+    ...(input.studentProfile ? [input.studentProfile, ''] : []),
     '<current_lesson_spec>',
     JSON.stringify(input.spec, null, 1),
     '</current_lesson_spec>',
@@ -218,6 +221,14 @@ export async function proposeLessonRevision(
     '',
     input.message,
   ].join('\n');
+}
+
+export async function proposeLessonRevision(
+  apiKey: string,
+  input: ProposeRevisionInput,
+): Promise<ProposeRevisionResult> {
+  const client = new Anthropic({ apiKey });
+  const contextBlock = buildLessonCoEditMessage(input);
 
   // Earlier turns are plain text (no stale specs); the current spec rides
   // with the newest message so the model always edits what's on screen.
