@@ -1,4 +1,5 @@
 import { Env, User, AuthSession } from '../types';
+import { googleProfileRefresh } from './profile';
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -101,33 +102,23 @@ export async function findExistingUser(db: D1Database, googleUser: GoogleUserInf
     .first<User>();
 }
 
-/** Refresh an existing user's profile from Google, link the google_id, stamp last_login_at. */
+/**
+ * Stamp a sign-in: link the google_id, last_login_at, email, admin flag, and
+ * remember Google's name / picture. Those only become the displayed ones while
+ * the user hasn't set their own on the Profile screen (services/profile.ts).
+ */
 export async function touchExistingUser(
   db: D1Database,
   user: User,
   googleUser: GoogleUserInfo,
   isAdminEmail: boolean
 ): Promise<User> {
-  await db
-    .prepare(`
-      UPDATE users SET
-        google_id = ?,
-        last_login_at = datetime('now'),
-        name = ?,
-        picture_url = ?,
-        email = ?,
-        is_admin = ?
-      WHERE id = ?
-    `)
-    .bind(
-      googleUser.id,
-      googleUser.name,
-      googleUser.picture,
-      googleUser.email,
-      isAdminEmail ? 1 : user.is_admin,
-      user.id
-    )
-    .run();
+  await googleProfileRefresh(
+    db,
+    user.id,
+    { id: googleUser.id, name: googleUser.name ?? null, picture: googleUser.picture ?? null, email: googleUser.email },
+    isAdminEmail ? 1 : user.is_admin
+  ).run();
 
   const updated = await db
     .prepare('SELECT * FROM users WHERE id = ?')
@@ -145,8 +136,8 @@ export async function createUser(
   const id = generateId();
   await db
     .prepare(`
-      INSERT INTO users (id, email, google_id, name, picture_url, role, is_admin, last_login_at)
-      VALUES (?, ?, ?, ?, ?, 'student', ?, datetime('now'))
+      INSERT INTO users (id, email, google_id, name, picture_url, google_name, google_picture_url, role, is_admin, last_login_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'student', ?, datetime('now'))
     `)
     .bind(
       id,
@@ -154,6 +145,8 @@ export async function createUser(
       googleUser.id,
       googleUser.name,
       googleUser.picture,
+      googleUser.name ?? null,
+      googleUser.picture ?? null,
       isAdminEmail ? 1 : 0
     )
     .run();

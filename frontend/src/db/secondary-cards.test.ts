@@ -3,7 +3,7 @@ import {
   db,
   getDueCards,
   allocateQueueCounts,
-  ensureDailyStatsInitialized,
+  introducedTodayFromEvents,
   createLocalReviewEvent,
   DeckQueueRaw,
   LocalCard,
@@ -79,9 +79,6 @@ async function createTestCard(opts: {
   return card;
 }
 
-function todayString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 describe('Secondary new cards', () => {
   // The global budget is at least as generous as every deck cap in these tests,
@@ -268,11 +265,8 @@ describe('Secondary new cards', () => {
         reviewed_at: now.toISOString(), _synced: 0,
       });
 
-      await ensureDailyStatsInitialized();
-
-      const row = await db.dailyStats.get(`${todayString()}:${deckId}`);
-      expect(row?.new_cards_studied).toBe(1); // n2-h only
-      expect(row?.secondary_cards_studied).toBe(2); // n1-m and n2-m
+      // n2-h only is primary; n1-m and n2-m are secondary
+      expect((await introducedTodayFromEvents()).get(deckId)).toEqual({ primary: 1, secondary: 2 });
     });
   });
 });

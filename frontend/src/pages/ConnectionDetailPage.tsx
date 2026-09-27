@@ -1,3 +1,4 @@
+import { PersonAbout } from '../components/profile/PersonAbout';
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -342,6 +343,11 @@ export function ConnectionDetailPage() {
               </div>
             </div>
           </div>
+          {(otherUser.about || otherUser.time_zone) && (
+            <div className="td-person-about" data-testid="person-about">
+              <PersonAbout about={otherUser.about} timeZone={otherUser.time_zone} compact />
+            </div>
+          )}
 
           {liveCallBanner}
           <div className="td-actions">
@@ -540,6 +546,11 @@ export function ConnectionDetailPage() {
             </div>
           </div>
         </div>
+        {!isClaudeRelationship && (otherUser.about || otherUser.time_zone) && (
+          <div className="td-person-about" data-testid="person-about">
+            <PersonAbout about={otherUser.about} timeZone={otherUser.time_zone} />
+          </div>
+        )}
 
         {liveCallBanner}
         <div className="td-actions">
