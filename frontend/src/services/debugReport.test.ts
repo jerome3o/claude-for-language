@@ -43,7 +43,7 @@ async function seed() {
   await card('n1-h', 'd1', 'n1', 'hanzi_to_meaning', CardQueue.REVIEW, { next_review_at: new Date(now - DAY).toISOString(), repetitions: 2 });
   await card('n1-m', 'd1', 'n1', 'meaning_to_hanzi', CardQueue.NEW);
   await card('n2-h', 'd1', 'n2', 'hanzi_to_meaning', CardQueue.NEW);
-  // A learning card due in 3 days: counted by the home screen, not in the queue.
+  // A learning card due in 3 days: not due today anywhere.
   await card('n3-h', 'd2', 'n3', 'hanzi_to_meaning', CardQueue.LEARNING, { due_timestamp: now + 3 * DAY, repetitions: 1 });
   await card('n3-m', 'd2', 'n3', 'meaning_to_hanzi', CardQueue.NEW);
   for (const [id, cardId, at] of [
@@ -82,9 +82,11 @@ describe('buildDebugReport', () => {
     expect(flagged).toEqual(q.dueCards.map(c => c.id).sort());
     expect(r.queue.due_cards).toBe(q.dueCards.length);
 
-    // Home counts every learning card (no cutoff); the queue does not hold the one due in 3 days.
-    expect(r.home.counts.learning).toBe(1);
+    // Home = what a session shows: the learning card due in 3 days is in neither
+    // (it used to be counted on Home, which the Lab app never did).
+    expect(r.home.counts.learning).toBe(0);
     expect(r.queue.from_due_cards.learning).toBe(0);
+    expect(r.home.counts).toMatchObject(r.queue.from_due_cards);
     expect(r.home.total).toBe(r.home.counts.new + r.home.counts.secondaryNew + r.home.counts.learning + r.home.counts.review);
 
     const n1h = r.cards.find(c => c[0] === 'n1-h')!;
@@ -92,7 +94,7 @@ describe('buildDebugReport', () => {
     expect(n1h[10]).toBeLessThan(Date.now() - 9 * DAY);
     const d1 = r.decks.find(d => d.id === 'd1')!;
     expect(d1).toMatchObject({ priority: 1, note_count: 2, card_count: 3, pools: { totalNew: 1, totalSecondaryNew: 1, review: 1 } });
-    expect(r.decks.find(d => d.id === 'd2')!.pools.learning).toBe(1);
+    expect(r.decks.find(d => d.id === 'd2')!.pools.learning).toBe(0);
     expect(r.homework).toEqual({ todo: 1, overdue: 1, due_today: 0, done: 0 });
   });
 });

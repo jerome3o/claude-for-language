@@ -92,6 +92,31 @@ own still charges what was already studied today in other decks against the glob
 
 When the daily new card limit is reached, the "All Done!" screen offers a **"Study More"** button to add 10 bonus new cards.
 
+### What "due today" means — one definition for both apps
+
+`shared/decks/study-queue.ts` is the ONE definition of the study queue; the web app
+(`getStudyQueue`, Home, the deck rows) and the Lab app (`core/StudyQueue.kt`, parity-tested
+against it through `android-lab/parity/fixtures/study-queue.ts`) both use it:
+
+- learning / relearning cards due by the cutoff (the later of local 23:59:59.999 and now + 1 h),
+- review cards due by the cutoff,
+- the new cards the budget allocates (above).
+
+Home's numbers are the counts of exactly that queue — a learning card due tomorrow is not
+"due today" on any screen. **Introduced today** (what the budget has already spent) is derived
+from review events: a card counts on the day of its first-ever review (local midnight, not the
+UTC date), secondary when a sibling of the same note was reviewed before it. There is no
+counter any more — the old `dailyStats` counter drifted.
+
+**Card state is the replay of the card's events, always.** A rating stores the event and the
+card row becomes `computeCardState(all its events)` (`recomputeCardFromEvents`); cards a sync
+inserts as NEW are replayed when their events are already on the device
+(`recomputeCardsWithEvents`); and after a background sync `repairCardStatesIfDue` re-derives
+every row once per repair version and then daily (`repairCardStatesFromEvents`, one transaction).
+The 27 Sep 2026 debug report found the web holding 49 cards with events at NEW and ~765 review
+cards whose due date had drifted whole days later than the replay (the old incremental
+`scheduleCard` update) — the web showed 0 due while the Lab app showed 37.
+
 ## Graded readers: one a day
 
 Graded readers close out an all-decks session (after the cards and any mini lessons), and

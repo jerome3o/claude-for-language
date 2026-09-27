@@ -119,7 +119,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
-│   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
+│   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
@@ -412,7 +412,7 @@ pack. The story generator carries it in its prompt and gets ONE repair round whe
   - Initialize as NEW and download events to compute real state, OR
   - Download events first, then compute state from events
 
-- **Never store card state directly**: When a review happens, create an event and compute new state from events. Don't just update the card directly.
+- **Never store card state directly**: When a review happens, create an event and compute new state from events. Don't just update the card directly. The web study session stores the event and writes `computeCardState(all the card's events)` (`recomputeCardFromEvents`); cards a sync inserts are replayed if their events are already local (`recomputeCardsWithEvents`); `repairCardStatesIfDue` re-derives every row after a background sync (once per `CARD_STATE_REPAIR_VERSION`, then daily). Events the server refuses (their card is not in the account) come back as `orphan_event_ids` from `POST /api/reviews` and are marked `_synced = -1` (rejected), never "synced".
 
 - **State mismatches indicate bugs**: If computed state differs from stored state, the computed state is correct. Use `fixAllCardStates()` to repair.
 
@@ -471,6 +471,7 @@ the exit confirm with recap, and tutor notes on recordings. Study-only styles li
 - **Primary (blue)** — cards of unseen notes, hanzi_to_meaning preferred; walked deck by deck in queue order
 - **Secondary (purple)** — additive: NEW cards whose note already has a reviewed card, so other card types of started words keep flowing even when brand-new words would fill the primary limit. Leftover primary budget can also admit secondary cards.
 - The pure allocator is `allocateNewCards` in `shared/decks/budget.ts` (used by `allocateQueueCounts` in `frontend/src/db/database.ts` for the study queue, deck counts and the Study button). See docs/STUDY_SESSION.md.
+- **"Due today" is one shared definition**: `shared/decks/study-queue.ts` (`selectStudyQueue`, `introducedToday`, `countQueue`) — learning / review cards due by the cutoff plus the budget's new cards; Home shows the counts of exactly that queue (a learning card due tomorrow is not counted). Introduced-today is derived from review events (first-ever review at/after LOCAL midnight), never from a counter. The Lab app's `StudyQueue.kt` is parity-tested against it (`android-lab/parity/fixtures/study-queue.ts`).
 
 **Session Flow:**
 1. User selects a deck (or "All Decks") and starts a study session

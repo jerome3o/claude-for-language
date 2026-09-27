@@ -13,10 +13,12 @@ import { Rating } from '../types';
 import {
   db,
   LocalReviewEvent,
+  type LocalCard,
   createLocalReviewEvent,
   getCardReviewEvents,
   getUnsyncedReviewEvents,
   markReviewEventsSynced,
+  markReviewEventsRejected,
   getCardCheckpoint,
   upsertCardCheckpoint,
   deleteCardCheckpoint,
@@ -295,10 +297,14 @@ export async function syncReviewEvents(authToken: string | null): Promise<{
       return { synced: 0, failed: unsyncedEvents.length, errors: [error] };
     }
 
-    const result = await response.json() as { created: number; skipped: number };
+    const result = await response.json() as { created: number; skipped: number; orphan_event_ids?: string[] };
 
-    // Mark all events as synced
-    await markReviewEventsSynced(unsyncedEvents.map(e => e.id));
+    // The server holds every event it accepted. Events for cards it doesn't
+    // have (deleted cards) are refused: mark those REJECTED (-1) rather than
+    // synced, so "0 unsynced" never hides events the server lacks.
+    const rejected = new Set(result.orphan_event_ids ?? []);
+    await markReviewEventsSynced(unsyncedEvents.filter(e => !rejected.has(e.id)).map(e => e.id));
+    if (rejected.size > 0) await markReviewEventsRejected([...rejected]);
 
     // NOTE: deliberately NOT updating the event sync cursor here. The cursor
     // tracks which server events we've DOWNLOADED (by server created_at);
@@ -487,6 +493,7 @@ export async function reconcileAllEvents(
   const allEvents = await db.reviewEvents.toArray();
   let uploadedToServer = 0;
   let orphaned = 0;
+  const rejectedIds: string[] = [];
 
   const UPLOAD_BATCH = 400;
   const totalBatches = Math.ceil(allEvents.length / UPLOAD_BATCH);
@@ -515,8 +522,9 @@ export async function reconcileAllEvents(
         errors.push(`Upload batch ${i / UPLOAD_BATCH + 1} failed: ${await response.text()}`);
         continue;
       }
-      const result = await response.json() as { created: number; skipped_orphans?: number };
+      const result = await response.json() as { created: number; skipped_orphans?: number; orphan_event_ids?: string[] };
       uploadedToServer += result.created;
+      rejectedIds.push(...(result.orphan_event_ids ?? []));
       // Events for cards deleted server-side — the server refuses them and
       // they have no card to affect; they just stay local.
       orphaned += result.skipped_orphans ?? 0;
@@ -525,9 +533,11 @@ export async function reconcileAllEvents(
     }
   }
 
-  // Everything local is now on the server (or was already)
+  // Everything local is now on the server (or was already) — except events
+  // the server refused (cards it doesn't have), which are marked rejected.
   if (errors.length === 0) {
     await db.reviewEvents.toCollection().modify({ _synced: 1 });
+    if (rejectedIds.length > 0) await markReviewEventsRejected(rejectedIds);
   }
 
   // Rewind the cursor and pull the full history; dedup keeps this cheap
@@ -641,6 +651,130 @@ export async function fixCardState(cardId: string): Promise<ComputedCardState> {
   });
 
   return computed;
+}
+
+/** The scheduling columns a card row caches (all of them derived from events). */
+function stateColumns(computed: ComputedCardState) {
+  return {
+    queue: computed.queue,
+    stability: computed.stability,
+    difficulty: computed.difficulty,
+    lapses: computed.lapses,
+    learning_step: computed.learning_step,
+    ease_factor: computed.ease_factor,
+    interval: computed.interval,
+    repetitions: computed.repetitions,
+    next_review_at: computed.next_review_at,
+    due_timestamp: computed.due_timestamp,
+    last_reviewed_at: computed.last_reviewed_at,
+  };
+}
+
+/**
+ * After a rating: the card's state is the replay of ALL its events (the one
+ * rule, shared with the Lab app and the server). Returns null — and leaves the
+ * row alone — when the card has no events locally.
+ */
+export async function recomputeCardFromEvents(cardId: string): Promise<ComputedCardState | null> {
+  const events = await getCardReviewEvents(cardId);
+  if (events.length === 0) return null;
+  const computed = computeCardState(
+    events.map(e => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
+    DEFAULT_DECK_SETTINGS
+  );
+  await deleteCardCheckpoint(cardId);
+  await db.cards.update(cardId, { ...stateColumns(computed), updated_at: new Date().toISOString() });
+  return computed;
+}
+
+/**
+ * Cards a sync just (re)inserted start as NEW (cardToLocal). When their
+ * review events are already on the device — a deck that was dropped and
+ * fetched again, a card restored after a reconcile — nothing else would ever
+ * recompute them (event downloads only recompute cards that gained events),
+ * so they stayed NEW for good: 49 Core Homework cards on 27 Sep.
+ */
+export async function recomputeCardsWithEvents(cardIds: string[]): Promise<number> {
+  let fixed = 0;
+  for (const id of cardIds) {
+    if (await recomputeCardFromEvents(id)) fixed++;
+  }
+  return fixed;
+}
+
+/**
+ * Bring every card row in line with the replay of its events, in bulk: one
+ * read of the events, one of the cards, one bulk write of the rows that
+ * differ. Cards without events are left alone (a card whose events have not
+ * arrived yet must not be reset). Returns how many rows changed.
+ */
+export async function repairCardStatesFromEvents(): Promise<{ checked: number; fixed: number }> {
+  // One read-write transaction: a rating made meanwhile (event + row) waits
+  // for it, so the repair can never write back a row computed without it.
+  return db.transaction('rw', [db.reviewEvents, db.cards, db.cardCheckpoints], () => repairInTransaction());
+}
+
+async function repairInTransaction(): Promise<{ checked: number; fixed: number }> {
+  const [events, cards] = await Promise.all([db.reviewEvents.toArray(), db.cards.toArray()]);
+  const byCard = new Map<string, Array<{ id: string; card_id: string; rating: Rating; reviewed_at: string }>>();
+  for (const e of events) {
+    const list = byCard.get(e.card_id);
+    const ev = { id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at };
+    if (list) list.push(ev);
+    else byCard.set(e.card_id, [ev]);
+  }
+  const updates: LocalCard[] = [];
+  const now = new Date().toISOString();
+  for (const card of cards) {
+    const list = byCard.get(card.id);
+    if (!list || list.length === 0) continue;
+    list.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
+    const computed = computeCardState(list, DEFAULT_DECK_SETTINGS);
+    const cols = stateColumns(computed);
+    const same =
+      card.queue === cols.queue &&
+      card.next_review_at === cols.next_review_at &&
+      (card.due_timestamp ?? null) === cols.due_timestamp &&
+      card.repetitions === cols.repetitions &&
+      card.lapses === cols.lapses &&
+      card.stability === cols.stability &&
+      card.difficulty === cols.difficulty &&
+      (card.last_reviewed_at ?? null) === cols.last_reviewed_at;
+    if (!same) updates.push({ ...card, ...cols, updated_at: now });
+  }
+  if (updates.length > 0) {
+    await db.cards.bulkPut(updates);
+    await db.cardCheckpoints.bulkDelete(updates.map(c => c.id));
+  }
+  return { checked: cards.length, fixed: updates.length };
+}
+
+const REPAIR_KEY = 'cardStateRepair';
+/** Bump to force every device to re-derive all card rows once more. */
+export const CARD_STATE_REPAIR_VERSION = 1;
+
+/**
+ * Run `repairCardStatesFromEvents` after a sync: always once per repair
+ * version (the upgrade that fixed the drifting rows), then at most once a
+ * local day as a backstop. Never throws.
+ */
+export async function repairCardStatesIfDue(now = new Date()): Promise<{ checked: number; fixed: number } | null> {
+  const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const stamp = `${CARD_STATE_REPAIR_VERSION}:${day}`;
+  try {
+    if (localStorage.getItem(REPAIR_KEY) === stamp) return null;
+    localStorage.setItem(REPAIR_KEY, stamp);
+  } catch {
+    return null;
+  }
+  try {
+    const result = await repairCardStatesFromEvents();
+    if (result.fixed > 0) console.log('[repairCardStates] Re-derived', result.fixed, 'of', result.checked, 'cards from their events');
+    return result;
+  } catch (err) {
+    console.error('[repairCardStates] failed:', err);
+    return null;
+  }
 }
 
 /**

@@ -1,6 +1,7 @@
 import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import Dexie, { Table } from 'dexie';
-import { allocateNewCards, sortDecksForQueue, type DeckNewPool, type StudyBudget } from '@shared/decks';
+import { selectStudyQueue, isDueByCutoff, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
+import { allocateNewCards } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
 import { CardType, CardQueue, Rating } from '../types';
 
@@ -978,7 +979,7 @@ function getTodayString(): string {
  * (migration 0050 gave those decks 10). NOT the new-deck default — that is
  * DEFAULT_DECK_SETTINGS in shared/decks, applied by the server.
  */
-export const DEFAULT_SECONDARY_CARDS_PER_DAY = 10;
+export const DEFAULT_SECONDARY_CARDS_PER_DAY = DEFAULT_SECONDARY_CAP;
 
 /** Per-deck split of new cards introduced today. */
 export interface NewCardsStudiedToday {
@@ -1030,55 +1031,42 @@ async function getFirstReviewedAtMap(cardIds: string[]): Promise<Map<string, str
  * cost is O(events_today) regardless of total history size.
  */
 async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCardsStudiedToday>> {
-  const today = getTodayString();
+  // Local midnight as an instant: reviewed_at is a UTC ISO string, so comparing
+  // it with the local DATE string ("2026-09-27") was off by the UTC offset.
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayStartIso = dayStart.toISOString();
 
   const todayEvents = await db.reviewEvents
     .where('reviewed_at')
-    .between(today, today + '\uffff')
+    .aboveOrEqual(dayStartIso)
     .toArray();
-
-  const result = new Map<string, NewCardsStudiedToday>();
-  if (todayEvents.length === 0) return result;
+  if (todayEvents.length === 0) return new Map();
 
   const cardIds = [...new Set(todayEvents.map(e => e.card_id))];
-
-  // A card was NEW before today iff it has no review events before today.
   const [firstReviewedAt, cards] = await Promise.all([
     getFirstReviewedAtMap(cardIds),
     db.cards.bulkGet(cardIds),
   ]);
-
   const introduced = cards.filter(
-    (card): card is LocalCard => !!card && (firstReviewedAt.get(card.id) ?? '') >= today
+    (card): card is LocalCard => !!card && (firstReviewedAt.get(card.id) ?? '') >= dayStartIso
   );
-  if (introduced.length === 0) return result;
+  if (introduced.length === 0) return new Map();
 
-  // Load sibling cards of the introduced notes and their first-review times so
-  // each introduced card can be classified as primary or secondary.
+  // Siblings of the introduced notes and their first reviews decide primary vs
+  // secondary; the rule itself is the shared one (shared/decks/study-queue.ts,
+  // the Lab app's StudyQueue.introducedToday is parity-tested against it).
   const noteIds = [...new Set(introduced.map(c => c.note_id))];
   const siblings = await db.cards.where('note_id').anyOf(noteIds).toArray();
   const unknownFirst = siblings.filter(s => !firstReviewedAt.has(s.id)).map(s => s.id);
   for (const [id, at] of await getFirstReviewedAtMap(unknownFirst)) firstReviewedAt.set(id, at);
 
-  const siblingsByNote = new Map<string, LocalCard[]>();
-  for (const s of siblings) {
-    const arr = siblingsByNote.get(s.note_id);
-    if (arr) arr.push(s);
-    else siblingsByNote.set(s.note_id, [s]);
+  const firstMs = new Map<string, number>();
+  for (const [id, at] of firstReviewedAt) {
+    const ms = Date.parse(at);
+    if (Number.isFinite(ms)) firstMs.set(id, ms);
   }
-
-  for (const card of introduced) {
-    const first = firstReviewedAt.get(card.id)!;
-    const isSecondary = (siblingsByNote.get(card.note_id) ?? []).some(
-      s => s.id !== card.id && (firstReviewedAt.get(s.id) ?? '\uffff') < first
-    );
-    const bucket = result.get(card.deck_id) ?? { primary: 0, secondary: 0 };
-    if (isSecondary) bucket.secondary++;
-    else bucket.primary++;
-    result.set(card.deck_id, bucket);
-  }
-
-  return result;
+  return introducedTodayFromFirstReviews(siblings, firstMs, dayStart.getTime());
 }
 
 /**
@@ -1149,17 +1137,15 @@ async function ensureDailyStatsInitializedNow(): Promise<void> {
  * cache; falls back to a single fast recompute for any decks not yet cached.
  */
 async function getNewCardsStudiedTodayMap(deckIds: string[]): Promise<Map<string, NewCardsStudiedToday>> {
-  const today = getTodayString();
-  const rows = await db.dailyStats.where('date').equals(today).toArray();
-  const result = new Map<string, NewCardsStudiedToday>(
-    rows.map(r => [r.deck_id, { primary: r.new_cards_studied, secondary: r.secondary_cards_studied ?? 0 }])
-  );
-  if (deckIds.every(id => result.has(id))) return result;
-
+  // Always derived from review events (O(today's events)). The old dailyStats
+  // counter only saw ratings made in this browser's study session and drifted
+  // (reviews from another device, cards restored as NEW then re-rated): on
+  // 27 Sep it zeroed Core Homework's new cards while the Lab app, which derives
+  // the number from events, still offered them.
   const computed = await computeNewCardsStudiedTodayByDeckShared();
-  for (const id of deckIds) {
-    if (!result.has(id)) result.set(id, computed.get(id) ?? { primary: 0, secondary: 0 });
-  }
+  const result = new Map<string, NewCardsStudiedToday>();
+  for (const id of deckIds) result.set(id, computed.get(id) ?? { primary: 0, secondary: 0 });
+  for (const [id, v] of computed) if (!result.has(id)) result.set(id, v);
   return result;
 }
 
@@ -1171,40 +1157,6 @@ export async function getNewCardsStudiedToday(deckId?: string): Promise<number> 
   let total = 0;
   for (const v of map.values()) total += v.primary;
   return total;
-}
-
-/**
- * Increment the new-cards-studied counter for a deck. Pass secondary=true when
- * the introduced card's note already had a reviewed card.
- * Writes to the database; call outside useLiveQuery contexts.
- */
-export async function incrementNewCardsStudiedToday(deckId: string, secondary = false): Promise<void> {
-  const today = getTodayString();
-  const id = getDailyStatsId(today, deckId);
-  const existing = await db.dailyStats.get(id);
-  await db.dailyStats.put({
-    id,
-    date: today,
-    deck_id: deckId,
-    new_cards_studied: (existing?.new_cards_studied ?? 0) + (secondary ? 0 : 1),
-    secondary_cards_studied: (existing?.secondary_cards_studied ?? 0) + (secondary ? 1 : 0),
-  });
-}
-
-/**
- * Decrement the new-cards-studied counter for a deck (Undo of a NEW-card
- * review). Pass the same secondary flag the increment used.
- */
-export async function decrementNewCardsStudiedToday(deckId: string, secondary = false): Promise<void> {
-  const today = getTodayString();
-  const id = getDailyStatsId(today, deckId);
-  const existing = await db.dailyStats.get(id);
-  if (!existing) return;
-  await db.dailyStats.put({
-    ...existing,
-    new_cards_studied: Math.max(0, (existing.new_cards_studied ?? 0) - (secondary ? 0 : 1)),
-    secondary_cards_studied: Math.max(0, (existing.secondary_cards_studied ?? 0) - (secondary ? 1 : 0)),
-  });
 }
 
 /**
@@ -1243,6 +1195,27 @@ export function getStudyCutoff(): { iso: string; ts: number } {
   return { iso: new Date(ts).toISOString(), ts };
 }
 
+/**
+ * A card as the shared queue definition sees it: learning cards are due at
+ * due_timestamp, review cards at next_review_at (shared/decks/study-queue.ts).
+ */
+export function queueInput(card: LocalCard): QueueCardInput {
+  let due: number | null = null;
+  if (card.queue === CardQueue.REVIEW) {
+    due = card.next_review_at ? Date.parse(card.next_review_at) : null;
+  } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
+    due = card.due_timestamp ?? (card.next_review_at ? Date.parse(card.next_review_at) : null);
+  }
+  return {
+    id: card.id,
+    note_id: card.note_id,
+    deck_id: card.deck_id,
+    card_type: card.card_type,
+    queue: card.queue,
+    due_ms: due !== null && Number.isFinite(due) ? due : null,
+  };
+}
+
 async function loadCards(deckId?: string): Promise<LocalCard[]> {
   return deckId ? db.cards.where('deck_id').equals(deckId).toArray() : db.cards.toArray();
 }
@@ -1256,6 +1229,8 @@ interface StudyInputs {
   budget: StudyBudget;
   /** Introduced today in decks outside `decks` (single-deck sessions). */
   spentElsewhere: { primary: number; secondary: number };
+  /** The one deck a session studies (undefined = all decks). */
+  deckId?: string;
 }
 
 async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
@@ -1275,7 +1250,7 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
       spentElsewhere.secondary += s.secondary;
     }
   }
-  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere };
+  return { decks, cards, studied, budget: readStudyBudget(), spentElsewhere, deckId };
 }
 
 /** Notes with at least one reviewed card (queue != NEW). */
@@ -1415,10 +1390,12 @@ function countRawQueues(
         bucket.totalNew++;
         unseenByDeck.get(card.deck_id)!.add(card.note_id);
       }
-    } else if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-      bucket.learning++;
-    } else if (card.queue === CardQueue.REVIEW) {
-      if (!card.next_review_at || card.next_review_at <= cutoff.iso) bucket.review++;
+    } else if (isDueByCutoff(queueInput(card), cutoff.ts)) {
+      // Learning / relearning / review cards the session will show: due by the
+      // cutoff (shared/decks/study-queue.ts — a learning card due tomorrow is
+      // not part of today's count).
+      if (card.queue === CardQueue.REVIEW) bucket.review++;
+      else bucket.learning++;
     }
   }
 
@@ -1458,56 +1435,22 @@ export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<L
 /** The due-card selection described on getDueCards, over already-loaded inputs. */
 function selectDueCards(
   inputs: StudyInputs,
-  reviewedNoteIds: Set<string>,
+  _reviewedNoteIds: Set<string>,
   bonusNewCards: number,
   cutoff: { iso: string; ts: number }
 ): LocalCard[] {
-  const { cards } = inputs;
-  const raw = countRawQueues(inputs, reviewedNoteIds, cutoff);
-  const alloc = allocateNewCards(
-    [...raw].map(([id, r]) => poolOf(id, r)),
-    inputs.budget,
-    bonusNewCards,
-    inputs.spentElsewhere
-  );
-  const due: LocalCard[] = [];
-
-  // New cards: the allocation says how many each deck may introduce today;
-  // within a deck the highest-value tier goes first (unseen note +
-  // hanzi_to_meaning, unseen note, started note + hanzi_to_meaning, started).
-  const tier = (c: LocalCard) => (!reviewedNoteIds.has(c.note_id) ? 0 : 2) + (c.card_type === 'hanzi_to_meaning' ? 0 : 1);
-  const newByDeck = new Map<string, LocalCard[]>();
-  for (const c of cards) {
-    if (c.queue !== CardQueue.NEW) continue;
-    let list = newByDeck.get(c.deck_id);
-    if (!list) newByDeck.set(c.deck_id, (list = []));
-    list.push(c);
-  }
-  const order = sortDecksForQueue([...raw].map(([id, r]) => ({ id, priority: r.priority, createdAt: r.createdAt })));
-  for (const { id } of order) {
-    const budget = alloc.get(id);
-    const list = newByDeck.get(id);
-    if (!budget || !list) continue;
-    let primary = budget.primary;
-    let secondary = budget.secondary;
-    for (const card of list.sort((a, b) => tier(a) - tier(b))) {
-      if (reviewedNoteIds.has(card.note_id)) {
-        if (secondary > 0) { secondary--; due.push(card); }
-      } else if (primary > 0) {
-        primary--; due.push(card);
-      }
-    }
-  }
-
-  for (const card of cards) {
-    if (card.queue === CardQueue.LEARNING || card.queue === CardQueue.RELEARNING) {
-      if (!card.due_timestamp || card.due_timestamp <= cutoff.ts) due.push(card);
-    } else if (card.queue === CardQueue.REVIEW) {
-      if (!card.next_review_at || card.next_review_at <= cutoff.iso) due.push(card);
-    }
-  }
-
-  return due;
+  const decks: QueueDeckInput[] = inputs.decks.map(d => ({
+    id: d.id,
+    priority: d.study_priority ?? 0,
+    created_at: d.created_at,
+    cap_primary: d.new_cards_per_day,
+    cap_secondary: d.secondary_cards_per_day ?? DEFAULT_SECONDARY_CARDS_PER_DAY,
+  }));
+  const rows = inputs.cards.map(c => ({ ...queueInput(c), card: c }));
+  // `studied` covers every deck; a one-deck session still spends the global
+  // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
+  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId);
+  return result.due.map(r => r.card);
 }
 
 /** What a study session needs to start, from ONE load of decks, cards and counters. */
@@ -1697,6 +1640,18 @@ export async function markReviewEventsSynced(eventIds: string[]): Promise<void> 
     .where('id')
     .anyOf(eventIds)
     .modify({ _synced: 1 });
+}
+
+/**
+ * The server refused these events (their card is not in the account — deleted
+ * elsewhere). `_synced = -1`: not uploaded again, and not counted as synced.
+ */
+export async function markReviewEventsRejected(eventIds: string[]): Promise<void> {
+  if (eventIds.length === 0) return;
+  await db.reviewEvents
+    .where('id')
+    .anyOf(eventIds)
+    .modify({ _synced: -1 });
 }
 
 // ============ Checkpoint Functions ============
