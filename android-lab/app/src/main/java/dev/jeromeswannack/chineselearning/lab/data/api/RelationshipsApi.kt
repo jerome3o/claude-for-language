@@ -38,6 +38,19 @@ data class MyRelationshipsDto(
     val students: List<RelationshipDto> = emptyList(),
     val pending_incoming: List<RelationshipDto> = emptyList(),
     val pending_outgoing: List<RelationshipDto> = emptyList(),
+    /** Email invitations to people without an account yet (package E). */
+    val pending_invitations: List<PendingInvitationDto> = emptyList(),
+)
+
+/** An email invitation to someone who hasn't signed up (package E, ConnectionsScreen). */
+@Serializable
+data class PendingInvitationDto(
+    val id: String,
+    val recipient_email: String = "",
+    /** The inviter's role: 'tutor' → the recipient will be my student. */
+    val inviter_role: String = "",
+    val status: String = "",
+    val created_at: String? = null,
 )
 
 suspend fun Api.myRelationships(): MyRelationshipsDto = get("/api/relationships")

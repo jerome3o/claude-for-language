@@ -13,6 +13,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.NavSync
 object FeatureSyncs {
     fun registerAll(platform: LabPlatform) {
         platform.register("nav", NavSync) // relationships → tab set / landing (ui/nav/NavData.kt)
+        platform.register("connections", dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionsSync) // E: my id + notifications (Tutor tab badge)
+        platform.register("homework", dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkSync) // E: homework, "From <tutor>", onboarding
         platform.register("teaching", dev.jeromeswannack.chineselearning.lab.ui.teaching.TeachingSync) // tutor dashboard + student pages (F)
         platform.register("shell", dev.jeromeswannack.chineselearning.lab.shell.HomeworkFeed) // widget + homework notification (package I)
         platform.register("library", dev.jeromeswannack.chineselearning.lab.ui.library.LibrarySync) // lesson library list (ui/library)

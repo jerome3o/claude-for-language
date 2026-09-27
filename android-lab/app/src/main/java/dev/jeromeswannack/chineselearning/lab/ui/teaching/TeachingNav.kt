@@ -45,7 +45,7 @@ fun NavGraphBuilder.teachingGraph(nav: LabNav) {
         when {
             asStudent != null -> StudentPageRoute(nav, relId, asStudent)
             relationships == null -> Unit // cache still loading (a frame)
-            else -> PlaceholderScreen(Routes.connection(relId), onBack = nav::back) { nav.openInMainApp(Routes.connection(relId)) }
+            else -> dev.jeromeswannack.chineselearning.lab.ui.connections.TutorPageRoute(nav, relId) // E: the student's tutor page
         }
     }
     tutorPage(nav, "/connections/{relId}/insights") { relId, name, _ -> InsightsRoute(nav, relId, name) }

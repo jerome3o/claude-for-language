@@ -63,6 +63,7 @@ fun LabShell(
     val entry by controller.currentBackStackEntryAsState()
     val path = entry?.let(LabNav::pathOf) ?: state.landing
     val tabRoots = remember(state.tabs) { state.tabs.map { Routes.routeForPath(it.to) }.toSet() }
+    val badges by remember(app) { TabBadges.observe(app) }.collectAsStateWithLifecycle(emptyMap())
 
     LaunchedEffect(pendingPath) {
         if (pendingPath != null) {
@@ -76,6 +77,7 @@ fun LabShell(
         active = NavRules.activeTab(state.tabs, path),
         showBar = !NavRules.isImmersiveRoute(path),
         onSelect = { tab -> app.haptics.tick(); nav.openTab(tab) },
+        badges = badges,
     ) {
         NavHost(
             navController = controller,
@@ -95,7 +97,7 @@ fun LabShell(
  * while typing). Screenshot tests render it with any content.
  */
 @Composable
-fun ShellFrame(tabs: List<TabSpec>, active: TabId?, showBar: Boolean, onSelect: (TabSpec) -> Unit, content: @Composable () -> Unit) {
+fun ShellFrame(tabs: List<TabSpec>, active: TabId?, showBar: Boolean, onSelect: (TabSpec) -> Unit, badges: Map<TabId, Int> = emptyMap(), content: @Composable () -> Unit) {
     // Measured, not WindowInsets.isImeVisible: that reads true where no keyboard exists (tests).
     val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
@@ -105,7 +107,7 @@ fun ShellFrame(tabs: List<TabSpec>, active: TabId?, showBar: Boolean, onSelect: 
             enter = slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(160)),
             exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(120)),
         ) {
-            LabTabBar(tabs, active, onSelect)
+            LabTabBar(tabs, active, onSelect, badges = badges)
         }
     }
 }

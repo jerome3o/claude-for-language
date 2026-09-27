@@ -9,16 +9,16 @@
  */
 
 import {
-  compareDue,
-  dueLabel,
   localDate,
-  passItemIds,
-  passProgress,
+  oneOffOnlyTargets,
+  sortHomeworkItems,
+  titleParts,
+  toHomeworkItems as toItems,
+  KIND_ICON,
   type HomeworkAssignment,
   type HomeworkEvent,
+  type HomeworkItemView,
   type HomeworkResult,
-  type DueLabel,
-  type PassProgress,
 } from '@shared/homework';
 import { db, type LocalHomeworkAssignment, type LocalHomeworkEvent } from '../db/database';
 import { API_BASE, getAuthHeaders } from '../api/client';
@@ -108,9 +108,7 @@ export async function recordTargetDone(kind: 'lesson' | 'reader', targetId: stri
  */
 export async function oneOffOnlyTargetIds(): Promise<Set<string>> {
   try {
-    const list = await db.homeworkAssignments.toArray();
-    const fsrs = new Set(list.filter((a) => a.mode !== 'one_off').map((a) => a.target_id));
-    return new Set(list.filter((a) => a.mode === 'one_off' && !fsrs.has(a.target_id)).map((a) => a.target_id));
+    return oneOffOnlyTargets(await db.homeworkAssignments.toArray());
   } catch {
     return new Set();
   }
@@ -118,52 +116,15 @@ export async function oneOffOnlyTargetIds(): Promise<Set<string>> {
 
 // ============ What the screens show ============
 
-export interface HomeworkItem {
-  assignment: LocalHomeworkAssignment;
-  progress: PassProgress;
-  due: DueLabel;
-  /** Done on this device or on the server. */
-  done: boolean;
-}
+export type HomeworkItem = HomeworkItemView<LocalHomeworkAssignment>;
 
 export function toHomeworkItems(assignments: LocalHomeworkAssignment[], events: LocalHomeworkEvent[], today: string = localDate()): HomeworkItem[] {
-  const byAssignment = new Map<string, LocalHomeworkEvent[]>();
-  for (const e of events) {
-    const list = byAssignment.get(e.assignment_id) ?? [];
-    list.push(e);
-    byAssignment.set(e.assignment_id, list);
-  }
-  return assignments
-    .filter((a) => a.mode !== 'fsrs' && a.status !== 'cancelled')
-    .map((a) => {
-      const progress = passProgress(passItemIds(a), byAssignment.get(a.id) ?? []);
-      const done = a.status === 'done' || progress.complete;
-      return { assignment: a, progress, due: dueLabel(a.due_date, today), done };
-    });
+  return toItems(assignments, events, today);
 }
 
-/** To do first: overdue, then by due date, then by part; done ones newest first. */
-export function sortHomeworkItems(items: HomeworkItem[]): { todo: HomeworkItem[]; done: HomeworkItem[] } {
-  const todo = items
-    .filter((i) => !i.done)
-    .sort((a, b) => compareDue(a.assignment.due_date, b.assignment.due_date) || a.assignment.part_index - b.assignment.part_index || a.assignment.created_at.localeCompare(b.assignment.created_at));
-  const done = items
-    .filter((i) => i.done)
-    .sort((a, b) => (b.assignment.completed_at ?? b.assignment.updated_at).localeCompare(a.assignment.completed_at ?? a.assignment.updated_at));
-  return { todo, done };
-}
+export { sortHomeworkItems, titleParts, KIND_ICON };
 
 export async function loadHomeworkItems(): Promise<HomeworkItem[]> {
   const [assignments, events] = await Promise.all([db.homeworkAssignments.toArray(), db.homeworkEvents.toArray()]);
   return toHomeworkItems(assignments, events);
 }
-
-/** "Restaurant · day 1 of 2" → { base: 'Restaurant', part: 'day 1 of 2' } — the part goes on the meta line. */
-export function titleParts(a: Pick<HomeworkAssignment, 'title' | 'part_index' | 'part_count'>): { base: string; part: string | null } {
-  if (a.part_count <= 1) return { base: a.title, part: null };
-  const part = `day ${a.part_index + 1} of ${a.part_count}`;
-  const base = a.title.endsWith(` · ${part}`) ? a.title.slice(0, -` · ${part}`.length) : a.title;
-  return { base, part };
-}
-
-export const KIND_ICON: Record<string, string> = { deck: '📚', lesson: '🎓', reader: '📖' };

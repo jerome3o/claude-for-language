@@ -8,7 +8,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
+import dev.jeromeswannack.chineselearning.lab.ui.homework.HomeHomeworkSlot
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
+import dev.jeromeswannack.chineselearning.lab.ui.onboarding.OnboardingGate
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import kotlinx.coroutines.Dispatchers
@@ -39,10 +41,12 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
             val ui by vm.ui.collectAsStateWithLifecycle()
             val sync by app.repo.status.collectAsStateWithLifecycle()
             val online by app.online.collectAsStateWithLifecycle()
-            HomeScreen(
+            // Package E: an invited student's first open, then the homework cards under Study.
+            OnboardingGate(nav, totalDue = ui.due.total) { HomeScreen(
                 ui = ui,
                 sync = sync,
                 online = online,
+                homework = { HomeHomeworkSlot(nav) },
                 actions = HomeActions(
                     onStudyAll = { nav.open(Routes.study()) },
                     onStudyDeck = { nav.open(Routes.study(it)) },
@@ -50,7 +54,7 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
                     onSignIn = nav.onSignIn,
                     onAllDecks = { nav.openTabPath(Routes.DECKS) },
                 ),
-            )
+            ) }
         }
     }
 }
