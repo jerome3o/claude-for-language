@@ -20,6 +20,7 @@ import { SAMPLE_LESSONS, sampleLesson, type SampleLesson } from '@shared/lesson/
 import { createLibraryItem } from '../../api/lessonEditor';
 import { StudyCustomLesson } from '../../components/StudyCustomLesson';
 import { ErrorMessage } from '../../components/Loading';
+import '../StudyPage.css';
 import './ExerciseCataloguePage.css';
 
 /** Types added with the practice set — badged "New" in the catalogue. */
@@ -143,11 +144,13 @@ export function CatalogueTrialPage() {
     );
   }
   return (
-    <StudyCustomLesson
-      lesson={{ title: sample.spec.title, icon: sample.spec.icon ?? null, spec: sample.spec }}
-      trial
-      onComplete={() => {}}
-      onEnd={() => navigate(`/library/catalogue#type-${sample.type}`)}
-    />
+    <div className="study-page-fullscreen">
+      <StudyCustomLesson
+        lesson={{ title: sample.spec.title, icon: sample.spec.icon ?? null, spec: sample.spec }}
+        trial
+        onComplete={() => {}}
+        onEnd={() => navigate(`/library/catalogue#type-${sample.type}`)}
+      />
+    </div>
   );
 }

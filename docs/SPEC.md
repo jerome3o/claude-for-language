@@ -136,6 +136,14 @@ While editing a deck/note, user can:
 - More → Practice → Write characters (`/practice/strokes?text=`), and ⋯ → Write it on a study card
 - Offline once a character's data is on the device; details, data licence and the road to a full feature: [STROKE_ORDER.md](./STROKE_ORDER.md)
 
+### 10. Practice exercises in mini lessons
+- Sentence making (use the target words in your own sentence — typed or handwritten; Claude checks it when online)
+- Writing — typed (pick the right characters on the keyboard; wrong characters marked) and Writing — handwriting (stroke-order checked, from memory) as separate exercise types
+- Dictation (hear a sentence, write it — typed or handwritten), Oral expression (answer out loud; recorded for the tutor, transcribed when online)
+- Conversation: a dialogue in a situation (hotel, restaurant, doctor…) in two different voices, then comprehension questions; Claude drafts one from just a situation + level
+- Every lesson run records what was answered in each exercise and the time spent; the tutor reviews it (typed text, choices, handwriting, recordings)
+- Tutors browse all exercise types in the Exercise catalogue and take a sample lesson of each (nothing is recorded)
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

@@ -1,42 +1,27 @@
 /**
- * The handwriting input used by lesson exercises (write_handwriting,
- * handwritten dictation / sentence making), behind ONE interface so the
- * writing engine can be swapped without touching the exercises.
- *
- * Today's engine is SketchPad: a free drawing surface that captures the
- * strokes as vectors — the learner compares with the model characters and
- * self-assesses, and the tutor sees exactly what was written. A stroke-order
- * engine (the pluggable writing pad) plugs in with registerHandwritingPad():
- * it receives the target characters and reports `checked` / `mistakes`, and
- * the exercises then use its verdict instead of asking the learner.
+ * Free handwriting: a drawing surface that captures the strokes as vectors,
+ * for writing with no fixed answer (a handwritten sentence_making answer) and
+ * as the offline fallback of the stroke-order pad (components/strokes) when a
+ * character's stroke data isn't on the device yet. The learner compares with
+ * the model and self-assesses; the tutor sees exactly what was written
+ * (StrokesView re-draws it).
  */
 
-import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HandwritingAnswer } from '@shared/lesson';
 import './handwriting.css';
 
 export interface HandwritingPadProps {
-  /** The characters expected, when known (writing / dictation). Free writing
-   * (sentence making) passes nothing. A stroke engine checks against it; the
-   * sketch pad only uses its length to size the writing boxes. */
+  /** The characters expected, when known — only used to size the writing
+   * boxes (one 田字格 per character). Free writing passes nothing. */
   target?: string;
   /** Called after every stroke / undo / clear with the current answer. */
   onChange: (answer: HandwritingAnswer) => void;
   disabled?: boolean;
 }
 
-export type HandwritingPadComponent = ComponentType<HandwritingPadProps>;
-
-let registeredPad: HandwritingPadComponent | null = null;
-
-/** Replace the sketch pad with another engine (e.g. a stroke-order checker). */
-export function registerHandwritingPad(pad: HandwritingPadComponent | null): void {
-  registeredPad = pad;
-}
-
 export function HandwritingPad(props: HandwritingPadProps) {
-  const Pad = registeredPad ?? SketchPad;
-  return <Pad {...props} />;
+  return <SketchPad {...props} />;
 }
 
 /** Han characters in a target (punctuation doesn't get a writing box). */

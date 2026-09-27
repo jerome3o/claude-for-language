@@ -54,6 +54,9 @@ export interface WritingExerciseProps {
   /** Shows a Done button on the summary. */
   onDone?: () => void;
   doneLabel?: string;
+  /** Recall mode hides the characters even with no pinyin / English prompt
+   * (dictation: the prompt is the audio the lesson plays). */
+  hideCharacters?: boolean;
 }
 
 type Loaded =
@@ -81,6 +84,7 @@ export function WritingExercise({
   onComplete,
   onDone,
   doneLabel = 'Done',
+  hideCharacters = false,
 }: WritingExerciseProps) {
   const chars = useMemo(() => writableCharacters(text), [text]);
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
@@ -173,6 +177,7 @@ export function WritingExercise({
       onComplete={onComplete}
       onDone={onDone}
       doneLabel={doneLabel}
+      hideCharacters={hideCharacters}
     />
   );
 }
@@ -186,6 +191,7 @@ interface RunProps extends Omit<WritingExerciseProps, 'text'> {
   allowModeSwitch: boolean;
   autoDemo: boolean;
   doneLabel: string;
+  hideCharacters: boolean;
 }
 
 function WritingRun({
@@ -201,6 +207,7 @@ function WritingRun({
   onComplete,
   onDone,
   doneLabel,
+  hideCharacters,
 }: RunProps) {
   const [mode, setMode] = useState<WritingMode>(initialMode);
   const [charIdx, setCharIdx] = useState(0);
@@ -227,7 +234,7 @@ function WritingRun({
   }, []);
 
   const hasPrompt = Boolean(pinyin || english);
-  const hideChars = mode === 'recall' && hasPrompt;
+  const hideChars = mode === 'recall' && (hasPrompt || hideCharacters);
 
   const startChar = useCallback(
     (idx: number, m: WritingMode, demo: boolean) => {

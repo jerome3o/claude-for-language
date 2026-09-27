@@ -30,6 +30,8 @@ import {
 import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { prefetchTTSClips } from './ttsCache';
+import { prefetchStrokeData } from './strokeData';
+import { writableCharacters } from '@shared/strokes';
 import { getAudioWithCache, isAudioCached } from './audioCache';
 
 /** At most this many NEW (never-studied) lessons join a single study session,
@@ -354,6 +356,18 @@ export async function uploadLessonAttemptMedia(): Promise<{ uploaded: number }> 
   return { uploaded };
 }
 
+/** Every character a lesson asks to be written by hand (the stroke pad needs their data). */
+export function lessonHandwritingText(spec: CustomLessonSpec): string {
+  let text = '';
+  for (const section of spec.sections) {
+    for (const ex of section.exercises) {
+      if (ex.type === 'write_handwriting') text += ex.answer.hanzi;
+      else if (ex.type === 'dictation' && ex.input === 'handwrite') text += ex.audio.hanzi;
+    }
+  }
+  return text;
+}
+
 /**
  * Cache media for upcoming lessons so they work fully offline: TTS for every
  * Chinese sentence, and any generated describe_image illustrations (served
@@ -365,6 +379,9 @@ export async function prefetchCustomLessonMedia(): Promise<void> {
   const lessons = await getDueCustomLessons();
   for (const lesson of lessons) {
     await prefetchTTSClips(lessonTtsClips(lesson.spec, resolveConversationVoices));
+    // Stroke-order data for handwriting, so the writing pad checks strokes offline.
+    const handwritten = lessonHandwritingText(lesson.spec);
+    if (handwritten) await prefetchStrokeData(writableCharacters(handwritten)).catch(() => {});
     for (const section of lesson.spec.sections) {
       for (const ex of section.exercises) {
         if (ex.type === 'describe_image' && ex.image_url && !(await isAudioCached(ex.image_url))) {

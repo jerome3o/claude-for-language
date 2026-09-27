@@ -20,8 +20,31 @@ export interface HandwritingStrokes {
   strokes: number[][];
 }
 
+/** A stroke-order checked run (the writing pad, shared/strokes) — the
+ * structural subset of its WritingExerciseResult a tutor reviews: per
+ * character the grade and mistakes, per stroke the misses / hints and the
+ * accepted drawing (data space: 1024 box, y up). */
+export interface StrokeWritingSummary {
+  text: string;
+  mode: 'trace' | 'recall';
+  grade: 'perfect' | 'good' | 'practice';
+  skipped: string[];
+  characters: Array<{
+    character: string;
+    grade: 'perfect' | 'good' | 'practice';
+    mistakes: number;
+    hints: number;
+    revealed: number;
+    ms: number;
+    accuracy: number;
+    strokes: Array<{ misses: number; mistakes: string[]; hinted: boolean; revealed: boolean; drawn?: [number, number][] }>;
+  }>;
+}
+
 export interface HandwritingAnswer {
   strokes?: HandwritingStrokes;
+  /** The stroke-order checked run, when the writing pad had the characters. */
+  writing?: StrokeWritingSummary;
   /** What the pad recognised / checked, when it can. */
   text?: string;
   /** The pad's own verdict (a stroke checker); absent when self-assessed. */
@@ -161,6 +184,47 @@ function cleanStrokes(v: unknown): HandwritingStrokes | undefined {
   return { width, height, strokes };
 }
 
+const GRADES = ['perfect', 'good', 'practice'] as const;
+type Grade = typeof GRADES[number];
+const grade = (v: unknown): Grade => (GRADES as readonly unknown[]).includes(v) ? v as Grade : 'practice';
+
+function cleanWriting(v: unknown): StrokeWritingSummary | undefined {
+  if (!isRecord(v) || !Array.isArray(v.characters)) return undefined;
+  let points = 0;
+  return {
+    text: str(v.text, 100) ?? '',
+    mode: v.mode === 'trace' ? 'trace' : 'recall',
+    grade: grade(v.grade),
+    skipped: Array.isArray(v.skipped) ? v.skipped.filter((c): c is string => typeof c === 'string').slice(0, 20).map(c => c.slice(0, 4)) : [],
+    characters: v.characters.slice(0, 20).filter(isRecord).map(c => ({
+      character: str(c.character, 4) ?? '',
+      grade: grade(c.grade),
+      mistakes: int(c.mistakes, 0, 1000) ?? 0,
+      hints: int(c.hints, 0, 1000) ?? 0,
+      revealed: int(c.revealed, 0, 100) ?? 0,
+      ms: int(c.ms, 0, MAX_DURATION_MS) ?? 0,
+      accuracy: typeof c.accuracy === 'number' && Number.isFinite(c.accuracy) ? Math.min(1, Math.max(0, c.accuracy)) : 0,
+      strokes: (Array.isArray(c.strokes) ? c.strokes : []).slice(0, 40).filter(isRecord).map(s => {
+        let drawn: [number, number][] | undefined;
+        if (Array.isArray(s.drawn) && points < MAX_STROKE_NUMBERS / 2) {
+          drawn = s.drawn
+            .filter((p): p is [number, number] => Array.isArray(p) && typeof p[0] === 'number' && typeof p[1] === 'number')
+            .slice(0, 64)
+            .map(p => [Math.round(p[0]), Math.round(p[1])] as [number, number]);
+          points += drawn.length;
+        }
+        return {
+          misses: int(s.misses, 0, 100) ?? 0,
+          mistakes: Array.isArray(s.mistakes) ? s.mistakes.filter((m): m is string => typeof m === 'string').slice(0, 20).map(m => m.slice(0, 20)) : [],
+          hinted: s.hinted === true,
+          revealed: s.revealed === true,
+          drawn,
+        };
+      }),
+    })),
+  };
+}
+
 function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
   if (!isRecord(v)) return undefined;
   const out: ExerciseAnswer = {};
@@ -179,6 +243,7 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
     const h = v.handwriting;
     out.handwriting = {
       strokes: cleanStrokes(h.strokes),
+      writing: cleanWriting(h.writing),
       text: str(h.text, 200),
       checked: typeof h.checked === 'boolean' ? h.checked : undefined,
       mistakes: int(h.mistakes, 0, 1000),

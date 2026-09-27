@@ -112,15 +112,15 @@ export const EXERCISE_TYPE_INFO: Record<ExerciseType, ExerciseTypeInfo> = {
   write_handwriting: {
     type: 'write_handwriting', icon: '🖌', name: 'Writing — handwriting', label: 'handwriting', skill: 'writing',
     summary: 'Write the characters by hand on the writing pad (≤ 12 characters).',
-    description: 'Shows the English and/or pinyin and the learner writes the characters by hand, recalling them stroke by stroke. Keep it to a word or short phrase.',
-    checking: 'Checked by the writing pad when it can; otherwise self-assessed against the model characters. You see what they wrote.',
+    description: 'Shows the English and/or pinyin and the learner writes the characters by hand from memory, one character per square, on the stroke-order writing pad. Keep it to a word or short phrase.',
+    checking: 'The writing pad checks every stroke — order, direction, shape — and hints after misses; right when written from memory. You see each stroke they drew. (Self-assessed if the stroke data isn’t on the device yet.)',
     needs: 'handwriting',
   },
   dictation: {
     type: 'dictation', icon: '📝', name: 'Dictation', label: 'dictation', skill: 'listening',
     summary: 'Hear a sentence and write down what you heard — typed or handwritten.',
     description: 'A sentence is played with the text hidden; the learner writes down exactly what they heard. Choose typed input (checked character by character) or handwriting.',
-    checking: 'Typed: automatic, character by character. Handwritten: self-assessed against the transcript.',
+    checking: 'Typed: automatic, character by character. Handwritten: the writing pad checks every stroke (characters hidden).',
   },
   oral_expression: {
     type: 'oral_expression', icon: '🗣', name: 'Oral expression', label: 'oral expression', skill: 'speaking',

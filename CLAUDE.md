@@ -105,7 +105,13 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── validate.ts    # Playability checks for generated worlds
 │   │   └── index.ts       # Re-exports
 │   ├── lesson/            # Custom mini lessons: agent-authored lesson schema
-│   │   ├── types.ts       # Lesson spec (sections of exercises, 9 exercise types)
+│   │   ├── types.ts       # Lesson spec (sections of exercises, 15 exercise types)
+│   │   ├── registry.ts    # One entry per exercise type (name, icon, skill, how it's checked) — every type list reads it
+│   │   ├── doc.ts         # LESSON_SPEC_DOC: the spec text every lesson-authoring Claude reads (worker + MCP)
+│   │   ├── samples.ts     # Bundled sample lesson per type (tutor catalogue)
+│   │   ├── voices.ts      # Conversation speaker → distinct MiniMax voice (resolveConversationVoices)
+│   │   ├── answer-check.ts # Typed-hanzi checking + character diff (diffHanzi)
+│   │   ├── attempt.ts     # Per-exercise attempt data (answers, time, recordings) + server sanitizer
 │   │   ├── validate.ts    # Structural validation for agent-authored specs
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
@@ -285,6 +291,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
+- `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0073
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
 - `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library' | 'reader', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
 - `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
@@ -813,7 +820,21 @@ exercises of any type. Exercise types: `note` (teaching text + example sentences
 `speak` (say your own sentence, self-assessed), `listen_choice` (LISTENING: audio plays with
 the text hidden, pick the matching option — built for tone/minimal-pair discrimination like
 有 yǒu vs 又 yòu), and `listen_translate` (LISTENING: audio plays hidden, translate what you
-heard, self-assessed). Specs are validated with
+heard, self-assessed), plus the practice set: `sentence_making` (own sentence with 1–4 target
+words, typed or handwritten; Claude checks it online via `POST /api/lessons/sentence-feedback`
+— `structuredCall`, `services/sentence-making.ts` — self-assessed offline), `write_typed` and
+`write_handwriting` (SEPARATE types: keyboard vs hand; typed is auto-checked with `diffHanzi`,
+handwriting runs on the stroke-order pad `components/strokes/WritingExercise.tsx` with a free
+sketch-pad fallback when the stroke data isn't on the device), `dictation` (hear it, write it;
+`input: type | handwrite`), `oral_expression` (answer out loud, RECORDED for the tutor,
+transcribed server-side when a transcriber is configured) and `conversation` (a 2–3 speaker
+dialogue played with a distinct TTS voice per speaker — `shared/lesson/voices.ts`, `voice_id`
+on `/api/practice/tts`, cached per voice for offline — then comprehension questions, one point
+each, transcript revealed at the end). The study views are `components/ExerciseView.tsx` (the one
+switch over types) → `lesson-exercises.tsx` / `practice-exercises.tsx`. Adding a type: its
+interface in `types.ts`, a case in `validate.ts`, an entry in `registry.ts`, a line in `doc.ts`, a
+sample in `samples.ts`, the study view, the editor form — `practice-types.test.ts` checks the
+registry / samples / doc cover every validated type. Specs are validated with
 `validateLessonSpec` before storage; invalid specs come back with a list of problems so the
 agent can repair and retry.
 
@@ -835,10 +856,26 @@ menu) inspects pending + completed lessons — full exercise listing per lesson,
 - `POST /api/custom-lessons` - Create from `{ spec }` (validated; queues describe_image illustrations)
 - `PUT /api/custom-lessons/:id` - Replace a lesson's spec in place (validated; same id so history/schedule carry over; keeps generated illustrations whose image_prompt is unchanged)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
-- `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id)
+- `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id); an event may carry `attempt` (per-exercise answers + time), stored in `custom_lesson_attempts`
+
+**Lesson attempts** (`routes/lesson-attempts.ts`): the player records what was answered in each
+exercise and how long it took (`StudyCustomLesson` → the completion event's `attempt`); recordings
+are queued in IndexedDB `lessonAttemptMedia` (Dexie v19) and uploaded after the attempt
+(`uploadLessonAttemptMedia`, in sync and right after a lesson). The tutor reviews an attempt at
+`/connections/:relId/lesson-attempts/:id` (linked from the student page's Mini Lessons and the library
+item's assignments via `last_attempt_id`); the learner's own at `/lesson-attempts` (Mini Lessons → My answers).
+- `PUT /api/lesson-attempts/:id/media/:key` - Raw audio body for one recording (owner; 404 until the attempt is uploaded)
+- `GET /api/lesson-attempts[?lesson_id]`, `GET /api/lesson-attempts/:id` - Mine; `GET /api/relationships/:relId/lesson-attempts[/:id]` - the student's (tutor)
+- `POST /api/lessons/sentence-feedback` - `{ words, task?, sentence }` → `{ feedback }` (503 retryable / 502)
+
+**Exercise catalogue** (`/library/catalogue`, `pages/editor/ExerciseCataloguePage.tsx`, linked from the library
+and More → Teaching): every type from the registry with its sample lesson — **Try it** runs the sample in the
+real player with `trial` (nothing recorded), **Copy to my library** creates a library item. The library's
+New lesson sheet also drafts a conversation lesson from just a situation + level. Assigning is unchanged
+(library assign → FSRS `custom_lessons`); one-off / due-date homework is the homework model's job (docs/HOMEWORK.md).
 
 ### Lesson library & editor (`worker/src/routes/lesson-editor.ts`, mounted at `/api`)
-A **lesson editor** (structured form for all 9 exercise types with live `validateLessonSpec`
+A **lesson editor** (structured form for every exercise type with live `validateLessonSpec`
 errors, a preview built from the real `lesson-exercises.tsx` components, auto-pinyin via
 `pinyin-pro`, TTS play buttons, raw JSON under Advanced) with a **Claude co-editor chat** beside
 it, and a tutor **lesson library**. Library model = *copy with link back*: the library item is
@@ -1572,6 +1609,8 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/progress` - Student progress view (tutor only)
 - `/library`, `/library/:id`, `/library/:id/edit`, `/library/:id/print` - Tutor lesson library, item (assignments + push update), editor, print view
 - `/lessons/:id/edit`, `/lessons/:id/print` - Lesson editor / print view for a student's own lesson or one the tutor assigned
+- `/library/catalogue`, `/library/catalogue/:sampleId` - Exercise catalogue / a sample lesson as a trial (immersive, nothing recorded)
+- `/connections/:relId/lesson-attempts[/:attemptId]`, `/lesson-attempts[/:attemptId]` - Lesson attempt review (tutor / learner)
 - `/readers/:id/edit`, `/readers/:id/print` - Reader editor (form + preview + Claude co-editor + exports) / print view
 - `/connections/:relId/insights` - Student Insights: range, needs attention / going well, summary, lesson log (tutor only)
 - `/connections/:relId/history` - Full review history explorer with filters (tutor only)

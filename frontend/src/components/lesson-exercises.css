@@ -622,3 +622,9 @@
   background: #f6f8fc;
   font-weight: 500;
 }
+
+/* Answered options stay readable (disabled buttons fade by default). */
+.convo-options .contrast-option:disabled {
+  opacity: 1;
+  color: var(--color-text);
+}

@@ -18,6 +18,7 @@ import {
 } from '@shared/lesson';
 import type { AttemptDetail, AttemptMedia } from '../../api/lessonPractice';
 import { StrokesView } from '../handwriting/StrokesView';
+import { StrokeRunView } from './StrokeRunView';
 import { RecordingButton } from '../../pages/tutor/tutor-shared';
 import './attempts.css';
 
@@ -151,17 +152,19 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
       return (
         <>
           <Row label="Cue">{exercise.answer.english || exercise.answer.pinyin || '🔊'}</Row>
-          <div className="att-hw">
+          {a.handwriting?.writing ? <StrokeRunView run={a.handwriting.writing} /> : <div className="att-hw">
             {a.handwriting?.strokes ? <StrokesView strokes={a.handwriting.strokes} label="Wrote" maxHeight={120} /> : <span className="att-muted">(nothing)</span>}
             <span className="att-model" lang="zh-CN">{exercise.answer.hanzi}</span>
-          </div>
+          </div>}
         </>
       );
     case 'dictation':
       return (
         <>
           <Row label="Played"><Sentence s={exercise.audio} /></Row>
-          {exercise.input === 'handwrite' ? (
+          {exercise.input === 'handwrite' && a.handwriting?.writing ? (
+            <StrokeRunView run={a.handwriting.writing} />
+          ) : exercise.input === 'handwrite' ? (
             <div className="att-hw">
               {a.handwriting?.strokes ? <StrokesView strokes={a.handwriting.strokes} label="Wrote" maxHeight={120} /> : <span className="att-muted">(nothing)</span>}
               <span className="att-model" lang="zh-CN">{exercise.audio.hanzi}</span>

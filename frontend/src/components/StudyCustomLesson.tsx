@@ -34,6 +34,7 @@ import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import type { LessonRecording } from '../services/custom-lesson-study';
 import '../pages/PracticePage.css';
+import './StudyReader.css';
 
 interface FlatExercise {
   exercise: LessonExercise;

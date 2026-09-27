@@ -262,3 +262,68 @@
 .att-list-score {
   font-weight: 700;
 }
+
+/* Stroke-order checked handwriting */
+.srv {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.srv-head {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+}
+
+.srv-chars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.srv-char {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 7.5rem;
+  padding: 0.35rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: #fff;
+}
+
+.srv-char.grade-perfect { border-color: #86efac; }
+.srv-char.grade-good { border-color: #fcd34d; }
+.srv-char.grade-practice { border-color: #fca5a5; }
+
+.srv-svg {
+  width: 100%;
+  aspect-ratio: 1;
+  background:
+    linear-gradient(to right, transparent calc(50% - 0.5px), rgba(148, 163, 184, 0.35) calc(50% - 0.5px), rgba(148, 163, 184, 0.35) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(to bottom, transparent calc(50% - 0.5px), rgba(148, 163, 184, 0.35) calc(50% - 0.5px), rgba(148, 163, 184, 0.35) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
+
+.srv-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.srv-grade {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.srv-detail,
+.srv-legend {
+  font-size: 0.72rem;
+  color: var(--color-text-light);
+}
+
+.srv-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}

@@ -23,10 +23,14 @@ import {
   type LessonSentence,
   type LessonWord,
   type SentenceFeedback,
+  type StrokeWritingSummary,
   type WritingCue,
   type WritingInput,
 } from '@shared/lesson';
+import { writableCharacters, type WritingExerciseResult } from '@shared/strokes';
 import { HandwritingPad } from './handwriting/HandwritingPad';
+import { WritingExercise } from './strokes/WritingExercise';
+import { getStrokeData } from '../services/strokeData';
 import { StrokesView } from './handwriting/StrokesView';
 import { ListenPlayButton, type OnNext } from './lesson-exercises';
 import { checkMadeSentence } from '../api/lessonPractice';
@@ -314,6 +318,63 @@ export function WriteTypedExercise(props: {
   );
 }
 
+// ============ Handwriting with stroke-order checking ============
+
+/** A finished stroke-order run, reduced to what the attempt keeps. */
+function summarizeWriting(r: WritingExerciseResult): StrokeWritingSummary {
+  return {
+    text: r.text,
+    mode: r.mode,
+    grade: r.grade,
+    skipped: r.skipped,
+    characters: r.characters.map(c => ({
+      character: c.character,
+      grade: c.grade,
+      mistakes: c.mistakes,
+      hints: c.hints,
+      revealed: c.revealed,
+      ms: c.ms,
+      accuracy: c.accuracy,
+      strokes: c.strokes.map(s => ({ misses: s.misses, mistakes: s.mistakes, hinted: s.hinted, revealed: s.revealed, drawn: s.drawn })),
+    })),
+  };
+}
+
+/** Right when written from memory without the app filling strokes in. */
+function strokeRunCorrect(r: WritingExerciseResult): boolean {
+  return r.mode === 'recall' && r.grade !== 'practice';
+}
+
+function strokeAnswer(r: WritingExerciseResult): HandwritingAnswer {
+  const mistakes = r.characters.reduce((n, c) => n + c.mistakes, 0);
+  return { engine: 'strokes', text: r.text, checked: strokeRunCorrect(r), mistakes, writing: summarizeWriting(r) };
+}
+
+/**
+ * Which pad a known text gets: the stroke-order writing pad when every
+ * character's stroke data is on the device (or fetchable), else the free
+ * sketch pad with self-assessment — so a handwriting exercise still works on
+ * the train before its stroke data has been downloaded.
+ */
+function useStrokePadAvailable(text: string): 'checking' | 'strokes' | 'sketch' {
+  const [state, setState] = useState<'checking' | 'strokes' | 'sketch'>('checking');
+  useEffect(() => {
+    let cancelled = false;
+    const chars = Array.from(new Set(writableCharacters(text)));
+    if (chars.length === 0) {
+      setState('sketch');
+      return;
+    }
+    void Promise.all(chars.map(c => getStrokeData(c))).then(results => {
+      if (cancelled) return;
+      const usable = results.every(r => r.status !== 'offline') && results.some(r => r.status === 'ok');
+      setState(usable ? 'strokes' : 'sketch');
+    });
+    return () => { cancelled = true; };
+  }, [text]);
+  return state;
+}
+
 // ============ Writing — handwriting ============
 
 export function WriteHandwritingExercise(props: {
@@ -324,16 +385,39 @@ export function WriteHandwritingExercise(props: {
   onNext: OnNext;
 }) {
   const { answer, prompt, cues = ['english', 'pinyin'], speak, onNext } = props;
+  const pad = useStrokePadAvailable(answer.hanzi);
   const [hw, setHw] = useState<HandwritingAnswer | null>(null);
   const [checked, setChecked] = useState(false);
-  // A stroke engine's own verdict, when the registered pad gives one.
-  const engineVerdict = typeof hw?.checked === 'boolean' ? hw.checked : null;
+  const result = useRef<WritingExerciseResult | null>(null);
+
+  if (pad === 'strokes') {
+    return (
+      <div className="exercise">
+        <div className="phase-label">Write it by hand ✍️</div>
+        {prompt && <div className="contrast-context">{prompt}</div>}
+        {cues.includes('audio') && <ListenPlayButton text={answer.hanzi} speak={speak} />}
+        <WritingExercise
+          text={answer.hanzi}
+          pinyin={cues.includes('pinyin') ? answer.pinyin : null}
+          english={cues.includes('english') ? answer.english : null}
+          initialMode="recall"
+          hideCharacters
+          onComplete={r => { result.current = r; speak(answer.hanzi); }}
+          onDone={() => {
+            const r = result.current;
+            if (r) onNext(strokeRunCorrect(r), { handwriting: strokeAnswer(r) });
+          }}
+          doneLabel="Continue"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="exercise">
       <div className="phase-label">Write it by hand ✍️</div>
       <WritingCues answer={answer} cues={cues} prompt={prompt} speak={speak} />
-      {!checked ? (
+      {pad === 'checking' ? null : !checked ? (
         <>
           <HandwritingPad target={answer.hanzi} onChange={setHw} />
           <div className="exercise-actions">
@@ -344,21 +428,12 @@ export function WriteHandwritingExercise(props: {
         </>
       ) : (
         <>
-          {engineVerdict !== null && (
-            <div className={`result-banner ${engineVerdict ? 'correct' : 'wrong'}`}>{engineVerdict ? '✓ Correct' : '✗ Not quite'}</div>
-          )}
           <HandwritingCompare hw={hw} model={answer} speak={speak} />
           {answer.english && <div className="contrast-english" style={{ textAlign: 'center' }}>{answer.english}</div>}
-          {engineVerdict !== null ? (
-            <div className="exercise-actions">
-              <button className="practice-btn primary" onClick={() => onNext(engineVerdict, { handwriting: hw ?? undefined })}>Continue</button>
-            </div>
-          ) : (
-            <SelfAssess
-              question="Did you write every character correctly — right components, nothing missing?"
-              onAnswer={correct => onNext(correct, { handwriting: hw ?? undefined, self_assessed: true })}
-            />
-          )}
+          <SelfAssess
+            question="Did you write every character correctly — right components, nothing missing?"
+            onAnswer={correct => onNext(correct, { handwriting: hw ?? undefined, self_assessed: true })}
+          />
         </>
       )}
     </div>
@@ -377,19 +452,25 @@ export function DictationExercise(props: {
 }) {
   const { audio, input = 'type', alternatives, note, speak, onNext } = props;
   const typed = input === 'type';
+  const pad = useStrokePadAvailable(typed ? '' : audio.hanzi);
   const [text, setText] = useState('');
   const [hw, setHw] = useState<HandwritingAnswer | null>(null);
   const [diff, setDiff] = useState<HanziDiff | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [strokeRun, setStrokeRun] = useState<WritingExerciseResult | null>(null);
   const plays = useRef(0);
+  const strokes = !typed && pad === 'strokes';
 
   function check() {
     if (typed) setDiff(diffHanzi(text, audio.hanzi, alternatives));
     setRevealed(true);
   }
 
-  const engineVerdict = !typed && typeof hw?.checked === 'boolean' ? hw.checked : null;
-  const base = (): ExerciseAnswer => ({ plays: plays.current, ...(typed ? { text: text.trim() } : { handwriting: hw ?? undefined }) });
+  const base = (): ExerciseAnswer => ({
+    plays: plays.current,
+    ...(typed ? { text: text.trim() } : { handwriting: strokeRun ? strokeAnswer(strokeRun) : hw ?? undefined }),
+  });
+  const verdict: boolean | null = typed ? diff?.correct ?? null : strokeRun ? strokeRunCorrect(strokeRun) : null;
 
   return (
     <div className="exercise">
@@ -397,8 +478,8 @@ export function DictationExercise(props: {
       <p className="describe-task">Write down exactly what you hear.</p>
       <ListenPlayButton text={audio.hanzi} speak={speak} onPlay={() => { plays.current++; }} />
       {!revealed ? (
-        <>
-          {typed ? (
+        typed ? (
+          <>
             <input
               className="translate-input write-input"
               value={text}
@@ -408,13 +489,28 @@ export function DictationExercise(props: {
               lang="zh-CN"
               autoComplete="off"
             />
-          ) : (
+            <div className="exercise-actions">
+              <button className="practice-btn primary" onClick={check} disabled={!text.trim()}>Check</button>
+            </div>
+          </>
+        ) : strokes ? (
+          <WritingExercise
+            text={audio.hanzi}
+            initialMode="recall"
+            allowModeSwitch={false}
+            hideCharacters
+            onComplete={r => setStrokeRun(r)}
+            onDone={() => setRevealed(true)}
+            doneLabel="Show the sentence"
+          />
+        ) : pad === 'checking' ? null : (
+          <>
             <HandwritingPad target={audio.hanzi} onChange={setHw} />
-          )}
-          <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={check} disabled={typed ? !text.trim() : !hasStrokes(hw)}>Check</button>
-          </div>
-        </>
+            <div className="exercise-actions">
+              <button className="practice-btn primary" onClick={check} disabled={!hasStrokes(hw)}>Check</button>
+            </div>
+          </>
+        )
       ) : (
         <>
           {diff && (
@@ -425,19 +521,17 @@ export function DictationExercise(props: {
               <CharDiffView diff={diff} />
             </>
           )}
-          {!typed && (
-            <>
-              {engineVerdict !== null && (
-                <div className={`result-banner ${engineVerdict ? 'correct' : 'wrong'}`}>{engineVerdict ? '✓ Correct' : '✗ Not quite'}</div>
-              )}
-              <HandwritingCompare hw={hw} model={audio} speak={speak} />
-            </>
+          {strokeRun && (
+            <div className={`result-banner ${strokeRunCorrect(strokeRun) ? 'correct' : 'wrong'}`}>
+              {strokeRunCorrect(strokeRun) ? '✓ Written from memory' : '✗ Needed help with some strokes'}
+            </div>
           )}
+          {!typed && !strokeRun && <HandwritingCompare hw={hw} model={audio} speak={speak} />}
           <Reference sentence={audio} speak={speak} />
           {note && <p className="result-explanation">{note}</p>}
-          {typed || engineVerdict !== null ? (
+          {verdict !== null ? (
             <div className="exercise-actions">
-              <button className="practice-btn primary" onClick={() => onNext(typed ? diff!.correct : engineVerdict!, base())}>Continue</button>
+              <button className="practice-btn primary" onClick={() => onNext(verdict, base())}>Continue</button>
             </div>
           ) : (
             <SelfAssess
