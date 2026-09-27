@@ -106,6 +106,32 @@ sync records per-step timings (`SyncStatus.lastRun`: Lab settings → Last sync,
 report's `sync.last_run`); `SyncBenchmarkTest` (opt-in, against a seeded local worker) and
 `core/…/ReplayBenchmarkTest` measure it.
 
+## Outside the app: widget, shortcuts, notifications (`app/…/shell/`)
+
+The hybrid app's native shell (`native/README.md`), rebuilt local-first. Ids, channels,
+shortcut ids and labels are the Lab's own, so both apps install side by side.
+
+- **Widget** (*Lab · due today*): the Study button's count from Room (`TodayCounts.allDecksQueue`
+  — the same queue as Home and the session, so it works offline), "about N min", the one-off
+  homework due now, and 学 Study / ✏️ Coach. Redrawn after every sync (`dataVersion`), after a
+  rating from a notification, by the hourly check and by an inexact alarm just after midnight.
+  More → Lab app → *Add the home-screen widget* pins it.
+- **Launcher shortcuts** Study / Coach / Analyze and **select text → Coach (Lab)**
+  (`PROCESS_TEXT` → `/coach?text=…`). Everything from outside is a `chineselearning-lab:///<route>`
+  link (or the hybrid's `route` extra), so a screen that isn't native yet opens its placeholder.
+- **Due-card notifications** (`DueCheckWorker`, hourly): sync if online, then — unless it is
+  22:00–08:00, notifications are off / not allowed, signed out, a tutor account, or nothing is
+  due — the most overdue *seen* hanzi → meaning card due now (never a new card: the new-card
+  budget is spent in sessions). *Show answer* reveals pinyin, meaning and the example sentence;
+  **Again / Good / Easy** (with the session's intervals) call `Repository.recordReview` — a real
+  local event, state recomputed from events, uploaded by sync or the upload worker, so it works
+  offline too — then "✓ Good · back in 4d" with *Next card*. A card notification whose card was
+  answered elsewhere is withdrawn after the next sync; one still due is never replaced (you may be
+  on its answer). **Homework** due today / overdue gets one notification a day per assignment.
+- Android 13+ asks for the notification permission once after sign-in; More → Lab app →
+  *Due-card notifications* switches it all off or asks again. Rules: `ShellRules.kt` (pure,
+  `ShellRulesTest`); data + rating: `ShellDataTest`; screenshots: `NativeShellScreenshots`.
+
 ## Parity: proving the logic matches
 
 `./gradlew :core:test` first runs `parity/generate.sh`, which bundles

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher long-press shortcuts (the hybrid's res/xml/shortcuts.xml, own ids + the Lab's deep links). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="lab_study"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shell_shortcut_study_short"
+        android:shortcutLongLabel="@string/shell_shortcut_study_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chineselearning-lab:///study"
+            android:targetPackage="dev.jeromeswannack.chineselearning.lab"
+            android:targetClass="dev.jeromeswannack.chineselearning.lab.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="lab_coach"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shell_shortcut_coach_short"
+        android:shortcutLongLabel="@string/shell_shortcut_coach_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chineselearning-lab:///coach"
+            android:targetPackage="dev.jeromeswannack.chineselearning.lab"
+            android:targetClass="dev.jeromeswannack.chineselearning.lab.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="lab_analyze"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shell_shortcut_analyze_short"
+        android:shortcutLongLabel="@string/shell_shortcut_analyze_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="chineselearning-lab:///analyze"
+            android:targetPackage="dev.jeromeswannack.chineselearning.lab"
+            android:targetClass="dev.jeromeswannack.chineselearning.lab.MainActivity" />
+    </shortcut>
+</shortcuts>

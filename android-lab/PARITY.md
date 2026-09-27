@@ -68,25 +68,25 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | Three card types (read / write / listen), flip, rating bar | ✅ | `StudyPage.tsx` | `ui/study/CardStage.kt` |
 | Typed-answer check (punctuation, numbers, 两/二, alternatives) + diff | ✅ parity-tested | `utils/numberHanzi.ts`, `AnswerDiff` | `core/…/AnswerKey.kt` |
 | Example sentences (clue row + set, tap-to-reveal, EN mode, show all) | ✅ | `components/SentenceSet.tsx` | `ui/study/Sentences.kt` |
-| "Use in sentence" hint on the front | 🟡 shows/plays the stored clue; no on-demand generation | `StudyPage.tsx` | `CardStage.kt` |
+| "Use in sentence" hint on the front | ✅ stored clue shown / played; generated when the note has none, ↻ regenerates (online) | `StudyPage.tsx` | `CardStage.kt` |
 | Undo last review (incl. server DELETE) | ✅ | `useStudySession.ts` undo | `StudyViewModel.undoLast` |
 | Study 10 more | ✅ | `utils/bonusNewCards.ts` | `Prefs.bonus` |
 | Exit confirm with recap, All Done + confetti | ✅ (+ sound, haptics) | `ExitSessionModal`, `SessionRecap`, `Confetti` | `StudyScreen.kt` |
 | Audio: cached clip → stream → device voice | ✅ | `useAudio.ts`, `audioPlayback.ts` | `fx/WordAudio.kt` |
 | Offline study + background upload | ✅ | `services/sync.ts` | `data/Repository.kt`, `SyncWorker.kt` |
-| Card footer: **Ask Claude · Edit card · ⋯** action row | ⬜ | `components/study/StudyActionRow.tsx` | |
+| Card footer: **Ask Claude · Edit card · ⋯** action row | ✅ | `components/study/StudyActionRow.tsx` | `ui/study/CardExtrasUi.kt` `StudyActionRow` |
 | Voice recording on read cards + transcription + upload (queued: `Outbox.enqueueUpload`) | ⬜ | `useTranscription.ts`, `pendingRecordings` | |
 | Multiple-choice fallback (8 s) / auto-MC for listen cards | ⬜ | `services/multipleChoice.ts` | |
-| Ask Claude (card chat with tools: edit card, add cards) | ⬜ | `components/study/` Ask Claude, `POST /api/notes/:id/ask` | |
-| Edit card | ⬜ | `CardEditModal.tsx` | |
-| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | ⬜ | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | |
-| Flag for tutor (offline, idempotent `POST /api/card-flags` via Outbox) | ⬜ | `services/cardFlags.ts` | |
-| Tutor notes on the card back (recording marks, flag replies; cached for offline) | ⬜ | `services/recording-notes.ts`, `TutorNoteLine.tsx` | |
+| Ask Claude (card chat with tools: edit card, add cards) | ✅ quick questions, tools folded, approve / reject, + message → card | `components/study/` Ask Claude, `POST /api/notes/:id/ask` | `ui/study/AskClaudeSheet.kt`, `StudyViewModel.ask` |
+| Edit card | ✅ fields, sentence clue (generate / clear), alternatives, recordings (primary / delete), delete note — online | `CardEditModal.tsx` | `ui/study/EditCardSheet.kt` |
+| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | 🟡 all items; Write it hands off to the main app until H lands; Play my recording waits on recording | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
+| Flag for tutor (offline, idempotent `POST /api/card-flags` via Outbox) | ✅ tutors from the cached relationships | `services/cardFlags.ts` | `CardTools.flag`, `FlagCardSheet` |
+| Tutor notes on the card back (recording marks, flag replies; cached for offline) | ✅ `study-notes` sync step, seen via Outbox | `services/recording-notes.ts`, `TutorNoteLine.tsx` | `ui/study/TutorNotes.kt`, `TutorNoteLine` |
 | Sentence tools: "What's going on here?", + Add as card, regenerate set | ⬜ | `SentenceSet.tsx`, `SentenceBreakdown.tsx` | |
-| Tap a character → definition popup; pinyin under typed answer | ⬜ | `WordDefinitionPopup.tsx`, `pinyin-pro` | |
-| Sentence set generated when rating Again | ⬜ | `ensureSentenceSetForNote` | |
-| Offline mode toggle / offline audio note | ⬜ | `OfflineModeToggle.tsx`, `services/offlineMode.ts` | |
-| First-card explainer | ⬜ | `FirstCardExplainer.tsx` | |
+| Tap a character → definition popup; pinyin under typed answer | ✅ definitions cached offline; pinyin from ICU Han-Latin (polyphones may differ from pinyin-pro) | `WordDefinitionPopup.tsx`, `pinyin-pro` | `WordDefinitionSheet`, `ui/study/Pinyin.kt` |
+| Sentence set generated when rating Again | ✅ | `ensureSentenceSetForNote` | `CardTools.ensureSentenceSet` |
+| Offline mode toggle / offline audio note | ✅ | `OfflineModeToggle.tsx`, `services/offlineMode.ts` | `OfflinePill`, `ui/study/StudyPrefs.kt` |
+| First-card explainer | ✅ | `FirstCardExplainer.tsx` | `FirstCardExplainer` |
 | Drop decks the server no longer has without a tombstone (`live_deck_ids`) | ⬜ (sync-speed owner: Repository) | `services/deckReconcile.ts` `findGhostDecks` | |
 
 ## B — Mini lessons & readers in the session (web: `StudyCustomLesson.tsx`, `ExerciseView.tsx`, `lesson-exercises.tsx`, `practice-exercises.tsx`, `StudyReader.tsx`)
@@ -188,22 +188,26 @@ Owns `ui/library/` (incl. the `/library` stub), `ui/editor/` (lesson + reader ed
 
 Owns `ui/coach/`, `ui/analyze/`, `ui/quests/`, `ui/strokes/`, `core/…/Quest*.kt` + `core/…/Strokes*.kt` with `parity/fixtures/quest.ts` / `strokes.ts`, `data/api/CoachApi.kt`, `QuestsApi.kt`. Provides the stroke pad composable B and A reuse.
 
-| Feature | Status | Web source |
-|---|---|---|
-| Sentence Coach (conversations, quick-action chips, deck picker, `?text=`) | ⬜ | `SentenceCoachPage.tsx` |
-| Sentence Breakdown (`/analyze`) | ⬜ | `SentenceAnalysisPage.tsx` |
-| Quests list + play (engine port, parity-tested) | ⬜ | `QuestsPage.tsx`, `QuestPlayPage.tsx`, `shared/quest/` |
-| Handwriting / stroke-order practice (`/practice/strokes`, study ⋯ → Write it) | ⬜ — port `shared/strokes` (matcher + quiz) to `core/` with parity vectors; draw on a Compose `Canvas` with `pointerInput`; see docs/STROKE_ORDER.md | `StrokePracticePage.tsx`, `components/strokes/` |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Sentence Coach (conversations, quick-action chips, deck picker, `?text=`) | ⬜ | `SentenceCoachPage.tsx`  |
+| Sentence Breakdown (`/analyze`) | ⬜ | `SentenceAnalysisPage.tsx`  |
+| Quests list + play (engine port, parity-tested) | ⬜ | `QuestsPage.tsx`, `QuestPlayPage.tsx`, `shared/quest/`  |
+| Handwriting / stroke-order practice (`/practice/strokes?text=`: pick / type a word, recent words, Trace (animated order) + From memory (米字格), per-stroke verdicts with haptics/sounds, escalating hints (start dot → painted stroke → filled in), per-character glow, summary, offline "Save all") | ✅ matcher + quiz parity-tested (3,500 drawings, 170 quiz runs, bit-exact); reusable `WritingExercise` / `WritingSheet` / `WritingPad` for A ("Write it") and B (handwriting exercises). No auto-pinyin for typed words that aren't notes (web uses pinyin-pro) | `StrokePracticePage.tsx`, `components/strokes/`, `shared/strokes/` | `core/…/Strokes.kt`, `data/strokes/StrokeStore.kt`, `ui/strokes/` |
 
 ## I — Native shell (web: `native/android/`)
 
 Owns `app/src/main/res/xml/`, widget / shortcut / notification classes under `shell/`, manifest entries for them (coordinate: one block each). Deep links already route through `LabNav.open`.
 
-| Feature | Status | Hybrid source |
-|---|---|---|
-| Home-screen widget, launcher shortcuts | ⬜ | `native/android/…/ShortcutsWidgetProvider.java`, `shortcuts.xml` |
-| Select text anywhere → Sentence Coach (`PROCESS_TEXT` → `/coach?text=`) | ⬜ | `ProcessTextActivity.java` |
-| Homework notifications with in-notification rating | ⬜ | `HomeworkWorker.java` … |
+| Feature | Status | Hybrid source | Lab source |
+|---|---|---|---|
+| Home-screen widget: today's due count (the Study button's number, from Room — offline), "about N min", the homework due now, 学 Study / ✏️ Coach; redrawn after every sync, after a notification rating, hourly and at midnight; More → Lab app → "Add the home-screen widget" pins it | ✅ Robolectric + Roborazzi (RemoteViews, not Glance — no new dependency, same result) | `ShortcutsWidgetProvider.java`, `widget_shortcuts.xml` | `shell/DueWidgetProvider.kt`, `ShellSnapshot.kt`, `res/layout/shell_widget_due.xml` |
+| Launcher shortcuts Study / Coach / Analyze (`lab_*` ids, `chineselearning-lab:///…` links) | ✅ | `res/xml/shortcuts.xml` | `res/xml/shell_shortcuts.xml` |
+| Select text anywhere → "Coach (Lab)" (`PROCESS_TEXT` → `/coach?text=`; native coach once H registers it, placeholder → main app until then) | ✅ | `ProcessTextActivity.java` | `shell/ProcessTextActivity.kt` |
+| Due-card notifications: hourly check (sync first if online), hanzi → Show answer (pinyin, meaning, example) → Again / Good / Easy with intervals, recorded as a REAL local review (`Repository.recordReview`, uploaded by sync / the upload worker — works offline), "✓ Good · back in 4d" + Next card; quiet 22:00–08:00; silent when off, not permitted, signed out, a tutor account or nothing due; a stale one is withdrawn after a sync; tap → study | ✅ unit + Robolectric (rating = in-app review, same state) | `HomeworkWorker.java`, `HomeworkNotifier.java`, `HomeworkActionReceiver.java` | `shell/Shell.kt`, `ShellRules.kt`, `NotificationReview.kt`, `ShellNotifier.kt`, `DueCheckWorker.kt` |
+| Homework due today / overdue notification (one-off, once a day per assignment; tap → `/homework[/:id]`) | ✅ (own `shell/homework` cache of `GET /api/me/homework`; E's homework sync can replace it) | docs/HOMEWORK.md, `shared/homework/due.ts` | `shell/HomeworkFeed.kt` |
+| Notification permission (Android 13+: asked once after sign-in) + More → Lab app → "Due-card notifications" toggle | ✅ | `MainActivity.setUpHomeworkNotifications` | `shell/ShellPermission.kt`, `ShellRows.kt` |
+| Hybrid `route` extra and `chineselearning-lab:///<route>` links from outside | ✅ | `MainActivity.extractRoute` | `shell/ShellLinks.kt`, `MainActivity.kt` |
 
 ## J — Video calls (last)
 
