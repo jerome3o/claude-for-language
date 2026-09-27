@@ -14,5 +14,6 @@ object FeatureSyncs {
     fun registerAll(platform: LabPlatform) {
         platform.register("nav", NavSync) // relationships → tab set / landing (ui/nav/NavData.kt)
         // Add yours below, one line each (keep the order: what study needs offline first).
+        platform.register("lessons", dev.jeromeswannack.chineselearning.lab.data.lessons.LessonsSync) // B: mini lessons (+ media)
     }
 }
