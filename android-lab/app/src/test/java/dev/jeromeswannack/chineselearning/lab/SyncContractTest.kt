@@ -116,6 +116,7 @@ class SyncContractTest {
         assertNull(dao.note(noteIds[2]))
         assertEquals(6, dao.cards().count { it.deckId == deckId })
         assertNotNull(dao.note(noteIds[0]))
+        repo.awaitAudioPrefetch()
         db.close()
     }
 }

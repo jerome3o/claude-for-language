@@ -3,7 +3,10 @@ package dev.jeromeswannack.chineselearning.lab
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
+import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
+import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
+import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
 import dev.jeromeswannack.chineselearning.lab.data.Prefs
@@ -14,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.time.ZoneId
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -35,6 +39,11 @@ class SyncBenchmarkTest {
     private val base = System.getenv("LAB_E2E_API")
     private val token = System.getenv("LAB_BENCH_TOKEN")
 
+    private fun report(label: String, repo: Repository, ms: Long) {
+        println("BENCH === $label: $ms ms")
+        repo.status.value.lastRun?.phases?.forEach { println("BENCH   %-20s %6d ms  %s".format(it.name, it.ms, it.detail)) }
+    }
+
     @Test
     fun fullThenIncrementalSyncOfABigAccount() = runBlocking {
         assumeTrue("set LAB_E2E_API and LAB_BENCH_TOKEN to run the sync benchmark", base != null && token != null)
@@ -45,34 +54,50 @@ class SyncBenchmarkTest {
 
         var t = System.nanoTime()
         repo.sync()
-        val fullMs = (System.nanoTime() - t) / 1_000_000
+        report("first sync (full)", repo, (System.nanoTime() - t) / 1_000_000)
         assertNull(repo.status.value.error, "sync error: ${repo.status.value.error}")
-        println("BENCH === first sync (full): $fullMs ms")
-        println("BENCH timings: ${repo.status.value}")
 
         t = System.nanoTime()
         repo.sync()
-        val incMs = (System.nanoTime() - t) / 1_000_000
+        report("second sync (incremental, nothing new)", repo, (System.nanoTime() - t) / 1_000_000)
         assertNull(repo.status.value.error)
-        println("BENCH === second sync (incremental, nothing new): $incMs ms")
-        println("BENCH timings: ${repo.status.value}")
+
+        t = System.nanoTime()
+        repo.sync(forceFull = true)
+        report("full resync (everything local already)", repo, (System.nanoTime() - t) / 1_000_000)
+        assertNull(repo.status.value.error)
+        repo.awaitAudioPrefetch()
+
+        // The home screen's work after a sync (HomeViewModel.load): one queue for "all" + one per deck.
+        val dao = repo.dao
+        repeat(3) { round ->
+            t = System.nanoTime()
+            val zone = ZoneId.of("Europe/London")
+            val now = System.currentTimeMillis()
+            val decks = dao.decks()
+            val cards = dao.cards().map { it.toQueueCard() }
+            val tCards = (System.nanoTime() - t) / 1_000_000
+            val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
+            val tFirst = (System.nanoTime() - t) / 1_000_000
+            val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
+            val tIntro = (System.nanoTime() - t) / 1_000_000
+            val cutoff = StudyQueue.cutoff(now, zone)
+            val queueDecks = decks.map { it.toQueueDeck() }
+            StudyQueue.build(queueDecks, cards, StudyBudget.DEFAULT, 0, introduced, cutoff, null)
+            val tAll = (System.nanoTime() - t) / 1_000_000
+            decks.forEach { d -> StudyQueue.build(queueDecks, cards, StudyBudget.DEFAULT, 0, introduced, cutoff, d.id) }
+            println("BENCH home load round $round: ${(System.nanoTime() - t) / 1_000_000} ms (cards $tCards, firstReviews $tFirst, introduced $tIntro, all-queue $tAll)")
+        }
 
         // Correctness: every card's cached state is exactly the replay of its events.
-        val dao = repo.dao
         val events = dao.allEvents().groupBy { it.cardId }
         val cards = dao.cards()
         var reviewed = 0
         for (c in cards) {
             val evs = events[c.id].orEmpty().map { ReviewEventInput(it.id, it.cardId, it.rating, it.reviewedAt) }
             if (evs.isNotEmpty()) reviewed++
-            val want = CardScheduler.computeCardState(evs)
-            assertEquals(want.queue, c.queue, c.id)
-            assertEquals(want.nextReviewAt, c.nextReviewAt, c.id)
-            assertEquals(want.stability, c.stability, c.id)
-            assertEquals(want.difficulty, c.difficulty, c.id)
-            assertEquals(want.reps, c.reps, c.id)
-            assertEquals(want.lapses, c.lapses, c.id)
-            assertEquals(want.lastReviewedAt, c.lastReviewedAt, c.id)
+            val want = c.withState(CardScheduler.computeCardState(evs))
+            assertEquals(want, c, c.id)
         }
         println("BENCH cards=${cards.size} reviewedCards=$reviewed events=${events.values.sumOf { it.size }} notes=${dao.noteCount()} decks=${dao.decks().size}")
         db.close()
