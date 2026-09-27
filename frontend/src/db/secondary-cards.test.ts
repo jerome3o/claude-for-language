@@ -3,13 +3,20 @@ import {
   db,
   getDueCards,
   allocateQueueCounts,
-  incrementNewCardsStudiedToday,
   ensureDailyStatsInitialized,
   createLocalReviewEvent,
   DeckQueueRaw,
   LocalCard,
 } from './database';
 import { CardQueue, CardType } from '../types';
+
+async function reviewAt(cardId: string, at: Date) {
+  await createLocalReviewEvent({
+    id: `ev-${cardId}-${at.getTime()}`, card_id: cardId, rating: 2, time_spent_ms: null, user_answer: null,
+    reviewed_at: at.toISOString(), _synced: 0,
+  });
+}
+const reviewNow = (cardId: string) => reviewAt(cardId, new Date());
 
 async function createTestDeck(
   id: string,
@@ -133,13 +140,11 @@ describe('Secondary new cards', () => {
     it('respects already-studied counters for both budgets', async () => {
       const deckId = 'deck-1';
       await createTestDeck(deckId, 2, 1);
-      await db.dailyStats.put({
-        id: `${todayString()}:${deckId}`,
-        date: todayString(),
-        deck_id: deckId,
-        new_cards_studied: 2, // primary budget exhausted
-        secondary_cards_studied: 0,
-      });
+      // Two words introduced today (first reviews today) -> the deck's primary cap of 2 is used up.
+      for (const id of ['p1', 'p2']) {
+        await createTestCard({ id: `${id}-h`, deckId, noteId: id, cardType: 'hanzi_to_meaning', queue: CardQueue.LEARNING });
+        await reviewNow(`${id}-h`);
+      }
 
       await createTestCard({ id: 'u1-h', deckId, noteId: 'unseen-1', cardType: 'hanzi_to_meaning' });
       await createTestCard({ id: 'c1-h', deckId, noteId: 'circ-1', cardType: 'hanzi_to_meaning', queue: CardQueue.REVIEW });
@@ -158,13 +163,16 @@ describe('Secondary new cards', () => {
     it('counts secondary cards studied beyond their quota against the primary budget', async () => {
       const deckId = 'deck-1';
       await createTestDeck(deckId, 2, 1);
-      await db.dailyStats.put({
-        id: `${todayString()}:${deckId}`,
-        date: todayString(),
-        deck_id: deckId,
-        new_cards_studied: 0,
-        secondary_cards_studied: 3, // 2 beyond quota -> consumed the primary budget
-      });
+      // Three secondary cards introduced today (2 beyond the deck's quota of 1 ->
+      // they consume its primary cap of 2): siblings of words started yesterday.
+      for (const [note, cards] of [['s1', ['m', 'a']], ['s2', ['m']]] as const) {
+        await createTestCard({ id: `${note}-h`, deckId, noteId: note, cardType: 'hanzi_to_meaning', queue: CardQueue.REVIEW });
+        await reviewAt(`${note}-h`, new Date(Date.now() - 86_400_000));
+        for (const t of cards) {
+          await createTestCard({ id: `${note}-${t}`, deckId, noteId: note, cardType: t === 'm' ? 'meaning_to_hanzi' : 'audio_to_hanzi', queue: CardQueue.LEARNING });
+          await reviewNow(`${note}-${t}`);
+        }
+      }
 
       await createTestCard({ id: 'u1-h', deckId, noteId: 'unseen-1', cardType: 'hanzi_to_meaning' });
       await createTestCard({ id: 'c1-h', deckId, noteId: 'circ-1', cardType: 'hanzi_to_meaning', queue: CardQueue.REVIEW });
@@ -227,19 +235,6 @@ describe('Secondary new cards', () => {
   });
 
   describe('daily counters', () => {
-    it('incrementNewCardsStudiedToday tracks primary and secondary separately', async () => {
-      const deckId = 'deck-1';
-      await createTestDeck(deckId, 20, 10);
-
-      await incrementNewCardsStudiedToday(deckId);
-      await incrementNewCardsStudiedToday(deckId, true);
-      await incrementNewCardsStudiedToday(deckId, true);
-
-      const row = await db.dailyStats.get(`${todayString()}:${deckId}`);
-      expect(row?.new_cards_studied).toBe(1);
-      expect(row?.secondary_cards_studied).toBe(2);
-    });
-
     it('recomputes the primary/secondary split from review events', async () => {
       const deckId = 'deck-1';
       await createTestDeck(deckId, 20, 10);

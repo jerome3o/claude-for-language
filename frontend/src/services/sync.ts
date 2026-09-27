@@ -19,7 +19,7 @@ import {
 import { Deck, Note, Card, CardType } from '../types';
 import { initialCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { API_BASE, getAuthHeaders, getAuthToken, uploadRecording, recomputeCardStates } from '../api/client';
-import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions } from './review-events';
+import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllEvents, processPendingReviewDeletions, recomputeCardsWithEvents, repairCardStatesIfDue } from './review-events';
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
@@ -321,6 +321,10 @@ class SyncService {
       message: `Saving ${allNotes.length} notes, ${allCards.length} cards...`
     });
 
+    // Cards this sync inserts (as NEW); recomputed from any events already on
+    // the device once the transaction has committed.
+    let insertedCardIds: string[] = [];
+
     // Sync data while preserving local card scheduling state
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {
       // Clear and replace decks and notes (their data comes from server)
@@ -354,6 +358,7 @@ class SyncService {
       if (newCards.length > 0) {
         console.log('[Sync] Inserting', newCards.length, 'new cards (preserving', existingCardIds.size - cardsToDelete.length, 'existing)');
         await db.cards.bulkPut(newCards);
+        insertedCardIds = newCards.map(c => c.id);
       }
 
       // Update deck_id on existing cards if notes have moved between decks.
@@ -375,6 +380,8 @@ class SyncService {
         user_id: null,
       });
     });
+
+    await recomputeCardsWithEvents(insertedCardIds);
 
     // Sync graded readers (content + pages) so they can be studied offline
     this.notifyProgress({ phase: 'decks', message: 'Syncing readers...' });
@@ -558,6 +565,7 @@ class SyncService {
     }
 
     const changes: SyncChangesResponse = await response.json();
+    const insertedCardIds: string[] = [];
     this.lastSyncDetails.decks_synced = changes.decks.length;
     this.lastSyncDetails.notes_synced = changes.notes.length;
     this.lastSyncDetails.cards_synced = changes.cards.length;
@@ -652,6 +660,7 @@ class SyncService {
           if (localCards.length > 0) {
             console.log('[Sync] Inserting new cards only:', localCards.length, '(skipped', existingCardIds.size, 'existing)');
             await db.cards.bulkPut(localCards);
+            insertedCardIds.push(...localCards.map(c => c.id));
           }
         } else {
           console.log('[Sync] All', changes.cards.length, 'cards already exist locally, skipping to preserve scheduling state');
@@ -665,6 +674,10 @@ class SyncService {
         last_full_sync: currentSyncMeta?.last_full_sync || null,
       });
     });
+
+    // New cards may already have events on this device (reviewed here or
+    // downloaded earlier while the card was missing) — derive their state.
+    await recomputeCardsWithEvents(insertedCardIds);
 
     // Pre-cache audio for new/updated notes in background
     if (changes.notes.length > 0) {
@@ -819,6 +832,10 @@ class SyncService {
         // Merge incremental details
         Object.assign(details, this.lastSyncDetails);
 
+        // Every card row = the replay of its events: once per repair version,
+        // then daily (review-events.ts). Fixes rows an older build left drifting.
+        await repairCardStatesIfDue();
+
         this.notifyProgress({ phase: 'done', message: 'Sync complete' });
         this.logSync('background', startTime, 'success', details);
       }
@@ -948,6 +965,7 @@ class SyncService {
         }
         const deck = await response.json() as DeckWithNotesAndCards;
         if (wasRemovedLocally('deck', deckId)) continue;
+        const refetchedCardIds: string[] = [];
 
         await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
           await db.decks.put(deckToLocal(deck));
@@ -961,12 +979,16 @@ class SyncService {
                 const existing = await db.cards.get(card.id);
                 if (!existing) {
                   await db.cards.put(cardToLocal(card, deck.id));
+                  refetchedCardIds.push(card.id);
                 }
               }
             }
           }
         });
 
+        // A deck that was dropped and fetched again brings its cards back as
+        // NEW while their review events are still here — replay them.
+        await recomputeCardsWithEvents(refetchedCardIds);
         console.log('[Sync] Saved missing deck:', deckId);
       } catch (err) {
         console.error('[Sync] Error fetching missing deck:', deckId, err);
