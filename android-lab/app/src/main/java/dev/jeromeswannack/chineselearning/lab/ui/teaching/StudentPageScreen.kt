@@ -71,6 +71,9 @@ data class StudentPageUi(
     /** From the cached relationships until the overview arrives. */
     val name: String,
     val email: String? = null,
+    /** The student's About me and time zone (Profile screen), from the relationship. */
+    val about: String? = null,
+    val timeZone: String? = null,
     val overview: Loadable<StudentOverviewDto> = Loadable(loading = true),
     val homework: Loadable<RelationshipHomeworkDto> = Loadable(loading = true),
     val flags: Loadable<TeachFlagsDto> = Loadable(loading = true),
@@ -205,6 +208,11 @@ private fun headerLine(ui: StudentPageUi, now: Instant): String {
 
 private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, onShowQr: () -> Unit) {
     val o = ui.overview.data
+    if (!ui.about.isNullOrBlank() || !ui.timeZone.isNullOrBlank()) item(key = "about") {
+        dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard {
+            dev.jeromeswannack.chineselearning.lab.ui.profile.PersonAbout(ui.about, ui.timeZone, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), now = now)
+        }
+    }
     if (ui.liveCallId != null) item(key = "live") {
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Again.copy(alpha = 0.1f)).padding(horizontal = 16.dp, vertical = 10.dp),
