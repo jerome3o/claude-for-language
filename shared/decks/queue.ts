@@ -26,3 +26,42 @@ export function moveInOrder(orderedIds: readonly string[], id: string, to: Queue
   next.splice(target, 0, id);
   return next;
 }
+
+// ---- press-and-hold drag reorder (the Decks tab; frontend/src/services/dragReorder.ts, the Lab app) ----
+
+export interface RectLike {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Pure: which card the pointer is over — the one containing the point, else
+ * the nearest by centre. -1 for an empty list.
+ */
+export function indexUnderPointer(rects: readonly RectLike[], x: number, y: number): number {
+  let best = -1;
+  let bestDist = Infinity;
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    if (x >= r.left && x <= r.left + r.width && y >= r.top && y <= r.top + r.height) return i;
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const d = (cx - x) * (cx - x) + (cy - y) * (cy - y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Pure: the order with `id` moved to `index`; the same array when nothing changes. */
+export function moveToIndex(ids: readonly string[], id: string, index: number): string[] {
+  const from = ids.indexOf(id);
+  if (from < 0 || index < 0 || index >= ids.length || from === index) return ids as string[];
+  const next = ids.filter((x) => x !== id);
+  next.splice(index, 0, id);
+  return next;
+}

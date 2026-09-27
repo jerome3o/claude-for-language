@@ -63,6 +63,7 @@ class LabApp : Application() {
         debugReports = DebugReporter(this, repo, appVersion())
         watchNetwork()
         uploadDebugReportsAfterSync()
+        dev.jeromeswannack.chineselearning.lab.shell.Shell.install(this) // widget, notifications (package I)
     }
 
     private fun appVersion(): String =
