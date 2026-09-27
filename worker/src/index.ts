@@ -75,6 +75,7 @@ import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
 import noteSearchRoutes from './routes/note-search';
 import { tutorNotesRoutes } from './routes/tutor-notes';
+import debugReportsRoutes from './routes/debug-reports';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
@@ -478,6 +479,9 @@ app.route('/api', homeworkRoutes);
 app.route('/api', homeworkDraftRoutes);
 // Admin: inspect an account (decks incl. deleted, shares, sync state), set its role, delete it (routes/admin.ts)
 app.route('/api', adminRoutes);
+
+// Study-state debug reports from the web + Lab apps, and their diff (routes/debug-reports.ts)
+app.route('/api', debugReportsRoutes);
 
 // ============ Admin Routes ============
 

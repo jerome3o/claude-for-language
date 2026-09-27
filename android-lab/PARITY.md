@@ -53,6 +53,7 @@ already opens a placeholder — registering the route in your graph is what make
 | Offline feature data (`json_cache`) + offline writes (`outbox`), Room v2 migration | ✅ migration + outbox tested | IndexedDB tables, `pendingCardFlags`, `pendingRecordings` | `data/platform/`, `data/Migrations.kt` |
 | Generic API helpers (`get/post/put/patch/delete`, multipart `upload`, error sentences) | ✅ | `api/client.ts` | `data/api/Http.kt` |
 | UI kit + screenshot helper | ✅ | — | `ui/kit/`, `docs/UI_KIT.md`, `testing/LabScreenshotTest.kt` |
+| Study-state debug report (upload after sync every 30 min, More → Lab app → "Send debug report"), diffed with the web app's | ✅ unit + contract-tested | `services/debugReport.ts`, `shared/debug/`, Settings → Advanced | `data/DebugReport.kt`, `ui/more/MoreExtraRows.kt` |
 | Tutor account home (`/` for users.role = tutor) | 🟡 students count, Make rows, Try-it deck rows; Try it itself is ⬜ (C/G) | `components/home/TutorHome.tsx` | `ui/home/TutorHomeScreen.kt` |
 
 ## A — Study card extras (web: `StudyPage.tsx`, `useStudySession.ts`, `components/study/`)
@@ -178,7 +179,7 @@ Owns `ui/library/` (incl. the `/library` stub), `ui/editor/` (lesson + reader ed
 |---|---|---|
 | Lesson Library list, library item (assignments, push update), assign | ⬜ | `LessonLibraryPage.tsx`, `LibraryItemPage.tsx` |
 | Try a lesson (`/library/:id/try`, nothing recorded) | ⬜ | `LessonTryPage.tsx` |
-| Exercise catalogue + sample-lesson trials (`/library/catalogue`) | ⬜ | `ExerciseCataloguePage.tsx`, `shared/lesson/registry.ts`, `samples.ts` |
+| Exercise catalogue + sample-lesson trials (`/library/catalogue`; entry points: More → Teaching for tutor accounts, accounts with students and admins — the Lab More rows exist — plus the top of the Lesson Library) | ⬜ | `ExerciseCataloguePage.tsx`, `shared/lesson/registry.ts`, `samples.ts` |
 | Lesson editor (all 15 types) + Claude co-editor chat (proposal diff, accept/reject) | ⬜ | `LessonEditorPage.tsx`, `components/editor/` |
 | Reader editor + co-editor, import JSON | ⬜ | `ReaderEditorPage.tsx`, `NewReaderPage.tsx` |
 | Exports (Markdown / JSON / CSV, print views) | ⬜ | `shared/lesson/export.ts`, `shared/reader/export.ts`, print pages |
@@ -228,5 +229,5 @@ Owns `ui/calls/`, `data/api/CallsApi.kt`, the call recorder (uploads via Outbox 
 - **"Study 10 more" is keyed by the local date** (the web uses the UTC date).
 - `YYYY-MM-DD HH:MM:SS` timestamps are parsed as UTC (V8 would read them as local time).
   No review event carries that shape; every client writes ISO strings.
-- **More → Teaching** shows for accounts with students (the web also shows it to an
+- **More → Teaching** shows for accounts with students and admins (the web also shows it to an
   account with library items but no students, which needs a network call).

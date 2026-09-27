@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import dev.jeromeswannack.chineselearning.lab.data.Api
+import dev.jeromeswannack.chineselearning.lab.data.DebugReporter
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
 import dev.jeromeswannack.chineselearning.lab.data.Prefs
 import dev.jeromeswannack.chineselearning.lab.data.Repository
@@ -32,6 +33,7 @@ class LabApp : Application() {
     lateinit var sounds: Sounds
     lateinit var haptics: Haptics
     lateinit var audio: WordAudio
+    lateinit var debugReports: DebugReporter
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Offline store for feature data (data/platform/JsonCache.kt). */
@@ -58,7 +60,25 @@ class LabApp : Application() {
         haptics = Haptics(this) { prefs.hapticsOn }
         audio = WordAudio(this, repo)
         FeatureSyncs.registerAll(repo.platform)
+        debugReports = DebugReporter(this, repo, appVersion())
         watchNetwork()
+        uploadDebugReportsAfterSync()
+    }
+
+    private fun appVersion(): String =
+        runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "unknown"
+
+    /** Study-state debug report (data/DebugReport.kt) after each successful sync, every 30 min at most. */
+    private fun uploadDebugReportsAfterSync() {
+        var seen = repo.status.value.lastSyncAt
+        scope.launch {
+            repo.status.collect { s ->
+                if (!s.running && s.error == null && s.lastSyncAt > seen) {
+                    seen = s.lastSyncAt
+                    debugReports.sendIfDue()
+                }
+            }
+        }
     }
 
     private fun watchNetwork() {

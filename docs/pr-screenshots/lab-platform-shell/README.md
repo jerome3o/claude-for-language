@@ -12,7 +12,7 @@ Decks tab (interim deck queue until package C lands).
 A tab whose screen is not native yet: says what it is, opens the main app at the same route.
 
 ![More](shell-04-more.png)
-More: the web groups row for row (↗ = opens the main app) + Lab app settings and the extra-row slot (example row shown).
+More: the web groups row for row (↗ = opens the main app) + Lab app settings and the extra-row slot (Send debug report lives there now).
 
 ![Pushed placeholder](shell-05-placeholder-pushed.png)
 Any unbuilt web route opened from inside the app (here /coach), with back.

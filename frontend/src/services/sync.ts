@@ -399,6 +399,9 @@ class SyncService {
     // Tell the server how this device runs the app (installed? audio cached?)
     // so a tutor's setup checklist reflects reality. Throttled, never throws.
     void reportClientStateIfDue();
+
+    // Study-state debug report (web vs Lab app due counts). Every 30 min at most.
+    void import('./debugReport').then(m => m.sendDebugReportIfDue()).catch(() => {});
   }
 
   /**
@@ -685,6 +688,7 @@ class SyncService {
 
     // Device report for the tutor's setup checklist (throttled, never throws).
     void reportClientStateIfDue();
+    void import('./debugReport').then(m => m.sendDebugReportIfDue()).catch(() => {});
   }
 
   /**

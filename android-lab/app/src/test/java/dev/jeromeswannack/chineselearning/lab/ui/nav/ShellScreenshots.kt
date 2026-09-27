@@ -13,7 +13,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.more.MoreScreen
 import dev.jeromeswannack.chineselearning.lab.ui.more.MoreUi
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.PlaceholderScreen
 import dev.jeromeswannack.chineselearning.lab.data.SyncStatus
-import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
+import dev.jeromeswannack.chineselearning.lab.ui.more.DebugReportRow
 import org.junit.Test
 import org.robolectric.annotation.Config
 
@@ -40,7 +40,7 @@ class ShellScreenshots : LabScreenshotTest() {
     }
 
     @Test fun moreTab() = shootInShell("shell-04-more", TabId.MORE) {
-        MoreScreen(more(student), MoreActions(), extraRows = listOf({ NavRow("🐞", "Send debug report", desc = "An extra row from MoreExtraRows.kt", onClick = {}) }))
+        MoreScreen(more(student), MoreActions(), extraRows = listOf({ DebugReportRow("Sent: 24 due · 8,946 cards · 41,210 reviews (212 KB)", sending = false) {} }))
     }
 
     @Test fun pushedPlaceholder() = shootInShell("shell-05-placeholder-pushed", TabId.MORE) {

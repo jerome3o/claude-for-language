@@ -92,6 +92,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                     rows = listOf(
                         row("👥", "Students", "Progress, homework, messages", Routes.CONNECTIONS),
                         row("🗂️", "Lesson Library", "Mini lessons you assign — tap one to try it", Routes.LIBRARY),
+                        row("🧭", "Exercise catalogue", "All exercise types · try a sample", Routes.catalogue()),
                         row("📚", "Readers", "Graded stories to share with students", Routes.readers()),
                         row("📹", "Video calls (beta)", "Lessons with a whiteboard, then a transcript", Routes.calls()),
                     ),
@@ -131,12 +132,12 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                     ),
                 )
             }
-            if (role.hasStudents) item {
+            if (role.hasStudents || ui.isAdmin) item {
                 NavSection(
                     "Teaching",
                     rows = listOf(
                         row("🗂️", "Lesson Library", "Lessons you assign to students", Routes.LIBRARY),
-                        row("🧭", "Exercise catalogue", "Every exercise type, with sample lessons to try", Routes.catalogue()),
+                        row("🧭", "Exercise catalogue", "All exercise types · try a sample", Routes.catalogue()),
                     ),
                 )
             }

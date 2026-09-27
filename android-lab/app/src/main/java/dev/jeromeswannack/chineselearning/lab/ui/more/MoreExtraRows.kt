@@ -8,8 +8,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
  * One list entry per row, built with the kit's `NavRow` / `ToggleRow`; the More screen
  * draws the dividers. Keep each row's logic in its own file and add one line here:
  *
- *   { NavRow("🐞", "Send debug report", desc = "Logs and sync state for Jerome", onClick = { DebugReport.send(nav.app) }) },
+ *   { NavRow("🩺", "Audio diagnostics", desc = "…", onClick = { … }) },
  */
 fun labExtraRows(nav: LabNav): List<@Composable () -> Unit> = listOf(
-    // one line per row
+    { DebugReportRow(nav.app) }, // data/DebugReport.kt
 )

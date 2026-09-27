@@ -19,6 +19,7 @@ import {
   submitStroke,
   summarizeCharacter,
   summarizeExercise,
+  writtenFromMemory,
   writableCharacters,
   type CharStrokeData,
   type Point,
@@ -224,6 +225,17 @@ describe('writing quiz', () => {
     const ex = summarizeExercise('十。', 'trace', [a], [], T0, T0 + 10);
     expect(ex.grade).toBe('perfect');
     expect(ex.characters).toHaveLength(1);
+  });
+
+  it('only a word written from memory counts as correct; Trace counts as needing help', () => {
+    const traced = summarizeExercise('十', 'trace', [summarizeCharacter(writeAll(十, '十'), T0)], [], T0, T0 + 10);
+    expect(traced.grade).toBe('perfect');
+    expect(writtenFromMemory(traced)).toBe(false);
+    let s = createQuiz('十', 十, { mode: 'recall' }, T0);
+    for (const m of 十.medians) s = submitStroke(s, draw(m), T0 + 1).state;
+    const recalled = summarizeExercise('十', 'recall', [summarizeCharacter(s, T0 + 2)], [], T0, T0 + 10);
+    expect(writtenFromMemory(recalled)).toBe(true);
+    expect(writtenFromMemory({ mode: 'recall', grade: 'practice' })).toBe(false);
   });
 
   it('coaching messages use 1-based stroke numbers', () => {

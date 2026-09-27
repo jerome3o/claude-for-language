@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { syncService } from '../../services/sync';
 import { isDebugConsoleEnabled, setDebugConsoleEnabled } from '../../utils/debugConsole';
 import { copyDebugDump } from '../../utils/debugDump';
+import { sendDebugReport } from '../../services/debugReport';
 import { checkForUpdateNow, BUILD_TIME } from '../../utils/appUpdates';
 
 /**
@@ -13,6 +14,8 @@ export function useMaintenanceActions() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDumping, setIsDumping] = useState(false);
+  const [isSendingReport, setIsSendingReport] = useState(false);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
 
   // The one sync button: two-way event reconciliation, server + local card
   // state recompute, recordings upload, and a full deck/note refresh.
@@ -100,6 +103,20 @@ export function useMaintenanceActions() {
     }
   }, []);
 
+  // Study-state report for comparing this device with the Lab app (see services/debugReport.ts).
+  const sendReport = useCallback(async () => {
+    setIsSendingReport(true);
+    setReportStatus(null);
+    try {
+      const r = await sendDebugReport();
+      setReportStatus(`Sent: ${r.homeTotal} due, ${r.cards.toLocaleString()} cards, ${r.events.toLocaleString()} reviews (${r.kb} KB).`);
+    } catch (err) {
+      setReportStatus(`Could not send the report: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSendingReport(false);
+    }
+  }, []);
+
   return {
     fullSync,
     isSyncing,
@@ -109,5 +126,8 @@ export function useMaintenanceActions() {
     debugConsoleOn: isDebugConsoleEnabled(),
     copyDump,
     isDumping,
+    sendReport,
+    isSendingReport,
+    reportStatus,
   };
 }
