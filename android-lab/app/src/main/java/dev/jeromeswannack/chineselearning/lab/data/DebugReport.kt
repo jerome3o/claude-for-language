@@ -127,13 +127,14 @@ object DebugReportBuilder {
         val noteCounts = dao.noteCounts().associate { it.deckId to it.count }
         val cardCounts = cardEntities.groupingBy { it.deckId }.eachCount()
 
-        // Raw pools with the web's definitions (countRawQueues): learning = every learning /
-        // relearning card, review = review cards due by the cutoff; new pools from the budget input.
+        // Raw pools, same definitions as the web (shared/decks/study-queue.ts): learning /
+        // relearning and review cards due by the cutoff; new pools from the budget input.
         val learningPool = HashMap<String, Int>()
         val reviewPool = HashMap<String, Int>()
-        for (c in cards) when (c.queue) {
-            CardQueue.LEARNING, CardQueue.RELEARNING -> learningPool[c.deckId] = (learningPool[c.deckId] ?: 0) + 1
-            CardQueue.REVIEW -> if ((c.state.dueTimestamp ?: Long.MIN_VALUE) <= cutoff.ts) reviewPool[c.deckId] = (reviewPool[c.deckId] ?: 0) + 1
+        for (c in cards) {
+            if (c.queue == CardQueue.NEW || (c.state.dueTimestamp ?: Long.MIN_VALUE) > cutoff.ts) continue
+            val pool = if (c.queue == CardQueue.REVIEW) reviewPool else learningPool
+            pool[c.deckId] = (pool[c.deckId] ?: 0) + 1
         }
         val poolByDeck = all.pools.associateBy { it.deckId }
 
