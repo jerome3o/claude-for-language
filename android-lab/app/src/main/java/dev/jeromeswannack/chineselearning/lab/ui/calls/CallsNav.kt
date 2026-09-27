@@ -10,7 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.JobActions
 
-/** Video calls (package J): `/calls` and `/calls/:id/review`. */
+/** Video calls (package J): `/calls`, the live call `/calls/:id` (immersive) and `/calls/:id/review`. */
 fun NavGraphBuilder.callsGraph(nav: LabNav) {
     composable(Routes.route("/calls")) {
         val vm: CallsListViewModel = viewModel(factory = CallsListViewModel.Factory(nav.app))
@@ -25,6 +25,7 @@ fun NavGraphBuilder.callsGraph(nav: LabNav) {
             ),
         )
     }
+    composable(Routes.route("/calls/{id}")) { entry -> CallRoute(nav, entry.arguments?.getString("id").orEmpty()) }
     composable(Routes.route("/calls/{id}/review")) { entry ->
         CallReviewRoute(nav, entry.arguments?.getString("id").orEmpty())
     }
