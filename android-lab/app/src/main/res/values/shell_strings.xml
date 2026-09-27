@@ -1,0 +1,18 @@
+<resources>
+    <!-- Native shell (shell/): widget, launcher shortcuts, text selection, notifications. -->
+    <string name="shell_widget_label">Lab · due today</string>
+    <string name="shell_widget_description">Cards due today, homework, and one tap to study or open the coach</string>
+    <string name="shell_study">学 Study</string>
+    <string name="shell_coach">✏️ Coach</string>
+    <string name="shell_shortcut_study_short">Study</string>
+    <string name="shell_shortcut_study_long">Study today\'s cards</string>
+    <string name="shell_shortcut_coach_short">Coach</string>
+    <string name="shell_shortcut_coach_long">Sentence Coach</string>
+    <string name="shell_shortcut_analyze_short">Analyze</string>
+    <string name="shell_shortcut_analyze_long">Sentence breakdown</string>
+    <string name="shell_process_text_label">Coach (Lab)</string>
+    <string name="shell_channel_cards">Due cards</string>
+    <string name="shell_channel_cards_desc">A due card you can answer from the notification (hourly, 08:00–22:00)</string>
+    <string name="shell_channel_homework">Homework due</string>
+    <string name="shell_channel_homework_desc">One-off homework due today or overdue (once a day)</string>
+</resources>

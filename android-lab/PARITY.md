@@ -113,19 +113,23 @@ Owns `ui/lessons/` (player + all exercise views + `/lessons`, `/lesson-attempts`
 
 Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/DecksApi.kt`, `NotesApi.kt`, `core/…/Import*.kt` + `parity/fixtures/import.ts` (paste parser). Note writes go through the API (content service) and then a normal sync — never write Room directly except to mirror the answer.
 
-| Feature | Status | Web source |
-|---|---|---|
-| Deck queue list with due counts, study one deck | 🟡 interim list on the Decks tab (tap = study) | `DecksPage.tsx` |
-| Reorder deck queue (press-and-hold drag, move to top/bottom, #N badges) | ⬜ | `services/dragReorder.ts`, `QueuePositionMenu.tsx`, `PUT /api/decks/reorder` |
-| Card search (local-first, server fallback) | ⬜ | `services/noteSearch.ts`, `GET /api/notes/search` |
-| Deck page: notes list, play audio, generate audio, note history | ⬜ | `DeckDetailPage.tsx` |
-| Card hub (`/cards/:noteId`: cards, flags, Claude threads, reviews) | ⬜ | `pages/CardHubPage.tsx` |
-| Add / edit / delete / move notes | ⬜ | `CardEditModal.tsx`, `POST /api/decks/:id/notes`, `PUT/DELETE /api/notes/:id`, `POST /api/notes/move` |
-| Paste a list (parse, plan, fill gaps, ✨ write explanations, save) | ⬜ — port `shared/import/` | `components/import/PasteWordsModal.tsx` |
-| Generate a deck with Claude | ⬜ | `pages/GeneratePage.tsx`, `components/home/AddDeckModal.tsx` |
-| Deck settings (caps), delete deck, starter deck, Anki export | ⬜ | `DeckDetailPage.tsx`, `services/anki/` |
-| Try it as a student (`/decks/:id/try`, nothing recorded) | ⬜ | `pages/DeckTryPage.tsx` |
-| One-off deck banner + "Add to my daily review" | ⬜ | `components/homework/OneOffDeckBanner.tsx` |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Deck queue list with due counts (same allocation as Home), study one deck, +10 More, Done ✓ | ✅ VM-tested | `DecksPage.tsx` | `ui/decks/DecksScreen.kt`, `DecksViewModel.kt` |
+| Reorder deck queue (press-and-hold drag with auto-scroll, #N badge → move top / up / down / bottom) — mirrored at once, `PUT /api/decks/reorder` / `POST /api/decks/:id/move`, Outbox offline | ✅ `moveInOrder` / `moveToIndex` / `indexUnderPointer` parity-tested (moved to `shared/decks/queue.ts`) | `services/dragReorder.ts`, `QueuePositionMenu.tsx`, `services/deckOrder.ts` | `core/…/DeckQueue.kt`, `ui/decks/DragReorder.kt` |
+| Card search (local-first with recent ratings + mastery, server fallback with "this device has N of M cards") | ✅ `noteMatches` / `stripTones` parity-tested (moved to `shared/decks/search.ts`); `?q=` deep links open the tab without the query | `services/noteSearch.ts`, `NoteSearchResults.tsx`, `GET /api/notes/search` | `core/…/NoteSearch.kt`, `DecksViewModel.kt` |
+| New deck (+ Generate with Claude / starter deck entry), starter deck (`POST /api/decks/starter`) | ✅ online (the server fills the settings) | `AddDeckModal.tsx`, `DecksPage.tsx` | `NewDeckSheet` |
+| Deck page: Study / "Try it as a student" (tutor account), progress (seen / mastered, per card type), words sorted by mastery with ratings, ▶ play, generate missing audio, regenerate audio (selection), 404 → "deleted" | ✅ from Room, works offline; progress is the web's local computation (no server activity strip) | `DeckDetailPage.tsx`, `DeckProgress.tsx` | `ui/decks/DeckScreen.kt`, `DeckViewModel.kt`, `DeckStats.kt` |
+| Card editor (hanzi, pinyin, English, fun facts, alternatives, sentence clue + ✨ regenerate), add word, delete note, move notes (one, or many via long-press selection) | 🟡 card standard + required fields checked on the phone (`cardTextProblems` parity-tested), edits / deletes / moves queue in the Outbox offline; adding needs the server. Missing: the editor's audio recordings panel (record / Google TTS / MiniMax / set primary) and its sentence-set section | `CardEditModal.tsx`, `POST /api/decks/:id/notes`, `PUT/DELETE /api/notes/:id`, `POST /api/notes/move` | `ui/cards/NoteEditSheet.kt`, `NoteEditor.kt`, `data/decks/DeckWrites.kt`, `core/…/CardStandard.kt` |
+| Card hub (`/cards/:noteId`: note, card states, flags + flag form (Outbox), resolve / reopen / delete, Claude threads, recent reviews + recordings) | ✅ cached for offline; before first load Room answers note / cards / reviews | `pages/CardHubPage.tsx` | `ui/cards/CardHubScreen.kt`, `CardHubViewModel.kt` |
+| Deck settings (name, description, new / secondary caps) and delete deck (tombstone, gone locally at once) | ✅ `pickDeckSettings` parity-tested; legacy SM-2 fields stay in the main app (FSRS ignores them) | `DeckSettingsModal`, `PUT /api/decks/:id/settings`, `DELETE /api/decks/:id` | `DeckSettingsForm`, `DeckWrites.kt`, `core/…/DeckSettings.kt` |
+| Note history modal | ➖ unreachable on the web (nothing opens it); the card hub covers it | `NoteHistoryModal` | — |
+| Paste a list (parse, plan, fill gaps, ✨ write explanations, save, update students' copies) | ⬜ — port `shared/import/` (next PR); the deck page's "📋 Paste list" opens the main app | `components/import/PasteWordsModal.tsx` | |
+| Generate a deck with Claude | ⬜ (next PR; `/generate` placeholder) | `pages/GeneratePage.tsx` | |
+| Anki export | ⬜ hand-off: ⋯ → Export → Anki opens the deck in the main app | `services/anki/` | |
+| Share with tutor / Shared with Tutors | ⬜ | `DeckDetailPage.tsx`, `GET /api/decks/:id/tutor-shares` | |
+| Try it as a student (`/decks/:id/try`, nothing recorded) | ⬜ (the button opens the placeholder) | `pages/DeckTryPage.tsx` | |
+| One-off deck banner + "Add to my daily review" | ⬜ needs E's homework cache | `components/homework/OneOffDeckBanner.tsx` | |
 
 ## D — Progress & settings (web: `MyProgressPage.tsx`, `SettingsPage.tsx`)
 
@@ -199,11 +203,15 @@ Owns `ui/coach/`, `ui/analyze/`, `ui/quests/`, `ui/strokes/`, `core/…/Quest*.k
 
 Owns `app/src/main/res/xml/`, widget / shortcut / notification classes under `shell/`, manifest entries for them (coordinate: one block each). Deep links already route through `LabNav.open`.
 
-| Feature | Status | Hybrid source |
-|---|---|---|
-| Home-screen widget, launcher shortcuts | ⬜ | `native/android/…/ShortcutsWidgetProvider.java`, `shortcuts.xml` |
-| Select text anywhere → Sentence Coach (`PROCESS_TEXT` → `/coach?text=`) | ⬜ | `ProcessTextActivity.java` |
-| Homework notifications with in-notification rating | ⬜ | `HomeworkWorker.java` … |
+| Feature | Status | Hybrid source | Lab source |
+|---|---|---|---|
+| Home-screen widget: today's due count (the Study button's number, from Room — offline), "about N min", the homework due now, 学 Study / ✏️ Coach; redrawn after every sync, after a notification rating, hourly and at midnight; More → Lab app → "Add the home-screen widget" pins it | ✅ Robolectric + Roborazzi (RemoteViews, not Glance — no new dependency, same result) | `ShortcutsWidgetProvider.java`, `widget_shortcuts.xml` | `shell/DueWidgetProvider.kt`, `ShellSnapshot.kt`, `res/layout/shell_widget_due.xml` |
+| Launcher shortcuts Study / Coach / Analyze (`lab_*` ids, `chineselearning-lab:///…` links) | ✅ | `res/xml/shortcuts.xml` | `res/xml/shell_shortcuts.xml` |
+| Select text anywhere → "Coach (Lab)" (`PROCESS_TEXT` → `/coach?text=`; native coach once H registers it, placeholder → main app until then) | ✅ | `ProcessTextActivity.java` | `shell/ProcessTextActivity.kt` |
+| Due-card notifications: hourly check (sync first if online), hanzi → Show answer (pinyin, meaning, example) → Again / Good / Easy with intervals, recorded as a REAL local review (`Repository.recordReview`, uploaded by sync / the upload worker — works offline), "✓ Good · back in 4d" + Next card; quiet 22:00–08:00; silent when off, not permitted, signed out, a tutor account or nothing due; a stale one is withdrawn after a sync; tap → study | ✅ unit + Robolectric (rating = in-app review, same state) | `HomeworkWorker.java`, `HomeworkNotifier.java`, `HomeworkActionReceiver.java` | `shell/Shell.kt`, `ShellRules.kt`, `NotificationReview.kt`, `ShellNotifier.kt`, `DueCheckWorker.kt` |
+| Homework due today / overdue notification (one-off, once a day per assignment; tap → `/homework[/:id]`) | ✅ (own `shell/homework` cache of `GET /api/me/homework`; E's homework sync can replace it) | docs/HOMEWORK.md, `shared/homework/due.ts` | `shell/HomeworkFeed.kt` |
+| Notification permission (Android 13+: asked once after sign-in) + More → Lab app → "Due-card notifications" toggle | ✅ | `MainActivity.setUpHomeworkNotifications` | `shell/ShellPermission.kt`, `ShellRows.kt` |
+| Hybrid `route` extra and `chineselearning-lab:///<route>` links from outside | ✅ | `MainActivity.extractRoute` | `shell/ShellLinks.kt`, `MainActivity.kt` |
 
 ## J — Video calls (last)
 
