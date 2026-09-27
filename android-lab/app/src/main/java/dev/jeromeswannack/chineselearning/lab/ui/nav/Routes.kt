@@ -38,6 +38,7 @@ object Routes {
     fun progressCard(date: String, cardId: String) = "/progress/day/${seg(date)}/card/${seg(cardId)}"
     fun sessionReview(id: String) = "/study/review/${seg(id)}"
     fun sentenceCoverage() = "/settings/sentences"
+    fun conversationVoices() = "/settings/voices"
     fun duplicateFinder() = "/duplicate-finder"
 
     // ---- tutor tab for students (package E) ----

@@ -105,7 +105,7 @@ Owns `ui/lessons/` (player + all exercise views + `/lessons`, `/lesson-attempts`
 | Exercise: writing — handwriting (stroke-order pad, sketch fallback offline) | ✅ H's stroke-order `WritingExercise` in recall mode (right only when written from memory, run kept in the attempt); sketch pad + self-assessment when the stroke data isn't on the phone; lesson characters prefetched in the sync | `WriteHandwritingExercise`, `components/strokes/WritingExercise.tsx` |
 | Exercise: dictation (typed / handwritten) | ✅ typed (diff) and handwritten (stroke pad, characters hidden; sketch fallback offline) | `DictationExercise` |
 | Exercise: oral expression (recorded, uploaded by media key via Outbox) | ✅ AAC recording; raw `PUT /api/lesson-attempts/:id/media/:key` from its own queue after the attempt lands (404 = wait), like the web | `OralExpressionExercise`, `uploadLessonAttemptMedia` |
-| Exercise: conversation (two TTS voices, comprehension questions, transcript) | ✅ voices parity-tested; clips prefetched per voice | `ConversationExercise`, `hooks/useLessonClips.ts` |
+| Exercise: conversation (two TTS voices at 0.9×, 200 ms turn gap, comprehension questions, transcript) | ✅ catalogue, enabled pools, per-dialogue rotation and selection check parity-tested (`core/…/ConversationVoices.kt`); voices from the account's selection cached on the phone (`ConversationVoiceCache`); clips prefetched per voice + speed | `ConversationExercise`, `hooks/useLessonClips.ts`, `shared/lesson/voices.ts` |
 | Lesson attempts: per-exercise answers + time, uploaded with the completion event | ✅ via the Outbox (idempotent by event id) | `StudyCustomLesson.tsx` |
 | "My answers" (`/lesson-attempts`) | ✅ list + review (`ui/lessons/AttemptReview.kt` — reusable by F's tutor review) | `pages/LessonAttemptsPage.tsx` |
 | Mini Lessons page (`/lessons`: pending + done, delete) | ✅ (Edit opens `/lessons/:id/edit`, package G) | `pages/MiniLessonsPage.tsx` |
@@ -136,7 +136,7 @@ Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/De
 
 ## D — Progress & settings (web: `MyProgressPage.tsx`, `SettingsPage.tsx`)
 
-Owns `ui/progress/` (incl. the `/progress` stub, `/progress/day/…`, `/study/review/:id`), `ui/settings/` (`/settings`, `/settings/sentences`, `/duplicate-finder`), `data/progress/`, `data/settings/`, `data/api/ProgressApi.kt`, `SettingsApi.kt`, `core/…/Progress.kt` + `OfflineMode.kt` + `Duplicates.kt`, `parity/fixtures/progress.ts`. More → Lab app rows stay in `ui/more/` (shell).
+Owns `ui/progress/` (incl. the `/progress` stub, `/progress/day/…`, `/study/review/:id`), `ui/settings/` (`/settings`, `/settings/sentences`, `/settings/voices`, `/duplicate-finder`), `data/progress/`, `data/settings/`, `data/api/ProgressApi.kt`, `SettingsApi.kt`, `core/…/Progress.kt` + `OfflineMode.kt` + `Duplicates.kt`, `parity/fixtures/progress.ts`. More → Lab app rows stay in `ui/more/` (shell).
 
 | Feature | Status | Web source |
 |---|---|---|
@@ -148,6 +148,7 @@ Owns `ui/progress/` (incl. the `/progress` stub, `/progress/day/…`, `/study/re
 | Advanced: audio quality (check / regenerate fallback clips), feature requests (list, detail + comments, 💬 send feedback), full sync + last-sync timings, send debug report, update app (→ GitHub releases) | ✅ | `SettingsPage.tsx` |
 | Native playback panel, playback-quality report, debug console, copy debug dump | ➖ web / hybrid-app tools (the Lab has its own debug report + sync timings) | `SettingsPage.tsx` |
 | Sentence coverage page (polling while jobs run, generate 20/100, clue audio, sync to this device) | ✅ | `SentenceCoveragePage.tsx` |
+| Conversation voices (`/settings/voices`: filter by gender / style / accent / on only, ▶ sample cached on the phone, on/off switch, last voice of a gender stays on, reset to default) | ✅ rules unit-tested (`ConversationVoicesTest`); shots `voices-*` | `ConversationVoicesPage.tsx` |
 | Duplicate finder | ✅ (`core/…/Duplicates.kt`) | `DuplicateFinderPage.tsx` |
 
 ## E — Tutor tab for students (web: `ConnectionsPage.tsx`, `ConnectionDetailPage.tsx`, `ChatPage.tsx`)

@@ -13,7 +13,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   diffHanzi,
   sentenceUsesWord,
-  resolveConversationVoices,
+  CONVERSATION_LINE_GAP_MS,
+  CONVERSATION_TTS_SPEED,
+  speakerGender,
   type ConversationLine,
   type ConversationQuestion,
   type ConversationSpeaker,
@@ -38,6 +40,7 @@ import { useAudioRecorder } from '../hooks/useAudio';
 import { useLessonClips } from '../hooks/useLessonClips';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { shuffledIndexes } from '../utils/shuffle';
+import { voicesForConversation } from '../services/conversationVoices';
 import './lesson-exercises.css';
 
 type Speak = (text: string) => void;
@@ -696,7 +699,7 @@ export function ConversationExercise(props: {
   onNext: OnNext;
 }) {
   const { situation, speakers, lines, questions, onNext } = props;
-  const voices = useMemo(() => resolveConversationVoices(speakers), [speakers]);
+  const voices = useMemo(() => voicesForConversation({ situation, speakers, lines }), [situation, speakers, lines]);
   const { playClip, stop } = useLessonClips();
   const [playing, setPlaying] = useState(false);
   const [currentLine, setCurrentLine] = useState<number | null>(null);
@@ -709,7 +712,7 @@ export function ConversationExercise(props: {
   const runRef = useRef(0);
   const plays = useRef(0);
 
-  const speakerIcon = (i: number) => SPEAKER_ICONS[speakers[i]?.voice ?? (i % 2 === 0 ? 'female' : 'male')] ?? '🧑';
+  const speakerIcon = (i: number) => SPEAKER_ICONS[speakerGender(speakers, i)] ?? '🧑';
 
   async function playAll() {
     const run = ++runRef.current;
@@ -719,10 +722,11 @@ export function ConversationExercise(props: {
     for (let i = 0; i < lines.length; i++) {
       if (runRef.current !== run) return;
       setCurrentLine(i);
-      const ok = await playClip(lines[i].hanzi, voices[lines[i].speaker]);
+      const ok = await playClip(lines[i].hanzi, voices[lines[i].speaker], CONVERSATION_TTS_SPEED);
       if (!ok) failures++;
       if (runRef.current !== run) return;
-      await new Promise(r => setTimeout(r, 350));
+      // A natural turn-taking beat before the next speaker, no more.
+      if (i < lines.length - 1) await new Promise(r => setTimeout(r, CONVERSATION_LINE_GAP_MS));
     }
     if (runRef.current !== run) return;
     setPlaying(false);
@@ -750,7 +754,7 @@ export function ConversationExercise(props: {
     runRef.current++;
     setPlaying(false);
     setCurrentLine(i);
-    void playClip(lines[i].hanzi, voices[lines[i].speaker]).then(() => setCurrentLine(c => (c === i ? null : c)));
+    void playClip(lines[i].hanzi, voices[lines[i].speaker], CONVERSATION_TTS_SPEED).then(() => setCurrentLine(c => (c === i ? null : c)));
   }
 
   function setAnswer(i: number, patch: Partial<QuestionState>) {

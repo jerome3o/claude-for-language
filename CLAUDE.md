@@ -109,7 +109,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── registry.ts    # One entry per exercise type (name, icon, skill, how it's checked) — every type list reads it
 │   │   ├── doc.ts         # LESSON_SPEC_DOC: the spec text every lesson-authoring Claude reads (worker + MCP)
 │   │   ├── samples.ts     # Bundled sample lesson per type (tutor catalogue)
-│   │   ├── voices.ts      # Conversation speaker → distinct MiniMax voice (resolveConversationVoices)
+│   │   ├── voices.ts      # Conversation voices: curated MiniMax catalogue (default_on), enabled pools, per-dialogue rotation (conversationVoicesFor), 0.9× speed + 200 ms turn gap
 │   │   ├── answer-check.ts # Typed-hanzi checking + character diff (diffHanzi)
 │   │   ├── attempt.ts     # Per-exercise attempt data (answers, time, recordings) + server sanitizer
 │   │   ├── validate.ts    # Structural validation for agent-authored specs
@@ -852,8 +852,17 @@ sketch-pad fallback when the stroke data isn't on the device), `dictation` (hear
 `input: type | handwrite`), `oral_expression` (answer out loud, RECORDED for the tutor,
 transcribed server-side when a transcriber is configured) and `conversation` (a 2–3 speaker
 dialogue played with a distinct TTS voice per speaker — `shared/lesson/voices.ts`, `voice_id`
-on `/api/practice/tts`, cached per voice for offline — then comprehension questions, one point
-each, transcript revealed at the end). The study views are `components/ExerciseView.tsx` (the one
+on `/api/practice/tts`, cached per voice + speed for offline — then comprehension questions, one point
+each, transcript revealed at the end). Conversation lines are generated at `CONVERSATION_TTS_SPEED`
+(0.9; every other clip stays at 0.6) and play back to back with a `CONVERSATION_LINE_GAP_MS` (200 ms)
+beat. Voices come from the account's **enabled pool** (Settings → Advanced → Conversation voices,
+`/settings/voices`; Lab: same path): `conversationVoicesFor(ex, enabled)` picks two different voices
+per dialogue, rotated by a hash of the dialogue (stable for one dialogue, varied across them), gender
+as the spec says / alternating. Selection per account in `users.conversation_voices` (migration
+0076); NULL = the admin's own selection, else the catalogue's `default_on` voices (newsreader /
+neutral / warm only — the breathy, "sweet", role-play voices ship off). It rides on `/api/auth/me`
+(`conversation_voices`) and is cached on the device (`services/conversationVoices.ts`, Lab
+`ConversationVoiceCache`), so a changed selection just makes new clips on the next prefetch. The study views are `components/ExerciseView.tsx` (the one
 switch over types) → `lesson-exercises.tsx` / `practice-exercises.tsx`. Adding a type: its
 interface in `types.ts`, a case in `validate.ts`, an entry in `registry.ts`, a line in `doc.ts`, a
 sample in `samples.ts`, the study view, the editor form — `practice-types.test.ts` checks the
@@ -1027,6 +1036,11 @@ reports plus the server's own `review_events` (which side is missing events / ho
 - `GET /api/debug/reports?client=&limit=` - index rows newest first (with `summary`)
 - `GET /api/debug/reports/:id?section=overview|decks|cards|events|full&offset&limit&deck_id&queue&in_due_queue&card_id`
 - `GET /api/debug/compare?a=&b=&max_cards=&server=0` - diff; defaults a = newest lab, b = newest web
+
+### Conversation voices (`worker/src/routes/conversation-voices.ts`, `services/conversation-voices.ts`)
+- `GET /api/conversation-voices` - catalogue + `enabled`, `customised`, `default_enabled`, `default_source` (admin | app), `is_admin`, `speed`
+- `PUT /api/conversation-voices` - `{ enabled: string[] }` (known ids, ≥ 1 female and ≥ 1 male; 400 with `problems`) or `{ reset: true }`; an admin's selection is everyone else's default
+- `GET /api/conversation-voices/sample?voice=` - `{ audio_base64, content_type }`: the sample line in that voice, MiniMax only (no fallback voice), made once and kept in R2 (`voice-samples/v1/…`)
 
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
@@ -1738,7 +1752,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
 - `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
 - `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
-- `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
+- `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, conversation voices (`/settings/voices`), sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
 - `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
 - `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
 - `/connections/:relId/chat/:convId` - Chat interface

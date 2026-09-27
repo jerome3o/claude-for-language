@@ -55,13 +55,15 @@ export async function getTTSWithCache(
   }
 }
 
-/** Generate + cache clips (text + optional voice) not yet cached. */
-export async function prefetchTTSClips(clips: Array<{ text: string; voice?: string }>, speed: number = DEFAULT_TTS_SPEED): Promise<void> {
+/** Generate + cache clips (text + optional voice and speed) not yet cached.
+ * A clip's own speed (a conversation line) wins over `speed`. */
+export async function prefetchTTSClips(clips: Array<{ text: string; voice?: string; speed?: number }>, speed: number = DEFAULT_TTS_SPEED): Promise<void> {
   for (const clip of clips) {
     if (!navigator.onLine) return;
     if (!clip.text.trim()) continue;
-    if (!(await isAudioCached(ttsCacheKey(clip.text, speed, clip.voice)))) {
-      await getTTSWithCache(clip.text, speed, clip.voice);
+    const clipSpeed = clip.speed ?? speed;
+    if (!(await isAudioCached(ttsCacheKey(clip.text, clipSpeed, clip.voice)))) {
+      await getTTSWithCache(clip.text, clipSpeed, clip.voice);
     }
   }
 }

@@ -325,15 +325,20 @@ object Lessons {
         return texts
     }
 
-    data class TtsClip(val text: String, val voice: String? = null)
+    /** A clip to speak: conversation lines carry their speaker's voice and [ConversationVoices.SPEED]. */
+    data class TtsClip(val text: String, val voice: String? = null, val speed: Double? = null)
 
-    /** `lessonTtsClips`: [ttsTexts] plus every conversation line in its speaker's voice. */
-    fun ttsClips(spec: CustomLessonSpec): List<TtsClip> {
+    /**
+     * `lessonTtsClips(spec, ex => conversationVoicesFor(ex, enabled), CONVERSATION_TTS_SPEED)`:
+     * [ttsTexts] plus every conversation line in its speaker's voice (from the account's
+     * [enabled] voices, null = the shipped defaults) at the conversation speed.
+     */
+    fun ttsClips(spec: CustomLessonSpec, enabled: List<String>? = null): List<TtsClip> {
         val clips = ttsTexts(spec).map { TtsClip(it) }.toMutableList()
         for (section in spec.sections) for (ex in section.exercises) {
             if (ex !is ConversationExercise) continue
-            val voices = conversationVoices(ex.speakers)
-            for (line in ex.lines) clips += TtsClip(line.hanzi, voices.getOrNull(line.speaker))
+            val voices = ConversationVoices.forConversation(ex, enabled)
+            for (line in ex.lines) clips += TtsClip(line.hanzi, voices.getOrNull(line.speaker), ConversationVoices.SPEED)
         }
         return clips
     }
@@ -341,26 +346,14 @@ object Lessons {
     /** DEFAULT_LESSON_VOICE — Radio Host, the app's default voice. */
     const val DEFAULT_VOICE = "Chinese (Mandarin)_Radio_Host"
 
-    val VOICE_POOLS: Map<String, List<String>> = mapOf(
-        "female" to listOf("Chinese (Mandarin)_Wise_Women", "Chinese (Mandarin)_Warm_Bestie", "Chinese (Mandarin)_Sweet_Lady"),
-        "male" to listOf("Chinese (Mandarin)_Gentleman", "Chinese (Mandarin)_Sincere_Adult", "Chinese (Mandarin)_Male_Announcer"),
-    )
+    /** LESSON_VOICE_POOLS — the shipped pools by gender. */
+    val VOICE_POOLS: Map<String, List<String>> get() = ConversationVoices.pools(null)
 
-    /** `resolveConversationVoices`: a distinct voice id per speaker, deterministic. */
-    fun conversationVoices(speakers: List<ConversationSpeaker>): List<String> {
-        val used = HashMap<String, Int>()
-        return speakers.mapIndexed { i, speaker ->
-            val gender = if (speaker.voice == "male" || speaker.voice == "female") speaker.voice else if (i % 2 == 0) "female" else "male"
-            val pool = VOICE_POOLS.getValue(gender)
-            val n = used[gender] ?: 0
-            used[gender] = n + 1
-            pool[n % pool.size]
-        }
-    }
+    /** `resolveConversationVoices(speakers)` with the shipped defaults and no rotation. */
+    fun conversationVoices(speakers: List<ConversationSpeaker>): List<String> = ConversationVoices.resolve(speakers)
 
     /** The gender a speaker plays with (the web's speaker icon). */
-    fun speakerGender(speakers: List<ConversationSpeaker>, i: Int): String =
-        speakers.getOrNull(i)?.voice?.takeIf { it == "male" || it == "female" } ?: if (i % 2 == 0) "female" else "male"
+    fun speakerGender(speakers: List<ConversationSpeaker>, i: Int): String = ConversationVoices.speakerGender(speakers, i)
 
     /** `exercisePrimaryText` (diff.ts) — the one line that names an exercise. */
     fun primaryText(ex: LessonExercise): String = when (ex) {

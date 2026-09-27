@@ -31,6 +31,8 @@ data class MeDto(
     val role: String? = null,
     /** Settings → "Start on": study | students | decks, null = automatic (nav/NavRole.kt resolveLanding). */
     val landing_page: String? = null,
+    /** The voices this account's conversation exercises use (data/lessons/ConversationVoiceCache.kt). */
+    val conversation_voices: List<String>? = null,
 )
 
 @Serializable

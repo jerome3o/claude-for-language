@@ -53,6 +53,7 @@ import {
   SentenceBriefExplanation,
 } from '../types';
 import type { Quest, QuestSummary } from '@shared/quest';
+import type { ConversationVoice } from '@shared/lesson';
 
 export const API_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL
@@ -1756,6 +1757,36 @@ export async function generatePracticeTTS(
     method: 'POST',
     body: JSON.stringify(voiceId ? { text, speed, voice_id: voiceId } : { text, speed }),
   });
+}
+
+// ============ Conversation voices (Settings → Conversation voices) ============
+
+export interface LessonConversationVoiceSettings {
+  voices: ConversationVoice[];
+  enabled: string[];
+  customised: boolean;
+  default_enabled: string[];
+  default_source: 'admin' | 'app';
+  is_admin: boolean;
+  speed: number;
+  sample_text: string;
+}
+
+export async function getLessonConversationVoices(): Promise<LessonConversationVoiceSettings> {
+  return fetchJSON('/conversation-voices');
+}
+
+/** Save a selection (≥ 1 female + ≥ 1 male; 400 with `problems` otherwise), or `null` to reset to the default. */
+export async function saveLessonConversationVoices(enabled: string[] | null): Promise<LessonConversationVoiceSettings> {
+  return fetchJSON('/conversation-voices', {
+    method: 'PUT',
+    body: JSON.stringify(enabled ? { enabled } : { reset: true }),
+  });
+}
+
+/** The sample line in one voice (made once server-side, kept in R2). */
+export async function getConversationVoiceSample(voiceId: string): Promise<{ audio_base64: string; content_type: string }> {
+  return fetchJSON(`/conversation-voices/sample?voice=${encodeURIComponent(voiceId)}`);
 }
 
 // ============ Custom Mini Lessons ============

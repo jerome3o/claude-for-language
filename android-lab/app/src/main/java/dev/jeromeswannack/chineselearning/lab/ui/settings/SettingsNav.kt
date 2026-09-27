@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 /** Where Lab builds are published (Obtainium follows the `Lab v0.N` pre-releases). */
 private const val RELEASES_URL = "https://github.com/jerome3o/claude-for-language/releases"
 
-/** Package D — `/settings`, `/settings/sentences`, `/duplicate-finder` (web: SettingsPage, SentenceCoveragePage, DuplicateFinderPage). */
+/** Package D — `/settings`, `/settings/sentences`, `/settings/voices`, `/duplicate-finder` (web: SettingsPage, SentenceCoveragePage, DuplicateFinderPage). */
 fun NavGraphBuilder.settingsGraph(nav: LabNav) {
     composable(Routes.route(Routes.SETTINGS)) {
         val app = nav.app
@@ -99,6 +99,26 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 syncHere = { vm.syncHere() },
                 openDeck = { nav.open(Routes.deck(it)) },
                 retry = vm::refresh,
+            ),
+        )
+    }
+
+    composable(Routes.route(Routes.conversationVoices())) {
+        val app = nav.app
+        val vm: ConversationVoicesViewModel = viewModel(factory = ConversationVoicesViewModel.Factory(app))
+        val ui by vm.ui.collectAsStateWithLifecycle()
+        ConversationVoicesScreen(
+            ui,
+            ConversationVoicesActions(
+                onBack = nav::back,
+                toggle = vm::toggle,
+                play = vm::play,
+                setGender = vm::setGender,
+                setStyle = vm::setStyle,
+                setAccent = vm::setAccent,
+                setOnlyOn = vm::setOnlyOn,
+                reset = vm::reset,
+                dismissNotice = vm::dismissNotice,
             ),
         )
     }

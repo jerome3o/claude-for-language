@@ -47,6 +47,8 @@ export interface AuthUser {
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;
+  /** Voices this account's conversation exercises use (shared/lesson/voices.ts). */
+  conversation_voices?: string[] | null;
 }
 
 /** Explicit "Start on" preference. null = automatic. */

@@ -54,6 +54,7 @@ const ReaderEditorPage = lazy(() => import('./pages/editor/ReaderEditorPage').th
 const ReaderPrintPage = lazy(() => import('./pages/editor/ReaderPrintPage').then(m => ({ default: m.ReaderPrintPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const SentenceCoveragePage = lazy(() => import('./pages/SentenceCoveragePage').then(m => ({ default: m.SentenceCoveragePage })));
+const ConversationVoicesPage = lazy(() => import('./pages/ConversationVoicesPage').then(m => ({ default: m.ConversationVoicesPage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 const DecksPage = lazy(() => import('./pages/DecksPage').then(m => ({ default: m.DecksPage })));
 const MorePage = lazy(() => import('./pages/MorePage').then(m => ({ default: m.MorePage })));
@@ -407,6 +408,15 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <SentenceCoveragePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings/voices"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ConversationVoicesPage />
           </ProtectedRoute>
         }
       />
