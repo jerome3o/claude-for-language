@@ -606,6 +606,16 @@ Lessons and readers can be exported to Anki too — see section 10.
 Everything tutor-related lives on the **Students** tab (called **Tutor** on a student's
 phone).
 
+### Your profile
+
+Tap your photo at the top of the Students dashboard (or **More → Profile**) to change how
+your students see you: **display name**, **photo** (pick one, drag / pinch to frame it —
+it is cropped to a square on the phone; **Use my Google photo** or **Remove photo** undo it),
+**About me for students** (a line or two shown on your page in their app and on your invite
+links) and **time zone** (they see "9:04 pm in Shanghai" before they message). A name or photo
+you set here stays when you sign in with Google again. Until you write an About me, the
+dashboard shows a small *Introduce yourself* card.
+
 ### Inviting a student
 
 Sign-up is invite-only, and inviting new people is switched on per tutor by the admin
@@ -1359,8 +1369,10 @@ progress block shows mastery per skill.
 
 **More → Settings** (or tap your avatar, then your name):
 
-1. **Personal Bio** — a couple of sentences about the student. It is used to personalise
-   generated example sentences and stories (mention hobbies, job, family, city).
+1. **Profile** — opens the Profile screen (also **More → Profile**, or tap your name at the
+   top of More): display name, photo, **About me**, time zone, and for learners the private
+   **Bio for Claude** (a couple of sentences used to personalise generated example sentences
+   and stories — hobbies, job, family, city; nobody else sees it).
 2. **Audio for your words** — one line saying how many clips are on this phone. Audio
    downloads itself after every sync; a **Download** button only appears when something
    is still missing.
