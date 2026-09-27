@@ -73,9 +73,6 @@ data class DailyReaderBody(@SerialName("note_ids") val noteIds: List<String>, @S
 data class DailyReaderDto(@SerialName("reader_id") val readerId: String? = null, val status: String = "")
 
 @Serializable
-data class PageImageDto(@SerialName("image_url") val imageUrl: String? = null)
-
-@Serializable
 data class DailyMarkBody(val activity: String, @SerialName("ref_id") val refId: String?)
 
 suspend fun Api.readersWithPages(): List<GradedReaderDto> = get("/api/readers?include_pages=true")
@@ -88,8 +85,6 @@ suspend fun Api.readerReviews(since: String, afterId: String?, limit: Int = 1000
 suspend fun Api.generateReader(body: GenerateReaderBody): GradedReaderDto = post("/api/readers/generate", body)
 
 suspend fun Api.retryReader(id: String): GradedReaderDto = post("/api/readers/${enc(id)}/retry")
-
-suspend fun Api.deleteReader(id: String): Unit = delete("/api/readers/${enc(id)}")
 
 suspend fun Api.generatePageImage(readerId: String, pageId: String): PageImageDto =
     post("/api/readers/${enc(readerId)}/pages/${enc(pageId)}/generate-image")

@@ -105,7 +105,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
         if (!online) return null
         val key = page.imageUrl ?: run {
             if (page.imagePrompt.isNullOrBlank()) return null
-            val generated = runCatching { api.generatePageImage(readerId, page.id).imageUrl }.getOrNull() ?: return null
+            val generated = runCatching { api.generatePageImage(readerId, page.id).image_url }.getOrNull() ?: return null
             setPageImage(readerId, page.id, generated)
             generated
         }
