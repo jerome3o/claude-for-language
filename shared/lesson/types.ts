@@ -184,7 +184,9 @@ export interface WriteTypedExerciseSpec {
 /** Writing (handwriting): write the characters by hand on the writing pad.
  * Kept short (≤ 12 characters) — handwriting is character recall, not
  * composition. Checked by the pad's stroke checker when one is available,
- * otherwise self-assessed against the model characters. */
+ * otherwise self-assessed against the model characters. Only writing FROM
+ * MEMORY counts as correct: switching to Trace counts as needing help
+ * (`writtenFromMemory` in shared/strokes; docs/STROKE_ORDER.md). */
 export interface WriteHandwritingExerciseSpec {
   type: 'write_handwriting';
   answer: LessonSentence;

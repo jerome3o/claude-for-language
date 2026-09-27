@@ -7,6 +7,8 @@ import { listAccessRequests, approveAccessRequest, dismissAccessRequest, setUser
 import type { AccessRequest, Invite } from '../types/invites';
 import { InviteList } from '../components/invites/InviteList';
 import { AdminUserSheet } from '../components/admin/AdminUserSheet';
+import { NavRow } from './MorePage';
+import './MorePage.css';
 import './AdminPage.css';
 
 /** Per-user "may invite new people" switch. Admins always may, so theirs is fixed on. */
@@ -295,6 +297,11 @@ export function AdminPage() {
     <div className="container">
       <div className="admin-page">
         <h1>Admin Dashboard</h1>
+
+        <div className="nav-list admin-shortcuts">
+          <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample (nothing recorded)" to="/library/catalogue" />
+          <NavRow icon="🗂️" label="Lesson Library" desc="Mini lessons to assign — tap one to try it" to="/library" />
+        </div>
 
         {(accessRequests.length > 0 || accessMessage) && (
           <div className={`pending-requests-wrapper${accessRequests.length > 0 ? ' has-pending' : ''}`}>

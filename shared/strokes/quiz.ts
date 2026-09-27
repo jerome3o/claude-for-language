@@ -246,6 +246,17 @@ export function summarizeExercise(
   };
 }
 
+/**
+ * Whether a handwriting exercise counts as correct: only a word written FROM
+ * MEMORY (recall) with nothing revealed and at most light help (grade perfect /
+ * good). A run in Trace mode — including the learner switching to "Trace it" —
+ * means they needed help, so it is scored as not yet correct. Jerome's decision;
+ * see docs/STROKE_ORDER.md "Scoring in mini lessons".
+ */
+export function writtenFromMemory(result: Pick<WritingExerciseResult, 'mode' | 'grade'>): boolean {
+  return result.mode === 'recall' && result.grade !== 'practice';
+}
+
 /** The characters of `text` worth writing: Han ideographs only, in order (duplicates kept). */
 export function writableCharacters(text: string): string[] {
   return Array.from(text).filter((ch) => /\p{Script=Han}/u.test(ch));
