@@ -89,9 +89,9 @@ data class OpenConversationDto(val conversation_id: String, val created: Boolean
 suspend fun Api.openConversation(relId: String): OpenConversationDto = post("/api/relationships/${enc(relId)}/conversations/open")
 
 @Serializable
-data class NewConversationBody(val title: String? = null, val scenario: String? = null, val user_role: String? = null, val ai_role: String? = null)
+data class PracticeConversationBody(val title: String? = null, val scenario: String? = null, val user_role: String? = null, val ai_role: String? = null)
 
-suspend fun Api.createConversation(relId: String, body: NewConversationBody): ConversationDto = post("/api/relationships/${enc(relId)}/conversations", body)
+suspend fun Api.startConversation(relId: String, body: PracticeConversationBody): ConversationDto = post("/api/relationships/${enc(relId)}/conversations", body)
 
 @Serializable
 data class StudentSharedDeckDto(val id: String, val deck_name: String = "", val note_count: Int = 0, val shared_at: String = "")

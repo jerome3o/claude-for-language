@@ -33,7 +33,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
-import dev.jeromeswannack.chineselearning.lab.data.api.NewConversationBody
+import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSharedDeckDto
@@ -73,7 +73,7 @@ data class TutorPageUi(
 class TutorPageActions(
     val onBack: () -> Unit = {},
     val onMessage: () -> Unit = {},
-    val onNewPracticeConversation: (NewConversationBody) -> Unit = {},
+    val onNewPracticeConversation: (PracticeConversationBody) -> Unit = {},
     val onVideoCall: () -> Unit = {},
     val onOpenConversation: (String) -> Unit = {},
     val onOpenCard: (noteId: String) -> Unit = {},
@@ -276,7 +276,7 @@ private fun FlagCard(flag: CardFlagDto, actions: TutorPageActions, onDelete: () 
 
 /** Claude practice conversation: title, scenario, roles — all optional (web: New Conversation modal). */
 @Composable
-private fun NewPracticeConversationSheet(onDismiss: () -> Unit, busy: Boolean, onStart: (NewConversationBody) -> Unit) {
+private fun NewPracticeConversationSheet(onDismiss: () -> Unit, busy: Boolean, onStart: (PracticeConversationBody) -> Unit) {
     var title by rememberSaveable { mutableStateOf("") }
     var scenario by rememberSaveable { mutableStateOf("") }
     var userRole by rememberSaveable { mutableStateOf("") }
@@ -289,7 +289,7 @@ private fun NewPracticeConversationSheet(onDismiss: () -> Unit, busy: Boolean, o
             OutlinedTextField(userRole, { userRole = it }, label = { Text("Your role (optional)") }, placeholder = { Text("e.g., A tourist visiting Beijing") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(aiRole, { aiRole = it }, label = { Text("Claude's role (optional)") }, placeholder = { Text("e.g., A friendly restaurant waiter") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             PrimaryPill(if (busy) "Creating..." else "Start Chat", Modifier.fillMaxWidth().height(52.dp), enabled = !busy) {
-                onStart(NewConversationBody(title.trim().ifEmpty { null }, scenario.trim().ifEmpty { null }, userRole.trim().ifEmpty { null }, aiRole.trim().ifEmpty { null }))
+                onStart(PracticeConversationBody(title.trim().ifEmpty { null }, scenario.trim().ifEmpty { null }, userRole.trim().ifEmpty { null }, aiRole.trim().ifEmpty { null }))
             }
             Spacer(Modifier.height(12.dp))
         }

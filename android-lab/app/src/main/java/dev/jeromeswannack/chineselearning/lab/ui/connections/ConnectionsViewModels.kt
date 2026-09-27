@@ -14,7 +14,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.NewConversationBody
+import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSharedDeckDto
@@ -22,7 +22,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.acceptRelationship
 import dev.jeromeswannack.chineselearning.lab.data.api.cancelInvitation
 import dev.jeromeswannack.chineselearning.lab.data.api.cardFlags
 import dev.jeromeswannack.chineselearning.lab.data.api.conversations
-import dev.jeromeswannack.chineselearning.lab.data.api.createConversation
+import dev.jeromeswannack.chineselearning.lab.data.api.startConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.createLessonNote
 import dev.jeromeswannack.chineselearning.lab.data.api.createRelationship
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteCardFlag
@@ -146,11 +146,11 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
         }
     }
 
-    fun newPracticeConversation(body: NewConversationBody, open: (String) -> Unit) {
+    fun newPracticeConversation(body: PracticeConversationBody, open: (String) -> Unit) {
         status.value = Busy(true)
         viewModelScope.launch {
             try {
-                val c = app.repo.api.createConversation(relId, body)
+                val c = app.repo.api.startConversation(relId, body)
                 status.value = Busy()
                 conversations.refresh()
                 open(c.id)
