@@ -6,7 +6,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
+import dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv
 
 /** `/homework` (the list) and `/homework/:id` (the one-off pass, immersive). Package E. */
 fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
@@ -19,6 +21,8 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
         val id = entry.arguments?.getString("id").orEmpty()
         val vm: HomeworkPassViewModel = viewModel(factory = HomeworkPassViewModel.Factory(nav.app, id))
         val ui by vm.ui.collectAsStateWithLifecycle()
+        val lessonEnv = rememberExerciseEnv(nav.app)
+        val readerEnv = rememberReaderEnv(nav.app, (ui as? PassUi.Player)?.reader?.reader?.id.orEmpty())
         HomeworkPassScreen(
             ui,
             PassActions(
@@ -29,10 +33,11 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
                 onAddToDaily = vm::addToDaily,
                 onRetrySync = vm::retrySync,
                 onAllHomework = { nav.open(Routes.homework()) },
-                // The lesson / reader players are package B's; until they are native the main
-                // app plays it (its completion comes back as a `done` event on the next sync).
-                onStartPlayer = { nav.openInMainApp(Routes.homeworkPass(id)) },
+                onLessonComplete = vm::completeLesson,
+                onReaderRated = vm::rateReader,
             ),
+            lessonEnv = lessonEnv,
+            readerEnv = readerEnv,
         )
     }
 }
