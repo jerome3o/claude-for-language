@@ -114,7 +114,7 @@ fun ProfileScreen(ui: ProfileUi, env: ProfileEnv, actions: ProfileActions, listS
             item {
                 LabCard {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.clip(CircleShape).clickable(enabled = !ui.photoBusy && env.online, onClick = actions.pickPhoto)) {
+                        Box(Modifier.clickable(enabled = !ui.photoBusy && env.online, onClick = actions.pickPhoto)) {
                             ProfilePhoto(p.picture_url, p.name, p.email, size = 96.dp, preview = env.previewPhoto?.takeIf { p.picture_url != null })
                             Box(
                                 Modifier.align(Alignment.BottomEnd).size(32.dp).clip(CircleShape).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, CircleShape),
@@ -144,8 +144,10 @@ fun ProfileScreen(ui: ProfileUi, env: ProfileEnv, actions: ProfileActions, listS
                     val left = ProfileRules.NAME_MAX - ProfileRules.charCount(ui.draft.name.trim())
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (p.name_custom && !p.google_name.isNullOrBlank()) {
-                            Text("Google says “${p.google_name}”. ", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-                            TextLink("Use that instead", enabled = !ui.saving && env.online, onClick = actions.useGoogleName)
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Google says “${p.google_name}”. ", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+                                TextLink("Use that instead", enabled = !ui.saving && env.online, onClick = actions.useGoogleName)
+                            }
                         } else {
                             Text("From your Google account — change it to what $audience call you.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.weight(1f))
                         }
