@@ -170,6 +170,28 @@ class TeachingScreenshots : LabScreenshotTest() {
         SessionNotesScreen(SessionNotesUi("rel-jerome", "Jerome", D.jobs), JobActions(), back = {}, submit = { _, _, _, _, _, _, _ -> }, now = S.now)
     }
 
+    private val G = ProgressSamples
+
+    @Config(qualifiers = TALL)
+    @Test fun studentCardHub() = shoot("teaching-32-card-hub") {
+        StudentCardHubScreen(StudentHubUi("rel-jerome", "Jerome", S.loaded(G.hub)), StudentHubActions(), S.now)
+    }
+
+    @Test fun studentChats() = shoot("teaching-33-claude-chats") {
+        StudentClaudeChatsScreen(StudentChatsUi("rel-jerome", "Jerome", S.claude.questions, S.claude.total, hasMore = true), {}, {}, {}, S.now)
+    }
+
+    @Test fun progress() = shoot("teaching-34-progress") {
+        StudentProgressScreen("Jerome Swannack", S.loaded(G.daily), {}, {}, today = java.time.LocalDate.parse(S.TODAY))
+    }
+
+    @Test fun day() = shoot("teaching-35-progress-day") { StudentDayScreen("2026-09-26", S.loaded(G.day), {}, {}) }
+
+    @Test fun cardDay() = shoot("teaching-36-progress-card") { StudentCardDayScreen("2026-09-26", S.loaded(G.cardDay), null, { _, _ -> }, {}, now = S.now) }
+
+    @Config(qualifiers = TALL)
+    @Test fun sharedDeck() = shoot("teaching-37-shared-deck-progress") { SharedDeckProgressScreen(S.loaded(G.sharedDeck), {}, now = S.now) }
+
     @androidx.compose.runtime.Composable
     private fun Sheet(content: @androidx.compose.runtime.Composable () -> Unit) {
         Box(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) { content() }

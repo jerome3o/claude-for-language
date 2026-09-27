@@ -848,3 +848,86 @@ suspend fun Api.assignHomeworkDraft(relId: String, jobId: String): AssignRespons
 
 /** DELETE /api/notes/:id — removing a word from a draft deletes it from the tutor's draft deck (as the web). */
 suspend fun Api.deleteDraftWord(noteId: String) = delete<Unit>("/api/notes/${enc(noteId)}")
+
+// ---------------- the tutor's card hub (GET /api/relationships/:relId/notes/:noteId/hub; NoteHubDto is package C's) ----------------
+
+suspend fun Api.studentNoteHub(relId: String, noteId: String): NoteHubDto = get("${rel(relId)}/notes/${enc(noteId)}/hub")
+
+// ---------------- student progress: 30 days, a day, a card on a day, a shared deck (web: api/client.ts) ----------------
+
+@Serializable
+data class ProgressSummaryDto(val total_reviews_30d: Int = 0, val total_days_active: Int = 0, val average_accuracy: Double = 0.0, val total_time_ms: Long = 0)
+
+@Serializable
+data class ProgressDayDto(val date: String, val reviews_count: Int = 0, val unique_cards: Int = 0, val accuracy: Double = 0.0, val time_spent_ms: Long = 0)
+
+@Serializable
+data class DailyProgressDto(val student: UserSummaryDto? = null, val summary: ProgressSummaryDto = ProgressSummaryDto(), val days: List<ProgressDayDto> = emptyList())
+
+suspend fun Api.studentDailyProgress(relId: String): DailyProgressDto = get("${rel(relId)}/student-progress/daily")
+
+@Serializable
+data class DaySummaryDto(val total_reviews: Int = 0, val unique_cards: Int = 0, val accuracy: Double = 0.0, val time_spent_ms: Long = 0)
+
+@Serializable
+data class DayCardDto(
+    val card_id: String,
+    val card_type: String = "hanzi_to_meaning",
+    val note: NoteRefDto,
+    val review_count: Int = 0,
+    val ratings: List<Int> = emptyList(),
+    val has_answers: Boolean = false,
+    val has_recordings: Boolean = false,
+)
+
+@Serializable
+data class DayCardsDto(val date: String = "", val summary: DaySummaryDto = DaySummaryDto(), val cards: List<DayCardDto> = emptyList())
+
+suspend fun Api.studentDay(relId: String, date: String): DayCardsDto = get("${rel(relId)}/student-progress/day/${enc(date)}")
+
+@Serializable
+data class CardDayNoteDto(val id: String, val hanzi: String = "", val pinyin: String = "", val english: String = "", val audio_url: String? = null)
+
+@Serializable
+data class CardDayCardDto(val id: String, val card_type: String = "hanzi_to_meaning", val note: CardDayNoteDto)
+
+@Serializable
+data class CardDayReviewDto(val id: String, val reviewed_at: String = "", val rating: Int = 2, val time_spent_ms: Long? = null, val user_answer: String? = null, val recording_url: String? = null)
+
+@Serializable
+data class CardDayDto(val card: CardDayCardDto, val reviews: List<CardDayReviewDto> = emptyList())
+
+suspend fun Api.studentCardDay(relId: String, date: String, cardId: String): CardDayDto = get("${rel(relId)}/student-progress/day/${enc(date)}/card/${enc(cardId)}")
+
+@Serializable
+data class CompletionDto(val total_cards: Int = 0, val cards_seen: Int = 0, val cards_mastered: Int = 0, val percent_seen: Int = 0, val percent_mastered: Int = 0)
+
+@Serializable
+data class TypeStatsDto(val total: Int = 0, val new: Int = 0, val learning: Int = 0, val familiar: Int = 0, val mastered: Int = 0)
+
+@Serializable
+data class TypeBreakdownDto(val hanzi_to_meaning: TypeStatsDto = TypeStatsDto(), val meaning_to_hanzi: TypeStatsDto = TypeStatsDto(), val audio_to_hanzi: TypeStatsDto = TypeStatsDto())
+
+@Serializable
+data class RecentRatingsDto(val hanzi_to_meaning: List<Int> = emptyList(), val meaning_to_hanzi: List<Int> = emptyList(), val audio_to_hanzi: List<Int> = emptyList())
+
+@Serializable
+data class NoteProgressDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val mastery_percent: Int = 0, val recent_ratings: RecentRatingsDto = RecentRatingsDto())
+
+@Serializable
+data class DeckActivityDto(val last_studied_at: String? = null, val total_study_time_ms: Long = 0, val reviews_last_7_days: Int = 0)
+
+@Serializable
+data class SharedDeckProgressDto(
+    val deck_name: String = "",
+    val shared_at: String = "",
+    val student: UserSummaryDto? = null,
+    val completion: CompletionDto = CompletionDto(),
+    val card_type_breakdown: TypeBreakdownDto = TypeBreakdownDto(),
+    val notes: List<NoteProgressDto> = emptyList(),
+    val activity: DeckActivityDto = DeckActivityDto(),
+)
+
+/** [studentShared] = a deck the STUDENT shared with me (`student-shared-decks`). */
+suspend fun Api.sharedDeckProgress(relId: String, id: String, studentShared: Boolean): SharedDeckProgressDto =
+    get("${rel(relId)}/${if (studentShared) "student-shared-decks" else "shared-decks"}/${enc(id)}/progress")

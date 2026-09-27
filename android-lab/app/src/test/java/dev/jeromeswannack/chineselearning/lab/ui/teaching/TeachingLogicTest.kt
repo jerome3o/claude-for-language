@@ -125,4 +125,24 @@ class TeachingLogicTest {
         assertEquals("点菜 · Ordering food", jobTitle(DraftSamples.job.copy(title = null)))
         assertTrue(DraftSamples.job.isDraft)
     }
+
+    @Test fun hubAndProgressRules() {
+        val nowMs = now.toEpochMilli() // 2026-09-27T09:30Z
+        val cards = ProgressSamples.hub.cards
+        assertEquals(listOf("Review", "Learning", "New"), cards.map { queueLabel(it) })
+        assertEquals("due in 6 days", nextReview(cards[0], nowMs))
+        assertEquals("due now", nextReview(cards[1], nowMs))
+        assertEquals("not started", nextReview(cards[2], nowMs))
+        assertEquals("地铁站", hubFlags(ProgressSamples.hub).single().hanzi)
+        assertEquals("5h 12m", ProgressFormat.time(312 * 60_000L))
+        assertEquals("59 min", ProgressFormat.time(59 * 60_000L + 59_000))
+        assertEquals("1m 5s", ProgressFormat.duration(65_000))
+        assertEquals("-", ProgressFormat.duration(null))
+        assertEquals("86%", ProgressFormat.pct(86.0))
+        assertEquals("79.5%", ProgressFormat.pct(79.5))
+        assertEquals("Today" to "Sep 27", ProgressFormat.dayLabels("2026-09-27", LocalDate.parse("2026-09-27")))
+        assertEquals("Thu" to "Sep 24", ProgressFormat.dayLabels("2026-09-24", LocalDate.parse("2026-09-27")))
+        assertEquals("< 1 min", ProgressFormat.studyTime(20_000))
+        assertEquals("1h 34m", ProgressFormat.studyTime(94 * 60_000L))
+    }
 }

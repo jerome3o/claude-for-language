@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
@@ -20,6 +21,10 @@ import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto
 import dev.jeromeswannack.chineselearning.lab.data.api.localToday
+import dev.jeromeswannack.chineselearning.lab.data.api.sharedDeckProgress
+import dev.jeromeswannack.chineselearning.lab.data.api.studentCardDay
+import dev.jeromeswannack.chineselearning.lab.data.api.studentDailyProgress
+import dev.jeromeswannack.chineselearning.lab.data.api.studentDay
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
@@ -43,10 +48,50 @@ fun NavGraphBuilder.teachingGraph(nav: LabNav) {
             else -> PlaceholderScreen(Routes.connection(relId), onBack = nav::back) { nav.openInMainApp(Routes.connection(relId)) }
         }
     }
-    tutorPage(nav, "/connections/{relId}/insights") { relId, name -> InsightsRoute(nav, relId, name) }
-    tutorPage(nav, "/connections/{relId}/history") { relId, name -> HistoryRoute(nav, relId, name) }
-    tutorPage(nav, "/connections/{relId}/recordings") { relId, name -> RecordingsRoute(nav, relId, name) }
-    tutorPage(nav, "/connections/{relId}/session-notes") { relId, name -> SessionNotesRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/insights") { relId, name, _ -> InsightsRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/history") { relId, name, _ -> HistoryRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/recordings") { relId, name, _ -> RecordingsRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/session-notes") { relId, name, _ -> SessionNotesRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/progress") { relId, name, _ ->
+        val r = cached(nav, "teaching/progress/$relId") { studentDailyProgress(relId) }
+        val state by r.state.collectAsStateWithLifecycle()
+        StudentProgressScreen(state.data?.student?.name ?: name, state, nav::back, { d -> nav.open("/connections/${Routes.seg(relId)}/progress/day/$d") }, { r.refresh() })
+    }
+    tutorPage(nav, "/connections/{relId}/progress/day/{date}") { relId, _, args ->
+        val date = args?.getString("date").orEmpty()
+        val r = cached(nav, "teaching/day/$relId/$date") { studentDay(relId, date) }
+        val state by r.state.collectAsStateWithLifecycle()
+        StudentDayScreen(date, state, nav::back, { card -> nav.open("/connections/${Routes.seg(relId)}/progress/day/$date/card/${Routes.seg(card)}") }, { r.refresh() })
+    }
+    tutorPage(nav, "/connections/{relId}/progress/day/{date}/card/{cardId}") { relId, _, args ->
+        val date = args?.getString("date").orEmpty()
+        val cardId = args?.getString("cardId").orEmpty()
+        val r = cached(nav, "teaching/card-day/$relId/$date/$cardId") { studentCardDay(relId, date, cardId) }
+        val state by r.state.collectAsStateWithLifecycle()
+        val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
+        val online by nav.app.online.collectAsStateWithLifecycle()
+        StudentCardDayScreen(date, state, playing, { url, text -> if (playing == url) nav.app.audio.stop() else nav.app.audio.play(url, text, online) }, nav::back, { r.refresh() })
+    }
+    tutorPage(nav, "/connections/{relId}/shared-decks/{sharedDeckId}/progress") { relId, _, args ->
+        val id = args?.getString("sharedDeckId").orEmpty()
+        val r = cached(nav, "teaching/shared-deck/$relId/$id") { sharedDeckProgress(relId, id, studentShared = false) }
+        val state by r.state.collectAsStateWithLifecycle()
+        SharedDeckProgressScreen(state, nav::back, { r.refresh() })
+    }
+    tutorPage(nav, "/connections/{relId}/student-shared-decks/{studentSharedDeckId}/progress") { relId, _, args ->
+        val id = args?.getString("studentSharedDeckId").orEmpty()
+        val r = cached(nav, "teaching/student-deck/$relId/$id") { sharedDeckProgress(relId, id, studentShared = true) }
+        val state by r.state.collectAsStateWithLifecycle()
+        SharedDeckProgressScreen(state, nav::back, { r.refresh() })
+    }
+    tutorPage(nav, "/connections/{relId}/claude-chats") { relId, name, _ -> StudentChatsRoute(nav, relId, name) }
+    composable(Routes.route("/connections/{relId}/cards/{noteId}")) { entry ->
+        val relId = entry.arguments?.getString("relId").orEmpty()
+        val noteId = entry.arguments?.getString("noteId").orEmpty()
+        val relationships by nav.app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS).collectAsStateWithLifecycle(null)
+        val rel = relationships?.students?.firstOrNull { it.id == relId }
+        StudentHubRoute(nav, relId, noteId, rel?.studentUser()?.let { it.name ?: it.email } ?: "Student")
+    }
     composable(Routes.route("/connections/{relId}/homework/{jobId}")) { entry ->
         val relId = entry.arguments?.getString("relId").orEmpty()
         val jobId = entry.arguments?.getString("jobId").orEmpty()
@@ -103,14 +148,14 @@ private fun RecordingsRoute(nav: LabNav, relId: String, name: String) {
 }
 
 /** The tutor's pages about one student (only when the relationship is one where I am the tutor). */
-private fun NavGraphBuilder.tutorPage(nav: LabNav, pattern: String, content: @Composable (relId: String, studentName: String) -> Unit) {
+private fun NavGraphBuilder.tutorPage(nav: LabNav, pattern: String, content: @Composable (relId: String, studentName: String, args: android.os.Bundle?) -> Unit) {
     composable(Routes.route(pattern)) { entry ->
         val relId = entry.arguments?.getString("relId").orEmpty()
         val relationships by nav.app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS).collectAsStateWithLifecycle(null)
         val rel = relationships?.students?.firstOrNull { it.id == relId }
-        val path = "/" + pattern.removePrefix("/").replace("{relId}", Routes.seg(relId))
+        val path = "/" + pattern.removePrefix("/").replace(Regex("\\{([^}]+)\\}")) { m -> Routes.seg(entry.arguments?.getString(m.groupValues[1]).orEmpty()) }
         when {
-            rel != null -> content(relId, rel.studentUser()?.let { it.name ?: it.email } ?: "Student")
+            rel != null -> content(relId, rel.studentUser()?.let { it.name ?: it.email } ?: "Student", entry.arguments)
             relationships == null -> Unit
             else -> PlaceholderScreen(path, onBack = nav::back) { nav.openInMainApp(path) }
         }
@@ -316,4 +361,46 @@ private fun SessionNotesRoute(nav: LabNav, relId: String, name: String) {
             vm.submit(dev.jeromeswannack.chineselearning.lab.data.api.SubmitSessionNotesBody(notes, title, at, priority, auto, log), done)
         },
     )
+}
+
+@Composable
+private fun StudentHubRoute(nav: LabNav, relId: String, noteId: String, name: String) {
+    val vm: StudentHubViewModel = viewModel(key = "hub-$relId-$noteId", factory = StudentHubViewModel.Factory(nav.app, relId, noteId))
+    val hub by vm.hub.state.collectAsStateWithLifecycle()
+    val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
+    val online by nav.app.online.collectAsStateWithLifecycle()
+    StudentCardHubScreen(
+        StudentHubUi(relId, name, hub, playing),
+        StudentHubActions(
+            back = nav::back, open = nav::open,
+            play = { url, text -> if (playing == url) nav.app.audio.stop() else nav.app.audio.play(url, text, online) },
+            flags = FlagActions(reply = { f, t, done -> vm.reply(f, t, done) }, toggleResolved = { f, done -> vm.toggle(f, done) }),
+            retry = { vm.hub.refresh() },
+        ),
+    )
+}
+
+@Composable
+private fun StudentChatsRoute(nav: LabNav, relId: String, name: String) {
+    val vm: StudentChatsViewModel = viewModel(key = "chats-$relId", factory = StudentChatsViewModel.Factory(nav.app, relId))
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    StudentClaudeChatsScreen(ui.copy(studentName = name), back = nav::back, open = nav::open, loadMore = vm::loadMore)
+}
+
+/** A cache-first read-only page: one CachedResource living in its own ViewModel (keyed by the cache key). */
+class ResourceViewModel<T>(make: (kotlinx.coroutines.CoroutineScope) -> dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource<T>) : androidx.lifecycle.ViewModel() {
+    val resource = make(viewModelScope)
+}
+
+@Composable
+private inline fun <reified T> cached(nav: LabNav, key: String, noinline fetch: suspend dev.jeromeswannack.chineselearning.lab.data.Api.() -> T): dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource<T> {
+    val vm: ResourceViewModel<T> = viewModel(
+        key = key,
+        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <V : androidx.lifecycle.ViewModel> create(modelClass: Class<V>): V =
+                ResourceViewModel { scope -> nav.app.cachedResource<T>(scope, key, TeachingKeys.KIND, fetch = fetch) } as V
+        },
+    )
+    return vm.resource
 }
