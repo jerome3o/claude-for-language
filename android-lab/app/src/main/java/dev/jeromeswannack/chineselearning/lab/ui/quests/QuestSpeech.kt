@@ -12,7 +12,7 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * Speaks a Chinese line through the same offline-capable clip cache the web uses for
+ * Speaks a Chinese line (quest instructions, sentence-breakdown chunks) through the same offline-capable clip cache the web uses for
  * quests (`getTTSWithCache` → `POST /api/practice/tts`): a clip is fetched once, kept under
  * `files/tts-clips/`, and played from there on the train. No clip and no connection → the
  * phone's own Chinese voice (WordAudio's fallback).
@@ -27,8 +27,8 @@ class QuestSpeech(private val app: LabApp) {
         return File(dir, "$hash.mp3")
     }
 
-    fun speak(text: String) {
-        if (text.isBlank()) return
+    fun speak(text: String, onEnd: (() -> Unit)? = null) {
+        if (text.isBlank()) { onEnd?.invoke(); return }
         val claim = ++generation
         app.scope.launch {
             val file = fileFor(text)
@@ -45,12 +45,12 @@ class QuestSpeech(private val app: LabApp) {
             }
             withContext(Dispatchers.Main) {
                 if (claim != generation) return@withContext
-                if (file.exists()) play(file) else app.audio.play(null, text, online = false)
+                if (file.exists()) play(file, onEnd) else { app.audio.play(null, text, online = false); onEnd?.invoke() }
             }
         }
     }
 
-    private fun play(file: File) {
+    private fun play(file: File, onEnd: (() -> Unit)?) {
         stop()
         val mp = MediaPlayer()
         player = mp
@@ -58,11 +58,13 @@ class QuestSpeech(private val app: LabApp) {
             mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             mp.setDataSource(file.absolutePath)
             mp.setOnPreparedListener { it.start() }
-            mp.setOnCompletionListener { if (player === it) { it.release(); player = null } }
+            mp.setOnCompletionListener { if (player === it) { it.release(); player = null; onEnd?.invoke() } }
+            mp.setOnErrorListener { p, _, _ -> if (player === p) { p.release(); player = null; onEnd?.invoke() }; true }
             mp.prepareAsync()
         }.onFailure {
             mp.release()
             player = null
+            onEnd?.invoke()
         }
     }
 
