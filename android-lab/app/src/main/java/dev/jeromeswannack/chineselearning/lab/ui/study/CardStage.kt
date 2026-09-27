@@ -88,7 +88,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.markdownLite
 
 /** Card-local state that tests / screenshots can start from. */
-data class CardStartState(val flipped: Boolean = false, val answer: String = "", val showClue: Boolean = false)
+data class CardStartState(
+    val flipped: Boolean = false,
+    val answer: String = "",
+    val showClue: Boolean = false,
+    /** The answer came from the multiple-choice grid: its per-row result (shown row by row on the back). */
+    val mcSlots: List<MultipleChoice.Slot>? = null,
+)
 
 /** The sheets a card can open over itself. */
 private sealed interface CardSheet {
@@ -113,6 +119,7 @@ fun CardStage(
     val typing = view.card.cardType != CardTypes.HANZI_TO_MEANING
     var flipped by remember(view.presentation) { mutableStateOf(start.flipped) }
     var answer by remember(view.presentation) { mutableStateOf(start.answer) }
+    var mcSlots by remember(view.presentation) { mutableStateOf(start.mcSlots) }
     var verdict by remember(view.presentation) {
         mutableStateOf(if (start.flipped && typing && start.answer.isNotBlank()) AnswerKey.check(start.answer, note.hanzi, view.alternatives) else null)
     }
@@ -184,7 +191,7 @@ fun CardStage(
                     CardFront(view, ui, playingKey, actions, start.showClue, onTapToReveal = { if (!typing) reveal() })
                 } else {
                     Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
-                        CardBack(view, ui, typed, verdict, playingKey, actions, wide, onCharacter = { sheet = CardSheet.Define(it) })
+                        CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, onCharacter = { sheet = CardSheet.Define(it) })
                     }
                 }
             }
@@ -200,7 +207,7 @@ fun CardStage(
                         rows = mc.rows,
                         aiAvailable = ui.aiAvailable,
                         regenerating = mc.loading,
-                        onContinue = { chosen -> answer = chosen; reveal() },
+                        onSubmit = { chosen, slots -> answer = chosen; mcSlots = slots; reveal() },
                         onTypeInstead = actions.onTypeInstead,
                         onRegenerate = actions.onRegenerateMc,
                         onPick = actions.onTick,
@@ -389,6 +396,7 @@ private fun CardBack(
     ui: StudyUi,
     typed: String?,
     verdict: AnswerKey.Verdict?,
+    mcSlots: List<MultipleChoice.Slot>?,
     playingKey: String?,
     actions: StudyActions,
     wide: Boolean,
@@ -398,7 +406,10 @@ private fun CardBack(
     val onChar: (String) -> Unit = { ch -> if (CardExtrasLogic.isLookupCharacter(ch)) onCharacter(ch) }
     val main: @Composable () -> Unit = {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            if (typed != null && verdict != null) {
+            if (typed != null && verdict != null && mcSlots != null && !MultipleChoice.allRight(mcSlots)) {
+                // A multiple-choice answer (possibly partial): row by row
+                McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar)
+            } else if (typed != null && verdict != null) {
                 AnswerDiff(typed, note.hanzi, verdict, onChar)
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)

@@ -205,6 +205,16 @@ that times out after 8 seconds (`services/multipleChoice.ts`). On timeout, error
 the card falls back to typing with a one-line note. The mode is per card — it never sticks to
 the next one — and nothing is pre-loaded while offline.
 
+**One tap, partial answers allowed.** The grid's button flips the card straight to the answer
+side — there is no separate check / continue step — and it never waits for every row. With
+nothing picked it reads **Show answer** (give up and move on: the review has no `user_answer`,
+exactly like an empty typed card); once anything is picked it reads **Submit** and the review's
+`user_answer` is the picks in row order, unselected rows skipped (`mcSubmittedAnswer`).
+Pre-selected rows (punctuation, English text) are not a pick on their own. A fully right answer
+shows as one green row like a typed one; anything else is shown row by row (`mcAnswerSlots`):
+each pick green or red, a skipped row as a dashed "?", "N of M left blank", and the answer below
+with the missed rows marked. The Lab app follows the same rule (`MultipleChoice.kt`, `McGrid.kt`).
+
 ## Ending a session
 
 ✕ ends the session immediately when nothing has been reviewed yet. After at least one review

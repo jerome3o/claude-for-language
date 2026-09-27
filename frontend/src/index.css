@@ -707,6 +707,14 @@ html:has(.study-page-fullscreen) .header {
   color: var(--color-text);
 }
 
+/* A multiple-choice row left blank (partial answers are allowed) */
+.diff-skipped {
+  background-color: transparent;
+  color: var(--color-text-light);
+  outline: 2px dashed var(--color-text-light);
+  outline-offset: -2px;
+}
+
 .answer-diff-alternative-label {
   font-size: 0.75rem;
   color: var(--color-text-light);
