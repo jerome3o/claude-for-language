@@ -25,6 +25,7 @@ fun NavGraphBuilder.moreGraph(nav: LabNav) {
             ui = MoreUi(
                 userName = app.prefs.userName,
                 email = app.prefs.userEmail,
+                pictureUrl = app.prefs.userPicture,
                 role = shell?.role ?: dev.jeromeswannack.chineselearning.lab.ui.nav.NavRole(),
                 isAdmin = app.prefs.isAdmin,
                 sync = sync,
@@ -48,7 +49,7 @@ fun NavGraphBuilder.moreGraph(nav: LabNav) {
 
 /** Every path a More row can open (to mark which ones are native). */
 private val MORE_PATHS = listOf(
-    Routes.SETTINGS, Routes.CONNECTIONS, Routes.LIBRARY, Routes.readers(), Routes.calls(), Routes.coach(), Routes.analyze(),
+    Routes.SETTINGS, Routes.profile(), Routes.CONNECTIONS, Routes.LIBRARY, Routes.readers(), Routes.calls(), Routes.coach(), Routes.analyze(),
     Routes.lessons(), Routes.claudeChats(), Routes.strokes(), Routes.quests(), Routes.homework(), Routes.lessonNotes(),
     Routes.catalogue(), Routes.duplicateFinder(), Routes.sentenceCoverage(), Routes.admin(),
 )

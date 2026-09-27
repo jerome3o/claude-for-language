@@ -4,8 +4,11 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.core.CardQueue
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
+import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.data.Api
+import dev.jeromeswannack.chineselearning.lab.data.DeckEntity
+import dev.jeromeswannack.chineselearning.lab.data.ReviewEventEntity
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
 import dev.jeromeswannack.chineselearning.lab.data.Prefs
 import dev.jeromeswannack.chineselearning.lab.data.Repository
@@ -129,6 +132,27 @@ class SyncContractTest {
         call("POST", "/api/reviews", token, """{"events":[{"id":"${later.id}","card_id":"${later.cardId}","rating":0,"reviewed_at":"${later.reviewedAt}"}]}""")
         repo.sync()
         assertEquals(CardScheduler.computeCardState(webEvents + later).let { synced.withState(it) }, dao.card(otherDeviceCard))
+
+        // An event for a card the account doesn't have: the server refuses it (orphan_event_ids)
+        // and it is marked rejected, never "synced", and never sent again.
+        val orphan = UUID.randomUUID().toString()
+        dao.insertEvents(listOf(ReviewEventEntity(orphan, "no-such-card-${UUID.randomUUID()}", 2, "2026-09-26T09:00:00.000Z", 1000, null, synced = false)))
+        repo.pushEvents()
+        assertEquals(0, dao.unsyncedCount())
+        assertEquals(1, dao.rejectedCount())
+        assertTrue(orphan !in call("GET", "/api/reviews?since=1970-01-01%2000:00:00", token))
+
+        // A deck this phone holds that the server never had / deleted without a tombstone
+        // (live_deck_ids) is dropped with its notes and cards; one made just now is kept.
+        dao.upsertDecks(listOf(
+            DeckEntity("ghost-${UUID.randomUUID()}", "Ghost", null, 3, 6, 0, "2026-01-01 00:00:00"),
+            DeckEntity("fresh-${UUID.randomUUID()}", "Fresh", null, 3, 6, 0, Js.toIsoString(System.currentTimeMillis())),
+        ))
+        repo.sync()
+        assertNull(repo.status.value.error)
+        assertTrue(dao.decks().none { it.name == "Ghost" })
+        assertTrue(dao.decks().any { it.name == "Fresh" })
+        assertTrue(dao.decks().any { it.id == deckId })
 
         // Every sync reports its steps (Lab settings → Last sync).
         val run = repo.status.value.lastRun!!

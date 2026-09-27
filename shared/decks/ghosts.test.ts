@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findGhostDecks, parseServerTime } from './deckReconcile';
+import { findGhostDecks, parseServerTime } from './ghosts';
 
 describe('parseServerTime', () => {
   it('reads SQLite UTC datetimes and ISO strings', () => {
