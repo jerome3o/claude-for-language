@@ -90,8 +90,8 @@ fun TutorPageRoute(nav: LabNav, relId: String) {
                 onBack = nav::back,
                 onMessage = { vm.message(openChat) },
                 onNewPracticeConversation = { vm.newPracticeConversation(it, openChat) },
-                // Video calls are package J's; the main app starts one from this page.
-                onVideoCall = { nav.openOrHandoff(Routes.calls()) },
+                onVideoCall = { vm.videoCall { id -> nav.open(Routes.call(id)) } },
+                onJoinCall = { nav.open(Routes.call(it)) },
                 onOpenConversation = openChat,
                 onOpenCard = { nav.openOrHandoff(Routes.cardHub(it)) },
                 onToggleFlag = vm::toggleFlag,

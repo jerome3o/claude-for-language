@@ -132,6 +132,20 @@ shortcut ids and labels are the Lab's own, so both apps install side by side.
   *Due-card notifications* switches it all off or asks again. Rules: `ShellRules.kt` (pure,
   `ShellRulesTest`); data + rating: `ShellDataTest`; screenshots: `NativeShellScreenshots`.
 
+## Video calls (`ui/calls/`, `data/calls/`, `core/…/calls/`)
+
+`/calls`, the live call `/calls/:id` and `/calls/:id/review`, on the same API and room protocol
+as the web (docs/VIDEO_CALLS.md). Media is Google's WebRTC (`io.getstream:stream-webrtc-android`,
+`org.webrtc`): `rtc/WebRtcMedia` (camera 640×480@24, mic, MediaProjection screen share),
+`rtc/PeerLink` (the web's one-offerer negotiation, so a phone and a browser connect),
+`CallRoomSocket` (OkHttp WebSocket, join ticket, reconnect, server clock). `ui/calls/CallController`
+is the port of `useCall.ts` behind interfaces, so it is unit-tested with a fake room / media /
+recorder. The mic is recorded as Opus (MediaCodec) in Ogg pages written by `core/…/calls/OggOpus.kt`,
+cut into 5-min pieces and 10 s chunks (`PieceRecorder`), uploaded through the Outbox
+(`CallUploads`). `CallService` is the foreground service that keeps a call alive with the screen off.
+The first time the call screen opens it asks for the microphone, camera, Bluetooth (sound routing)
+and notifications (the call's ongoing notification).
+
 ## Parity: proving the logic matches
 
 `./gradlew :core:test` first runs `parity/generate.sh`, which bundles

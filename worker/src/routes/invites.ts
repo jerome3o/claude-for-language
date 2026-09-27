@@ -48,9 +48,9 @@ invites.get('/invites/:id/public', async (c) => {
     return c.json({ error: 'Invite not found' }, 404);
   }
   const inviter = await c.env.DB
-    .prepare('SELECT name, picture_url FROM users WHERE id = ?')
+    .prepare('SELECT name, picture_url, about FROM users WHERE id = ?')
     .bind(invite.created_by)
-    .first<{ name: string | null; picture_url: string | null }>();
+    .first<{ name: string | null; picture_url: string | null; about: string | null }>();
 
   // The /join page is the only caller, so this lookup *is* "the link was
   // opened" — recorded once so the tutor can see "opened, not signed in".
@@ -64,6 +64,8 @@ invites.get('/invites/:id/public', async (c) => {
     valid: isInviteValid(invite),
     inviter_name: inviter?.name || 'Your tutor',
     inviter_picture_url: inviter?.picture_url || null,
+    // The inviter's public "About me" from their Profile (never the private bio).
+    inviter_about: inviter?.about || null,
     inviter_role: invite.inviter_role,
     email_bound: !!invite.email,
     shares_decks: !!invite.share_deck_ids,

@@ -140,6 +140,9 @@ export function JoinPage() {
           <div className="join-avatar join-avatar-placeholder">{inviterName[0]?.toUpperCase()}</div>
         )}
         <h2 className="join-heading">{pronounLine}</h2>
+        {invite.inviter_about && (
+          <blockquote className="join-about" data-testid="join-about">{invite.inviter_about}</blockquote>
+        )}
         <p className="join-muted">
           {invite.shares_decks
             ? 'Your first deck of words will be waiting for you.'

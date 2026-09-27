@@ -260,14 +260,18 @@ test.describe('role-aware tabs and More page', () => {
     await expect(page.getByRole('link', { name: /Duplicate Finder/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Full Sync/ })).toBeVisible();
 
-    // Settings: Bio + Offline audio present for a student; Advanced collapsed
+    // Settings: Profile link + Offline audio present for a student; Advanced collapsed
     await page.goto(`/settings?session_token=${student.token}`);
-    await expect(page.getByTestId('personal-bio')).toBeVisible();
+    await expect(page.getByTestId('settings-profile')).toBeVisible();
     await expect(page.getByTestId('offline-audio')).toBeVisible();
     await expect(page.getByTestId('start-on')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Audio Quality' })).toHaveCount(0);
     await page.getByTestId('settings-advanced-toggle').click();
     await expect(page.getByRole('heading', { name: 'Audio Quality' })).toBeVisible();
+
+    // The private bio moved to the Profile screen
+    await page.goto(`/profile?session_token=${student.token}`);
+    await expect(page.getByTestId('personal-bio')).toBeVisible();
   });
 
   test('tutor-only account: Students · Decks · Study · More, no study extras', async ({ page, request }) => {
@@ -288,8 +292,10 @@ test.describe('role-aware tabs and More page', () => {
 
     await page.goto(`/settings?session_token=${tutor.token}`);
     await expect(page.getByTestId('start-on')).toBeVisible();
-    await expect(page.getByTestId('personal-bio')).toHaveCount(0);
     await expect(page.getByTestId('offline-audio')).toHaveCount(0);
+    await page.goto(`/profile?session_token=${tutor.token}`);
+    await expect(page.getByLabel('About me for students')).toBeVisible();
+    await expect(page.getByTestId('personal-bio')).toHaveCount(0);
   });
 
   test('tutor who also studies keeps Progress', async ({ page, request }) => {

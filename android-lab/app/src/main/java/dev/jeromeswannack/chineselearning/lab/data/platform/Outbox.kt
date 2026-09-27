@@ -4,6 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException
 import dev.jeromeswannack.chineselearning.lab.data.api.ApiResponse
 import dev.jeromeswannack.chineselearning.lab.data.api.send
+import dev.jeromeswannack.chineselearning.lab.data.api.sendFile
 import dev.jeromeswannack.chineselearning.lab.data.api.upload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -37,7 +38,7 @@ import java.util.UUID
  *    drain moves on. 409 counts as done (the server already has it).
  *  - A failed item stays in the table for the UI / debug report; [retryFailed] re-queues.
  *  - Upload files: write them into [stageFile]; staged files are deleted after the
- *    upload succeeds.
+ *    upload succeeds. Multipart ([enqueueUpload]) or the raw body ([enqueueRaw]).
  */
 class Outbox(private val dao: PlatformDao, private val api: Api, val dir: File) {
     private val mutex = Mutex()
@@ -77,6 +78,15 @@ class Outbox(private val dao: PlatformDao, private val api: Api, val dir: File) 
     ): String {
         val body = apiJson().encodeToString(MapSerializer(String.serializer(), String.serializer()), fields)
         dao.insertOutbox(OutboxEntity(id = id, kind = kind, method = "POST", path = path, bodyJson = body, filePath = file.absolutePath, fileField = fileField, fileName = fileName, fileMime = mime, createdAt = System.currentTimeMillis()))
+        return id
+    }
+
+    /**
+     * Queues [file] as the RAW request body (not multipart) — e.g. a video-call recording chunk,
+     * `PUT /api/calls/:id/pieces/:pieceId/chunks/:idx`. Stored like an upload with no form field.
+     */
+    suspend fun enqueueRaw(kind: String, method: String, path: String, file: File, mime: String, id: String = UUID.randomUUID().toString()): String {
+        dao.insertOutbox(OutboxEntity(id = id, kind = kind, method = method, path = path, bodyJson = null, filePath = file.absolutePath, fileField = null, fileName = file.name, fileMime = mime, createdAt = System.currentTimeMillis()))
         return id
     }
 
@@ -149,6 +159,7 @@ class Outbox(private val dao: PlatformDao, private val api: Api, val dir: File) 
         val path = item.filePath ?: return api.send(item.method, item.path, item.bodyJson)
         val file = File(path)
         if (!file.exists()) return null
+        if (item.fileField == null) return api.sendFile(item.method, item.path, file, item.fileMime ?: "application/octet-stream")
         val fields = item.bodyJson?.let { api.json.decodeFromString(MapSerializer(String.serializer(), String.serializer()), it) }.orEmpty()
         return api.upload(item.path, file, item.fileField ?: "file", item.fileName ?: file.name, item.fileMime ?: "application/octet-stream", fields, item.method)
     }

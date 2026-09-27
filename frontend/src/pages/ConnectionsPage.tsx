@@ -22,6 +22,7 @@ import { OfflineWarning } from '../components/OfflineWarning';
 import { InviteSheet } from '../components/invites/InviteSheet';
 import { InviteList } from '../components/invites/InviteList';
 import { StudentsDashboard } from '../components/tutor/StudentsDashboard';
+import { ProfileChip } from '../components/profile/ProfileChip';
 import { listInvites, revokeInvite } from '../api/invites';
 import './ConnectionsPage.css';
 
@@ -185,6 +186,8 @@ export function ConnectionsPage() {
       <div className="container">
         <div className="connections-header">
           <h1>{hasStudents ? 'My students' : 'Connections'}</h1>
+          <div className="connections-header-actions">
+          {hasStudents && <ProfileChip />}
           {canInvite ? (
             <button
               className="btn btn-primary"
@@ -201,6 +204,7 @@ export function ConnectionsPage() {
               {showInviteForm ? 'Cancel' : '+ Invite'}
             </button>
           )}
+          </div>
         </div>
 
         {showInviteSheet && (

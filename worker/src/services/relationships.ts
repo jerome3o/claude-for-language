@@ -16,7 +16,8 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
-type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+/** A person on either side of a relationship: name + picture, plus their public About me and time zone (Profile screen). */
+type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone'>;
 
 // ============ Relationships ============
 
@@ -35,7 +36,7 @@ async function getUserSummary(
   userId: string
 ): Promise<UserSummary | null> {
   return db
-    .prepare('SELECT id, email, name, picture_url FROM users WHERE id = ?')
+    .prepare('SELECT id, email, name, picture_url, about, time_zone FROM users WHERE id = ?')
     .bind(userId)
     .first<UserSummary>();
 }

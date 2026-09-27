@@ -13,6 +13,10 @@ data class UserSummaryDto(
     val email: String? = null,
     val name: String? = null,
     val picture_url: String? = null,
+    /** Their public About me (Profile screen). */
+    val about: String? = null,
+    /** Their IANA time zone — shown as their local time. */
+    val time_zone: String? = null,
 )
 
 @Serializable

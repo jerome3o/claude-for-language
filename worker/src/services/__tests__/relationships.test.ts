@@ -126,10 +126,10 @@ describe('relationships service', () => {
       });
       db.addResult('SELECT * FROM tutor_relationships WHERE id', newRel);
       // getUserSummary for requester and recipient
-      db.addResult('SELECT id, email, name, picture_url FROM users', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
-      db.addResult('SELECT id, email, name, picture_url FROM users', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: studentUser.id, email: studentUser.email, name: studentUser.name, picture_url: null,
       });
 
@@ -180,7 +180,7 @@ describe('relationships service', () => {
       };
       db.addResult('SELECT * FROM pending_invitations WHERE id', invitation);
       // getUserSummary for inviter
-      db.addResult('SELECT id, email, name, picture_url FROM users', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
 
@@ -207,7 +207,7 @@ describe('relationships service', () => {
         accepted_at: null,
       };
       db.addResult('SELECT * FROM pending_invitations', existingInvitation);
-      db.addResult('SELECT id, email, name, picture_url FROM users', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
 
@@ -238,7 +238,7 @@ describe('relationships service', () => {
         accepted_at: null,
       };
       db.addResult('SELECT * FROM pending_invitations WHERE id', invitation);
-      db.addResult('SELECT id, email, name, picture_url FROM users', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
 
@@ -432,10 +432,10 @@ describe('relationships service', () => {
       });
       db.addResult('SELECT * FROM tutor_relationships WHERE id', rel);
       // Use addResultOnce so the first getUserSummary gets tutor, second gets student
-      db.addResultOnce('SELECT id, email, name, picture_url FROM users', {
+      db.addResultOnce('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
-      db.addResultOnce('SELECT id, email, name, picture_url FROM users', {
+      db.addResultOnce('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: studentUser.id, email: studentUser.email, name: studentUser.name, picture_url: null,
       });
 
@@ -490,10 +490,10 @@ describe('relationships service', () => {
       // Actually, the mock returns the first match each time, so let's rely on that.
       // getRelationshipById calls same query and gets the (still configured) result.
 
-      db.addResult('SELECT id, email, name, picture_url FROM users', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
-      db.addResult('SELECT id, email, name, picture_url FROM users', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users', {
         id: studentUser.id, email: studentUser.email, name: studentUser.name, picture_url: null,
       });
 
@@ -647,7 +647,7 @@ describe('relationships service', () => {
       // User IDs collected: tutor-1, student-1, other-tutor, someone, another-person
       // Then tutor-1 again for inviter
       for (const uid of [tutorUser.id, studentUser.id, 'other-tutor', 'someone', 'another-person', tutorUser.id]) {
-        db.addResult('SELECT id, email, name, picture_url FROM users WHERE id', users[uid]);
+        db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users WHERE id', users[uid]);
       }
 
       // Pending invitations
@@ -678,7 +678,7 @@ describe('relationships service', () => {
       db.addAllResult('FROM tutor_relationships', []);
       db.addAllResult('FROM pending_invitations', []);
       // getUserSummary for the inviter (self)
-      db.addResult('SELECT id, email, name, picture_url FROM users WHERE id', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users WHERE id', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
 
@@ -703,7 +703,7 @@ describe('relationships service', () => {
         expires_at: '2026-01-31T00:00:00Z',
         accepted_at: null,
       }]);
-      db.addResult('SELECT id, email, name, picture_url FROM users WHERE id', {
+      db.addResult('SELECT id, email, name, picture_url, about, time_zone FROM users WHERE id', {
         id: tutorUser.id, email: tutorUser.email, name: tutorUser.name, picture_url: null,
       });
 
