@@ -15,6 +15,8 @@ data class CardView(
     val alternatives: List<String>,
     val presentation: Int,
     val deckName: String?,
+    /** The word's clip is on the device (offline, a missing one falls back to the device voice). */
+    val audioCached: Boolean = true,
 )
 
 data class SessionStats(
@@ -47,9 +49,52 @@ data class StudyUi(
     val lastRating: Int? = null,
     val online: Boolean = true,
     val deckName: String? = null,
+    /** Settings of the web's OfflineModeToggle: forced offline even with a connection. */
+    val forcedOffline: Boolean = false,
+    /** What the card's online extras know (tutor notes, tutors, busy items, voices). */
+    val extras: CardExtras = CardExtras(),
+    /** The one-time "Before your first card" explainer (no review events anywhere yet). */
+    val showExplainer: Boolean = false,
 ) {
+    /** `aiAvailable`: online and not forced offline — every AI / network button needs it. */
+    val aiAvailable: Boolean get() = online && !forcedOffline
+
     val progress: Float get() {
         val total = stats.reviews + counts.total
         return if (total == 0) 1f else stats.reviews.toFloat() / total
     }
 }
+
+/** Card-back actions that are running (the web's per-item `busy` flags in the ⋯ menu). */
+enum class CardBusy { FUN_FACT, REGEN_AUDIO, NEW_VOICE, ROLEPLAY, SENTENCE_CLUE }
+
+/** Everything the card knows beyond the note itself; reset for every presentation. */
+data class CardExtras(
+    /** Unseen tutor notes for this card, shown once under the pinyin (TutorNoteLine). */
+    val tutorNotes: List<TutorNote> = emptyList(),
+    /** Human tutors this card can be flagged for (empty = no "Flag for tutor"). */
+    val flagTutors: List<FlagTutor> = emptyList(),
+    /** The Claude tutor relationship, for "Roleplay this word". */
+    val roleplayRelId: String? = null,
+    val busy: Set<CardBusy> = emptySet(),
+    /** A failure to show inline on the card back (never a dialog). */
+    val notice: String? = null,
+    /** The note's audio recordings (primary first) — Play cycles through them. */
+    val voices: List<String> = emptyList(),
+    val voiceIndex: Int = 0,
+    /** The Ask Claude conversation about this card (kept while the card is up). */
+    val ask: AskUi = AskUi(),
+)
+
+/** Ask Claude on a card (the web's StudyCard `conversation` / `pendingToolResults` state). */
+data class AskUi(
+    val conversation: List<dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer> = emptyList(),
+    val asking: Boolean = false,
+    /** The question being asked (shown while Claude thinks). */
+    val pendingQuestion: String? = null,
+    val error: String? = null,
+    /** Tool results of the latest answer waiting for Approve / Reject. */
+    val pending: List<dev.jeromeswannack.chineselearning.lab.data.api.AskToolResult>? = null,
+    /** Claude deleted this card: the input goes, the session moves on after a moment. */
+    val cardDeleted: Boolean = false,
+)

@@ -1,25 +1,25 @@
 package dev.jeromeswannack.chineselearning.lab.data.settings
 
 import android.content.Context
-import kotlinx.coroutines.flow.MutableStateFlow
+import dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs
 import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Package D's device-local settings (the web keeps these in localStorage): the forced
- * offline flag (services/offlineMode.ts `manualOfflineMode`) and the last backup's date
- * and size. Own SharedPreferences file; device settings, so signing out keeps them (like localStorage).
+ * offline flag (services/offlineMode.ts `manualOfflineMode`, stored by StudyPrefs) and the
+ * last backup's date and size. Own SharedPreferences file; device settings, so signing out keeps them (like localStorage).
  */
 class SettingsStore private constructor(context: Context) {
     private val sp = context.getSharedPreferences("lab_settings", Context.MODE_PRIVATE)
-    private val _forcedOffline = MutableStateFlow(sp.getBoolean("manual_offline", false))
+    private val study = StudyPrefs.get(context)
 
-    /** Settings → "Force offline": audio only from the phone (cache, else the device voice). */
-    val forcedOffline: StateFlow<Boolean> = _forcedOffline
+    /**
+     * Settings → "Force offline": audio only from the phone (cache, else the device voice),
+     * AI off. The SAME flag as the study screen's offline pill (StudyPrefs) — one source of truth.
+     */
+    val forcedOffline: StateFlow<Boolean> get() = study.forcedOffline
 
-    fun setForcedOffline(on: Boolean) {
-        sp.edit().putBoolean("manual_offline", on).apply()
-        _forcedOffline.value = on
-    }
+    fun setForcedOffline(on: Boolean) = study.setForcedOffline(on)
 
     var lastExportAt: Long
         get() = sp.getLong("last_export_at", 0)

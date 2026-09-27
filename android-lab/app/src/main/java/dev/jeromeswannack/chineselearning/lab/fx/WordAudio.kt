@@ -28,7 +28,7 @@ class WordAudio(private val context: Context, private val repo: Repository) {
         val file = repo.cachedAudio(key)
         val source = when {
             file != null -> file.absolutePath
-            // Settings → Force offline (data/settings/SettingsStore.kt): never stream.
+            // Forced offline (StudyPrefs — Settings or the study pill): never stream.
             !key.isNullOrBlank() && online && !dev.jeromeswannack.chineselearning.lab.data.settings.SettingsStore.forcedOffline(context) -> Config.audioUrl(key, repo.api.baseUrl)
             else -> null
         }

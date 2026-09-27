@@ -68,25 +68,25 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | Three card types (read / write / listen), flip, rating bar | ✅ | `StudyPage.tsx` | `ui/study/CardStage.kt` |
 | Typed-answer check (punctuation, numbers, 两/二, alternatives) + diff | ✅ parity-tested | `utils/numberHanzi.ts`, `AnswerDiff` | `core/…/AnswerKey.kt` |
 | Example sentences (clue row + set, tap-to-reveal, EN mode, show all) | ✅ | `components/SentenceSet.tsx` | `ui/study/Sentences.kt` |
-| "Use in sentence" hint on the front | 🟡 shows/plays the stored clue; no on-demand generation | `StudyPage.tsx` | `CardStage.kt` |
+| "Use in sentence" hint on the front | ✅ stored clue shown / played; generated when the note has none, ↻ regenerates (online) | `StudyPage.tsx` | `CardStage.kt` |
 | Undo last review (incl. server DELETE) | ✅ | `useStudySession.ts` undo | `StudyViewModel.undoLast` |
 | Study 10 more | ✅ | `utils/bonusNewCards.ts` | `Prefs.bonus` |
 | Exit confirm with recap, All Done + confetti | ✅ (+ sound, haptics) | `ExitSessionModal`, `SessionRecap`, `Confetti` | `StudyScreen.kt` |
 | Audio: cached clip → stream → device voice | ✅ | `useAudio.ts`, `audioPlayback.ts` | `fx/WordAudio.kt` |
 | Offline study + background upload | ✅ | `services/sync.ts` | `data/Repository.kt`, `SyncWorker.kt` |
-| Card footer: **Ask Claude · Edit card · ⋯** action row | ⬜ | `components/study/StudyActionRow.tsx` | |
+| Card footer: **Ask Claude · Edit card · ⋯** action row | ✅ | `components/study/StudyActionRow.tsx` | `ui/study/CardExtrasUi.kt` `StudyActionRow` |
 | Voice recording on read cards + transcription + upload (queued: `Outbox.enqueueUpload`) | ⬜ | `useTranscription.ts`, `pendingRecordings` | |
 | Multiple-choice fallback (8 s) / auto-MC for listen cards | ⬜ | `services/multipleChoice.ts` | |
-| Ask Claude (card chat with tools: edit card, add cards) | ⬜ | `components/study/` Ask Claude, `POST /api/notes/:id/ask` | |
-| Edit card | ⬜ | `CardEditModal.tsx` | |
-| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | ⬜ | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | |
-| Flag for tutor (offline, idempotent `POST /api/card-flags` via Outbox) | ⬜ | `services/cardFlags.ts` | |
-| Tutor notes on the card back (recording marks, flag replies; cached for offline) | ⬜ | `services/recording-notes.ts`, `TutorNoteLine.tsx` | |
+| Ask Claude (card chat with tools: edit card, add cards) | ✅ quick questions, tools folded, approve / reject, + message → card | `components/study/` Ask Claude, `POST /api/notes/:id/ask` | `ui/study/AskClaudeSheet.kt`, `StudyViewModel.ask` |
+| Edit card | ✅ fields, sentence clue (generate / clear), alternatives, recordings (primary / delete), delete note — online | `CardEditModal.tsx` | `ui/study/EditCardSheet.kt` |
+| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | 🟡 all items; Write it hands off to the main app until H lands; Play my recording waits on recording | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
+| Flag for tutor (offline, idempotent `POST /api/card-flags` via Outbox) | ✅ tutors from the cached relationships | `services/cardFlags.ts` | `CardTools.flag`, `FlagCardSheet` |
+| Tutor notes on the card back (recording marks, flag replies; cached for offline) | ✅ `study-notes` sync step, seen via Outbox | `services/recording-notes.ts`, `TutorNoteLine.tsx` | `ui/study/TutorNotes.kt`, `TutorNoteLine` |
 | Sentence tools: "What's going on here?", + Add as card, regenerate set | ⬜ | `SentenceSet.tsx`, `SentenceBreakdown.tsx` | |
-| Tap a character → definition popup; pinyin under typed answer | ⬜ | `WordDefinitionPopup.tsx`, `pinyin-pro` | |
-| Sentence set generated when rating Again | ⬜ | `ensureSentenceSetForNote` | |
-| Offline mode toggle / offline audio note | 🟡 forced offline lives in Settings (D, `SettingsStore.forcedOffline`); the study top-bar control is still ⬜ | `OfflineModeToggle.tsx`, `services/offlineMode.ts` | |
-| First-card explainer | ⬜ | `FirstCardExplainer.tsx` | |
+| Tap a character → definition popup; pinyin under typed answer | ✅ definitions cached offline; pinyin from ICU Han-Latin (polyphones may differ from pinyin-pro) | `WordDefinitionPopup.tsx`, `pinyin-pro` | `WordDefinitionSheet`, `ui/study/Pinyin.kt` |
+| Sentence set generated when rating Again | ✅ | `ensureSentenceSetForNote` | `CardTools.ensureSentenceSet` |
+| Offline mode toggle / offline audio note | ✅ | `OfflineModeToggle.tsx`, `services/offlineMode.ts` | `OfflinePill`, `ui/study/StudyPrefs.kt` |
+| First-card explainer | ✅ | `FirstCardExplainer.tsx` | `FirstCardExplainer` |
 | Drop decks the server no longer has without a tombstone (`live_deck_ids`) | ⬜ (sync-speed owner: Repository) | `services/deckReconcile.ts` `findGhostDecks` | |
 
 ## B — Mini lessons & readers in the session (web: `StudyCustomLesson.tsx`, `ExerciseView.tsx`, `lesson-exercises.tsx`, `practice-exercises.tsx`, `StudyReader.tsx`)
@@ -137,7 +137,7 @@ Owns `ui/progress/` (incl. the `/progress` stub, `/progress/day/…`, `/study/re
 | Day detail / card on a day | ✅ local; the review's recording comes from the server when online (the phone keeps no recording URLs); 🎤 marker on the day list is web-only | `MyDayDetailPage.tsx`, `MyCardReviewDetailPage.tsx` |
 | Session review | ✅ (server data, cached) | `SessionReviewPage.tsx` |
 | Settings: study budget (`PUT /api/profile/study-budget`, writes `Prefs.budget`), Start on (`PUT /api/profile/landing-page`), bio, offline audio line + Download now, backup (Save as…), sign out, sound / haptics | ✅ writes need a connection, like the web | `pages/SettingsPage.tsx` |
-| Offline mode (automatic + forced override) | ✅ Settings → Offline mode (`data/settings/SettingsStore.kt`, `core/…/OfflineMode.kt`); forced offline keeps `fx/WordAudio` off the network. 🟡 no study top-bar toggle yet (package A) | `services/offlineMode.ts`, `OfflineModeToggle.tsx` |
+| Offline mode (automatic + forced override) | ✅ Settings → Offline mode and the study top-bar pill (A) share ONE flag, `ui/study/StudyPrefs.forcedOffline`; labels from `core/…/OfflineMode.kt`; `fx/WordAudio` never streams while forced | `services/offlineMode.ts`, `OfflineModeToggle.tsx` |
 | Advanced: audio quality (check / regenerate fallback clips), feature requests (list, detail + comments, 💬 send feedback), full sync + last-sync timings, send debug report, update app (→ GitHub releases) | ✅ | `SettingsPage.tsx` |
 | Native playback panel, playback-quality report, debug console, copy debug dump | ➖ web / hybrid-app tools (the Lab has its own debug report + sync timings) | `SettingsPage.tsx` |
 | Sentence coverage page (polling while jobs run, generate 20/100, clue audio, sync to this device) | ✅ | `SentenceCoveragePage.tsx` |
@@ -191,12 +191,12 @@ Owns `ui/library/` (incl. the `/library` stub), `ui/editor/` (lesson + reader ed
 
 Owns `ui/coach/`, `ui/analyze/`, `ui/quests/`, `ui/strokes/`, `core/…/Quest*.kt` + `core/…/Strokes*.kt` with `parity/fixtures/quest.ts` / `strokes.ts`, `data/api/CoachApi.kt`, `QuestsApi.kt`. Provides the stroke pad composable B and A reuse.
 
-| Feature | Status | Web source |
-|---|---|---|
-| Sentence Coach (conversations, quick-action chips, deck picker, `?text=`) | ⬜ | `SentenceCoachPage.tsx` |
-| Sentence Breakdown (`/analyze`) | ⬜ | `SentenceAnalysisPage.tsx` |
-| Quests list + play (engine port, parity-tested) | ⬜ | `QuestsPage.tsx`, `QuestPlayPage.tsx`, `shared/quest/` |
-| Handwriting / stroke-order practice (`/practice/strokes`, study ⋯ → Write it) | ⬜ — port `shared/strokes` (matcher + quiz) to `core/` with parity vectors; draw on a Compose `Canvas` with `pointerInput`; see docs/STROKE_ORDER.md | `StrokePracticePage.tsx`, `components/strokes/` |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Sentence Coach (conversations, quick-action chips, deck picker, `?text=`) | ⬜ | `SentenceCoachPage.tsx`  |
+| Sentence Breakdown (`/analyze`) | ⬜ | `SentenceAnalysisPage.tsx`  |
+| Quests list + play (engine port, parity-tested) | ⬜ | `QuestsPage.tsx`, `QuestPlayPage.tsx`, `shared/quest/`  |
+| Handwriting / stroke-order practice (`/practice/strokes?text=`: pick / type a word, recent words, Trace (animated order) + From memory (米字格), per-stroke verdicts with haptics/sounds, escalating hints (start dot → painted stroke → filled in), per-character glow, summary, offline "Save all") | ✅ matcher + quiz parity-tested (3,500 drawings, 170 quiz runs, bit-exact); reusable `WritingExercise` / `WritingSheet` / `WritingPad` for A ("Write it") and B (handwriting exercises). No auto-pinyin for typed words that aren't notes (web uses pinyin-pro) | `StrokePracticePage.tsx`, `components/strokes/`, `shared/strokes/` | `core/…/Strokes.kt`, `data/strokes/StrokeStore.kt`, `ui/strokes/` |
 
 ## I — Native shell (web: `native/android/`)
 

@@ -7,8 +7,8 @@ the right stroke, in the right order, in the right direction.
 
 **Where to try it:** More → Practice → **Write characters (preview)** (`/practice/strokes`,
 `?text=你好` deep-links a word), or on the back of any study card **⋯ → Write it**. Works in the
-web app, the installed PWA and the hybrid Android app (it loads the same site). Not yet in the
-native Lab app (see the end).
+web app, the installed PWA and the hybrid Android app (it loads the same site), and natively in the
+Lab app (`/practice/strokes`, `ui/strokes/` — see the end).
 
 ---
 
@@ -208,7 +208,7 @@ Real handwriting will be messier than this; `leniency` in `QuizOptions` is the t
    (English + pinyin → write from memory), the rating pre-selected from the grade (perfect → Good,
    practice → Again) but confirmed by the learner; needs `CardType` in both type files,
    `insertCardsForNote`, the budget (it would compete with new cards) and the Lab app.
-4. **Native Lab version** — port `shared/strokes` to `android-lab/core` with golden vectors
+4. **Native Lab version** — ✅ done: `android-lab/core/…/Strokes.kt` (bit-exact parity vectors from `android-lab/parity/fixtures/strokes.ts`), `ui/strokes/` (Compose `WritingPad`, `WritingExercise`, `WritingSheet`, `/practice/strokes`), stroke data cached as files by `data/strokes/StrokeStore.kt`. Original plan: port `shared/strokes` to `android-lab/core` with golden vectors
    generated from the TS (like FSRS: fixtures of drawings → verdicts), draw on a Compose `Canvas`
    with `pointerInput`, parse outlines with `PathParser`, paint strokes with a clipped, dashed
    path animation; stylus via `MotionEvent.getToolType`, low-latency ink with
