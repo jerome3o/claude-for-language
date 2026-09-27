@@ -393,7 +393,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         _ui.update { it.copy(wordByWord = if (on) it.wordByWord + m.id else it.wordByWord - m.id) }
         if (!on || _ui.value.segmentations.containsKey(m.id)) return
         viewModelScope.launch {
-            val cached = m.segmentation?.let { runCatching { app.cache.json.decodeFromString(dev.jeromeswannack.chineselearning.lab.data.api.SentenceBreakdownDto.serializer(), it) }.getOrNull() }
+            val cached = m.segmentation?.let { runCatching { app.cache.json.decodeFromString(dev.jeromeswannack.chineselearning.lab.data.api.ChatBreakdownDto.serializer(), it) }.getOrNull() }
             if (cached != null && m.translation != null) {
                 _ui.update { it.copy(segmentations = it.segmentations + (m.id to SegmentedDto(m.translation, cached))) }
                 return@launch

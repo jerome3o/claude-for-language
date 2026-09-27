@@ -10,7 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ReactionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReactionUserDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SegmentChunk
 import dev.jeromeswannack.chineselearning.lab.data.api.SegmentedDto
-import dev.jeromeswannack.chineselearning.lab.data.api.SentenceBreakdownDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ChatBreakdownDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SuggestedCard
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import org.junit.Test
@@ -38,7 +38,7 @@ class ChatScreenshots : LabScreenshotTest() {
             conversation = ChatConversationDto("c1", "rel1", "Lesson questions"),
             messages = messages, draft = "明天见！",
             wordByWord = setOf("m3"),
-            segmentations = mapOf("m3" to SegmentedDto("Great! Which word do you find hardest?", SentenceBreakdownDto(chunks = listOf("太好了", "！", "你", "觉得", "哪个", "词", "最", "难", "？").map { SegmentChunk(it) }))),
+            segmentations = mapOf("m3" to SegmentedDto("Great! Which word do you find hardest?", ChatBreakdownDto(chunks = listOf("太好了", "！", "你", "觉得", "哪个", "词", "最", "难", "？").map { SegmentChunk(it) }))),
         )
         val aiUi = ChatUi(
             loading = false, otherName = "Claude", otherIsClaude = true, myId = "me",

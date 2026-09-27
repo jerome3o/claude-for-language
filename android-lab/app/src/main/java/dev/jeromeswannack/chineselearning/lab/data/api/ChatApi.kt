@@ -88,10 +88,10 @@ suspend fun Api.translateMessageCard(messageId: String): TranslateCardDto = post
 data class SegmentChunk(val hanzi: String, val pinyin: String = "", val english: String = "")
 
 @Serializable
-data class SentenceBreakdownDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val chunks: List<SegmentChunk> = emptyList())
+data class ChatBreakdownDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val chunks: List<SegmentChunk> = emptyList())
 
 @Serializable
-data class SegmentedDto(val translation: String = "", val segmentation: SentenceBreakdownDto)
+data class SegmentedDto(val translation: String = "", val segmentation: ChatBreakdownDto)
 
 suspend fun Api.translateSegmented(messageId: String): SegmentedDto = post("/api/messages/${enc(messageId)}/translate-segmented")
 
