@@ -18,15 +18,15 @@ import dev.jeromeswannack.chineselearning.lab.data.api.DeckPaths
 import dev.jeromeswannack.chineselearning.lab.data.api.MoveDeckBody
 import dev.jeromeswannack.chineselearning.lab.data.api.MoveNotesBody
 import dev.jeromeswannack.chineselearning.lab.data.api.NewCardFlagBody
-import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
+import dev.jeromeswannack.chineselearning.lab.data.api.DeckNoteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.NotePaths
 import dev.jeromeswannack.chineselearning.lab.data.api.ReorderBody
 import dev.jeromeswannack.chineselearning.lab.data.api.createDeck
-import dev.jeromeswannack.chineselearning.lab.data.api.createNote
+import dev.jeromeswannack.chineselearning.lab.data.api.addNoteToDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.encode
-import dev.jeromeswannack.chineselearning.lab.data.api.generateNoteAudio
-import dev.jeromeswannack.chineselearning.lab.data.api.generateSentenceClue
-import dev.jeromeswannack.chineselearning.lab.data.api.regenerateNoteAudio
+import dev.jeromeswannack.chineselearning.lab.data.api.makeNoteAudio
+import dev.jeromeswannack.chineselearning.lab.data.api.writeSentenceClue
+import dev.jeromeswannack.chineselearning.lab.data.api.remakeNoteAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.send
 import dev.jeromeswannack.chineselearning.lab.data.api.starterDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
@@ -204,9 +204,9 @@ class DeckWrites(
         CardStandard.newNoteProblem(f.hanzi, f.pinyin, f.english, f.sentenceClue)?.let { return Result.failure(RefusedException(it)) }
         return online("add a word") {
             val clue = NoteSearch.jsTrim(f.sentenceClue).ifEmpty { null }
-            val note = api.createNote(
+            val note = api.addNoteToDeck(
                 deckId,
-                NewNoteBody(
+                DeckNoteBody(
                     hanzi = NoteSearch.jsTrim(f.hanzi), pinyin = NoteSearch.jsTrim(f.pinyin), english = NoteSearch.jsTrim(f.english),
                     fun_facts = NoteSearch.jsTrim(f.funFacts).ifEmpty { null }, sentence_clue = clue,
                     sentence_clue_pinyin = clue?.let { NoteSearch.jsTrim(f.sentenceCluePinyin).ifEmpty { null } },
@@ -275,21 +275,21 @@ class DeckWrites(
 
     /** 🔊+ Generate the word's TTS clip (needs the server). */
     suspend fun generateAudio(noteId: String): Result<NoteDto> = online("make audio") {
-        val note = api.generateNoteAudio(noteId)
+        val note = api.makeNoteAudio(noteId)
         dao.note(noteId)?.let { dao.upsertNotes(listOf(it.copy(audioUrl = note.audio_url))) }
         note
     }
 
     /** 🎙 Regenerate a word's clip (a new voice; needs the server). */
     suspend fun regenerateAudio(noteId: String): Result<NoteDto> = online("make audio") {
-        val note = api.regenerateNoteAudio(noteId)
+        val note = api.remakeNoteAudio(noteId)
         dao.note(noteId)?.let { dao.upsertNotes(listOf(it.copy(audioUrl = note.audio_url))) }
         note
     }
 
     /** ✨ Claude writes a new example sentence (saved on the note server side) — needs the server. */
     suspend fun generateSentence(noteId: String): Result<NoteDto> = online("write a sentence") {
-        val note = api.generateSentenceClue(noteId)
+        val note = api.writeSentenceClue(noteId)
         mirrorNote(note, withCards = false)
         note
     }

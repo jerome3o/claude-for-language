@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonObject
 
 /** POST /api/decks/:id/notes body (the content service's NoteInput). */
 @Serializable
-data class NewNoteBody(
+data class DeckNoteBody(
     val hanzi: String,
     val pinyin: String,
     val english: String,
@@ -117,13 +117,13 @@ data class NewCardFlagBody(
     val created_at: String,
 )
 
-suspend fun Api.createNote(deckId: String, body: NewNoteBody): NoteDto = post("/api/decks/${enc(deckId)}/notes", body)
+suspend fun Api.addNoteToDeck(deckId: String, body: DeckNoteBody): NoteDto = post("/api/decks/${enc(deckId)}/notes", body)
 
 /** PUT /api/notes/:id with an explicit patch (explicit nulls clear a field). */
-suspend fun Api.updateNote(id: String, patch: JsonObject): NoteDto = exchange("PUT", NotePaths.note(id), patch.toString(), NoteDto.serializer())
+suspend fun Api.putNote(id: String, patch: JsonObject): NoteDto = exchange("PUT", NotePaths.note(id), patch.toString(), NoteDto.serializer())
 
 /** POST /api/notes/:id/generate-audio → the note with its new audio_url. */
-suspend fun Api.generateNoteAudio(id: String): NoteDto = post("/api/notes/${enc(id)}/generate-audio")
+suspend fun Api.makeNoteAudio(id: String): NoteDto = post("/api/notes/${enc(id)}/generate-audio")
 
 suspend fun Api.searchNotes(q: String, limit: Int = 50): NoteSearchDto = get("/api/notes/search?q=${enc(q)}&limit=$limit")
 
@@ -143,7 +143,7 @@ object NotePaths {
 }
 
 /** ✨ A fresh example sentence for the note (Claude, saved on the note) → the updated note. */
-suspend fun Api.generateSentenceClue(id: String): NoteDto = post("/api/notes/${enc(id)}/generate-sentence-clue")
+suspend fun Api.writeSentenceClue(id: String): NoteDto = post("/api/notes/${enc(id)}/generate-sentence-clue")
 
 /** POST /api/notes/:id/regenerate-audio → the note with a fresh clip. */
-suspend fun Api.regenerateNoteAudio(id: String): NoteDto = post("/api/notes/${enc(id)}/regenerate-audio")
+suspend fun Api.remakeNoteAudio(id: String): NoteDto = post("/api/notes/${enc(id)}/regenerate-audio")
