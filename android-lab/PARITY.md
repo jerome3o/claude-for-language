@@ -79,7 +79,7 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | Multiple-choice fallback (8 s) / auto-MC for listen cards | ⬜ | `services/multipleChoice.ts` | |
 | Ask Claude (card chat with tools: edit card, add cards) | ✅ quick questions, tools folded, approve / reject, + message → card | `components/study/` Ask Claude, `POST /api/notes/:id/ask` | `ui/study/AskClaudeSheet.kt`, `StudyViewModel.ask` |
 | Edit card | ✅ fields, sentence clue (generate / clear), alternatives, recordings (primary / delete), delete note — online | `CardEditModal.tsx` | `ui/study/EditCardSheet.kt` |
-| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | 🟡 all items; Write it hands off to the main app until H lands; Play my recording waits on recording | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
+| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | 🟡 all items; Write it opens the native `/practice/strokes?text=` (H; `WritingSheet` is there if a sheet over the card is preferred); Play my recording waits on recording | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
 | Flag for tutor (offline, idempotent `POST /api/card-flags` via Outbox) | ✅ tutors from the cached relationships | `services/cardFlags.ts` | `CardTools.flag`, `FlagCardSheet` |
 | Tutor notes on the card back (recording marks, flag replies; cached for offline) | ✅ `study-notes` sync step, seen via Outbox | `services/recording-notes.ts`, `TutorNoteLine.tsx` | `ui/study/TutorNotes.kt`, `TutorNoteLine` |
 | Sentence tools: "What's going on here?", + Add as card, regenerate set | ⬜ | `SentenceSet.tsx`, `SentenceBreakdown.tsx` | |
