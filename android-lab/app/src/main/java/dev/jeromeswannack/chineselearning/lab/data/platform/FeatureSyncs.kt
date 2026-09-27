@@ -13,6 +13,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.NavSync
 object FeatureSyncs {
     fun registerAll(platform: LabPlatform) {
         platform.register("nav", NavSync) // relationships → tab set / landing (ui/nav/NavData.kt)
+        platform.register("library", dev.jeromeswannack.chineselearning.lab.ui.library.LibrarySync) // lesson library list (ui/library)
         // Add yours below, one line each (keep the order: what study needs offline first).
     }
 }
