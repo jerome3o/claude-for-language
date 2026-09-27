@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.connections
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -24,8 +25,7 @@ fun NavGraphBuilder.connectionsGraph(nav: LabNav) {
     composable(Routes.route(Routes.CONNECTIONS)) {
         val shell by nav.shell.collectAsStateWithLifecycle()
         if (shell?.role?.hasStudents == true) {
-            // ---- package F: the Students dashboard replaces this line ----
-            PlaceholderScreen(Routes.CONNECTIONS, onBack = null) { nav.openInMainApp(Routes.CONNECTIONS) }
+            dev.jeromeswannack.chineselearning.lab.ui.teaching.StudentsDashboardRoute(nav) // F
         } else {
             val vm: ConnectionsViewModel = viewModel(factory = factory { ConnectionsViewModel(nav.app) })
             val ui by vm.ui.collectAsStateWithLifecycle()
@@ -39,38 +39,6 @@ fun NavGraphBuilder.connectionsGraph(nav: LabNav) {
                     onInvite = vm::invite,
                     onRetry = vm::retry,
                     onDismissNotice = vm::dismissNotice,
-                ),
-            )
-        }
-    }
-
-    composable(Routes.route("/connections/{relId}")) { entry ->
-        val relId = entry.arguments?.getString("relId").orEmpty()
-        val vm: TutorPageViewModel = viewModel(factory = factory { TutorPageViewModel(nav.app, relId) })
-        val ui by vm.ui.collectAsStateWithLifecycle()
-        val rel = ui.relationship.data
-        val iAmTutor = rel != null && ui.myId != null && rel.other(ui.myId)?.id != CLAUDE_USER_ID &&
-            (if (rel.requester_role == "tutor") rel.requester_id else rel.recipient_id) == ui.myId
-        if (iAmTutor) {
-            // ---- package F: the tutor's student page replaces this line ----
-            PlaceholderScreen(Routes.connection(relId), onBack = nav::back) { nav.openInMainApp(Routes.connection(relId)) }
-        } else {
-            val openChat = { convId: String -> nav.open(Routes.chat(relId, convId)) }
-            TutorPageScreen(
-                ui,
-                TutorPageActions(
-                    onBack = nav::back,
-                    onMessage = { vm.message(openChat) },
-                    onNewPracticeConversation = { vm.newPracticeConversation(it, openChat) },
-                    // Video calls are package J's; the main app starts one from this page.
-                    onVideoCall = { nav.openOrHandoff(Routes.calls()) },
-                    onOpenConversation = openChat,
-                    onOpenCard = { nav.openOrHandoff(Routes.cardHub(it)) },
-                    onToggleFlag = vm::toggleFlag,
-                    onDeleteFlag = vm::deleteFlag,
-                    onOpenClaudeChats = { nav.open(Routes.claudeChats()) },
-                    onRemoveConnection = { vm.removeConnection { nav.openTabPath(Routes.CONNECTIONS) } },
-                    onRetry = vm::retry,
                 ),
             )
         }
@@ -93,6 +61,43 @@ fun NavGraphBuilder.connectionsGraph(nav: LabNav) {
                 onSave = vm::save,
                 onPickFiles = { picker.launch("*/*") },
                 onDelete = vm::delete,
+                onRetry = vm::retry,
+            ),
+        )
+    }
+}
+
+/**
+ * `/connections/:relId` seen by the student (their tutor, or the Claude partner). The route is
+ * registered by package F (ui/teaching/TeachingNav.kt), which shows the student page when the
+ * other person is my student and this otherwise.
+ */
+@Composable
+fun TutorPageRoute(nav: LabNav, relId: String) {
+    val vm: TutorPageViewModel = viewModel(factory = factory { TutorPageViewModel(nav.app, relId) })
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    val rel = ui.relationship.data
+    val iAmTutor = rel != null && ui.myId != null && rel.other(ui.myId)?.id != CLAUDE_USER_ID &&
+        (if (rel.requester_role == "tutor") rel.requester_id else rel.recipient_id) == ui.myId
+    if (iAmTutor) {
+        // My student, but the relationships cache is behind (F shows the student page once it syncs).
+        PlaceholderScreen(Routes.connection(relId), onBack = nav::back) { nav.openInMainApp(Routes.connection(relId)) }
+    } else {
+        val openChat = { convId: String -> nav.open(Routes.chat(relId, convId)) }
+        TutorPageScreen(
+            ui,
+            TutorPageActions(
+                onBack = nav::back,
+                onMessage = { vm.message(openChat) },
+                onNewPracticeConversation = { vm.newPracticeConversation(it, openChat) },
+                // Video calls are package J's; the main app starts one from this page.
+                onVideoCall = { nav.openOrHandoff(Routes.calls()) },
+                onOpenConversation = openChat,
+                onOpenCard = { nav.openOrHandoff(Routes.cardHub(it)) },
+                onToggleFlag = vm::toggleFlag,
+                onDeleteFlag = vm::deleteFlag,
+                onOpenClaudeChats = { nav.open(Routes.claudeChats()) },
+                onRemoveConnection = { vm.removeConnection { nav.openTabPath(Routes.CONNECTIONS) } },
                 onRetry = vm::retry,
             ),
         )
