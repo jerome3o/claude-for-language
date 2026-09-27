@@ -4,7 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
-import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkEventsBody
+import dev.jeromeswannack.chineselearning.lab.data.api.PassEventsBody
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.OnboardingDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckDto
@@ -71,7 +71,7 @@ object HomeworkStore {
         val event = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, itemId, result, now.toString())
         val cache = app.cache
         // Queue first: a sync merging events in between keeps anything still in the outbox.
-        app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", HomeworkEventsBody(listOf(event)), id = event.id)
+        app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(event)), id = event.id)
         cache.put(HomeworkKeys.EVENTS, HomeworkKeys.KIND, cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty() + event)
         if (app.online.value) app.scope.launch { runCatching { app.outbox.drain() } } else app.scheduleBackgroundUpload()
         return event

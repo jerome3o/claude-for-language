@@ -13,7 +13,7 @@ import kotlinx.serialization.builtins.serializer
 data class MyHomeworkDto(val assignments: List<HomeworkAssignment> = emptyList(), val events: List<HomeworkEvent> = emptyList())
 
 @Serializable
-data class HomeworkEventsBody(val events: List<HomeworkEvent>)
+data class PassEventsBody(val events: List<HomeworkEvent>)
 
 suspend fun Api.myHomework(): MyHomeworkDto = get("/api/me/homework")
 
