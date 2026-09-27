@@ -17,7 +17,8 @@ import { normalizeDraftPlan } from '@shared/homework';
 import * as jobs from '../db/tutor-notes-queries';
 import * as iq from '../db/insights-queries';
 import { submitSessionNotes, SubmitError } from '../services/tutor-notes-submit';
-import { appendTutorRequest, draftContents } from '../services/tutor-notes-agent';
+import { appendTutorRequest, draftContents, profileUpdateForDraft } from '../services/tutor-notes-agent';
+import { getStudentProfile } from '../db/student-profile-queries';
 import { buildDraftView, assignDraft } from '../services/homework-drafts';
 import { HomeworkError } from '../services/homework';
 import { requireTutorOf, homeworkErrorResponse, todayParam } from './homework';
@@ -185,6 +186,12 @@ drafts.post('/relationships/:relId/homework-drafts/:jobId/messages', async (c) =
     const body = await c.req.json<{ message?: unknown }>().catch(() => ({} as { message?: unknown }));
     const message = typeof body.message === 'string' ? body.message.trim().slice(0, 4000) : '';
     if (!message) throw new HomeworkError(400, 'Write a message');
+    // A profile edited since the agent last saw it rides along with the request.
+    const [profile, student] = await Promise.all([
+      getStudentProfile(c.env.DB, relId, job.tutor_id).catch(() => null),
+      jobs.getUserBrief(c.env.DB, job.student_id).catch(() => null),
+    ]);
+    const updatedProfile = profileUpdateForDraft(profile, job, student?.name);
     const at = new Date().toISOString();
     await jobs.patchJob(c.env.DB, job.id, {
       status: 'queued',
@@ -192,7 +199,7 @@ drafts.post('/relationships/:relId/homework-drafts/:jobId/messages', async (c) =
       finished_at: null,
       rounds: 0,
       progress: 'Reading your request',
-      transcript: appendTutorRequest(job.transcript, message),
+      transcript: appendTutorRequest(job.transcript, message, updatedProfile),
       chat: [...job.chat, { role: 'tutor', text: message, at }],
       steps: [...job.steps, { at, kind: 'info', text: `You asked: ${message.length > 120 ? `${message.slice(0, 119)}…` : message}` }],
     });

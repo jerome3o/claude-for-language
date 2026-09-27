@@ -55,6 +55,8 @@ class LessonEditorActions(
     val onRawJson: (String) -> List<String> = { emptyList() },
     val onArchive: (() -> Unit)? = null,
     val speak: Speak = {},
+    /** The real player's environment for the Preview tab (TTS, images, strokes); null = [speak] only. */
+    val previewEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv? = null,
     val chat: EditorChatActions = EditorChatActions(),
     val haptic: () -> Unit = {},
 )
@@ -140,7 +142,7 @@ fun LessonEditorScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) { lessonFormItems(spec, ui.errors, host) }
         },
-        preview = { LessonWalkthrough(spec, actions.speak) },
+        preview = { LessonPreviewPane(spec, actions.previewEnv ?: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(speak = actions.speak), ui.errors) },
         chat = {
             EditorChatPane(
                 chat, kind, pending,

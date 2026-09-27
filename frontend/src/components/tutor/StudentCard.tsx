@@ -6,6 +6,7 @@ import { InviteQRSheet } from './InviteQRSheet';
 import { useMessageStudent } from './useMessageStudent';
 import { initial, percent, relativeDay, shortDate } from './format';
 import './tutor-dashboard.css';
+import './student-profile.css';
 
 export function Avatar({ name, email, picture_url, size = 'md', muted = false }: { name: string | null; email: string | null; picture_url: string | null; size?: 'md' | 'lg'; muted?: boolean }) {
   const cls = `td-avatar ${size === 'lg' ? 'td-avatar-lg' : ''} ${muted ? 'td-avatar-muted' : ''}`;
@@ -21,6 +22,15 @@ export function studyStatusLine(o: StudentOverview): string {
   parts.push(`🔥 ${s.streak_days} day${s.streak_days === 1 ? '' : 's'}`);
   if (s.studied_today && s.today.accuracy != null) parts.push(`${percent(s.today.accuracy)} today`);
   return parts.join(' · ');
+}
+
+/** Quiet nudge on the dashboard card: the tutor hasn't written a student profile yet. */
+function ProfileHint({ relId }: { relId: string }) {
+  return (
+    <Link to={`/connections/${relId}#student-profile`} className="td-pill td-pill-profile" title="What kind of learner they are — Claude reads it when making their homework" data-testid="td-profile-hint">
+      + Student profile
+    </Link>
+  );
 }
 
 export function StudentCard({ overview, onSendHomework }: { overview: StudentOverview; onSendHomework: (o: StudentOverview) => void }) {
@@ -44,6 +54,11 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
           <span className="td-chevron">›</span>
         </Link>
         <SetupChecklistCompact overview={overview} />
+        {overview.has_profile === false && (
+          <div className="td-pills">
+            <ProfileHint relId={relId} />
+          </div>
+        )}
         <div className="td-card-actions">
           {overview.setup.invite ? (
             <button type="button" className="btn btn-secondary" onClick={() => setShowQR(true)}>Show invite QR again</button>
@@ -91,6 +106,7 @@ export function StudentCard({ overview, onSendHomework }: { overview: StudentOve
         {pills.homework_percent != null && (
           <Link to={`/connections/${relId}`} className="td-pill td-pill-homework">Homework {pills.homework_percent}%</Link>
         )}
+        {overview.has_profile === false && <ProfileHint relId={relId} />}
       </div>
       <div className="td-card-actions">
         <button type="button" className="btn btn-secondary" onClick={message} disabled={busy}>💬 Message</button>

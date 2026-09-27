@@ -10,6 +10,7 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -283,6 +284,26 @@ object Lessons {
 
     /** Types the Lab player can show (everything but [UnknownExercise]). */
     fun isPlayable(ex: LessonExercise) = ex !is UnknownExercise
+
+    /**
+     * Port of `renderable` in components/editor/LessonPreview.tsx: is the exercise complete
+     * enough to render without crashing? The validator is the authority; this keeps a
+     * half-typed editor form (or a stray spec) from blowing up the player.
+     */
+    fun renderable(ex: LessonExercise): Boolean = when (ex) {
+        is ScrambleExercise -> ex.tiles.isNotEmpty() && ex.correctOrder.isNotEmpty()
+        is ChoiceExercise -> ex.options.size >= 2 && ex.correct in ex.options.indices
+        is ListenChoiceExercise -> ex.options.size >= 2 && ex.correct in ex.options.indices
+        is MatchExercise -> ex.pairs.size >= 2
+        is SentenceMakingExercise -> ex.words.isNotEmpty()
+        is ConversationExercise -> ex.speakers.size >= 2 && ex.lines.isNotEmpty() && ex.questions.isNotEmpty() &&
+            ex.lines.all { it.speaker in ex.speakers.indices }
+        else -> true
+    }
+
+    /** A spec as the player takes it, or null when it doesn't decode (e.g. mid-edit). */
+    fun decodeSpec(json: JsonElement?): CustomLessonSpec? =
+        json?.let { runCatching { LessonJson.decodeFromJsonElement(CustomLessonSpec.serializer(), it) }.getOrNull() }
 
     fun isScoreable(ex: LessonExercise) = ex.type in SCOREABLE
 

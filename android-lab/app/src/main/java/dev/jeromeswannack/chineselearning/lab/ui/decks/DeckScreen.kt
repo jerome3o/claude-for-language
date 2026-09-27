@@ -74,6 +74,10 @@ data class DeckActions(
     val onMoveSelected: () -> Unit = {},
     val onRegenerateSelected: () -> Unit = {},
     val onDismissNotice: () -> Unit = {},
+    val onOpenHomeworkPass: (String) -> Unit = {},
+    val onAddToDailyReview: () -> Unit = {},
+    val onShareWithTutor: () -> Unit = {},
+    val onUnshareTutor: (String) -> Unit = {},
 )
 
 /** The deck page (web: DeckDetailPage.tsx). */
@@ -105,6 +109,11 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
                 PrimaryPill(if (ui.due > 0) "Study · ${ui.due} due" else "Study", Modifier.fillMaxWidth().height(56.dp)) { actions.onStudy() }
             }
         }
+        ui.oneOffBanner?.let { assignmentId ->
+            item(key = "one-off") {
+                OneOffDeckBanner(ui.online, ui.dailyReviewBusy, ui.dailyReviewError, onOpenPass = { actions.onOpenHomeworkPass(assignmentId) }, onAdd = actions.onAddToDailyReview)
+            }
+        }
         ui.notice?.let { n -> item(key = "notice") { InlineNotice(n, kind = if (ui.noticeIsError) NoticeKind.Error else NoticeKind.Success, actionLabel = "OK", onAction = actions.onDismissNotice) } }
         ui.audioJob?.let { job ->
             item(key = "audio-job") {
@@ -120,6 +129,7 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
             }
         }
         if (ui.completion.total > 0) item(key = "progress") { DeckProgressCard(ui) }
+        if (ui.tutorShares.isNotEmpty()) item(key = "tutor-shares") { TutorSharesCard(ui.tutorShares, ui.shareBusy, actions.onUnshareTutor) }
 
         item(key = "words-header") {
             SectionHeader("Words (${ui.notes.size})") {
@@ -218,6 +228,9 @@ private fun DeckMenu(ui: DeckUi, actions: DeckActions, onDelete: () -> Unit) {
     Box {
         Text("⋯", color = Lab.colors.ink, fontSize = 24.sp, modifier = Modifier.clip(CircleShape).clickable { open = true }.padding(horizontal = 14.dp, vertical = 6.dp))
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (ui.tutors.isNotEmpty() && !ui.isTutorAccount) {
+                DropdownMenuItem(text = { Text("👩‍🏫 Share with tutor") }, onClick = { open = false; actions.onShareWithTutor() })
+            }
             DropdownMenuItem(text = { Text("⚙️ Settings") }, onClick = { open = false; actions.onSettings() })
             if (ui.missingAudio > 0) {
                 DropdownMenuItem(

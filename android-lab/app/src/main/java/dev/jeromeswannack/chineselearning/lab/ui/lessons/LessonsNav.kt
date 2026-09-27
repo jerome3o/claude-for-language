@@ -23,6 +23,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
+import dev.jeromeswannack.chineselearning.lab.ui.teaching.studentUser
+import androidx.compose.runtime.Composable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +33,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 
-/** Package B routes: `/lessons`, `/lesson-attempts[?lesson=]`, `/lesson-attempts/:id`. */
+/**
+ * Package B routes: `/lessons`, `/lesson-attempts[?lesson=]`, `/lesson-attempts/:id`, and the
+ * tutor's view of a student's answers `/connections/:relId/lesson-attempts[?lesson=]`,
+ * `/connections/:relId/lesson-attempts/:attemptId` (same screens, the student's API).
+ */
 fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
     composable(Routes.route("/lessons")) {
         val vm: MiniLessonsViewModel = viewModel(factory = MiniLessonsViewModel.Factory(nav.app))
@@ -58,14 +64,55 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
         AttemptListScreen(state, onBack = nav::back, onOpen = { nav.open(Routes.lessonAttempts(it)) }, onRetry = { vm.list.refresh() })
     }
     composable(Routes.route("/lesson-attempts/{id}")) { entry ->
-        val app = nav.app
-        val id = entry.arguments?.getString("id").orEmpty()
-        val vm: AttemptsViewModel = viewModel(key = "attempt-$id", factory = AttemptsViewModel.Factory(app, null, id))
-        val state by vm.detail.state.collectAsStateWithLifecycle()
-        val runtime = remember { LessonRuntime.of(app) }
-        val playing by runtime.audio.playing.collectAsState()
-        AttemptDetailScreen(state, onBack = nav::back, onRetry = { vm.detail.refresh() }, onPlay = vm::play, playingKey = playing)
+        AttemptDetailRoute(nav, relId = null, id = entry.arguments?.getString("id").orEmpty())
     }
+    composable(
+        Routes.route("/connections/{relId}/lesson-attempts?lesson={lesson}"),
+        arguments = listOf(navArgument("lesson") { type = NavType.StringType; nullable = true; defaultValue = null }),
+    ) { entry ->
+        val relId = entry.arguments?.getString("relId").orEmpty()
+        val lessonId = entry.arguments?.getString("lesson")
+        val vm: AttemptsViewModel = viewModel(key = "attempts-$relId-${lessonId ?: "all"}", factory = AttemptsViewModel.Factory(nav.app, lessonId, null, relId))
+        val state by vm.list.state.collectAsStateWithLifecycle()
+        AttemptListScreen(
+            state,
+            onBack = nav::back,
+            onOpen = { nav.open(Routes.studentLessonAttempts(relId, it)) },
+            onRetry = { vm.list.refresh() },
+            studentName = rememberStudentName(nav, relId),
+        )
+    }
+    composable(Routes.route("/connections/{relId}/lesson-attempts/{attemptId}")) { entry ->
+        AttemptDetailRoute(nav, relId = entry.arguments?.getString("relId").orEmpty(), id = entry.arguments?.getString("attemptId").orEmpty())
+    }
+}
+
+/** One attempt — mine ([relId] null) or a student's (the tutor). */
+@Composable
+private fun AttemptDetailRoute(nav: LabNav, relId: String?, id: String) {
+    val app = nav.app
+    val vm: AttemptsViewModel = viewModel(key = "attempt-${relId ?: "me"}-$id", factory = AttemptsViewModel.Factory(app, null, id, relId))
+    val state by vm.detail.state.collectAsStateWithLifecycle()
+    val runtime = remember { LessonRuntime.of(app) }
+    val playing by runtime.audio.playing.collectAsState()
+    val strokes = remember(app) { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore.of(app)::get }
+    AttemptDetailScreen(
+        state,
+        onBack = nav::back,
+        onRetry = { vm.detail.refresh() },
+        onPlay = vm::play,
+        playingKey = playing,
+        studentName = if (relId != null) rememberStudentName(nav, relId) else null,
+        strokeLoader = strokes,
+    )
+}
+
+/** The student's name in a relationship where I'm the tutor (from the cached relationships), or null. */
+@Composable
+private fun rememberStudentName(nav: LabNav, relId: String): String? {
+    val relationships by nav.app.cache.observe<dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto>(dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys.RELATIONSHIPS).collectAsStateWithLifecycle(null)
+    val rel = relationships?.students?.firstOrNull { it.id == relId } ?: return null
+    return rel.studentUser()?.let { it.name ?: it.email } ?: "Student"
 }
 
 class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
@@ -125,13 +172,31 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
     }
 }
 
-/** My answers — the list (cached per lesson filter) and one attempt (cached per id). */
-class AttemptsViewModel(private val app: LabApp, lessonId: String?, attemptId: String?) : ViewModel() {
+/**
+ * Lesson answers — the list (cached per lesson filter) and one attempt (cached per id), mine
+ * or, with [relId], a student's for their tutor; cached so they re-open offline.
+ */
+class AttemptsViewModel(private val app: LabApp, lessonId: String?, private val attemptId: String?, relId: String? = null) : ViewModel() {
     private val runtime = LessonRuntime.of(app)
-    val list by lazy { app.cachedResource<List<AttemptSummaryDto>>(viewModelScope, "lessons/attempts/${lessonId ?: "all"}", "lessons") { lessonAttempts(lessonId) } }
-    val detail by lazy { app.cachedResource<AttemptDetailDto>(viewModelScope, "lessons/attempt/${attemptId ?: "none"}", "lessons") {
-        if (attemptId == null) throw IllegalStateException("no attempt") else lessonAttempt(attemptId)
-    } }
+    private val scope = relId?.let { "rel/$it/" } ?: ""
+    val list by lazy { app.cachedResource<List<AttemptSummaryDto>>(viewModelScope, "lessons/attempts/$scope${lessonId ?: "all"}", "lessons") { lessonAttempts(lessonId, relId) } }
+    val detail by lazy {
+        app.cachedResource<AttemptDetailDto>(viewModelScope, "lessons/attempt/$scope${attemptId ?: "none"}", "lessons") {
+            if (attemptId == null) throw IllegalStateException("no attempt") else lessonAttempt(attemptId, relId)
+        }.also { pollWhileTranscribing(it) }
+    }
+
+    /** A recording may still be transcribing — look again every 5 s (web: refetchInterval), for up to 10 minutes. */
+    private fun pollWhileTranscribing(res: dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource<AttemptDetailDto>) {
+        viewModelScope.launch {
+            repeat(120) {
+                kotlinx.coroutines.delay(5_000)
+                val pending = res.state.value.data?.media?.any { it.transcriptStatus == "pending" } == true
+                if (!pending) return@launch
+                if (app.online.value) res.refresh()
+            }
+        }
+    }
 
     /** A recording is an R2 object: downloaded once, then played from the phone. */
     fun play(media: AttemptMediaDto) {
@@ -144,8 +209,8 @@ class AttemptsViewModel(private val app: LabApp, lessonId: String?, attemptId: S
 
     override fun onCleared() = runtime.audio.stop()
 
-    class Factory(private val app: LabApp, private val lessonId: String?, private val attemptId: String?) : ViewModelProvider.Factory {
+    class Factory(private val app: LabApp, private val lessonId: String?, private val attemptId: String?, private val relId: String? = null) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = AttemptsViewModel(app, lessonId, attemptId) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = AttemptsViewModel(app, lessonId, attemptId, relId) as T
     }
 }

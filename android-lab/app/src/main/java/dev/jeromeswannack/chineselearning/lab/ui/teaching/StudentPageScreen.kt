@@ -95,6 +95,8 @@ data class StudentPageUi(
     val playingKey: String? = null,
     /** The lesson-notes section (package F, docs/HOMEWORK.md) — rendered by the caller between nav and homework. */
     val lessonNotes: (@Composable () -> Unit)? = null,
+    /** The tutor's private student profile (StudentProfileSection) — rendered just before the lesson notes. */
+    val studentProfile: (@Composable () -> Unit)? = null,
 )
 
 data class StudentPageActions(
@@ -263,6 +265,7 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
 
 private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActions, now: Instant, showStudentDecks: Boolean) {
     val o = ui.overview.data
+    ui.studentProfile?.let { section -> item(key = "student-profile") { section() } }
     ui.lessonNotes?.let { section -> item(key = "lesson-notes") { section() } }
     item(key = "homework") {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

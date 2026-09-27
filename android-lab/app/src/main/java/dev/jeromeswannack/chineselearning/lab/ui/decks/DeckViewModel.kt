@@ -3,7 +3,18 @@ package dev.jeromeswannack.chineselearning.lab.ui.decks
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dev.jeromeswannack.chineselearning.lab.core.DeckSettings
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.data.api.DeckTutorShareDto
+import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.deckTutorShares
+import dev.jeromeswannack.chineselearning.lab.data.api.deckTutorSharesKey
+import dev.jeromeswannack.chineselearning.lab.data.api.studentShareDeck
+import dev.jeromeswannack.chineselearning.lab.data.api.tutor
+import dev.jeromeswannack.chineselearning.lab.data.api.unshareStudentDeck
+import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
+import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkStore
+import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.decks.WriteOutcome
 import dev.jeromeswannack.chineselearning.lab.ui.cards.NoteEditor
@@ -39,6 +50,12 @@ data class DeckHeaderUi(
 
 data class AudioJobUi(val done: Int, val total: Int, val regenerate: Boolean)
 
+/** A tutor this deck is shared with ("Shared with Tutors"). */
+data class TutorShareUi(val relationshipId: String, val name: String?, val email: String?, val sharedAt: String)
+
+/** A tutor the student could share this deck with (the Share with Tutor sheet). */
+data class TutorOptionUi(val relationshipId: String, val name: String?, val email: String?)
+
 data class DeckUi(
     val loaded: Boolean = false,
     /** Null once loaded = the deck is gone (deleted here or on another device). */
@@ -57,7 +74,21 @@ data class DeckUi(
     val noticeIsError: Boolean = false,
     val settingsError: String? = null,
     val busy: Boolean = false,
+    /** A live one-off homework assignment whose target is this deck (the web's OneOffDeckBanner). */
+    val oneOffAssignmentId: String? = null,
+    val dailyReviewBusy: Boolean = false,
+    val dailyReviewError: Boolean = false,
+    val tutorShares: List<TutorShareUi> = emptyList(),
+    /** My tutors (relationships where the other person is my tutor). */
+    val tutors: List<TutorOptionUi> = emptyList(),
+    val shareBusy: Boolean = false,
+    val shareError: String? = null,
 ) {
+    /**
+     * The one-off banner: a live one-off assignment AND caps 0 + 0, so the daily budget never
+     * introduces the deck. A null secondary cap is the default (not 0), as the web's `?? 1`.
+     */
+    val oneOffBanner: String? get() = oneOffAssignmentId?.takeIf { deck?.newPerDay == 0 && deck.secondaryPerDay == 0 }
     val missingAudio: Int get() = notes.count { it.audioUrl == null }
     val withAudio: Int get() = notes.count { it.audioUrl != null }
 }
@@ -71,10 +102,91 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
     private val _ui = MutableStateFlow(DeckUi(isTutorAccount = env.isTutorAccount()))
     val ui: StateFlow<DeckUi> = _ui
     val editor = NoteEditor(env, viewModelScope).apply { onDone = { msg -> say(msg) } }
+    private var sharesFetched = false
 
     init {
         viewModelScope.launch { env.dataVersion.collect { refresh() } }
         viewModelScope.launch { env.online.collect { on -> _ui.update { it.copy(online = on) } } }
+        viewModelScope.launch {
+            HomeworkStore.assignments(env.cache).collect { list ->
+                val a = list.orEmpty().firstOrNull { it.target_id == deckId && it.mode == "one_off" && it.status != "cancelled" }
+                _ui.update { it.copy(oneOffAssignmentId = a?.id) }
+            }
+        }
+        viewModelScope.launch {
+            env.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS).collect { rels ->
+                val tutors = rels?.tutors.orEmpty().map { r -> r.tutor().let { t -> TutorOptionUi(r.id, t?.name, t?.email) } }
+                _ui.update { it.copy(tutors = tutors) }
+                // Only a student with a tutor can have shared this deck: ask the server then.
+                if (tutors.isNotEmpty() && !sharesFetched) { sharesFetched = true; refreshTutorShares() }
+            }
+        }
+        viewModelScope.launch {
+            env.cache.observe<List<DeckTutorShareDto>>(deckTutorSharesKey(deckId)).collect { shares ->
+                _ui.update { it.copy(tutorShares = shares.orEmpty().map { d -> TutorShareUi(d.relationship_id, d.tutor.name, d.tutor.email, d.shared_at) }) }
+            }
+        }
+    }
+
+    // ---------------- tutor shares ----------------
+
+    /** GET /api/decks/:id/tutor-shares into the cache (shown offline from the last answer). */
+    fun refreshTutorShares() {
+        if (!env.online.value || env.isTutorAccount()) return
+        viewModelScope.launch {
+            runCatching { env.api.deckTutorShares(deckId) }.onSuccess { env.cache.put(deckTutorSharesKey(deckId), SHARES_KIND, it) }
+        }
+    }
+
+    /** The Share with Tutor sheet → POST …/student-share-deck. */
+    fun shareWithTutor(relationshipId: String, onDone: () -> Unit) {
+        if (!env.online.value) return _ui.update { it.copy(shareError = "You're offline — sharing needs a connection.") }
+        _ui.update { it.copy(shareBusy = true, shareError = null) }
+        viewModelScope.launch {
+            runCatching { env.api.studentShareDeck(relationshipId, deckId) }
+                .onSuccess {
+                    runCatching { env.api.deckTutorShares(deckId) }.onSuccess { env.cache.put(deckTutorSharesKey(deckId), SHARES_KIND, it) }
+                    env.fx.success()
+                    _ui.update { it.copy(shareBusy = false) }
+                    onDone()
+                }
+                .onFailure { e -> env.fx.failure(); _ui.update { it.copy(shareBusy = false, shareError = e.userMessage()) } }
+        }
+    }
+
+    fun clearShareError() = _ui.update { it.copy(shareError = null) }
+
+    /** "Stop sharing" → DELETE …/student-shared-decks/:deckId. */
+    fun unshareTutor(relationshipId: String) {
+        if (!env.online.value) return say("You're offline — try again when you're back online.", error = true)
+        _ui.update { it.copy(shareBusy = true) }
+        viewModelScope.launch {
+            runCatching { env.api.unshareStudentDeck(relationshipId, deckId) }
+                .onSuccess {
+                    env.cache.put(deckTutorSharesKey(deckId), SHARES_KIND, env.cache.get<List<DeckTutorShareDto>>(deckTutorSharesKey(deckId)).orEmpty().filter { it.relationship_id != relationshipId })
+                    env.fx.tick()
+                    _ui.update { it.copy(shareBusy = false) }
+                }
+                .onFailure { e -> _ui.update { it.copy(shareBusy = false) }; say("Couldn't stop sharing: ${e.userMessage()}", error = true) }
+        }
+    }
+
+    // ---------------- one-off homework ----------------
+
+    /** The banner's "Add to my daily review": the default caps (online only, as the web). */
+    fun addToDailyReview() {
+        if (!env.online.value) return
+        _ui.update { it.copy(dailyReviewBusy = true, dailyReviewError = false) }
+        viewModelScope.launch {
+            val caps = mapOf(
+                "new_cards_per_day" to DeckSettings.DEFAULT_NEW_PER_DAY.toString(),
+                "secondary_cards_per_day" to DeckSettings.DEFAULT_SECONDARY_PER_DAY.toString(),
+            )
+            when (env.writes.updateSettings(deckId, caps)) {
+                is WriteOutcome.Refused -> { env.fx.failure(); _ui.update { it.copy(dailyReviewBusy = false, dailyReviewError = true) } }
+                else -> { env.fx.success(); _ui.update { it.copy(dailyReviewBusy = false) } }
+            }
+        }
     }
 
     fun refresh() {
@@ -84,6 +196,8 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
                 loaded.copy(
                     online = s.online, selected = s.selected?.intersect(loaded.notes.map { it.id }.toSet()), audioJob = s.audioJob,
                     notice = s.notice, noticeIsError = s.noticeIsError, settingsError = s.settingsError, busy = s.busy,
+                    oneOffAssignmentId = s.oneOffAssignmentId, dailyReviewBusy = s.dailyReviewBusy, dailyReviewError = s.dailyReviewError,
+                    tutorShares = s.tutorShares, tutors = s.tutors, shareBusy = s.shareBusy, shareError = s.shareError,
                 )
             }
         }
@@ -219,6 +333,10 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
     fun say(message: String, error: Boolean = false) = _ui.update { it.copy(notice = message, noticeIsError = error) }
 
     fun dismissNotice() = _ui.update { it.copy(notice = null) }
+
+    companion object {
+        const val SHARES_KIND = "decks"
+    }
 
     class Factory(private val env: DecksEnv, private val deckId: String) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

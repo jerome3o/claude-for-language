@@ -166,6 +166,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'shared_decks', sql: `DELETE FROM shared_decks WHERE relationship_id IN ${REL}` },
   { label: 'student_summaries', sql: `DELETE FROM student_summaries WHERE relationship_id IN ${REL}` },
   { label: 'tutor_lesson_log', sql: `DELETE FROM tutor_lesson_log WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
+  { label: 'student_profiles', sql: `DELETE FROM student_profiles WHERE tutor_id = ?1 OR student_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'tutor_relationships', sql: `DELETE FROM tutor_relationships WHERE requester_id = ?1 OR recipient_id = ?1` },
 
   // Sign-in, invites.
