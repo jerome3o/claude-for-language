@@ -237,7 +237,7 @@ private val EXPORT_DESC = mapOf(
 
 /**
  * Markdown / Print view / JSON / CSV (Quizlet) / Anki, in the web menu's order. A row tap
- * shares the file; "Save" writes it where the tutor picks. Anki is built by the main app.
+ * shares the file; "Save" writes it where the tutor picks. Anki opens the export sheet (built on the phone).
  */
 @Composable
 fun ExportRows(onExport: (ExportFormat, Boolean) -> Unit, onPrint: () -> Unit, onAnki: () -> Unit) {
@@ -245,7 +245,7 @@ fun ExportRows(onExport: (ExportFormat, Boolean) -> Unit, onPrint: () -> Unit, o
     NavRow("🖨", "Print view", desc = "Print it or save it as a PDF", onClick = onPrint)
     ExportRow(ExportFormat.JSON, onExport)
     ExportRow(ExportFormat.CSV, onExport)
-    NavRow("⬇", "Export Anki (.apkg)", desc = "Built by the main app", external = true, onClick = onAnki)
+    NavRow("⬇", "Export Anki (.apkg)", desc = "Words and sentences as Anki cards, with audio", onClick = onAnki)
 }
 
 @Composable

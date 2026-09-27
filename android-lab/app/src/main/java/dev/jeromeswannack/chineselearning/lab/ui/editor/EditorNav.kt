@@ -11,9 +11,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -26,11 +28,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv
 import dev.jeromeswannack.chineselearning.lab.core.spec.LessonCatalogue
 import dev.jeromeswannack.chineselearning.lab.core.spec.LessonExport
 import dev.jeromeswannack.chineselearning.lab.core.spec.ReaderExport
+import dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget
 import dev.jeromeswannack.chineselearning.lab.data.api.createBlankReader
 import dev.jeromeswannack.chineselearning.lab.data.api.editableLesson
 import dev.jeromeswannack.chineselearning.lab.data.api.libraryItem
 import dev.jeromeswannack.chineselearning.lab.data.api.readerSpec
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AnkiExportSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ErrorState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreenFrame
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
@@ -86,6 +90,8 @@ private fun LessonEditorRoute(nav: LabNav, target: String, id: String) {
     LaunchedEffect(Unit) { dev.jeromeswannack.chineselearning.lab.core.Pinyin.preload() }
     val backTo = if (target == "library") Routes.libraryItem(id) else Routes.lessons()
     val spec = ui.spec
+    var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
+    AnkiExportSheet(anki) { anki = null }
     LessonEditorScreen(
         ui = ui,
         chat = chat,
@@ -101,7 +107,7 @@ private fun LessonEditorRoute(nav: LabNav, target: String, id: String) {
             onDuplicate = if (target == "library") ({ vm.duplicate { copy -> nav.open(Routes.libraryEdit(copy)) } }) else null,
             onExport = { format, share -> spec?.let { val f = lessonExport(it, format); if (share) exporter.share(f) else exporter.saveAs(f) } },
             onPrint = { spec?.let { exporter.print(it.text("title").ifEmpty { "Lesson" }, LessonExport.toMarkdown(it)) } },
-            onAnki = { nav.openInMainApp(if (target == "library") Routes.libraryItem(id) else Routes.lessonEdit(id)) },
+            onAnki = { spec?.let { anki = AnkiExportTarget.Lesson(it, id) } },
             onRawJson = vm::applyRawJson,
             onArchive = if (ui.isOwner) ({ vm.archiveOrDelete { nav.open(if (target == "library") Routes.LIBRARY else Routes.lessons()) } }) else null,
             speak = speak,
@@ -211,6 +217,8 @@ private fun ReaderEditorRoute(nav: LabNav, id: String) {
     val exporter = rememberExporter(onSaved = { vm.notify(it) }, onError = { vm.notify(it, error = true) })
     LaunchedEffect(Unit) { dev.jeromeswannack.chineselearning.lab.core.Pinyin.preload() }
     val spec = ui.spec
+    var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
+    AnkiExportSheet(anki) { anki = null }
     ReaderEditorScreen(
         ui = ui,
         chat = chat,
@@ -224,7 +232,7 @@ private fun ReaderEditorRoute(nav: LabNav, id: String) {
             onRead = { nav.open(Routes.reader(id)) },
             onExport = { format, share -> spec?.let { val f = readerExport(it, format); if (share) exporter.share(f) else exporter.saveAs(f) } },
             onPrint = { spec?.let { exporter.print(it.text("title_chinese").ifEmpty { "Reader" }, ReaderExport.toMarkdown(it)) } },
-            onAnki = { nav.openInMainApp(Routes.readerEdit(id)) },
+            onAnki = { anki = AnkiExportTarget.Reader(id, spec?.text("title_chinese").orEmpty()) },
             onRawJson = vm::applyRawJson,
             onDelete = { vm.delete { nav.open(Routes.readers()) } },
             onAssist = vm::assist,

@@ -11,7 +11,6 @@
  * Each returns { blob, filename, stats }; `saveAnkiExport` downloads it.
  */
 
-import { pinyin } from 'pinyin-pro';
 import { db, getNotesByDeckId } from '../../db/database';
 import { getDeck, getGradedReader } from '../../api/client';
 import { downloadBlob } from '../../components/editor/download';
@@ -21,6 +20,7 @@ import { buildApkg, type AnkiNote } from './apkg';
 import { resolveAudio, audioRefKey } from './media';
 import { deckToAnki, lessonToAnki, readerToAnki, type AnkiSource, type AudioRef, type AudioField, type ReaderSource } from './sources';
 import { loadSqlJs } from './sqljs-loader';
+import { apkgFilename } from './naming';
 
 export type { AnkiNote, AnkiCardProgress, ApkgInput } from './apkg';
 export type { AnkiSource, AudioRef, SourceNote } from './sources';
@@ -57,27 +57,7 @@ export interface AnkiExportResult {
 
 const AUDIO_FIELDS: AudioField[] = ['Audio', 'SentenceAudio'];
 
-/**
- * `Readers::小猫的一天` → `Readers-xiao-mao-de-yi-tian.apkg`.
- * ASCII only: Chinese is transliterated to toneless pinyin because some
- * browsers drop a non-ASCII `download` name and save a file called
- * "download" with no extension, which Anki then can't open.
- */
-export function apkgFilename(title: string): string {
-  const transliterated = title
-    .replace(/::/g, ' ')
-    .replace(/[㐀-鿿]+/g, run => ` ${pinyin(run, { toneType: 'none', type: 'array' }).join('-')} `);
-  const base = transliterated
-    .normalize('NFKD')
-    .replace(/[^\x20-\x7e]/g, '')
-    .replace(/[\\/:*?"<>|]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'anki-export';
-  return `${base}.apkg`;
-}
+export { apkgFilename } from './naming';
 
 /** Resolve audio, fill the sound fields and build the package. */
 export async function packageSource(source: AnkiSource, options: AnkiExportOptions = {}): Promise<AnkiExportResult> {

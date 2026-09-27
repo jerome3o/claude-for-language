@@ -153,7 +153,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   └── package.json
 │
 ├── android-lab/           # Experimental PURE-NATIVE Android app (Kotlin + Compose), beside the hybrid app — see android-lab/README.md
-│   ├── core/              # Pure Kotlin ports: FSRS (ts-fsrs), budget, study queue, answer check — parity-tested against the TS
+│   ├── core/              # Pure Kotlin ports: FSRS (ts-fsrs), budget, study queue, answer check, Anki .apkg ids / GUIDs / rows (core/…/anki, the app writes the SQLite + zip) — parity-tested against the TS
 │   ├── parity/            # generate-fixtures.ts: runs the web app's TypeScript to make the golden vectors
 │   ├── app/               # Android app: Room mirror + sync (same API), Compose UI, haptics/sounds; ui/nav = web tab bar + routes by web path (FeatureGraphs registry), data/platform = JsonCache + Outbox
 │   ├── docs/UI_KIT.md     # Shared Compose pieces + screenshot helper

@@ -32,6 +32,7 @@ val generateParityFixtures by tasks.registering(Exec::class) {
     inputs.dir(File(repoRoot, "shared"))
     inputs.dir(File(repoRoot, "frontend/src/utils"))
     inputs.dir(File(repoRoot, "frontend/src/components/home")) // package E: the "From <tutor>" card rules
+    inputs.dir(File(repoRoot, "frontend/src/services/anki")) // package K: the .apkg export (ids, GUIDs, rows)
     outputs.dir(parityDir)
     commandLine("bash", rootProject.file("parity/generate.sh").absolutePath, parityDir.get().asFile.absolutePath)
 }

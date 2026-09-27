@@ -49,7 +49,7 @@ class LessonEditorActions(
     val onDuplicate: (() -> Unit)? = null,
     val onExport: (ExportFormat, share: Boolean) -> Unit = { _, _ -> },
     val onPrint: () -> Unit = {},
-    /** Anki export isn't native yet: opens the main app here. */
+    /** Opens the Anki export sheet (built on the phone, ui/kit/AnkiExportSheet.kt). */
     val onAnki: () -> Unit = {},
     /** Returns the problems (empty = applied). */
     val onRawJson: (String) -> List<String> = { emptyList() },
@@ -108,7 +108,7 @@ fun LessonEditorScreen(
         actions.onDuplicate?.let { add(EditorMenuItem("⧉", "Duplicate", onClick = it)) }
         add(EditorMenuItem("⬇", "Export (Markdown, JSON, CSV)", section = true) { export = true })
         add(EditorMenuItem("🖨", "Print view", onClick = actions.onPrint))
-        add(EditorMenuItem("⬇", "Export Anki (.apkg)", external = true, onClick = actions.onAnki))
+        add(EditorMenuItem("⬇", "Export Anki (.apkg)", onClick = actions.onAnki))
         add(EditorMenuItem("{ }", "Advanced: raw JSON", section = true) { rawJson = true })
         if (actions.onArchive != null) add(EditorMenuItem(if (target == "library") "🗄" else "🗑", if (target == "library") "Archive" else "Delete lesson", danger = true, section = true) { confirmArchive = true })
     }

@@ -243,7 +243,7 @@ private fun DeckMenu(ui: DeckUi, actions: DeckActions, onDelete: () -> Unit) {
                 DropdownMenuItem(text = { Text("🎙 Regenerate audio…") }, enabled = ui.selected == null && ui.audioJob == null, onClick = { open = false; actions.onRegenerateMode() })
             }
             HorizontalDivider(color = Lab.colors.faint)
-            DropdownMenuItem(text = { Text("⬇ Export → Anki (.apkg) ↗") }, onClick = { open = false; actions.onExportAnki() })
+            DropdownMenuItem(text = { Text("⬇ Export → Anki (.apkg)") }, onClick = { open = false; actions.onExportAnki() })
             HorizontalDivider(color = Lab.colors.faint)
             DropdownMenuItem(text = { Text("🗑 Delete deck", color = Palette.Again) }, onClick = { open = false; onDelete() })
         }

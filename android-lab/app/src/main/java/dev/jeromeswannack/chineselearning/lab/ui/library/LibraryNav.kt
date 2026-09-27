@@ -3,13 +3,18 @@ package dev.jeromeswannack.chineselearning.lab.ui.library
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
+import dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget
 import dev.jeromeswannack.chineselearning.lab.ui.catalogue.CatalogueRoute
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AnkiExportSheet
 import dev.jeromeswannack.chineselearning.lab.ui.editor.Exporter
 import dev.jeromeswannack.chineselearning.lab.ui.editor.rememberExporter
 import dev.jeromeswannack.chineselearning.lab.ui.editor.rememberJsonPicker
@@ -39,7 +44,9 @@ private fun LibraryRoute(nav: LabNav) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val exporter = rememberExporter(onSaved = model::showSuccess, onError = model::showError)
     val pickJson = rememberJsonPicker(onText = model::importJson, onError = model::showError)
-    Effects(model.effects, nav, exporter)
+    var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
+    AnkiExportSheet(anki) { anki = null }
+    Effects(model.effects, nav, exporter) { anki = it }
     LibraryScreen(
         ui,
         LibraryActions(
@@ -83,7 +90,9 @@ private fun LibraryItemRoute(nav: LabNav, id: String) {
     val model = vm.model
     val ui by model.ui.collectAsStateWithLifecycle()
     val exporter = rememberExporter(onSaved = model::showSuccess, onError = model::showError)
-    Effects(model.effects, nav, exporter)
+    var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
+    AnkiExportSheet(anki) { anki = null }
+    Effects(model.effects, nav, exporter) { anki = it }
     LibraryItemScreen(
         ui,
         LibraryItemActions(
@@ -107,7 +116,7 @@ private fun LibraryItemRoute(nav: LabNav, id: String) {
 }
 
 @Composable
-private fun Effects(effects: SharedFlow<LibraryEffect>, nav: LabNav, exporter: Exporter) {
+private fun Effects(effects: SharedFlow<LibraryEffect>, nav: LabNav, exporter: Exporter, onAnki: (AnkiExportTarget) -> Unit) {
     LaunchedEffect(effects) {
         effects.collect { e ->
             when (e) {
@@ -115,6 +124,7 @@ private fun Effects(effects: SharedFlow<LibraryEffect>, nav: LabNav, exporter: E
                 is LibraryEffect.OpenInMainApp -> nav.openInMainApp(e.path)
                 is LibraryEffect.Export -> if (e.save) exporter.saveAs(e.file) else exporter.share(e.file)
                 is LibraryEffect.Print -> exporter.print(e.title, e.markdown)
+                is LibraryEffect.Anki -> onAnki(e.target)
             }
         }
     }

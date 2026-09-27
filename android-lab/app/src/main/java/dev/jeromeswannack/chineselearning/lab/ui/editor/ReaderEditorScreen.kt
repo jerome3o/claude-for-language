@@ -113,7 +113,7 @@ fun ReaderEditorScreen(ui: ReaderEditorUi, chat: EditorChatUi, actions: ReaderEd
         EditorMenuItem("📖", "Read it", onClick = actions.onRead),
         EditorMenuItem("⬇", "Export (Markdown, JSON, CSV)", section = true) { export = true },
         EditorMenuItem("🖨", "Print view", onClick = actions.onPrint),
-        EditorMenuItem("⬇", "Export Anki (.apkg)", external = true, onClick = actions.onAnki),
+        EditorMenuItem("⬇", "Export Anki (.apkg)", onClick = actions.onAnki),
         EditorMenuItem("{ }", "Advanced: raw JSON", section = true) { rawJson = true },
         EditorMenuItem("🗑", "Delete reader", danger = true, section = true) { confirmDelete = true },
     )
