@@ -50,6 +50,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    // Room's exported schemas are test assets, so MigrationTest can build every old version.
+    sourceSets.getByName("test").assets.srcDir("$projectDir/schemas")
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -103,5 +105,8 @@ dependencies {
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(libs.room.testing)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.kotlinx.coroutines.test)
     debugImplementation(libs.compose.ui.test.manifest)
 }
