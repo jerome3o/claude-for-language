@@ -211,7 +211,11 @@ class LessonStore(private val cache: JsonCache, private val outbox: Outbox, priv
     suspend fun prefetchMedia(online: Boolean) {
         if (!online) return
         val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault())
-        for (entry in dueLessons(cutoff)) {
+        val due = dueLessons(cutoff)
+        // Stroke-order data for handwriting, so the writing pad checks strokes offline.
+        val handwritten = due.flatMap { dev.jeromeswannack.chineselearning.lab.core.StrokeQuiz.writableCharacters(Lessons.handwritingText(it.lesson.spec)) }.distinct()
+        if (handwritten.isNotEmpty()) runCatching { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore(File(filesDir, "strokes")).prefetch(handwritten) }
+        for (entry in due) {
             for (clip in Lessons.ttsClips(entry.lesson.spec)) {
                 if (clip.text.isBlank()) continue
                 media.tts(clip.text, clip.voice, online = true)

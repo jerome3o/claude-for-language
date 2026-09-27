@@ -115,6 +115,7 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false): ExerciseEnv {
         onCorrect = { app.sounds.play(Sounds.Sfx.CORRECT); app.haptics.correct() },
         onWrong = { app.sounds.play(Sounds.Sfx.WRONG, 0.6f); app.haptics.wrong() },
         onTap = { app.haptics.tick() },
+        strokeLoader = remember(app) { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore.of(app)::get },
     )
 }
 

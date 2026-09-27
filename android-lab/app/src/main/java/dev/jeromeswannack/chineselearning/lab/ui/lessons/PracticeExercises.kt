@@ -70,6 +70,19 @@ import dev.jeromeswannack.chineselearning.lab.core.WritingCue
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.core.StrokeQuiz
+import dev.jeromeswannack.chineselearning.lab.core.WritingExerciseResult
+import dev.jeromeswannack.chineselearning.lab.core.WritingMode
+import dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeLoad
+import dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingExercise
+import androidx.compose.runtime.produceState
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,8 +91,9 @@ import java.io.File
 /*
  * Ports of frontend/src/components/practice-exercises.tsx: sentence making, writing
  * (typed / handwritten — separate skills), dictation, oral expression (recorded for the
- * tutor) and two-voice conversations. Handwriting uses the free sketch pad with
- * self-assessment — the web's own fallback when the stroke-order data isn't on the device.
+ * tutor) and two-voice conversations. Handwriting runs on package H's stroke-order
+ * WritingExercise (right only when written from memory); when a character's stroke data
+ * isn't on the device it falls back to the free sketch pad with self-assessment, like the web.
  */
 
 // ============ Sentence making ============
@@ -225,12 +239,80 @@ private fun HandwritingCompare(hw: HandwritingAnswer?, model: LessonSentence, en
     }
 }
 
+/** Which pad a known text gets (`useStrokePadAvailable`): the stroke-order pad when every
+ * character's data is on the device (or fetchable), else the free sketch pad. */
+@Composable
+private fun rememberPadKind(text: String, env: ExerciseEnv): String {
+    val loader = env.strokeLoader
+    val kind by produceState(if (loader == null) "sketch" else "checking", text, loader) {
+        if (loader == null) { value = "sketch"; return@produceState }
+        val chars = StrokeQuiz.writableCharacters(text).distinct()
+        if (chars.isEmpty()) { value = "sketch"; return@produceState }
+        val results = chars.map { loader(it) }
+        val usable = results.none { it == StrokeLoad.Offline } && results.any { it is StrokeLoad.Ok }
+        value = if (usable) "strokes" else "sketch"
+    }
+    return kind
+}
+
+/** A finished stroke-order run as the attempt keeps it (`summarizeWriting`, StrokeWritingSummary). */
+fun summarizeWriting(r: WritingExerciseResult): JsonObject = buildJsonObject {
+    put("text", r.text)
+    put("mode", r.mode.wire)
+    put("grade", r.grade.wire)
+    putJsonArray("skipped") { r.skipped.forEach { add(it) } }
+    putJsonArray("characters") {
+        for (c in r.characters) addJsonObject {
+            put("character", c.character)
+            put("grade", c.grade.wire)
+            put("mistakes", c.mistakes)
+            put("hints", c.hints)
+            put("revealed", c.revealed)
+            put("ms", c.ms)
+            put("accuracy", c.accuracy)
+            putJsonArray("strokes") {
+                for (st in c.strokes) addJsonObject {
+                    put("misses", st.misses)
+                    putJsonArray("mistakes") { st.mistakes.forEach { add(it.wire) } }
+                    put("hinted", st.hinted)
+                    put("revealed", st.revealed)
+                    st.drawn?.let { d -> putJsonArray("drawn") { d.forEach { p -> addJsonArray { add(p[0]); add(p[1]) } } } }
+                }
+            }
+        }
+    }
+}
+
+/** `strokeAnswer`: right only when written from memory (a Trace run counts as needing help). */
+fun strokeAnswer(r: WritingExerciseResult): HandwritingAnswer =
+    HandwritingAnswer(engine = "strokes", text = r.text, checked = StrokeQuiz.writtenFromMemory(r), mistakes = r.characters.sumOf { it.mistakes }, writing = summarizeWriting(r))
+
 @Composable
 fun WriteHandwritingView(ex: WriteHandwritingExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
+    val cues = ex.cues ?: WritingCue.DEFAULT
+    val pad = rememberPadKind(ex.answer.hanzi, env)
     var hw by remember { mutableStateOf<HandwritingAnswer?>(null) }
     var checked by remember { mutableStateOf(false) }
+    var run by remember { mutableStateOf<WritingExerciseResult?>(null) }
     PhaseLabel("Write it by hand ✍️")
-    WritingCues(ex.answer, ex.cues ?: WritingCue.DEFAULT, ex.prompt, env)
+    if (pad == "strokes") {
+        ex.prompt?.takeIf { it.isNotBlank() }?.let { ContextBox(it) }
+        if (WritingCue.AUDIO in cues) ListenPlayButton(ex.answer.hanzi, env)
+        WritingExercise(
+            text = ex.answer.hanzi,
+            pinyin = if (WritingCue.PINYIN in cues) ex.answer.pinyin else null,
+            english = if (WritingCue.ENGLISH in cues) ex.answer.english else null,
+            initialMode = WritingMode.RECALL,
+            hideCharacters = true,
+            onComplete = { r -> run = r; env.speak(ex.answer.hanzi) },
+            onDone = { run?.let { r -> onNext(StrokeQuiz.writtenFromMemory(r), ExerciseAnswer(handwriting = strokeAnswer(r))) } },
+            doneLabel = "Continue",
+            loader = env.strokeLoader,
+        )
+        return
+    }
+    WritingCues(ex.answer, cues, ex.prompt, env)
+    if (pad == "checking") return
     if (!checked) {
         SketchPad(ex.answer.hanzi, { hw = it })
         ActionRow { Primary("Check", enabled = hasStrokes(hw)) { checked = true; env.speak(ex.answer.hanzi) } }
@@ -248,10 +330,13 @@ fun WriteHandwritingView(ex: WriteHandwritingExercise, env: ExerciseEnv, onNext:
 @Composable
 fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     val typed = ex.typed
+    val pad = rememberPadKind(if (typed) "" else ex.audio.hanzi, env)
+    val strokes = !typed && pad == "strokes"
     var text by remember { mutableStateOf("") }
     var hw by remember { mutableStateOf<HandwritingAnswer?>(null) }
     var diff by remember { mutableStateOf<LessonAnswers.HanziDiff?>(null) }
     var revealed by remember { mutableStateOf(false) }
+    var strokeRun by remember { mutableStateOf<WritingExerciseResult?>(null) }
     var plays by remember { mutableIntStateOf(0) }
     fun check() {
         if (typed) {
@@ -261,19 +346,36 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         }
         revealed = true
     }
-    fun base(selfAssessed: Boolean? = null) =
-        if (typed) ExerciseAnswer(plays = plays, text = text.trim(), selfAssessed = selfAssessed) else ExerciseAnswer(plays = plays, handwriting = hw, selfAssessed = selfAssessed)
+    fun base(selfAssessed: Boolean? = null): ExerciseAnswer = when {
+        typed -> ExerciseAnswer(plays = plays, text = text.trim(), selfAssessed = selfAssessed)
+        else -> ExerciseAnswer(plays = plays, handwriting = strokeRun?.let(::strokeAnswer) ?: hw, selfAssessed = selfAssessed)
+    }
+    val verdict: Boolean? = if (typed) diff?.correct else strokeRun?.let { StrokeQuiz.writtenFromMemory(it) }
 
     PhaseLabel("Dictation ${if (typed) "⌨️" else "✍️"}")
     Explanation("Write down exactly what you hear.")
     ListenPlayButton(ex.audio.hanzi, env) { plays++ }
     if (!revealed) {
-        if (typed) {
-            AnswerField(text, { text = it }, "汉字…", singleLine = true, big = true, onDone = { if (text.isNotBlank()) check() })
-            ActionRow { Primary("Check", enabled = text.isNotBlank()) { check() } }
-        } else {
-            SketchPad(ex.audio.hanzi, { hw = it })
-            ActionRow { Primary("Check", enabled = hasStrokes(hw)) { check() } }
+        when {
+            typed -> {
+                AnswerField(text, { text = it }, "汉字…", singleLine = true, big = true, onDone = { if (text.isNotBlank()) check() })
+                ActionRow { Primary("Check", enabled = text.isNotBlank()) { check() } }
+            }
+            strokes -> WritingExercise(
+                text = ex.audio.hanzi,
+                initialMode = WritingMode.RECALL,
+                allowModeSwitch = false,
+                hideCharacters = true,
+                onComplete = { strokeRun = it },
+                onDone = { revealed = true },
+                doneLabel = "Show the sentence",
+                loader = env.strokeLoader,
+            )
+            pad == "checking" -> Unit
+            else -> {
+                SketchPad(ex.audio.hanzi, { hw = it })
+                ActionRow { Primary("Check", enabled = hasStrokes(hw)) { check() } }
+            }
         }
     } else {
         val d = diff
@@ -281,11 +383,15 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
             ResultBanner(d.correct, if (d.correct) "✓ Every character right" else "${Math.round(d.accuracy * 100)}% of the characters")
             CharDiffView(d)
         }
-        if (!typed) HandwritingCompare(hw, ex.audio, env)
+        strokeRun?.let { r ->
+            val ok = StrokeQuiz.writtenFromMemory(r)
+            ResultBanner(ok, if (ok) "✓ Written from memory" else "✗ Needed help with some strokes")
+        }
+        if (!typed && strokeRun == null) HandwritingCompare(hw, ex.audio, env)
         Reference(ex.audio, env)
         ex.note?.takeIf { it.isNotBlank() }?.let { Explanation(it) }
-        if (d != null) {
-            ActionRow { Primary("Continue") { onNext(d.correct, base()) } }
+        if (verdict != null) {
+            ActionRow { Primary("Continue") { onNext(verdict, base()) } }
         } else {
             SelfAssess("Did you write down every character you heard?") { ok -> onNext(ok, base(selfAssessed = true)) }
         }

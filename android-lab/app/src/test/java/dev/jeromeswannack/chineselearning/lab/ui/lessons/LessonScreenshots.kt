@@ -48,7 +48,8 @@ class LessonScreenshots : LabScreenshotTest() {
     private val now = Js.parseDate("2026-09-27T09:30:00.000Z")
     private val previews = CardScheduler.intervalPreviews(CardScheduler.initialCardState(), now)
 
-    private fun env() = ExerciseEnv(
+    private fun env(strokes: Boolean = false) = ExerciseEnv(
+        strokeLoader = if (strokes) dev.jeromeswannack.chineselearning.lab.ui.strokes.TestStrokes.loader else null,
         playClip = { _, _ -> true },
         sentenceFeedback = { _, _, _ ->
             SentenceFeedback("minor", true, LessonSentence("吃完饭以后，我把碗洗干净了。", "Chī wán fàn yǐhòu, wǒ bǎ wǎn xǐ gānjìng le.", "After dinner I washed the bowls."), "Nice use of 把! Add 了 after the result to show it's done.")
@@ -146,6 +147,13 @@ class LessonScreenshots : LabScreenshotTest() {
         tap("✓ Got it")
         tap("Show transcript")
     }
+
+    // ---- handwriting on package H's stroke-order pad (stroke data on the device) ----
+    private val hello = dev.jeromeswannack.chineselearning.lab.core.WriteHandwritingExercise(LessonSentence("你好", "nǐ hǎo", "hello"))
+    @Test fun writeHandwritingStrokes() = shoot("lessons-35-write-handwriting-strokes", content = player(hello, env(strokes = true)))
+    @Test fun dictationStrokes() = shoot("lessons-36-dictation-strokes", content = player(
+        dev.jeromeswannack.chineselearning.lab.core.DictationExercise(LessonSentence("你好", "nǐ hǎo", "hello"), input = "handwrite"), env(strokes = true),
+    ))
 
     // ---- the player: in the session, finished, dark / unfolded ----
     @Test fun inSession() = shoot("lessons-30-in-session") {

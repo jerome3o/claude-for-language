@@ -38,7 +38,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -75,39 +74,97 @@ import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
+import dev.jeromeswannack.chineselearning.lab.data.api.VocabularyDefinition
+import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
 
+/** Everything the session screen can ask for. Defaults are no-ops so screenshots need none. */
 class StudyActions(
     val onClose: () -> Unit = {},
     val onUndo: () -> Unit = {},
     val onReveal: (AnswerKey.Verdict?) -> Unit = {},
     val onRate: (rating: Int, timeSpentMs: Long, userAnswer: String?) -> Unit = { _, _, _ -> },
     val onPlay: (key: String?, text: String) -> Unit = { _, _ -> },
+    /** The word itself: its recordings in turn ([advance] = next voice), else its own clip. */
+    val onPlayWord: (advance: Boolean) -> Unit = {},
     val onStudyMore: () -> Unit = {},
-    val onOpenInApp: (noteId: String) -> Unit = {},
+    val onToggleOffline: () -> Unit = {},
+    val onDismissExplainer: () -> Unit = {},
+    val onDismissNotice: () -> Unit = {},
+    // ⋯ menu
+    val onGenerateFunFact: () -> Unit = {},
+    val onRegenerateAudio: () -> Unit = {},
+    val onNewVoice: () -> Unit = {},
+    val onRoleplay: () -> Unit = {},
+    val onWriteIt: (hanzi: String) -> Unit = {},
+    val onPlayMyRecording: () -> Unit = {},
+    /** "Use in sentence" when the note has none yet, and ↻ on the shown one. */
+    val onGenerateSentenceClue: () -> Unit = {},
+    val sendFlag: suspend (FlagTutor, String) -> Boolean = { _, _ -> false },
+    val edit: EditCardActions = EditCardActions(),
+    val ask: AskActions = AskActions(),
+    // tap a character
+    val define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition = { _, _, _ -> error("offline") },
+    val deckHolding: suspend (String) -> String? = { null },
+    val addDefinition: suspend (VocabularyDefinition) -> Unit = {},
     // ---- Package B: mini lessons in the session ----
     val lessonEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(),
     val onLessonComplete: (dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) -> Unit = {},
 )
 
 @Composable
-fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpenInApp: (String) -> Unit) {
+fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit, onHandoff: (String) -> Unit) {
     val vm: StudyViewModel = viewModel(key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
     val ui by vm.ui.collectAsStateWithLifecycle()
     val playing by app.audio.playingKey.collectAsState()
+    val sync by app.repo.status.collectAsState()
     var confirmExit by remember { mutableStateOf(false) }
     val requestExit = { if (ui.stats.reviews == 0 || ui.phase is StudyPhase.Done) onExit() else confirmExit = true }
     BackHandler(onBack = requestExit)
+    val tools = vm.tools
+    val currentNote = { (vm.ui.value.phase as? StudyPhase.Showing)?.view?.note }
+    val newNote = { d: VocabularyDefinition -> NewNoteBody(d.hanzi, d.pinyin, d.english, d.fun_facts) }
     StudyScreen(
         ui = ui,
         playingKey = playing,
+        pendingReviews = sync.unsynced,
         actions = StudyActions(
             onClose = requestExit,
             onUndo = vm::undoLast,
             onReveal = vm::onRevealed,
             onRate = vm::rate,
             onPlay = vm::play,
+            onPlayWord = vm::playWord,
             onStudyMore = vm::studyMore,
-            onOpenInApp = onOpenInApp,
+            onToggleOffline = vm::toggleForcedOffline,
+            onDismissExplainer = vm::dismissExplainer,
+            onDismissNotice = vm::dismissNotice,
+            onGenerateFunFact = vm::generateFunFact,
+            onRegenerateAudio = vm::regenerateAudio,
+            onNewVoice = vm::newVoice,
+            onRoleplay = { vm.roleplay(onOpen) },
+            onWriteIt = { hanzi -> onHandoff("/practice/strokes?text=" + java.net.URLEncoder.encode(hanzi, "UTF-8").replace("+", "%20")) },
+            onGenerateSentenceClue = { vm.generateSentenceClue() },
+            sendFlag = vm::flag,
+            edit = EditCardActions(
+                save = vm::saveEdit,
+                delete = { vm.deleteCurrentNote() },
+                generateClue = { currentNote()?.let { n -> tools.generateSentenceClue(n.id) } },
+                recordings = { currentNote()?.let { n -> tools.recordings(n.id) }.orEmpty() },
+                setPrimary = { id -> currentNote()?.let { n -> tools.setPrimaryRecording(n.id, id) } },
+                deleteRecording = { id -> currentNote()?.let { n -> tools.deleteRecording(n.id, id) } },
+                play = vm::play,
+            ),
+            ask = AskActions(
+                ask = vm::ask,
+                approve = vm::approveTools,
+                reject = vm::rejectTools,
+                toFlashcard = tools::toFlashcard,
+                decks = vm::deckChoices,
+                addFlashcard = { deckId, d -> tools.addNote(deckId, NewNoteBody(d.hanzi, d.pinyin, d.english, d.fun_facts)) },
+            ),
+            define = { h, c, r -> tools.define(h, c, r) },
+            deckHolding = tools::deckHolding,
+            addDefinition = { d -> tools.addNote(currentNote()?.deckId ?: error("No card"), newNote(d)) },
             lessonEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv(app), // Package B
             onLessonComplete = vm::completeLesson, // Package B
         ),
@@ -125,12 +182,12 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpenInApp: (S
 }
 
 @Composable
-fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState = CardStartState(), autoplay: Boolean = true) {
+fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState = CardStartState(), autoplay: Boolean = true, pendingReviews: Int = 0) {
     var milestone by remember { mutableIntStateOf(0) }
     LaunchedEffect(ui.stats.streak) { if (ui.stats.streak in setOf(5, 10, 20, 30, 50, 75, 100)) milestone++ }
     Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
-            StudyTopBar(ui, actions)
+            StudyTopBar(ui, actions, pendingReviews)
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
                     targetState = ui.phase,
@@ -140,13 +197,16 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                 ) { phase ->
                     when (phase) {
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
-                        is StudyPhase.Showing -> CardStage(phase.view, playingKey, actions, cardStart, autoplay)
+                        is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart, autoplay)
                         is StudyPhase.Lesson -> dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLessonView(phase.lesson, ui.counts, actions.lessonEnv, actions.onLessonComplete) // Package B
                         StudyPhase.Done -> DoneView(ui, actions)
                     }
                 }
                 SparkBurst(milestone, Palette.Confetti, origin = Offset(0.5f, 0.1f), sparks = 40)
             }
+        }
+        AnimatedVisibility(ui.showExplainer && ui.phase is StudyPhase.Showing, enter = fadeIn(), exit = fadeOut()) {
+            FirstCardExplainer(actions.onDismissExplainer)
         }
     }
 }
@@ -165,13 +225,14 @@ private fun cardTransition(lastRating: Int?): ContentTransform {
 }
 
 @Composable
-private fun StudyTopBar(ui: StudyUi, actions: StudyActions) {
+private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "End session", tint = Lab.colors.muted) }
             Counts(ui.counts, Modifier.weight(1f))
             StreakChip(ui.stats.streak)
-            if (!ui.online) Icon(Icons.Filled.CloudOff, "Offline", Modifier.padding(horizontal = 6.dp).size(18.dp), tint = Lab.colors.muted)
+            Spacer(Modifier.width(6.dp))
+            OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
             IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
                 Icon(Icons.AutoMirrored.Filled.Undo, "Undo last review", tint = if (ui.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
             }

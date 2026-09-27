@@ -154,6 +154,8 @@ private fun TypedDiff(text: String?, expected: String, alternatives: List<String
 
 @Composable
 private fun Handwritten(a: ExerciseAttempt, model: String) {
+    val writing = a.answer?.handwriting?.writing as? kotlinx.serialization.json.JsonObject
+    if (writing != null) return StrokeRunSummary(writing)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         val strokes = a.answer?.handwriting?.strokes
         Box(Modifier.weight(1f)) { if (strokes != null) StrokesView(strokes, "Wrote", maxHeight = 120.dp) else Text("(nothing)", color = Lab.colors.muted) }
@@ -252,6 +254,31 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
                         mark + (picked ?: "—") + if (qa?.correct == false && options != null && right != null) " (answer: ${options.getOrNull(right)})" else "",
                         color = when (qa?.correct) { true -> Palette.Good; false -> Palette.Again; null -> Lab.colors.muted },
                     )
+                }
+            }
+        }
+    }
+}
+
+/** A stroke-order checked run (`StrokeRunView`, simplified): each character with its grade, mistakes and hints. */
+@Composable
+private fun StrokeRunSummary(run: kotlinx.serialization.json.JsonObject) {
+    fun kotlinx.serialization.json.JsonElement?.str() = (this as? kotlinx.serialization.json.JsonPrimitive)?.content
+    val mode = run["mode"].str()
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        AttRow("Pad", if (mode == "trace") "traced (needed help)" else "from memory · ${run["grade"].str() ?: ""}")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val chars = (run["characters"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+            for (c in chars) {
+                val o = c as? kotlinx.serialization.json.JsonObject ?: continue
+                val grade = o["grade"].str()
+                val tint = when (grade) { "perfect" -> Palette.Good; "good" -> Palette.Easy; else -> Palette.Hard }
+                Column(
+                    Modifier.clip(RoundedCornerShape(12.dp)).background(tint.copy(alpha = 0.10f)).border(1.5.dp, tint, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(o["character"].str() ?: "", fontSize = 28.sp, color = Lab.colors.ink)
+                    Text("${o["mistakes"].str() ?: "0"} ✗ · ${o["hints"].str() ?: "0"} hints", fontSize = 11.sp, color = Lab.colors.muted)
                 }
             }
         }

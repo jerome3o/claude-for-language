@@ -32,8 +32,14 @@ Roborazzi renders at the Pixel Fold's folded size (412×915dp). Emoji that look 
 ![Writing (typed) — diffHanzi marks the wrong character, % of characters](lessons-21-write-typed-answered.png)
 *Writing (typed) — diffHanzi marks the wrong character, % of characters*
 
-![Writing (handwriting) — sketch pad strokes next to the model, self-assessed](lessons-23-write-handwriting-answered.png)
-*Writing (handwriting) — sketch pad strokes next to the model, self-assessed*
+![Writing (handwriting) on package H's stroke-order pad — recall mode, characters hidden](lessons-35-write-handwriting-strokes.png)
+*Writing (handwriting) on package H's stroke-order pad — recall mode, characters hidden*
+
+![Dictation (handwritten) — stroke pad, no mode switch](lessons-36-dictation-strokes.png)
+*Dictation (handwritten) — stroke pad, no mode switch*
+
+![Handwriting offline fallback — sketch pad strokes next to the model, self-assessed](lessons-23-write-handwriting-answered.png)
+*Handwriting offline fallback (stroke data not on the phone) — sketch pad strokes next to the model, self-assessed*
 
 ![Dictation (typed) — character diff against what was played](lessons-25-dictation-answered.png)
 *Dictation (typed) — character diff against what was played*

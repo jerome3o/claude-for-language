@@ -60,6 +60,12 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     )
     private var undo: UndoSnapshot? = null
 
+    val tools = CardTools(app)
+    private val studyPrefs = StudyPrefs.get(app)
+    /** Notes whose missing fun fact / sentence / clip were already requested this session. */
+    private val backgroundFilled = HashSet<String>()
+    private var extrasJob: Job? = null
+
     // ---- Package B: mini lessons mixed into the cards (ui/lessons/StudyExtras.kt) ----
     private val extras = dev.jeromeswannack.chineselearning.lab.ui.lessons.StudyExtras(app, deckId)
 
@@ -106,8 +112,15 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
 
     init {
         viewModelScope.launch { app.online.collect { online -> _ui.update { it.copy(online = online) } } }
+        viewModelScope.launch { studyPrefs.forcedOffline.collect { f -> _ui.update { it.copy(forcedOffline = f) } } }
+        viewModelScope.launch {
+            val none = withContext(Dispatchers.IO) { repo.dao.reviewsSince("0000") == 0 }
+            _ui.update { it.copy(showExplainer = none && !studyPrefs.explainerSeen) }
+        }
         viewModelScope.launch { load(resetRecent = true) }
     }
+
+    private val aiAvailable get() = _ui.value.aiAvailable
 
     private fun today() = LocalDate.now(zone).toString()
     private val scopeKey get() = deckId ?: "all"
@@ -152,6 +165,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
                     alternatives = alternatives,
                     presentation = ++presentation,
                     deckName = deckNames[card.deckId],
+                    audioCached = it.audioUrl.isNullOrBlank() || repo.cachedAudio(it.audioUrl) != null,
                 )
             }
         }
@@ -161,7 +175,228 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
             return
         }
-        _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+        _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras()) }
+        loadExtras(view)
+    }
+
+    // ---------------- the card's extras ----------------
+
+    /** Tutor notes, tutors, the note's voices, and the background fills the web does on each card. */
+    private fun loadExtras(view: CardView) {
+        extrasJob?.cancel()
+        extrasJob = viewModelScope.launch {
+            val rel = app.cache.get<dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto>(dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys.RELATIONSHIPS)
+            val notes = TutorNotes.forCard(app.cache, view.card.id, view.note.id)
+            updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel)) }
+            if (!aiAvailable) return@launch
+            runCatching { tools.voices(view.note.id) }.getOrNull()?.let { v -> updateExtras(view) { it.copy(voices = v) } }
+            backgroundFill(view.note)
+        }
+    }
+
+    /**
+     * The web's StudyCard effects: a note with no clip gets one generated, and a missing fun
+     * fact / example sentence is written in the background — once per note, online only.
+     */
+    private suspend fun backgroundFill(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity) {
+        if (!backgroundFilled.add(note.id)) return
+        if (note.audioUrl.isNullOrBlank()) runCatching { tools.generateAudio(note.id) }.getOrNull()?.let(::showNote)
+        if (note.funFacts.isNullOrBlank()) runCatching { tools.generateFunFact(note.id) }.getOrNull()?.let(::showNote)
+        if (note.sentenceClue.isNullOrBlank()) runCatching { tools.generateSentenceClue(note.id) }.getOrNull()?.let(::showNote)
+    }
+
+    private fun updateExtras(view: CardView, change: (CardExtras) -> CardExtras) {
+        _ui.update { u ->
+            val showing = (u.phase as? StudyPhase.Showing)?.view
+            if (showing?.presentation != view.presentation) u else u.copy(extras = change(u.extras))
+        }
+    }
+
+    private fun currentView(): CardView? = (_ui.value.phase as? StudyPhase.Showing)?.view
+
+    /** A changed note (mirrored into Room by CardTools) shows on the current card at once. */
+    private fun showNote(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity) {
+        _ui.update { u ->
+            val showing = (u.phase as? StudyPhase.Showing)?.view
+            if (showing == null || showing.note.id != note.id) u
+            else u.copy(phase = StudyPhase.Showing(showing.copy(note = note, alternatives = parseAlternatives(note.alternatives))))
+        }
+    }
+
+    private fun showSentences(noteId: String, rows: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>) {
+        _ui.update { u ->
+            val showing = (u.phase as? StudyPhase.Showing)?.view
+            if (showing == null || showing.note.id != noteId) u else u.copy(phase = StudyPhase.Showing(showing.copy(sentences = rows)))
+        }
+    }
+
+    private fun parseAlternatives(json: String?): List<String> =
+        json?.let { runCatching { repo.api.json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrDefault(emptyList()) }.orEmpty()
+
+    /** Runs a ⋯ item with its busy flag; a failure becomes the card's inline notice. */
+    private fun busy(which: CardBusy, block: suspend (CardView) -> Unit) {
+        val view = currentView() ?: return
+        if (which in _ui.value.extras.busy) return
+        updateExtras(view) { it.copy(busy = it.busy + which, notice = null) }
+        viewModelScope.launch {
+            try {
+                block(view)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateExtras(view) { it.copy(notice = CardTools.message(e)) }
+                app.haptics.wrong()
+            } finally {
+                updateExtras(view) { it.copy(busy = it.busy - which) }
+            }
+        }
+    }
+
+    fun generateFunFact() = busy(CardBusy.FUN_FACT) { v -> tools.generateFunFact(v.note.id)?.let(::showNote); app.haptics.correct() }
+
+    fun regenerateAudio() = busy(CardBusy.REGEN_AUDIO) { v ->
+        tools.regenerateAudio(v.note.id)?.let { n -> showNote(n); play(n.audioUrl, n.hanzi) }
+    }
+
+    fun newVoice() = busy(CardBusy.NEW_VOICE) { v ->
+        val clip = tools.newVoice(v.note.id)
+        val voices = runCatching { tools.voices(v.note.id) }.getOrDefault(_ui.value.extras.voices + clip)
+        updateExtras(v) { it.copy(voices = voices, voiceIndex = voices.indexOf(clip).coerceAtLeast(0)) }
+        play(clip, v.note.hanzi)
+    }
+
+    /** "Use in sentence" with no sentence yet, or ↻ on the shown one. */
+    fun generateSentenceClue(onDone: () -> Unit = {}) = busy(CardBusy.SENTENCE_CLUE) { v ->
+        tools.generateSentenceClue(v.note.id)?.let(::showNote)
+        onDone()
+    }
+
+    fun roleplay(onOpen: (String) -> Unit) = busy(CardBusy.ROLEPLAY) { v ->
+        val rel = _ui.value.extras.roleplayRelId ?: return@busy
+        onOpen(tools.roleplay(rel, v.note))
+    }
+
+    /** Play on the card: the note's recordings in turn (primary first), else its own clip. */
+    fun playWord(advance: Boolean) {
+        val v = currentView() ?: return
+        val voices = _ui.value.extras.voices
+        if (voices.isEmpty()) return play(v.note.audioUrl, v.note.hanzi)
+        val index = if (advance && voices.size > 1) (_ui.value.extras.voiceIndex + 1) % voices.size else if (advance) 0 else _ui.value.extras.voiceIndex.coerceIn(0, voices.lastIndex)
+        updateExtras(v) { it.copy(voiceIndex = index) }
+        play(voices[index], v.note.hanzi)
+    }
+
+    fun dismissNotice() {
+        val v = currentView() ?: return
+        updateExtras(v) { it.copy(notice = null) }
+    }
+
+    fun toggleForcedOffline() {
+        studyPrefs.setForcedOffline(!studyPrefs.forcedOffline.value)
+        app.haptics.tick()
+    }
+
+    fun dismissExplainer() {
+        studyPrefs.explainerSeen = true
+        _ui.update { it.copy(showExplainer = false) }
+    }
+
+    /** Edit sheet saved: mirror and show. Throws for the sheet to show the reason. */
+    suspend fun saveEdit(update: dev.jeromeswannack.chineselearning.lab.data.api.NoteUpdate) {
+        val v = currentView() ?: return
+        tools.editNote(v.note.id, update)?.let(::showNote)
+        app.haptics.correct()
+    }
+
+    /** Delete the current note (edit sheet ⋯, or Claude's delete_current_card) and move on. */
+    suspend fun deleteCurrentNote(alreadyDeletedOnServer: Boolean = false) {
+        val v = currentView() ?: return
+        if (alreadyDeletedOnServer) tools.removeLocally(v.note.id) else tools.deleteNote(v.note.id)
+        removeNoteFromSession(v.note.id)
+    }
+
+    /** `removeNoteFromSession`: every card of the note leaves the queue; the next one comes up. */
+    fun removeNoteFromSession(noteId: String) {
+        viewModelScope.launch {
+            queue.removeAll { it.noteId == noteId }
+            undo = null
+            _ui.update { it.copy(canUndo = false, lastRating = null) }
+            presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
+        }
+    }
+
+    /** Sentences for the current note changed (generated / cleared): show them. */
+    fun sentencesChanged(noteId: String) {
+        viewModelScope.launch { showSentences(noteId, withContext(Dispatchers.IO) { repo.dao.sentencesFor(noteId) }) }
+    }
+
+    // ---------------- Ask Claude ----------------
+
+    private fun updateAsk(view: CardView, change: (AskUi) -> AskUi) = updateExtras(view) { it.copy(ask = change(it.ask)) }
+
+    /**
+     * `handleAskClaude` / `sendQuickQuestion`: the typed answer rides along on typing cards,
+     * the conversation so far is the history; tool results wait for Approve.
+     */
+    fun ask(question: String, withHistory: Boolean, userAnswer: String?) {
+        val v = currentView() ?: return
+        val q = question.trim()
+        if (q.isEmpty() || _ui.value.extras.ask.asking) return
+        updateAsk(v) { it.copy(asking = true, pendingQuestion = q, error = null) }
+        viewModelScope.launch {
+            val typing = v.card.cardType != dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING
+            val context = if (typing && !userAnswer.isNullOrEmpty()) dev.jeromeswannack.chineselearning.lab.data.api.AskContext(userAnswer, v.note.hanzi, v.card.cardType) else null
+            val history = if (withHistory) _ui.value.extras.ask.conversation.map { dev.jeromeswannack.chineselearning.lab.data.api.AskHistoryItem(it.question, it.answer) } else null
+            try {
+                val answer = tools.ask(v.note.id, dev.jeromeswannack.chineselearning.lab.data.api.AskBody(q, context, history))
+                updateAsk(v) { it.copy(conversation = it.conversation + answer, asking = false, pendingQuestion = null, pending = answer.toolResults?.takeIf { r -> r.isNotEmpty() }) }
+                app.haptics.tick()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateAsk(v) { it.copy(asking = false, pendingQuestion = null, error = CardExtrasLogic.describeAskError(e, aiAvailable)) }
+            }
+        }
+    }
+
+    /** `approveToolResults`: apply Claude's changes here (the server already made them). */
+    fun approveTools() {
+        val v = currentView() ?: return
+        val pending = _ui.value.extras.ask.pending ?: return
+        updateAsk(v) { it.copy(pending = null) }
+        viewModelScope.launch {
+            for (result in pending) {
+                if (!result.success) continue
+                when (result.tool) {
+                    "edit_current_card" -> result.data?.get("note")?.let { el ->
+                        runCatching { repo.api.json.decodeFromJsonElement(dev.jeromeswannack.chineselearning.lab.data.api.StudyNoteDto.serializer(), el) }.getOrNull()
+                            ?.let { dto -> tools.mirror(dto.copy(id = v.note.id))?.let(::showNote) }
+                    }
+                    "delete_current_card" -> {
+                        updateAsk(v) { it.copy(cardDeleted = true) }
+                        tools.removeLocally(v.note.id)
+                        delay(2000)
+                        removeNoteFromSession(v.note.id)
+                    }
+                    "create_flashcards", "create_custom_lesson" -> tools.syncSoon()
+                }
+            }
+            app.haptics.correct()
+        }
+    }
+
+    fun rejectTools() {
+        val v = currentView() ?: return
+        updateAsk(v) { it.copy(pending = null) }
+    }
+
+    /** Decks for "+ make a card from this message" (the web's deck buttons). */
+    suspend fun deckChoices(): List<Pair<String, String>> = withContext(Dispatchers.IO) { repo.dao.decks().map { it.id to it.name } }
+
+    /** Flag sheet → queue / send. */
+    suspend fun flag(tutor: FlagTutor, message: String): Boolean {
+        val v = currentView() ?: return false
+        return tools.flag(tutor, v.note.id, v.card.id, message).also { app.haptics.correct() }
     }
 
     /** Typed answer checked (or the answer revealed): feedback only, nothing recorded yet. */
@@ -179,6 +414,11 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         busy = true
         val card = showing.card
         val before = _ui.value.stats
+        // The tutor's note was on screen for this review — show it once only.
+        val seenNotes = _ui.value.extras.tutorNotes.map { it.id }
+        if (seenNotes.isNotEmpty()) app.scope.launch { TutorNotes.markSeen(app.cache, app.outbox, seenNotes) }
+        // Failing a card: start its sentence set so it is ready when the card comes back.
+        if (rating == 0) app.scope.launch { tools.ensureSentenceSet(card.noteId) }
         val correct = rating >= 2
         val streak = if (correct) before.streak + 1 else 0
         val againByNote = if (rating == 0) before.againByNote + (card.noteId to ((before.againByNote[card.noteId] ?: 0) + 1)) else before.againByNote
@@ -278,7 +518,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         viewModelScope.launch { load(resetRecent = true) }
     }
 
-    fun play(key: String?, text: String) = app.audio.play(key, text, app.online.value)
+    fun play(key: String?, text: String) = app.audio.play(key, text, aiAvailable)
 
     override fun onCleared() {
         app.audio.stop()

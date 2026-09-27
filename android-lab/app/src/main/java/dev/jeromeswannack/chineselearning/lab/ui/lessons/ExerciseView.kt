@@ -56,6 +56,8 @@ class ExerciseEnv(
     val onTap: () -> Unit = {},
     /** Shuffles (options, tiles, match columns) — seeded in screenshots. */
     val random: Random = Random.Default,
+    /** Stroke-order data for the writing pad (package H's StrokeStore); null = the sketch pad only. */
+    val strokeLoader: (suspend (String) -> dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeLoad)? = null,
 )
 
 /** correct = null for unscored exercises (notes); a recording comes with oral expression. */
