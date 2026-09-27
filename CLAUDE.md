@@ -296,7 +296,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
-- `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0077. See "Lesson pictures" below
+- `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0078. See "Lesson pictures" below
 - `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0074
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
 - `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library' | 'reader', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
