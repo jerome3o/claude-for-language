@@ -101,15 +101,41 @@ class ShellRulesTest {
     @Test
     fun widgetText() {
         val signedOut = ShellRules.widgetText(ShellRules.WidgetModel(false, QueueCounts(3, 0, 0, 0)))
-        assertEquals("Sign in to start studying", signedOut.detail)
+        assertEquals("Tap to sign in", signedOut.detail)
         val done = ShellRules.widgetText(ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 0)))
-        assertEquals(ShellRules.WidgetText("✓", "All done", "Nothing due today", null), done)
+        assertEquals(ShellRules.WidgetText("✓", "All done", "Nothing due today", null, "done"), done)
         // 24 cards × 20 s = 8 min, like Home's "24 cards due · about 8 min".
         val due = ShellRules.widgetText(ShellRules.WidgetModel(true, QueueCounts(3, 2, 4, 15)))
-        assertEquals(ShellRules.WidgetText("24", "cards due", "about 8 min", null), due)
+        assertEquals(ShellRules.WidgetText("24", "cards due", "about 8 min", null, "due"), due)
         assertEquals("card due", ShellRules.widgetText(ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 1))).caption)
         assertEquals("about 1 min", ShellRules.widgetText(ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 1))).detail)
         val hw = ShellRules.homeworkDueNow(listOf(hw("a", "2026-09-27")), LocalDate.parse("2026-09-27"))
         assertEquals("📝 Title a · due today", ShellRules.widgetText(ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 0), hw)).homework)
+    }
+
+    @Test
+    fun widgetSizeBuckets() {
+        val s = ShellRules::widgetSize
+        assertEquals(ShellRules.WidgetSize.TINY, s(110f, 80f)) // 2×1
+        assertEquals(ShellRules.WidgetSize.ROW, s(250f, 100f)) // 3×1
+        assertEquals(ShellRules.WidgetSize.ROW_WIDE, s(340f, 110f)) // 4×1
+        assertEquals(ShellRules.WidgetSize.SQUARE, s(160f, 200f)) // 2×2
+        assertEquals(ShellRules.WidgetSize.FULL, s(250f, 200f)) // 3×2
+        assertEquals(ShellRules.WidgetSize.FULL, s(420f, 300f)) // 4×2 and up
+        assertEquals(ShellRules.WidgetSize.TINY, s(60f, 30f)) // below every anchor
+        assertEquals(ShellRules.WidgetSize.ROW, s(0f, 0f)) // options not reported yet
+    }
+
+    /** Android 12+'s pick (nearest anchor that fits, else the smallest) matches [ShellRules.widgetSize] everywhere. */
+    @Test
+    fun widgetAnchorsMatchTheFrameworkPick() {
+        fun frameworkPick(w: Float, h: Float): ShellRules.WidgetSize {
+            val fits = ShellRules.WIDGET_ANCHORS.filter { it.widthDp <= w && it.heightDp <= h }
+            if (fits.isEmpty()) return ShellRules.WIDGET_ANCHORS.minBy { it.widthDp * it.heightDp }.size
+            return fits.minBy { (w - it.widthDp) * (w - it.widthDp) + (h - it.heightDp) * (h - it.heightDp) }.size
+        }
+        for (w in 40..700 step 7) for (h in 20..400 step 7) {
+            assertEquals(ShellRules.widgetSize(w.toFloat(), h.toFloat()), frameworkPick(w.toFloat(), h.toFloat()), "at ${w}×$h")
+        }
     }
 }

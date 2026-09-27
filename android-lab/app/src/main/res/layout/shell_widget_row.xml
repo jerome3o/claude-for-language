@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widget, one row (3×1 = the default, 4×1): count + caption + 学 (ROW),
+     or + 学 Study pill + ✏️ (ROW_WIDE). ShellRules.WidgetSize; also the picker preview. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/shell_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/shell_widget_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="6dp">
+
+    <TextView
+        android:id="@+id/shell_widget_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif-medium"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:text="24"
+        android:textColor="@color/shell_accent"
+        android:textSize="28sp" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/shell_widget_caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:text="cards due"
+            android:textColor="@color/shell_ink"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/shell_widget_detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="about 8 min"
+            android:textColor="@color/shell_muted"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/shell_widget_study_circle"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/shell_pill_filled"
+        android:contentDescription="Study"
+        android:gravity="center"
+        android:text="学"
+        android:textColor="@color/shell_on_accent"
+        android:textSize="18sp" />
+
+    <TextView
+        android:id="@+id/shell_widget_study"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/shell_pill_filled"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="center"
+        android:maxLines="1"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text="@string/shell_study"
+        android:textColor="@color/shell_on_accent"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/shell_widget_coach"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/shell_pill_soft"
+        android:contentDescription="Coach"
+        android:gravity="center"
+        android:text="✏️"
+        android:textSize="16sp"
+        android:visibility="gone" />
+</LinearLayout>
