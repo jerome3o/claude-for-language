@@ -171,7 +171,7 @@ private fun SearchField(query: String, onQuery: (String) -> Unit) {
     OutlinedTextField(
         value = query,
         onValueChange = onQuery,
-        placeholder = { Text("Search your cards… (hanzi, pinyin, english)", color = Lab.colors.muted) },
+        placeholder = { Text("Search hanzi, pinyin, English…", color = Lab.colors.muted) },
         leadingIcon = { Text("🔍", fontSize = 16.sp) },
         trailingIcon = if (query.isNotEmpty()) {
             { Text("✕", color = Lab.colors.muted, modifier = Modifier.clip(CircleShape).clickable { onQuery("") }.padding(12.dp)) }

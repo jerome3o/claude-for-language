@@ -182,7 +182,7 @@ private fun NoteBox(n: HubNoteUi, actions: CardHubActions) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 PrimaryPill("▶ Play", Modifier.height(48.dp)) { actions.onPlay() }
-                SecondaryPill("Deck: ${n.deckName}") { actions.onOpenDeck(n.deckId) }
+                SecondaryPill("Open deck ›") { actions.onOpenDeck(n.deckId) }
             }
         }
     }
