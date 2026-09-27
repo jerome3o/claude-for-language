@@ -132,6 +132,8 @@ export interface StudentOverview {
   setup: SetupStatus;
   activity: ActivityDay[];
   last_conversation_id: string | null;
+  /** The tutor has written a private student profile (StudentProfileSection). */
+  has_profile?: boolean;
 }
 
 export interface PendingInvite {

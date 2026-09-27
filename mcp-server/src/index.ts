@@ -109,7 +109,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     {
       // Every Claude that makes cards through this server sees the house style
       // (shared/cards/standard.ts); the API enforces the HARD rules.
-      instructions: `This server manages a Chinese learner's flashcards, homework decks, readers and lessons.\n\n${CARD_STANDARD}`,
+      instructions: `This server manages a Chinese learner's flashcards, homework decks, readers and lessons.\n\nFor a tutor making anything for one of their students (homework, decks, cards, mini lessons, readers): read the tutor's private profile of that student first (get_student_profile, also in get_student_overview) and follow it — what kind of learner they are, how much, which formats, level, interests. It is private: never quote it to the student.\n\n${CARD_STANDARD}`,
     }
   );
 

@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.teaching
 
+import dev.jeromeswannack.chineselearning.lab.core.StudentProfile
+import dev.jeromeswannack.chineselearning.lab.core.StudentProfileFields
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -265,6 +267,8 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     var showNotesSheet by remember { mutableStateOf(false) }
     val notesEntries by vm.lessonNotes.entries.state.collectAsStateWithLifecycle()
     val drafting by vm.lessonNotes.drafting.collectAsStateWithLifecycle()
+    val profile by vm.profile.resource.state.collectAsStateWithLifecycle()
+    var profileEditor by remember { mutableStateOf<StudentProfileFields?>(null) }
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
 
@@ -292,6 +296,12 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             callBusy = t.callBusy,
             removing = t.removing,
             playingKey = playing,
+            studentProfile = {
+                StudentProfileSection(
+                    name, profile.data?.profile, profile.data != null, profile.error,
+                    StudentProfileActions(edit = { profileEditor = it }, retry = { vm.profile.resource.refresh() }),
+                )
+            },
             lessonNotes = {
                 LessonNotesSection(
                     relId, name, notesEntries.data, notesEntries.error, drafting,
@@ -329,6 +339,16 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
         ),
     )
     if (showSend) SendHomeworkFor(nav, vm.send, relId, name, overview.data) { showSend = false }
+    profileEditor?.let { start ->
+        StudentProfileSheet(
+            studentName = name,
+            saved = profile.data?.profile?.fields() ?: StudentProfile.EMPTY,
+            initial = start,
+            online = online,
+            save = { fields, done -> vm.profile.save(fields, done) },
+            onDismiss = { profileEditor = null },
+        )
+    }
     if (showNotesSheet) {
         LessonNotesSheet(name, online, save = { notes, title, at, draft, done ->
             vm.lessonNotes.add(notes, title, at, draft, go = { job -> nav.open(Routes.homeworkDraft(relId, job)) }) { e -> done(e); if (e == null) showNotesSheet = false }

@@ -32,6 +32,7 @@ import { SendHomeworkSheet } from '../components/tutor/SendHomeworkSheet';
 import { FlaggedCardsSection } from '../components/tutor/FlaggedCardsSection';
 import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { LessonNotesSection } from '../components/tutor/LessonNotesSection';
+import { StudentProfileSection } from '../components/tutor/StudentProfileSection';
 import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
 import { Avatar } from '../components/tutor/StudentCard';
 import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTime } from '../components/tutor/format';
@@ -392,6 +393,9 @@ export function ConnectionDetailPage() {
             </Link>
             <Link to={`/connections/${relId}/progress`}>Progress</Link>
           </nav>
+
+          {/* The tutor's private profile of the student: every homework / lesson / reader agent reads it */}
+          <StudentProfileSection relId={relId!} studentName={otherUser.name || otherName} />
 
           {/* Lesson notes → the assistant drafts homework → the tutor reviews and assigns (docs/HOMEWORK.md) */}
           <LessonNotesSection relId={relId!} studentName={otherName} />

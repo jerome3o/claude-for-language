@@ -120,6 +120,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
+│   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
 │   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
@@ -304,6 +305,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
+- `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
@@ -1121,6 +1123,24 @@ cached audio clip count — migration 0064 (`users.install_kind`, `cached_audio_
 - `POST /api/ai/enrich-words` - `{ words: [{ hanzi, pinyin?, english?, fun_facts?, sentence_clue? }] }` (≤30) → each with `fun_facts`, `sentence_clue`, `sentence_clue_pinyin`, `sentence_clue_translation` written to the card standard, blanks only (Sonnet); 503 without an API key (`services/enrich-words.ts`)
 - `POST /api/me/client-state` - `{ install_kind, cached_audio_count }` from the device (never downgrades pwa/android to browser)
 
+### Student profile — the tutor's private note on a student (`worker/src/routes/student-profile.ts`, `shared/students/profile.ts`)
+Per relationship the tutor writes what kind of learner the student is and what homework suits them: markdown
+text (≤ 8000 chars) plus three optional facts the agents act on directly — `level` (→ reader difficulty, lesson
+pitch), `handwriting` (handwriting exercises / dictation by hand vs typed only), `words_per_lesson` (the card
+count a lesson's homework aims for). **Never visible to the student**: only the tutor of an active relationship
+reads / writes it (403 for the student and anyone else, 404 for a missing / inactive relationship); nothing
+student-facing (sync, onboarding, study, Ask Claude) touches the table. `studentProfilePrompt` builds the one
+labelled block ("Tutor's profile of this student (private; follow it when choosing what to make, how much, and
+in what form)", '' when empty) that goes into: the session-notes agent's briefing (so lesson-notes drafts,
+session notes and video-call homework all read it; a draft chat message carries the profile again when it
+changed since the agent last saw it — `profileUpdateForDraft`), and the lesson co-editor when a tutor edits a
+lesson they assigned. UI: **Student profile · 🔒 Only you can see this** on the student page
+(`components/tutor/StudentProfileSection.tsx` + `StudentProfileSheet.tsx`: how it's used, three examples from
+Minghui's own descriptions to start from / insert, hints) and a quiet `+ Student profile` pill on the dashboard
+card while none exists (`has_profile` on the overview). Not the user's own profile (name / picture / bio).
+- `GET /api/relationships/:relId/student-profile` - tutor only → `{ profile | null }`
+- `PUT /api/relationships/:relId/student-profile` - tutor only, `{ body, level?, handwriting?, words_per_lesson? }` replaces the whole profile (an empty one is deleted → `{ profile: null }`; 400 + `problems`)
+
 ### Session notes → homework agent (`worker/src/services/tutor-notes-agent.ts`, routes in `routes/tutor-notes.ts`)
 A tutor pastes the raw notes of a lesson on the student page (**Session notes → + Add notes**,
 `components/tutor/SessionNotesSheet.tsx`); the notes are NOT turned into cards in one shot. A row
@@ -1133,7 +1153,9 @@ come back with the reason), `create_mini_lesson` (validated with `validateLesson
 tutor's lesson library, tag `session-notes`), `create_reader` (validated `ReaderSpec`, tutor's
 account) and `finish` (the summary the tutor reads). The first user message is a **briefing**
 (`buildBriefing`: student decks, struggling / going-well words from the insights aggregation, the
-lesson log, earlier jobs' results) followed by the notes verbatim (cut at `MAX_NOTES_CHARS`).
+lesson log, earlier jobs' results, and the tutor's private **student profile** block when one is written —
+the prompt says it overrides the defaults: how many words, which exercise types, level, reader topics)
+followed by the notes verbatim (cut at `MAX_NOTES_CHARS`).
 Prompt rules: cards only for what the lesson taught, skip words the student has in review, a mini
 lesson ONLY when the notes show a taught structure with example sentences (about that structure),
 a reader only when the notes call for one. On `finish` the job **shares the deck**
@@ -1429,7 +1451,8 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | Tool | What it does |
 |------|--------------|
 | `list_students` | Every student card from `/api/tutor/dashboard` (status, streak, pills, needs-attention words, homework %, setup checklist for new students, `last_conversation_id`) + pending invite links + the tutor's homework decks, plus `my_tutors` / pending requests from `/api/relationships` |
-| `get_student_overview` | One student's full card (`/relationships/:relId/overview`): all needs-attention words, homework decks and lessons with progress, setup/install state, recent days |
+| `get_student_overview` | One student's full card (`/relationships/:relId/overview`): all needs-attention words, homework decks and lessons with progress, setup/install state, recent days, and `student_profile` (the tutor's private note) |
+| `get_student_profile` / `update_student_profile` | The tutor's private profile of the student (`GET|PUT …/student-profile`): what kind of learner, what homework suits them; update changes only the fields passed. The server `instructions` tell Claude to read it before making anything for a student and never quote it to them |
 | `get_student_insights` | Pre-lesson briefing over a range (`/insights`): totals, ranked `struggling` with the wrong answers typed, `going_well`, activity, recordings with marks; `top_n` trims the lists; default range = since last logged lesson, else 14 days |
 | `get_student_history` | Individual review events newest first with filters (deck, card type, rating, text) and keyset paging (`next_cursor`) |
 | `get_student_daily_progress` | Last 30 days day-by-day + headline stats and per-deck counts (`/student-progress/daily` + `/student-progress`) |

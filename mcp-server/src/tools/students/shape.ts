@@ -4,6 +4,7 @@
  * everything here is unit-tested in ../students.test.ts.
  */
 import { groupQuestionThreads } from '../../../../shared/chats/threads';
+import type { StudentProfileFields } from '../../../../shared/students/profile';
 import type {
   CardFlagRow,
   SessionNotesJobRow,
@@ -103,6 +104,7 @@ export function compactStudentRow(o: StudentOverview, apiBase: string, needsAtte
     },
     ...(o.is_new ? { setup: compactSetup(o.setup) } : {}),
     last_conversation_id: o.last_conversation_id,
+    has_student_profile: o.has_profile ?? false,
   };
 }
 
@@ -420,5 +422,24 @@ export function compactSessionNotesJob(job: SessionNotesJobRow, opts: { steps?: 
     },
     ...(r.summary ? { summary: r.summary } : {}),
     ...(r.skipped?.length ? { skipped: r.skipped } : {}),
+  };
+}
+
+/**
+ * update_student_profile: the fields passed replace the current ones, the rest
+ * are kept (the API's PUT replaces the whole profile). Pure.
+ */
+export function mergeStudentProfile(
+  current: StudentProfileFields | null,
+  patch: { body?: string; level?: StudentProfileFields['level']; handwriting?: boolean | null; words_per_lesson?: number | null }
+): StudentProfileFields {
+  const base: StudentProfileFields = current
+    ? { body: current.body, level: current.level, handwriting: current.handwriting, words_per_lesson: current.words_per_lesson }
+    : { body: '', level: null, handwriting: null, words_per_lesson: null };
+  return {
+    body: patch.body !== undefined ? patch.body : base.body,
+    level: patch.level !== undefined ? patch.level : base.level,
+    handwriting: patch.handwriting !== undefined ? patch.handwriting : base.handwriting,
+    words_per_lesson: patch.words_per_lesson !== undefined ? patch.words_per_lesson : base.words_per_lesson,
   };
 }
