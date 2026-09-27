@@ -131,11 +131,13 @@ object DebugReportBuilder {
         val reviewPool = HashMap<String, Int>()
         for (c in cards) when (c.queue) {
             CardQueue.LEARNING, CardQueue.RELEARNING -> learningPool[c.deckId] = (learningPool[c.deckId] ?: 0) + 1
-            CardQueue.REVIEW -> if (c.state.dueTimestamp == null || c.state.dueTimestamp <= cutoff.ts) reviewPool[c.deckId] = (reviewPool[c.deckId] ?: 0) + 1
+            CardQueue.REVIEW -> if ((c.state.dueTimestamp ?: Long.MIN_VALUE) <= cutoff.ts) reviewPool[c.deckId] = (reviewPool[c.deckId] ?: 0) + 1
         }
         val poolByDeck = all.pools.associateBy { it.deckId }
 
         val homeTotal = homeCounts.total
+        val noteTotal = dao.noteCount()
+        val unsynced = dao.unsyncedCount()
         buildJsonObject {
             put("version", VERSION)
             put("client", "lab")
@@ -167,10 +169,10 @@ object DebugReportBuilder {
             }
             putJsonObject("totals") {
                 put("decks", decks.size)
-                put("notes", dao.noteCount())
+                put("notes", noteTotal)
                 put("cards", cardEntities.size)
                 put("events", eventIds.size)
-                put("unsynced_events", dao.unsyncedCount())
+                put("unsynced_events", unsynced)
                 put("pending_deletions", pendingDeletions)
                 put("orphan_events", orphanEvents)
                 put("earliest_reviewed_at", span?.get(0))
