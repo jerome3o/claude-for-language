@@ -1603,8 +1603,10 @@ app.delete('/api/notes/:id/sentences', async (c) => {
 app.get('/api/sentences/changes', async (c) => {
   const userId = c.get('user').id;
   const since = c.req.query('since') || null;
+  // Before the query: a set written while it runs is newer than the next cursor.
+  const serverTime = new Date().toISOString();
   const sentences = await db.getNoteSentencesForUser(c.env.DB, userId, since);
-  return c.json({ sentences, server_time: new Date().toISOString() });
+  return c.json({ sentences, server_time: serverTime });
 });
 
 /**
@@ -5749,6 +5751,13 @@ app.get('/api/sync/changes', async (c) => {
   const sinceDate = new Date(since).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
   console.log('[API sync/changes] sinceDate:', sinceDate);
 
+  // The client's next `since`. Taken BEFORE the queries, so a write that lands while
+  // they run is newer than it and comes down next time; and every comparison below is
+  // `>=` because the rows carry whole seconds while `since` has milliseconds — with `>`
+  // a note deleted (or edited) in the same second as the previous sync was never sent.
+  // Re-sending a change is harmless (upserts, idempotent tombstones).
+  const serverTime = new Date().toISOString();
+
   // Every deck the account has right now, taken BEFORE the change queries so a
   // deck created while this request runs is never missing from a list that is
   // newer than it. Clients drop local decks that are not in it: decks deleted
@@ -5761,7 +5770,7 @@ app.get('/api/sync/changes', async (c) => {
   // Get updated decks
   const decksResult = await c.env.DB.prepare(`
     SELECT * FROM decks
-    WHERE user_id = ? AND updated_at > ?
+    WHERE user_id = ? AND updated_at >= ?
   `).bind(userId, sinceDate).all();
   console.log('[API sync/changes] decks found:', decksResult.results?.length || 0);
   for (const deck of (decksResult.results || []) as any[]) {
@@ -5772,7 +5781,7 @@ app.get('/api/sync/changes', async (c) => {
   const notesResult = await c.env.DB.prepare(`
     SELECT n.* FROM notes n
     JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ? AND n.updated_at > ?
+    WHERE d.user_id = ? AND n.updated_at >= ?
   `).bind(userId, sinceDate).all();
   console.log('[API sync/changes] notes found:', notesResult.results?.length || 0);
   for (const note of (notesResult.results || []) as any[]) {
@@ -5787,7 +5796,7 @@ app.get('/api/sync/changes', async (c) => {
     SELECT c.id, c.note_id, c.card_type, c.created_at, c.updated_at FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ? AND c.updated_at > ?
+    WHERE d.user_id = ? AND c.updated_at >= ?
   `).bind(userId, sinceDate).all();
   console.log('[API sync/changes] cards found:', cardsResult.results?.length || 0);
   for (const card of (cardsResult.results || []) as any[]) {
@@ -5818,7 +5827,7 @@ app.get('/api/sync/changes', async (c) => {
     deleted,
     live_deck_ids,
     live_deck_ids_at: liveDeckIdsAt,
-    server_time: new Date().toISOString(),
+    server_time: serverTime,
   });
 });
 

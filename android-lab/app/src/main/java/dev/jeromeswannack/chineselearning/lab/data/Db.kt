@@ -121,6 +121,11 @@ data class FirstReview(val cardId: String, val firstAt: String)
 
 data class DeckCount(val deckId: String, val count: Int)
 
+data class CardPlacement(val id: String, val noteId: String, val deckId: String)
+
+/** The columns of a review event the FSRS replay reads. */
+data class ReplayEvent(val id: String, val cardId: String, val rating: Int, val reviewedAt: String)
+
 @Dao
 interface LabDao {
     // decks
@@ -144,6 +149,9 @@ interface LabDao {
     @Query("SELECT * FROM cards") suspend fun cards(): List<CardEntity>
     @Query("SELECT * FROM cards WHERE id = :id") suspend fun card(id: String): CardEntity?
     @Query("SELECT id FROM cards") suspend fun cardIds(): List<String>
+    @Query("SELECT * FROM cards WHERE id IN (:ids)") suspend fun cardsByIds(ids: List<String>): List<CardEntity>
+    @Query("SELECT id, noteId, deckId FROM cards") suspend fun cardPlacements(): List<CardPlacement>
+    @Query("UPDATE cards SET noteId = :noteId, deckId = :deckId WHERE id = :id") suspend fun placeCard(id: String, noteId: String, deckId: String)
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertCardsIfMissing(cards: List<CardEntity>)
     @Upsert suspend fun upsertCards(cards: List<CardEntity>)
     @Query("UPDATE cards SET deckId = :deckId WHERE noteId = :noteId") suspend fun moveCardsOfNote(noteId: String, deckId: String)
@@ -155,6 +163,9 @@ interface LabDao {
     // review events
     @Query("SELECT * FROM review_events WHERE cardId = :cardId ORDER BY reviewedAt, id") suspend fun eventsForCard(cardId: String): List<ReviewEventEntity>
     @Query("SELECT * FROM review_events ORDER BY cardId, reviewedAt, id") suspend fun allEvents(): List<ReviewEventEntity>
+    /** The replay inputs of many cards at once, in each card's replay order (as [eventsForCard]). */
+    @Query("SELECT id, cardId, rating, reviewedAt FROM review_events WHERE cardId IN (:cardIds) ORDER BY cardId, reviewedAt, id")
+    suspend fun replayEventsForCards(cardIds: List<String>): List<ReplayEvent>
     @Query("SELECT * FROM review_events WHERE synced = 0 ORDER BY reviewedAt LIMIT :limit") suspend fun unsyncedEvents(limit: Int): List<ReviewEventEntity>
     @Query("SELECT COUNT(*) FROM review_events WHERE synced = 0") suspend fun unsyncedCount(): Int
     @Query("SELECT id FROM review_events WHERE id IN (:ids)") suspend fun existingEventIds(ids: List<String>): List<String>
