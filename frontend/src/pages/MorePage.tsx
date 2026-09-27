@@ -115,6 +115,7 @@ export function MorePage() {
           {!role.isTutorOnly && (
             <NavRow icon="💬" label="Claude conversations" desc="Everything you asked Claude about your cards" to="/claude-chats" />
           )}
+          <NavRow icon="✍️" label="Write characters (preview)" desc="Stroke order, checked stroke by stroke" to="/practice/strokes" />
           <NavRow icon="🎮" label="Quests" desc="Carry out instructions in a tiny world" to="/quests" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
         </NavSection>
