@@ -3,8 +3,10 @@ import { Hono } from 'hono';
 import { createMockD1, createTestRelationship, MockD1Database } from '../../services/__tests__/d1-mock';
 
 let idCounter = 0;
+const realSubtle = (globalThis as unknown as { crypto: { subtle: unknown } }).crypto.subtle;
 vi.stubGlobal('crypto', {
   randomUUID: () => `uuid-${++idCounter}`,
+  subtle: realSubtle, // lesson picture ids are SHA-256 of the scene (services/lesson-images.ts)
 });
 
 import lessonEditor from '../lesson-editor';

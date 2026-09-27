@@ -269,11 +269,11 @@ fun ExercisePreview(ex: JsonObject, speak: Speak) {
         "match" -> MatchPreview(ex, speak)
         "describe_image" -> {
             Prompt(ex.text("task").ifEmpty { "Describe the picture in Chinese." })
-            val key = ex.str("image_url")
-            if (!key.isNullOrEmpty()) EditorImage(key, Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)), description = "Illustration")
-            else Box(Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(12.dp), contentAlignment = Alignment.Center) {
-                Text("🖼 The illustration is drawn after saving:\n${ex.text("image_prompt")}", color = Lab.colors.muted, textAlign = TextAlign.Center)
-            }
+            // By its key, else asked by scene (library items and catalogue samples carry no key):
+            // "Drawing the picture…" while it is generated, then the picture.
+            val prompt = ex.text("image_prompt")
+            val picture = dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberLessonPicture(ex.str("image_url"), prompt)
+            dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonPictureView(picture, prompt)
             Reveal("Show the reference") { SentenceBlock(JsJson.obj("hanzi" to ex["reference_hanzi"], "pinyin" to ex["reference_pinyin"], "english" to ex["reference_english"]), speak) }
         }
         "speak" -> {

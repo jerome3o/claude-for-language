@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { ExerciseAnswer } from '@shared/lesson';
-import { useCachedImageUrl } from '../hooks/useCachedImageUrl';
+import { useLessonImage, lessonImagePlaceholder } from '../hooks/useLessonImage';
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import './lesson-exercises.css';
 
@@ -389,6 +389,41 @@ export function MatchExercise(props: {
 
 // ============ Describe the picture (self-assessed) ============
 
+/**
+ * The picture, or what stands in for it: "Drawing the picture…" while it is
+ * being generated (useLessonImage polls and swaps it in), the scene text when
+ * there is none (offline and never downloaded, or the generator gave up).
+ */
+export function DescribeImagePicture({ image, imagePrompt }: {
+  image: ReturnType<typeof useLessonImage>;
+  imagePrompt: string;
+}) {
+  if (image.state === 'ready') {
+    return (
+      <div className="describe-image-container">
+        <img src={image.url} alt="Scene to describe" className="describe-image" onError={image.onImageError} />
+      </div>
+    );
+  }
+  const text = lessonImagePlaceholder(image.state);
+  if (text.kind === 'drawing') {
+    return (
+      <div className="describe-image-pending" role="status" aria-live="polite">
+        <div className="describe-image-pending-art" aria-hidden="true">🎨</div>
+        <div className="describe-image-pending-title">{text.title}</div>
+        {text.detail && <div className="describe-image-pending-detail">{text.detail}</div>}
+        {image.state === 'slow' && <div className="describe-image-pending-scene">{imagePrompt}</div>}
+      </div>
+    );
+  }
+  return (
+    <div className="describe-image-fallback">
+      <span className="describe-image-fallback-label">{text.title}</span> {imagePrompt}
+    </div>
+  );
+}
+
+
 export function DescribeImageExercise(props: {
   imageKey?: string | null;
   imagePrompt: string;
@@ -401,7 +436,7 @@ export function DescribeImageExercise(props: {
 }) {
   const { imageKey, imagePrompt, task, referenceHanzi, referencePinyin, referenceEnglish, speak, onNext } = props;
   const [revealed, setRevealed] = useState(false);
-  const imageUrl = useCachedImageUrl(imageKey ?? null);
+  const image = useLessonImage(imageKey, imagePrompt);
 
   function reveal() {
     setRevealed(true);
@@ -411,17 +446,7 @@ export function DescribeImageExercise(props: {
   return (
     <div className="exercise">
       <div className="phase-label">Describe the picture</div>
-      {imageUrl ? (
-        <div className="describe-image-container">
-          <img src={imageUrl} alt="Scene to describe" className="describe-image" />
-        </div>
-      ) : (
-        // The illustration hasn't been generated (or cached) yet — the
-        // exercise still works from the scene description.
-        <div className="describe-image-fallback">
-          <span className="describe-image-fallback-label">Imagine this scene:</span> {imagePrompt}
-        </div>
-      )}
+      <DescribeImagePicture image={image} imagePrompt={imagePrompt} />
       <p className="describe-task">{task || 'Describe what you see — out loud, in Chinese.'}</p>
       {!revealed ? (
         <div className="exercise-actions">

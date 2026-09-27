@@ -395,7 +395,9 @@ export async function generatePageImage(
   geminiKey: string,
   imagePrompt: string,
   pageId: string,
-  bucket: R2Bucket
+  bucket: R2Bucket,
+  /** R2 folder: reader pages by default; lesson illustrations use lesson-images. */
+  prefix = 'reader-images',
 ): Promise<string | null> {
   console.log('[Image] Generating image for page:', pageId);
   console.log('[Image] Prompt:', imagePrompt);
@@ -480,7 +482,7 @@ Style guidelines:
     const imageBytes = Uint8Array.from(atob(imageData), c => c.charCodeAt(0));
 
     // Store in R2
-    const key = `reader-images/${pageId}.${extension}`;
+    const key = `${prefix}/${pageId}.${extension}`;
     await bucket.put(key, imageBytes.buffer as ArrayBuffer, {
       httpMetadata: {
         contentType: mimeType,

@@ -227,12 +227,21 @@ private fun MatchForm(ex: JsonObject, onChange: (JsonObject) -> Unit, speak: Spe
 
 @Composable
 private fun DescribeImageForm(ex: JsonObject, onChange: (JsonObject) -> Unit, speak: Speak) {
-    val key = ex.str("image_url")
-    if (!key.isNullOrEmpty()) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            EditorImage(key, Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)), description = "Generated illustration")
+    // Looked up by its scene (library items never store the key) — without drawing: the prompt
+    // changes as the tutor types; Save draws it (the web's DescribeImageForm).
+    val prompt = ex.text("image_prompt")
+    val picture = dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberLessonPicture(ex.str("image_url"), prompt, queue = false, debounceMs = 700)
+    when (picture.state) {
+        dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Ready -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonPictureView(picture, prompt, Modifier.clip(RoundedCornerShape(12.dp)))
             Text("Changing the scene description generates a new picture on save.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
         }
+        dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Pending, dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Slow ->
+            Text("🎨 The picture for this scene is being drawn…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+        dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.None -> if (prompt.isNotBlank()) {
+            Text("A picture is drawn from this scene when you save.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+        }
+        else -> {}
     }
     EdField("Scene for the illustration", hint = "English, detailed, no text in the image") {
         EdTextField(ex.text("image_prompt"), { onChange(ex.with("image_prompt", it)) }, placeholder = "A woman ordering coffee at a busy café counter, morning light…", singleLine = false, minLines = 3)

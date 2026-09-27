@@ -46,6 +46,11 @@ class ExerciseEnv(
     val image: suspend (key: String?) -> File? = { null },
     /** A file already on the device for [key] (no network) — the first frame renders it at once. */
     val cachedImage: (key: String?) -> File? = { null },
+    /**
+     * A describe_image picture over time — by its key, else asked by scene and polled while it
+     * is drawn (data/lessons/LessonPictures). Null: only [image] / [cachedImage] by key.
+     */
+    val picture: ((key: String?, prompt: String) -> kotlinx.coroutines.flow.Flow<dev.jeromeswannack.chineselearning.lab.data.lessons.LessonPicture>)? = null,
     /** Claude's check of a made sentence; throws when it can't (offline, busy). */
     val sentenceFeedback: suspend (words: List<String>, task: String?, sentence: String) -> SentenceFeedback = { _, _, _ -> throw java.io.IOException("offline") },
     /** The voice recorder for oral expression (null: no microphone support here). */

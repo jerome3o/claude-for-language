@@ -162,6 +162,7 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false): ExerciseEnv {
         playing = playing,
         image = { key -> runtime.media.image(key, app.online.value) },
         cachedImage = { key -> runtime.media.cachedImage(key) },
+        picture = { key, prompt -> runtime.store.pictures.picture(key, prompt, app.online) },
         sentenceFeedback = { words, task, sentence ->
             if (!app.online.value) throw java.io.IOException("offline")
             app.repo.api.sentenceFeedback(words, task, sentence)

@@ -6,8 +6,8 @@ import { createFeatureRequest, uploadFeatureRequestScreenshot } from '../api/cli
 import { getConsoleBuffer } from '../utils/consoleBuffer';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import { isImmersiveRoute } from './nav/tabs';
+import { FAB_SIZE, clampFabPosition, isStudyLikePath } from './fabPosition';
 
-const FAB_SIZE = 48;
 const TAB_BAR_HEIGHT = 56; // keep in step with --tab-bar-height in index.css
 const STORAGE_KEY = 'feedback-fab-position';
 
@@ -82,7 +82,7 @@ export function FeedbackFAB() {
   const handleDragStart = useCallback((clientX: number, clientY: number) => {
     isDragging.current = true;
     hasMoved.current = false;
-    const pos = getPos();
+    const pos = clampFabPosition(getPos(), { width: window.innerWidth, height: window.innerHeight });
     dragStartPos.current = { x: clientX, y: clientY };
     fabStartPos.current = { x: pos.x, y: pos.y };
   }, [getPos]);
@@ -224,9 +224,11 @@ export function FeedbackFAB() {
   // A video call fills the screen and has its own controls where the FAB would sit; so does the homework pass.
   if (/^\/(calls|homework)\/[^/]+\/?$/.test(location.pathname)) return null;
 
-  // Study and the tutor's "Try it" previews: keep the FAB out of the way of the card footer.
-  const isStudying = location.pathname === '/study' || /^\/(decks|library)\/[^/]+\/try\/?$/.test(location.pathname);
-  const pos = getPos();
+  // Study, the tutor's "Try it" previews and the catalogue samples: keep the FAB faint, out of the card's way.
+  const isStudying = isStudyLikePath(location.pathname);
+  // Never over the top bar (the ✕ of a lesson / study screen, the header's
+  // buttons) — not even where it was last dropped. While dragging it follows the finger.
+  const pos = isDragging.current ? getPos() : clampFabPosition(getPos(), { width: window.innerWidth, height: window.innerHeight });
 
   return (
     <>

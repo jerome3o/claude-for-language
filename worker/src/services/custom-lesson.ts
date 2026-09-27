@@ -4,13 +4,14 @@
  * This service is the single write path for lessons authored inside the main
  * worker (the REST route and the in-app chat tool): validate the untrusted
  * spec, store it, and queue illustration generation for any describe_image
- * exercises. The MCP worker has its own copy of this flow against the same
- * database and queue.
+ * exercises (services/lesson-images.ts). The MCP server's lesson tools call
+ * these same REST routes.
  */
 
 import { CustomLessonSpec, validateLessonSpec, LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '@shared/lesson';
 import { Env } from '../types';
 import * as db from '../db/queries';
+import { queueLessonImages } from './lesson-images';
 
 /**
  * JSON schema for the lesson spec, used as tool input by the in-app chat
@@ -134,29 +135,7 @@ export function mergeKeptImages(previous: CustomLessonSpec, next: CustomLessonSp
   return next;
 }
 
-/** Queue illustration generation for describe_image exercises without an
- * image yet. Returns the number of jobs queued. */
-export async function queueLessonImages(
-  env: Pick<Env, 'IMAGE_QUEUE' | 'GEMINI_API_KEY'>,
-  lessonId: string,
-  spec: CustomLessonSpec,
-): Promise<number> {
-  if (!env.GEMINI_API_KEY || !env.IMAGE_QUEUE) return 0;
-  let queued = 0;
-  for (let si = 0; si < spec.sections.length; si++) {
-    const exercises = spec.sections[si].exercises;
-    for (let ei = 0; ei < exercises.length; ei++) {
-      const ex = exercises[ei];
-      if (ex.type === 'describe_image' && !ex.image_url) {
-        await env.IMAGE_QUEUE.send({
-          lessonId,
-          sectionIndex: si,
-          exerciseIndex: ei,
-          imagePrompt: ex.image_prompt,
-        });
-        queued++;
-      }
-    }
-  }
-  return queued;
-}
+/** Illustrations for describe_image exercises: ready pictures are written in,
+ * the rest queued (one picture per scene description, shared by every copy —
+ * see services/lesson-images.ts). Returns how many are still being drawn. */
+export { queueLessonImages } from './lesson-images';

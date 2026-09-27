@@ -34,6 +34,7 @@ import { isTutorAccountCached } from './accountRole';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 import { reportClientStateIfDue } from './clientState';
+import { topUpLessonImagesIfDue } from './lessonImages';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -455,6 +456,12 @@ class SyncService {
       await syncCustomLessons();
       prefetchCustomLessonMedia().catch(err =>
         console.error('[Sync] Custom lesson media prefetch failed:', err)
+      );
+      // describe_image pictures: hourly, the server writes ready ones into
+      // this account's lessons / queues missing ones and pre-draws the
+      // catalogue samples, whose pictures are then cached (services/lessonImages.ts).
+      topUpLessonImagesIfDue().catch(err =>
+        console.error('[Sync] Lesson picture top-up failed:', err)
       );
     } catch (err) {
       console.error('[Sync] Custom lesson sync failed:', err);

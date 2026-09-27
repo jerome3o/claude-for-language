@@ -296,7 +296,10 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
   const keys = new Set<string>(unique);
   for (const k of noteKeys) if (!sharedNoteKeys.has(k)) keys.add(k);
   for (const k of imageKeys) if (!sharedImageKeys.has(k)) keys.add(k);
-  for (const k of lessonImageKeys) if (!sharedLessonKeys.has(k)) keys.add(k);
+  // lesson-images/<hash> pictures are keyed by the scene description, not the
+  // account (services/lesson-images.ts): anyone's lesson or the catalogue
+  // sample with that prompt reuses them, so they are never removed here.
+  for (const k of lessonImageKeys) if (!sharedLessonKeys.has(k) && !k.startsWith('lesson-images/')) keys.add(k);
   // Only bucket keys, never URLs or the empty string.
   return [...keys].filter((k) => k && !/^https?:\/\//.test(k));
 }

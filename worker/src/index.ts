@@ -30,6 +30,7 @@ import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
+import { handleLessonImageMessage, lessonImageHash, normalizeImagePrompt, LESSON_IMAGE_PREFIX, type LessonImageMessage } from './services/lesson-images';
 import lessonEditor from './routes/lesson-editor';
 import readerEditor from './routes/reader-editor';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
@@ -77,6 +78,7 @@ import noteSearchRoutes from './routes/note-search';
 import transcriptionRoutes from './routes/transcription';
 import { tutorNotesRoutes } from './routes/tutor-notes';
 import debugReportsRoutes from './routes/debug-reports';
+import lessonImagesRoutes from './routes/lesson-images';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
@@ -485,6 +487,8 @@ app.route('/api', adminRoutes);
 
 // Study-state debug reports from the web + Lab apps, and their diff (routes/debug-reports.ts)
 app.route('/api', debugReportsRoutes);
+// Lesson illustrations by scene description: ensure / top-up / admin backfill (routes/lesson-images.ts)
+app.route('/api', lessonImagesRoutes);
 
 // ============ Admin Routes ============
 
@@ -6694,7 +6698,7 @@ export default {
   fetch: app.fetch,
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | SentenceSetMessage | QuestGenerationMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6842,29 +6846,31 @@ export default {
     } else if (queueName === 'image-generation-queue') {
       // Handle image generation
       for (const message of batch.messages) {
-        // Custom-lesson illustrations share this queue; they carry a lessonId
-        // instead of a readerId.
-        if ('lessonId' in message.body) {
-          const { lessonId, sectionIndex, exerciseIndex, imagePrompt } = message.body as CustomLessonImageMessage;
+        // Lesson illustrations share this queue: one picture per scene
+        // description (services/lesson-images.ts). Legacy messages carried a
+        // lessonId + indexes; they are handled by prompt the same way.
+        const body = message.body as unknown as Record<string, unknown>;
+        if (body.kind === 'lesson_image' || 'lessonId' in body) {
+          const lessonMsg: LessonImageMessage = body.kind === 'lesson_image'
+            ? body as unknown as LessonImageMessage
+            : {
+              kind: 'lesson_image',
+              prompt: normalizeImagePrompt(String((body as unknown as CustomLessonImageMessage).imagePrompt ?? '')),
+              hash: await lessonImageHash(String((body as unknown as CustomLessonImageMessage).imagePrompt ?? '')),
+            };
           try {
-            const imageKey = await generatePageImage(
-              env.GEMINI_API_KEY,
-              imagePrompt,
-              `lesson-${lessonId}-s${sectionIndex}e${exerciseIndex}`,
-              env.AUDIO_BUCKET
-            );
-            if (imageKey) {
-              await db.setCustomLessonExerciseImage(env.DB, lessonId, sectionIndex, exerciseIndex, imageKey);
-              console.log('[Queue] Lesson image generated:', lessonId, `s${sectionIndex}e${exerciseIndex}`);
+            const outcome = await handleLessonImageMessage(env, lessonMsg, (prompt, fileId) =>
+              generatePageImage(env.GEMINI_API_KEY, prompt, fileId, env.AUDIO_BUCKET, LESSON_IMAGE_PREFIX));
+            if (outcome.action === 'retry') {
+              console.warn('[Queue] Lesson image attempt failed, retrying in', outcome.delaySeconds, 's:', lessonMsg.hash);
+              message.retry({ delaySeconds: outcome.delaySeconds });
             } else {
-              console.error('[Queue] Lesson image generation returned null:', lessonId);
+              console.log('[Queue] Lesson image', outcome.status, lessonMsg.hash, outcome.status === 'ready' ? `applied to ${outcome.applied} lesson(s)` : '');
+              message.ack();
             }
-            // The lesson is studyable without its images (text fallback), so
-            // a failed image is never retried forever — ack either way.
-            message.ack();
           } catch (err) {
-            console.error('[Queue] Lesson image generation failed:', lessonId, err);
-            message.retry();
+            console.error('[Queue] Lesson image handling failed:', lessonMsg.hash, err);
+            message.retry({ delaySeconds: 60 });
           }
           continue;
         }

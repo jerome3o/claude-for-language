@@ -10,3 +10,4 @@ export { resolveConversationVoices, LESSON_VOICE_IDS, LESSON_VOICE_POOLS, DEFAUL
 export * from './answer-check';
 export * from './attempt';
 export { defaultExercise } from './defaults';
+export { normalizeImagePrompt, describeImagePrompts, describeImageKeys, applyImageToSpec } from './images';
