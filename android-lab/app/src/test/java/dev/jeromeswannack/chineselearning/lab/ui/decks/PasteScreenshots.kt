@@ -19,6 +19,11 @@ class PasteScreenshots : LabScreenshotTest() {
 
     @Test fun empty() = shoot("decks-22-paste-empty") { PasteWordsScreen(ui(PasteInputs()), PasteActions()) }
 
+    @Test fun checkTheReading() = shoot("decks-39-paste-check-the-reading") {
+        val inputs = PasteInputs(text = "行\t\tto walk; OK\n乐\t\thappy\n苹果\tpíngguǒ\tapple")
+        PasteWordsScreen(PasteUi(inputs = inputs, derived = PasteWordsModel.derive(inputs, existing, dev.jeromeswannack.chineselearning.lab.core.Pinyin::toPinyin), deckName = "Fruit 水果"), PasteActions())
+    }
+
     @Test fun preview() = shoot("decks-23-paste-preview") { PasteWordsScreen(ui(PasteInputs(text = TEXT)), PasteActions()) }
 
     @Test fun enriched() = shoot("decks-24-paste-filled-by-claude") {
