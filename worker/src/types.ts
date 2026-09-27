@@ -3,7 +3,7 @@ export interface Env {
   DB: D1Database;
   AUDIO_BUCKET: R2Bucket;
   AI: Ai;
-  IMAGE_QUEUE: Queue<ImageGenerationMessage | CustomLessonImageMessage>;
+  IMAGE_QUEUE: Queue<ImageGenerationMessage | CustomLessonImageMessage | import('./services/lesson-images').LessonImageMessage>;
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   SENTENCE_SET_QUEUE: Queue<SentenceSetMessage>;
   QUEST_QUEUE: Queue<QuestGenerationMessage>;
@@ -68,6 +68,8 @@ export interface ImageGenerationMessage {
 
 /** Illustration for a custom lesson's describe_image exercise. Shares the
  * image-generation queue with reader pages; distinguished by lessonId. */
+/** Legacy per-exercise lesson image message (before services/lesson-images.ts);
+ * still accepted from the queue and handled as a by-prompt message. */
 export interface CustomLessonImageMessage {
   lessonId: string;
   sectionIndex: number;

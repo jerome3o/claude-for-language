@@ -48,6 +48,31 @@ class LessonScreenshots : LabScreenshotTest() {
     private val now = Js.parseDate("2026-09-27T09:30:00.000Z")
     private val previews = CardScheduler.intervalPreviews(CardScheduler.initialCardState(), now)
 
+    /** A soft "illustration" (a kitchen: fridge, counter, cake) so the picture slot renders like the real thing. */
+    private val scene: java.io.File by lazy {
+        val bmp = android.graphics.Bitmap.createBitmap(800, 600, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        fun paint(color: Long) = android.graphics.Paint().apply { this.color = color.toInt() }
+        c.drawPaint(paint(0xFFFDF2E3))
+        c.drawRect(0f, 420f, 800f, 600f, paint(0xFFD6B48C))
+        c.drawRoundRect(520f, 80f, 740f, 520f, 24f, 24f, paint(0xFFE5E7EB))
+        c.drawRect(520f, 250f, 740f, 262f, paint(0xFF9CA3AF))
+        c.drawCircle(300f, 380f, 60f, paint(0xFFF9A8D4))
+        c.drawRect(240f, 380f, 360f, 430f, paint(0xFFFBCFE8))
+        c.drawCircle(150f, 300f, 55f, paint(0xFF6B7280))
+        c.drawCircle(560f, 470f, 26f, paint(0xFFF59E0B))
+        java.io.File.createTempFile("lesson-scene", ".png").also { f -> f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) } }
+    }
+
+    private fun pictureEnv(state: dev.jeromeswannack.chineselearning.lab.core.LessonImages.State) = ExerciseEnv(
+        random = Random(7),
+        picture = { _, _ ->
+            kotlinx.coroutines.flow.flowOf(
+                dev.jeromeswannack.chineselearning.lab.data.lessons.LessonPicture(state, if (state == dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Ready) scene else null),
+            )
+        },
+    )
+
     private fun env(strokes: Boolean = false) = ExerciseEnv(
         strokeLoader = if (strokes) dev.jeromeswannack.chineselearning.lab.ui.strokes.TestStrokes.loader else null,
         playClip = { _, _, _ -> true },
@@ -84,7 +109,11 @@ class LessonScreenshots : LabScreenshotTest() {
     @Test fun choice() = shoot("lessons-04-choice", content = player(LessonSamples.choice))
     @Test fun translate() = shoot("lessons-06-translate", content = player(LessonSamples.translate))
     @Test fun match() = shoot("lessons-08-match", content = player(LessonSamples.match))
-    @Test fun describe() = shoot("lessons-10-describe", content = player(LessonSamples.describe))
+    @Test fun describe() = shoot("lessons-10-describe", content = player(LessonSamples.describe, pictureEnv(dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Ready)))
+    /** The picture is still being generated: "Drawing the picture…", swapped for it when ready. */
+    @Test fun describeDrawing() = shoot("lessons-10b-describe-drawing", content = player(LessonSamples.describe, pictureEnv(dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Pending)))
+    /** Offline and never downloaded: the scene text, with why. */
+    @Test fun describeOffline() = shoot("lessons-10c-describe-offline", content = player(LessonSamples.describe, pictureEnv(dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Offline)))
     @Test fun speak() = shoot("lessons-12-speak", content = player(LessonSamples.speak))
     @Test fun listenChoice() = shoot("lessons-14-listen-choice", content = player(LessonSamples.listenChoice))
     @Test fun listenTranslate() = shoot("lessons-16-listen-translate", content = player(LessonSamples.listenTranslate))
@@ -109,7 +138,7 @@ class LessonScreenshots : LabScreenshotTest() {
         tap("门"); tap("window") // a miss
         for ((h, e) in listOf("门" to "door", "窗户" to "window", "桌子" to "table", "作业" to "homework")) { tap(h); tap(e) }
     }
-    @Test fun describeAnswered() = shootAfter("lessons-11-describe-answered", content = player(LessonSamples.describe)) { tap("🎤 I've described it") }
+    @Test fun describeAnswered() = shootAfter("lessons-11-describe-answered", content = player(LessonSamples.describe, pictureEnv(dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Ready))) { tap("🎤 I've described it") }
     @Test fun speakAnswered() = shootAfter("lessons-13-speak-answered", content = player(LessonSamples.speak)) { tap("🎤 I've said my sentence") }
     @Test fun listenChoiceAnswered() = shootAfter("lessons-15-listen-choice-answered", content = player(LessonSamples.listenChoice)) { tap("有") }
     @Test fun listenTranslateAnswered() = shootAfter("lessons-17-listen-translate-answered", content = player(LessonSamples.listenTranslate)) {

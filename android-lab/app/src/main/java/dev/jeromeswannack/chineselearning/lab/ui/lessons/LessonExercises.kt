@@ -1,10 +1,10 @@
 package dev.jeromeswannack.chineselearning.lab.ui.lessons
 
-import android.graphics.BitmapFactory
+import dev.jeromeswannack.chineselearning.lab.core.LessonImages
+import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonPicture
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -31,9 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -54,9 +51,7 @@ import dev.jeromeswannack.chineselearning.lab.core.UnknownExercise
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import java.io.File
 
 /*
@@ -311,32 +306,28 @@ private fun MatchItem(text: String, sub: String?, state: OptionState, big: Boole
 
 // ============ Describe the picture (self-assessed) ============
 
-/** A cached / downloaded R2 image as a bitmap (null while loading or unavailable). */
+/** A cached / downloaded R2 image file by key (null while loading or unavailable). */
 @Composable
-fun rememberImage(key: String?, env: ExerciseEnv): ImageBitmap? {
-    val first = remember(key) { env.cachedImage(key)?.let(::decode) }
-    val loaded by produceState(first, key) { if (value == null) value = env.image(key)?.let { withContext(Dispatchers.IO) { decode(it) } } }
+private fun rememberImageFile(key: String?, env: ExerciseEnv): File? {
+    val first = remember(key) { env.cachedImage(key) }
+    val loaded by produceState(first, key) { if (value == null) value = env.image(key) }
     return loaded
 }
-
-private fun decode(file: File): ImageBitmap? = runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull()
 
 @Composable
 fun DescribeImageView(ex: DescribeImageExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     var revealed by remember { mutableStateOf(false) }
-    val image = rememberImage(ex.imageUrl, env)
     PhaseLabel("Describe the picture")
-    if (image != null) {
-        Image(image, "Scene to describe", Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.FillWidth)
+    val source = env.picture
+    val picture = if (source != null) {
+        collectPicture(remember(ex.imageUrl, ex.imagePrompt) { source(ex.imageUrl, ex.imagePrompt) }, ex.imageUrl to ex.imagePrompt)
     } else {
-        // Not generated (or cached) yet — the exercise still works from the scene description.
-        Text(
-            buildString { append("Imagine this scene: "); append(ex.imagePrompt) },
-            style = MaterialTheme.typography.bodyLarge,
-            color = Lab.colors.ink,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).padding(16.dp),
-        )
+        // No picture source (older callers): the key's file only.
+        val image = rememberImageFile(ex.imageUrl, env)
+        if (image != null) LessonPicture(LessonImages.State.Ready, image) else LessonPicture(if (ex.imageUrl.isNullOrEmpty()) LessonImages.State.None else LessonImages.State.Loading)
     }
+    // "Drawing the picture…" while it is generated, then the picture; the scene text when there is none.
+    LessonPictureView(picture, ex.imagePrompt)
     Explanation(ex.task?.takeIf { it.isNotBlank() } ?: "Describe what you see — out loud, in Chinese.")
     if (!revealed) {
         ActionRow { Primary("🎤 I've described it") { revealed = true; env.speak(ex.referenceHanzi) } }

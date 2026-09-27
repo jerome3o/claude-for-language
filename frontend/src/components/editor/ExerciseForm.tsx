@@ -27,7 +27,7 @@ import type {
   WritingInput,
 } from '@shared/lesson';
 import { EXERCISE_TYPE_LIST, defaultExercise as sharedDefaultExercise } from '@shared/lesson';
-import { useCachedImageUrl } from '../../hooks/useCachedImageUrl';
+import { useLessonImage } from '../../hooks/useLessonImage';
 import { Field, TextInput, TextArea, HanziInput, SentenceEditor, RowControls, moveItem, toPinyin, Speak } from './fields';
 
 export interface ExerciseTypeInfo {
@@ -269,14 +269,20 @@ function MatchForm({ exercise, onChange, speak }: FormProps<MatchExerciseSpec>) 
 }
 
 function DescribeImageForm({ exercise, onChange, speak }: FormProps<DescribeImageExerciseSpec>) {
-  const imageUrl = useCachedImageUrl(exercise.image_url ?? null);
+  // Look the picture up by its scene (library items never store the key) —
+  // without drawing: the prompt changes as the tutor types; Save draws it.
+  const image = useLessonImage(exercise.image_url, exercise.image_prompt, { queue: false, debounceMs: 700 });
   return (
     <>
-      {imageUrl && (
+      {image.state === 'ready' && (
         <div className="ed-image-preview">
-          <img src={imageUrl} alt="Generated illustration" />
+          <img src={image.url} alt="Generated illustration" onError={image.onImageError} />
           <span className="ed-hint">Changing the scene description generates a new picture on save.</span>
         </div>
+      )}
+      {image.state === 'pending' && <span className="ed-hint">🎨 The picture for this scene is being drawn…</span>}
+      {image.state === 'none' && exercise.image_prompt.trim() && (
+        <span className="ed-hint">A picture is drawn from this scene when you save.</span>
       )}
       <Field label="Scene for the illustration" hint="English, detailed, no text in the image">
         <TextArea value={exercise.image_prompt} onChange={v => onChange({ ...exercise, image_prompt: v })} rows={3} placeholder="A woman ordering coffee at a busy café counter, morning light…" />

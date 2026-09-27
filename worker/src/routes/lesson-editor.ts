@@ -30,6 +30,7 @@ import { latestAttemptIds } from '../db/lesson-attempt-queries';
 import { getGradedReader } from '../db/queries';
 import { readerToSpec } from '../db/reader-editor-queries';
 import { queueLessonImages, mergeKeptImages } from '../services/custom-lesson';
+import { prewarmLessonImages } from '../services/lesson-images';
 import { generateLessonSpec, proposeLessonRevision, CoEditTurn } from '../services/lesson-editor';
 import { proposeReaderRevision, mergeKeptReaderImages } from '../services/reader-editor';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
@@ -266,6 +267,7 @@ async function createFromBody(c: Ctx, body: CreateLibraryBody) {
     spec: JSON.stringify(spec),
     tags: cleanTags(body.tags),
   });
+  await prewarmLessonImages(c.env, spec);
   return c.json(libraryItemJson(row, { assignment_count: 0 }), 201);
 }
 
@@ -306,6 +308,7 @@ lessonEditor.put('/lesson-library/:id', async (c) => {
     tags: body.tags === undefined ? parseTags(existing.tags) : cleanTags(body.tags),
   }, bump);
   if (!row) return c.json({ error: 'Library item not found' }, 404);
+  await prewarmLessonImages(c.env, spec);
   const assignments = await lib.listAssignmentsForItem(c.env.DB, row.id);
   return c.json(libraryItemJson(row, { assignment_count: assignments.length }));
 });

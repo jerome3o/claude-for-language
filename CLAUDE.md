@@ -297,6 +297,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
+- `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0079. See "Lesson pictures" below
 - `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0074
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
 - `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library' | 'reader', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
@@ -895,6 +896,27 @@ menu) inspects pending + completed lessons — full exercise listing per lesson,
 - `PUT /api/custom-lessons/:id` - Replace a lesson's spec in place (validated; same id so history/schedule carry over; keeps generated illustrations whose image_prompt is unchanged)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
 - `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id); an event may carry `attempt` (per-exercise answers + time), stored in `custom_lesson_attempts`
+
+**Lesson pictures** (describe_image; `worker/src/services/lesson-images.ts`, `routes/lesson-images.ts`,
+pure helpers in `shared/lesson/images.ts`): one picture per scene description, keyed by a hash of the
+normalised `image_prompt`, so a library item, every student copy, a push-update and the catalogue sample
+with the same scene share ONE generated picture (Gemini, `image-generation-queue`, message
+`{ kind: 'lesson_image', hash, prompt }`; 3 attempts with growing delay, then `failed`, retried after a
+day; a pending row older than 15 min is re-queued). Every create / assign / update / push path calls
+`queueLessonImages` after writing the row: a ready picture is written in at once, otherwise queued; when
+a picture is drawn `applyLessonImageEverywhere` writes its key into every `custom_lessons` row waiting for
+that prompt — matched by prompt, never by section/exercise index. Library items never store `image_url`
+(`lessonToExportSpec` strips it); saving one pre-draws its pictures. The player (`hooks/useLessonImage.ts`,
+`DescribeImagePicture` in `lesson-exercises.tsx`; Lab: `data/lessons/LessonPictures.kt` +
+`ui/lessons/LessonPictureView.kt`) shows the key's picture (cached blob → offline), else asks by prompt and
+shows **"Drawing the picture…"** while it is pending, polling until it appears; the scene text only when
+offline-and-never-downloaded or the generator gave up. Prompt → key is remembered on the device, and the
+sync (`topUpLessonImagesIfDue`, hourly) writes ready pictures into the account's lessons, queues missing
+ones, pre-draws library items + the catalogue samples and caches the sample pictures. `lesson-images/`
+keys are shared, so account deletion never removes them.
+- `POST /api/lesson-images/ensure` - `{ prompts (≤20), queue?: false }` → `{ images: [{ prompt, status: ready|pending|failed|unavailable|missing, image_url }] }` (idempotent; `queue: false` = look up only, the editor form)
+- `POST /api/lesson-images/top-up` - the caller's lessons / library items + catalogue samples → `{ lessons_checked, prompts, applied, pending, failed, unavailable }`
+- `POST /api/admin/lesson-images/backfill` - admin: the same for every account
 
 **Lesson attempts** (`routes/lesson-attempts.ts`): the player records what was answered in each
 exercise and how long it took (`StudyCustomLesson` → the completion event's `attempt`); recordings

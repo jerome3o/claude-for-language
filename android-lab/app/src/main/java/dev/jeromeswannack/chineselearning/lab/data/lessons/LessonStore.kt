@@ -76,6 +76,8 @@ class LessonStore(private val cache: JsonCache, private val outbox: Outbox, priv
     /** Next to the outbox's own folder (app filesDir). */
     private val filesDir: File = outbox.dir.parentFile ?: outbox.dir
     val media = LessonMedia(filesDir, api)
+    /** describe_image pictures by scene (drawn server-side, polled while pending). */
+    val pictures = LessonPictures(cache, api, media)
     val homework = HomeworkLink(cache, outbox)
 
     private val listSerializer = ListSerializer(CustomLessonDto.serializer())
@@ -220,10 +222,16 @@ class LessonStore(private val cache: JsonCache, private val outbox: Outbox, priv
                 if (clip.text.isBlank()) continue
                 media.tts(clip.text, clip.voice, speed = clip.speed ?: LessonMedia.DEFAULT_SPEED, online = true)
             }
-            for (s in entry.lesson.spec.sections) for (ex in s.exercises) {
-                if (ex is dev.jeromeswannack.chineselearning.lab.core.DescribeImageExercise) media.image(ex.imageUrl, online = true)
-            }
         }
+        // Pictures of EVERY lesson on the phone, not only today's: homework-only lessons skip
+        // the FSRS mix, and a picture drawn after the lesson first synced arrives with a later
+        // sync (its key written in server-side).
+        for (entry in entries()) {
+            for (key in dev.jeromeswannack.chineselearning.lab.core.LessonImages.keys(entry.lesson.spec)) media.image(key, online = true)
+        }
+        // Hourly: pictures the server has drawn since go into this account's lessons, missing
+        // ones are queued, and the catalogue samples' pictures come down.
+        runCatching { pictures.topUpIfDue() }
     }
 
     /** Cached queue state for the Mini Lessons chip. */

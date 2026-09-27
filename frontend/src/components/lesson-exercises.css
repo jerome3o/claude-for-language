@@ -89,6 +89,58 @@
   font-weight: 600;
 }
 
+/* The picture is being drawn (useLessonImage polls and swaps it in). Same
+   footprint as a picture so nothing jumps when it arrives. */
+.describe-image-pending {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1rem;
+  text-align: center;
+  color: #445;
+  background: linear-gradient(110deg, #eef2fa 30%, #f8faff 50%, #eef2fa 70%);
+  background-size: 250% 100%;
+  animation: describe-image-shimmer 1.6s linear infinite;
+}
+
+.describe-image-pending-art {
+  font-size: 2.25rem;
+  line-height: 1;
+}
+
+.describe-image-pending-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.describe-image-pending-detail {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.describe-image-pending-scene {
+  font-size: 0.875rem;
+  color: #445;
+  margin-top: 0.25rem;
+}
+
+@keyframes describe-image-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .describe-image-pending { animation: none; }
+}
+
 .describe-task {
   text-align: center;
   color: #374151;

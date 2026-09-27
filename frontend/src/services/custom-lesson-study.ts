@@ -32,6 +32,7 @@ import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
 import { prefetchTTSClips } from './ttsCache';
+import { describeImageKeys } from '@shared/lesson/images';
 import { prefetchStrokeData } from './strokeData';
 import { writableCharacters } from '@shared/strokes';
 import { getAudioWithCache, isAudioCached } from './audioCache';
@@ -388,12 +389,13 @@ export async function prefetchCustomLessonMedia(): Promise<void> {
     // Stroke-order data for handwriting, so the writing pad checks strokes offline.
     const handwritten = lessonHandwritingText(lesson.spec);
     if (handwritten) await prefetchStrokeData(writableCharacters(handwritten)).catch(() => {});
-    for (const section of lesson.spec.sections) {
-      for (const ex of section.exercises) {
-        if (ex.type === 'describe_image' && ex.image_url && !(await isAudioCached(ex.image_url))) {
-          await getAudioWithCache(ex.image_url).catch(() => {});
-        }
-      }
+  }
+  // Pictures of EVERY lesson on the device, not only today's: homework-only
+  // lessons skip the FSRS mix, and a picture drawn after the lesson first
+  // synced arrives with a later sync (its key written in server-side).
+  for (const lesson of await db.customLessons.toArray()) {
+    for (const key of describeImageKeys(lesson.spec)) {
+      if (!(await isAudioCached(key))) await getAudioWithCache(key).catch(() => {});
     }
   }
 }

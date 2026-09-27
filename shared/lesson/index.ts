@@ -16,3 +16,4 @@ export type { ConversationVoice, VoiceAge, VoiceAccent, VoiceStyle, VoiceFamily,
 export * from './answer-check';
 export * from './attempt';
 export { defaultExercise } from './defaults';
+export { normalizeImagePrompt, describeImagePrompts, describeImageKeys, applyImageToSpec } from './images';
