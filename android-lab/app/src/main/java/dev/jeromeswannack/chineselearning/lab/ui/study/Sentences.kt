@@ -75,14 +75,15 @@ private val FOCUS_LABELS = mapOf(
     "complex" to "Complex",
 )
 
-fun sentenceRows(view: CardView): List<SentenceRow> {
-    val note = view.note
+fun sentenceRows(view: CardView): List<SentenceRow> = sentenceRows(view.note, view.sentences)
+
+fun sentenceRows(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity, sentences: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>): List<SentenceRow> {
     val rows = ArrayList<SentenceRow>()
     val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
-    if (clue != null && view.sentences.none { it.hanzi == clue }) {
+    if (clue != null && sentences.none { it.hanzi == clue }) {
         rows += SentenceRow("clue:${note.id}", null, clue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl, "From the card")
     }
-    view.sentences.sortedBy { it.position }.forEach { s ->
+    sentences.sortedBy { it.position }.forEach { s ->
         rows += SentenceRow(s.id, s.id, s.hanzi, s.pinyin, s.translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote)
     }
     return rows
@@ -112,24 +113,40 @@ class SentenceActions(
  * + Add as card — and the header ⋯ regenerates / extends / clears the set.
  */
 @Composable
-fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false) {
-    val rows = remember(view.presentation, view.sentences, view.note.sentenceClue) { sentenceRows(view) }
-    val s = actions.sentences
-    val online = ui.aiAvailable
-    val steps = remember(view.presentation) { mutableStateMapOf<String, Int>() }
-    val english = remember(view.presentation) { mutableStateMapOf<String, Boolean>() }
-    val explanations = remember(view.presentation) { mutableStateMapOf<String, SentenceExplanation?>().apply { putAll(startExplained) } }
-    val explaining = remember(view.presentation) { mutableStateMapOf<String, Boolean>() }
-    val failed = remember(view.presentation) { mutableStateMapOf<String, Boolean>() }
-    var showAll by remember(view.presentation) { mutableStateOf(startShowAll) }
-    var menu by remember(view.presentation) { mutableStateOf(false) }
-    var custom by remember(view.presentation) { mutableStateOf(false) }
-    var prompt by remember(view.presentation) { mutableStateOf("") }
-    var generating by remember(view.presentation) { mutableStateOf(false) }
-    var error by remember(view.presentation) { mutableStateOf<String?>(null) }
-    var adding by remember(view.presentation) { mutableStateOf<Chunk?>(null) }
+fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false) =
+    SentenceList(view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll)
+
+/**
+ * The same list for any note (the card editor's "Sentence Set" section): [presentation]
+ * resets the reveal state when it changes; [onPlay] plays a clip key with the text as fallback.
+ */
+@Composable
+fun SentenceList(
+    note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity,
+    sentences: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>,
+    presentation: Int,
+    online: Boolean,
+    playingKey: String?,
+    s: SentenceActions,
+    onPlay: (key: String?, text: String) -> Unit,
+    startExplained: Map<String, SentenceExplanation> = emptyMap(),
+    startShowAll: Boolean = false,
+) {
+    val rows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
+    val steps = remember(presentation) { mutableStateMapOf<String, Int>() }
+    val english = remember(presentation) { mutableStateMapOf<String, Boolean>() }
+    val explanations = remember(presentation) { mutableStateMapOf<String, SentenceExplanation?>().apply { putAll(startExplained) } }
+    val explaining = remember(presentation) { mutableStateMapOf<String, Boolean>() }
+    val failed = remember(presentation) { mutableStateMapOf<String, Boolean>() }
+    var showAll by remember(presentation) { mutableStateOf(startShowAll) }
+    var menu by remember(presentation) { mutableStateOf(false) }
+    var custom by remember(presentation) { mutableStateOf(false) }
+    var prompt by remember(presentation) { mutableStateOf("") }
+    var generating by remember(presentation) { mutableStateOf(false) }
+    var error by remember(presentation) { mutableStateOf<String?>(null) }
+    var adding by remember(presentation) { mutableStateOf<Chunk?>(null) }
     val scope = rememberCoroutineScope()
-    val hasSet = view.sentences.isNotEmpty()
+    val hasSet = sentences.isNotEmpty()
 
     fun generate(count: Int, keep: Boolean = false, customPrompt: String? = null) {
         menu = false
@@ -237,7 +254,7 @@ fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: Stud
                         }
                     }
                     Box(
-                        Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).clickable { actions.onPlay(row.audioUrl, row.hanzi) },
+                        Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).clickable { onPlay(row.audioUrl, row.hanzi) },
                         contentAlignment = Alignment.Center,
                     ) { Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.accent) }
                 }
@@ -290,7 +307,7 @@ fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: Stud
         }
     }
     Spacer(Modifier.height(12.dp))
-    adding?.let { chunk -> AddChunkSheet(chunk, view.note.deckId, s, onDismiss = { adding = null }) }
+    adding?.let { chunk -> AddChunkSheet(chunk, note.deckId, s, onDismiss = { adding = null }) }
 }
 
 @Composable

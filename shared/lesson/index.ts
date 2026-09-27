@@ -6,7 +6,13 @@ export { lessonToMarkdown, lessonToJson, lessonToCsv, lessonToExportSpec, lesson
 export { EXERCISE_TYPE_INFO, EXERCISE_TYPE_LIST, SKILL_LABELS, exerciseTypeInfo } from './registry';
 export type { ExerciseTypeInfo, ExerciseSkill } from './registry';
 export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC } from './doc';
-export { resolveConversationVoices, LESSON_VOICE_IDS, LESSON_VOICE_POOLS, DEFAULT_LESSON_VOICE } from './voices';
+export {
+  resolveConversationVoices, conversationVoicesFor, conversationSeed, conversationVoicePools, conversationVoice,
+  validateConversationVoiceSelection, speakerGender,
+  CONVERSATION_VOICES, DEFAULT_CONVERSATION_VOICE_IDS, CONVERSATION_TTS_SPEED, CONVERSATION_LINE_GAP_MS, VOICE_SAMPLE_TEXT,
+  LESSON_VOICE_IDS, LESSON_VOICE_POOLS, DEFAULT_LESSON_VOICE,
+} from './voices';
+export type { ConversationVoice, VoiceAge, VoiceAccent, VoiceStyle, VoiceFamily, ResolveVoicesOptions } from './voices';
 export * from './answer-check';
 export * from './attempt';
 export { defaultExercise } from './defaults';

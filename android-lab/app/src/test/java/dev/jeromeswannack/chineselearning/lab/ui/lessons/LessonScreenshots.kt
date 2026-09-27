@@ -50,7 +50,7 @@ class LessonScreenshots : LabScreenshotTest() {
 
     private fun env(strokes: Boolean = false) = ExerciseEnv(
         strokeLoader = if (strokes) dev.jeromeswannack.chineselearning.lab.ui.strokes.TestStrokes.loader else null,
-        playClip = { _, _ -> true },
+        playClip = { _, _, _ -> true },
         sentenceFeedback = { _, _, _ ->
             SentenceFeedback("minor", true, LessonSentence("吃完饭以后，我把碗洗干净了。", "Chī wán fàn yǐhòu, wǒ bǎ wǎn xǐ gānjìng le.", "After dinner I washed the bowls."), "Nice use of 把! Add 了 after the result to show it's done.")
         },

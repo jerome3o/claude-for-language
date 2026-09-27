@@ -262,6 +262,7 @@ private fun PlanRow(p: ImportPlanner.Planned, ui: PasteUi, d: PasteDerived, a: P
                 if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (row.sentence.isNotEmpty()) Text((if (x.filled.sentence) "✨ " else "") + row.sentence, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (row.notes.isNotEmpty()) Text(if (x.filled.notes) "✨ explanation written" else "has explanation", style = MaterialTheme.typography.labelSmall, color = Lab.colors.accent)
+                if (x.readings.isNotEmpty()) Text("Check the reading: ${x.readings.joinToString(" / ")}", style = MaterialTheme.typography.labelMedium, color = Palette.Hard)
                 if (p.action == ImportPlanner.Action.UPDATE) {
                     for (ch in p.changes) {
                         val field = when (ch.field) { "fun_facts" -> "notes"; "sentence_clue" -> "sentence"; else -> ch.field }

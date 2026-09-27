@@ -52,6 +52,8 @@ class EditCardActions(
     val setPrimary: suspend (String) -> Unit = {},
     val deleteRecording: suspend (String) -> Unit = {},
     val play: (key: String?, text: String) -> Unit = { _, _ -> },
+    /** The card editor's Sentence Set + Audio Recordings sections (ui/cards/NoteMedia.kt); replaces the plain list. */
+    val media: (@Composable (noteId: String, fields: dev.jeromeswannack.chineselearning.lab.data.decks.NoteFields) -> Unit)? = null,
 )
 
 /** Edit card (components/CardEditModal.tsx) as a full-height sheet. */
@@ -79,7 +81,7 @@ fun EditCardForm(note: NoteEntity, aiAvailable: Boolean, actions: EditCardAction
     val scope = rememberCoroutineScope()
 
     fun reloadRecordings() = scope.launch { recordings = runCatching { actions.recordings() }.getOrElse { emptyList() } }
-    LaunchedEffect(note.id) { if (loadRecordings && aiAvailable) reloadRecordings() else recordings = emptyList() }
+    LaunchedEffect(note.id) { if (loadRecordings && aiAvailable && actions.media == null) reloadRecordings() else recordings = emptyList() }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -133,6 +135,7 @@ fun EditCardForm(note: NoteEntity, aiAvailable: Boolean, actions: EditCardAction
             if (clue.isNotBlank()) SecondaryPill("Clear", Modifier.height(44.dp)) { clue = ""; cluePinyin = ""; clueTranslation = ""; clueAudio = null }
         }
 
+        actions.media?.invoke(note.id, dev.jeromeswannack.chineselearning.lab.data.decks.NoteFields(hanzi, pinyin, english, funFacts, clue, cluePinyin, clueTranslation, alternatives))
         val recs = recordings
         if (!recs.isNullOrEmpty()) {
             Spacer(Modifier.height(4.dp))

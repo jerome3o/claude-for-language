@@ -163,6 +163,10 @@ export interface User {
   /** Daily new-card budget across all decks (migration 0069); NULL = DEFAULT_STUDY_BUDGET. */
   new_cards_per_day?: number | null;
   secondary_cards_per_day?: number | null;
+  /** JSON array of the conversation voices this account plays (migration 0078);
+   * NULL = the admin's selection, else the shipped defaults (shared/lesson/voices.ts). */
+  conversation_voices?: string | null;
+  conversation_voices_updated_at?: string | null;
   /** Reported by the client during sync (migration 0064). */
   install_kind?: 'pwa' | 'android' | 'browser' | null;
   cached_audio_count?: number | null;

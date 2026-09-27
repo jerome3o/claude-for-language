@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import dev.jeromeswannack.chineselearning.lab.core.AttemptRecording
 import dev.jeromeswannack.chineselearning.lab.core.ConversationExercise
+import dev.jeromeswannack.chineselearning.lab.core.ConversationVoices
 import dev.jeromeswannack.chineselearning.lab.core.DictationExercise
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
 import dev.jeromeswannack.chineselearning.lab.core.HandwritingAnswer
@@ -538,7 +539,8 @@ private class QuestionState(val choice: Int? = null, val text: String = "", val 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
-    val voices = remember(ex) { Lessons.conversationVoices(ex.speakers) }
+    // The account's enabled voices, read from the phone before the first line plays.
+    var voices by remember(ex) { mutableStateOf(ConversationVoices.forConversation(ex)) }
     val scope = rememberCoroutineScope()
     var playing by remember { mutableStateOf(false) }
     var currentLine by remember { mutableStateOf<Int?>(null) }
@@ -561,8 +563,9 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
             var failures = 0
             for ((i, line) in ex.lines.withIndex()) {
                 currentLine = i
-                if (!env.playClip(line.hanzi, voices.getOrNull(line.speaker))) failures++
-                delay(350)
+                if (!env.playClip(line.hanzi, voices.getOrNull(line.speaker), ConversationVoices.SPEED)) failures++
+                // A natural turn-taking beat before the next speaker, no more.
+                if (i < ex.lines.lastIndex) delay(ConversationVoices.LINE_GAP_MS)
             }
             playing = false
             currentLine = null
@@ -582,12 +585,15 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
         playing = false
         currentLine = i
         run = scope.launch {
-            env.playClip(ex.lines[i].hanzi, voices.getOrNull(ex.lines[i].speaker))
+            env.playClip(ex.lines[i].hanzi, voices.getOrNull(ex.lines[i].speaker), ConversationVoices.SPEED)
             if (currentLine == i) currentLine = null
         }
     }
     // Start listening straight away, like every listening exercise.
-    LaunchedEffect(Unit) { playAll() }
+    LaunchedEffect(Unit) {
+        voices = ConversationVoices.forConversation(ex, env.conversationVoices())
+        playAll()
+    }
     DisposableEffect(Unit) { onDispose { run?.cancel() } }
 
     val allAnswered = answers.all { it.correct != null }

@@ -12,7 +12,17 @@ import {
   diffHanzi,
   sentenceUsesWord,
 } from '../../../shared/lesson/answer-check';
-import { resolveConversationVoices } from '../../../shared/lesson/voices';
+import {
+  resolveConversationVoices,
+  conversationVoicesFor,
+  conversationSeed,
+  conversationVoicePools,
+  validateConversationVoiceSelection,
+  CONVERSATION_VOICES,
+  CONVERSATION_TTS_SPEED,
+  CONVERSATION_LINE_GAP_MS,
+  VOICE_SAMPLE_TEXT,
+} from '../../../shared/lesson/voices';
 import { exercisePoints, countScoreable, lessonTtsTexts, lessonTtsClips, type ConversationSpeaker } from '../../../shared/lesson/types';
 import { exercisePrimaryText } from '../../../shared/lesson/diff';
 import { SAMPLE_LESSONS } from '../../../shared/lesson/samples';
@@ -108,12 +118,47 @@ for (let i = 0; i < 80; i++) {
 }
 
 // ---- voices ----
+// Selections: none (shipped defaults), small / one-gender / unknown-id pools and random
+// subsets of the catalogue; seeds: 0, small and full 32-bit.
+const catalogueIds = CONVERSATION_VOICES.map(v => v.id);
+const selections: Array<string[] | null> = [
+  null,
+  [],
+  ['Chinese (Mandarin)_News_Anchor'],
+  ['Chinese (Mandarin)_News_Anchor', 'Chinese (Mandarin)_Male_Announcer'],
+  ['presenter_male', 'audiobook_male_1', 'Chinese (Mandarin)_Gentleman'],
+  ['presenter_female', 'Chinese (Mandarin)_Kind-hearted_Antie'],
+  ['not-a-voice', 'presenter_female', 'presenter_male'],
+];
+for (let i = 0; i < 12; i++) selections.push(catalogueIds.filter(() => rand() < 0.35));
 const voices: unknown[] = [];
 const genders = ['female', 'male', undefined, 'robot'] as const;
-for (let i = 0; i < 40; i++) {
+for (let i = 0; i < 120; i++) {
   const speakers: ConversationSpeaker[] = Array.from({ length: int(1, 5) }, (_, k) => ({ name: `S${k}`, voice: pick(genders) as never }));
-  voices.push({ speakers, voices: resolveConversationVoices(speakers) });
+  const enabled = i < 40 ? null : pick(selections);
+  const seed = i < 20 ? 0 : i % 3 === 0 ? int(0, 500) : Math.floor(rand() * 4294967296);
+  voices.push({ speakers, enabled, seed, voices: resolveConversationVoices(speakers, { enabled, seed }) });
 }
+const pools = selections.map(enabled => ({ enabled, pools: conversationVoicePools(enabled) }));
+const validations = [
+  ...selections.map(s => s ?? []),
+  ['Chinese (Mandarin)_Male_Announcer', 'Chinese (Mandarin)_News_Anchor', 'Chinese (Mandarin)_Male_Announcer'],
+].map(input => ({ input, ...validateConversationVoiceSelection(input) }));
+const situations = ['在酒店', 'At the bank', '', '点菜 🍜', 'Checking in at a hotel'];
+const seeds = situations.map((situation, i) => {
+  const lines = Array.from({ length: i + 1 }, (_, k) => ({ speaker: k % 2, hanzi: ['您好！', '我想换钱。', '请问有预订吗？', '𠮷野家在哪儿？'][k % 4] }));
+  const speakers: ConversationSpeaker[] = [{ name: 'A' }, { name: 'B', voice: 'male' }];
+  return { situation, lines, seed: conversationSeed({ situation, lines }), voices: conversationVoicesFor({ situation, lines, speakers }) };
+});
+const voiceCatalogue = {
+  voices: CONVERSATION_VOICES,
+  speed: CONVERSATION_TTS_SPEED,
+  gap_ms: CONVERSATION_LINE_GAP_MS,
+  sample_text: VOICE_SAMPLE_TEXT,
+  pools,
+  validations,
+  seeds,
+};
 
 // ---- samples: model coverage + spec helpers ----
 const samples = SAMPLE_LESSONS.map(s => ({
@@ -123,7 +168,7 @@ const samples = SAMPLE_LESSONS.map(s => ({
   points: s.spec.sections.flatMap(sec => sec.exercises.map(ex => exercisePoints(ex))),
   primary: s.spec.sections.flatMap(sec => sec.exercises.map(ex => exercisePrimaryText(ex))),
   tts_texts: lessonTtsTexts(s.spec),
-  tts_clips: lessonTtsClips(s.spec, resolveConversationVoices).map(c => ({ text: c.text, voice: c.voice ?? null })),
+  tts_clips: lessonTtsClips(s.spec, ex => conversationVoicesFor(ex), CONVERSATION_TTS_SPEED).map(c => ({ text: c.text, voice: c.voice ?? null, speed: c.speed ?? null })),
 }));
 
 // ---- attempts ----
@@ -195,6 +240,7 @@ writeFileSync(join(OUT, 'lesson.json'), JSON.stringify({
   answers,
   scrambles,
   voices,
+  voice_catalogue: voiceCatalogue,
   samples,
   durations: durations.map(ms => ({ ms, text: formatDuration(ms) })),
   attempts,

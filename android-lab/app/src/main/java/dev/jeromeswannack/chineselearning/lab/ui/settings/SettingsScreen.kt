@@ -145,6 +145,9 @@ fun SettingsScreen(
             AnimatedVisibility(advanced) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     AudioQualitySection(ui, env, actions)
+                    LabCard {
+                        NavRow("🗣️", "Conversation voices", desc = "Hear and choose the voices in lesson conversations", onClick = { actions.open(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.conversationVoices()) })
+                    }
                     SettingsSection("Example Sentences", "How many of your words have example sentences, what the background generation is doing, and a button to push a batch through now.") {
                         SecondaryPill("Sentence Coverage →", onClick = { actions.open(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.sentenceCoverage()) })
                     }

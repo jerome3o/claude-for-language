@@ -105,7 +105,7 @@ class ShellDataTest {
         assertEquals(0, snap.due.total)
         assertNull(snap.notifyCard)
         assertTrue(snap.homework.isEmpty())
-        assertEquals("Sign in to start studying", ShellRules.widgetText(snap.widget).detail)
+        assertEquals("Tap to sign in", ShellRules.widgetText(snap.widget).detail)
     }
 
     @Test

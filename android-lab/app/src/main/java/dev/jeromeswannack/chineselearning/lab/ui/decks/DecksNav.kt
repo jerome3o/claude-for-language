@@ -57,7 +57,7 @@ private fun GenerateRoute(nav: LabNav) {
 /** "Paste a list" over the deck page (the web's modal); back closes it. */
 @Composable
 private fun PasteRoute(env: DecksEnv, deckId: String, onClose: () -> Unit) {
-    val vm: PasteWordsViewModel = viewModel(key = "paste-$deckId", factory = PasteWordsViewModel.Factory(env, deckId, dev.jeromeswannack.chineselearning.lab.ui.study.Pinyin::of))
+    val vm: PasteWordsViewModel = viewModel(key = "paste-$deckId", factory = PasteWordsViewModel.Factory(env, deckId, dev.jeromeswannack.chineselearning.lab.core.Pinyin::toPinyin))
     val ui by vm.ui.collectAsStateWithLifecycle()
     androidx.activity.compose.BackHandler(enabled = ui.stage != PasteStage.RUNNING, onBack = onClose)
     PasteWordsScreen(
@@ -193,6 +193,7 @@ fun NoteEditorSheets(editor: NoteEditor, nav: LabNav) {
                 onGenerateAudio = editor::generateAudio,
                 onGenerateSentence = editor::generateSentence,
             ),
+            extras = id?.let { noteId -> { fields -> dev.jeromeswannack.chineselearning.lab.ui.cards.NoteMediaSections(nav.app, noteId, fields) } },
         )
     }
     moving?.let { ids ->
