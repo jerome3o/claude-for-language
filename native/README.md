@@ -72,6 +72,9 @@ and on manual dispatch.
 **Auto-updates**: install [Obtainium](https://github.com/ImranR98/Obtainium)
 on the phone, Add App → paste `https://github.com/jerome3o/claude-for-language`.
 Obtainium watches the GitHub Releases and notifies/installs each new version.
+The experimental pure-native **Lab** app (`android-lab/`) publishes to the same repo as
+GitHub *pre-releases* (`Lab v0.N`), which this entry ignores (Obtainium skips pre-releases
+unless an entry opts in). To install Lab alongside, see `android-lab/README.md`.
 
 **Required GitHub Actions secrets** (repo Settings → Secrets and variables →
 Actions):

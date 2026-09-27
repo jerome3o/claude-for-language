@@ -140,6 +140,12 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── wrangler.toml      # Separate worker config (shares D1 database)
 │   └── package.json
 │
+├── android-lab/           # Experimental PURE-NATIVE Android app (Kotlin + Compose), beside the hybrid app — see android-lab/README.md
+│   ├── core/              # Pure Kotlin ports: FSRS (ts-fsrs), budget, study queue, answer check — parity-tested against the TS
+│   ├── parity/            # generate-fixtures.ts: runs the web app's TypeScript to make the golden vectors
+│   ├── app/               # Android app: Room mirror + sync (same API), Compose UI, haptics/sounds
+│   └── PARITY.md          # Feature-by-feature parity checklist with the web app
+│
 ├── native/                # Capacitor Android wrapper (see native/README.md)
 │   ├── capacitor.config.json  # Remote server.url points at the deployed PWA
 │   ├── android/           # Native project: widget, PROCESS_TEXT, deep links
@@ -160,10 +166,29 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── .github/workflows/     # GitHub Actions
 │   ├── deploy.yml        # Auto-deploy all services on push to main
 │   ├── e2e-tests.yml     # E2E tests on PRs and main
-│   └── android-build.yml # Builds the sideloadable Android APK (native/)
+│   ├── android-build.yml # Builds the sideloadable Android APK (native/)
+│   └── android-lab-build.yml # Tests (incl. TS parity) + builds the Lab app; pre-releases lab-v* on main
 │
 └── package.json          # Root package.json (workspaces)
 ```
+
+## Native Lab app (android-lab/) — keep it at parity
+
+`android-lab/` is a pure-native Android app (its own id `dev.jeromeswannack.chineselearning.lab`,
+installed beside the hybrid app, published as `Lab v0.N` GitHub **pre-releases** by
+`.github/workflows/android-lab-build.yml`). It uses the same API and review events as the web app.
+Jerome wants it at **full feature parity with the web app, to the same standard**:
+
+- **When you implement or change a user-facing feature in the web app, implement it in the Lab app
+  too, in the same PR** — spawn a subagent following `.claude/skills/native-parity/SKILL.md` (it has
+  the brief to give it) and review its work like your own. If the native half truly can't land in
+  that PR, update its row in `android-lab/PARITY.md` (⬜/🟡 + what's missing).
+- Logic that must match (FSRS, budget, queue, answer checking) lives in `android-lab/core` and is
+  **parity-tested against the TypeScript**: `./gradlew :core:test` regenerates golden vectors by
+  running `shared/scheduler`, `shared/decks/budget.ts` and `frontend/src/utils/numberHanzi.ts`.
+  Changing those TS files without the matching Kotlin change turns the Lab build red.
+- Native sign-in: `/api/auth/login?client=lab&nonce=…` → callback redirects to
+  `chineselearning-lab://auth?session_token=…&nonce=…` (`NATIVE_AUTH_CLIENTS`, `services/auth.ts`).
 
 ## Key Concepts
 

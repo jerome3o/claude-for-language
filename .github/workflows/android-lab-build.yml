@@ -1,0 +1,131 @@
+name: Android Lab Build
+
+# The experimental pure-native app (android-lab/). Separate from the hybrid app's
+# workflow (android-build.yml) so the solid app is never affected:
+# - its own applicationId (…chineselearning.lab), installed side by side;
+# - published as GitHub PRE-releases tagged lab-v*, which Obtainium ignores unless
+#   an app entry opts into pre-releases — the hybrid app's entry keeps tracking
+#   android-v* only (see android-lab/README.md).
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'android-lab/**'
+      - 'shared/scheduler/**'
+      - 'shared/decks/**'
+      - 'frontend/src/utils/numberHanzi.ts'
+      - '.github/workflows/android-lab-build.yml'
+  pull_request:
+    paths:
+      - 'android-lab/**'
+      - 'shared/scheduler/**'
+      - 'shared/decks/**'
+      - 'frontend/src/utils/numberHanzi.ts'
+      - '.github/workflows/android-lab-build.yml'
+  workflow_dispatch:
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    name: Test and build Lab APK
+    timeout-minutes: 40
+    permissions:
+      contents: write # create releases
+    env:
+      IS_RELEASE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      APP_VERSION_CODE: ${{ github.run_number }}
+      APP_VERSION_NAME: 0.${{ github.run_number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The parity tests regenerate their golden vectors by running the web app's
+      # TypeScript (shared/scheduler, shared/decks, numberHanzi), so they need node_modules.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests (FSRS / budget / answer parity with the TypeScript, queue engine, UI render)
+        run: ./gradlew :core:test :app:testDebugUnitTest --no-daemon
+        working-directory: android-lab
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-test-reports
+          path: |
+            android-lab/core/build/reports/tests
+            android-lab/app/build/reports/tests
+          retention-days: 14
+
+      # ---- Debug build (branches / PRs) ----
+
+      - name: Build debug APK
+        if: env.IS_RELEASE != 'true'
+        run: ./gradlew :app:assembleDebug --no-daemon
+        working-directory: android-lab
+
+      - name: Upload debug APK artifact
+        if: env.IS_RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chinese-learning-lab-debug-apk
+          path: android-lab/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # ---- Signed pre-release on main (Obtainium "Lab" entry) ----
+
+      - name: Decode signing keystore
+        if: env.IS_RELEASE == 'true'
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Build signed release APK
+        if: env.IS_RELEASE == 'true'
+        run: ./gradlew :app:assembleRelease --no-daemon
+        working-directory: android-lab
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: chineselearning
+
+      - name: Rename APK for release
+        if: env.IS_RELEASE == 'true'
+        run: cp android-lab/app/build/outputs/apk/release/app-release.apk chinese-learning-lab.apk
+
+      - name: Publish GitHub pre-release
+        if: env.IS_RELEASE == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lab-v${{ env.APP_VERSION_NAME }}
+          name: Lab v${{ env.APP_VERSION_NAME }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Experimental pure-native Android app (android-lab/), versionCode ${{ env.APP_VERSION_CODE }}, built from ${{ github.sha }}.
+
+            Installs NEXT TO the main app (`dev.jeromeswannack.chineselearning.lab`). Obtainium: add this repo a second time with "Include prereleases" on and "Filter release titles by regular expression" = `^Lab`.
+          files: chinese-learning-lab.apk

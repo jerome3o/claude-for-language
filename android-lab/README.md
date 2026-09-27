@@ -1,0 +1,95 @@
+# 学 Lab — the experimental pure-native Android app
+
+A pure-native Android app (Kotlin + Jetpack Compose) that lives **next to** the solid
+hybrid app in `native/`, never instead of it. Same account, same API, same review
+events: a review made in either app reaches the other on its next sync, exactly like
+two phones. The goal is full feature parity with the web app, with a slicker, more
+satisfying feel: springy card flips, rich haptics (composed primitives on the Pixel),
+instant synthesized sound effects, confetti, streaks.
+
+Status: **v1 = the study loop** — sign in, sync, study all decks or one deck with all
+three card types, example sentences, undo, "Study 10 more", offline study with
+background upload, prefetched audio. Everything else opens the main app at the
+matching screen. The checklist is [PARITY.md](PARITY.md); how to add a feature is
+[`.claude/skills/native-parity/SKILL.md`](../.claude/skills/native-parity/SKILL.md).
+
+## Installing it (Obtainium)
+
+The Lab app has its own id, `dev.jeromeswannack.chineselearning.lab`, so it installs
+beside the main app. CI (`.github/workflows/android-lab-build.yml`) publishes each
+build on `main` as a GitHub **pre-release** named `Lab v0.N` (tag `lab-v0.N`, asset
+`chinese-learning-lab.apk`), signed with the same key as the main app.
+
+In Obtainium: **Add App** → `https://github.com/jerome3o/claude-for-language`, then in
+the app's additional options:
+
+- **Include prereleases**: on
+- **Filter release titles by regular expression**: `^Lab`
+- **Fallback to older releases**: on (so it walks past newer main-app releases)
+
+The existing main-app entry needs no change: Obtainium skips pre-releases unless an
+entry opts in, so it keeps installing `Android v1.N` releases only. (For belt and
+braces you can give it the title filter `^Android`.)
+
+Branch / PR builds upload a debug APK as the `chinese-learning-lab-debug-apk` workflow
+artifact (debug-signed: uninstall before switching between debug and release).
+
+Sign-in opens Google in a Chrome Custom Tab. The worker's `/api/auth/login?client=lab&nonce=…`
+carries the app in the OAuth state and the callback redirects to
+`chineselearning-lab://auth?session_token=…&nonce=…` (`NATIVE_AUTH_CLIENTS` in
+`worker/src/services/auth.ts`); the app only accepts the nonce it generated.
+
+## Layout
+
+```
+android-lab/
+├── core/     Pure Kotlin/JVM — the logic that must match the web app exactly
+│   ├── Fsrs.kt         line-by-line port of ts-fsrs 5.2.3 (BasicScheduler, Alea fuzz)
+│   ├── CardState.kt    port of shared/scheduler/compute-state.ts (replay, previews, formatInterval)
+│   ├── Budget.kt       port of shared/decks/budget.ts (global budget, deck queue)
+│   ├── StudyQueue.kt   getStudyQueue / selectNextItem from the web study session
+│   ├── AnswerKey.kt    typed-answer checking (utils/numberHanzi.ts + AnswerDiff)
+│   └── JsCompat.kt     JS number/date semantics (toFixed, Math.round, Number→String)
+├── parity/   generate-fixtures.ts: runs the web app's TypeScript to produce golden vectors
+└── app/      The Android app
+    ├── data/     Api (same endpoints as the web client), Room DB, Repository (sync), SyncWorker
+    ├── fx/       Sounds (synthesized, SoundPool), Haptics (composed primitives), WordAudio
+    └── ui/       Compose: home, sign-in, study (card, sentences, done), effects, theme
+```
+
+**Data model**: a local Room mirror of decks, notes, cards, sentence sets and review
+events. Review events are the source of truth: a card's scheduling columns are a cache
+of `CardScheduler.computeCardState(events)`, recomputed whenever its events change.
+Sync mirrors `frontend/src/services/sync.ts`: full sync (`/api/decks` + each deck),
+incremental (`/api/sync/changes`, tombstones first), events (`POST /api/reviews`
+upload, `GET /api/reviews` cursor download, `DELETE` for undone reviews), sentence sets
+(`/api/sentences/changes`), then every referenced audio clip is downloaded for the train.
+
+## Parity: proving the logic matches
+
+`./gradlew :core:test` first runs `parity/generate.sh`, which bundles
+`parity/generate-fixtures.ts` with esbuild and runs it on node. That script calls the
+**web app's own** `computeCardState`, `applyReview`, `getIntervalPreviews`,
+`getRetrievability`, `formatInterval`, `allocateNewCards`, `normalizeNumbersToHanzi`,
+`hanziAnswerKey`… on thousands of seeded cases (400 cards × up to 24 reviews with
+realistic timing, 300 budget scenarios, answer edge cases, JS number formatting). Then
+`ParityTest` requires the Kotlin to produce **exactly** the same values (doubles compared
+for equality). A change to the TypeScript that the Kotlin doesn't follow turns the Lab
+build red. CI runs this on every change to `shared/scheduler`, `shared/decks` or
+`numberHanzi.ts`.
+
+## Running things
+
+Needs JDK 17+, the Android SDK (`local.properties` → `sdk.dir=…`) and, for the parity
+tests, `npm ci` at the repo root.
+
+```bash
+cd android-lab
+./gradlew :core:test                 # parity + queue engine
+./gradlew :app:testDebugUnitTest     # Robolectric tests (screenshot rendering)
+./gradlew :app:recordRoborazziDebug  # writes PNGs to app/screenshots/
+./gradlew :app:assembleDebug         # app/build/outputs/apk/debug/app-debug.apk
+
+# Sync contract against a real local worker (E2E_TEST_MODE=true in worker/.dev.vars):
+LAB_E2E_API=http://localhost:8787 ./gradlew :app:testDebugUnitTest --tests '*SyncContractTest*'
+```
