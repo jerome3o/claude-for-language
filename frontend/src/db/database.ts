@@ -962,17 +962,6 @@ export async function getCardsByDeckId(deckId: string): Promise<LocalCard[]> {
 
 // ============ Daily Limit Tracking ============
 
-function getDailyStatsId(date: string, deckId: string): string {
-  return `${date}:${deckId}`;
-}
-
-function getTodayString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 /**
  * Fallback for deck rows cached before `secondary_cards_per_day` existed
@@ -1070,18 +1059,15 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCards
 }
 
 /**
- * Single-flight wrapper: app start, the home page counts and the study queue
- * all ask for today's recompute within the same second, so concurrent callers
- * share one pass instead of each scanning the events again.
+ * Deliberately NOT single-flight: a shared promise started inside Home's
+ * liveQuery (useRawQueueCounts) carries that liveQuery's Dexie zone, and a
+ * caller that awaited it and then wrote (the old dailyStats seeding in the
+ * study load) failed with "Readwrite transaction in liveQuery context" — the
+ * study session then showed All Done while Home said "3 cards due". The pass
+ * is O(today's events), so each caller runs its own.
  */
-let computeTodayInFlight: Promise<Map<string, NewCardsStudiedToday>> | null = null;
 function computeNewCardsStudiedTodayByDeckShared(): Promise<Map<string, NewCardsStudiedToday>> {
-  if (!computeTodayInFlight) {
-    computeTodayInFlight = computeNewCardsStudiedTodayByDeck().finally(() => {
-      computeTodayInFlight = null;
-    });
-  }
-  return computeTodayInFlight;
+  return computeNewCardsStudiedTodayByDeck();
 }
 
 /**
@@ -1091,45 +1077,6 @@ function computeNewCardsStudiedTodayByDeckShared(): Promise<Map<string, NewCards
  */
 export function introducedTodayFromEvents(): Promise<Map<string, NewCardsStudiedToday>> {
   return computeNewCardsStudiedTodayByDeckShared();
-}
-
-/**
- * Seed today's dailyStats counters for every deck so that subsequent reads never
- * fall through to event scanning. Call once on app load (and at day rollover).
- * Safe to call repeatedly; only writes rows that don't already exist, and
- * concurrent calls share one run.
- */
-let ensureDailyStatsInFlight: Promise<void> | null = null;
-export function ensureDailyStatsInitialized(): Promise<void> {
-  if (!ensureDailyStatsInFlight) {
-    ensureDailyStatsInFlight = ensureDailyStatsInitializedNow().finally(() => {
-      ensureDailyStatsInFlight = null;
-    });
-  }
-  return ensureDailyStatsInFlight;
-}
-
-async function ensureDailyStatsInitializedNow(): Promise<void> {
-  const today = getTodayString();
-  const [decks, existing] = await Promise.all([
-    db.decks.toArray(),
-    db.dailyStats.where('date').equals(today).toArray(),
-  ]);
-
-  const have = new Set(existing.map(s => s.deck_id));
-  const missing = decks.filter(d => !have.has(d.id));
-  if (missing.length === 0) return;
-
-  const computed = await computeNewCardsStudiedTodayByDeckShared();
-  await db.dailyStats.bulkPut(
-    missing.map(d => ({
-      id: getDailyStatsId(today, d.id),
-      date: today,
-      deck_id: d.id,
-      new_cards_studied: computed.get(d.id)?.primary ?? 0,
-      secondary_cards_studied: computed.get(d.id)?.secondary ?? 0,
-    }))
-  );
 }
 
 /**
