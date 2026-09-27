@@ -82,6 +82,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
+import androidx.compose.runtime.collectAsState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.markdownLite
 
@@ -94,6 +96,7 @@ private sealed interface CardSheet {
     data object Edit : CardSheet
     data object Flag : CardSheet
     data object Ask : CardSheet
+    data object Write : CardSheet
     data class Define(val hanzi: String) : CardSheet
 }
 
@@ -190,8 +193,26 @@ fun CardStage(
 
         // Bottom controls
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
+            val mc = ui.extras.mc
             if (!flipped) {
-                if (typing) {
+                if (typing && mc.showing && mc.rows != null) {
+                    McGrid(
+                        rows = mc.rows,
+                        aiAvailable = ui.aiAvailable,
+                        regenerating = mc.loading,
+                        onContinue = { chosen -> answer = chosen; reveal() },
+                        onTypeInstead = actions.onTypeInstead,
+                        onRegenerate = actions.onRegenerateMc,
+                        onPick = actions.onTick,
+                    )
+                } else if (typing && mc.ready && view.card.cardType == CardTypes.AUDIO_TO_HANZI) {
+                    PrimaryPill("Show options", Modifier.fillMaxWidth().height(60.dp), onClick = actions.onRevealMc)
+                } else if (typing && mc.auto && mc.loading && !mc.skip) {
+                    McLoading(actions.onTypeInstead)
+                } else if (typing) {
+                    mc.fallbackNote?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), textAlign = TextAlign.Center)
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
                             value = answer,
@@ -209,7 +230,7 @@ fun CardStage(
                         PrimaryPill(if (answer.isBlank()) "Show" else "Check", Modifier.height(56.dp)) { reveal() }
                     }
                 } else {
-                    PrimaryPill("Show answer", Modifier.fillMaxWidth().height(60.dp)) { reveal() }
+                    RecordControls(ui.extras.take, actions, onReveal = { reveal() })
                 }
             } else {
                 StudyActionRow(
@@ -230,12 +251,13 @@ fun CardStage(
     when (val s = sheet) {
         null -> Unit
         CardSheet.More -> StudyMoreSheet(
-            items = studyMenuItems(view, ui, actions, hasRecording = false, onFlag = { sheet = CardSheet.Flag }),
+            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }, onWrite = { sheet = CardSheet.Write }),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
         )
         CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
+        CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
         CardSheet.Ask -> AskClaudeSheet(view, ui.extras.ask, typed, actions.ask, onDismiss = { sheet = null })
         is CardSheet.Define -> WordDefinitionSheet(
             hanzi = s.hanzi,
@@ -334,6 +356,16 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                 TextButton(enabled = !generating, onClick = actions.onGenerateSentenceClue) { Text("↻", color = Lab.colors.muted, fontSize = 18.sp) }
             }
         }
+        val mc = ui.extras.mc
+        if (!reading && !mc.showing && !mc.ready) {
+            val mcEnabled = !mc.loading && (mc.cached || ui.aiAvailable)
+            TextButton(enabled = mcEnabled, onClick = actions.onShowMc) {
+                Text(
+                    when { mc.loading -> "Building options…"; !mcEnabled -> "Multiple choice · $NEEDS_INTERNET"; else -> "Multiple choice" },
+                    color = if (mcEnabled) Lab.colors.accent else Lab.colors.muted,
+                )
+            }
+        }
         if (reading) {
             Text("Say it aloud, then tap to check", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
         }
@@ -371,6 +403,7 @@ private fun CardBack(
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
+            TranscriptionLine(ui.extras.take.transcription)
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
@@ -382,13 +415,16 @@ private fun CardBack(
             Spacer(Modifier.height(12.dp))
             val playing = isWordPlaying(playingKey, view, ui)
             val voices = ui.extras.voices
-            Row(
-                Modifier.clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.AutoMirrored.Filled.VolumeUp, null, Modifier.size(18.dp), tint = Lab.colors.accent)
-                Spacer(Modifier.width(6.dp))
-                Text(if (voices.size > 1) "Play (${ui.extras.voiceIndex + 1}/${voices.size})" else "Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.VolumeUp, null, Modifier.size(18.dp), tint = Lab.colors.accent)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (voices.size > 1) "Play (${ui.extras.voiceIndex + 1}/${voices.size})" else "Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
+                }
+                if (view.card.cardType == CardTypes.HANZI_TO_MEANING) RecordAgainPill(ui.extras.take, actions)
             }
             OfflineAudioNote(view, ui)
             ui.extras.notice?.let {
@@ -408,7 +444,7 @@ private fun CardBack(
                 )
                 Spacer(Modifier.height(16.dp))
             }
-            SentenceList(view, playingKey, actions)
+            SentenceList(view, ui, playingKey, actions)
         }
     }
     if (wide) {
@@ -541,4 +577,93 @@ private fun hanziSize(hanzi: String): TextUnit = when {
     hanzi.length <= 8 -> 44.sp
     hanzi.length <= 14 -> 34.sp
     else -> 26.sp
+}
+
+/**
+ * Front of a read card (StudyPage.tsx `renderSpeakingCardButtons`): record yourself saying
+ * it, or go straight to the answer. While recording: a level meter and Stop (after half a
+ * second, so a double tap can't end it); with a take: play it back / re-record / check.
+ */
+@Composable
+private fun RecordControls(take: TakeUi, actions: StudyActions, onReveal: () -> Unit) {
+    val start = rememberRecordPermission { actions.onStartRecording(false) }
+    when {
+        take.recording && take.starting -> PrimaryPill("Recording…", Modifier.fillMaxWidth().height(60.dp), color = Palette.Again, enabled = false) {}
+        take.recording -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            val level by actions.recordingLevel.collectAsState()
+            val shown by animateFloatAsState((level * 2f).coerceIn(0.03f, 1f), spring(stiffness = 600f), label = "level")
+            Box(Modifier.fillMaxWidth(0.8f).height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
+                Box(
+                    Modifier.fillMaxWidth(shown).fillMaxSize().clip(CircleShape)
+                        .background(if (level > 0.4f) Palette.Again else if (level > 0.15f) Palette.Good else Lab.colors.muted),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            PrimaryPill("⏹  Stop recording", Modifier.fillMaxWidth().height(60.dp), color = Palette.Again) { actions.onStopRecording(false) }
+        }
+        take.hasTake -> Column {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryPill("▶ Play recording", Modifier.weight(1f).height(48.dp), onClick = actions.onPlayMyRecording)
+                SecondaryPill("Re-record", Modifier.weight(1f).height(48.dp), onClick = actions.onClearRecording)
+            }
+            Spacer(Modifier.height(8.dp))
+            PrimaryPill("Check answer", Modifier.fillMaxWidth().height(60.dp), onClick = onReveal)
+        }
+        else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryPill("🎤  Record", Modifier.weight(1f).height(60.dp), onClick = start)
+            PrimaryPill("Show answer", Modifier.weight(1.4f).height(60.dp), onClick = onReveal)
+        }
+    }
+}
+
+/** 🎤 Record again / ⏹ Stop recording on the back (the web's study-back-pills). */
+@Composable
+private fun RecordAgainPill(take: TakeUi, actions: StudyActions) {
+    val again = rememberRecordPermission { actions.onStartRecording(true) }
+    val (label, onClick, color) = when {
+        take.recording && take.starting -> Triple("Recording…", {}, Palette.Again)
+        take.recording -> Triple("⏹ Stop recording", { actions.onStopRecording(true) }, Palette.Again)
+        else -> Triple("🎤 Record again", again, Lab.colors.ink)
+    }
+    Text(
+        label,
+        color = color,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.clip(CircleShape).background(if (take.recording) Palette.Again.copy(alpha = 0.12f) else Lab.colors.faint).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+    )
+}
+
+/** Asks for the microphone once, then runs [onGranted]. */
+@Composable
+private fun rememberRecordPermission(onGranted: () -> Unit): () -> Unit {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok -> if (ok) onGranted() }
+    return {
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) onGranted() else launcher.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
+}
+
+/** "You said: …" under the answer (the web's renderTranscriptionResult). */
+@Composable
+private fun TranscriptionLine(t: TranscriptionUi?) {
+    val (text, tint) = when (t) {
+        null, TranscriptionUi.Failed -> return
+        TranscriptionUi.Working -> "Transcribing…" to Palette.Easy
+        TranscriptionUi.Offline -> "Recording saved, will transcribe when online" to Lab.colors.muted
+        is TranscriptionUi.Done -> {
+            val r = t.result
+            val mark = if (r.isMatch || r.containsExpected) "✅" else "❌"
+            val color = if (r.isMatch) Palette.Good else if (r.containsExpected) Palette.Hard else Palette.Again
+            "You said: ${r.transcribedPinyin} (${r.transcribedHanzi}) $mark" + (if (r.containsExpected && !r.isMatch) "\nAnswer found in your sentence" else "") to color
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = Lab.colors.ink,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(tint.copy(alpha = 0.12f)).border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
+    )
 }

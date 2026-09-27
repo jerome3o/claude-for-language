@@ -61,6 +61,8 @@ class CardTools(private val app: LabApp) {
     private val api get() = app.repo.api
     private val cache get() = app.cache
 
+    fun api() = repo.api
+
     /** Notes whose sentence set generation already started this process (`generationStarted`). */
     private val setStarted = HashSet<String>()
 
@@ -183,6 +185,10 @@ class CardTools(private val app: LabApp) {
     suspend fun addNote(deckId: String, body: NewNoteBody) {
         api.createNote(deckId, body)
         syncSoon()
+    }
+
+    suspend fun deckHas(deckId: String, hanzi: String): Boolean = withContext(Dispatchers.IO) {
+        repo.dao.allNotes().any { it.deckId == deckId && it.hanzi == hanzi }
     }
 
     /** "Already in <deck>" for the definition popup. */

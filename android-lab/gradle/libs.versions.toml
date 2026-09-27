@@ -17,6 +17,7 @@ junit = "4.13.2"
 robolectric = "4.14.1"
 roborazzi = "1.39.0"
 androidxTestCore = "1.6.1"
+zxing = "3.5.3"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -49,6 +50,7 @@ androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTes
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
 roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 roborazzi-junit-rule = { module = "io.github.takahirom.roborazzi:roborazzi-junit-rule", version.ref = "roborazzi" }
 
 [plugins]
