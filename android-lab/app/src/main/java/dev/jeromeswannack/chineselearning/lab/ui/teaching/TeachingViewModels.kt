@@ -18,6 +18,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.assignHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.cardFlags
 import dev.jeromeswannack.chineselearning.lab.data.api.conversations
 import dev.jeromeswannack.chineselearning.lab.data.api.createDeckNamed
+import dev.jeromeswannack.chineselearning.lab.data.api.createInvite
+import dev.jeromeswannack.chineselearning.lab.data.api.createStarterDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.lessonLibrary
 import dev.jeromeswannack.chineselearning.lab.data.api.lessonLog
 import dev.jeromeswannack.chineselearning.lab.data.api.liveCalls
@@ -108,6 +110,26 @@ class DashboardViewModel(private val app: LabApp) : ViewModel() {
                 .onSuccess { go(it.conversation_id) }
                 .onFailure { _notice.value = it.userMessage() }
         }
+    }
+
+    /** Create link: the Starter Chinese deck first when it is ticked, then the invite. */
+    fun createInvite(req: InviteRequest, step: (String?) -> Unit, done: (dev.jeromeswannack.chineselearning.lab.data.api.InviteDto?, String?) -> Unit) = viewModelScope.launch {
+        attempt {
+            var body = req.body
+            if (req.withStarter) {
+                step("Creating your Starter Chinese deck…")
+                val starter = app.repo.api.createStarterDeck()
+                body = body.copy(share_deck_ids = listOf(starter.deck.id) + body.share_deck_ids)
+                app.scope.launch { app.repo.sync() }
+            }
+            step("Creating the link…")
+            app.repo.api.createInvite(body)
+        }.onSuccess { inv ->
+            app.haptics.celebrate()
+            app.sounds.play(Sounds.Sfx.POP)
+            done(inv, null)
+            dashboard.refresh()
+        }.onFailure { done(null, it.userMessage()) }
     }
 
     fun createDeck(name: String, then: (String) -> Unit) = viewModelScope.launch {

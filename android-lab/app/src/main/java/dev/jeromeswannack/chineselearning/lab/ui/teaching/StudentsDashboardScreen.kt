@@ -152,9 +152,9 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
         if (o.is_new) {
             SetupChecklistCompact(o, now)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (o.setup.invite != null) SecondaryPill("Show invite QR again", Modifier.weight(1f)) { showQr = true }
-                else SecondaryPill("📤 Send homework", Modifier.weight(1f)) { actions.sendHomework(o) }
-                SecondaryPill("💬 Message", Modifier.weight(1f)) { actions.message(o) }
+                if (o.setup.invite != null) TeachButton("Show invite QR again", Modifier.weight(1f)) { showQr = true }
+                else TeachButton("📤 Send homework", Modifier.weight(1f)) { actions.sendHomework(o) }
+                TeachButton("💬 Message", Modifier.weight(1f)) { actions.message(o) }
             }
         } else {
             val p = o.pills
@@ -166,8 +166,8 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
                 if (p.homework_percent != null) TeachPill("Homework ${p.homework_percent}%", PillTone.Homework) { actions.open(Routes.connection(relId)) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryPill("💬 Message", Modifier.weight(1f)) { actions.message(o) }
-                SecondaryPill("📤 Send homework", Modifier.weight(1f)) { actions.sendHomework(o) }
+                TeachButton("💬 Message", Modifier.weight(1f)) { actions.message(o) }
+                TeachButton("📤 Send homework", Modifier.weight(1f)) { actions.sendHomework(o) }
             }
         }
     }
@@ -269,7 +269,7 @@ fun InviteQrSheet(url: String, title: String, hint: String?, onCopy: (String) ->
             Text(url, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PrimaryPill(if (copied) "Copied ✓" else "Copy link", Modifier.weight(1f).height(52.dp)) { onCopy(url); copied = true }
-                SecondaryPill("Share…", Modifier.weight(1f).height(52.dp)) { onShare(url) }
+                TeachButton("Share…", Modifier.weight(1f).height(52.dp)) { onShare(url) }
             }
             if (hint != null) Text(hint, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
         }

@@ -71,6 +71,9 @@ fun StudentsDashboardRoute(nav: LabNav) {
     val me by vm.me.state.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
     var homeworkFor by remember { mutableStateOf<StudentOverviewDto?>(null) }
+    var inviting by remember { mutableStateOf(false) }
+    val online by app.online.collectAsStateWithLifecycle()
+    val decks by vm.send.decks.collectAsStateWithLifecycle()
     val canInvite = me.data?.let { it.can_invite || it.is_admin } ?: app.prefs.isAdmin
 
     StudentsDashboardScreen(
@@ -81,7 +84,7 @@ fun StudentsDashboardRoute(nav: LabNav) {
             open = nav::open,
             message = { o -> vm.message(o) { conv -> nav.open(Routes.chat(o.relationship_id, conv)) } },
             sendHomework = { homeworkFor = it; vm.send.loadDecks() },
-            invite = { nav.openInMainApp(Routes.CONNECTIONS) },
+            invite = { inviting = true; vm.send.loadDecks() },
             revokeInvite = vm::revoke,
             copy = { context.copyToClipboard(it); app.haptics.tick() },
             share = context::shareLink,
@@ -89,6 +92,15 @@ fun StudentsDashboardRoute(nav: LabNav) {
             refresh = { vm.dashboard.refresh() },
         ),
     )
+    if (inviting) {
+        InviteSheet(
+            decks = decks, online = online,
+            create = { req, step, done -> vm.createInvite(req, step, done) },
+            onCopy = { context.copyToClipboard(it); app.haptics.tick() },
+            onShare = context::shareLink,
+            onDismiss = { inviting = false },
+        )
+    }
     homeworkFor?.let { o -> SendHomeworkFor(nav, vm.send, o.relationship_id, studentName(o), o) { homeworkFor = null } }
 }
 

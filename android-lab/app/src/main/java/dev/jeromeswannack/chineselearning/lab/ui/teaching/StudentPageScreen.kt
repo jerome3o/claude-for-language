@@ -217,10 +217,10 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
     item(key = "actions") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PrimaryPill("💬 Message", Modifier.weight(1f).height(52.dp), enabled = !ui.messageBusy, onClick = actions.message)
-                SecondaryPill("📤 Send homework", Modifier.weight(1f).height(52.dp), onClick = actions.sendHomework)
+                TeachButton("💬 Message", Modifier.weight(1f), primary = true, enabled = !ui.messageBusy, onClick = actions.message)
+                TeachButton("📤 Send homework", Modifier.weight(1f).height(52.dp), onClick = actions.sendHomework)
             }
-            SecondaryPill(if (ui.callBusy) "Starting…" else "📹 Video call (beta)", Modifier.fillMaxWidth(), enabled = !ui.callBusy, onClick = actions.videoCall)
+            TeachButton(if (ui.callBusy) "Starting…" else "📹 Video call (beta)", Modifier.fillMaxWidth(), enabled = !ui.callBusy, onClick = actions.videoCall)
             if (ui.notice != null) InlineNotice(ui.notice, kind = if (ui.noticeIsError) NoticeKind.Error else NoticeKind.Success)
         }
     }

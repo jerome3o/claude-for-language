@@ -115,13 +115,15 @@ fun SendHomeworkContent(
     actions: SendHomeworkActions,
     initialDeck: DeckOption? = null,
     initialTab: Int = 0,
+    initialMode: HomeworkMode = HomeworkMode.FSRS,
+    initialSplit: Int = 1,
 ) {
     var tab by remember { mutableIntStateOf(initialTab) }
     var pendingDeck by remember { mutableStateOf(initialDeck) }
     var pendingLesson by remember { mutableStateOf<LibraryItemSummaryDto?>(null) }
-    var mode by remember { mutableStateOf(HomeworkMode.FSRS) }
+    var mode by remember { mutableStateOf(initialMode) }
     var dueDate by remember { mutableStateOf(HomeworkPlan.addDays(today, 2)) }
-    var splitDays by remember { mutableIntStateOf(1) }
+    var splitDays by remember { mutableIntStateOf(initialSplit) }
     var skipKnown by remember { mutableStateOf(true) }
     var priority by remember { mutableStateOf("core") }
     var result by remember { mutableStateOf<String?>(null) }

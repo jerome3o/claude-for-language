@@ -306,3 +306,24 @@ fun MutedLine(text: String, modifier: Modifier = Modifier) {
 /** Space helper for Rows. */
 @Composable
 fun HSpace(w: Dp) = Spacer(Modifier.width(w))
+
+/**
+ * A compact one-line pill for pairs of actions inside a card ("💬 Message" · "📤 Send homework"),
+ * where the kit's pills would wrap at half the phone width. [primary] fills with the accent.
+ */
+@Composable
+fun TeachButton(label: String, modifier: Modifier = Modifier, primary: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    val accent = Lab.colors.accent
+    Box(
+        modifier
+            .heightIn(min = 48.dp)
+            .bouncyClickable(enabled, 0.95f, onClick = onClick)
+            .clip(RoundedCornerShape(18.dp))
+            .then(if (primary) Modifier.background(accent) else Modifier.border(1.5.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(18.dp)))
+            .alpha(if (enabled) 1f else 0.5f)
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (primary) Color.White else accent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}

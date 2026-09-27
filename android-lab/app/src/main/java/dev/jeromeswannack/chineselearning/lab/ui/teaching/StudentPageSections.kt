@@ -184,8 +184,8 @@ fun SetupChecklistCard(
         if (invite != null) {
             var copied by remember { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryPill("Show QR again", Modifier.weight(1f), onClick = onShowQr)
-                SecondaryPill(if (copied) "Copied ✓" else "Copy invite link", Modifier.weight(1f)) { onCopyLink(invite.url); copied = true }
+                TeachButton("Show QR again", Modifier.weight(1f), onClick = onShowQr)
+                TeachButton(if (copied) "Copied ✓" else "Copy invite link", Modifier.weight(1f)) { onCopyLink(invite.url); copied = true }
             }
             MutedLine("The link keeps working for this student even after they have signed in — scanning it again just opens the app.")
         } else {
@@ -268,7 +268,7 @@ fun FlagRow(flag: CardFlagDto, actions: FlagActions, now: Instant = Instant.now(
         if (replying) {
             OutlinedTextField(reply, { if (it.length <= 2000) reply = it }, Modifier.fillMaxWidth(), placeholder = { Text("Reply to ${flag.student_name ?: "the student"} — they see it on the back of this card") }, minLines = 2)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryPill("Cancel", Modifier.weight(1f), enabled = !busy) { replying = false }
+                TeachButton("Cancel", Modifier.weight(1f), enabled = !busy) { replying = false }
                 PrimaryPill(if (busy) "Sending…" else "Send reply", Modifier.weight(1f).height(48.dp), enabled = !busy && reply.isNotBlank()) {
                     busy = true; error = null
                     actions.reply(flag, reply.trim()) { e -> busy = false; error = e; if (e == null) { replying = false; reply = "" } }
@@ -530,8 +530,8 @@ fun StudentLessonsCard(relId: String, lessons: List<StudentLessonDto>?, error: S
                                     if (l.completions == 0) "not studied yet" else "studied ${l.completions}× · last ${l.last_rating?.let { RATING_LABELS[it] }.orEmpty()} ${TeachingFormat.shortDate(l.last_completed_at, now)}",
                             )
                         }
-                        if (l.last_attempt_id != null) InlineButton("📝") { open(Routes.studentLessonAttempts(relId, l.last_attempt_id)) }
-                        if (l.assigned_by_me) InlineButton("✏️") { open(Routes.lessonEdit(l.id)) }
+                        if (l.last_attempt_id != null) InlineButton("📝 Answers") { open(Routes.studentLessonAttempts(relId, l.last_attempt_id)) }
+                        if (l.assigned_by_me) InlineButton("✏️ Edit") { open(Routes.lessonEdit(l.id)) }
                     }
                 }
             }
@@ -608,19 +608,12 @@ fun ActivityCard(relId: String, activity: List<ActivityDayDto>, open: (String) -
 /** Quick links to the deeper pages. */
 @Composable
 fun StudentNavLinks(relId: String, recordingsToHear: Int, open: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow {
         listOf(
-            "Insights" to Routes.insights(relId),
-            "History" to Routes.studentHistory(relId),
-            ("Recordings" + if (recordingsToHear > 0) " ($recordingsToHear)" else "") to Routes.recordings(relId),
-            "Progress" to Routes.studentProgress(relId),
-        ).forEach { (label, path) ->
-            Box(
-                Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).bouncyClickable(pressedScale = 0.95f) { open(path) }.background(Lab.colors.card).padding(horizontal = 4.dp, vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
+            "📊 Insights" to Routes.insights(relId),
+            "🕘 History" to Routes.studentHistory(relId),
+            ("🎤 Recordings" + if (recordingsToHear > 0) " ($recordingsToHear)" else "") to Routes.recordings(relId),
+            "📈 Progress" to Routes.studentProgress(relId),
+        ).forEach { (label, path) -> dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip(label) { open(path) } }
     }
 }

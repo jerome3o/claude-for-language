@@ -462,3 +462,36 @@ data class NewCallBody(val relationship_id: String)
 data class CreatedCallDto(val call: CallRefDto)
 
 suspend fun Api.startCall(relId: String): CreatedCallDto = post("/api/calls", NewCallBody(relId))
+
+// ---------------- invites (web: api/invites.ts, components/invites/InviteSheet.tsx) ----------------
+
+@Serializable
+data class CreateInviteBody(
+    val inviter_role: String?,
+    val share_deck_ids: List<String>,
+    val welcome_message: String?,
+    val email: String?,
+    val expires_in_days: Int?,
+    val max_uses: Int,
+    val note: String?,
+)
+
+@Serializable
+data class InviteDto(
+    val id: String,
+    val url: String = "",
+    val email: String? = null,
+    val inviter_role: String? = null,
+    /** JSON array text, as stored. */
+    val share_deck_ids: String? = null,
+    val max_uses: Int = 1,
+    val expires_at: String? = null,
+    val welcome_message: String? = null,
+)
+
+suspend fun Api.createInvite(body: CreateInviteBody): InviteDto = post("/api/invites", body)
+
+@Serializable
+data class StarterDeckDto(val deck: CreatedDeckDto, val created: Boolean = false, val word_count: Int = 0)
+
+suspend fun Api.createStarterDeck(): StarterDeckDto = post("/api/decks/starter")
