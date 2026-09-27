@@ -21,6 +21,8 @@ import { ApiClient, ApiError } from './api.js';
 import { errorResult, guard, textResult, type ToolContext } from './tools/context.js';
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
+import { registerHomeworkTools } from './tools/homework.js';
+import { registerAdminTools } from './tools/admin.js';
 import { registerTutorApps } from './tools/apps.js';
 
 interface User {
@@ -1913,7 +1915,10 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     // main API as this user, so ownership and tutor checks stay in one place.
     registerStudentTools(ctx);
     registerContentTools(ctx);
+    registerHomeworkTools(ctx);
     registerTutorApps(ctx);
+    // Admin: accounts, roles, access requests, deletion (the API answers 403 to non-admins).
+    registerAdminTools(ctx);
   }
 }
 

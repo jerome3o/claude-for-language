@@ -158,7 +158,7 @@
   justify-content: center;
 }
 
-.lesson-trial-badge {
+.cat-page-trial .lesson-preview-badge, .study-page-fullscreen .lesson-preview-badge {
   font-size: 0.8rem;
   font-weight: 600;
   color: #92400e;

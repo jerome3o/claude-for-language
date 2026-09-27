@@ -78,6 +78,8 @@ import { tutorNotesRoutes } from './routes/tutor-notes';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
+import { homeworkRoutes } from './routes/homework';
+import adminRoutes from './routes/admin';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { unreferencedImageKeys } from './services/shared-readers';
 import {
@@ -469,6 +471,10 @@ app.route('/api', tutorNotesRoutes);
 
 // Lesson attempts: per-exercise answers + time, recordings, sentence-making feedback (routes/lesson-attempts.ts)
 app.route('/api', lessonAttemptsRoutes);
+// Homework assignments: one-off passes with due dates and / or long-term review (routes/homework.ts, docs/HOMEWORK.md)
+app.route('/api', homeworkRoutes);
+// Admin: inspect an account (decks incl. deleted, shares, sync state), set its role, delete it (routes/admin.ts)
+app.route('/api', adminRoutes);
 
 // ============ Admin Routes ============
 
@@ -489,6 +495,8 @@ app.get('/api/admin/users', adminMiddleware, async (c) => {
     deck_count: user.deck_count,
     note_count: user.note_count,
     review_count: user.review_count,
+    install_kind: user.install_kind ?? null,
+    last_opened_at: user.last_opened_at ?? null,
   })));
 });
 
@@ -5734,6 +5742,15 @@ app.get('/api/sync/changes', async (c) => {
   const sinceDate = new Date(since).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
   console.log('[API sync/changes] sinceDate:', sinceDate);
 
+  // Every deck the account has right now, taken BEFORE the change queries so a
+  // deck created while this request runs is never missing from a list that is
+  // newer than it. Clients drop local decks that are not in it: decks deleted
+  // before tombstones existed (migration 0068), or by any path that wrote none,
+  // otherwise stay on a device for good — an incremental sync only ever adds.
+  const liveDeckIdsAt = new Date().toISOString();
+  const liveDecks = await c.env.DB.prepare('SELECT id FROM decks WHERE user_id = ?').bind(userId).all<{ id: string }>();
+  const live_deck_ids = (liveDecks.results || []).map(d => d.id);
+
   // Get updated decks
   const decksResult = await c.env.DB.prepare(`
     SELECT * FROM decks
@@ -5792,6 +5809,8 @@ app.get('/api/sync/changes', async (c) => {
     notes: notesResult.results || [],
     cards: cardsResult.results || [],
     deleted,
+    live_deck_ids,
+    live_deck_ids_at: liveDeckIdsAt,
     server_time: new Date().toISOString(),
   });
 });

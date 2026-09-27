@@ -17,6 +17,8 @@ import { SplashPage } from './pages/SplashPage';
 // Lazy-loaded pages
 const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ default: m.DeckDetailPage })));
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
+const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
+const HomeworkPassPage = lazy(() => import('./pages/HomeworkPassPage').then(m => ({ default: m.HomeworkPassPage })));
 const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
 const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
 const SentenceAnalysisPage = lazy(() => import('./pages/SentenceAnalysisPage').then(m => ({ default: m.SentenceAnalysisPage })));
@@ -60,6 +62,8 @@ const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ de
 const LessonEditorPage = lazy(() => import('./pages/editor/LessonEditorPage').then(m => ({ default: m.LessonEditorPage })));
 const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').then(m => ({ default: m.LessonLibraryPage })));
 const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
+const LessonTryPage = lazy(() => import('./pages/editor/LessonTryPage').then(m => ({ default: m.LessonTryPage })));
+const DeckTryPage = lazy(() => import('./pages/DeckTryPage').then(m => ({ default: m.DeckTryPage })));
 const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
 const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
 const CardHubPage = lazy(() => import('./pages/CardHubPage').then(m => ({ default: m.CardHubPage })));
@@ -162,6 +166,9 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* "Try it": a deck / library lesson as the student sees it, nothing recorded (immersive). */}
+      <Route path="/decks/:id/try" element={<ProtectedRoute><DeckTryPage /></ProtectedRoute>} />
+      <Route path="/library/:id/try" element={<ProtectedRoute><LessonTryPage /></ProtectedRoute>} />
       <Route
         path="/decks/:id"
         element={
@@ -407,6 +414,18 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <MiniLessonsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/homework" element={<ProtectedRoute><Header /><HomeworkPage /></ProtectedRoute>} />
+      <Route
+        path="/homework/:id"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ErrorBoundary fallbackTitle="Homework interrupted">
+              <HomeworkPassPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />

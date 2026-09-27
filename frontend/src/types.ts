@@ -56,6 +56,8 @@ export type LandingPage = 'study' | 'students' | 'decks';
 export interface AdminUser extends AuthUser {
   created_at: string;
   last_login_at: string | null;
+  last_opened_at?: string | null;
+  install_kind?: 'pwa' | 'android' | 'browser' | null;
   deck_count: number;
   note_count: number;
   review_count: number;

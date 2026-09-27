@@ -119,6 +119,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
@@ -291,13 +292,14 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
-- `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0073
+- `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0074
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
 - `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library' | 'reader', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
 - `invites` - Invite links / email-bound invites for new sign-ups (the id is the bearer token in `/join/<id>`; created_by, email, inviter_role, share_deck_ids, max_uses/use_count, expires_at, revoked_at)
 - `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
+- `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -396,7 +398,7 @@ pack. The story generator carries it in its prompt and gets ONE repair round whe
 
 5. **Idempotent event sync**: Events are deduplicated by ID. Syncing the same event twice is safe - it's skipped if already exists.
 
-7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has. Syncs never write back an id this device removed during the session (`wasRemovedLocally`), a full sync's cursor is the moment its snapshot was taken (so deletions made mid-sync still arrive), and a deck page that gets a 404 removes the deck locally.
+7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has. Syncs never write back an id this device removed during the session (`wasRemovedLocally`), a full sync's cursor is the moment its snapshot was taken (so deletions made mid-sync still arrive), and a deck page that gets a 404 removes the deck locally. Decks deleted before tombstones existed (23 Sep 2026) were never announced, so `/api/sync/changes` also returns `live_deck_ids` (+ `live_deck_ids_at`, taken before the change queries) and the incremental sync drops local decks missing from it that predate the snapshot (`findGhostDecks`, `services/deckReconcile.ts`). The tutor's student page no longer lists shares whose tutor deck AND student copy are both gone (`dropGhostShares`).
 
 6. **Checkpoints for performance**: `card_checkpoints` table stores computed state at a point in time. This avoids replaying all events from the beginning. Checkpoints are ALWAYS re-derivable from events.
 
@@ -860,7 +862,7 @@ menu) inspects pending + completed lessons — full exercise listing per lesson,
 
 **Lesson attempts** (`routes/lesson-attempts.ts`): the player records what was answered in each
 exercise and how long it took (`StudyCustomLesson` → the completion event's `attempt`); recordings
-are queued in IndexedDB `lessonAttemptMedia` (Dexie v19) and uploaded after the attempt
+are queued in IndexedDB `lessonAttemptMedia` (Dexie v20) and uploaded after the attempt
 (`uploadLessonAttemptMedia`, in sync and right after a lesson). The tutor reviews an attempt at
 `/connections/:relId/lesson-attempts/:id` (linked from the student page's Mini Lessons and the library
 item's assignments via `last_attempt_id`); the learner's own at `/lesson-attempts` (Mini Lessons → My answers).
@@ -871,8 +873,9 @@ item's assignments via `last_attempt_id`); the learner's own at `/lesson-attempt
 **Exercise catalogue** (`/library/catalogue`, `pages/editor/ExerciseCataloguePage.tsx`, linked from the library
 and More → Teaching): every type from the registry with its sample lesson — **Try it** runs the sample in the
 real player with `trial` (nothing recorded), **Copy to my library** creates a library item. The library's
-New lesson sheet also drafts a conversation lesson from just a situation + level. Assigning is unchanged
-(library assign → FSRS `custom_lessons`); one-off / due-date homework is the homework model's job (docs/HOMEWORK.md).
+New lesson sheet also drafts a conversation lesson from just a situation + level. Sending a lesson (one-off with a
+due date, or long-term review) is the homework model's job (docs/HOMEWORK.md, `kind: 'lesson'` covers every exercise
+type); a lesson finished in a homework pass records its attempt exactly like one in a study session.
 
 ### Lesson library & editor (`worker/src/routes/lesson-editor.ts`, mounted at `/api`)
 A **lesson editor** (structured form for every exercise type with live `validateLessonSpec`
@@ -1117,6 +1120,30 @@ mocked model and stores (`services/__tests__/tutor-notes-agent.test.ts`).
 - `POST …/session-notes/:id/retry` | `/cancel`, `DELETE …/session-notes/:id` (what the job created stays)
 - `POST /api/calls/:id/homework` - `{ priority?, auto_share?, log_lesson? }` → 202 `{ job }` from the call's material (tutor of the call's relationship; 409 while live / still transcribing; 200 `{ job, existing: true }` when one is already running) · `GET /api/calls/:id/homework` → `{ jobs }`
 
+### Homework assignments: one-off passes with due dates (`worker/src/routes/homework.ts`, design in docs/HOMEWORK.md)
+Anything a tutor sends is an **assignment** with a `mode`: `one_off` (a single pass by a due date — NOT spaced
+repetition), `fsrs` (long-term review, what sharing always did) or `both`. `services/homework.ts`
+`assignHomework` copies each item through the usual paths (`shareDeck` — now with `excludeNoteIds` so words the
+student already has are left out, matched on normalised hanzi — `createAssignedLesson`, `shareReader`) and writes
+the rows (`assignmentRowsFor`: a one-off deck split over N days = N rows with consecutive due dates). A one-off-only
+deck copy gets caps 0 + 0 so the FSRS budget never introduces it (the deck page says so and offers *Add to my daily
+review*); one-off-only lessons / readers are left out of the session mix / daily reader on the client
+(`oneOffOnlyTargetIds`). **Student**: `services/homework.ts` syncs `homeworkAssignments` / `homeworkEvents`
+(Dexie v19) in every sync; Home shows the **Homework** card (overdue first, labels "overdue" / "due today" /
+"due in N days", `dueLabel`); `/homework` lists all; `/homework/:id` is the pass (immersive): a word list shows each
+word once, *Not yet* words come back until *Got it* (`passProgress`), a lesson / reader plays once in the regular
+player — finishing a lesson / reader anywhere records the `done` event (`recordTargetDone`). **Tutor**: the Send
+homework sheet has One-off / Long-term / Both + due date + "spread over N days" + "leave out words they already
+have" (`HomeworkModePicker`); the student page's Homework section shows the **load gauge** (`LoadGauge`,
+`computeHomeworkLoad`: pending one-off items / words, overdue, next 7 days, FSRS words to go ~days at their budget,
+light / moderate / heavy) and the open one-off assignments with the student's progress (tap: move date / cancel).
+Lesson types and future kinds plug into this model — never a second queue (contract in docs/HOMEWORK.md §2).
+- `GET /api/me/homework` - The student's assignments + events of active ones (offline sync)
+- `POST /api/me/homework/events` - `{ events: [{ id, assignment_id, item_id, result, created_at }] }` → `{ accepted, assignments }` (idempotent; progress recomputed)
+- `GET /api/relationships/:relId/homework?today=` - tutor: `{ assignments, load }`
+- `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors }`
+- `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`
+
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
 - `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
@@ -1153,6 +1180,28 @@ first `GET /invites/:id/public`, i.e. the /join page loading — the tutor's lis
   `homework.ts` is pure and unit-tested), a compact top-5 deck list linking to `/decks`, and one
   **+ Add a deck** link (modal with "Generate with Claude" inside). It never says "Flashcards done"
   until a full sync has completed once (`hooks/useSyncStatus.ts`).
+
+### Admin: accounts (`worker/src/routes/admin.ts`, services in `worker/src/services/admin/`)
+Admin page (`/admin`, `pages/AdminPage.tsx`) → All Users → **Manage · inspect** opens `components/admin/AdminUserSheet.tsx`:
+role switch (student / tutor), device & sync state, links, decks incl. deleted ones and shares, recent reports, and
+**Delete account** (preview of what goes / stays, typed-email confirmation). Every route is behind `adminMiddleware`;
+`:user` is an id or an email. The same actions are the admin-only MCP tools (below).
+- `GET /api/admin/users/:user/inspect` - profile, counts, sync state (install kind, last opened, last review sync, sessions), relationships from the user's side (`my_role`), recent feature requests, and `decks` (as below)
+- `GET /api/admin/users/:user/decks` - live decks, `deleted_decks` (tombstones + a name hint from a surviving copy), `shares_sent` / `shares_received` with whether each side exists, `untombstoned_deleted_sources` (deleted before 0068)
+- `PUT /api/admin/users/:user/role` - `{ role: 'student' | 'tutor' }` (users.role)
+- `GET /api/admin/users/:user/deletion-preview` - `will_delete` counts, `will_keep` (copies in other accounts), `r2_objects`, `blockers`
+- `DELETE /api/admin/users/:user` - `{ confirm_email }` → `deleteUserAccount` (`services/admin/delete-user.ts`): every DB write child-first in ONE `db.batch` (atomic), `DELETE_STEPS` covers every table (no reliance on FK cascades), other accounts' rows are detached not deleted (assigned lessons unlinked), students' deck / reader copies are KEPT, then R2 keys only this user referenced are removed (clips / images shared with copies stay). Refuses the caller, admins, `ADMIN_EMAIL`, system users. No tombstones: no other device holds the rows. D1 caps compound SELECTs (UNION) at a few terms — keep each query a plain SELECT. Tested against real SQLite with every migration + FKs on (`services/__tests__/sqlite-d1.ts`, `admin-delete-user.test.ts`: no cell anywhere still holds the id, `PRAGMA foreign_key_check` clean, atomic on failure).
+- `GET /api/admin/users` also carries `install_kind` / `last_opened_at`. `/api/test/auth` accepts `role` / `is_admin` for specs (`e2e/tests/admin-tutor.spec.ts`).
+
+### Tutor accounts (users.role = 'tutor')
+Set by the admin (sheet or `admin_set_role`). `useNavRole` exposes `isTutorAccount` (from the signed-in user, never waits
+for relationships): tabs **Students · Decks · Library · More** (`tabsFor`), landing always Students unless "Start on" says
+otherwise (`resolveLanding`), `/` renders `components/home/TutorHome.tsx` (students, Make, "Try it as your student") instead
+of the study home — no streak, due-card button, homework card or learner onboarding; More shows Teaching / Tools; the
+background sync generates no daily story (`services/accountRole.ts`). **Try it** previews record nothing:
+`/decks/:id/try` (`pages/DeckTryPage.tsx`, a card viewer over IndexedDB in any of the three card types; the tutor's deck
+page shows "▶ Try it as a student" instead of Study) and `/library/:id/try` (`pages/editor/LessonTryPage.tsx`, the real
+`StudyCustomLesson` with `preview`: no counts, no rating, no completion event). Both are immersive routes.
 
 ## Invite-only sign-up
 
@@ -1335,6 +1384,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
 | `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
 | `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, sent to the student by default) / poll one job's progress, steps and result / list a student's jobs |
+| `get_student_homework` / `assign_homework` / `update_homework_assignment` (`tools/homework.ts`) | The load gauge + assignments with due labels and progress / assign decks, library lessons and readers as `one_off` (due date, `split_days`, known words left out) / `fsrs` / `both` / move a due date or cancel |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
 
@@ -1400,6 +1450,21 @@ API origin. **Screenshots / dev preview**: set `window.__MCP_APP_PREVIEW__` to a
 like the tool's `structuredContent` (and optionally `__MCP_APP_PREVIEW_TOOLS__ = { app_x: result }`
 for canned app-only results) before the bundle runs and the app renders without a host — see
 `docs/pr-screenshots/mcp-tutor-apps/`.
+
+#### Admin tools (`mcp-server/src/tools/admin.ts`)
+
+Admin only — every tool calls the API as the signed-in user and `adminMiddleware` answers 403 to anyone else. `user` is an
+id or an email. Unit-tested in `tools/admin.test.ts`.
+
+| Tool | What it does |
+|------|--------------|
+| `admin_list_users` | Every account with role, admin, can_invite, last login / opened, install kind, counts; `query` filters |
+| `admin_get_user` | `GET /api/admin/users/:user/inspect` — profile, sync state, relationships, recent reports, decks |
+| `admin_inspect_user_decks` | Live + deleted decks, shares either way, decks deleted before tombstones |
+| `admin_set_role` | `student` / `tutor` (the tutor-first app) |
+| `admin_set_can_invite` | Allow / stop invite links |
+| `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
+| `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
 
 ### Study Tool (MCP App)
 
@@ -1598,8 +1663,8 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
-- `/` - Study home. On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Decks · Library · More; student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
 - `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
 - `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
 - `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
@@ -1617,5 +1682,6 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)
 - `/connections/:relId/cards/:noteId`, `/connections/:relId/claude-chats` - Tutor's view of one of the student's cards (hub) / all their Ask-Claude conversations
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
+- `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards

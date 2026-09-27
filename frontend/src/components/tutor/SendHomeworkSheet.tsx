@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getDecks, shareDeck } from '../../api/client';
-import { listLibrary, assignLibraryItem } from '../../api/lessonEditor';
+import { getDeck, getDecks } from '../../api/client';
+import { assignHomework } from '../../api/homework';
+import { addDays, localDate, hasFsrs, hasOneOff, shortDay, type HomeworkMode } from '@shared/homework';
+import { HomeworkModePicker } from './HomeworkModePicker';
+import { listLibrary } from '../../api/lessonEditor';
 import { updateSharedDeckCopy } from '../../api/tutorDashboard';
 import type { Deck } from '../../types';
 import type { HomeworkDeck, HomeworkLesson } from '../../types/tutorDashboard';
@@ -11,6 +14,7 @@ import { Loading } from '../Loading';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { plural, shortDate } from './format';
 import './tutor-dashboard.css';
+import './session-notes.css';
 
 type Tab = 'decks' | 'lessons';
 
@@ -41,6 +45,11 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
   const [pendingLesson, setPendingLesson] = useState<LibraryItemSummary | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // How they do it (docs/HOMEWORK.md): long-term review (the old behaviour), a one-off pass by a date, or both.
+  const [mode, setMode] = useState<HomeworkMode>('fsrs');
+  const [dueDate, setDueDate] = useState<string>(() => addDays(localDate(), 2));
+  const [splitDays, setSplitDays] = useState(1);
+  const [skipKnown, setSkipKnown] = useState(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -57,21 +66,33 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
 
   const decksQuery = useQuery({ queryKey: ['decks'], queryFn: getDecks, enabled: tab === 'decks' });
   const libraryQuery = useQuery({ queryKey: ['lesson-library'], queryFn: listLibrary, enabled: tab === 'lessons', retry: 1 });
+  const pendingDeckQuery = useQuery({ queryKey: ['deck', pendingDeck?.id], queryFn: () => getDeck(pendingDeck!.id), enabled: !!pendingDeck });
+  const wordCount = pendingDeckQuery.data?.notes.length ?? 0;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['sharedDecks', relId] });
     queryClient.invalidateQueries({ queryKey: ['student-overview', relId] });
     queryClient.invalidateQueries({ queryKey: ['student-lessons', relId] });
     queryClient.invalidateQueries({ queryKey: ['tutor-dashboard'] });
+    queryClient.invalidateQueries({ queryKey: ['relationship-homework', relId] });
     onChanged?.();
   };
 
+  const how = (kind: 'deck' | 'lesson') => {
+    if (!hasOneOff(mode)) return kind === 'deck' ? (priority === 'core' ? 'at the top of their queue, so their new words come from it next' : 'at the bottom of their queue, after everything they already have') : 'in their long-term review';
+    const due = splitDays > 1 && kind === 'deck' ? `over ${splitDays} days from ${shortDay(dueDate)}` : `by ${shortDay(dueDate)}`;
+    return `as one-off homework ${due}${mode === 'both' ? ', then in long-term review' : ''}`;
+  };
+
   const shareMutation = useMutation({
-    mutationFn: (deck: Deck) => shareDeck(relId, deck.id, priority),
-    onSuccess: (_shared, deck) => {
-      setResult(priority === 'core'
-        ? `Sent ${deck.name} to ${studentName} — it is at the top of their queue, so their new words come from it next.`
-        : `Sent ${deck.name} to ${studentName} — it is at the bottom of their queue, after everything they already have.`);
+    mutationFn: async (deck: Deck) => {
+      const res = await assignHomework(relId, [{ kind: 'deck', source_id: deck.id, mode, due_date: hasOneOff(mode) ? dueDate : null, split_days: splitDays, priority, skip_known: skipKnown }]);
+      if (res.assignments.length === 0) throw new Error(res.errors[0]?.error ?? 'Could not send the deck');
+      return res;
+    },
+    onSuccess: (res, deck) => {
+      const skipped = res.skipped.reduce((n, s) => n + s.hanzi.length, 0);
+      setResult(`Sent ${deck.name} to ${studentName} ${how('deck')}.${skipped > 0 ? ` Left out ${plural(skipped, 'word')} they already have (${res.skipped.flatMap((s) => s.hanzi).slice(0, 6).join('、')}${skipped > 6 ? '…' : ''}).` : ''}`);
       setPendingDeck(null);
       setError(null);
       invalidate();
@@ -96,11 +117,10 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
   });
 
   const assignMutation = useMutation({
-    mutationFn: (item: LibraryItemSummary) => assignLibraryItem(item.id, [relId]),
+    mutationFn: (item: LibraryItemSummary) => assignHomework(relId, [{ kind: 'lesson', source_id: item.id, mode, due_date: hasOneOff(mode) ? dueDate : null }]),
     onSuccess: (res, item) => {
       if (res.errors.length) setError(res.errors[0].error);
-      else if (res.already_had.length) setResult(`${studentName} already has ${item.title}.`);
-      else setResult(`Assigned ${item.title} to ${studentName} — it will appear in their next study session.`);
+      else setResult(`Assigned ${item.title} to ${studentName} ${hasOneOff(mode) ? how('lesson') : '— it will appear in their next study session'}.`);
       setPendingLesson(null);
       invalidate();
     },
@@ -148,6 +168,24 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                     : `They get their own copy with all ${pendingDeck.name ? 'its' : ''} words and audio. It shows up on their home screen after their next sync.`}
                 </p>
                 {!existing && (
+                  <HomeworkModePicker
+                    name="send-deck"
+                    mode={mode}
+                    onMode={setMode}
+                    dueDate={dueDate}
+                    onDueDate={setDueDate}
+                    wordCount={wordCount}
+                    splitDays={splitDays}
+                    onSplitDays={setSplitDays}
+                  />
+                )}
+                {!existing && (
+                  <label className="sn-check">
+                    <input type="checkbox" checked={skipKnown} onChange={(e) => setSkipKnown(e.target.checked)} />
+                    <span>Leave out words {studentName} already has</span>
+                  </label>
+                )}
+                {!existing && hasFsrs(mode) && (
                   <div className="td-priority" role="radiogroup" aria-label="Where it goes in their queue">
                     <button type="button" role="radio" aria-checked={priority === 'core'} className={`td-priority-opt${priority === 'core' ? ' selected' : ''}`} onClick={() => setPriority('core')}>
                       <strong>Core</strong>
@@ -186,9 +224,10 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
             <div className="td-confirm">
               <h3>Assign {pendingLesson.title} to {studentName}?</h3>
               <p>
-                {plural(pendingLesson.exercise_count, 'exercise')} · they get their own copy, mixed into their next study session.
+                {plural(pendingLesson.exercise_count, 'exercise')} · they get their own copy{hasOneOff(mode) ? ' in their homework list' : ', mixed into their next study session'}.
                 {alreadyAssigned(pendingLesson) ? ' They already have a lesson with this title.' : ''}
               </p>
+              <HomeworkModePicker name="send-lesson" mode={mode} onMode={setMode} dueDate={dueDate} onDueDate={setDueDate} />
               <div className="td-confirm-actions">
                 <button type="button" className="btn btn-primary" disabled={busy || !isOnline} onClick={() => assignMutation.mutate(pendingLesson)}>
                   {assignMutation.isPending ? 'Assigning…' : 'Assign lesson'}

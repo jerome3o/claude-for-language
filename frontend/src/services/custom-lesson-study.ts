@@ -29,6 +29,7 @@ import {
 } from '@shared/scheduler';
 import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
+import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
 import { prefetchTTSClips } from './ttsCache';
 import { prefetchStrokeData } from './strokeData';
 import { writableCharacters } from '@shared/strokes';
@@ -158,6 +159,8 @@ export async function completeCustomLesson(
     });
   }
   await db.customLessons.update(lessonId, lessonSchedulingFields(newState));
+  // Finishing a lesson anywhere completes its homework (docs/HOMEWORK.md).
+  await recordTargetDone('lesson', lessonId);
 
   return { event, newState };
 }
@@ -199,7 +202,9 @@ export function getCustomLessonIntervalPreviews(lesson: LocalCustomLesson): Reco
  */
 export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
   const cutoff = getStudyCutoff();
-  const lessons = await db.customLessons.toArray();
+  // One-off homework lessons are done in the homework pass, not rotated by FSRS.
+  const [allLessons, oneOffOnly] = await Promise.all([db.customLessons.toArray(), oneOffOnlyTargetIds()]);
+  const lessons = allLessons.filter(l => !oneOffOnly.has(l.id));
 
   const due: LocalCustomLesson[] = [];
   const fresh: LocalCustomLesson[] = [];

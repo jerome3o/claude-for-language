@@ -147,7 +147,7 @@ export function CatalogueTrialPage() {
     <div className="study-page-fullscreen">
       <StudyCustomLesson
         lesson={{ title: sample.spec.title, icon: sample.spec.icon ?? null, spec: sample.spec }}
-        trial
+        preview
         onComplete={() => {}}
         onEnd={() => navigate(`/library/catalogue#type-${sample.type}`)}
       />

@@ -1,6 +1,6 @@
 import type { NavRole } from './navRole';
 
-export type TabId = 'study' | 'decks' | 'tutor' | 'students' | 'progress' | 'more';
+export type TabId = 'study' | 'decks' | 'tutor' | 'students' | 'library' | 'progress' | 'more';
 
 export interface TabSpec {
   id: TabId;
@@ -14,6 +14,7 @@ const STUDY: TabSpec = { id: 'study', label: 'Study', to: '/', match: ['/', '/st
 const DECKS: TabSpec = { id: 'decks', label: 'Decks', to: '/decks', match: ['/decks', '/generate', '/search'] };
 const TUTOR: TabSpec = { id: 'tutor', label: 'Tutor', to: '/connections', match: ['/connections'] };
 const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections', match: ['/connections'] };
+const LIBRARY: TabSpec = { id: 'library', label: 'Library', to: '/library', match: ['/library'] };
 const PROGRESS: TabSpec = { id: 'progress', label: 'Progress', to: '/progress', match: ['/progress'] };
 const MORE: TabSpec = {
   id: 'more',
@@ -26,10 +27,12 @@ const MORE: TabSpec = {
 };
 
 /**
+ * Tutor account (role):   Students · Decks · Library · More — no Study tab, whatever its decks
  * Student account:        Study · Decks · Tutor · Progress · More
  * Account with students:  Students · Decks · Study · More (+ Progress if they also study)
  */
-export function tabsFor(role: Pick<NavRole, 'hasStudents' | 'isTutorOnly'>): TabSpec[] {
+export function tabsFor(role: Pick<NavRole, 'hasStudents' | 'isTutorOnly'> & { isTutorAccount?: boolean }): TabSpec[] {
+  if (role.isTutorAccount) return [STUDENTS, DECKS, LIBRARY, MORE];
   if (!role.hasStudents) return [STUDY, DECKS, TUTOR, PROGRESS, MORE];
   return role.isTutorOnly
     ? [STUDENTS, DECKS, STUDY, MORE]
@@ -59,12 +62,14 @@ const IMMERSIVE = [
   /^\/study\/?$/,
   /^\/quests\/[^/]+\/?$/,
   /^\/readers\/(?!generate$)[^/]+(\/(edit|print))?\/?$/,
-  /^\/library\/[^/]+\/(edit|print)\/?$/,
+  /^\/library\/[^/]+\/(edit|print|try)\/?$/,
   /^\/library\/catalogue\/[^/]+\/?$/,
+  /^\/decks\/[^/]+\/try\/?$/,
   /^\/lessons\/[^/]+\/(edit|print)\/?$/,
   /^\/connections\/[^/]+\/chat\//,
   /^\/join\//,
   /^\/calls\/[^/]+\/?$/,
+  /^\/homework\/[^/]+\/?$/,
 ];
 
 export function isImmersiveRoute(pathname: string): boolean {

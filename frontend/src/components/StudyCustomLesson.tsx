@@ -12,8 +12,8 @@
  * exercise and how long it took — handed to onComplete with the rating so it
  * travels with the completion event (and any recordings) for the tutor.
  *
- * `trial` runs the same lesson with nothing recorded: no rating, no event —
- * the tutor catalogue uses it so a tutor can take a sample lesson.
+ * `preview` runs the same lesson with nothing recorded: no rating, no event —
+ * a tutor trying a library lesson or a catalogue sample.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -91,14 +91,16 @@ export function StudyCustomLesson({
   counts,
   onComplete,
   onEnd,
-  trial = false,
+  preview = false,
 }: {
   lesson: PlayableLesson;
   intervalPreviews?: Record<Rating, IntervalPreview>;
+  /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
   counts?: QueueCounts;
   onComplete: (correct: number, total: number, rating: Rating, attempt: LessonAttemptData, recordings: LessonRecording[]) => void;
   onEnd: () => void;
-  trial?: boolean;
+  /** "Try it" for a tutor (library item, catalogue sample): no queue counts, no rating, no attempt — nothing is recorded. */
+  preview?: boolean;
 }) {
   const speak = useOfflineSpeak();
   const items = useMemo(() => flattenSpec(lesson.spec), [lesson]);
@@ -170,7 +172,7 @@ export function StudyCustomLesson({
               {score.correct}/{score.total} correct ({pct}%)
             </div>
           )}
-          {trial && <p className="text-light">Trial run — nothing was recorded.</p>}
+          {preview && <p className="text-light">Preview — nothing was recorded.</p>}
         </div>
       );
     }
@@ -180,7 +182,7 @@ export function StudyCustomLesson({
         key={`ex-${idx}`}
         exercise={item.exercise}
         speak={speak}
-        mediaKey={trial ? undefined : exerciseMediaKey(item.section, item.index)}
+        mediaKey={preview ? undefined : exerciseMediaKey(item.section, item.index)}
         onDone={advance}
       />
     );
@@ -191,9 +193,9 @@ export function StudyCustomLesson({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        {counts ? <QueueCountsHeader counts={counts} /> : <div className="lesson-trial-badge">{trial ? 'Trial — nothing is recorded' : ''}</div>}
+        {preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
         <div className="study-topbar-controls">
-          <button className="study-close-btn" onClick={onEnd} aria-label={trial ? 'Close trial' : 'End session'}>
+          <button className="study-close-btn" onClick={onEnd} aria-label={preview ? 'Close preview' : 'End session'}>
             ✕
           </button>
         </div>
@@ -227,7 +229,7 @@ export function StudyCustomLesson({
 
       {/* Fixed rating footer once the lesson is finished — same FSRS rating
           bar as cards and readers, pinned to the bottom of the screen. */}
-      {done && !trial && intervalPreviews && (
+      {done && !preview && intervalPreviews && (
         <div className="study-rating-sticky">
           <div className="study-reader-rating-header">
             {/* marginRight 0: the shared prompt class offsets for a Back
@@ -247,7 +249,7 @@ export function StudyCustomLesson({
           />
         </div>
       )}
-      {done && trial && (
+      {done && preview && (
         <div className="study-rating-sticky">
           <div className="exercise-actions" style={{ padding: '0 1rem 1rem' }}>
             <button className="practice-btn" onClick={restart}>↻ Try again</button>

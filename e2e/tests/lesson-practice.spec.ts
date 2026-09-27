@@ -116,7 +116,7 @@ test('tutor catalogue lists every type; a sample lesson runs as a trial', async 
     await expect(page.getByRole('heading', { name: new RegExp(name) })).toBeVisible();
   }
   await page.locator('#type-write_typed').getByRole('link', { name: /Try it/ }).click();
-  await expect(page.getByText('Trial — nothing is recorded')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('Preview · nothing is recorded')).toBeVisible({ timeout: 15000 });
   await page.locator('input.write-input').fill('图书馆');
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await expect(page.getByText('✓ Correct')).toBeVisible();

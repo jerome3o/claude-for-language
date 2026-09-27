@@ -1,6 +1,6 @@
 /**
  * SQL for lesson attempts (per-exercise answers + time) and the recordings
- * made during them. Migration 0073.
+ * made during them. Migration 0074.
  */
 
 import type { LessonAttemptData } from '@shared/lesson';

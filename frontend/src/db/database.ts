@@ -1,3 +1,4 @@
+import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import Dexie, { Table } from 'dexie';
 import { allocateNewCards, sortDecksForQueue, type DeckNewPool, type StudyBudget } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
@@ -399,6 +400,8 @@ export interface SyncLogEntry {
     events_uploaded?: number;
     events_downloaded?: number;
     recordings_uploaded?: number;
+    /** Local decks the server no longer had (no tombstone) and the sync removed. */
+    ghost_decks_removed?: number;
   };
 }
 
@@ -472,6 +475,16 @@ export interface LocalPendingCardFlag {
   error?: string;
 }
 
+/**
+ * Homework the tutor assigned (docs/HOMEWORK.md), mirrored from
+ * GET /api/me/homework so the one-off pass works offline. Progress is computed
+ * from `homeworkEvents` (local ones first, server ones for other devices).
+ */
+export type LocalHomeworkAssignment = HomeworkAssignment & { _synced_at: number };
+
+/** A pass event ("Got it" / "Not yet" / lesson done); `_synced` 0 until the server has it. */
+export type LocalHomeworkEvent = HomeworkEvent & { _synced: number };
+
 // Dexie database class
 export class ChineseLearningDB extends Dexie {
   // Core tables
@@ -514,6 +527,10 @@ export class ChineseLearningDB extends Dexie {
   pendingCardFlags!: Table<LocalPendingCardFlag, string>;
   callUploads!: Table<LocalCallUpload, number>;
   callPieces!: Table<LocalCallPiece, string>;
+
+  // Homework assignments + one-off pass events (offline, synced)
+  homeworkAssignments!: Table<LocalHomeworkAssignment, string>;
+  homeworkEvents!: Table<LocalHomeworkEvent, string>;
 
   // Performance optimization tables
   dailyStats!: Table<DailyStats, string>;
@@ -902,9 +919,16 @@ export class ChineseLearningDB extends Dexie {
       callPieces: 'id, call_id, status',
     });
 
-    // Version 19: recordings made during mini-lesson attempts (oral
-    // expression), queued offline and uploaded by the next sync.
+    // Version 19: homework assignments (one-off passes with due dates) and the
+    // pass events, so homework is done offline and uploaded by the next sync.
     this.version(19).stores({
+      homeworkAssignments: 'id, status, due_date, target_id, kind',
+      homeworkEvents: 'id, assignment_id, _synced',
+    });
+
+    // Version 20: recordings made during mini-lesson attempts (oral
+    // expression), queued offline and uploaded by the next sync.
+    this.version(20).stores({
       lessonAttemptMedia: 'id, attempt_id, _synced',
     });
   }

@@ -31,6 +31,7 @@ import { SendHomeworkSheet } from '../components/tutor/SendHomeworkSheet';
 import { FlaggedCardsSection } from '../components/tutor/FlaggedCardsSection';
 import { ClaudeChatsSection } from '../components/tutor/ClaudeChatsSection';
 import { SessionNotesSection } from '../components/tutor/SessionNotesSection';
+import { AssignedHomeworkSection } from '../components/tutor/AssignedHomeworkSection';
 import { Avatar } from '../components/tutor/StudentCard';
 import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTime } from '../components/tutor/format';
 import '../components/tutor/tutor-dashboard.css';
@@ -393,6 +394,8 @@ export function ConnectionDetailPage() {
           <section className="detail-section">
             <h2>Homework</h2>
             {updateNote && <div className="td-result" role="status">{updateNote}</div>}
+            {/* One-off homework with due dates + the load gauge (docs/HOMEWORK.md) */}
+            <AssignedHomeworkSection relId={relId!} studentName={otherUser.name || otherUser.email || 'the student'} />
             {overview && overview.homework.decks.length === 0 && overview.homework.lessons.length === 0 && (
               <EmptyState
                 icon="📚"

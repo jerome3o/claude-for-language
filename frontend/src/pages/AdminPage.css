@@ -696,3 +696,20 @@
   font-size: 0.75rem;
   color: var(--color-text-light);
 }
+
+/* Account filter + manage button */
+.admin-user-filter {
+  width: 100%;
+  min-height: 44px;
+  font-size: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.5rem;
+  box-sizing: border-box;
+}
+
+.admin-manage-btn {
+  width: 100%;
+  min-height: 44px;
+}
