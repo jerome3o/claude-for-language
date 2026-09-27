@@ -325,21 +325,78 @@ export function generateState(): string {
 }
 
 /**
- * The OAuth `state` is a CSRF nonce; when sign-in starts from an invite link it
- * also carries the invite token (`<nonce>.i.<token>`). The whole string goes
- * into the HttpOnly state cookie and must match on callback, so the token
- * cannot be swapped in transit.
+ * Native apps that sign in through a browser tab and get the session back on a
+ * custom-scheme redirect instead of the web app's `?session_token=` URL.
+ * `lab` is the experimental pure-native Android app (android-lab/).
  */
-export function encodeOAuthState(nonce: string, inviteToken: string | null | undefined): string {
-  return inviteToken ? `${nonce}.i.${inviteToken}` : nonce;
+export const NATIVE_AUTH_CLIENTS: Record<string, string> = {
+  lab: 'chineselearning-lab://auth',
+};
+
+export interface NativeAuthClient {
+  client: string;
+  /** Random value the app generated; echoed back so it only accepts the redirect it asked for. */
+  appNonce: string;
 }
 
-export function parseOAuthState(state: string | null | undefined): { nonce: string; inviteToken: string | null } {
-  if (!state) return { nonce: '', inviteToken: null };
+const APP_NONCE_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+/** Validate `?client=&nonce=` from /api/auth/login; anything unexpected is ignored (web sign-in). */
+export function parseNativeAuthClient(client: string | null | undefined, appNonce: string | null | undefined): NativeAuthClient | null {
+  if (!client || !Object.prototype.hasOwnProperty.call(NATIVE_AUTH_CLIENTS, client)) return null;
+  if (!appNonce || !APP_NONCE_RE.test(appNonce)) return null;
+  return { client, appNonce };
+}
+
+/**
+ * The OAuth `state` is a CSRF nonce; when sign-in starts from an invite link it
+ * also carries the invite token (`<nonce>.i.<token>`), and when a native app
+ * started it, the app (`<nonce>.c.<client>.<appNonce>`). Both can appear:
+ * `<nonce>.c.<client>.<appNonce>.i.<token>`. The whole string goes into the
+ * HttpOnly state cookie and must match on callback, so nothing can be swapped
+ * in transit.
+ */
+export function encodeOAuthState(
+  nonce: string,
+  inviteToken: string | null | undefined,
+  native?: NativeAuthClient | null,
+): string {
+  let state = nonce;
+  if (native) state += `.c.${native.client}.${native.appNonce}`;
+  if (inviteToken) state += `.i.${inviteToken}`;
+  return state;
+}
+
+export function parseOAuthState(state: string | null | undefined): {
+  nonce: string;
+  inviteToken: string | null;
+  native: NativeAuthClient | null;
+} {
+  if (!state) return { nonce: '', inviteToken: null, native: null };
   const idx = state.indexOf('.i.');
-  if (idx === -1) return { nonce: state, inviteToken: null };
-  const token = state.slice(idx + 3);
-  return { nonce: state.slice(0, idx), inviteToken: token || null };
+  const head = idx === -1 ? state : state.slice(0, idx);
+  const inviteToken = idx === -1 ? null : state.slice(idx + 3) || null;
+  const c = head.indexOf('.c.');
+  if (c === -1) return { nonce: head, inviteToken, native: null };
+  const [client, appNonce] = head.slice(c + 3).split('.');
+  return { nonce: head.slice(0, c), inviteToken, native: parseNativeAuthClient(client, appNonce) };
+}
+
+/**
+ * Where the auth callback sends the browser: the web app, or a native app's
+ * custom scheme (with the app's nonce echoed back).
+ */
+export function authRedirectUrl(
+  frontendUrl: string,
+  native: NativeAuthClient | null,
+  params: Record<string, string>,
+): string {
+  const query = new URLSearchParams(params);
+  if (native) {
+    query.set('nonce', native.appNonce);
+    return `${NATIVE_AUTH_CLIENTS[native.client]}?${query.toString()}`;
+  }
+  return `${frontendUrl}?${query.toString()}`;
 }
 
 /**

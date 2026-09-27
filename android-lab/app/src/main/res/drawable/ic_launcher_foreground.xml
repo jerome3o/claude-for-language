@@ -1,0 +1,8 @@
+<!-- A four-point spark (the Lab app), with a small companion spark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M52,28 C54,44 58,48 74,50 C58,52 54,56 52,72 C50,56 46,52 30,50 C46,48 50,44 52,28 Z" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.8"
+        android:pathData="M72,30 C72.8,35 74,36.2 79,37 C74,37.8 72.8,39 72,44 C71.2,39 70,37.8 65,37 C70,36.2 71.2,35 72,30 Z" />
+</vector>

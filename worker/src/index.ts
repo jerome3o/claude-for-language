@@ -41,6 +41,8 @@ import {
   createUser,
   encodeOAuthState,
   parseOAuthState,
+  parseNativeAuthClient,
+  authRedirectUrl,
   createSession,
   deleteSession,
   createSessionCookie,
@@ -165,7 +167,9 @@ app.get('/api/auth/login', (c) => {
   // can admit a brand-new account and bind it to the inviter.
   const inviteParam = c.req.query('invite');
   const inviteToken = isPlausibleInviteToken(inviteParam) ? inviteParam : null;
-  const state = encodeOAuthState(generateState(), inviteToken);
+  // A native app (android-lab) gets the session back on its own URL scheme.
+  const native = parseNativeAuthClient(c.req.query('client'), c.req.query('nonce'));
+  const state = encodeOAuthState(generateState(), inviteToken, native);
   const isSecure = c.req.url.startsWith('https');
 
   // Determine redirect URI based on environment
@@ -190,18 +194,22 @@ app.get('/api/auth/callback', async (c) => {
 
   const isSecure = c.req.url.startsWith('https');
   const frontendUrl = isSecure ? 'https://chinese-learning-2x9.pages.dev' : 'http://localhost:3000';
+  // Only decides WHERE the result goes (web app or native app scheme); the state
+  // itself is verified against the cookie below before anything is trusted.
+  const { native } = parseOAuthState(state);
+  const redirectTo = (params: Record<string, string>) => authRedirectUrl(frontendUrl, native, params);
 
-  console.log('[Auth Callback] Starting callback handler', { isSecure, frontendUrl });
+  console.log('[Auth Callback] Starting callback handler', { isSecure, frontendUrl, native: native?.client ?? null });
 
   // Handle OAuth errors
   if (error) {
     console.error('[Auth Callback] OAuth error:', error);
-    return Response.redirect(`${frontendUrl}?error=oauth_error`, 302);
+    return Response.redirect(redirectTo({ error: 'oauth_error' }), 302);
   }
 
   if (!code || !state) {
     console.error('[Auth Callback] Missing code or state');
-    return Response.redirect(`${frontendUrl}?error=missing_params`, 302);
+    return Response.redirect(redirectTo({ error: 'missing_params' }), 302);
   }
 
   // Verify state
@@ -211,7 +219,7 @@ app.get('/api/auth/callback', async (c) => {
   console.log('[Auth Callback] State check:', { received: state, fromCookie: cookieState });
   if (state !== cookieState) {
     console.error('[Auth Callback] State mismatch');
-    return Response.redirect(`${frontendUrl}?error=invalid_state`, 302);
+    return Response.redirect(redirectTo({ error: 'invalid_state' }), 302);
   }
 
   try {
@@ -277,7 +285,7 @@ app.get('/api/auth/callback', async (c) => {
           if (inviter?.name) params.set('inviter', inviter.name);
         }
         const headers = new Headers();
-        headers.set('Location', `${frontendUrl}?${params.toString()}`);
+        headers.set('Location', redirectTo(Object.fromEntries(params)));
         headers.append('Set-Cookie', clearStateCookie(isSecure));
         return new Response(null, { status: 302, headers });
       }
@@ -328,7 +336,7 @@ app.get('/api/auth/callback', async (c) => {
     // Redirect to frontend with session token in URL
     // We pass the token in the URL because third-party cookies are blocked by browsers
     // Frontend will store this in localStorage and send as Authorization header
-    const redirectUrl = `${frontendUrl}?session_token=${session.id}`;
+    const redirectUrl = redirectTo({ session_token: session.id });
     console.log('[Auth Callback] Redirecting to frontend with token in URL');
 
     const headers = new Headers();
@@ -341,7 +349,7 @@ app.get('/api/auth/callback', async (c) => {
     });
   } catch (error) {
     console.error('[Auth Callback] Error:', error);
-    return Response.redirect(`${frontendUrl}?error=auth_failed`, 302);
+    return Response.redirect(redirectTo({ error: 'auth_failed' }), 302);
   }
 });
 
