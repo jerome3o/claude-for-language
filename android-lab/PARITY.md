@@ -75,14 +75,14 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | Audio: cached clip → stream → device voice | ✅ | `useAudio.ts`, `audioPlayback.ts` | `fx/WordAudio.kt` |
 | Offline study + background upload | ✅ | `services/sync.ts` | `data/Repository.kt`, `SyncWorker.kt` |
 | Card footer: **Ask Claude · Edit card · ⋯** action row | ✅ | `components/study/StudyActionRow.tsx` | `ui/study/CardExtrasUi.kt` `StudyActionRow` |
-| Voice recording on read cards + transcription + upload (queued: `Outbox.enqueueUpload`) | ⬜ | `useTranscription.ts`, `pendingRecordings` | |
-| Multiple-choice fallback (8 s) / auto-MC for listen cards | ⬜ | `services/multipleChoice.ts` | |
+| Voice recording on read cards + transcription + upload (queued: `Outbox.enqueueUpload`) | ✅ webm/Opus like the browser (AAC before Android 10); uploaded with `review_id`; undo drops it | `useTranscription.ts`, `pendingRecordings` | `ui/study/VoiceRecording.kt`, `StudyViewModel` |
+| Multiple-choice fallback (8 s) / auto-MC for listen cards | ✅ options prefetched per deck twice a day (`study-mc` sync step) so listen cards get them offline | `services/multipleChoice.ts` | `ui/study/MultipleChoice.kt`, `McGrid.kt` |
 | Ask Claude (card chat with tools: edit card, add cards) | ✅ quick questions, tools folded, approve / reject, + message → card | `components/study/` Ask Claude, `POST /api/notes/:id/ask` | `ui/study/AskClaudeSheet.kt`, `StudyViewModel.ask` |
 | Edit card | ✅ fields, sentence clue (generate / clear), alternatives, recordings (primary / delete), delete note — online | `CardEditModal.tsx` | `ui/study/EditCardSheet.kt` |
-| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | 🟡 all items; Write it hands off to the main app until H lands; Play my recording waits on recording | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
+| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | ✅ Write it opens H's `WritingSheet` over the card | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
 | Flag for tutor (offline, idempotent `POST /api/card-flags` via Outbox) | ✅ tutors from the cached relationships | `services/cardFlags.ts` | `CardTools.flag`, `FlagCardSheet` |
 | Tutor notes on the card back (recording marks, flag replies; cached for offline) | ✅ `study-notes` sync step, seen via Outbox | `services/recording-notes.ts`, `TutorNoteLine.tsx` | `ui/study/TutorNotes.kt`, `TutorNoteLine` |
-| Sentence tools: "What's going on here?", + Add as card, regenerate set | ⬜ | `SentenceSet.tsx`, `SentenceBreakdown.tsx` | |
+| Sentence tools: "What's going on here?", + Add as card, regenerate set | ✅ breakdown with tappable words (cached), add as card (deck picker, duplicate warning), new set / add 5 / custom / clear, generate when empty | `SentenceSet.tsx`, `SentenceBreakdown.tsx` | `ui/study/Sentences.kt` |
 | Tap a character → definition popup; pinyin under typed answer | ✅ definitions cached offline; pinyin from ICU Han-Latin (polyphones may differ from pinyin-pro) | `WordDefinitionPopup.tsx`, `pinyin-pro` | `WordDefinitionSheet`, `ui/study/Pinyin.kt` |
 | Sentence set generated when rating Again | ✅ | `ensureSentenceSetForNote` | `CardTools.ensureSentenceSet` |
 | Offline mode toggle / offline audio note | ✅ | `OfflineModeToggle.tsx`, `services/offlineMode.ts` | `OfflinePill`, `ui/study/StudyPrefs.kt` |
@@ -113,19 +113,23 @@ Owns `ui/lessons/` (player + all exercise views + `/lessons`, `/lesson-attempts`
 
 Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/DecksApi.kt`, `NotesApi.kt`, `core/…/Import*.kt` + `parity/fixtures/import.ts` (paste parser). Note writes go through the API (content service) and then a normal sync — never write Room directly except to mirror the answer.
 
-| Feature | Status | Web source |
-|---|---|---|
-| Deck queue list with due counts, study one deck | 🟡 interim list on the Decks tab (tap = study) | `DecksPage.tsx` |
-| Reorder deck queue (press-and-hold drag, move to top/bottom, #N badges) | ⬜ | `services/dragReorder.ts`, `QueuePositionMenu.tsx`, `PUT /api/decks/reorder` |
-| Card search (local-first, server fallback) | ⬜ | `services/noteSearch.ts`, `GET /api/notes/search` |
-| Deck page: notes list, play audio, generate audio, note history | ⬜ | `DeckDetailPage.tsx` |
-| Card hub (`/cards/:noteId`: cards, flags, Claude threads, reviews) | ⬜ | `pages/CardHubPage.tsx` |
-| Add / edit / delete / move notes | ⬜ | `CardEditModal.tsx`, `POST /api/decks/:id/notes`, `PUT/DELETE /api/notes/:id`, `POST /api/notes/move` |
-| Paste a list (parse, plan, fill gaps, ✨ write explanations, save) | ⬜ — port `shared/import/` | `components/import/PasteWordsModal.tsx` |
-| Generate a deck with Claude | ⬜ | `pages/GeneratePage.tsx`, `components/home/AddDeckModal.tsx` |
-| Deck settings (caps), delete deck, starter deck, Anki export | ⬜ | `DeckDetailPage.tsx`, `services/anki/` |
-| Try it as a student (`/decks/:id/try`, nothing recorded) | ⬜ | `pages/DeckTryPage.tsx` |
-| One-off deck banner + "Add to my daily review" | ⬜ | `components/homework/OneOffDeckBanner.tsx` |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Deck queue list with due counts (same allocation as Home), study one deck, +10 More, Done ✓ | ✅ VM-tested | `DecksPage.tsx` | `ui/decks/DecksScreen.kt`, `DecksViewModel.kt` |
+| Reorder deck queue (press-and-hold drag with auto-scroll, #N badge → move top / up / down / bottom) — mirrored at once, `PUT /api/decks/reorder` / `POST /api/decks/:id/move`, Outbox offline | ✅ `moveInOrder` / `moveToIndex` / `indexUnderPointer` parity-tested (moved to `shared/decks/queue.ts`) | `services/dragReorder.ts`, `QueuePositionMenu.tsx`, `services/deckOrder.ts` | `core/…/DeckQueue.kt`, `ui/decks/DragReorder.kt` |
+| Card search (local-first with recent ratings + mastery, server fallback with "this device has N of M cards") | ✅ `noteMatches` / `stripTones` parity-tested (moved to `shared/decks/search.ts`); `?q=` deep links open the tab without the query | `services/noteSearch.ts`, `NoteSearchResults.tsx`, `GET /api/notes/search` | `core/…/NoteSearch.kt`, `DecksViewModel.kt` |
+| New deck (+ Generate with Claude / starter deck entry), starter deck (`POST /api/decks/starter`) | ✅ online (the server fills the settings) | `AddDeckModal.tsx`, `DecksPage.tsx` | `NewDeckSheet` |
+| Deck page: Study / "Try it as a student" (tutor account), progress (seen / mastered, per card type), words sorted by mastery with ratings, ▶ play, generate missing audio, regenerate audio (selection), 404 → "deleted" | ✅ from Room, works offline; progress is the web's local computation (no server activity strip) | `DeckDetailPage.tsx`, `DeckProgress.tsx` | `ui/decks/DeckScreen.kt`, `DeckViewModel.kt`, `DeckStats.kt` |
+| Card editor (hanzi, pinyin, English, fun facts, alternatives, sentence clue + ✨ regenerate), add word, delete note, move notes (one, or many via long-press selection) | 🟡 card standard + required fields checked on the phone (`cardTextProblems` parity-tested), edits / deletes / moves queue in the Outbox offline; adding needs the server. Missing: the editor's audio recordings panel (record / Google TTS / MiniMax / set primary) and its sentence-set section | `CardEditModal.tsx`, `POST /api/decks/:id/notes`, `PUT/DELETE /api/notes/:id`, `POST /api/notes/move` | `ui/cards/NoteEditSheet.kt`, `NoteEditor.kt`, `data/decks/DeckWrites.kt`, `core/…/CardStandard.kt` |
+| Card hub (`/cards/:noteId`: note, card states, flags + flag form (Outbox), resolve / reopen / delete, Claude threads, recent reviews + recordings) | ✅ cached for offline; before first load Room answers note / cards / reviews | `pages/CardHubPage.tsx` | `ui/cards/CardHubScreen.kt`, `CardHubViewModel.kt` |
+| Deck settings (name, description, new / secondary caps) and delete deck (tombstone, gone locally at once) | ✅ `pickDeckSettings` parity-tested; legacy SM-2 fields stay in the main app (FSRS ignores them) | `DeckSettingsModal`, `PUT /api/decks/:id/settings`, `DELETE /api/decks/:id` | `DeckSettingsForm`, `DeckWrites.kt`, `core/…/DeckSettings.kt` |
+| Note history modal | ➖ unreachable on the web (nothing opens it); the card hub covers it | `NoteHistoryModal` | — |
+| Paste a list (parse, plan, fill gaps, ✨ write explanations, save, update students' copies) | ⬜ — port `shared/import/` (next PR); the deck page's "📋 Paste list" opens the main app | `components/import/PasteWordsModal.tsx` | |
+| Generate a deck with Claude | ⬜ (next PR; `/generate` placeholder) | `pages/GeneratePage.tsx` | |
+| Anki export | ⬜ hand-off: ⋯ → Export → Anki opens the deck in the main app | `services/anki/` | |
+| Share with tutor / Shared with Tutors | ⬜ | `DeckDetailPage.tsx`, `GET /api/decks/:id/tutor-shares` | |
+| Try it as a student (`/decks/:id/try`, nothing recorded) | ⬜ (the button opens the placeholder) | `pages/DeckTryPage.tsx` | |
+| One-off deck banner + "Add to my daily review" | ⬜ needs E's homework cache | `components/homework/OneOffDeckBanner.tsx` | |
 
 ## D — Progress & settings (web: `MyProgressPage.tsx`, `SettingsPage.tsx`)
 
@@ -156,20 +160,21 @@ Owns `ui/connections/` (incl. the `/connections` stub + role dispatch), `ui/chat
 
 ## F — Teaching (web: `components/tutor/`, `pages/tutor/`)
 
-Owns `ui/teaching/` (students dashboard, student page, insights, history, recordings, session notes, homework drafts, invites, queue moves, lesson attempt review — tutor side), `data/api/TeachingApi.kt`, `core/…/Load*.kt` if the load gauge is ported. Registers `/connections/{relId}/…` tutor routes in `ui/teaching/TeachingNav.kt`; the `/connections` root dispatch lives in E's file (one `if`).
+Owns `ui/teaching/` (students dashboard, student page, insights, history, recordings, session notes, homework drafts, invites, queue moves, lesson attempt review — tutor side), `data/api/TeachingApi.kt`, `core/…/Load*.kt` if the load gauge is ported. Registers `/connections/{relId}/…` tutor routes in `ui/teaching/TeachingNav.kt`; the `/connections` root dispatch lives in E's file (one `if`). `/connections/{relId}` is registered in `TeachingNav.kt`: the student page when the other person is my student, else E's tutor page (a placeholder until E's screen replaces the `else` branch).
 
-| Feature | Status | Web source |
-|---|---|---|
-| Students dashboard (cards, pills, getting-set-up checklist, pending invites, homework decks) | ⬜ | `StudentsDashboard.tsx`, `StudentCard.tsx`, `SetupChecklist.tsx` |
-| Student page: status, Message / Send homework, needs attention, homework (+ queue #N moves), conversations, activity | ⬜ | `ConnectionDetailPage.tsx`, `QueuePositionMenu.tsx` |
-| Send homework: one-off / long-term / both, due date, split over days, leave out known words; load gauge; assigned list (move date / cancel) | ⬜ | `SendHomeworkSheet.tsx`, `HomeworkModePicker.tsx`, `LoadGauge.tsx`, `AssignedHomeworkSection.tsx` |
-| Lesson notes → draft → review with Claude → assign | ⬜ | `LessonNotesSection.tsx`, `pages/tutor/HomeworkDraftPage.tsx` |
-| Session notes jobs | ⬜ | `SessionNotesSection.tsx`, `pages/tutor/SessionNotesPage.tsx` |
-| Insights, review history, recordings inbox (marks) | ⬜ | `pages/tutor/StudentInsightsPage.tsx`, `StudentHistoryPage.tsx`, `RecordingsInboxPage.tsx` |
-| Student progress / day / shared-deck progress | ⬜ | `StudentProgressPage.tsx`, `DayDetailPage.tsx`, `SharedDeckProgressPage.tsx` |
-| Flagged cards (reply), Asked Claude, student card hub | ⬜ | `FlaggedCardsSection.tsx`, `ClaudeChatsSection.tsx`, `CardHubPage.tsx` |
-| Lesson attempt review (`/connections/:relId/lesson-attempts`) | ⬜ | `pages/LessonAttemptsPage.tsx` |
-| Invites (create, QR, resend / revoke) | ⬜ | `components/invites/`, `InviteQRSheet.tsx` |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Students dashboard (cards, pills, getting-set-up checklist, pending invites, homework decks) | ✅ cached for offline (TeachingSync); avatars are initials (no image loader yet) | `StudentsDashboard.tsx`, `StudentCard.tsx`, `SetupChecklist.tsx` | `ui/teaching/StudentsDashboardScreen.kt`, `TeachingSync.kt` |
+| Student page: status, Message / Send homework / Video call, needs attention (hear recording), homework (+ queue #N moves, Update copy), mini lessons, conversations, activity, ⋯ (student's decks, remove) | ✅ two panes when unfolded; opens from the dashboard cache offline | `ConnectionDetailPage.tsx`, `QueuePositionMenu.tsx`, `StudentLessonsSection.tsx` | `ui/teaching/StudentPageScreen.kt`, `StudentPageSections.kt` |
+| Send homework: one-off / long-term / both, due date, split over days, leave out known words, core / non-urgent; load gauge; assigned list (move date / cancel) | ✅ date maths + split parity-tested (`core/…/LoadPlan.kt`, `parity/fixtures/teaching.ts`); the load itself is server-computed | `SendHomeworkSheet.tsx`, `HomeworkModePicker.tsx`, `LoadGauge.tsx`, `AssignedHomeworkSection.tsx` | `ui/teaching/SendHomeworkSheet.kt`, `TeachingKit.kt` |
+| Lesson notes → draft → review with Claude → assign | ⬜ | `LessonNotesSection.tsx`, `pages/tutor/HomeworkDraftPage.tsx` | |
+| Session notes jobs | ⬜ | `SessionNotesSection.tsx`, `pages/tutor/SessionNotesPage.tsx` | |
+| Insights (range, tiles, needs attention with every attempt + typed-answer diff, going well, also this period, Claude summary EN / 中文, lesson log), review history (filters, infinite scroll, by word), recordings inbox (Listened / Needs work / note, playback) | ✅ preset ranges cached (shared between Insights and Recordings), history's default view cached | `pages/tutor/StudentInsightsPage.tsx`, `StudentHistoryPage.tsx`, `RecordingsInboxPage.tsx`, `tutor-shared.tsx` | `ui/teaching/InsightsScreen.kt`, `HistoryAndRecordingsScreens.kt`, `TutorPagesKit.kt` |
+| Student progress / day / shared-deck progress | ⬜ | `StudentProgressPage.tsx`, `DayDetailPage.tsx`, `SharedDeckProgressPage.tsx` | |
+| Flagged cards (reply, resolve / reopen), Asked Claude (threads) on the student page | ✅ `groupQuestionThreads` ported (unit-tested) | `FlaggedCardsSection.tsx`, `ClaudeChatsSection.tsx`, `shared/chats/threads.ts` | `ui/teaching/StudentPageSections.kt` |
+| Student card hub, all Asked-Claude conversations pages | ⬜ | `CardHubPage.tsx`, `ClaudeChatsPage.tsx` | |
+| Lesson attempt review (`/connections/:relId/lesson-attempts`) | ⬜ | `pages/LessonAttemptsPage.tsx` | |
+| Invites (create with decks / Starter Chinese / welcome message / options, QR, copy / share, resend / revoke) | ✅ QR via zxing | `components/invites/`, `InviteQRSheet.tsx` | `ui/teaching/InviteSheet.kt` |
 
 ## G — Library, editors, catalogue (web: `pages/editor/`, `components/editor/`)
 
