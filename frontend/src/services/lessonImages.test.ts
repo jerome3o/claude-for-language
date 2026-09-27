@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { rememberLessonImageKey, rememberedLessonImageKey, ensureLessonImages } from './lessonImages';
 import { lessonImagePlaceholder } from '../hooks/useLessonImage';
-import { clampFabPosition, isStudyLikePath, FAB_TOP_CLEARANCE } from '../components/fabPosition';
+import { clampFabPosition, hasEditorBottomBar, isStudyLikePath, FAB_TOP_CLEARANCE } from '../components/fabPosition';
 
 describe('lesson picture memory (offline: prompt → key)', () => {
   beforeEach(() => localStorage.clear());
@@ -64,6 +64,13 @@ describe('feedback button position', () => {
   it('leaves other positions alone and keeps it on screen', () => {
     expect(clampFabPosition({ x: 340, y: 800 }, phone)).toEqual({ x: 340, y: 800 });
     expect(clampFabPosition({ x: 10, y: 2000 }, phone)).toEqual({ x: 10, y: 915 - 48 });
+  });
+
+  it("lifts its default spot above the editors' bottom bar on phones", () => {
+    expect(hasEditorBottomBar('/lessons/abc/edit', 412)).toBe(true);
+    expect(hasEditorBottomBar('/library/abc/edit', 412)).toBe(true);
+    expect(hasEditorBottomBar('/lessons/abc/edit', 1280)).toBe(false);
+    expect(hasEditorBottomBar('/library/catalogue/describe_image', 412)).toBe(false);
   });
 
   it('treats the catalogue sample trial like study (faint button)', () => {

@@ -6,7 +6,7 @@ import { createFeatureRequest, uploadFeatureRequestScreenshot } from '../api/cli
 import { getConsoleBuffer } from '../utils/consoleBuffer';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import { isImmersiveRoute } from './nav/tabs';
-import { FAB_SIZE, clampFabPosition, isStudyLikePath } from './fabPosition';
+import { FAB_SIZE, clampFabPosition, hasEditorBottomBar, isStudyLikePath } from './fabPosition';
 
 const TAB_BAR_HEIGHT = 56; // keep in step with --tab-bar-height in index.css
 const STORAGE_KEY = 'feedback-fab-position';
@@ -54,7 +54,7 @@ export function FeedbackFAB() {
 
   // Compute default position (bottom-right with 1.5rem margin, above the
   // bottom tab bar on the pages that have one — see components/nav/TabBar)
-  const tabBarVisible = isAuthenticated && !isImmersiveRoute(location.pathname);
+  const tabBarVisible = isAuthenticated && (!isImmersiveRoute(location.pathname) || hasEditorBottomBar(location.pathname, window.innerWidth));
   const getDefaultPos = useCallback(() => ({
     x: window.innerWidth - FAB_SIZE - 24,
     y: window.innerHeight - FAB_SIZE - 24 - (tabBarVisible ? TAB_BAR_HEIGHT : 0),

@@ -26,6 +26,15 @@ export function clampFabPosition(
   };
 }
 
+/**
+ * The editors (lesson / library / reader) have their own Edit · Preview · Claude
+ * bar along the bottom on phones (EditorShell, < 1024px): the button's default
+ * spot is lifted above it, as it is above the app's tab bar.
+ */
+export function hasEditorBottomBar(pathname: string, viewportWidth: number): boolean {
+  return viewportWidth < 1024 && /^\/(lessons|library|readers)\/[^/]+\/edit\/?$/.test(pathname);
+}
+
 /** Screens where a lesson / card fills the page: the button is kept faint there. */
 export function isStudyLikePath(pathname: string): boolean {
   return pathname === '/study'
