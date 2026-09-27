@@ -28,6 +28,13 @@ describe('resolveLanding', () => {
     expect(resolveLanding(null, false, 0, true)).toBe('study');
   });
 
+  it('opens a tutor account on Students even with cards due or counts loading', () => {
+    expect(resolveLanding(null, false, 12, false, true)).toBe('students');
+    expect(resolveLanding(null, true, 0, true, true)).toBe('students');
+    // an explicit preference still wins
+    expect(resolveLanding('decks', true, 0, false, true)).toBe('decks');
+  });
+
   it('maps every landing to a route', () => {
     expect(LANDING_PATHS.study).toBe('/');
     expect(LANDING_PATHS.students).toBe('/connections');

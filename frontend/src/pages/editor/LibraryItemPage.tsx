@@ -73,6 +73,7 @@ export function LibraryItemPage() {
         </div>
         <div className="lib-item-actions">
           <button className="btn btn-primary" onClick={() => navigate(`/library/${id}/edit`)}>✏️ Edit</button>
+          <button className="btn btn-secondary" onClick={() => navigate(`/library/${id}/try`)}>▶ Try it</button>
           <button className="btn btn-secondary" onClick={() => setAssigning(true)}>Assign…</button>
           <button className="btn btn-secondary" onClick={() => navigate(`/library/${id}/print`)}>🖨 Print</button>
           <AnkiExportButton target={{ kind: 'lesson', spec: lesson.spec, sourceId: id }}>⬇ Anki</AnkiExportButton>

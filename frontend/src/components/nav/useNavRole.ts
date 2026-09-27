@@ -54,7 +54,7 @@ export function useDueCount(): { dueCount: number; isLoading: boolean } {
  * counts come from IndexedDB.
  */
 export function useNavRole(): NavRole {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const query = useQuery({
     queryKey: ['nav-relationships'],
     queryFn: getMyRelationships,
@@ -79,7 +79,8 @@ export function useNavRole(): NavRole {
       deckCount: deckCount ?? 0,
       dueCount,
       countsLoading: deckCount === undefined || dueLoading || !isInitialized,
+      accountRole: user?.role ?? null,
     }),
-    [query.data, deckCount, dueCount, dueLoading, isInitialized],
+    [query.data, deckCount, dueCount, dueLoading, isInitialized, user?.role],
   );
 }

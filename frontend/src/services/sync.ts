@@ -29,6 +29,7 @@ import { uploadPendingCardFlags } from './cardFlags';
 import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { findGhostDecks } from './deckReconcile';
+import { isTutorAccountCached } from './accountRole';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 import { reportClientStateIfDue } from './clientState';
@@ -419,7 +420,8 @@ class SyncService {
     // becomes tomorrow's reader). Idempotent server-side; throttled here
     // because sync runs frequently, and skipped entirely while today already
     // has a reader (ensureDailyReader's one-reader-a-day check).
-    if (Date.now() - this.lastDailyReaderEnsure > SyncService.DAILY_READER_ENSURE_MS) {
+    // A tutor account doesn't study: no daily story is generated for it.
+    if (!isTutorAccountCached() && Date.now() - this.lastDailyReaderEnsure > SyncService.DAILY_READER_ENSURE_MS) {
       this.lastDailyReaderEnsure = Date.now();
       ensureDailyReader().catch(err =>
         console.error('[Sync] Daily reader kick-off failed:', err)
