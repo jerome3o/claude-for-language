@@ -16,7 +16,6 @@ import dev.jeromeswannack.chineselearning.lab.data.SyncStatus
 import dev.jeromeswannack.chineselearning.lab.ui.home.DeckSummary
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeActions
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeScreen
-import dev.jeromeswannack.chineselearning.lab.ui.home.HomeSettings
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeUi
 import dev.jeromeswannack.chineselearning.lab.ui.home.SignInScreen
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardStartState
@@ -101,7 +100,6 @@ class ScreenshotTest {
             ),
             sync = SyncStatus(lastSyncAt = System.currentTimeMillis() - 4 * 60_000, audioTotal = 830, audioCached = 812),
             online = true,
-            settings = HomeSettings(soundOn = true, hapticsOn = true),
             actions = HomeActions(),
         )
     }

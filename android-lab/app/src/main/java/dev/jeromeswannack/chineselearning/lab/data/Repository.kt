@@ -7,6 +7,7 @@ import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
+import dev.jeromeswannack.chineselearning.lab.data.platform.LabPlatform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -39,6 +40,9 @@ data class SyncStatus(
  */
 class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs: Prefs) {
     val dao = db.dao()
+
+    /** Feature platform: JSON cache, outbox, per-feature sync steps (data/platform/). */
+    val platform = LabPlatform(db, api, context.filesDir)
     private val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
     private val syncMutex = Mutex()
     private val _status = MutableStateFlow(SyncStatus(lastSyncAt = prefs.lastSyncAt))
@@ -63,6 +67,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                 if (forceFull || prefs.lastFullSync == 0L || dao.noteCount() == 0) fullSync() else incrementalSync()
                 syncEvents()
                 syncSentences()
+                platform.afterSync(full = forceFull) // outbox drain + every feature's sync step
             }
             prefs.lastSyncAt = System.currentTimeMillis()
             _status.update { it.copy(running = false, lastSyncAt = prefs.lastSyncAt, unsynced = dao.unsyncedCount()) }
@@ -95,7 +100,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
 
     private suspend fun refreshProfile() {
         val me = api.me()
-        prefs.userName = me.name
+        prefs.saveProfile(me)
         prefs.budget = StudyBudget(me.new_cards_per_day.coerceIn(0, StudyBudget.MAX), me.secondary_cards_per_day.coerceIn(0, StudyBudget.MAX))
     }
 
@@ -294,6 +299,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         db.clearAllTables()
         prefs.clearAccount()
         audioDir.listFiles()?.forEach { it.delete() }
+        platform.clearFiles()
         _status.value = SyncStatus()
         _dataVersion.update { it + 1 }
     }

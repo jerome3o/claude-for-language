@@ -20,6 +20,40 @@ class Prefs(context: Context) {
         get() = sp.getString("user_name", null)
         set(v) = sp.edit().putString("user_name", v).apply()
 
+    var userEmail: String?
+        get() = sp.getString("user_email", null)
+        set(v) = sp.edit().putString("user_email", v).apply()
+
+    var userPicture: String?
+        get() = sp.getString("user_picture", null)
+        set(v) = sp.edit().putString("user_picture", v).apply()
+
+    /** users.role ('student' | 'tutor'); a tutor account gets the tutor-first shell (ui/nav/NavRules.kt). */
+    var accountRole: String?
+        get() = sp.getString("account_role", null)
+        set(v) = sp.edit().putString("account_role", v).apply()
+
+    var isAdmin: Boolean
+        get() = sp.getBoolean("is_admin", false)
+        set(v) = sp.edit().putBoolean("is_admin", v).apply()
+
+    /** Settings → "Start on" (users.landing_page): study | students | decks, null = automatic. */
+    var landingPage: String?
+        get() = sp.getString("landing_page", null)
+        set(v) = sp.edit().putString("landing_page", v).apply()
+
+    /** Mirrors /api/auth/me (called by the sync's profile refresh). */
+    fun saveProfile(me: MeDto) {
+        sp.edit()
+            .putString("user_name", me.name)
+            .putString("user_email", me.email)
+            .putString("user_picture", me.picture_url)
+            .putString("account_role", me.role)
+            .putBoolean("is_admin", me.is_admin)
+            .putString("landing_page", me.landing_page)
+            .apply()
+    }
+
     var budget: StudyBudget
         get() = StudyBudget(
             sp.getInt("budget_new", StudyBudget.DEFAULT.newCardsPerDay),

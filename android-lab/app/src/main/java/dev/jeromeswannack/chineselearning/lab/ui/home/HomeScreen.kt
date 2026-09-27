@@ -15,11 +15,15 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -28,24 +32,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,21 +61,15 @@ class HomeActions(
     val onStudyAll: () -> Unit = {},
     val onStudyDeck: (String) -> Unit = {},
     val onSync: () -> Unit = {},
-    val onFullSync: () -> Unit = {},
-    val onOpenFullApp: () -> Unit = {},
-    val onSignOut: () -> Unit = {},
     val onSignIn: () -> Unit = {},
-    val onToggleSound: (Boolean) -> Unit = {},
-    val onToggleHaptics: (Boolean) -> Unit = {},
+    /** "All decks" under the queue → the Decks tab. */
+    val onAllDecks: () -> Unit = {},
 )
 
-data class HomeSettings(val soundOn: Boolean, val hapticsOn: Boolean)
-
-@OptIn(ExperimentalMaterial3Api::class)
+/** The Study tab's home (`/`). Lab settings live in the More tab. */
 @Composable
-fun HomeScreen(ui: HomeUi, sync: SyncStatus, online: Boolean, settings: HomeSettings, actions: HomeActions, nowMs: Long = System.currentTimeMillis()) {
-    var showSettings by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
+fun HomeScreen(ui: HomeUi, sync: SyncStatus, online: Boolean, actions: HomeActions, nowMs: Long = System.currentTimeMillis()) {
+    Box(Modifier.fillMaxSize().background(Lab.colors.background).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             Modifier.fillMaxSize().widthIn(max = 720.dp),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
@@ -95,30 +85,19 @@ fun HomeScreen(ui: HomeUi, sync: SyncStatus, online: Boolean, settings: HomeSett
                         if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Lab.colors.accent)
                         else Icon(Icons.Filled.Sync, "Sync now", tint = Lab.colors.muted)
                     }
-                    IconButton(onClick = { showSettings = true }) { Icon(Icons.Filled.Settings, "Settings", tint = Lab.colors.muted) }
                 }
             }
             if (sync.signedOut) item { SignedOutBanner(actions.onSignIn) }
             item { StudyHero(ui, sync, actions.onStudyAll) }
             if (ui.decks.isNotEmpty()) {
-                item { Text("Your deck queue", style = MaterialTheme.typography.titleSmall, color = Lab.colors.muted, modifier = Modifier.padding(top = 8.dp)) }
+                item {
+                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Your deck queue", style = MaterialTheme.typography.titleSmall, color = Lab.colors.muted, modifier = Modifier.weight(1f))
+                        TextButton(onClick = actions.onAllDecks) { Text("All decks", color = Lab.colors.accent) }
+                    }
+                }
                 items(ui.decks, key = { it.id }) { deck -> DeckRow(deck) { actions.onStudyDeck(deck.id) } }
             }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = actions.onOpenFullApp).padding(vertical = 14.dp, horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = Lab.colors.muted, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Decks, tutor, readers, Claude — open the main app", color = Lab.colors.muted, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
-    }
-    if (showSettings) {
-        ModalBottomSheet(onDismissRequest = { showSettings = false }, containerColor = Lab.colors.card) {
-            SettingsSheet(sync, settings, actions)
         }
     }
 }
@@ -209,8 +188,9 @@ private fun HeroChip(n: Int, label: String, color: Color) {
     }
 }
 
+/** One deck of the queue with its due counts (Home and the interim Decks tab). */
 @Composable
-private fun DeckRow(deck: DeckSummary, onClick: () -> Unit) {
+internal fun DeckRow(deck: DeckSummary, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).clickable(onClick = onClick).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -229,37 +209,5 @@ private fun DeckRow(deck: DeckSummary, onClick: () -> Unit) {
                 if (d.review > 0) Text("${d.review}", color = Palette.Review, fontWeight = FontWeight.Bold)
             }
         }
-    }
-}
-
-@Composable
-private fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: HomeActions) {
-    var sound by remember { mutableStateOf(settings.soundOn) }
-    var haptics by remember { mutableStateOf(settings.hapticsOn) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
-        Text("Lab settings", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink)
-        Spacer(Modifier.height(12.dp))
-        ToggleRow("Sounds", sound) { sound = it; actions.onToggleSound(it) }
-        ToggleRow("Haptics", haptics) { haptics = it; actions.onToggleHaptics(it) }
-        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Lab.colors.faint)
-        Text(
-            if (sync.audioTotal == 0) "Offline audio: nothing to download yet" else "Offline audio: ${sync.audioCached} of ${sync.audioTotal} clips on this phone",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Lab.colors.muted,
-        )
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = actions.onFullSync) { Text("Full resync", color = Lab.colors.accent) }
-        TextButton(onClick = actions.onOpenFullApp) { Text("Open the main app", color = Lab.colors.accent) }
-        TextButton(onClick = actions.onSignOut) {
-            Text(if (sync.unsynced > 0) "Sign out (${sync.unsynced} reviews not uploaded yet!)" else "Sign out", color = Palette.Again)
-        }
-    }
-}
-
-@Composable
-private fun ToggleRow(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, modifier = Modifier.weight(1f))
-        Switch(checked = value, onCheckedChange = onChange)
     }
 }

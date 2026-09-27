@@ -19,7 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.ui.study.PrimaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
@@ -41,7 +41,7 @@ fun SignInScreen(error: String?, onSignIn: () -> Unit) {
             modifier = Modifier.widthIn(max = 420.dp),
         )
         Spacer(Modifier.height(32.dp))
-        PrimaryPill("Sign in with Google", Modifier.fillMaxWidth().widthIn(max = 420.dp).height(58.dp), onSignIn)
+        PrimaryPill("Sign in with Google", Modifier.fillMaxWidth().widthIn(max = 420.dp).height(58.dp), onClick = onSignIn)
         if (error != null) {
             Spacer(Modifier.height(16.dp))
             Text(error, color = Palette.Again, textAlign = TextAlign.Center)
