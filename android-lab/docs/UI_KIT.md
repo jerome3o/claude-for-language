@@ -33,6 +33,9 @@ touching, and add a line to the table below.
 | `ConfettiRain`, `SparkBurst`, `ShakeState` | `ui/fx/Effects.kt` | Celebrations, streak sparks, wrong-answer shake. |
 | `app.haptics.tick() / correct() / wrong() / celebrate()`, `app.sounds.play(Sfx.…)` | `fx/Haptics.kt`, `fx/Sounds.kt` | Feel. Every moment that should feel good gets a haptic; respect the toggles (they are checked inside). |
 | `PlaceholderScreen(path, onBack?) { openInMainApp }` | `ui/placeholder/` | A route whose native screen isn't built yet. |
+| `WritingExercise(text, pinyin?, english?, initialMode, allowModeSwitch, autoDemo, hideCharacters, onComplete, onDone?, doneLabel)` | `ui/strokes/WritingExercise.kt` | Handwriting with stroke-order feedback for a word (loads stroke data offline-first via `StrokeStore`, runs the quiz, shows the summary). `onComplete` gets a core `WritingExerciseResult`; **in a lesson only `StrokeQuiz.writtenFromMemory(result)` counts as correct** (start with `initialMode = WritingMode.RECALL`). Package B's handwriting / dictation exercises. |
+| `WritingSheet(text, onClose, pinyin?, english?, onComplete)` | `ui/strokes/WritingExercise.kt` | Full-screen "✍️ Write it" over the study card (package A's ⋯ menu). |
+| `WritingPad(data, showOutline, completed, justCompleted, hint, demoKey, celebrate, onStroke → InkOutcome)` | `ui/strokes/WritingPad.kt` | The bare 米字格 pad (Canvas: outlines, painted strokes, hints, demo, ink) if you need your own flow; `WritingController` + `WritingRunView` are the run without the loading. |
 
 ## Rules of thumb
 

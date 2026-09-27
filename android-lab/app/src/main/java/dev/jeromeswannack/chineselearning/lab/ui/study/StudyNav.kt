@@ -21,7 +21,8 @@ fun NavGraphBuilder.studyGraph(nav: LabNav) {
                 nav.back()
                 nav.app.scope.launch { nav.app.repo.sync() }
             },
-            onOpenInApp = { noteId -> nav.openOrHandoff(Routes.cardHub(noteId)) },
+            onOpen = { path -> nav.open(path) },
+            onHandoff = { path -> nav.openOrHandoff(path) },
         )
     }
 }
