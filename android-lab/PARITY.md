@@ -75,14 +75,14 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | Audio: cached clip → stream → device voice | ✅ | `useAudio.ts`, `audioPlayback.ts` | `fx/WordAudio.kt` |
 | Offline study + background upload | ✅ | `services/sync.ts` | `data/Repository.kt`, `SyncWorker.kt` |
 | Card footer: **Ask Claude · Edit card · ⋯** action row | ✅ | `components/study/StudyActionRow.tsx` | `ui/study/CardExtrasUi.kt` `StudyActionRow` |
-| Voice recording on read cards + transcription + upload (queued: `Outbox.enqueueUpload`) | ⬜ | `useTranscription.ts`, `pendingRecordings` | |
-| Multiple-choice fallback (8 s) / auto-MC for listen cards | ⬜ | `services/multipleChoice.ts` | |
+| Voice recording on read cards + transcription + upload (queued: `Outbox.enqueueUpload`) | ✅ webm/Opus like the browser (AAC before Android 10); uploaded with `review_id`; undo drops it | `useTranscription.ts`, `pendingRecordings` | `ui/study/VoiceRecording.kt`, `StudyViewModel` |
+| Multiple-choice fallback (8 s) / auto-MC for listen cards | ✅ options prefetched per deck twice a day (`study-mc` sync step) so listen cards get them offline | `services/multipleChoice.ts` | `ui/study/MultipleChoice.kt`, `McGrid.kt` |
 | Ask Claude (card chat with tools: edit card, add cards) | ✅ quick questions, tools folded, approve / reject, + message → card | `components/study/` Ask Claude, `POST /api/notes/:id/ask` | `ui/study/AskClaudeSheet.kt`, `StudyViewModel.ask` |
 | Edit card | ✅ fields, sentence clue (generate / clear), alternatives, recordings (primary / delete), delete note — online | `CardEditModal.tsx` | `ui/study/EditCardSheet.kt` |
-| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | 🟡 all items; Write it hands off to the main app until H lands; Play my recording waits on recording | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
+| ⋯ menu: fun fact, regenerate audio, new voice, roleplay, Write it (→ H strokes), flag for tutor | ✅ Write it opens H's `WritingSheet` over the card | `StudyMoreMenu.tsx`, `FlagCardSheet.tsx` | `CardExtrasUi.kt` `studyMenuItems` |
 | Flag for tutor (offline, idempotent `POST /api/card-flags` via Outbox) | ✅ tutors from the cached relationships | `services/cardFlags.ts` | `CardTools.flag`, `FlagCardSheet` |
 | Tutor notes on the card back (recording marks, flag replies; cached for offline) | ✅ `study-notes` sync step, seen via Outbox | `services/recording-notes.ts`, `TutorNoteLine.tsx` | `ui/study/TutorNotes.kt`, `TutorNoteLine` |
-| Sentence tools: "What's going on here?", + Add as card, regenerate set | ⬜ | `SentenceSet.tsx`, `SentenceBreakdown.tsx` | |
+| Sentence tools: "What's going on here?", + Add as card, regenerate set | ✅ breakdown with tappable words (cached), add as card (deck picker, duplicate warning), new set / add 5 / custom / clear, generate when empty | `SentenceSet.tsx`, `SentenceBreakdown.tsx` | `ui/study/Sentences.kt` |
 | Tap a character → definition popup; pinyin under typed answer | ✅ definitions cached offline; pinyin from ICU Han-Latin (polyphones may differ from pinyin-pro) | `WordDefinitionPopup.tsx`, `pinyin-pro` | `WordDefinitionSheet`, `ui/study/Pinyin.kt` |
 | Sentence set generated when rating Again | ✅ | `ensureSentenceSetForNote` | `CardTools.ensureSentenceSet` |
 | Offline mode toggle / offline audio note | ✅ | `OfflineModeToggle.tsx`, `services/offlineMode.ts` | `OfflinePill`, `ui/study/StudyPrefs.kt` |

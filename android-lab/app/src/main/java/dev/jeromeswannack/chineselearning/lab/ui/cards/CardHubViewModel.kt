@@ -91,10 +91,15 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
         hub.refresh()
     }
 
+    private var refreshJob: kotlinx.coroutines.Job? = null
+
     private fun refresh() {
-        viewModelScope.launch {
-            val state = hub.state.value
+        // One refresh at a time, built from the newest server state: an older refresh that
+        // finished last used to overwrite the server's answer with the loading state.
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             val local = withContext(Dispatchers.IO) { localHub() }
+            val state = hub.state.value
             _ui.update { s -> build(state, local).copy(tutors = s.tutors, flagBusy = s.flagBusy, notice = s.notice, noticeIsError = s.noticeIsError, online = s.online) }
         }
     }

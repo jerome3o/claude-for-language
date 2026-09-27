@@ -11,6 +11,9 @@ import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
+import dev.jeromeswannack.chineselearning.lab.data.api.generateMultipleChoice
+import dev.jeromeswannack.chineselearning.lab.data.api.studyNote
+import dev.jeromeswannack.chineselearning.lab.data.api.transcribe
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -175,6 +178,9 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
             return
         }
+        if (recorder.recording) recorder.stop()?.delete()
+        take?.delete()
+        take = null
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras()) }
         loadExtras(view)
     }
@@ -188,8 +194,11 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             val rel = app.cache.get<dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto>(dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys.RELATIONSHIPS)
             val notes = TutorNotes.forCard(app.cache, view.card.id, view.note.id)
             updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel)) }
+            setUpMc(view)
             if (!aiAvailable) return@launch
             runCatching { tools.voices(view.note.id) }.getOrNull()?.let { v -> updateExtras(view) { it.copy(voices = v) } }
+            // Nothing cached but online: the set may exist server-side and not have synced yet.
+            if (view.sentences.isEmpty()) runCatching { tools.fetchSetIfMissing(view.note.id) }.getOrNull()?.let { showSentences(view.note.id, it) }
             backgroundFill(view.note)
         }
     }
@@ -330,6 +339,149 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         viewModelScope.launch { showSentences(noteId, withContext(Dispatchers.IO) { repo.dao.sentencesFor(noteId) }) }
     }
 
+    // ---------------- my recording ----------------
+
+    val recorder = VoiceRecorder(app, viewModelScope)
+    /** The current card's finished take (deleted when the card goes without a rating). */
+    private var take: java.io.File? = null
+    private var takeJob: Job? = null
+    val level get() = recorder.level
+
+    private fun updateTake(view: CardView, change: (TakeUi) -> TakeUi) = updateExtras(view) { it.copy(take = change(it.take)) }
+
+    /** "Record your pronunciation" / "Record again" (the permission was granted by the card). */
+    fun startRecording(skipDelay: Boolean = false) {
+        val v = currentView() ?: return
+        take?.delete()
+        take = null
+        app.audio.stop()
+        if (!recorder.start()) {
+            updateExtras(v) { it.copy(notice = "Couldn't open the microphone.", take = TakeUi()) }
+            return
+        }
+        app.haptics.tick()
+        updateTake(v) { TakeUi(recording = true, starting = !skipDelay) }
+        takeJob?.cancel()
+        if (!skipDelay) takeJob = viewModelScope.launch { delay(500); updateTake(v) { it.copy(starting = false) } }
+    }
+
+    /** Stop: keep the take; on the back it is transcribed at once. */
+    fun stopRecording(flipped: Boolean) {
+        val v = currentView() ?: return
+        takeJob?.cancel()
+        take = recorder.stop()
+        app.haptics.tick()
+        updateTake(v) { TakeUi(hasTake = take != null) }
+        if (flipped) transcribe(v)
+    }
+
+    /** "Re-record" on the front: drop the take. */
+    fun clearRecording() {
+        val v = currentView() ?: return
+        take?.delete()
+        take = null
+        updateTake(v) { TakeUi() }
+    }
+
+    fun playMyRecording() { take?.let { recorder.play(it) } }
+
+    /** `useTranscription`: Whisper on the server, compared in pinyin here; offline says so. */
+    private fun transcribe(v: CardView) {
+        val file = take ?: return
+        if (!aiAvailable) return updateTake(v) { it.copy(transcription = TranscriptionUi.Offline) }
+        updateTake(v) { it.copy(transcription = TranscriptionUi.Working) }
+        viewModelScope.launch {
+            val result = runCatching { repo.api.transcribe(file, recorder.mime) }
+            updateTake(v) {
+                it.copy(transcription = result.fold({ r -> TranscriptionUi.Done(Transcription.compare(r.text, v.note.hanzi)) }, { TranscriptionUi.Failed }))
+            }
+        }
+    }
+
+    /** The take goes up with its review: `POST /api/audio/upload { review_id }`, queued (offline-first). */
+    private suspend fun queueTake(eventId: String) {
+        val file = take ?: return
+        take = null
+        val staged = app.outbox.stageFile("recording.${file.extension}")
+        withContext(Dispatchers.IO) { if (!file.renameTo(staged)) { file.copyTo(staged, overwrite = true); file.delete() } }
+        app.outbox.enqueueUpload(
+            kind = "recording", path = "/api/audio/upload", file = staged,
+            fileName = "recording.${file.extension}", mime = recorder.mime,
+            fields = mapOf("review_id" to eventId), id = "rec-$eventId",
+        )
+    }
+
+    // ---------------- multiple choice ----------------
+
+    private fun updateMc(view: CardView, change: (McUi) -> McUi) = updateExtras(view) { it.copy(mc = change(it.mc)) }
+
+    /** The note's cached options + pinyin-only flag (MultipleChoice.Sync / earlier generation). */
+    private suspend fun mcExtra(noteId: String): MultipleChoice.NoteExtra? =
+        app.cache.get<Map<String, MultipleChoice.NoteExtra>>(MultipleChoice.KEY)?.get(noteId)
+
+    private suspend fun cacheMc(noteId: String, extra: MultipleChoice.NoteExtra) {
+        val map = app.cache.get<Map<String, MultipleChoice.NoteExtra>>(MultipleChoice.KEY).orEmpty()
+        app.cache.put(MultipleChoice.KEY, TutorNotes.KIND, map + (noteId to extra))
+    }
+
+    /** Called per card: auto-show MC for listen cards and pinyin-only meaning cards. */
+    private suspend fun setUpMc(view: CardView) {
+        val type = view.card.cardType
+        if (type == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING) return
+        val extra = mcExtra(view.note.id)
+        val cached = MultipleChoice.parse(extra?.options) != null
+        val isAudio = type == dev.jeromeswannack.chineselearning.lab.core.CardTypes.AUDIO_TO_HANZI
+        val auto = isAudio || (extra?.pinyinOnly == true && type == dev.jeromeswannack.chineselearning.lab.core.CardTypes.MEANING_TO_HANZI)
+        updateMc(view) { it.copy(cached = cached, auto = auto) }
+        if (!auto) return
+        // Offline with nothing cached: straight to typing, no pre-load, no spinner.
+        if (!aiAvailable && !cached) return updateMc(view) { it.copy(skip = true) }
+        loadMc(view, hideInitially = isAudio, fresh = false)
+    }
+
+    /**
+     * `handleShowMultipleChoice`: cached options, or a generation cut at 8 s; any failure
+     * falls back to typing with a one-line note. [fresh] = Regenerate.
+     */
+    private fun loadMc(view: CardView, hideInitially: Boolean, fresh: Boolean) {
+        updateMc(view) { it.copy(loading = true, fallbackNote = null) }
+        viewModelScope.launch {
+            val noteId = view.note.id
+            val cachedRaw = if (fresh) null else mcExtra(noteId)?.options
+            val result = MultipleChoice.load(cachedRaw, aiAvailable) {
+                // The server may already hold options (made on another device): use them first.
+                val existing = if (fresh) null else runCatching { tools.api().studyNote(noteId) }.getOrNull()
+                val raw = existing?.multiple_choice_options?.takeIf { MultipleChoice.parse(it) != null }
+                    ?: tools.api().generateMultipleChoice(noteId).multiple_choice_options
+                if (raw != null) cacheMc(noteId, MultipleChoice.NoteExtra(raw, mcExtra(noteId)?.pinyinOnly ?: (existing?.pinyin_only == 1)))
+                raw
+            }
+            when (result) {
+                is MultipleChoice.Load.Ready -> updateMc(view) {
+                    it.copy(rows = MultipleChoice.shuffle(result.rows, random), loading = false, cached = true, ready = hideInitially, showing = !hideInitially, skip = false)
+                }
+                is MultipleChoice.Load.Fallen -> updateMc(view) {
+                    it.copy(loading = false, skip = true, showing = false, ready = false, fallbackNote = result.reason.message)
+                }
+            }
+        }
+    }
+
+    /** "Multiple choice" on the front of a typing card. */
+    fun showMc() {
+        val v = currentView() ?: return
+        updateMc(v) { it.copy(skip = false) }
+        loadMc(v, hideInitially = false, fresh = false)
+    }
+
+    fun regenerateMc() { currentView()?.let { loadMc(it, hideInitially = false, fresh = true) } }
+
+    /** Listen card: "Show options". */
+    fun revealMc() { currentView()?.let { v -> updateMc(v) { it.copy(ready = false, showing = true) } } }
+
+    /** "Type instead" (grid or spinner). */
+    fun typeInstead() { currentView()?.let { v -> updateMc(v) { it.copy(showing = false, ready = false, skip = true) } } }
+
     // ---------------- Ask Claude ----------------
 
     private fun updateAsk(view: CardView, change: (AskUi) -> AskUi) = updateExtras(view) { it.copy(ask = change(it.ask)) }
@@ -390,6 +542,19 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         updateAsk(v) { it.copy(pending = null) }
     }
 
+    /** Sentence list ⋯ / "+ 5 more": generate for the current note and show the new set. */
+    suspend fun generateSentences(count: Int, keepExisting: Boolean, customPrompt: String?) {
+        val v = currentView() ?: return
+        showSentences(v.note.id, tools.generateSet(v.note.id, count, customPrompt, keepExisting))
+        app.haptics.correct()
+    }
+
+    suspend fun clearSentences() {
+        val v = currentView() ?: return
+        tools.clearSet(v.note.id)
+        showSentences(v.note.id, emptyList())
+    }
+
     /** Decks for "+ make a card from this message" (the web's deck buttons). */
     suspend fun deckChoices(): List<Pair<String, String>> = withContext(Dispatchers.IO) { repo.dao.decks().map { it.id to it.name } }
 
@@ -401,6 +566,9 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
 
     /** Typed answer checked (or the answer revealed): feedback only, nothing recorded yet. */
     fun onRevealed(verdict: AnswerKey.Verdict?) {
+        currentView()?.let { v ->
+            if (_ui.value.extras.take.recording) stopRecording(flipped = true) else if (take != null) transcribe(v)
+        }
         when {
             verdict == null -> { app.sounds.play(Sounds.Sfx.FLIP, 0.5f); app.haptics.flip() }
             AnswerKey.isAccepted(verdict) -> { app.sounds.play(Sounds.Sfx.CORRECT); app.haptics.correct() }
@@ -450,7 +618,9 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         _ui.update { it.copy(stats = stats, lastRating = rating) }
 
         viewModelScope.launch {
+            if (recorder.recording) { takeJob?.cancel(); take = recorder.stop() }
             val (eventId, updated) = repo.recordReview(card.id, rating, timeSpentMs, userAnswer)
+            queueTake(eventId)
             undo = UndoSnapshot(eventId, card, snapshotQueue, snapshotReviewed, snapshotRecent, before)
             queue.removeAll { it.id == card.id }
             val next = updated?.toQueueCard()
@@ -491,7 +661,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         pushJob = viewModelScope.launch {
             delay(2500)
             if (app.online.value) repo.pushEvents()
-            if (repo.dao.unsyncedCount() > 0) app.scheduleBackgroundUpload()
+            if (repo.dao.unsyncedCount() > 0 || app.outbox.pendingCount() > 0) app.scheduleBackgroundUpload()
         }
     }
 
@@ -500,6 +670,8 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         if (busy) return
         undo = null
         viewModelScope.launch {
+            // The recording tied to that review goes too (the web deletes its pendingRecording).
+            app.repo.platform.dao.deleteOutbox("rec-${snap.eventId}")
             val restored = repo.undoReview(snap.eventId)?.toQueueCard() ?: snap.card
             queue = snap.queue.map { if (it.id == restored.id) restored else it }.toMutableList()
             if (queue.none { it.id == restored.id }) queue.add(restored)
@@ -522,6 +694,8 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
 
     override fun onCleared() {
         app.audio.stop()
+        recorder.release()
+        take?.delete()
         extras.stopAudio() // Package B
         app.scope.launch { if (app.online.value) repo.pushEvents() }
         if (_ui.value.stats.reviews > 0) app.scheduleBackgroundUpload()
