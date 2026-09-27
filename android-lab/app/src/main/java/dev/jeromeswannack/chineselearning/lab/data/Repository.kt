@@ -92,6 +92,9 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
     private val _dataVersion = MutableStateFlow(0)
     val dataVersion: StateFlow<Int> = _dataVersion.asStateFlow()
 
+    /** A feature mirrored a server write into Room (deck / note edits, data/decks/): screens reload. */
+    fun notifyLocalChange() = _dataVersion.update { it + 1 }
+
     val isSignedIn get() = prefs.sessionToken != null
 
     // ---------------- sync ----------------

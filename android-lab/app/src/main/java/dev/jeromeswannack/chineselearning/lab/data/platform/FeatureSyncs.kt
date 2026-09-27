@@ -15,6 +15,7 @@ object FeatureSyncs {
         platform.register("nav", NavSync) // relationships → tab set / landing (ui/nav/NavData.kt)
         platform.register("connections", dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionsSync) // E: my id + notifications (Tutor tab badge)
         platform.register("homework", dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkSync) // E: homework, "From <tutor>", onboarding
+        platform.register("shell", dev.jeromeswannack.chineselearning.lab.shell.HomeworkFeed) // widget + homework notification (package I)
         // Add yours below, one line each (keep the order: what study needs offline first).
         platform.register("study-notes", dev.jeromeswannack.chineselearning.lab.ui.study.TutorNotes.Sync) // tutor notes on the card back (A)
     }
