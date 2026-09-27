@@ -1,0 +1,464 @@
+package dev.jeromeswannack.chineselearning.lab.data.api
+
+import dev.jeromeswannack.chineselearning.lab.data.Api
+import kotlinx.serialization.Serializable
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
+
+/*
+ * Package F — the tutor side (web: api/tutorDashboard.ts, api/homework.ts, api/cardFlags.ts,
+ * api/insights.ts, api/lessonEditor.ts getStudentLessons, types/tutorDashboard.ts).
+ * DTOs declare only what the Lab screens use (decoding ignores unknown keys).
+ */
+
+// ---------------- dashboard / student overview ----------------
+
+@Serializable
+data class TodayStatsDto(val reviews: Int = 0, val accuracy: Double? = null, val time_ms: Long = 0)
+
+@Serializable
+data class StudyStatusDto(
+    val last_studied_at: String? = null,
+    val studied_today: Boolean = false,
+    val streak_days: Int = 0,
+    val active_days_30: Int = 0,
+    val today: TodayStatsDto = TodayStatsDto(),
+)
+
+@Serializable
+data class NoteRefDto(
+    val id: String,
+    val hanzi: String = "",
+    val pinyin: String = "",
+    val english: String = "",
+    val deck_id: String? = null,
+    val deck_name: String? = null,
+)
+
+@Serializable
+data class RecordingRefDto(val event_id: String, val recording_url: String)
+
+@Serializable
+data class NeedsAttentionDto(
+    val note: NoteRefDto,
+    val attempts: Int = 0,
+    val again_count: Int = 0,
+    val hard_count: Int = 0,
+    val wrong_answers: List<String> = emptyList(),
+    val wrong_typed_count: Int = 0,
+    val last_reviewed_at: String? = null,
+    val recording: RecordingRefDto? = null,
+    val recordings_unheard: Int = 0,
+)
+
+@Serializable
+data class HomeworkDeckDto(
+    val shared_deck_id: String,
+    val source_deck_id: String = "",
+    val target_deck_id: String = "",
+    val source_deck_name: String = "",
+    val target_deck_name: String? = null,
+    val shared_at: String = "",
+    val cards_total: Int = 0,
+    val cards_started: Int = 0,
+    val cards_mastered: Int = 0,
+    val notes_missing: Int = 0,
+    val percent_started: Int = 0,
+    val percent_mastered: Int = 0,
+    val notes_total: Int = 0,
+    val notes_introduced: Int = 0,
+    val words_to_go: Int = 0,
+    val days_to_go: Int = 0,
+    val queue_position: Int? = null,
+    val queue_total: Int = 0,
+)
+
+@Serializable
+data class HomeworkLessonDto(
+    val lesson_id: String,
+    val title: String = "",
+    val icon: String? = null,
+    val created_at: String = "",
+    val completions: Int = 0,
+    val last_completed_at: String? = null,
+    val last_rating: Int? = null,
+)
+
+@Serializable
+data class HomeworkSummaryDto(
+    val percent: Int? = null,
+    val decks: List<HomeworkDeckDto> = emptyList(),
+    val lessons: List<HomeworkLessonDto> = emptyList(),
+)
+
+@Serializable
+data class SetupStepDto(val key: String, val title: String = "", val done: Boolean = false, val detail: String = "")
+
+@Serializable
+data class InviteRefDto(val id: String, val url: String, val status: String = "", val redeemed_at: String? = null)
+
+@Serializable
+data class SetupAudioDto(val cached: Int? = null, val total: Int = 0)
+
+@Serializable
+data class SetupStatusDto(
+    val steps: List<SetupStepDto> = emptyList(),
+    val done_count: Int = 0,
+    val install_kind: String? = null,
+    val audio: SetupAudioDto = SetupAudioDto(),
+    val last_opened_at: String? = null,
+    val invite: InviteRefDto? = null,
+)
+
+@Serializable
+data class ActivityDayDto(val day: String, val reviews: Int = 0, val accuracy: Double? = null, val time_ms: Long = 0)
+
+@Serializable
+data class PillsDto(
+    val struggling_words: Int = 0,
+    val recordings_to_hear: Int = 0,
+    val homework_percent: Int? = null,
+    val flags_open: Int = 0,
+)
+
+@Serializable
+data class StudentOverviewDto(
+    val relationship_id: String,
+    val student: UserSummaryDto,
+    val joined_at: String = "",
+    val joined_via_invite: Boolean = false,
+    val is_new: Boolean = false,
+    val status: StudyStatusDto = StudyStatusDto(),
+    val pills: PillsDto = PillsDto(),
+    val needs_attention: List<NeedsAttentionDto> = emptyList(),
+    val homework: HomeworkSummaryDto = HomeworkSummaryDto(),
+    val setup: SetupStatusDto = SetupStatusDto(),
+    val activity: List<ActivityDayDto> = emptyList(),
+    val last_conversation_id: String? = null,
+)
+
+@Serializable
+data class PendingInviteDto(
+    val id: String,
+    val url: String,
+    val email: String? = null,
+    val created_at: String = "",
+    val expires_at: String? = null,
+    val note: String? = null,
+    val share_deck_count: Int = 0,
+    val opened_at: String? = null,
+)
+
+@Serializable
+data class HomeworkDeckSummaryDto(
+    val deck_id: String,
+    val name: String = "",
+    val note_count: Int = 0,
+    val student_count: Int = 0,
+    val last_shared_at: String = "",
+)
+
+@Serializable
+data class TutorDashboardDto(
+    val students: List<StudentOverviewDto> = emptyList(),
+    val invites: List<PendingInviteDto> = emptyList(),
+    val homework_decks: List<HomeworkDeckSummaryDto> = emptyList(),
+    val generated_at: String? = null,
+)
+
+/** The web's `new Date().getTimezoneOffset()`: minutes to ADD to local time to get UTC. */
+fun tzOffsetMinutes(zone: ZoneId = ZoneId.systemDefault()): Int = -ZonedDateTime.now(zone).offset.totalSeconds / 60
+
+/** Today as the web's `localDate()` ('YYYY-MM-DD' on this phone). */
+fun localToday(zone: ZoneId = ZoneId.systemDefault()): String = LocalDate.now(zone).toString()
+
+private fun rel(relId: String) = "/api/relationships/${enc(relId)}"
+
+suspend fun Api.tutorDashboard(): TutorDashboardDto = get("/api/tutor/dashboard?tz_offset=${tzOffsetMinutes()}")
+
+suspend fun Api.studentOverview(relId: String): StudentOverviewDto = get("${rel(relId)}/overview?tz_offset=${tzOffsetMinutes()}")
+
+@Serializable
+data class OpenConversationDto(val conversation_id: String, val created: Boolean = false)
+
+suspend fun Api.openConversation(relId: String): OpenConversationDto = post("${rel(relId)}/conversations/open")
+
+@Serializable
+data class HowToSentDto(val conversation_id: String? = null)
+
+suspend fun Api.sendInstallHowTo(relId: String): HowToSentDto = post("${rel(relId)}/send-howto")
+
+@Serializable
+data class SharedDeckUpdateDto(val added: Int = 0, val kept: Int = 0, val audio_filled: Int = 0, val updated: Int = 0)
+
+suspend fun Api.updateSharedDeckCopy(relId: String, sharedDeckId: String): SharedDeckUpdateDto =
+    post("${rel(relId)}/shared-decks/${enc(sharedDeckId)}/update")
+
+@Serializable
+data class QueueMoveBody(val to: String)
+
+@Serializable
+data class SharedDeckMoveDto(val queue_position: Int, val queue_total: Int)
+
+/** [to]: top | up | down | bottom (shared/decks QueueMove). */
+suspend fun Api.moveSharedDeck(relId: String, sharedDeckId: String, to: String): SharedDeckMoveDto =
+    post("${rel(relId)}/shared-decks/${enc(sharedDeckId)}/move", QueueMoveBody(to))
+
+suspend fun Api.removeRelationship(relId: String) = delete<Unit>(rel(relId))
+
+suspend fun Api.revokeInvite(id: String) = delete<Unit>("/api/invites/${enc(id)}")
+
+// ---------------- conversations / lessons / lesson log ----------------
+
+@Serializable
+data class LastMessageDto(val content: String = "")
+
+@Serializable
+data class ConversationDto(
+    val id: String,
+    val title: String? = null,
+    val created_at: String = "",
+    val last_message_at: String? = null,
+    val last_message: LastMessageDto? = null,
+)
+
+suspend fun Api.conversations(relId: String): List<ConversationDto> = get("${rel(relId)}/conversations")
+
+@Serializable
+data class StudentLessonDto(
+    val id: String,
+    val title: String = "",
+    val icon: String? = null,
+    val source: String = "",
+    val exercise_count: Int = 0,
+    val assigned_by: String? = null,
+    val assigned_by_me: Boolean = false,
+    val completions: Int = 0,
+    val last_completed_at: String? = null,
+    val last_rating: Int? = null,
+    val last_attempt_id: String? = null,
+)
+
+@Serializable
+private data class StudentLessonsDto(val lessons: List<StudentLessonDto> = emptyList())
+
+suspend fun Api.studentLessons(relId: String): List<StudentLessonDto> = get<StudentLessonsDto>("${rel(relId)}/student-lessons").lessons
+
+@Serializable
+data class LessonLogEntryDto(val id: String, val lesson_at: String, val notes: String? = null, val created_at: String = "")
+
+@Serializable
+private data class LessonLogDto(val entries: List<LessonLogEntryDto> = emptyList())
+
+suspend fun Api.lessonLog(relId: String): List<LessonLogEntryDto> = get<LessonLogDto>("${rel(relId)}/lesson-log").entries
+
+@Serializable
+data class LogLessonBody(val lesson_at: String, val notes: String? = null)
+
+suspend fun Api.logLesson(relId: String, lessonAt: String, notes: String?) =
+    post<LogLessonBody, Unit>("${rel(relId)}/lesson-log", LogLessonBody(lessonAt, notes))
+
+suspend fun Api.deleteLessonLogEntry(relId: String, id: String) = delete<Unit>("${rel(relId)}/lesson-log/${enc(id)}")
+
+@Serializable
+data class StudentSharedDeckDto(val id: String, val deck_name: String = "", val note_count: Int = 0, val shared_at: String = "")
+
+suspend fun Api.studentSharedDecks(relId: String): List<StudentSharedDeckDto> = get("${rel(relId)}/student-shared-decks")
+
+@Serializable
+data class LibraryItemSummaryDto(
+    val id: String,
+    val title: String = "",
+    val icon: String? = null,
+    val assignment_count: Int = 0,
+    val exercise_count: Int = 0,
+)
+
+@Serializable
+private data class LibraryListDto(val items: List<LibraryItemSummaryDto> = emptyList())
+
+suspend fun Api.lessonLibrary(): List<LibraryItemSummaryDto> = get<LibraryListDto>("/api/lesson-library").items
+
+// ---------------- homework assignments + load (docs/HOMEWORK.md) ----------------
+
+@Serializable
+data class AssignmentDto(
+    val id: String,
+    val kind: String = "deck",
+    val target_id: String = "",
+    val source_id: String? = null,
+    val title: String = "",
+    val mode: String = "fsrs",
+    val due_date: String? = null,
+    val item_count: Int = 0,
+    val part_index: Int = 0,
+    val part_count: Int = 1,
+    val status: String = "active",
+    val done_count: Int = 0,
+    val completed_at: String? = null,
+    val created_at: String = "",
+)
+
+@Serializable
+data class LoadDayDto(val date: String, val items: Int = 0, val words: Int = 0)
+
+@Serializable
+data class LoadOneOffDto(
+    val items: Int = 0,
+    val words: Int = 0,
+    val other: Int = 0,
+    val overdue_items: Int = 0,
+    val overdue_words: Int = 0,
+    val due_today_items: Int = 0,
+    val by_day: List<LoadDayDto> = emptyList(),
+)
+
+@Serializable
+data class LoadFsrsDto(val words_to_go: Int = 0, val days_to_go: Int = 0, val new_per_day: Int = 0)
+
+@Serializable
+data class HomeworkLoadDto(
+    val one_off: LoadOneOffDto = LoadOneOffDto(),
+    val fsrs: LoadFsrsDto = LoadFsrsDto(),
+    /** light | moderate | heavy */
+    val level: String = "light",
+    val summary: String = "",
+)
+
+@Serializable
+data class RelationshipHomeworkDto(
+    val assignments: List<AssignmentDto> = emptyList(),
+    val load: HomeworkLoadDto = HomeworkLoadDto(),
+    val today: String = "",
+)
+
+suspend fun Api.relationshipHomework(relId: String): RelationshipHomeworkDto = get("${rel(relId)}/homework?today=${localToday()}")
+
+@Serializable
+data class AssignItemDto(
+    val kind: String,
+    val source_id: String,
+    val mode: String,
+    val due_date: String? = null,
+    val split_days: Int? = null,
+    val priority: String? = null,
+    val skip_known: Boolean? = null,
+)
+
+@Serializable
+data class AssignBody(val items: List<AssignItemDto>, val today: String)
+
+@Serializable
+data class SkippedDto(val source_id: String = "", val hanzi: List<String> = emptyList())
+
+@Serializable
+data class AssignErrorDto(val source_id: String = "", val error: String = "")
+
+@Serializable
+data class AssignResponseDto(
+    val assignments: List<AssignmentDto> = emptyList(),
+    val skipped: List<SkippedDto> = emptyList(),
+    val errors: List<AssignErrorDto> = emptyList(),
+)
+
+suspend fun Api.assignHomework(relId: String, items: List<AssignItemDto>): AssignResponseDto =
+    post("${rel(relId)}/homework", AssignBody(items, localToday()))
+
+@Serializable
+data class AssignmentPatchBody(val due_date: String? = null, val status: String? = null)
+
+suspend fun Api.updateHomeworkAssignment(relId: String, id: String, patch: AssignmentPatchBody) =
+    patch<AssignmentPatchBody, Unit>("${rel(relId)}/homework/${enc(id)}", patch)
+
+// ---------------- card flags + Ask-Claude threads (tutor view) ----------------
+
+@Serializable
+data class CardFlagDto(
+    val id: String,
+    val note_id: String,
+    val message: String = "",
+    /** open | resolved */
+    val status: String = "open",
+    val tutor_reply: String? = null,
+    val replied_at: String? = null,
+    val created_at: String = "",
+    val hanzi: String = "",
+    val pinyin: String = "",
+    val english: String = "",
+    val deck_name: String = "",
+    val student_name: String? = null,
+    val tutor_name: String? = null,
+)
+
+@Serializable
+data class CardFlagsDto(val flags: List<CardFlagDto> = emptyList(), val open: Int = 0)
+
+suspend fun Api.cardFlags(relId: String, status: String = "all"): CardFlagsDto = get("${rel(relId)}/card-flags?status=$status")
+
+@Serializable
+data class ReplyBody(val reply: String)
+
+suspend fun Api.replyToCardFlag(flagId: String, reply: String) = post<ReplyBody, Unit>("/api/card-flags/${enc(flagId)}/reply", ReplyBody(reply))
+
+suspend fun Api.resolveCardFlag(flagId: String) = post<Unit>("/api/card-flags/${enc(flagId)}/resolve")
+
+suspend fun Api.reopenCardFlag(flagId: String) = post<Unit>("/api/card-flags/${enc(flagId)}/reopen")
+
+@Serializable
+data class ClaudeQuestionDto(
+    val id: String,
+    val note_id: String,
+    val question: String = "",
+    val answer: String = "",
+    val asked_at: String = "",
+    val hanzi: String = "",
+    val pinyin: String = "",
+    val english: String = "",
+    val deck_name: String = "",
+)
+
+@Serializable
+data class ClaudeChatsDto(val questions: List<ClaudeQuestionDto> = emptyList(), val next_cursor: String? = null, val total: Int = 0)
+
+suspend fun Api.studentClaudeChats(relId: String, limit: Int = 40, before: String? = null, noteId: String? = null): ClaudeChatsDto {
+    val q = buildList {
+        add("limit=$limit")
+        if (before != null) add("before=${enc(before)}")
+        if (noteId != null) add("note_id=${enc(noteId)}")
+    }.joinToString("&")
+    return get("${rel(relId)}/claude-chats?$q")
+}
+
+// ---------------- account, decks, calls (what the tutor screens need of them) ----------------
+
+/** The two /api/auth/me flags the Students tab needs (Prefs keeps the rest). */
+@Serializable
+data class TeachingMeDto(val id: String = "", val can_invite: Boolean = false, val is_admin: Boolean = false)
+
+suspend fun Api.teachingMe(): TeachingMeDto = get("/api/auth/me")
+
+@Serializable
+data class NewDeckBody(val name: String)
+
+@Serializable
+data class CreatedDeckDto(val id: String, val name: String = "")
+
+/** "+ New homework deck → Write it" (POST /api/decks; the content service fills the defaults). */
+suspend fun Api.createDeckNamed(name: String): CreatedDeckDto = post("/api/decks", NewDeckBody(name))
+
+@Serializable
+data class CallRefDto(val id: String)
+
+@Serializable
+data class CallsDto(val calls: List<CallRefDto> = emptyList())
+
+suspend fun Api.liveCalls(relId: String): CallsDto = get("/api/calls?relationship_id=${enc(relId)}&live=1")
+
+@Serializable
+data class NewCallBody(val relationship_id: String)
+
+@Serializable
+data class CreatedCallDto(val call: CallRefDto)
+
+suspend fun Api.startCall(relId: String): CreatedCallDto = post("/api/calls", NewCallBody(relId))
