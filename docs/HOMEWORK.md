@@ -34,9 +34,12 @@ assignments                        assignment_events (append-only, idempotent by
   always did). `both`: a one-off pass by the due date AND long-term review.
 - **What "one-off" means per kind**
   - deck / word list: the student sees each word once, marks *Got it* / *Not yet*; *Not yet* words come back
-    at the end of the pass until they are right. Done when every item has a `right` event.
+    at the end of the pass until they are right. Done when every item has a `right` event. The pass writes
+    **homework events only, never review events** — in `both` mode it is NOT the first FSRS review; the words
+    are introduced later by the daily budget like any other deck (decision 1 in §7).
   - lesson / reader: complete it once (a `done` event). The existing player records its usual completion
-    event too, so in `both` mode the pass is the first FSRS review.
+    event too, so for a single lesson / reader in `both` mode the pass is also its first FSRS review (one item,
+    no pile-up — decision 1 is about words).
 - **How the modes are made real** (no new columns on decks / lessons / readers):
   - deck `one_off`: the student gets a normal copy (notes, audio, sentence sets sync as usual) with its
     per-deck caps set to **0 new + 0 secondary**, so the FSRS budget never introduces it. The deck page
@@ -143,9 +146,21 @@ auto-sending; `submit_session_notes` is unchanged. Migration `0073_homework.sql`
 unused legacy reader-homework table `homework_assignments` of migration 0024 still exists; it is left alone),
 `tutor_lesson_log.title` and `tutor_note_jobs.review / plan / chat / assigned_at`.
 
-## 7. Open questions for Jerome
+## 7. Decisions (Jerome, 27 Sep 2026)
 
-- `both` for a deck: the pass does not write FSRS reviews, so the words are introduced again at the
-  budget's pace. Should a *Got it* in the pass count as the first FSRS review instead?
-- Should overdue one-off items ever expire / roll into long-term review automatically?
-- Default modes in a draft: words `both` (due in 2 days), lesson and reader `one_off`. Right defaults?
+These were the open questions of the first cut; the code matches each answer.
+
+1. **In `both` mode the one-off pass does NOT count as the first FSRS review.** Counting it would drop every
+   word of the pass into long-term review at once — a tsunami of reviews a few days later. The pass writes only
+   `assignment_events` (`recordPassEvent`); the words keep their NEW cards and are introduced later at the daily
+   budget's pace (a `both` deck copy keeps its normal caps; only a `one_off`-only copy is capped at 0 + 0).
+   Tested: `frontend/src/services/homework.test.ts` ("a word pass is not an FSRS review"),
+   `worker/src/services/__tests__/homework.test.ts` ("leaves a both / fsrs deck in the FSRS budget").
+2. **Overdue one-off items stay overdue** — no expiry and no automatic roll into long-term review, for now.
+   They stay on the list, first, labelled *overdue* in red, until done; the tutor can move the date or cancel.
+   There is no sweeper or cron touching `assignments.status`.
+3. **Draft defaults stay as they are, provisionally**: words `both`, due in 2 days (`DEFAULT_DUE_IN_DAYS`,
+   `DEFAULT_MODE` in `shared/homework/plan.ts`); lessons and readers `one_off`; the load gauge's
+   light / moderate / heavy thresholds (`LOAD_THRESHOLDS` in `shared/homework/load.ts`: heavy at 2 overdue items,
+   40 one-off words or 30 days of long-term words to go; moderate at 1 overdue, 15 words, 4 items or 10 days).
+   Expect to tune them once Minghui has used the flow for a few weeks.
