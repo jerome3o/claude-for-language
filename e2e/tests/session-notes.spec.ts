@@ -34,7 +34,7 @@ async function seedUser(request: APIRequestContext, tag: string): Promise<Seeded
   return { id: r.user.id, email, token: r.session_token };
 }
 
-test('tutor sees the Session notes section, opens the sheet, and short notes are refused', async ({ page, request }) => {
+test('tutor sees the Lesson notes section, opens the sheet, and short notes are refused', async ({ page, request }) => {
   const tutor = await seedUser(request, 'tutor');
   const student = await seedUser(request, 'student');
   const rel = await api<{ data: { id: string } }>(request, '/api/relationships', {
@@ -59,22 +59,22 @@ test('tutor sees the Session notes section, opens the sheet, and short notes are
   const empty = await api<{ jobs: unknown[] }>(request, `/api/relationships/${relId}/session-notes`, { token: tutor.token });
   expect(empty.jobs).toEqual([]);
 
-  // ---- UI: the section on the student page and the sheet
+  // ---- UI: the Lesson notes section on the student page and its sheet
   await page.goto(`/connections/${relId}?session_token=${tutor.token}`);
-  const section = page.getByTestId('session-notes-section');
+  const section = page.getByTestId('lesson-notes-section');
   await expect(section).toBeVisible({ timeout: 30000 });
-  await expect(section).toContainText('After a lesson, paste your notes here');
-  await page.getByTestId('sn-open').click();
-  const notes = page.getByTestId('sn-notes');
+  await expect(section).toContainText('After a lesson, add your notes here');
+  await page.getByTestId('ln-open').click();
+  const notes = page.getByTestId('ln-notes');
   await expect(notes).toBeVisible();
-  const start = page.getByTestId('sn-submit');
-  await expect(start).toBeDisabled();
-  await notes.fill('Lesson today: 点菜 diǎn cài, 菜单 càidān, 服务员 fúwùyuán. He said 我想点菜。');
-  await expect(start).toBeEnabled();
-  await expect(page.getByText('characters')).toBeVisible();
-  // The delivery options are there: send automatically + queue position + lesson log
-  await expect(page.getByText('Core', { exact: false })).toBeVisible();
-  await expect(page.getByText('Also log this as a lesson', { exact: false })).toBeVisible();
+  const save = page.getByTestId('ln-submit');
+  await expect(save).toBeDisabled();
+  await notes.fill('点菜');
+  // Drafting homework needs a few lines; saving plain notes does not
+  await expect(save).toBeDisabled();
+  await page.getByTestId('ln-draft-check').uncheck();
+  await expect(save).toBeEnabled();
+  await expect(save).toHaveText('Save notes');
   await page.keyboard.press('Escape');
   await expect(notes).toBeHidden();
 });

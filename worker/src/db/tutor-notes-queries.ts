@@ -25,6 +25,13 @@ export interface TutorNotesResult {
   skipped?: string[];
 }
 
+/** One line of the tutor ↔ assistant chat on a draft's review page. */
+export interface DraftChatMessage {
+  role: 'tutor' | 'assistant';
+  text: string;
+  at: string;
+}
+
 export interface TutorNotesJobRow {
   id: string;
   relationship_id: string;
@@ -45,16 +52,25 @@ export interface TutorNotesJobRow {
   lesson_log_id: string | null;
   /** The video call whose transcript these notes are (null for pasted notes). */
   source_call_id: string | null;
+  /** 1 = a DRAFT the tutor reviews (never auto-shared). Migration 0073. */
+  review: number;
+  /** The draft plan (shared/homework DraftPlan), JSON. */
+  plan: string | null;
+  /** DraftChatMessage[] JSON. */
+  chat: string | null;
+  assigned_at: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
   finished_at: string | null;
 }
 
-export interface TutorNotesJob extends Omit<TutorNotesJobRow, 'steps' | 'result' | 'transcript'> {
+export interface TutorNotesJob extends Omit<TutorNotesJobRow, 'steps' | 'result' | 'transcript' | 'plan' | 'chat'> {
   steps: TutorNotesStep[];
   result: TutorNotesResult;
   transcript: unknown[] | null;
+  plan: unknown | null;
+  chat: DraftChatMessage[];
 }
 
 export function parseJob(row: TutorNotesJobRow): TutorNotesJob {
@@ -63,6 +79,10 @@ export function parseJob(row: TutorNotesJobRow): TutorNotesJob {
     steps: safeJson<TutorNotesStep[]>(row.steps, []),
     result: safeJson<TutorNotesResult>(row.result, {}),
     transcript: row.transcript ? safeJson<unknown[] | null>(row.transcript, null) : null,
+    review: row.review ?? 0,
+    plan: row.plan ? safeJson<unknown>(row.plan, null) : null,
+    chat: safeJson<DraftChatMessage[]>(row.chat, []),
+    assigned_at: row.assigned_at ?? null,
   };
 }
 
@@ -86,14 +106,15 @@ export interface CreateJobInput {
   auto_share: boolean;
   lesson_log_id: string | null;
   source_call_id?: string | null;
+  review?: boolean;
 }
 
 export async function createJob(db: D1Database, input: CreateJobInput): Promise<TutorNotesJob> {
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO tutor_note_jobs (id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, lesson_log_id, source_call_id, progress)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Waiting to start')`
+      `INSERT INTO tutor_note_jobs (id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, lesson_log_id, source_call_id, review, progress)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Waiting to start')`
     )
     .bind(
       id,
@@ -106,7 +127,8 @@ export async function createJob(db: D1Database, input: CreateJobInput): Promise<
       input.priority,
       input.auto_share ? 1 : 0,
       input.lesson_log_id,
-      input.source_call_id ?? null
+      input.source_call_id ?? null,
+      input.review ? 1 : 0
     )
     .run();
   return (await getJob(db, id))!;
@@ -130,7 +152,7 @@ export async function listJobs(db: D1Database, relationshipId: string, limit = 5
   const rows = await db
     .prepare(
       `SELECT id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, status, progress, steps,
-              NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, created_at, updated_at, started_at, finished_at
+              NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, review, plan, chat, assigned_at, created_at, updated_at, started_at, finished_at
        FROM tutor_note_jobs WHERE relationship_id = ? ORDER BY created_at DESC LIMIT ?`
     )
     .bind(relationshipId, limit)
@@ -143,7 +165,7 @@ export async function listJobsForCall(db: D1Database, callId: string): Promise<T
   const rows = await db
     .prepare(
       `SELECT id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, status, progress, steps,
-              NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, created_at, updated_at, started_at, finished_at
+              NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, review, plan, chat, assigned_at, created_at, updated_at, started_at, finished_at
        FROM tutor_note_jobs WHERE source_call_id = ? ORDER BY created_at DESC LIMIT 20`
     )
     .bind(callId)
@@ -169,6 +191,9 @@ export interface JobPatch {
   error?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
+  plan?: unknown | null;
+  chat?: DraftChatMessage[];
+  assigned_at?: string | null;
 }
 
 /** One UPDATE for whatever changed; `updated_at` always moves. */
@@ -188,8 +213,24 @@ export async function patchJob(db: D1Database, id: string, patch: JobPatch): Pro
   if (patch.error !== undefined) set('error', patch.error);
   if (patch.started_at !== undefined) set('started_at', patch.started_at);
   if (patch.finished_at !== undefined) set('finished_at', patch.finished_at);
+  if (patch.plan !== undefined) set('plan', patch.plan === null ? null : JSON.stringify(patch.plan));
+  if (patch.chat !== undefined) set('chat', JSON.stringify(patch.chat));
+  if (patch.assigned_at !== undefined) set('assigned_at', patch.assigned_at);
   binds.push(id);
   await db.prepare(`UPDATE tutor_note_jobs SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+}
+
+/** Jobs made from these lesson-log entries (newest first), without transcripts. */
+export async function listJobsForLessonLogs(db: D1Database, relationshipId: string): Promise<TutorNotesJob[]> {
+  const rows = await db
+    .prepare(
+      `SELECT id, relationship_id, tutor_id, student_id, title, notes, lesson_at, priority, auto_share, status, progress, steps,
+              NULL AS transcript, rounds, result, error, lesson_log_id, source_call_id, review, plan, chat, assigned_at, created_at, updated_at, started_at, finished_at
+       FROM tutor_note_jobs WHERE relationship_id = ? AND lesson_log_id IS NOT NULL ORDER BY created_at DESC LIMIT 200`
+    )
+    .bind(relationshipId)
+    .all<TutorNotesJobRow>();
+  return rows.results.map(parseJob);
 }
 
 export async function deleteJob(db: D1Database, relationshipId: string, id: string): Promise<boolean> {

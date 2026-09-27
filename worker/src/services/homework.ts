@@ -224,12 +224,18 @@ export async function recomputeProgress(db: D1Database, assignments: HomeworkAss
   return out;
 }
 
-/** The load gauge for one student. */
-export async function studentLoad(db: D1Database, studentId: string, today: string): Promise<HomeworkLoad> {
+/** What the load gauge is computed from (so a draft can project "after this"). */
+export async function studentLoadInputs(db: D1Database, studentId: string): Promise<{ active: HomeworkAssignment[]; fsrsWordsToGo: number; newPerDay: number }> {
   const [active, toGo, budget] = await Promise.all([
     hw.listActiveForStudent(db, studentId),
     hw.countFsrsWordsToGo(db, studentId),
     hw.getStudentBudget(db, studentId),
   ]);
-  return computeHomeworkLoad({ assignments: active, today, fsrsWordsToGo: toGo, newPerDay: budget ?? DEFAULT_STUDY_BUDGET.new_cards_per_day });
+  return { active, fsrsWordsToGo: toGo, newPerDay: budget ?? DEFAULT_STUDY_BUDGET.new_cards_per_day };
+}
+
+/** The load gauge for one student. */
+export async function studentLoad(db: D1Database, studentId: string, today: string): Promise<HomeworkLoad> {
+  const i = await studentLoadInputs(db, studentId);
+  return computeHomeworkLoad({ assignments: i.active, today, fsrsWordsToGo: i.fsrsWordsToGo, newPerDay: i.newPerDay });
 }

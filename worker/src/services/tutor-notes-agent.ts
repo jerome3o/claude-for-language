@@ -44,7 +44,10 @@ import * as lib from '../db/lesson-library-queries';
 import * as iq from '../db/insights-queries';
 import { rankStruggling, pickGoingWell } from './insights';
 import * as jobs from '../db/tutor-notes-queries';
-import type { TutorNotesJob, TutorNotesResult, TutorNotesStep, StudentWordMatch } from '../db/tutor-notes-queries';
+import type { TutorNotesJob, TutorNotesResult, TutorNotesStep, StudentWordMatch, DraftChatMessage } from '../db/tutor-notes-queries';
+import * as hw from '../db/homework-queries';
+import { studentLoad } from './homework';
+import { addDays, isHomeworkMode, localDate, normalizeDraftPlan, type DraftContents, type DraftPlan } from '@shared/homework';
 
 export const TUTOR_NOTES_MODEL = 'claude-opus-4-6';
 /** Hard cap on model turns per job. A normal job takes 6–12. */
@@ -90,6 +93,10 @@ How to work
 - Create the deck first (create_deck), then add cards, then the lesson / reader if warranted, then call finish. finish is REQUIRED: its summary is what the tutor reads. Say what you made, what you skipped and why (already known, not in the notes, no clear structure for a lesson), and anything the tutor should check.
 - Name the deck after the lesson content and date, e.g. "Restaurant ordering — 14 Sep" or the tutor's own title when they gave one. Simplified Chinese, mainland usage, tone-marked pinyin everywhere.
 - Never invent facts about the student. Never write to anything but the tools given. Do not ask questions — the tutor is not in this conversation; make the best call and note it in the summary.
+
+Drafts the tutor reviews (when the briefing says DRAFT)
+- Nothing is sent: the tutor reviews your draft, then assigns it. Also set a plan with set_plan: how each item is done — one_off (a single pass by a due date, not spaced repetition), fsrs (long-term spaced review) or both — the due dates, and whether to spread the words over several days. Look at the student's current load in the briefing: when it is heavy or items are overdue, prefer fewer words, a later due date or spreading them out, and say so.
+- Later the tutor may write to you ("Tutor's request: …", e.g. "drop the food words", "split into two days", "add a listening lesson"). Then act on the SAME draft with the tools — remove_cards, update_card, add_cards, create_mini_lesson, set_plan — and call finish with a short reply to the tutor (1–3 sentences: what you changed). Do not recreate the deck.
 
 ${CARD_STANDARD}
 
@@ -178,6 +185,54 @@ const TOOLS: Array<{ name: string; description: string; input_schema: ToolSchema
     },
   },
   {
+    name: 'remove_cards',
+    description: 'Draft review: remove cards from this job\'s deck by hanzi (e.g. the tutor asked to drop some words).',
+    input_schema: { type: 'object', properties: { hanzi: { type: 'array', items: { type: 'string' } } }, required: ['hanzi'] },
+  },
+  {
+    name: 'update_card',
+    description: 'Draft review: change a card in this job\'s deck (found by its current hanzi). Only the fields given change; the card standard applies.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        hanzi: { type: 'string', description: 'The card\'s current hanzi.' },
+        new_hanzi: { type: 'string' },
+        pinyin: { type: 'string' },
+        english: { type: 'string' },
+        fun_facts: { type: 'string' },
+        sentence_clue: { type: 'string' },
+        sentence_clue_pinyin: { type: 'string' },
+        sentence_clue_translation: { type: 'string' },
+      },
+      required: ['hanzi'],
+    },
+  },
+  {
+    name: 'set_plan',
+    description:
+      'Draft review: how the draft is assigned. Item keys: "deck" (the words), "lesson:<library_item_id>", "reader". mode: one_off (a single pass by the due date, not spaced repetition), fsrs (long-term review, no due date) or both. due_in_days counts from today (for the words, the first day when split). split_days spreads the words\' one-off pass over that many days. Only what you pass changes; returns the whole plan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        split_days: { type: 'integer', minimum: 1, maximum: 14 },
+        priority: { type: 'string', enum: ['core', 'non_urgent'], description: 'Where the long-term copy lands in the student\'s queue.' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string' },
+              include: { type: 'boolean' },
+              mode: { type: 'string', enum: ['one_off', 'fsrs', 'both'] },
+              due_in_days: { type: 'integer', minimum: 0, maximum: 60 },
+            },
+            required: ['key'],
+          },
+        },
+      },
+    },
+  },
+  {
     name: 'finish',
     description: 'End the job. REQUIRED as the last call. The summary is shown to the tutor.',
     input_schema: {
@@ -202,7 +257,9 @@ export interface BriefingInput {
   goingWell: Array<{ hanzi: string; english: string }>;
   lessonLog: Array<{ lesson_at: string; notes: string | null }>;
   earlierJobs: Array<{ created_at: string; title: string | null; result: TutorNotesResult }>;
-  job: Pick<TutorNotesJob, 'title' | 'notes' | 'lesson_at' | 'priority' | 'auto_share'> & { source_call_id?: string | null };
+  job: Pick<TutorNotesJob, 'title' | 'notes' | 'lesson_at' | 'priority' | 'auto_share'> & { source_call_id?: string | null; review?: number };
+  /** The student's homework load in one line (load gauge summary + level). */
+  load?: string | null;
 }
 
 /** The first user message: everything the agent should know before it starts, then the notes verbatim. */
@@ -249,7 +306,9 @@ export function buildBriefing(input: BriefingInput): string {
   lines.push(`# This session`);
   if (input.job.title) lines.push(`Tutor's title: ${input.job.title}`);
   if (input.job.lesson_at) lines.push(`Lesson date: ${input.job.lesson_at.slice(0, 10)}`);
-  lines.push(`Delivery: ${input.job.auto_share ? `the deck goes to the ${input.job.priority === 'core' ? 'top' : 'bottom'} of the student's study queue when you finish` : 'the tutor will send the deck themselves after reviewing it'}.`);
+  if (input.load) lines.push(`Current homework load: ${input.load}`);
+  if (input.job.review) lines.push(`Delivery: this is a DRAFT — nothing is sent. The tutor reviews it (and may ask you for changes), then assigns it. Set the plan with set_plan.`);
+  else lines.push(`Delivery: ${input.job.auto_share ? `the deck goes to the ${input.job.priority === 'core' ? 'top' : 'bottom'} of the student's study queue when you finish` : 'the tutor will send the deck themselves after reviewing it'}.`);
   lines.push('');
   if (input.job.source_call_id) {
     lines.push(`# Session notes (the recorded video lesson)`);
@@ -324,6 +383,12 @@ export function stepForTool(name: string, input: Record<string, unknown>, result
       return result.problems
         ? { at, kind: 'warn', text: `Reader draft had ${(result.problems as unknown[]).length} problem${(result.problems as unknown[]).length === 1 ? '' : 's'} — fixing` }
         : { at, kind: 'tool', text: `Wrote the reader "${String(result.title_english ?? '')}"` };
+    case 'remove_cards':
+      return { at, kind: 'tool', text: `Removed ${Array.isArray(result.removed) ? result.removed.length : 0} card(s) from the draft` };
+    case 'update_card':
+      return { at, kind: result.error ? 'warn' : 'tool', text: result.error ? String(result.error) : `Updated the card ${String(input.hanzi ?? '')}` };
+    case 'set_plan':
+      return { at, kind: 'tool', text: 'Updated the plan (modes, due dates, split)' };
     case 'finish':
       return null;
     default:
@@ -340,6 +405,36 @@ interface RunContext {
   job: TutorNotesJob;
   steps: TutorNotesStep[];
   result: TutorNotesResult;
+  /** The draft plan (review jobs). */
+  plan: unknown | null;
+}
+
+/** What a draft contains, in the terms of the shared plan. */
+export function draftContents(result: TutorNotesResult): DraftContents {
+  return {
+    deck: result.deck ? { id: result.deck.id, title: result.deck.name, word_count: result.deck.note_count } : null,
+    lessons: (result.lessons ?? []).map((l) => ({ id: l.library_item_id, title: l.title })),
+    reader: result.reader ? { id: result.reader.id, title: result.reader.title_english || result.reader.title_chinese } : null,
+  };
+}
+
+/**
+ * The tutor writes to the draft: the message joins the job's transcript as a
+ * user turn (appended to the last user message when that one holds tool
+ * results, so turns keep alternating) and the chat. Pure — the route saves it.
+ */
+export function appendTutorRequest(transcript: unknown[] | null, message: string): unknown[] {
+  const messages = [...((transcript ?? []) as Anthropic.MessageParam[])];
+  const text = `Tutor's request: ${message.trim()}\n\nAct on the draft with the tools, then call finish with a short reply to the tutor.`;
+  const last = messages[messages.length - 1];
+  if (last && last.role === 'user') {
+    const content = Array.isArray(last.content) ? [...last.content] : [{ type: 'text' as const, text: String(last.content) }];
+    content.push({ type: 'text', text });
+    messages[messages.length - 1] = { role: 'user', content };
+  } else {
+    messages.push({ role: 'user', content: text });
+  }
+  return messages;
 }
 
 function isRetryable(error: unknown): boolean {
@@ -380,7 +475,7 @@ export async function runTutorNotesJob(env: Env, jobId: string): Promise<Outcome
   if (!job) return 'skipped';
   if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled') return 'skipped';
 
-  const ctx: RunContext = { env, job, steps: [...job.steps], result: { ...job.result } };
+  const ctx: RunContext = { env, job, steps: [...job.steps], result: { ...job.result }, plan: job.plan ?? null };
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
   let messages: Anthropic.MessageParam[];
@@ -522,7 +617,7 @@ async function pushStep(ctx: RunContext, step: TutorNotesStep, progress: string)
 async function loadBriefing(env: Env, job: TutorNotesJob): Promise<string> {
   const to = now();
   const from = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  const [student, tutor, decks, rows, cardStates, log, earlier] = await Promise.all([
+  const [student, tutor, decks, rows, cardStates, log, earlier, load] = await Promise.all([
     jobs.getUserBrief(env.DB, job.student_id),
     jobs.getUserBrief(env.DB, job.tutor_id),
     jobs.listStudentDecks(env.DB, job.student_id),
@@ -530,6 +625,7 @@ async function loadBriefing(env: Env, job: TutorNotesJob): Promise<string> {
     iq.fetchCardStatesForRange(env.DB, job.student_id, from, to).catch(() => []),
     iq.listLessonLog(env.DB, job.relationship_id, 5).catch(() => []),
     jobs.listRecentJobSummaries(env.DB, job.relationship_id, job.id),
+    job.review ? studentLoad(env.DB, job.student_id, localDate(new Date())).catch(() => null) : Promise.resolve(null),
   ]);
   const struggling = rankStruggling(rows, 15).map(s => ({
     hanzi: s.note.hanzi,
@@ -549,6 +645,7 @@ async function loadBriefing(env: Env, job: TutorNotesJob): Promise<string> {
     lessonLog: log.filter(e => e.id !== job.lesson_log_id).map(e => ({ lesson_at: e.lesson_at, notes: e.notes })),
     earlierJobs: earlier,
     job,
+    load: load ? `${load.level} — ${load.summary}` : null,
   });
 }
 
@@ -687,6 +784,50 @@ async function executeTool(ctx: RunContext, name: string, input: Record<string, 
         await jobs.patchJob(env.DB, job.id, { result: ctx.result });
         return { reader_id: reader.id, title_english: spec.title_english, page_count: spec.pages.length, warnings };
       }
+      case 'remove_cards': {
+        if (!ctx.result.deck) return { error: 'This job has no deck.' };
+        const wanted = new Set((Array.isArray(input.hanzi) ? input.hanzi : []).filter((h): h is string => typeof h === 'string').map((h) => h.trim()));
+        const notes = await hw.listDeckNotes(env.DB, ctx.result.deck.id);
+        const removed: string[] = [];
+        for (const n of notes) {
+          if (!wanted.has(n.hanzi.trim())) continue;
+          if (await content.deleteNote(env, job.tutor_id, n.id)) removed.push(n.hanzi);
+        }
+        ctx.result.deck.note_count = Math.max(0, ctx.result.deck.note_count - removed.length);
+        await jobs.patchJob(env.DB, job.id, { result: ctx.result });
+        return { removed, not_found: [...wanted].filter((h) => !removed.includes(h)), deck_total: ctx.result.deck.note_count };
+      }
+      case 'update_card': {
+        if (!ctx.result.deck) return { error: 'This job has no deck.' };
+        const hanzi = typeof input.hanzi === 'string' ? input.hanzi.trim() : '';
+        const note = (await hw.listDeckNotes(env.DB, ctx.result.deck.id)).find((n) => n.hanzi.trim() === hanzi);
+        if (!note) return { error: `No card "${hanzi}" in the draft deck.` };
+        const patch: Record<string, string> = {};
+        for (const f of ['pinyin', 'english', 'fun_facts', 'sentence_clue', 'sentence_clue_pinyin', 'sentence_clue_translation'] as const) {
+          if (typeof input[f] === 'string') patch[f] = (input[f] as string).trim();
+        }
+        if (typeof input.new_hanzi === 'string' && input.new_hanzi.trim()) patch.hanzi = input.new_hanzi.trim();
+        const updated = await content.updateNote(env, job.tutor_id, note.id, patch as content.NotePatch);
+        return updated ? { updated: updated.hanzi } : { error: 'Could not update the card.' };
+      }
+      case 'set_plan': {
+        const today = localDate(new Date());
+        const contents = draftContents(ctx.result);
+        const plan = normalizeDraftPlan(ctx.plan, contents, today);
+        if (typeof input.split_days === 'number') plan.split_days = input.split_days;
+        if (input.priority === 'core' || input.priority === 'non_urgent') plan.priority = input.priority;
+        for (const raw of Array.isArray(input.items) ? input.items : []) {
+          const it = (raw ?? {}) as Record<string, unknown>;
+          const item = plan.items.find((p) => p.key === it.key);
+          if (!item) continue;
+          if (typeof it.include === 'boolean') item.include = it.include;
+          if (isHomeworkMode(it.mode)) item.mode = it.mode;
+          if (typeof it.due_in_days === 'number') item.due_date = addDays(today, Math.max(0, Math.round(it.due_in_days)));
+        }
+        ctx.plan = normalizeDraftPlan(plan, contents, today);
+        await jobs.patchJob(env.DB, job.id, { plan: ctx.plan });
+        return { plan: ctx.plan, keys: contents ? plan.items.map((i) => i.key) : [] };
+      }
       default:
         return { error: `Unknown tool ${name}` };
     }
@@ -710,7 +851,7 @@ async function finalize(ctx: RunContext, summary: string, skipped: string[]): Pr
   ctx.result.summary = summary.trim();
   ctx.result.skipped = skipped;
 
-  if (job.auto_share) {
+  if (job.auto_share && !job.review) {
     if (ctx.result.deck && ctx.result.deck.note_count > 0 && !ctx.result.deck.target_deck_id) {
       try {
         const share = await shareDeck(env.DB, job.relationship_id, job.tutor_id, ctx.result.deck.id, job.priority);
@@ -770,13 +911,22 @@ async function finalize(ctx: RunContext, summary: string, skipped: string[]): Pr
     }
   }
 
-  pushLocal(ctx, { at: now(), kind: 'done', text: 'Done' });
+  let draft: { plan: DraftPlan; chat: DraftChatMessage[] } | null = null;
+  if (job.review) {
+    // A draft always leaves with a plan and the assistant's reply in the chat.
+    const fresh = await jobs.getJob(env.DB, job.id);
+    const chat = [...(fresh?.chat ?? job.chat ?? []), { role: 'assistant' as const, text: ctx.result.summary || 'Done.', at: now() }];
+    draft = { plan: normalizeDraftPlan(ctx.plan, draftContents(ctx.result), localDate(new Date())), chat };
+  }
+
+  pushLocal(ctx, { at: now(), kind: 'done', text: job.review ? 'Draft ready for review' : 'Done' });
   await jobs.patchJob(env.DB, job.id, {
     status: 'done',
-    progress: 'Done',
+    progress: job.review ? 'Draft ready' : 'Done',
     finished_at: now(),
     steps: ctx.steps,
     result: ctx.result,
     error: null,
+    ...(draft ? { plan: draft.plan, chat: draft.chat } : {}),
   });
 }

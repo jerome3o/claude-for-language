@@ -37,6 +37,10 @@ export interface SubmitInput {
   autoShare: boolean;
   logLesson: boolean;
   sourceCallId?: string | null;
+  /** A DRAFT the tutor reviews before anything is sent (docs/HOMEWORK.md). */
+  review?: boolean;
+  /** Draft homework from an existing lesson-notes entry (it is not logged again). */
+  lessonLogId?: string | null;
 }
 
 /** Validate, log the lesson when asked, create the row and queue it. */
@@ -52,8 +56,8 @@ export async function submitSessionNotes(env: Env, input: SubmitInput): Promise<
 
   // The notes are a lesson: log it (anchors "since last lesson" in Insights)
   // and hand the text to the student's Lesson Notes like the manual log does.
-  let lessonLogId: string | null = null;
-  if (input.logLesson) {
+  let lessonLogId: string | null = input.lessonLogId ?? null;
+  if (input.logLesson && !lessonLogId) {
     const at = input.lessonAt ?? new Date().toISOString();
     const entry = await iq.createLessonLogEntry(env.DB, {
       relationship_id: input.relationshipId,
@@ -61,6 +65,7 @@ export async function submitSessionNotes(env: Env, input: SubmitInput): Promise<
       student_id: input.studentId,
       lesson_at: at,
       notes: input.title ? `${input.title}\n${notes}` : notes,
+      title: input.title,
     });
     lessonLogId = entry.id;
     const tutorName = input.tutor.name || input.tutor.email || 'your tutor';
@@ -79,6 +84,7 @@ export async function submitSessionNotes(env: Env, input: SubmitInput): Promise<
     auto_share: input.autoShare,
     lesson_log_id: lessonLogId,
     source_call_id: input.sourceCallId ?? null,
+    review: input.review ?? false,
   });
   await env.TUTOR_NOTES_QUEUE.send({ jobId: job.id });
   return job;

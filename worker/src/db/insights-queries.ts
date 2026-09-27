@@ -21,13 +21,15 @@ export interface TutorLessonLogEntry {
   student_id: string;
   lesson_at: string;
   notes: string | null;
+  /** Lesson-notes title (migration 0073); null for older entries. */
+  title?: string | null;
   created_at: string;
 }
 
 export async function listLessonLog(db: D1Database, relationshipId: string, limit = 100): Promise<TutorLessonLogEntry[]> {
   const res = await db
     .prepare(
-      `SELECT id, relationship_id, tutor_id, student_id, lesson_at, notes, created_at
+      `SELECT id, relationship_id, tutor_id, student_id, lesson_at, notes, title, created_at
        FROM tutor_lesson_log WHERE relationship_id = ?
        ORDER BY lesson_at DESC, created_at DESC LIMIT ?`
     )
@@ -45,18 +47,18 @@ export async function getLatestLessonAt(db: D1Database, relationshipId: string):
 
 export async function createLessonLogEntry(
   db: D1Database,
-  entry: { relationship_id: string; tutor_id: string; student_id: string; lesson_at: string; notes: string | null }
+  entry: { relationship_id: string; tutor_id: string; student_id: string; lesson_at: string; notes: string | null; title?: string | null }
 ): Promise<TutorLessonLogEntry> {
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO tutor_lesson_log (id, relationship_id, tutor_id, student_id, lesson_at, notes)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO tutor_lesson_log (id, relationship_id, tutor_id, student_id, lesson_at, notes, title)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(id, entry.relationship_id, entry.tutor_id, entry.student_id, entry.lesson_at, entry.notes)
+    .bind(id, entry.relationship_id, entry.tutor_id, entry.student_id, entry.lesson_at, entry.notes, entry.title ?? null)
     .run();
   const row = await db
-    .prepare(`SELECT id, relationship_id, tutor_id, student_id, lesson_at, notes, created_at FROM tutor_lesson_log WHERE id = ?`)
+    .prepare(`SELECT id, relationship_id, tutor_id, student_id, lesson_at, notes, title, created_at FROM tutor_lesson_log WHERE id = ?`)
     .bind(id)
     .first<TutorLessonLogEntry>();
   return row ?? { id, created_at: new Date().toISOString(), ...entry };

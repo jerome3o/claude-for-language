@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { compactAssignment, compactLoad } from './homework';
-import { computeHomeworkLoad, type HomeworkAssignment } from '../../../shared/homework';
+import { compactAssignment, compactLoad, compactDraft } from './homework';
+import { computeHomeworkLoad, defaultDraftPlan, type HomeworkAssignment } from '../../../shared/homework';
 
 const base: HomeworkAssignment = {
   id: 'a1',
@@ -50,5 +50,32 @@ describe('homework tool shaping', () => {
     expect(c.one_off).toMatchObject({ pending_items: 1, pending_words: 2, overdue_items: 1 });
     expect(c.one_off.next_7_days[0]).toBe('2026-09-27: 0 items, 0 words');
     expect(c.long_term).toEqual({ words_to_go: 9, days_to_go: 3, new_per_day: 3 });
+  });
+});
+
+describe('compactDraft', () => {
+  it('lists kept and skipped words, the plan, both loads and the chat', () => {
+    const load = computeHomeworkLoad({ assignments: [], today: '2026-09-27', fsrsWordsToGo: 0, newPerDay: 3 });
+    const plan = defaultDraftPlan({ deck: { id: 'd', title: 'Restaurant', word_count: 2 }, lessons: [] }, '2026-09-27');
+    const c = compactDraft(
+      {
+        student_name: 'Jerome',
+        job: { id: 'j', status: 'done', progress: 'Draft ready', title: 'Restaurant', assigned_at: null, error: null, result: { summary: 'Two words.' }, chat: [{ role: 'assistant', text: 'Two words.' }] },
+        plan,
+        words: [
+          { hanzi: '菜单', pinyin: 'càidān', english: 'menu', known: null, skipped: false },
+          { hanzi: '服务员', pinyin: 'fúwùyuán', english: 'waiter', known: { deck_name: 'HSK 2', state: 'review' }, skipped: true },
+        ],
+        load,
+        load_after: load,
+        assignments: [],
+      },
+      '2026-09-27'
+    );
+    expect(c.words).toEqual(['菜单 (càidān) menu']);
+    expect(c.skipped_known).toEqual(['服务员 — has it in HSK 2 (review)']);
+    expect(c).not.toHaveProperty('progress');
+    expect(c.load_after).toBeDefined();
+    expect(c.plan.items[0].mode).toBe('both');
   });
 });

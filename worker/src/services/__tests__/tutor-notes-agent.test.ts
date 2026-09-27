@@ -60,7 +60,20 @@ const createDeck = vi.fn(async (_db: unknown, _uid: string, input: { name: strin
   return { id: 'deck-1', name: input.name };
 });
 const deleteDeck = vi.fn(async () => true);
+const deleteNote = vi.fn(async (_env: unknown, _uid: string, id: string) => {
+  for (const set of deckNotes.values()) for (const h of set) if (`note-${h}` === id) set.delete(h);
+  return true;
+});
+const updateNote = vi.fn(async (_env: unknown, _uid: string, _id: string, patch: { hanzi?: string }) => ({ hanzi: patch.hanzi ?? 'x' }));
+vi.mock('../../db/homework-queries', () => ({
+  listDeckNotes: vi.fn(async (_db: unknown, deckId: string) => [...(deckNotes.get(deckId) ?? [])].map((h) => ({ id: `note-${h}`, hanzi: h, pinyin: '', english: '' }))),
+}));
+vi.mock('../homework', () => ({
+  studentLoad: vi.fn(async () => ({ level: 'heavy', summary: '2 one-off items pending (30 words) · 1 overdue' })),
+}));
 vi.mock('../content', () => ({
+  deleteNote: (...a: unknown[]) => deleteNote(...(a as [unknown, string, string])),
+  updateNote: (...a: unknown[]) => updateNote(...(a as [unknown, string, string, { hanzi?: string }])),
   createDeck: (...a: unknown[]) => createDeck(...(a as [unknown, string, { name: string }])),
   deleteDeck: (...a: unknown[]) => deleteDeck(...(a as [])),
   createNotes: vi.fn(async (_env: unknown, _uid: string, deckId: string, inputs: Array<{ hanzi: string }>) => {
@@ -105,7 +118,7 @@ vi.mock('../../db/reader-editor-queries', () => ({
   createReaderFromSpec: vi.fn(async () => ({ reader: { id: 'reader-1' }, imageJobs: [] })),
 }));
 
-const { runTutorNotesJob, buildBriefing, clipNotes, toNoteInput, stepForTool, MAX_NOTES_CHARS } = await import('../tutor-notes-agent');
+const { runTutorNotesJob, buildBriefing, clipNotes, toNoteInput, stepForTool, MAX_NOTES_CHARS, appendTutorRequest } = await import('../tutor-notes-agent');
 
 function textBlock(text: string) {
   return { type: 'text', text };
@@ -412,5 +425,80 @@ describe('pure helpers', () => {
     expect(text).toContain('deck "Week 2 words" (9 cards), lessons: 了');
     expect(text).toContain('bottom of the student\'s study queue');
     expect(text).toContain('Notes here');
+  });
+});
+
+describe('drafts the tutor reviews (docs/HOMEWORK.md)', () => {
+  it('never sends a draft, keeps the plan the model set and puts its summary in the chat', async () => {
+    seedJob({ review: 1, auto_share: 0, plan: null, chat: [] });
+    create
+      .mockResolvedValueOnce(turn([toolUse('t1', 'create_deck', { name: 'Restaurant — 14 Sep' })]))
+      .mockResolvedValueOnce(
+        turn([
+          toolUse('t2', 'add_cards', {
+            deck_id: 'deck-1',
+            cards: [
+              { hanzi: '点菜', pinyin: 'diǎn cài', english: 'to order food', fun_facts: 'x' },
+              { hanzi: '菜单', pinyin: 'càidān', english: 'menu', fun_facts: 'x' },
+              { hanzi: '买单', pinyin: 'mǎidān', english: 'to pay', fun_facts: 'x' },
+            ],
+          }),
+          toolUse('t3', 'set_plan', { split_days: 2, items: [{ key: 'deck', mode: 'one_off', due_in_days: 3 }, { key: 'nope', mode: 'fsrs' }] }),
+        ])
+      )
+      .mockResolvedValueOnce(turn([toolUse('t4', 'finish', { summary: 'Three words over two days — the load is heavy.' })]));
+
+    expect(await runTutorNotesJob(env, 'job-1')).toBe('done');
+    const job = store.get('job-1')!;
+    expect(shareDeck).not.toHaveBeenCalled();
+    expect(job.progress).toBe('Draft ready');
+    expect(job.plan.split_days).toBe(2);
+    expect(job.plan.items).toHaveLength(1);
+    expect(job.plan.items[0]).toMatchObject({ key: 'deck', mode: 'one_off' });
+    expect(job.chat).toEqual([expect.objectContaining({ role: 'assistant', text: 'Three words over two days — the load is heavy.' })]);
+    const briefing = create.mock.calls[0][0].messages[0].content as string;
+    expect(briefing).toContain('this is a DRAFT');
+    expect(briefing).toContain('Current homework load: heavy — 2 one-off items pending (30 words) · 1 overdue');
+  });
+
+  it('a tutor request continues the same job: it removes cards and replies in the chat', async () => {
+    deckNotes.set('deck-1', new Set(['点菜', '菜单', '买单']));
+    const transcript = [
+      { role: 'user', content: 'briefing' },
+      { role: 'assistant', content: [toolUse('t9', 'finish', { summary: 'Draft.' })] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't9', content: 'Finishing.' }] },
+    ];
+    seedJob({
+      review: 1,
+      auto_share: 0,
+      status: 'queued',
+      transcript: appendTutorRequest(transcript, 'drop 菜单 please'),
+      result: { deck: { id: 'deck-1', name: 'Restaurant', note_count: 3 }, summary: 'Draft.' },
+      chat: [{ role: 'assistant', text: 'Draft.', at: 'x' }, { role: 'tutor', text: 'drop 菜单 please', at: 'y' }],
+    });
+    create
+      .mockResolvedValueOnce(turn([toolUse('r1', 'remove_cards', { hanzi: ['菜单', '不在'] })]))
+      .mockResolvedValueOnce(turn([toolUse('r2', 'finish', { summary: 'Dropped 菜单.' })]));
+
+    expect(await runTutorNotesJob(env, 'job-1')).toBe('done');
+    const job = store.get('job-1')!;
+    // The request reached the model after the tool results, in the same user turn
+    const sent = create.mock.calls[0][0].messages;
+    expect(sent[3].role).toBe('assistant');
+    expect(JSON.stringify(sent[2].content)).toContain("Tutor's request: drop 菜单 please");
+    expect(deleteNote).toHaveBeenCalledWith(env, 'tutor', 'note-菜单');
+    expect(job.result.deck.note_count).toBe(2);
+    expect(job.chat.map((m: { role: string; text: string }) => [m.role, m.text])).toEqual([
+      ['assistant', 'Draft.'],
+      ['tutor', 'drop 菜单 please'],
+      ['assistant', 'Dropped 菜单.'],
+    ]);
+  });
+
+  it('appendTutorRequest starts a new user turn after a plain assistant ending', () => {
+    const out = appendTutorRequest([{ role: 'user', content: 'b' }, { role: 'assistant', content: [textBlock('done')] }], 'split into two days') as Array<{ role: string; content: unknown }>;
+    expect(out).toHaveLength(3);
+    expect(out[2]).toMatchObject({ role: 'user' });
+    expect(String(out[2].content)).toContain('split into two days');
   });
 });

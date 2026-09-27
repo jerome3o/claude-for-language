@@ -75,6 +75,7 @@ import type { CallProcessingMessage } from './types';
 import noteSearchRoutes from './routes/note-search';
 import { tutorNotesRoutes } from './routes/tutor-notes';
 import { homeworkRoutes } from './routes/homework';
+import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { unreferencedImageKeys } from './services/shared-readers';
@@ -467,6 +468,8 @@ app.route('/api', tutorNotesRoutes);
 
 // Homework assignments: one-off passes with due dates and / or long-term review (routes/homework.ts, docs/HOMEWORK.md)
 app.route('/api', homeworkRoutes);
+// Lesson notes → homework drafts the tutor reviews with Claude, then assigns (routes/homework-drafts.ts)
+app.route('/api', homeworkDraftRoutes);
 // Admin: inspect an account (decks incl. deleted, shares, sync state), set its role, delete it (routes/admin.ts)
 app.route('/api', adminRoutes);
 

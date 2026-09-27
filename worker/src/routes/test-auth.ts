@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { Env, User } from '../types';
 import { createSession } from '../services/auth';
+import * as tutorJobs from '../db/tutor-notes-queries';
+import * as insightsQ from '../db/insights-queries';
 
 /**
  * Test authentication routes - ONLY enabled when E2E_TEST_MODE=true.
@@ -99,6 +101,40 @@ testAuth.post('/auth', async (c) => {
  * Cleans up test data - removes test users and their associated data.
  * Only removes users with emails ending in @test.e2e or with google_id starting with 'test-'.
  */
+/**
+ * POST /api/test/homework-draft — a FINISHED lesson-notes draft without running
+ * the agent (E2E + screenshots): a lesson-log entry and a review job whose
+ * result points at the tutor's deck (and library lessons) given.
+ * Body: { relationship_id, deck_id, deck_name?, library_items?: [{ id, title, exercise_count? }], title?, notes?, summary?, skipped? }
+ */
+testAuth.post('/homework-draft', async (c) => {
+  const b = await c.req.json<{ relationship_id: string; deck_id?: string; deck_name?: string; library_items?: Array<{ id: string; title: string; exercise_count?: number }>; title?: string; notes?: string; summary?: string; skipped?: string[]; chat?: Array<{ role: 'tutor' | 'assistant'; text: string }> }>();
+  const rel = await c.env.DB.prepare('SELECT * FROM tutor_relationships WHERE id = ?').bind(b.relationship_id).first<{ requester_id: string; recipient_id: string; requester_role: string }>();
+  if (!rel) return c.json({ error: 'relationship not found' }, 404);
+  const tutorId = rel.requester_role === 'tutor' ? rel.requester_id : rel.recipient_id;
+  const studentId = rel.requester_role === 'tutor' ? rel.recipient_id : rel.requester_id;
+  const notes = b.notes ?? 'Restaurant lesson: 菜单, 服务员, 点菜, 买单. 把 sentences: 把菜单给我。';
+  const entry = await insightsQ.createLessonLogEntry(c.env.DB, { relationship_id: b.relationship_id, tutor_id: tutorId, student_id: studentId, lesson_at: new Date().toISOString(), notes: b.title ? `${b.title}\n${notes}` : notes, title: b.title ?? null });
+  const job = await tutorJobs.createJob(c.env.DB, { relationship_id: b.relationship_id, tutor_id: tutorId, student_id: studentId, title: b.title ?? null, notes, lesson_at: entry.lesson_at, priority: 'core', auto_share: false, lesson_log_id: entry.id, review: true });
+  const count = b.deck_id ? ((await c.env.DB.prepare('SELECT COUNT(*) AS n FROM notes WHERE deck_id = ?').bind(b.deck_id).first<{ n: number }>())?.n ?? 0) : 0;
+  const summary = b.summary ?? 'Made a deck of the words from the lesson and a short 把 lesson.';
+  const at = new Date().toISOString();
+  await tutorJobs.patchJob(c.env.DB, job.id, {
+    status: 'done',
+    progress: 'Draft ready',
+    finished_at: at,
+    result: {
+      ...(b.deck_id ? { deck: { id: b.deck_id, name: b.deck_name ?? 'Draft deck', note_count: count } } : {}),
+      lessons: (b.library_items ?? []).map((l) => ({ library_item_id: l.id, title: l.title, exercise_count: l.exercise_count ?? 2 })),
+      summary,
+      skipped: b.skipped ?? [],
+    },
+    chat: b.chat ? b.chat.map((m) => ({ ...m, at })) : [{ role: 'assistant', text: summary, at }],
+    steps: [{ at, kind: 'done', text: 'Draft ready for review' }],
+  });
+  return c.json({ job_id: job.id, lesson_log_id: entry.id });
+});
+
 testAuth.post('/cleanup', async (c) => {
   const db = c.env.DB;
 
