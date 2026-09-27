@@ -115,34 +115,6 @@ data class AttemptDetailDto(
 @Serializable
 data class AttemptDetailEnvelope(val attempt: AttemptDetailDto)
 
-/** Homework rows the lesson / reader rotation needs (docs/HOMEWORK.md). */
-@Serializable
-data class HomeworkAssignmentLite(
-    val id: String,
-    val kind: String = "",
-    @SerialName("target_id") val targetId: String = "",
-    val mode: String = "fsrs",
-    val status: String = "active",
-)
-
-@Serializable
-data class HomeworkEventLite(val id: String, @SerialName("assignment_id") val assignmentId: String, val result: String = "")
-
-@Serializable
-data class HomeworkLiteDto(val assignments: List<HomeworkAssignmentLite> = emptyList(), val events: List<HomeworkEventLite> = emptyList())
-
-@Serializable
-data class HomeworkEventUpload(
-    val id: String,
-    @SerialName("assignment_id") val assignmentId: String,
-    @SerialName("item_id") val itemId: String,
-    val result: String,
-    @SerialName("created_at") val createdAt: String,
-)
-
-@Serializable
-data class HomeworkEventsBody(val events: List<HomeworkEventUpload>)
-
 suspend fun Api.customLessons(): CustomLessonsDto = get("/api/custom-lessons")
 
 suspend fun Api.deleteCustomLesson(id: String): Unit = delete("/api/custom-lessons/${enc(id)}")
@@ -153,12 +125,14 @@ suspend fun Api.sentenceFeedback(words: List<String>, task: String?, sentence: S
 suspend fun Api.practiceTts(text: String, speed: Double?, voiceId: String?): PracticeTtsDto =
     post("/api/practice/tts", PracticeTtsBody(text, speed, voiceId))
 
-suspend fun Api.lessonAttempts(lessonId: String?): List<AttemptSummaryDto> =
-    get<AttemptListDto>("/api/lesson-attempts" + (lessonId?.let { "?lesson_id=${enc(it)}" } ?: "")).attempts
+/** Mine (`/api/lesson-attempts`), or — with [relId] — the student's, for their tutor (`/api/relationships/:relId/lesson-attempts`). */
+private fun attemptsBase(relId: String?) = if (relId != null) "/api/relationships/${enc(relId)}/lesson-attempts" else "/api/lesson-attempts"
 
-suspend fun Api.lessonAttempt(id: String): AttemptDetailDto = get<AttemptDetailEnvelope>("/api/lesson-attempts/${enc(id)}").attempt
+suspend fun Api.lessonAttempts(lessonId: String?, relId: String? = null): List<AttemptSummaryDto> =
+    get<AttemptListDto>(attemptsBase(relId) + (lessonId?.let { "?lesson_id=${enc(it)}" } ?: "")).attempts
 
-suspend fun Api.homeworkLite(): HomeworkLiteDto = get("/api/me/homework")
+suspend fun Api.lessonAttempt(id: String, relId: String? = null): AttemptDetailDto = get<AttemptDetailEnvelope>(attemptsBase(relId) + "/${enc(id)}").attempt
+
 
 /**
  * `PUT /api/lesson-attempts/:id/media/:key` with the recording as the raw body (the web's

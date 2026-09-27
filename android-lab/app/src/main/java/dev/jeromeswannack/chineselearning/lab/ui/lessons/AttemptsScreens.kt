@@ -23,13 +23,21 @@ private val WHEN = DateTimeFormatter.ofPattern("EEE d MMM, HH:mm", Locale.ENGLIS
 fun formatDateTime(iso: String, zone: ZoneId = ZoneId.systemDefault()): String =
     runCatching { WHEN.format(Instant.ofEpochMilli(Js.parseDate(iso)).atZone(zone)) }.getOrDefault(iso)
 
-/** `/lesson-attempts[?lesson=]` — the web's MyLessonAttemptsPage list. */
+/**
+ * `/lesson-attempts[?lesson=]` (the learner's own, the web's MyLessonAttemptsPage) and
+ * `/connections/:relId/lesson-attempts[?lesson=]` (the tutor's view of a student,
+ * StudentLessonAttemptsPage) — the same list; [studentName] set = the tutor's.
+ */
 @Composable
-fun AttemptListScreen(state: Loadable<List<AttemptSummaryDto>>, onBack: () -> Unit, onOpen: (String) -> Unit, onRetry: () -> Unit) {
-    LabScreen("📝 My lesson answers", onBack = onBack) {
+fun AttemptListScreen(state: Loadable<List<AttemptSummaryDto>>, onBack: () -> Unit, onOpen: (String) -> Unit, onRetry: () -> Unit, studentName: String? = null) {
+    LabScreen(if (studentName != null) "📝 Lesson attempts" else "📝 My lesson answers", onBack = onBack, subtitle = studentName) {
         item {
             LoadableContent(state, onRetry, isEmpty = { it.isEmpty() }, empty = {
-                EmptyState("📝", "No answers recorded yet", body = "They appear here after a lesson is finished and the phone has synced.")
+                EmptyState(
+                    "📝", "No answers recorded yet",
+                    body = if (studentName != null) "They appear here after $studentName finishes a lesson and their device has synced."
+                    else "They appear here after a lesson is finished and the phone has synced.",
+                )
             }) { rows ->
                 LabCard {
                     rows.forEachIndexed { i, r ->
@@ -48,13 +56,28 @@ fun AttemptListScreen(state: Loadable<List<AttemptSummaryDto>>, onBack: () -> Un
     }
 }
 
-/** `/lesson-attempts/:id` — one attempt, exercise by exercise. */
+/**
+ * `/lesson-attempts/:id` and `/connections/:relId/lesson-attempts/:id` — one attempt, exercise
+ * by exercise (the ONE [AttemptReview] for learner and tutor); recordings play, handwriting is
+ * re-drawn over the model outline ([strokeLoader]).
+ */
 @Composable
-fun AttemptDetailScreen(state: Loadable<AttemptDetailDto>, onBack: () -> Unit, onRetry: () -> Unit, onPlay: (AttemptMediaDto) -> Unit, playingKey: String?) {
-    val title = state.data?.let { "${it.spec.icon ?: "🎓"} ${it.spec.title}" } ?: "My answers"
-    LabScreen(title, onBack = onBack, subtitle = state.data?.let { formatDateTime(it.completedAt) }) {
+fun AttemptDetailScreen(
+    state: Loadable<AttemptDetailDto>,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+    onPlay: (AttemptMediaDto) -> Unit,
+    playingKey: String?,
+    studentName: String? = null,
+    strokeLoader: (suspend (String) -> dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeLoad)? = null,
+) {
+    val title = state.data?.let { "${it.spec.icon ?: "🎓"} ${it.spec.title}" } ?: if (studentName != null) "Lesson answers" else "My answers"
+    val subtitle = listOfNotNull(studentName, state.data?.let { formatDateTime(it.completedAt) }).joinToString(" · ").ifEmpty { null }
+    LabScreen(title, onBack = onBack, subtitle = subtitle) {
         item {
-            LoadableContent(state, onRetry) { attempt -> AttemptReview(attempt, onPlay, playingKey) }
+            ProvideStrokeLoader(strokeLoader) {
+                LoadableContent(state, onRetry) { attempt -> AttemptReview(attempt, onPlay, playingKey) }
+            }
         }
     }
 }
