@@ -17,13 +17,13 @@ data class CardView(
     val deckName: String?,
     /** The word's clip is on the device (offline, a missing one falls back to the device voice). */
     val audioCached: Boolean = true,
+    /** NEW, and its note already has a reviewed card this session: counts as purple. */
+    val isSecondaryNew: Boolean = false,
 )
 
 data class SessionStats(
     val reviews: Int = 0,
     val correct: Int = 0,
-    val streak: Int = 0,
-    val bestStreak: Int = 0,
     val againCount: Int = 0,
     val againByNote: Map<String, Int> = emptyMap(),
     val leeches: List<String> = emptyList(),
@@ -59,6 +59,9 @@ data class StudyUi(
     /** The one-time "Before your first card" explainer (no review events anywhere yet). */
     val showExplainer: Boolean = false,
 ) {
+    /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
+    val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }
+
     /** `aiAvailable`: online and not forced offline — every AI / network button needs it. */
     val aiAvailable: Boolean get() = online && !forcedOffline
 

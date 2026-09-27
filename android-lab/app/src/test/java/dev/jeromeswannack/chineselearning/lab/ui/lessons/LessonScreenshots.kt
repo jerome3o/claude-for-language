@@ -158,7 +158,7 @@ class LessonScreenshots : LabScreenshotTest() {
     // ---- the player: in the session, finished, dark / unfolded ----
     @Test fun inSession() = shoot("lessons-30-in-session") {
         StudyScreen(
-            StudyUi(phase = StudyPhase.Lesson(SessionLesson(entry(), previews, 1)), counts = Samples.counts, stats = SessionStats(reviews = 8, correct = 7, streak = 4), canUndo = true),
+            StudyUi(phase = StudyPhase.Lesson(SessionLesson(entry(), previews, 1)), counts = Samples.counts, stats = SessionStats(reviews = 8, correct = 7), canUndo = true),
             playingKey = null,
             actions = StudyActions(lessonEnv = env()),
             autoplay = false,

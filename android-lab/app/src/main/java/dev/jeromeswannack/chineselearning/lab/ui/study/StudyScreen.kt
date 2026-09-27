@@ -208,7 +208,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
         AlertDialog(
             onDismissRequest = { confirmExit = false },
             title = { Text("End session?") },
-            text = { Text((if (n == 1) "Your review is saved." else "Your $n reviews are saved.") + " ${ui.stats.accuracy}% right, best streak ${ui.stats.bestStreak}.") },
+            text = { Text((if (n == 1) "Your review is saved." else "Your $n reviews are saved.") + " ${ui.stats.accuracy}% right.") },
             confirmButton = { TextButton(onClick = { confirmExit = false }) { Text("Keep studying") } },
             dismissButton = { TextButton(onClick = { confirmExit = false; onExit() }) { Text("End session") } },
         )
@@ -216,12 +216,14 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
 }
 
 @Composable
-fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState = CardStartState(), autoplay: Boolean = true, pendingReviews: Int = 0) {
-    var milestone by remember { mutableIntStateOf(0) }
-    LaunchedEffect(ui.stats.streak) { if (ui.stats.streak in setOf(5, 10, 20, 30, 50, 75, 100)) milestone++ }
+fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState = CardStartState(), autoplay: Boolean = true, pendingReviews: Int = 0, initialCountsCopy: CountsCopy? = null) {
+    var countsCopy by remember { mutableStateOf(initialCountsCopy) }
+    var copyTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(copyTick) { if (copyTick > 0) { kotlinx.coroutines.delay(2500); countsCopy = null } }
+    val context = androidx.compose.ui.platform.LocalContext.current
     Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
-            StudyTopBar(ui, actions, pendingReviews)
+            StudyTopBar(ui, actions, pendingReviews, onCountsCopied = { countsCopy = it; copyTick++ })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
                     targetState = ui.phase,
@@ -237,8 +239,10 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                         StudyPhase.Done -> DoneView(ui, actions)
                     }
                 }
-                SparkBurst(milestone, Palette.Confetti, origin = Offset(0.5f, 0.1f), sparks = 40)
             }
+        }
+        AnimatedVisibility(countsCopy != null, Modifier.align(Alignment.TopCenter).padding(top = 58.dp), enter = fadeIn() + scaleIn(initialScale = 0.9f), exit = fadeOut()) {
+            countsCopy?.let { CountsCopiedChip(it, onShare = { QueueCountsShare.share(context, ui.counts); countsCopy = null }) }
         }
         AnimatedVisibility(ui.showExplainer && ui.phase is StudyPhase.Showing, enter = fadeIn(), exit = fadeOut()) {
             FirstCardExplainer(actions.onDismissExplainer)
@@ -260,13 +264,11 @@ private fun cardTransition(lastRating: Int?): ContentTransform {
 }
 
 @Composable
-private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int) {
+private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int, onCountsCopied: (CountsCopy) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "End session", tint = Lab.colors.muted) }
-            Counts(ui.counts, Modifier.weight(1f))
-            StreakChip(ui.stats.streak)
-            Spacer(Modifier.width(6.dp))
+            QueueCountsBar(ui.counts, ui.activeBucket, Modifier.weight(1f), onCountsCopied)
             OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
             IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
                 Icon(Icons.AutoMirrored.Filled.Undo, "Undo last review", tint = if (ui.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
@@ -279,44 +281,6 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int)
                     .background(Brush.horizontalGradient(listOf(Lab.colors.accent, Palette.Gold))),
             )
         }
-    }
-}
-
-@Composable
-private fun Counts(counts: QueueCounts, modifier: Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        CountNumber(counts.new, Palette.New)
-        CountNumber(counts.secondaryNew, Palette.Secondary)
-        CountNumber(counts.learning, Palette.Learning)
-        CountNumber(counts.review, Palette.Review)
-    }
-}
-
-@Composable
-private fun CountNumber(value: Int, color: Color) {
-    val shown by animateIntAsState(value, tween(300), label = "count")
-    Text(
-        "$shown",
-        color = if (value == 0) color.copy(alpha = 0.35f) else color,
-        fontWeight = FontWeight.Bold,
-        fontSize = 17.sp,
-        modifier = Modifier.padding(horizontal = 9.dp),
-    )
-}
-
-@Composable
-private fun StreakChip(streak: Int) {
-    AnimatedVisibility(streak >= 2, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
-        var pop by remember { mutableStateOf(false) }
-        LaunchedEffect(streak) { pop = true; kotlinx.coroutines.delay(140); pop = false }
-        val scale by animateFloatAsState(if (pop) 1.3f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "streak")
-        Text(
-            "🔥 $streak",
-            modifier = Modifier.scale(scale).clip(CircleShape).background(Palette.Hard.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
-            color = Palette.Hard,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-        )
     }
 }
 
@@ -349,7 +313,6 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StatTile("Reviews", stats.reviews, "", Modifier.weight(1f))
                     StatTile("Right", stats.accuracy, "%", Modifier.weight(1f))
-                    StatTile("Best streak", stats.bestStreak, "", Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(10.dp))
                 val minutes = ((System.currentTimeMillis() - stats.startedAt) / 60000).toInt()

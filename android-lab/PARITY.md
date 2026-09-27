@@ -71,7 +71,8 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | "Use in sentence" hint on the front | ✅ stored clue shown / played; generated when the note has none, ↻ regenerates (online) | `StudyPage.tsx` | `CardStage.kt` |
 | Undo last review (incl. server DELETE) | ✅ | `useStudySession.ts` undo | `StudyViewModel.undoLast` |
 | Study 10 more | ✅ | `utils/bonusNewCards.ts` | `Prefs.bonus` |
-| Exit confirm with recap, All Done + confetti | ✅ (+ sound, haptics) | `ExitSessionModal`, `SessionRecap`, `Confetti` | `StudyScreen.kt` |
+| Exit confirm with recap, All Done + confetti | ✅ (+ sound, haptics). No in-session streak anywhere (web or Lab): rating feedback is the same tap + pop for every rating, so an honest Again costs nothing | `ExitSessionModal`, `SessionRecap`, `Confetti` | `StudyScreen.kt` |
+| Top-bar counts: active bucket highlighted (purple = NEW card whose note was reviewed this session), tap → image of the counts on the clipboard | ✅ pill + underline on the active count, the rest dimmed; PNG like `copyQueueCountsImage` via FileProvider + text, Share for apps that don't paste images | `QueueCountsHeader.tsx`, `utils/queue-counts-image.ts` | `ui/study/QueueCountsBar.kt`, `QueueCountsShare.kt` |
 | Audio: cached clip → stream → device voice | ✅ | `useAudio.ts`, `audioPlayback.ts` | `fx/WordAudio.kt` |
 | Offline study + background upload | ✅ | `services/sync.ts` | `data/Repository.kt`, `SyncWorker.kt` |
 | Card footer: **Ask Claude · Edit card · ⋯** action row | ✅ | `components/study/StudyActionRow.tsx` | `ui/study/CardExtrasUi.kt` `StudyActionRow` |

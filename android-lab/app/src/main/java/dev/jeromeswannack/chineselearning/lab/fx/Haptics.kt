@@ -48,17 +48,9 @@ class Haptics(context: Context, private val enabled: () -> Boolean) {
 
     fun wrong() = compose(Triple(VibrationEffect.Composition.PRIMITIVE_THUD, 0.8f, 0), fallback = VibrationEffect.EFFECT_HEAVY_CLICK)
 
-    fun rated(rating: Int) = when (rating) {
-        0 -> compose(Triple(VibrationEffect.Composition.PRIMITIVE_QUICK_FALL, 0.7f, 0), fallback = VibrationEffect.EFFECT_HEAVY_CLICK)
-        1 -> compose(Triple(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.5f, 0), fallback = VibrationEffect.EFFECT_CLICK)
-        else -> compose(Triple(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.9f, 0), fallback = VibrationEffect.EFFECT_CLICK)
-    }
-
-    fun milestone() = compose(
-        Triple(VibrationEffect.Composition.PRIMITIVE_SPIN, 0.8f, 0),
-        Triple(VibrationEffect.Composition.PRIMITIVE_CLICK, 1f, 80),
-        fallback = VibrationEffect.EFFECT_HEAVY_CLICK,
-    )
+    /** The same firm tap for every rating: an honest Again feels no worse than an Easy. */
+    @Suppress("UNUSED_PARAMETER")
+    fun rated(rating: Int) = compose(Triple(VibrationEffect.Composition.PRIMITIVE_CLICK, 0.7f, 0), fallback = VibrationEffect.EFFECT_CLICK)
 
     fun celebrate() = compose(
         Triple(VibrationEffect.Composition.PRIMITIVE_SLOW_RISE, 0.7f, 0),

@@ -293,8 +293,6 @@ export interface SessionStats {
   totalReviews: number;
   correctCount: number;
   againCount: number;
-  bestStreak: number;
-  currentStreak: number;
   cardsRatedAgainMultiple: Set<string>;
   timeStarted: number;
 }
@@ -367,8 +365,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     totalReviews: 0,
     correctCount: 0,
     againCount: 0,
-    bestStreak: 0,
-    currentStreak: 0,
     cardsRatedAgainMultiple: new Set(),
     timeStarted: Date.now(),
   });
@@ -821,8 +817,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setSessionStats(prev => {
       const isCorrect = rating === 2 || rating === 3; // Good or Easy
       const isAgain = rating === 0;
-      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
-      const newBestStreak = Math.max(prev.bestStreak, newCurrentStreak);
 
       // Track again counts per note for leech detection
       const newAgainMultiple = new Set(prev.cardsRatedAgainMultiple);
@@ -839,8 +833,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         totalReviews: prev.totalReviews + 1,
         correctCount: prev.correctCount + (isCorrect ? 1 : 0),
         againCount: prev.againCount + (isAgain ? 1 : 0),
-        currentStreak: newCurrentStreak,
-        bestStreak: newBestStreak,
         cardsRatedAgainMultiple: newAgainMultiple,
       };
     });
@@ -977,14 +969,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     setSessionStats(prev => {
       const isCorrect = rating === 2 || rating === 3; // Good or Easy
-      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
       return {
         ...prev,
         totalReviews: prev.totalReviews + 1,
         correctCount: prev.correctCount + (isCorrect ? 1 : 0),
         againCount: prev.againCount + (rating === 0 ? 1 : 0),
-        currentStreak: newCurrentStreak,
-        bestStreak: Math.max(prev.bestStreak, newCurrentStreak),
       };
     });
 
@@ -1064,14 +1053,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     setSessionStats(prev => {
       const isCorrect = rating === 2 || rating === 3; // Good or Easy
-      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
       return {
         ...prev,
         totalReviews: prev.totalReviews + 1,
         correctCount: prev.correctCount + (isCorrect ? 1 : 0),
         againCount: prev.againCount + (rating === 0 ? 1 : 0),
-        currentStreak: newCurrentStreak,
-        bestStreak: Math.max(prev.bestStreak, newCurrentStreak),
       };
     });
 
