@@ -90,6 +90,32 @@ class DecksScreenshots : LabScreenshotTest() {
         Sheet { DeckSettingsForm(DecksSamples.deck.copy(settingsError = "new_cards_per_day must be a number between 0 and 1000"), { _, _, _, _ -> }, {}) }
     }
 
+    // Package K: one-off homework banner, tutor shares, share sheet, Try it.
+    @Test fun oneOffBanner() = shoot("decks-30-one-off-homework-banner") {
+        DeckScreen(DecksSamples.deck.copy(deck = DecksSamples.deck.deck!!.copy(newPerDay = 0, secondaryPerDay = 0), oneOffAssignmentId = "a1"), DeckActions())
+    }
+
+    @Test fun tutorShares() = shoot("decks-31-shared-with-tutors") {
+        DeckScreen(DecksSamples.deck.copy(tutorShares = DecksSamples.tutorShares, tutors = DecksSamples.tutors), DeckActions())
+    }
+
+    @Test fun shareSheet() = shoot("decks-32-share-with-tutor-sheet") {
+        Sheet { ShareWithTutorForm(DecksSamples.deck.copy(tutorShares = DecksSamples.tutorShares.take(1), tutors = DecksSamples.tutors), {}, {}) }
+    }
+
+    @Test fun shareSheetNoTutor() = shoot("decks-33-share-with-tutor-none") { Sheet { ShareWithTutorForm(DecksSamples.deck, {}, {}) } }
+
+    @Test fun tryFront() = shoot("decks-34-try-it-front") { DeckTryScreen(DecksSamples.tryUi, DeckTryActions()) }
+
+    @Test fun tryBack() = shoot("decks-35-try-it-back") { DeckTryScreen(DecksSamples.tryUi, DeckTryActions(), initialIndex = 1, initialRevealed = true) }
+
+    @Test fun tryAudio() = shoot("decks-36-try-it-audio") { DeckTryScreen(DecksSamples.tryUi, DeckTryActions(), initialMode = TryMode.AUDIO_TO_HANZI) }
+
+    @Test fun tryEmpty() = shoot("decks-37-try-it-empty") { DeckTryScreen(DeckTryUi(true, "新的一课"), DeckTryActions()) }
+
+    @Config(qualifiers = LabScreenshotTest.UNFOLDED)
+    @Test fun tryUnfolded() = shoot("decks-38-try-it-unfolded") { DeckTryScreen(DecksSamples.tryUi, DeckTryActions(), initialMode = TryMode.MEANING_TO_HANZI) }
+
     @Test fun hub() = shoot("cards-01-hub") { CardHubScreen(DecksSamples.hub, CardHubActions(), nowMs = now) }
 
     @Test fun hubOffline() = shoot("cards-02-hub-offline-from-phone") {

@@ -1,5 +1,11 @@
 package dev.jeromeswannack.chineselearning.lab.ui.decks
 
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
+import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
+import dev.jeromeswannack.chineselearning.lab.data.api.UserSummaryDto
+import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
+import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import android.os.Looper
 import dev.jeromeswannack.chineselearning.lab.core.DeckQueue
 import dev.jeromeswannack.chineselearning.lab.ui.cards.CardHubViewModel
@@ -135,6 +141,58 @@ class DecksViewModelTest {
         await("row updated") { vm.ui.value.notes.firstOrNull { it.id == "n2" }?.english == "bank; the bank" }
         assertTrue(vm.ui.value.notice!!.contains("back online"))
         assertEquals(1, runBlocking { f.outbox.pendingCount() })
+    }
+
+    @Test fun oneOffHomeworkDeckShowsTheBannerUntilAddedToDailyReview() {
+        runBlocking {
+            f.db.dao().upsertDecks(listOf(f.db.dao().decks().first { it.id == "d1" }.copy(newCardsPerDay = 0, secondaryCardsPerDay = 0)))
+            f.cache.put(
+                HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND,
+                listOf(
+                    HomeworkAssignment(id = "cancelled", kind = "deck", target_id = "d1", mode = "one_off", status = "cancelled"),
+                    HomeworkAssignment(id = "a1", kind = "deck", target_id = "d1", mode = "one_off", status = "active"),
+                ),
+            )
+        }
+        val vm = DeckViewModel(f.env, "d1")
+        await("banner") { vm.ui.value.oneOffBanner == "a1" }
+        f.server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        vm.addToDailyReview()
+        await("caps back to the defaults") { vm.ui.value.deck?.newPerDay == 3 && vm.ui.value.deck?.secondaryPerDay == 6 }
+        assertEquals(null, vm.ui.value.oneOffBanner)
+        val req = f.server.takeRequest()
+        assertEquals("PUT", req.method)
+        assertEquals("/api/decks/d1/settings", req.path)
+    }
+
+    @Test fun aStudentWithATutorSharesTheDeckAndStops() {
+        runBlocking {
+            f.cache.put(
+                NavKeys.RELATIONSHIPS, NavKeys.KIND,
+                MyRelationshipsDto(tutors = listOf(RelationshipDto("rel-1", requester_role = "tutor", status = "active", requester = UserSummaryDto("t1", "wang@example.com", "王老师")))),
+            )
+        }
+        f.server.enqueue(MockResponse().setResponseCode(200).setBody("[]"))
+        val vm = DeckViewModel(f.env, "d1")
+        await("tutors") { vm.ui.value.tutors.map { it.name } == listOf("王老师") }
+        assertEquals("/api/decks/d1/tutor-shares", f.server.takeRequest().path)
+
+        f.server.enqueue(MockResponse().setResponseCode(201).setBody("""{"id":"s1"}"""))
+        f.server.enqueue(MockResponse().setResponseCode(200).setBody("""[{"relationship_id":"rel-1","shared_deck_id":"s1","shared_at":"2026-09-27 10:00:00","tutor":{"id":"t1","name":"王老师"}}]"""))
+        var done = false
+        vm.shareWithTutor("rel-1") { done = true }
+        await("shared") { done && vm.ui.value.tutorShares.size == 1 }
+        val share = f.server.takeRequest()
+        assertEquals("/api/relationships/rel-1/student-share-deck", share.path)
+        assertEquals("""{"deck_id":"d1"}""", share.body.readUtf8())
+
+        f.server.takeRequest() // the refreshed list
+        f.server.enqueue(MockResponse().setResponseCode(200).setBody("""{"success":true}"""))
+        vm.unshareTutor("rel-1")
+        await("unshared") { vm.ui.value.tutorShares.isEmpty() }
+        val del = f.server.takeRequest()
+        assertEquals("DELETE", del.method)
+        assertEquals("/api/relationships/rel-1/student-shared-decks/d1", del.path)
     }
 
     @Test fun cardHubFallsBackToThePhoneOffline() {
