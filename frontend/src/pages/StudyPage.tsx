@@ -73,7 +73,11 @@ import {
   initialMcSelections,
   isEnglishEntry,
   parseMcOptions,
+  mcSubmitLabel,
+  mcSubmittedAnswer,
+  mcAnswerSlots,
   McOptionRow,
+  McAnswerSlot,
 } from '../services/multipleChoice';
 import CardEditModal from '../components/CardEditModal';
 import { QueueCountsHeader } from '../components/QueueCountsHeader';
@@ -265,6 +269,53 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
   );
 }
 
+/**
+ * A multiple-choice answer, row by row. Partial answers are allowed, so a
+ * position-by-position diff would shift after a skipped row: instead each
+ * row's pick is green / red, a skipped row is a dashed "?", and the answer
+ * below marks the rows that were missed.
+ */
+function McAnswerDiff({ slots, onCharacterClick }: { slots: McAnswerSlot[]; onCharacterClick?: (char: string) => void }) {
+  const clickable = onCharacterClick ? ' diff-char-clickable' : '';
+  const picked = slots.map(s => s.chosen ?? '').join('');
+  const choiceRows = slots.filter(s => s.status !== 'given').length;
+  const skipped = slots.filter(s => s.status === 'skipped').length;
+  return (
+    <div className="answer-diff" data-testid="mc-answer-diff">
+      <div className="answer-diff-row">
+        {slots.map((s, i) => s.chosen == null ? (
+          <span key={i} className="diff-char diff-skipped" data-status="skipped" aria-label="left blank">?</span>
+        ) : (
+          <span
+            key={i}
+            className={`diff-char ${s.status === 'wrong' ? 'diff-wrong' : 'diff-correct'}${clickable}`}
+            data-status={s.status}
+            onClick={() => onCharacterClick?.(s.chosen as string)}
+          >
+            {s.chosen}
+          </span>
+        ))}
+      </div>
+      {picked && <div className="answer-diff-pinyin">{pinyin(picked, { toneType: 'symbol', type: 'string' })}</div>}
+      {skipped > 0 && (
+        <div className="answer-diff-alternative-label">{skipped} of {choiceRows} left blank</div>
+      )}
+      <div className="answer-diff-arrow">↓</div>
+      <div className="answer-diff-row">
+        {slots.map((s, i) => (
+          <span
+            key={i}
+            className={`diff-char ${s.status === 'right' || s.status === 'given' ? 'diff-correct' : 'diff-expected'}${clickable}`}
+            onClick={() => onCharacterClick?.(s.correct)}
+          >
+            {s.correct}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StudyCard({
   card,
   cardIsSecondaryNew,
@@ -404,7 +455,8 @@ function StudyCard({
   const [skipMcForCard, setSkipMcForCard] = useState(false);
   const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
   const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
-  const [mcSubmitted, setMcSubmitted] = useState(false);
+  // The answer on the back came from the grid (render it row by row).
+  const [mcAnswered, setMcAnswered] = useState(false);
   const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(null);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   // Ask Claude: inline error (never alert())
@@ -726,7 +778,7 @@ function StudyCard({
     const shuffled = shuffleMcOptions(rows);
     setShuffledMcOptions(shuffled);
     setMcSelections(initialMcSelections(shuffled));
-    setMcSubmitted(false);
+    setMcAnswered(false);
     if (hideInitially) {
       setMcReady(true);
     } else {
@@ -1095,10 +1147,23 @@ function StudyCard({
     }
   };
 
+  // A multiple-choice answer that isn't fully right is shown row by row; a
+  // fully right one goes through AnswerDiff like a typed answer (one green row).
+  const mcBackSlots = (() => {
+    if (!mcAnswered || !shuffledMcOptions) return null;
+    const slots = mcAnswerSlots(shuffledMcOptions, mcSelections);
+    return slots.every(s => s.status === 'right' || s.status === 'given') ? null : slots;
+  })();
+
   const renderBackMain = () => {
     return (
       <div className="text-center">
-        {isTypingCard && userAnswer ? (
+        {isTypingCard && userAnswer && mcBackSlots ? (
+          // Multiple-choice answer (possibly partial): row by row
+          <div className="mb-3">
+            <McAnswerDiff slots={mcBackSlots} onCharacterClick={handleCharacterClick} />
+          </div>
+        ) : isTypingCard && userAnswer ? (
           // Show character-by-character diff for typed answers
           <div className="mb-3">
             <AnswerDiff
@@ -1975,21 +2040,22 @@ function StudyCard({
     );
   };
 
-  // Render the multiple choice grid
+  // Render the multiple choice grid. One tap: the button flips the card at
+  // once, with whatever has been picked so far (nothing picked = show answer).
   const renderMultipleChoiceGrid = () => {
     if (!shuffledMcOptions) return null;
     const options = shuffledMcOptions;
 
-    const allSelected = mcSelections.every(s => s !== null);
-
     const handleMcSubmit = () => {
-      setMcSubmitted(true);
-      // Set userAnswer to the selected characters for the answer diff
-      setUserAnswer(mcSelections.join(''));
+      // The review's user_answer: the picks in row order, skipped rows left out
+      // ('' when nothing was picked — same as an empty typed answer).
+      setUserAnswer(mcSubmittedAnswer(options, mcSelections));
+      setMcAnswered(true);
+      handleFlip();
     };
 
     return (
-      <div style={{ width: '100%' }}>
+      <div style={{ width: '100%' }} data-testid="mc-grid">
         {options.map((charData, rowIdx) => (
           charData.options.length === 1 || isEnglishEntry(charData.correct) ? (
             // Punctuation or English text: render as plain text, no interactive button
@@ -2011,7 +2077,6 @@ function StudyCard({
           }}>
             {charData.options.map((opt, colIdx) => {
               const isSelected = mcSelections[rowIdx] === opt;
-              const isCorrect = opt === charData.correct;
               let btnStyle: React.CSSProperties = {
                 minWidth: '3rem',
                 fontSize: '1.5rem',
@@ -2020,30 +2085,23 @@ function StudyCard({
                 borderRadius: '8px',
                 background: 'transparent',
                 color: 'inherit',
-                cursor: mcSubmitted ? 'default' : 'pointer',
+                cursor: 'pointer',
               };
-              if (mcSubmitted) {
-                if (isCorrect) {
-                  btnStyle = { ...btnStyle, borderColor: '#4caf50', background: 'rgba(76, 175, 80, 0.2)' };
-                } else if (isSelected && !isCorrect) {
-                  btnStyle = { ...btnStyle, borderColor: '#f44336', background: 'rgba(244, 67, 54, 0.2)' };
-                }
-              } else if (isSelected) {
+              if (isSelected) {
                 btnStyle = { ...btnStyle, borderColor: 'var(--primary-color, #4a9eff)', background: 'rgba(74, 158, 255, 0.15)' };
               }
               return (
                 <button
                   key={colIdx}
                   style={btnStyle}
+                  aria-pressed={isSelected}
                   onClick={() => {
-                    if (mcSubmitted) return;
                     setMcSelections(prev => {
                       const next = [...prev];
                       next[rowIdx] = opt;
                       return next;
                     });
                   }}
-                  disabled={mcSubmitted}
                 >
                   {opt}
                 </button>
@@ -2053,26 +2111,20 @@ function StudyCard({
           )
         ))}
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.75rem' }}>
-          {!mcSubmitted ? (
-            <button
-              className="btn btn-primary btn-block"
-              onClick={handleMcSubmit}
-              disabled={!allSelected}
-            >
-              Check Answer
-            </button>
-          ) : (
-            <button className="btn btn-primary btn-block" onClick={handleFlip}>
-              Continue
-            </button>
-          )}
+          <button
+            className="btn btn-primary btn-block"
+            onClick={handleMcSubmit}
+            data-testid="mc-submit"
+          >
+            {mcSubmitLabel(options, mcSelections)}
+          </button>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.5rem' }}>
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => {
               setShowMultipleChoice(false);
-              setMcSubmitted(false);
+              setMcAnswered(false);
               setUserAnswer('');
             }}
           >

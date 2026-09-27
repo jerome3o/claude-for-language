@@ -5,6 +5,10 @@ import {
   shuffleMcOptions,
   initialMcSelections,
   isEnglishEntry,
+  hasMcPick,
+  mcSubmitLabel,
+  mcSubmittedAnswer,
+  mcAnswerSlots,
   withTimeout,
   MC_TIMEOUT_MS,
   MC_FALLBACK_MESSAGES,
@@ -55,6 +59,50 @@ describe('shuffleMcOptions / initialMcSelections', () => {
     expect(initialMcSelections(rows)).toEqual([null, '。', 'hello']);
     expect(isEnglishEntry('hello')).toBe(true);
     expect(isEnglishEntry('点')).toBe(false);
+  });
+});
+
+describe('one-tap submit with partial answers', () => {
+  // 图书馆。 — three rows to pick in, then a pre-selected full stop
+  const rows = [
+    { correct: '图', options: ['团', '图', '国'] },
+    { correct: '书', options: ['韦', '书', '节'] },
+    { correct: '馆', options: ['官', '馆', '管'] },
+    { correct: '。', options: ['。'] },
+  ];
+
+  it('nothing picked: "Show answer" and an empty answer (pre-selected rows are not an answer)', () => {
+    const sel = initialMcSelections(rows);
+    expect(hasMcPick(rows, sel)).toBe(false);
+    expect(mcSubmitLabel(rows, sel)).toBe('Show answer');
+    expect(mcSubmittedAnswer(rows, sel)).toBe('');
+  });
+
+  it('partial: "Submit", the picks in row order with unselected rows skipped', () => {
+    const sel = ['图', null, '管', '。'];
+    expect(mcSubmitLabel(rows, sel)).toBe('Submit');
+    expect(mcSubmittedAnswer(rows, sel)).toBe('图管。');
+  });
+
+  it('every row picked: the whole answer, as before', () => {
+    expect(mcSubmittedAnswer(rows, ['图', '书', '馆', '。'])).toBe('图书馆。');
+  });
+
+  it('English rows are pre-selected text, not a pick', () => {
+    const withEnglish = [{ correct: 'T', options: ['T', 'X'] }, { correct: '恤', options: ['恤', '血'] }];
+    const sel = initialMcSelections(withEnglish);
+    expect(sel).toEqual(['T', null]);
+    expect(mcSubmitLabel(withEnglish, sel)).toBe('Show answer');
+    expect(mcSubmittedAnswer(withEnglish, ['T', '血'])).toBe('T血');
+  });
+
+  it('slots: right / wrong / skipped / given per row for the answer side', () => {
+    expect(mcAnswerSlots(rows, ['图', '节', null, '。'])).toEqual([
+      { correct: '图', chosen: '图', status: 'right' },
+      { correct: '书', chosen: '节', status: 'wrong' },
+      { correct: '馆', chosen: null, status: 'skipped' },
+      { correct: '。', chosen: '。', status: 'given' },
+    ]);
   });
 });
 

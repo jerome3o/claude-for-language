@@ -211,14 +211,21 @@ class StudyCardScreenshots : LabScreenshotTest() {
         study(ui(view(CardTypes.AUDIO_TO_HANZI), CardExtras(mc = McUi(rows = mcRows, showing = true, cached = true, auto = true))))
     }
 
-    @Test fun mcChecked() = shoot("study-b02-mc-checked") {
+    /** One pick made: the button reads "Submit" (with nothing picked it reads "Show answer"). */
+    @Test fun mcPartial() = shoot("study-b02-mc-partial") {
         val v = view(CardTypes.MEANING_TO_HANZI)
         Box(Modifier.fillMaxSize()) {
             study(ui(v, CardExtras(mc = McUi(rows = mcRows, showing = true))))
             Box(Modifier.align(Alignment.BottomCenter).background(Lab.colors.background).padding(16.dp)) {
-                McGrid(mcRows, aiAvailable = true, regenerating = false, onContinue = {}, onTypeInstead = {}, onRegenerate = {}, startSelections = listOf("打", "蒜"), startSubmitted = true)
+                McGrid(mcRows, aiAvailable = true, regenerating = false, onSubmit = { _, _ -> }, onTypeInstead = {}, onRegenerate = {}, startSelections = listOf("找", null))
             }
         }
+    }
+
+    /** One tap later: the back, row by row — the wrong pick in red, the blank row dashed. */
+    @Test fun mcBackPartial() = shoot("study-b06-mc-back-partial") {
+        val slots = MultipleChoice.answerSlots(mcRows, listOf("找", null))
+        study(ui(view(CardTypes.MEANING_TO_HANZI)), CardStartState(flipped = true, answer = MultipleChoice.submittedAnswer(mcRows, listOf("找", null)), mcSlots = slots))
     }
 
     @Test fun mcShowOptions() = shoot("study-b03-listen-show-options") {

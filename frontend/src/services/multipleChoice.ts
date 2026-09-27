@@ -69,6 +69,59 @@ export function initialMcSelections(rows: McOptionRow[]): (string | null)[] {
   return rows.map(row => (row.options.length === 1 || isEnglishEntry(row.correct) ? row.correct : null));
 }
 
+/** A row the learner picks in (not punctuation, not an English text row). */
+export function isChoiceRow(row: McOptionRow): boolean {
+  return row.options.length > 1 && !isEnglishEntry(row.correct);
+}
+
+/** Has the learner picked anything yet? (Pre-selected rows don't count.) */
+export function hasMcPick(rows: McOptionRow[], selections: (string | null)[]): boolean {
+  return rows.some((row, i) => isChoiceRow(row) && selections[i] != null);
+}
+
+/**
+ * One submit, any time (Jerome, 2026-09): the grid never waits for every row.
+ * With nothing picked the button just shows the answer ("give up and move on");
+ * once something is picked it submits what there is.
+ */
+export function mcSubmitLabel(rows: McOptionRow[], selections: (string | null)[]): 'Show answer' | 'Submit' {
+  return hasMcPick(rows, selections) ? 'Submit' : 'Show answer';
+}
+
+/**
+ * The answer a submit records (the review event's user_answer): the selections
+ * in row order, unselected rows skipped. Nothing picked → '' — exactly like
+ * revealing a typed card with the box left empty (pre-selected punctuation /
+ * English rows alone are not an answer).
+ */
+export function mcSubmittedAnswer(rows: McOptionRow[], selections: (string | null)[]): string {
+  if (!hasMcPick(rows, selections)) return '';
+  return selections.filter((s): s is string => s != null).join('');
+}
+
+export type McSlotStatus = 'right' | 'wrong' | 'skipped' | 'given';
+
+export interface McAnswerSlot {
+  correct: string;
+  chosen: string | null;
+  status: McSlotStatus;
+}
+
+/**
+ * Row-by-row result for the answer side. A partial answer can't be diffed
+ * position by position (a skipped row shifts everything after it), so the
+ * back shows each row's pick against that row's answer: right, wrong,
+ * skipped, or given (punctuation / English rows the learner never chose).
+ */
+export function mcAnswerSlots(rows: McOptionRow[], selections: (string | null)[]): McAnswerSlot[] {
+  return rows.map((row, i) => {
+    const chosen = selections[i] ?? null;
+    if (!isChoiceRow(row)) return { correct: row.correct, chosen: row.correct, status: 'given' as const };
+    if (chosen == null) return { correct: row.correct, chosen: null, status: 'skipped' as const };
+    return { correct: row.correct, chosen, status: chosen === row.correct ? ('right' as const) : ('wrong' as const) };
+  });
+}
+
 /** Reject after `ms` — the pending promise itself is left to settle on its own. */
 export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
