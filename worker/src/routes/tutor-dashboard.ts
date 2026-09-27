@@ -29,6 +29,7 @@ import { buildStudentOverview, parseTzOffset, type StudentOverview } from '../se
 import { moveDeckInQueue } from '../services/content';
 import { isQueueMove } from '@shared/decks';
 import { countOpenCardFlags } from '../services/card-flags';
+import { hasStudentProfile } from '../db/student-profile-queries';
 
 const tutorDashboard = new Hono<{ Bindings: Env }>();
 
@@ -73,7 +74,7 @@ async function loadOverview(
   const from7 = new Date(now.getTime() - 7 * DAY_MS).toISOString();
   const nowIso = now.toISOString();
 
-  const [student, activityRows, weekRows, weekMarks, unheard, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue, openFlags] =
+  const [student, activityRows, weekRows, weekMarks, unheard, totals, decks, lessons, audioTotal, invite, lastConversationId, deckQueue, openFlags, hasProfile] =
     await Promise.all([
       q.fetchStudentUserRow(db, studentId),
       q.fetchActivityRows(db, studentId, from30),
@@ -88,6 +89,7 @@ async function loadOverview(
       q.fetchLastConversationId(db, rel.id),
       q.fetchStudentDeckQueue(db, studentId),
       countOpenCardFlags(db, rel.id),
+      hasStudentProfile(db, rel.id, tutorId).catch(() => false),
     ]);
   if (!student) return null;
 
@@ -108,6 +110,7 @@ async function loadOverview(
     audio_total: audioTotal,
     invite,
     last_conversation_id: lastConversationId,
+    has_profile: hasProfile,
     tz_offset_minutes: tzOffset,
     now,
   });

@@ -74,7 +74,7 @@ class EditorScreenshots : LabScreenshotTest() {
     }
 
     @Test fun trial() = shoot("editor-11-catalogue-trial") {
-        LessonTrialScreen("Checking in at a hotel", EditorSamples.conversation, null, {}, {}, {})
+        LessonTrialScreen("Checking in at a hotel", EditorSamples.conversation, null, dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(random = kotlin.random.Random(7)), {}, {})
     }
 
     @Test fun loadError() = shoot("editor-12-load-error") {

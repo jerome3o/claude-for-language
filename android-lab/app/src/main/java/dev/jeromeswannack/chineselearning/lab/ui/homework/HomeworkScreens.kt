@@ -42,7 +42,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
 import dev.jeromeswannack.chineselearning.lab.core.DueLabel
+import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonPlayer
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.PlayerContext
+import dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv
+import dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader
+import dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkItemView
 import dev.jeromeswannack.chineselearning.lab.core.PassProgress
 import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
@@ -135,8 +144,21 @@ sealed interface PassUi {
         val busy: Boolean = false,
     ) : PassUi
 
-    /** A lesson or reader: played once in the regular player (package B), done by a `done` event. */
-    data class Player(val kind: String, val title: String, val complete: Boolean, val available: Boolean) : PassUi
+    /**
+     * A lesson or reader: played once in the regular player (the session's lesson player /
+     * reader view), done by a `done` event. [lesson] / [reader] are the copy on this phone
+     * (null = it hasn't synced here yet → "Missing"); [loaded] is false until the local
+     * stores have been read; [finished] = finished in this sitting.
+     */
+    data class Player(
+        val kind: String,
+        val title: String,
+        val complete: Boolean,
+        val loaded: Boolean = true,
+        val lesson: PassLesson? = null,
+        val reader: SessionReader? = null,
+        val finished: Boolean = false,
+    ) : PassUi
 }
 
 class PassActions(
@@ -147,13 +169,23 @@ class PassActions(
     val onAddToDaily: () -> Unit = {},
     val onRetrySync: () -> Unit = {},
     val onAllHomework: () -> Unit = {},
-    /** Lesson / reader: play it in the player (the main app until package B's player is native). */
-    val onStartPlayer: () -> Unit = {},
+    /** Lesson: the rated run (completion + attempt + recordings, then the homework `done`). */
+    val onLessonComplete: (LessonResult) -> Unit = {},
+    /** Reader: rated on its last page. */
+    val onReaderRated: (rating: Int, timeSpentMs: Long) -> Unit = { _, _ -> },
 )
+
+/** The lesson a pass plays (the web's `db.customLessons.get(target_id)` + its interval previews). */
+data class PassLesson(val id: String, val title: String, val icon: String?, val spec: CustomLessonSpec, val previews: List<IntervalPreview>)
 
 /** The one-off pass (web: HomeworkPassPage) — full screen like a study session. */
 @Composable
-fun HomeworkPassScreen(ui: PassUi, actions: PassActions) {
+fun HomeworkPassScreen(
+    ui: PassUi,
+    actions: PassActions,
+    lessonEnv: ExerciseEnv = ExerciseEnv(),
+    readerEnv: ReaderEnv = ReaderEnv(),
+) {
     LabScreenFrame {
         when (ui) {
             PassUi.Loading -> Box(Modifier.fillMaxSize())
@@ -162,7 +194,7 @@ fun HomeworkPassScreen(ui: PassUi, actions: PassActions) {
                 EmptyState("📭", "This homework isn’t on this device.", body = "It downloads with your next sync.", actionLabel = "All homework", onAction = actions.onAllHomework)
             }
             is PassUi.Deck -> DeckPass(ui, actions)
-            is PassUi.Player -> PlayerPass(ui, actions)
+            is PassUi.Player -> PlayerPass(ui, actions, lessonEnv, readerEnv)
         }
     }
 }
@@ -275,23 +307,46 @@ private fun PassDone(title: String, words: Int?, oneOffOnly: Boolean, addState: 
     }
 }
 
+/** Lesson / reader: the regular players, once (web: LessonPass / ReaderPass). */
 @Composable
-private fun PlayerPass(ui: PassUi.Player, actions: PassActions) {
-    PassTopBar(ui.title, actions.onClose)
-    if (ui.complete) {
-        PassDone(ui.title, null, false, AddState.Idle, true, actions)
-        return
+private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: ExerciseEnv, readerEnv: ReaderEnv) {
+    val lesson = ui.lesson
+    val reader = ui.reader
+    when {
+        ui.complete || ui.finished -> {
+            val title = reader?.reader?.titleChinese?.ifBlank { null } ?: ui.title
+            PassTopBar(title, actions.onClose)
+            PassDone(title, null, false, AddState.Idle, true, actions)
+        }
+        !ui.loaded -> Box(Modifier.fillMaxSize())
+        ui.kind == "reader" && reader != null && reader.reader.pages.isNotEmpty() ->
+            Column(Modifier.fillMaxSize()) {
+                PassTopBar(reader.reader.titleChinese.ifBlank { ui.title }, actions.onClose)
+                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(reader, readerEnv, actions.onReaderRated) }
+            }
+        ui.kind == "lesson" && lesson != null ->
+            LessonPlayer(
+                title = lesson.title,
+                icon = lesson.icon,
+                spec = lesson.spec,
+                env = lessonEnv,
+                context = PlayerContext.Homework,
+                previews = lesson.previews,
+                onComplete = actions.onLessonComplete,
+                onEnd = actions.onClose,
+            )
+        else -> MissingTarget(ui.title, actions.onClose)
     }
-    val what = if (ui.kind == "reader") "reader" else "mini lesson"
-    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)) {
-        Text(if (ui.kind == "reader") "📖" else "🎓", fontSize = 56.sp)
-        Text(ui.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Lab.colors.ink, textAlign = TextAlign.Center)
-        Text(
-            if (ui.available) "Go through this $what once — finishing it marks the homework done." else "This hasn’t reached this device yet. It will download with your next sync.",
-            color = Lab.colors.muted,
-            textAlign = TextAlign.Center,
-        )
-        PrimaryPill("Start", Modifier.fillMaxWidth().height(56.dp)) { actions.onStartPlayer() }
+}
+
+/** The lesson / reader of this homework hasn't synced to this phone (web: `Missing`). */
+@Composable
+private fun MissingTarget(title: String, onClose: () -> Unit) {
+    PassTopBar(title, onClose)
+    Column(Modifier.fillMaxSize().padding(24.dp).testTag("hw-pass-missing"), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)) {
+        Text("📭", fontSize = 56.sp)
+        Text("This hasn’t reached this device yet. It will download with your next sync.", color = Lab.colors.muted, textAlign = TextAlign.Center)
+        SecondaryPill("Back", Modifier.height(48.dp), onClick = onClose)
         Spacer(Modifier.width(1.dp))
     }
 }

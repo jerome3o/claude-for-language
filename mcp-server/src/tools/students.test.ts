@@ -405,6 +405,8 @@ function parse(result: CallToolResult): Record<string, unknown> {
 const EXPECTED_TOOLS = [
   'list_students',
   'get_student_overview',
+  'get_student_profile',
+  'update_student_profile',
   'get_student_insights',
   'get_student_history',
   'get_student_daily_progress',
@@ -457,6 +459,50 @@ describe('registerStudentTools', () => {
     expect(calls[0]).toMatchObject({ method: 'POST', path: '/api/relationships/rel-1/shared-decks/sd-1/move', body: { to: 'top' } });
     const text = (res.content[0] as { text: string }).text;
     expect(JSON.parse(text)).toEqual({ shared_deck_id: 'sd-1', target_deck_id: 'deck-s', queue_position: 1, queue_total: 6 });
+  });
+
+  it('get_student_overview carries the tutor\'s private student profile', async () => {
+    const profile = { relationship_id: 'rel-1', body: 'Adult beginner, no handwriting.', level: 'beginner', handwriting: false, words_per_lesson: 15, updated_at: '2026-09-27T10:00:00.000Z' };
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-1/overview': overview({ has_profile: true }),
+      'GET /api/relationships/rel-1/student-profile': { profile },
+    });
+    const out = parse(await tools.get('get_student_overview')!.handler({ relationship_id: 'rel-1' }));
+    expect(out.student_profile).toEqual(profile);
+    expect(out.has_student_profile).toBe(true);
+    expect(calls.map((c) => c.path).sort()).toEqual(['/api/relationships/rel-1/overview', '/api/relationships/rel-1/student-profile']);
+  });
+
+  it('get_student_overview still works when the profile cannot be read', async () => {
+    const { tools } = fakeContext({ 'GET /api/relationships/rel-1/overview': overview() });
+    const out = parse(await tools.get('get_student_overview')!.handler({ relationship_id: 'rel-1' }));
+    expect(out.student_profile).toBeNull();
+    expect(out.has_student_profile).toBe(false);
+  });
+
+  it('get_student_profile / update_student_profile: only the fields passed change', async () => {
+    const current = { relationship_id: 'rel-1', body: 'Likes football.', level: 'beginner', handwriting: false, words_per_lesson: 15, updated_at: 'x' };
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-1/student-profile': { profile: current },
+      'PUT /api/relationships/rel-1/student-profile': (call: Call) => ({ profile: { ...(call.body as object), relationship_id: 'rel-1', updated_at: 'y' } }),
+    });
+    expect(parse(await tools.get('get_student_profile')!.handler({ relationship_id: 'rel-1' }))).toEqual({ profile: current });
+
+    const out = parse(await tools.get('update_student_profile')!.handler({ relationship_id: 'rel-1', words_per_lesson: 10, handwriting: null }));
+    expect(calls.at(-1)).toMatchObject({
+      method: 'PUT',
+      path: '/api/relationships/rel-1/student-profile',
+      body: { body: 'Likes football.', level: 'beginner', handwriting: null, words_per_lesson: 10 },
+    });
+    expect(out.deleted).toBe(false);
+    for (const t of ['get_student_profile', 'update_student_profile']) expect(tools.get(t)!.description).toContain('never sees it');
+  });
+
+  it('update_student_profile refuses an over-long body before calling the API', async () => {
+    const { tools, calls } = fakeContext({ 'GET /api/relationships/rel-1/student-profile': { profile: null } });
+    const res = await tools.get('update_student_profile')!.handler({ relationship_id: 'rel-1', body: 'x'.repeat(8001) });
+    expect(res.isError).toBe(true);
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0);
   });
 
   it('list_students calls the dashboard with tz_offset and the relationships list, in parallel', async () => {

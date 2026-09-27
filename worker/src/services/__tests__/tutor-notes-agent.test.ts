@@ -114,11 +114,18 @@ vi.mock('../../db/insights-queries', () => ({
   fetchCardStatesForRange: vi.fn(async () => []),
   listLessonLog: vi.fn(async () => [{ id: 'log-1', lesson_at: '2026-09-10T12:00:00.000Z', notes: 'Talked about food' }]),
 }));
+// The tutor's private profile of the student (student_profiles), keyed by relationship + tutor.
+let profileRow: Record<string, unknown> | null = null;
+vi.mock('../../db/student-profile-queries', () => ({
+  getStudentProfile: vi.fn(async (_db: unknown, relId: string, tutorId: string) =>
+    profileRow && relId === 'rel-1' && tutorId === 'tutor' ? profileRow : null
+  ),
+}));
 vi.mock('../../db/reader-editor-queries', () => ({
   createReaderFromSpec: vi.fn(async () => ({ reader: { id: 'reader-1' }, imageJobs: [] })),
 }));
 
-const { runTutorNotesJob, buildBriefing, clipNotes, toNoteInput, stepForTool, MAX_NOTES_CHARS, appendTutorRequest } = await import('../tutor-notes-agent');
+const { runTutorNotesJob, buildBriefing, clipNotes, toNoteInput, stepForTool, MAX_NOTES_CHARS, appendTutorRequest, profileUpdateForDraft } = await import('../tutor-notes-agent');
 
 function textBlock(text: string) {
   return { type: 'text', text };
@@ -178,6 +185,7 @@ beforeEach(() => {
   studentWords.clear();
   deckNotes.clear();
   libraryItems.clear();
+  profileRow = null;
   vi.restoreAllMocks();
 });
 
@@ -231,6 +239,8 @@ describe('runTutorNotesJob — happy path', () => {
     expect(briefing).toContain('Core Homework');
     expect(briefing).toContain('我想点菜');
     expect(briefing).toContain('Tutor\'s title: Restaurant lesson');
+    // No profile written → no profile block.
+    expect(briefing).not.toContain('Tutor\'s profile of this student');
     // Transcript is checkpointed: user, assistant, tool results, ... final tool results.
     expect(job.transcript.length).toBe(7);
   });
@@ -500,5 +510,86 @@ describe('drafts the tutor reviews (docs/HOMEWORK.md)', () => {
     expect(out).toHaveLength(3);
     expect(out[2]).toMatchObject({ role: 'user' });
     expect(String(out[2].content)).toContain('split into two days');
+  });
+});
+
+describe("the tutor's private profile of the student", () => {
+  const PROFILE = {
+    relationship_id: 'rel-1',
+    body: 'Adult beginner. Listening first; radicals help him. Likes football.',
+    level: 'beginner',
+    handwriting: false,
+    words_per_lesson: 12,
+    updated_at: '2026-09-14T12:30:00.000Z',
+  };
+  const HEADING = "# Tutor's profile of this student (private; follow it when choosing what to make, how much, and in what form)";
+
+  const base = {
+    studentName: 'Jerome',
+    studentBio: null,
+    tutorName: 'Li',
+    decks: [],
+    struggling: [],
+    goingWell: [],
+    lessonLog: [],
+    earlierJobs: [],
+    job: { title: null, notes: 'Notes here', lesson_at: null, priority: 'core', auto_share: 1 },
+  } as const;
+
+  it('buildBriefing puts the labelled profile block before the session, and leaves it out when empty', () => {
+    const text = buildBriefing({ ...base, job: { ...base.job }, decks: [], struggling: [], goingWell: [], lessonLog: [], earlierJobs: [], profile: PROFILE as never });
+    expect(text).toContain(HEADING);
+    expect(text).toContain('Listening first; radicals help him. Likes football.');
+    expect(text).toContain('about 12');
+    expect(text).toContain('never set handwriting tasks');
+    expect(text.indexOf(HEADING)).toBeLessThan(text.indexOf('# This session'));
+
+    for (const profile of [null, undefined, { body: '  ', level: null, handwriting: null, words_per_lesson: null }]) {
+      const none = buildBriefing({ ...base, job: { ...base.job }, decks: [], struggling: [], goingWell: [], lessonLog: [], earlierJobs: [], profile });
+      expect(none).not.toContain("Tutor's profile");
+    }
+  });
+
+  it('the agent reads the profile of THIS relationship in its first message (session notes, lesson-note drafts, video-call homework)', async () => {
+    profileRow = PROFILE;
+    for (const overrides of [{}, { id: 'job-draft', review: 1 }, { id: 'job-call', source_call_id: 'call-1' }]) {
+      create.mockReset();
+      seedJob(overrides);
+      create.mockResolvedValueOnce(turn([toolUse('f', 'finish', { summary: 'Nothing to make.' })]));
+      await runTutorNotesJob(env, (overrides as { id?: string }).id ?? 'job-1');
+      const briefing = create.mock.calls[0][0].messages[0].content as string;
+      expect(briefing).toContain(HEADING);
+      expect(briefing).toContain('Likes football');
+    }
+    // The system prompt tells the agent the profile overrides its defaults.
+    expect(create.mock.calls[0][0].system).toContain("tutor's profile of the student");
+  });
+
+  it('another tutor\'s relationship does not get it', async () => {
+    profileRow = PROFILE;
+    seedJob({ relationship_id: 'rel-2' });
+    create.mockResolvedValueOnce(turn([toolUse('f', 'finish', { summary: 'ok' })]));
+    await runTutorNotesJob(env, 'job-1');
+    expect(create.mock.calls[0][0].messages[0].content as string).not.toContain("Tutor's profile");
+  });
+
+  it('a draft message carries the profile only when it changed after the agent last saw it', () => {
+    const job = { created_at: '2026-09-14 12:00:00', started_at: '2026-09-14T12:00:05.000Z', chat: [] as Array<{ at: string }> };
+    expect(profileUpdateForDraft(null, job, 'Jerome')).toBeNull();
+    // Written before the draft started: already in the briefing.
+    expect(profileUpdateForDraft({ ...PROFILE, updated_at: '2026-09-14T11:00:00.000Z' } as never, job, 'Jerome')).toBeNull();
+    // Edited after: sent along.
+    const block = profileUpdateForDraft(PROFILE as never, job, 'Jerome');
+    expect(block).toContain(HEADING);
+    // Already passed with an earlier chat message: not again.
+    expect(profileUpdateForDraft(PROFILE as never, { ...job, chat: [{ at: '2026-09-14T13:00:00.000Z' }] }, 'Jerome')).toBeNull();
+    // SQLite datetime created_at when the job never started.
+    expect(profileUpdateForDraft(PROFILE as never, { created_at: '2026-09-14 12:40:00', started_at: null, chat: [] }, 'Jerome')).toBeNull();
+
+    const out = appendTutorRequest([{ role: 'assistant', content: [textBlock('done')] }], 'fewer words', block) as Array<{ content: unknown }>;
+    const text = String(out[1].content);
+    expect(text).toContain('changed their profile');
+    expect(text.indexOf(HEADING)).toBeLessThan(text.indexOf("Tutor's request: fewer words"));
+    expect(String((appendTutorRequest([], 'x') as Array<{ content: unknown }>)[0].content)).not.toContain('profile');
   });
 });

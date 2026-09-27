@@ -80,6 +80,7 @@ import { tutorNotesRoutes } from './routes/tutor-notes';
 import debugReportsRoutes from './routes/debug-reports';
 import conversationVoicesRoutes from './routes/conversation-voices';
 import { getConversationVoiceSettings } from './services/conversation-voices';
+import studentProfileRoutes from './routes/student-profile';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
@@ -497,6 +498,8 @@ app.route('/api', adminRoutes);
 
 // Study-state debug reports from the web + Lab apps, and their diff (routes/debug-reports.ts)
 app.route('/api', debugReportsRoutes);
+// The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
+app.route('/api', studentProfileRoutes);
 
 // Conversation voices: the catalogue, this account's selection, cached voice samples (routes/conversation-voices.ts)
 app.route('/api', conversationVoicesRoutes);
