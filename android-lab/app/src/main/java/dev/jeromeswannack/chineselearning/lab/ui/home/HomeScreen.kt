@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -75,7 +77,7 @@ class HomeActions(
 )
 
 /** [debugReport]: the last "Send debug report" outcome (data/DebugReport.kt), null = none yet. */
-data class HomeSettings(val soundOn: Boolean, val hapticsOn: Boolean, val debugReport: String? = null, val sendingDebugReport: Boolean = false)
+data class HomeSettings(val soundOn: Boolean, val hapticsOn: Boolean, val debugReport: String? = null, val sendingDebugReport: Boolean = false, val syncDetailsOpen: Boolean = false)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -134,7 +136,7 @@ private fun greeting(): String = when (LocalTime.now().hour) {
 @Composable
 private fun SyncLine(sync: SyncStatus, online: Boolean, nowMs: Long) {
     val text = when {
-        sync.running -> "Syncing…"
+        sync.running -> syncProgressText(sync)
         !online -> "Offline" + if (sync.unsynced > 0) " · ${sync.unsynced} review${if (sync.unsynced == 1) "" else "s"} waiting" else " · studying from this phone"
         sync.error != null -> "Sync failed: ${sync.error}"
         sync.lastSyncAt == 0L -> "Not synced yet"
@@ -167,7 +169,7 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "hero")
-    val empty = ui.loaded && due.total == 0
+    val empty = ui.loaded && due.total == 0 && !sync.running
     Column(
         Modifier
             .fillMaxWidth()
@@ -182,7 +184,7 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
         val minutes = Math.max(1, Math.round(due.total * 20 / 60f))
         Text(
             when {
-                !ui.loaded || (sync.running && due.total == 0) -> "Getting your cards…"
+                !ui.loaded || (sync.running && due.total == 0) -> "Getting your cards…" + (sync.progress?.let { "\n${sync.phase} · $it" } ?: "")
                 empty -> "Nothing due. ${ui.reviewedToday} reviews today — 很好！"
                 else -> "${due.total} card${if (due.total == 1) "" else "s"} due · about $minutes min"
             },
@@ -238,7 +240,7 @@ private fun DeckRow(deck: DeckSummary, onClick: () -> Unit) {
 internal fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: HomeActions) {
     var sound by remember { mutableStateOf(settings.soundOn) }
     var haptics by remember { mutableStateOf(settings.hapticsOn) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
         Text("Lab settings", style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink)
         Spacer(Modifier.height(12.dp))
         ToggleRow("Sounds", sound) { sound = it; actions.onToggleSound(it) }
@@ -249,6 +251,7 @@ internal fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: Ho
             style = MaterialTheme.typography.bodyMedium,
             color = Lab.colors.muted,
         )
+        LastSyncDetails(sync.lastRun, startOpen = settings.syncDetailsOpen)
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = actions.onFullSync) { Text("Full resync", color = Lab.colors.accent) }
         TextButton(onClick = actions.onOpenFullApp) { Text("Open the main app", color = Lab.colors.accent) }

@@ -12,6 +12,8 @@ import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.core.QueueCounts
 import dev.jeromeswannack.chineselearning.lab.data.NoteEntity
 import dev.jeromeswannack.chineselearning.lab.data.SentenceEntity
+import dev.jeromeswannack.chineselearning.lab.data.SyncPhase
+import dev.jeromeswannack.chineselearning.lab.data.SyncRun
 import dev.jeromeswannack.chineselearning.lab.data.SyncStatus
 import dev.jeromeswannack.chineselearning.lab.ui.home.DeckSummary
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeActions
@@ -113,6 +115,42 @@ class ScreenshotTest {
             SettingsSheet(
                 SyncStatus(lastSyncAt = System.currentTimeMillis() - 4 * 60_000, audioTotal = 830, audioCached = 812),
                 HomeSettings(soundOn = true, hapticsOn = true, debugReport = "Sent: 24 due · 8946 cards · 41210 reviews (212.4 KB)"),
+                HomeActions(),
+            )
+        }
+    }
+
+    /** A first sync of a big account: what it is doing and how far it got. */
+    @Test fun homeFirstSync() = shoot("13-home-first-sync") {
+        HomeScreen(
+            ui = HomeUi(loaded = true, userName = "Jerome Swannack"),
+            sync = SyncStatus(running = true, phase = "Downloading reviews", progress = "25,000 so far"),
+            online = true,
+            settings = HomeSettings(soundOn = true, hapticsOn = true),
+            actions = HomeActions(),
+        )
+    }
+
+    /** Lab settings → Last sync, opened: per-step timings (Repository.sync). */
+    @Test fun settingsSyncTimings() = shoot("14-settings-sync-timings") {
+        androidx.compose.material3.Surface(color = dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.card) {
+            SettingsSheet(
+                SyncStatus(
+                    lastSyncAt = System.currentTimeMillis() - 60_000, audioTotal = 6200, audioCached = 1450,
+                    lastRun = SyncRun(
+                        full = true, atMs = System.currentTimeMillis() - 60_000, totalMs = 5_699, ok = true,
+                        phases = listOf(
+                            SyncPhase("Profile", 113),
+                            SyncPhase("Downloading decks", 580, "24 decks · 3,000 notes"),
+                            SyncPhase("Saving decks", 2150, "3,000 notes · 9,000 cards"),
+                            SyncPhase("Uploading reviews", 12, "0 sent"),
+                            SyncPhase("Downloading reviews", 1048, "45,470 received · 45,470 new · 10 pages"),
+                            SyncPhase("Card states", 1748, "9,000 replayed · 6,487 changed"),
+                            SyncPhase("Sentences", 14, "0 sentences"),
+                        ),
+                    ),
+                ),
+                HomeSettings(soundOn = true, hapticsOn = true, syncDetailsOpen = true),
                 HomeActions(),
             )
         }

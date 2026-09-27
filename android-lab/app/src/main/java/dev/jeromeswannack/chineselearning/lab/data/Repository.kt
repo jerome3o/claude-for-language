@@ -129,7 +129,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         val clock = Clock()
         var full = false
         try {
-            _status.update { it.copy(running = true, error = null, phase = "Starting", progress = null) }
+            _status.update { it.copy(running = true, error = null, phase = null, progress = null) }
             withContext(Dispatchers.IO) {
                 clock.phase("Profile") { refreshProfile() }
                 full = forceFull || prefs.lastFullSync == 0L || dao.noteCount() == 0
@@ -210,7 +210,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                     async { gate.withPermit { api.deck(d.id) }.also { step.progress("${done.incrementAndGet()} of ${list.size}") } }
                 }.awaitAll()
             }.filterNotNull()
-            step.detail = "${got.size} decks · ${got.sumOf { it.notes.size }} notes"
+            step.detail = "%,d decks · %,d notes".format(got.size, got.sumOf { it.notes.size })
             got
         }
         clock.phase("Saving decks") { step ->
@@ -232,7 +232,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                 }
                 dao.deleteOrphanSentences()
             }
-            step.detail = "${notes.size} notes · ${serverCards.size} cards"
+            step.detail = "%,d notes · %,d cards".format(notes.size, serverCards.size)
         }
         prefs.lastFullSync = System.currentTimeMillis()
         prefs.changesCursor = snapshotAt

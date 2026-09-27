@@ -109,13 +109,31 @@ class SyncContractTest {
         repo.sync()
         assertTrue(eventId !in call("GET", "/api/reviews?since=1970-01-01%2000:00:00", token))
 
-        // A note deleted elsewhere disappears on the next incremental sync (tombstone).
+        // A note deleted elsewhere disappears on the next incremental sync (tombstone) — also
+        // when it happens in the same second as the previous sync (the cursor has milliseconds,
+        // the rows whole seconds).
         call("DELETE", "/api/notes/${noteIds[2]}", token)
         repo.sync()
         assertNull(repo.status.value.error)
         assertNull(dao.note(noteIds[2]))
         assertEquals(6, dao.cards().count { it.deckId == deckId })
         assertNotNull(dao.note(noteIds[0]))
+
+        // An edit made right after a sync arrives with the next one.
+        call("PUT", "/api/notes/${noteIds[1]}", token, """{"english":"weekend (Sat + Sun)"}""")
+        repo.sync()
+        assertEquals("weekend (Sat + Sun)", dao.note(noteIds[1])!!.english)
+
+        // Reviews made on the web after the full sync, on a card this phone has: replayed on the next sync.
+        val later = ReviewEventInput(UUID.randomUUID().toString(), otherDeviceCard, 0, "2026-09-26T08:00:00.000Z")
+        call("POST", "/api/reviews", token, """{"events":[{"id":"${later.id}","card_id":"${later.cardId}","rating":0,"reviewed_at":"${later.reviewedAt}"}]}""")
+        repo.sync()
+        assertEquals(CardScheduler.computeCardState(webEvents + later).let { synced.withState(it) }, dao.card(otherDeviceCard))
+
+        // Every sync reports its steps (Lab settings → Last sync).
+        val run = repo.status.value.lastRun!!
+        assertTrue(run.ok && !run.full)
+        assertTrue(run.phases.map { it.name }.containsAll(listOf("Changes", "Downloading reviews", "Card states")))
         repo.awaitAudioPrefetch()
         db.close()
     }
