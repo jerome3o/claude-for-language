@@ -103,6 +103,18 @@ class DecksParityTest {
         }
     }
 
+    @Test
+    fun cardStandardHardRulesMatch() {
+        fun probs(el: JsonElement) = el.jsonArray.map { it.jsonObject["field"]!!.str!! to it.jsonObject["message"]!!.str!! }
+        fun mine(l: List<CardStandard.Problem>) = l.map { it.field to it.message }
+        for (c in fixture["standard"]!!.jsonArray.map { it.jsonObject }) {
+            val t = c["text"]!!.str!!
+            assertEquals(probs(c["hanzi"]!!), mine(CardStandard.problems(hanzi = t)), "hanzi '$t'")
+            assertEquals(probs(c["pinyin"]!!), mine(CardStandard.problems(pinyin = t)), "pinyin '$t'")
+            assertEquals(probs(c["clue"]!!), mine(CardStandard.problems(sentenceClue = t)), "clue '$t'")
+        }
+    }
+
     private fun value(v: JsonElement): Any? = when {
         v is JsonNull -> null
         v is JsonArray || v is JsonObject -> v.toString()

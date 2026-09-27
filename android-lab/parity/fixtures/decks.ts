@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { moveInOrder, moveToIndex, indexUnderPointer, QUEUE_MOVES, type RectLike } from '../../../shared/decks/queue';
 import { noteMatches, stripTones } from '../../../shared/decks/search';
 import { pickDeckSettings } from '../../../shared/decks/defaults';
+import { cardTextProblems } from '../../../shared/cards/standard';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: decks <out-dir>');
@@ -119,5 +120,18 @@ const settingsCases: Array<Record<string, unknown> | null> = [
 ];
 const settings = settingsCases.map((input) => ({ input, out: pickDeckSettings(input) }));
 
-writeFileSync(join(OUT, 'decks.json'), JSON.stringify({ moves, pointer, search: { notes, cases: search, strip }, settings }));
+// ---- card standard (HARD rules) ----
+const cardTexts = [
+  '你好', '你好/您好', '(请)坐', '我…了', '___', '我...了', '好。。。', '您好（正式）', '【注】', 'a|b', '<b>', '~', '*', '=', '+', '#', '@', '&', '^', '`', '"', "'", '_',
+  'nǐ hǎo', 'ni3 hao3', 'ni3', 'NI3 hao', 'lü4', 'LÜ4 se4', 'nv3', 'ni3hao', 'ni3,', 'abc12', 'x5 y', 'hao6', 'ni3\u3000hao', 'nǐ3', '3', 'a1 ',
+  '我去银行取钱。', '他说：“好。”', '你好，老师！', '', '  ', 'Hello (world)', '\\', '{x}', '〔x〕',
+];
+const standard = cardTexts.map((t) => ({
+  text: t,
+  hanzi: cardTextProblems({ hanzi: t }),
+  pinyin: cardTextProblems({ pinyin: t }),
+  clue: cardTextProblems({ sentence_clue: t }),
+}));
+
+writeFileSync(join(OUT, 'decks.json'), JSON.stringify({ moves, pointer, search: { notes, cases: search, strip }, settings, standard }));
 console.log(`decks: ${moves.length} moves, ${pointer.length} pointer cases, ${search.length} searches, ${settings.length} settings cases`);
