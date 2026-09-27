@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
+import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
@@ -275,7 +276,7 @@ fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: Stud
                                     }
                                 }
                             }
-                            ex.construction?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink) }
+                            ex.construction?.takeIf { it.isNotBlank() }?.let { MarkdownText(it, style = MaterialTheme.typography.bodySmall) }
                         }
                     }
                 }

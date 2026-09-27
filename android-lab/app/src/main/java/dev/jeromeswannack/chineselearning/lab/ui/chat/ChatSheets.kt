@@ -117,7 +117,7 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         ChatSheet.HelpMeSayIt -> HelpMeSayItSheet(actions)
         is ChatSheet.Options -> LabBottomSheet(onDismiss = actions.onDismiss, title = "What could I say?") {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                s.explanation?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.accentSoft).padding(12.dp)) }
+                s.explanation?.let { MarkdownText(it, Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.accentSoft).padding(12.dp), style = MaterialTheme.typography.bodyMedium) }
                 Text("Select the responses you'd like to save as flashcards:", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
                 s.options.forEachIndexed { i, o -> SelectableCard(o, i in s.selected) { actions.onToggleOption(i) } }
                 if (s.selected.isNotEmpty()) DeckPicker(ui, s.selected.size, actions) { deck, new -> actions.onSaveCards(s.options.filterIndexed { i, _ -> i in s.selected }, deck, new) }

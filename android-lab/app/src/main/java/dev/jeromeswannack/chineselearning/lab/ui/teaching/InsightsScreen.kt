@@ -36,6 +36,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.LessonLogEntryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StrugglingDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
+import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
@@ -325,7 +326,7 @@ private fun SummaryCard(ui: InsightsUi, hasActivity: Boolean, write: () -> Unit,
             if (ui.writing) MutedLine("Reading the period and writing notes — about ten seconds…")
             ui.summaryError?.let { InlineNotice(it, kind = NoticeKind.Error) }
             if (shown != null) {
-                Text(if (zh) shown.narrative_zh else shown.narrative_en, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
+                MarkdownText(if (zh) shown.narrative_zh else shown.narrative_en, style = MaterialTheme.typography.bodyLarge)
                 MutedLine("Covers ${TutorPageFormat.day(shown.range_from, now)} → ${TutorPageFormat.day(shown.range_to, now)} · written ${TutorPageFormat.dateTime(shown.created_at, now)}")
             } else if (!ui.writing) {
                 MutedLine("No summary yet. Tap Write summary for a short narrative in English and 中文 covering the selected period.")
@@ -334,7 +335,7 @@ private fun SummaryCard(ui: InsightsUi, hasActivity: Boolean, write: () -> Unit,
                 InlineButton("${if (showPrevious) "▾" else "▸"} Previous summaries (${previous.size})") { showPrevious = !showPrevious }
                 if (showPrevious) previous.forEach { s ->
                     MutedLine("${TutorPageFormat.day(s.range_from, now)} → ${TutorPageFormat.day(s.range_to, now)} · ${TutorPageFormat.dateTime(s.created_at, now)}")
-                    Text(if (zh) s.narrative_zh else s.narrative_en, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
+                    MarkdownText(if (zh) s.narrative_zh else s.narrative_en, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
