@@ -121,6 +121,8 @@ class StudyActions(
     // ---- Package B: mini lessons in the session ----
     val lessonEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(),
     val onLessonComplete: (dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) -> Unit = {},
+    val readerEnv: @Composable (readerId: String) -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv = { dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv() },
+    val onReaderRated: (rating: Int, timeSpentMs: Long) -> Unit = { _, _ -> },
 )
 
 @Composable
@@ -197,6 +199,8 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             addDefinition = { d -> tools.addNote(currentNote()?.deckId ?: error("No card"), newNote(d)) },
             lessonEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv(app), // Package B
             onLessonComplete = vm::completeLesson, // Package B
+            readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B
+            onReaderRated = vm::rateReader, // Package B
         ),
     )
     if (confirmExit) {
@@ -221,7 +225,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
                     targetState = ui.phase,
-                    contentKey = { p -> when (p) { is StudyPhase.Showing -> p.view.presentation; is StudyPhase.Lesson -> "lesson-${p.lesson.key}"; StudyPhase.Done -> "done"; StudyPhase.Loading -> "loading" } },
+                    contentKey = { p -> when (p) { is StudyPhase.Showing -> p.view.presentation; is StudyPhase.Lesson -> "lesson-${p.lesson.key}"; is StudyPhase.Reader -> "reader-${p.reader.key}"; StudyPhase.Done -> "done"; StudyPhase.Loading -> "loading" } },
                     transitionSpec = { cardTransition(ui.lastRating) },
                     label = "card",
                 ) { phase ->
@@ -229,6 +233,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
                         is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart, autoplay)
                         is StudyPhase.Lesson -> dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLessonView(phase.lesson, ui.counts, actions.lessonEnv, actions.onLessonComplete) // Package B
+                        is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderRated) // Package B
                         StudyPhase.Done -> DoneView(ui, actions)
                     }
                 }

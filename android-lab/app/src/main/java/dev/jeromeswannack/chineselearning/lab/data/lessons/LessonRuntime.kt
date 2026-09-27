@@ -10,6 +10,8 @@ class LessonRuntime private constructor(val app: LabApp) {
     val store = LessonStore(app.cache, app.outbox, app.repo.api)
     val media: LessonMedia get() = store.media
     val audio = LessonAudio(app, store.media, app.scope) { app.online.value }
+    /** Graded readers (package B, same runtime: they share the media cache and the player). */
+    val readers = dev.jeromeswannack.chineselearning.lab.data.readers.ReaderStore(app.cache, app.outbox, app.repo.api)
 
     /**
      * After a lesson (web: `syncCustomLessons()` right after completing): send the completion
