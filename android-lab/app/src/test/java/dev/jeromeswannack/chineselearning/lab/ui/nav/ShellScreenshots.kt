@@ -34,7 +34,7 @@ class ShellScreenshots : LabScreenshotTest() {
     }
 
     @Test fun decksTab() = shootInShell("shell-02-decks-tab", TabId.DECKS) {
-        DecksTabScreen(true, Samples.decks, onStudy = {}, onOpenMainApp = {})
+        DecksTabScreen(dev.jeromeswannack.chineselearning.lab.ui.decks.DecksSamples.list, dev.jeromeswannack.chineselearning.lab.ui.decks.DecksActions())
     }
 
     @Test fun tutorTabPlaceholder() = shootInShell("shell-03-tutor-placeholder", TabId.TUTOR) {
