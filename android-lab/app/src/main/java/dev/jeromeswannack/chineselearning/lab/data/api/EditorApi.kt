@@ -75,8 +75,6 @@ suspend fun Api.editableLesson(id: String): EditableLessonDto = get("/api/lesson
 
 suspend fun Api.saveEditableLesson(id: String, spec: JsonObject): EditableLessonDto = put("/api/lessons/${enc(id)}", LessonSpecBody(spec))
 
-// deleteCustomLesson: LessonsApi.kt (package B) — the same DELETE /api/custom-lessons/:id.
-
 /** targetType: "lesson" | "library" | "reader". */
 suspend fun Api.editorChat(targetType: String, targetId: String): EditorChatStateDto = get("/api/editor-chat/${enc(targetType)}/${enc(targetId)}")
 

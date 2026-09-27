@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "title": { "hanzi": "厨房做早饭", "pinyin": "chúfáng zuò zǎofàn", "english": "Making breakfast in the kitchen" },
+  "scenario": { "hanzi": "早上七点，你饿了。去厨房做早饭吧！", "pinyin": "Zǎoshang qī diǎn, nǐ è le. Qù chúfáng zuò zǎofàn ba!", "english": "It's 7am and you're hungry. Go make breakfast!" },
+  "width": 7,
+  "height": 6,
+  "terrain": [
+    { "key": ".", "hanzi": "地板", "pinyin": "dìbǎn", "english": "floor", "color": "#f3e6cf", "walkable": true },
+    { "key": "t", "hanzi": "瓷砖", "pinyin": "cízhuān", "english": "tiles", "color": "#dbe7ee", "walkable": true },
+    { "key": "r", "hanzi": "地毯", "pinyin": "dìtǎn", "english": "rug", "color": "#e8b4a0", "walkable": true },
+    { "key": "#", "hanzi": "墙", "pinyin": "qiáng", "english": "wall", "color": "#6b5b4e", "walkable": false }
+  ],
+  "grid": ["#######", "#ttt..#", "#ttt..#", "#...rr#", "#...rr#", "#######"],
+  "player": { "emoji": "🧑", "x": 4, "y": 3 },
+  "carry_limit": 1,
+  "objects": [
+    { "id": "fridge", "emoji": "🧊", "hanzi": "冰箱", "pinyin": "bīngxiāng", "english": "fridge", "x": 1, "y": 1, "portable": false, "surface": false, "blocks_movement": true,
+      "states": [ { "id": "closed", "hanzi": "关着", "pinyin": "guānzhe", "english": "closed" }, { "id": "open", "hanzi": "开着", "pinyin": "kāizhe", "english": "open", "emoji": "🥶" } ],
+      "initial_state": "closed",
+      "actions": [ { "id": "open", "hanzi": "打开", "pinyin": "dǎkāi", "english": "open", "requires_state": "closed", "sets_state": "open" },
+                   { "id": "close", "hanzi": "关上", "pinyin": "guānshàng", "english": "close", "requires_state": "open", "sets_state": "closed" } ] },
+    { "id": "egg", "emoji": "🥚", "hanzi": "鸡蛋", "pinyin": "jīdàn", "english": "egg", "x": 1, "y": 1, "portable": true, "surface": false, "blocks_movement": false, "hidden_until": { "object": "fridge", "state": "open" } },
+    { "id": "pan", "emoji": "🍳", "hanzi": "锅", "pinyin": "guō", "english": "pan", "x": 3, "y": 1, "portable": false, "surface": true, "blocks_movement": false,
+      "actions": [ { "id": "cook", "hanzi": "煎", "pinyin": "jiān", "english": "fry", "requires_holding": "egg" } ] },
+    { "id": "table", "emoji": "🪑", "hanzi": "桌子", "pinyin": "zhuōzi", "english": "table", "x": 5, "y": 4, "portable": false, "surface": true, "blocks_movement": false },
+    { "id": "bread", "emoji": "🍞", "hanzi": "面包", "pinyin": "miànbāo", "english": "bread", "x": 2, "y": 3, "portable": true, "surface": false, "blocks_movement": false,
+      "actions": [ { "id": "eat", "hanzi": "吃", "pinyin": "chī", "english": "eat", "removes_object": true } ] },
+    { "id": "cat", "emoji": "🐱", "hanzi": "猫", "pinyin": "māo", "english": "cat", "x": 4, "y": 4, "portable": false, "surface": false, "blocks_movement": false,
+      "actions": [ { "id": "pet", "hanzi": "摸", "pinyin": "mō", "english": "stroke" } ] }
+  ],
+  "goals": [
+    { "id": "g1", "instruction": { "hanzi": "摸一摸猫。", "pinyin": "Mō yi mō māo.", "english": "Give the cat a stroke." },
+      "hint": { "hanzi": "猫在地毯上。", "pinyin": "Māo zài dìtǎn shang.", "english": "The cat is on the rug." },
+      "success": { "hanzi": "猫很高兴！", "pinyin": "Māo hěn gāoxìng!", "english": "The cat is happy!" },
+      "condition": { "type": "performed", "object": "cat", "action": "pet" } },
+    { "id": "g2", "instruction": { "hanzi": "先打开冰箱，然后拿鸡蛋。", "pinyin": "Xiān dǎkāi bīngxiāng, ránhòu ná jīdàn.", "english": "First open the fridge, then take an egg." },
+      "hint": { "hanzi": "冰箱在左上角。", "pinyin": "Bīngxiāng zài zuǒ shàng jiǎo.", "english": "The fridge is in the top-left corner." },
+      "condition": { "type": "sequence", "conditions": [ { "type": "object_state", "object": "fridge", "state": "open" }, { "type": "holding", "object": "egg" } ] } },
+    { "id": "g3", "instruction": { "hanzi": "用锅煎鸡蛋。", "pinyin": "Yòng guō jiān jīdàn.", "english": "Fry the egg in the pan." },
+      "condition": { "type": "performed", "object": "pan", "action": "cook" } },
+    { "id": "g4", "instruction": { "hanzi": "把面包放在桌子上。", "pinyin": "Bǎ miànbāo fàng zài zhuōzi shang.", "english": "Put the bread on the table." },
+      "condition": { "type": "object_on", "object": "bread", "target": "table" } }
+  ],
+  "glossary": [
+    { "hanzi": "打开", "pinyin": "dǎkāi", "english": "to open", "pos": "verb" },
+    { "hanzi": "把…放在…上", "pinyin": "bǎ … fàng zài … shang", "english": "put … on …", "pos": "phrase", "note": "把 + object + 放在 + place + 上" },
+    { "hanzi": "冰箱", "pinyin": "bīngxiāng", "english": "fridge", "pos": "noun" }
+  ]
+}
