@@ -188,12 +188,12 @@ Owns `ui/library/` (incl. the `/library` stub), `ui/editor/` (lesson + reader ed
 
 Owns `ui/coach/`, `ui/analyze/`, `ui/quests/`, `ui/strokes/`, `core/…/Quest*.kt` + `core/…/Strokes*.kt` with `parity/fixtures/quest.ts` / `strokes.ts`, `data/api/CoachApi.kt`, `QuestsApi.kt`. Provides the stroke pad composable B and A reuse.
 
-| Feature | Status | Web source |
-|---|---|---|
-| Sentence Coach (conversations, quick-action chips, deck picker, `?text=`) | ⬜ | `SentenceCoachPage.tsx` |
-| Sentence Breakdown (`/analyze`) | ⬜ | `SentenceAnalysisPage.tsx` |
-| Quests list + play (engine port, parity-tested) | ⬜ | `QuestsPage.tsx`, `QuestPlayPage.tsx`, `shared/quest/` |
-| Handwriting / stroke-order practice (`/practice/strokes`, study ⋯ → Write it) | ⬜ — port `shared/strokes` (matcher + quiz) to `core/` with parity vectors; draw on a Compose `Canvas` with `pointerInput`; see docs/STROKE_ORDER.md | `StrokePracticePage.tsx`, `components/strokes/` |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Sentence Coach (conversations, quick-action chips, deck picker, `?text=`) | ⬜ | `SentenceCoachPage.tsx`  |
+| Sentence Breakdown (`/analyze`) | ⬜ | `SentenceAnalysisPage.tsx`  |
+| Quests list + play (engine port, parity-tested) | ⬜ | `QuestsPage.tsx`, `QuestPlayPage.tsx`, `shared/quest/`  |
+| Handwriting / stroke-order practice (`/practice/strokes?text=`: pick / type a word, recent words, Trace (animated order) + From memory (米字格), per-stroke verdicts with haptics/sounds, escalating hints (start dot → painted stroke → filled in), per-character glow, summary, offline "Save all") | ✅ matcher + quiz parity-tested (3,500 drawings, 170 quiz runs, bit-exact); reusable `WritingExercise` / `WritingSheet` / `WritingPad` for A ("Write it") and B (handwriting exercises). No auto-pinyin for typed words that aren't notes (web uses pinyin-pro) | `StrokePracticePage.tsx`, `components/strokes/`, `shared/strokes/` | `core/…/Strokes.kt`, `data/strokes/StrokeStore.kt`, `ui/strokes/` |
 
 ## I — Native shell (web: `native/android/`)
 
