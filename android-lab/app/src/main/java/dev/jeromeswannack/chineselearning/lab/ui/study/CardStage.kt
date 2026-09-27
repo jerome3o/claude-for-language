@@ -80,6 +80,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.markdownLite
 
 /** Card-local state that tests / screenshots can start from. */
 data class CardStartState(val flipped: Boolean = false, val answer: String = "")
@@ -374,24 +376,6 @@ fun RatingBar(previews: List<IntervalPreview>, enabled: Boolean, onRate: (Int) -
                 previews.getOrNull(r)?.let { Text(it.intervalText, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp) }
             }
         }
-    }
-}
-
-@Composable
-fun PrimaryPill(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.95f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "pill")
-    Box(
-        modifier
-            .scale(scale)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Lab.colors.accent)
-            .clickable(interactionSource = source, indication = null, onClick = onClick)
-            .padding(horizontal = 22.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
     }
 }
 

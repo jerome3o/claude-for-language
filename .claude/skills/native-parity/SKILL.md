@@ -46,23 +46,61 @@ update the PARITY.md row (⬜/🟡 with what's missing) — never leave it silen
    - JavaScript semantics matter: use `Js.*` (toFixed, Math.round, Number→String, dates)
      and `StrictMath`; JS regex `\b`/`\d`/`\w` are ASCII while Android's ICU regex is
      Unicode — spell classes out (see `AnswerKey.kt`).
-3. **Data**: call the same endpoints the web client calls, via `data/Api.kt`
-   (`ignoreUnknownKeys`; decode only the fields you use). Study-path data must work
-   offline: store it in Room (`data/Db.kt`) and sync it in `data/Repository.kt`.
-   **Schema changes need a real Room `Migration`** and a version bump — never
-   `fallbackToDestructiveMigration`: the database holds unsynced review events.
+3. **Data**: call the same endpoints the web client calls, as extension functions in
+   your own `data/api/<Feature>Api.kt` on the generic helpers in `data/api/Http.kt`
+   (`api.get<T>(path)`, `post<B, T>(path, body)`, `put`, `patch`, `delete`, multipart
+   `upload`; `ignoreUnknownKeys`, so DTOs declare only the fields you use; failures →
+   `e.userMessage()` in an `InlineNotice`). Offline:
+   - **Read data** → `JsonCache` (`app.cache.put/get/observe`, key `"<feature>/<thing>"`),
+     filled by a `FeatureSync` you register with ONE line in `data/platform/FeatureSyncs.kt`
+     (it runs after every core sync; throttle with `cache.isFresh`). Screens use
+     `app.cachedResource(scope, key, kind) { … }` + `LoadableContent`.
+   - **Writes** → `app.outbox.enqueueJson(kind, method, path, body, id = clientId)` or
+     `enqueueUpload(…)` for recordings; drained in order on sync and by `SyncWorker`
+     (call `app.scheduleBackgroundUpload()`). Only for idempotent endpoints with a client id.
+   - Room tables (`data/Db.kt`) only for the core study mirror. **Schema changes need a
+     real Room `Migration`** (`data/Migrations.kt`, extend `MigrationTest`) and a version
+     bump — never `fallbackToDestructiveMigration`: the database holds unsynced review events.
    Writes the web app makes through the content service go through the same API
    routes; never add server behaviour that only the Lab app uses without also
    documenting it in the worker (and CLAUDE.md).
    Review events stay the source of truth: card state is always
    `CardScheduler.computeCardState(events)`.
-4. **UI**: Compose; a stateless `FooScreen(ui, actions)` plus a ViewModel, so screens
-   render in screenshot tests. Use `LabTheme` / `Lab.colors` / `Palette` (rating and
-   queue colours match the web). Design for the Pixel Fold: phone 412dp wide and an
-   unfolded two-pane layout ≥ 640dp. 44dp+ touch targets. Feedback matters here —
-   springs for motion, `Haptics` and `Sounds` for moments that should feel good.
-5. **Things the Lab app doesn't have yet** open the main app at the matching route
-   (`MainActivity.openInMainApp("/route")`), never a dead end.
+4. **Routes**: the Lab app navigates by the web's own paths. Put your screens in
+   `ui/<feature>/<Feature>Nav.kt`:
+   `fun NavGraphBuilder.<feature>Graph(nav: LabNav) { composable(Routes.route("/readers/{id}")) { … } }`
+   (same shape as the web route; query args declared as `"/coach?text={text}"`), add ONE
+   line to `ui/nav/FeatureGraphs.kt`, and navigate with `nav.open(Routes.reader(id))` /
+   `nav.back()`. Until a path is registered it opens the placeholder (→ main app), so links
+   written now keep working. Tab bar, active tab and immersive routes follow the web rules
+   (`ui/nav/NavRules.kt`) — don't hide/show the bar yourself. Role-dependent screens read
+   `nav.shell` (`NavRole`).
+5. **UI**: Compose with the kit (`docs/UI_KIT.md`: `LabScreen`, `NavRow`, `InlineNotice`,
+   `LoadableContent`, `LabBottomSheet`, `PrimaryPill`, `bouncyClickable`…); a stateless
+   `FooScreen(ui, actions)` plus a ViewModel, so screens render in screenshot tests. Use
+   `LabTheme` / `Lab.colors` / `Palette` (rating and queue colours match the web). Design
+   for the Pixel Fold: phone 412dp wide and an unfolded layout ≥ 640dp. 44dp+ touch
+   targets. Feedback matters — springs for motion, `Haptics` and `Sounds` for moments that
+   should feel good. Keep the feel Jerome likes: instant, cached-first, no spinners when
+   something is cached.
+6. **Screenshots**: a test class extending `testing/LabScreenshotTest` in your own test
+   folder — `@Test fun list() = shoot("<feature>-01-list") { FooScreen(sample, FooActions()) }`
+   (`shootInShell(…)` adds the tab bar; `@Config(qualifiers = LabScreenshotTest.UNFOLDED)`).
+7. **Parity vectors for a new `shared/` port**: `parity/fixtures/<feature>.ts` +
+   `core/src/test/…/<Feature>ParityTest.kt` (see `parity/fixtures/README.md`) — never edit
+   another package's generator.
+8. **Things the Lab app doesn't have yet** stay reachable: `nav.open(path)` shows the
+   placeholder, `nav.openOrHandoff(path)` goes straight to the main app for inline links.
+
+### Shared files — minimal, append-only edits
+
+`ui/nav/FeatureGraphs.kt` and `data/platform/FeatureSyncs.kt` (one line each),
+`ui/nav/Routes.kt` (a missing helper), `ui/more/MoreExtraRows.kt` (a More → Lab app row),
+`testing/Samples.kt` (sample data), a NEW file in `ui/kit/` for a new shared piece.
+Don't restructure them. Owned by one agent at a time: `data/Db.kt` / `Migrations.kt` /
+`schemas/`, the sync loop in `data/Repository.kt` and the sync calls in `data/Api.kt`,
+the `ui/nav/` shell internals, `parity/generate-fixtures.ts`. PARITY.md lists which package
+owns which folders.
 
 ## Verify before reporting done
 
@@ -89,8 +127,10 @@ into `docs/pr-screenshots/<branch>/` with a README (see CLAUDE.md).
 
 ## Fanning out over the backlog
 
-When asked to bring the Lab app to parity in bulk, split PARITY.md's ⬜ rows into
-independent chunks by the files they own, one subagent (own worktree) per chunk.
-Serialise anything touching `data/Db.kt` (schema version + migrations) or the
+PARITY.md is already split into work packages **A–J**, each with the folders it owns and
+its web sources. Give each package to one subagent (own worktree, own branch), with the
+brief above plus "you are package <X>; stay inside its folders; shared files get one-line
+edits only". Serialise anything touching `data/Db.kt` (schema version + migrations) or the
 `Repository` sync loop — give those to one agent, or land them first. Each agent follows
-this skill in full; review and merge them one at a time, re-running the verification.
+this skill in full; merge them one at a time (conflicts in the registries are one-line —
+keep both), re-running the verification.

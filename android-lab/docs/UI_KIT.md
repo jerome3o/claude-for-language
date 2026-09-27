@@ -1,0 +1,62 @@
+# Lab UI kit
+
+Shared Compose pieces in `app/src/main/java/…/lab/ui/kit/`. Use them so every screen
+feels like the study screen Jerome likes ("so fast and slick"): warm paper background,
+rounded cards, springy presses, inline notices instead of alerts. Colours come from
+`Lab.colors` (theme tokens, light + dark) and `Palette` (the web's rating / queue colours).
+
+**Adding to the kit**: put a new shared piece in a NEW file under `ui/kit/` (e.g.
+`kit/Progress.kt`) rather than editing an existing kit file another package may be
+touching, and add a line to the table below.
+
+| Piece | File | Use it for |
+|---|---|---|
+| `LabScreen(title, onBack?, subtitle?, actions) { items… }` | `Scaffold.kt` | Every list-shaped screen: title row, ← back, insets, keyboard, 720dp max width on the unfolded Fold. Body is a `LazyColumn` scope. |
+| `LabScreenFrame { }` + `ScreenTitle(…)` | `Scaffold.kt` | Screens that lay out their own body (players, editors, two-pane ≥ 640dp). |
+| `SectionHeader(title)` | `Rows.kt` | Muted group heading. |
+| `LabCard { }` + `RowDivider()` | `Rows.kt` | A rounded group of rows. |
+| `NavSection(title, rows = listOf({ … }, …))` | `Rows.kt` | Header + card + dividers in one call (the More page groups). |
+| `NavRow(icon, label, desc?, badge?, danger?, external?, trailing?, onClick?)` | `Rows.kt` | The 56dp row: emoji · label + one line · chevron (↗ when it opens the main app). |
+| `ToggleRow(icon, label, checked, desc?) { }` | `Rows.kt` | Settings switches (whole row toggles). |
+| `CountBadge(text)` / `StatusPill(text, color)` | `Rows.kt`, `States.kt` | Unread counts; "due today" / "overdue" labels. |
+| `PrimaryPill(label, modifier, enabled?, color?) { }` | `Buttons.kt` | The one main action on a screen (accent, springy). Give it `.height(56.dp)`. |
+| `SecondaryPill(label, danger?) { }` | `Buttons.kt` | Quieter action next to a PrimaryPill. |
+| `Modifier.bouncyClickable { }` | `Buttons.kt` | Any big tappable surface (cards, hero tiles): sinks and springs back, no ripple. |
+| `LabChip(label, selected?) { }` / `ChipRow { }` | `Chips.kt` | Filters, quick actions (coach chips), choices. |
+| `InlineNotice(text, kind, actionLabel?, onAction?)` | `States.kt` | Every error / info / offline message in the flow — never a Toast or `AlertDialog` for a failure. Kinds: Info, Success, Warning, Error, Offline. |
+| `OfflineNotice(updatedAt?)` | `States.kt` | "You're offline — showing what's on this phone (from 2 h ago)". |
+| `LoadingState(text?)` / `EmptyState(emoji, title, body?, action?)` / `ErrorState(message, onRetry?)` | `States.kt` | Full-width states. Prefer cached data over a spinner. |
+| `LoadableContent(loadable, onRetry, isEmpty, empty) { data -> }` | `States.kt` | Renders a `Loadable<T>` from `app.cachedResource(…)`: cached data first, notice above it on failure/offline, spinner only when nothing is cached. |
+| `LabBottomSheet(onDismiss, title?) { rows }` | `Sheets.kt` | ⋯ menus, small forms (the web's bottom sheets). |
+| `ConfirmDialog(title, text, confirmLabel, onConfirm, onDismiss, danger?)` | `Sheets.kt` | Consequential actions (delete, sign out with unsynced work). |
+| `markdownLite(src)` / `MarkdownText(src)` | `Text.kt` | fun_facts, Claude answers, tutor notes (**bold**, bullets, line breaks). |
+| `ConfettiRain`, `SparkBurst`, `ShakeState` | `ui/fx/Effects.kt` | Celebrations, streak sparks, wrong-answer shake. |
+| `app.haptics.tick() / correct() / wrong() / celebrate()`, `app.sounds.play(Sfx.…)` | `fx/Haptics.kt`, `fx/Sounds.kt` | Feel. Every moment that should feel good gets a haptic; respect the toggles (they are checked inside). |
+| `PlaceholderScreen(path, onBack?) { openInMainApp }` | `ui/placeholder/` | A route whose native screen isn't built yet. |
+
+## Rules of thumb
+
+- **Stateless screen + ViewModel**: `FooScreen(ui: FooUi, actions: FooActions)` renders from a
+  data class; the ViewModel (or the `composable { }` block in your `<Feature>Nav.kt`) wires
+  it. That is what makes it screenshot-testable.
+- **Touch targets ≥ 44dp**, body text ≥ 16sp, phone first (412dp), then check the
+  unfolded width (841dp) — `LabScreen` caps the column at 720dp for you.
+- **Motion**: springs (`Spring.DampingRatioMediumBouncy`) for presses and pills, 150–250 ms
+  fades for content. Navigation transitions come from the shell — don't add your own.
+- **Offline**: render from Room / `JsonCache` first, refresh behind it, and say so with
+  `OfflineNotice` when the refresh couldn't run. Writes go through the `Outbox`.
+- **Copy**: reuse the web's words for the same feature (labels, empty states, errors).
+
+## Screenshots
+
+```kotlin
+class ReadersScreenshots : LabScreenshotTest() {
+    @Test fun list() = shoot("readers-01-list") { ReadersScreen(sampleUi, ReadersActions()) }
+    @Test fun inShell() = shootInShell("readers-02-tab", active = TabId.MORE) { ReadersScreen(sampleUi, ReadersActions()) }
+}
+```
+
+`app/src/test/…/lab/testing/LabScreenshotTest.kt` (`shoot`, `shootInShell`, `PHONE`,
+`UNFOLDED`, `dark = true`) and `Samples.kt` (real hanzi). Name shots `<feature>-NN-<state>`.
+`./gradlew :app:recordRoborazziDebug` writes `app/screenshots/*.png` — look at every one
+before you report, and copy the ones the PR needs into `docs/pr-screenshots/<dir>/`.

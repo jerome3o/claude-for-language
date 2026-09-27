@@ -16,6 +16,9 @@ import dev.jeromeswannack.chineselearning.lab.core.ComputedCardState
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.core.QueueDeck
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
+import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCacheEntity
+import dev.jeromeswannack.chineselearning.lab.data.platform.OutboxEntity
+import dev.jeromeswannack.chineselearning.lab.data.platform.PlatformDao
 
 /*
  * Local mirror of the account, like the web app's IndexedDB (frontend/src/db/database.ts).
@@ -88,7 +91,7 @@ data class CardEntity(
     )
 }
 
-@Entity(tableName = "review_events", indices = [Index("cardId"), Index("synced")])
+@Entity(tableName = "review_events", indices = [Index("cardId"), Index("synced"), Index(value = ["cardId", "reviewedAt"])])
 data class ReviewEventEntity(
     @PrimaryKey val id: String,
     val cardId: String,
@@ -190,15 +193,20 @@ interface LabDao {
 }
 
 @Database(
-    entities = [DeckEntity::class, NoteEntity::class, CardEntity::class, ReviewEventEntity::class, SentenceEntity::class, PendingDeletionEntity::class],
-    version = 1,
+    entities = [
+        DeckEntity::class, NoteEntity::class, CardEntity::class, ReviewEventEntity::class, SentenceEntity::class, PendingDeletionEntity::class,
+        // v2: generic feature tables (data/platform/) — features use these instead of new schema.
+        JsonCacheEntity::class, OutboxEntity::class,
+    ],
+    version = 2,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {
     abstract fun dao(): LabDao
+    abstract fun platform(): PlatformDao
 
     companion object {
         fun open(context: Context): LabDatabase =
-            Room.databaseBuilder(context, LabDatabase::class.java, "lab.db").build()
+            Room.databaseBuilder(context, LabDatabase::class.java, "lab.db").addMigrations(*LabMigrations.ALL).build()
     }
 }

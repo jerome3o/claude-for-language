@@ -7,6 +7,7 @@ import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
+import dev.jeromeswannack.chineselearning.lab.data.platform.LabPlatform
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +72,9 @@ data class SyncStatus(
  */
 class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs: Prefs) {
     val dao = db.dao()
+
+    /** Feature platform: JSON cache, outbox, per-feature sync steps (data/platform/). */
+    val platform = LabPlatform(db, api, context.filesDir)
     private val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
     private val syncMutex = Mutex()
     /** Review upload/download: pushEvents only waits for the events step, not a whole sync. */
@@ -142,6 +146,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                     withContext(NonCancellable) { clock.phase("Card states") { recompute(dirty, it) } }
                 }
                 clock.phase("Sentences") { syncSentences(it) }
+                clock.phase("Features") { platform.afterSync(full = forceFull) } // outbox drain + every feature's sync step
             }
             prefs.lastSyncAt = System.currentTimeMillis()
             val run = SyncRun(full, prefs.lastSyncAt, clock.totalMs(), true, clock.phases.toList())
@@ -181,7 +186,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
 
     private suspend fun refreshProfile() {
         val me = api.me()
-        prefs.userName = me.name
+        prefs.saveProfile(me)
         prefs.budget = StudyBudget(me.new_cards_per_day.coerceIn(0, StudyBudget.MAX), me.secondary_cards_per_day.coerceIn(0, StudyBudget.MAX))
     }
 
@@ -477,6 +482,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         db.clearAllTables()
         prefs.clearAccount()
         audioDir.listFiles()?.forEach { it.delete() }
+        platform.clearFiles()
         _status.value = SyncStatus()
         _dataVersion.update { it + 1 }
     }

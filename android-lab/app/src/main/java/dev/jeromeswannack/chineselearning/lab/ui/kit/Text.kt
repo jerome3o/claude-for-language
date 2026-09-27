@@ -1,9 +1,16 @@
-package dev.jeromeswannack.chineselearning.lab.ui.study
+package dev.jeromeswannack.chineselearning.lab.ui.kit
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /** The little Markdown fun_facts use: **bold**, `- ` bullets, line breaks. */
 fun markdownLite(src: String): AnnotatedString = buildAnnotatedString {
@@ -29,4 +36,15 @@ fun markdownLite(src: String): AnnotatedString = buildAnnotatedString {
         }
         if (i < lines.size - 1) append('\n')
     }
+}
+
+/** [markdownLite] as a Text: fun facts, Claude answers, tutor notes. */
+@Composable
+fun MarkdownText(
+    src: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    color: Color = Lab.colors.ink,
+) {
+    Text(markdownLite(src), modifier = modifier, style = style, color = color)
 }

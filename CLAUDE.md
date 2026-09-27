@@ -152,8 +152,9 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 ├── android-lab/           # Experimental PURE-NATIVE Android app (Kotlin + Compose), beside the hybrid app — see android-lab/README.md
 │   ├── core/              # Pure Kotlin ports: FSRS (ts-fsrs), budget, study queue, answer check — parity-tested against the TS
 │   ├── parity/            # generate-fixtures.ts: runs the web app's TypeScript to make the golden vectors
-│   ├── app/               # Android app: Room mirror + sync (same API), Compose UI, haptics/sounds
-│   └── PARITY.md          # Feature-by-feature parity checklist with the web app
+│   ├── app/               # Android app: Room mirror + sync (same API), Compose UI, haptics/sounds; ui/nav = web tab bar + routes by web path (FeatureGraphs registry), data/platform = JsonCache + Outbox
+│   ├── docs/UI_KIT.md     # Shared Compose pieces + screenshot helper
+│   └── PARITY.md          # Parity checklist, split into work packages A–J with file ownership
 │
 ├── native/                # Capacitor Android wrapper (see native/README.md)
 │   ├── capacitor.config.json  # Remote server.url points at the deployed PWA
@@ -1002,7 +1003,7 @@ would get, per-deck caps / introduced today / pools / allocation / counts, compa
 `[card_id, note_id, deck_id, card_type, queue, due_ms, reps, lapses, event_count, in_due_queue,
 first_review_ms]` and every event id as an 8-hex FNV-1a `eventIdHash` (same vectors tested in TS and
 Kotlin). Uploaded after a sync at most every 30 min, and on demand: web **Settings → Advanced → Send
-debug report**, Lab **home ⚙ → Send debug report**. `compareDebugReports` (pure, unit-tested) diffs two
+debug report**, Lab **More → Lab app → Send debug report**. `compareDebugReports` (pure, unit-tested) diffs two
 reports plus the server's own `review_events` (which side is missing events / holds unuploaded ones).
 - `POST /api/debug/reports` - `{ client: 'lab'|'web', app_version, install_kind?, report }`, JSON or gzip (`Content-Type: application/gzip`) → 201 `{ report: row }`
 - `GET /api/debug/reports?client=&limit=` - index rows newest first (with `summary`)

@@ -42,6 +42,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="chineselearning-lab" android:host="auth" />
             </intent-filter>
+            <!-- Deep links to web routes: chineselearning-lab:///decks/abc → that screen (ui/nav/LabNav.open). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="chineselearning-lab" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

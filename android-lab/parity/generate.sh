@@ -10,3 +10,13 @@ trap 'rm -rf "$tmp"' EXIT
 "$root/node_modules/.bin/esbuild" "$here/generate-fixtures.ts" --bundle --platform=node --format=esm \
   --outfile="$tmp/generate.mjs" --log-level=warning
 TZ=UTC node "$tmp/generate.mjs" "$out"
+
+# One generator per feature package (parity/fixtures/<feature>.ts, each writing its own
+# <feature>*.json), so packages add golden vectors without touching generate-fixtures.ts.
+for f in "$here"/fixtures/*.ts; do
+  [ -e "$f" ] || continue
+  name="$(basename "$f" .ts)"
+  "$root/node_modules/.bin/esbuild" "$f" --bundle --platform=node --format=esm \
+    --outfile="$tmp/$name.mjs" --log-level=warning
+  TZ=UTC node "$tmp/$name.mjs" "$out"
+done

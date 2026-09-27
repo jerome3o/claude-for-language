@@ -11,6 +11,11 @@ import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
 import dev.jeromeswannack.chineselearning.lab.data.Prefs
 import dev.jeromeswannack.chineselearning.lab.data.Repository
 import dev.jeromeswannack.chineselearning.lab.data.SyncWorker
+import dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource
+import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSyncs
+import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
+import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
+import kotlinx.serialization.serializer
 import dev.jeromeswannack.chineselearning.lab.fx.Haptics
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.fx.WordAudio
@@ -31,6 +36,19 @@ class LabApp : Application() {
     lateinit var debugReports: DebugReporter
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Offline store for feature data (data/platform/JsonCache.kt). */
+    val cache: JsonCache get() = repo.platform.cache
+
+    /** Offline writes, replayed in order during sync (data/platform/Outbox.kt). */
+    val outbox: Outbox get() = repo.platform.outbox
+
+    /**
+     * Cache-first server data for a ViewModel (data/platform/CachedResource.kt):
+     *   val readers = app.cachedResource<List<ReaderDto>>(viewModelScope, "readers/list", "readers") { readers() }
+     */
+    inline fun <reified T> cachedResource(scope: CoroutineScope, key: String, kind: String, maxAgeMs: Long = 0, noinline fetch: suspend Api.() -> T): CachedResource<T> =
+        CachedResource(scope, cache, key, kind, cache.json.serializersModule.serializer<T>(), maxAgeMs, online = { online.value }) { repo.api.fetch() }
+
     private val _online = MutableStateFlow(true)
     val online: StateFlow<Boolean> = _online
 
@@ -41,6 +59,7 @@ class LabApp : Application() {
         sounds = Sounds(this) { prefs.soundOn }
         haptics = Haptics(this) { prefs.hapticsOn }
         audio = WordAudio(this, repo)
+        FeatureSyncs.registerAll(repo.platform)
         debugReports = DebugReporter(this, repo, appVersion())
         watchNetwork()
         uploadDebugReportsAfterSync()

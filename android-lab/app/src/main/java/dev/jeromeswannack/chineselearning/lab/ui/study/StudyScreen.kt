@@ -74,6 +74,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
 import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 
 class StudyActions(
     val onClose: () -> Unit = {},
@@ -258,7 +259,7 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
             }
             Spacer(Modifier.height(28.dp))
             if (ui.hasMoreNew) {
-                PrimaryPill("Study 10 more new words", Modifier.fillMaxWidth().height(58.dp), actions.onStudyMore)
+                PrimaryPill("Study 10 more new words", Modifier.fillMaxWidth().height(58.dp), onClick = actions.onStudyMore)
                 Spacer(Modifier.height(10.dp))
             }
             if (ui.canUndo) TextButton(onClick = actions.onUndo) { Text("↺ Undo last review", color = Lab.colors.muted) }

@@ -28,9 +28,9 @@ val parityDir = layout.buildDirectory.dir("parity")
 val generateParityFixtures by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
     inputs.file(rootProject.file("parity/generate-fixtures.ts"))
-    inputs.dir(File(repoRoot, "shared/scheduler"))
-    inputs.dir(File(repoRoot, "shared/decks"))
-    inputs.file(File(repoRoot, "frontend/src/utils/numberHanzi.ts"))
+    inputs.dir(rootProject.file("parity/fixtures")) // per-package generators (see parity/fixtures/README.md)
+    inputs.dir(File(repoRoot, "shared"))
+    inputs.dir(File(repoRoot, "frontend/src/utils"))
     outputs.dir(parityDir)
     commandLine("bash", rootProject.file("parity/generate.sh").absolutePath, parityDir.get().asFile.absolutePath)
 }
