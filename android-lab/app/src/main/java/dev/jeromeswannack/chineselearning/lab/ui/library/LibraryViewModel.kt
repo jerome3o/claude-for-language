@@ -9,7 +9,7 @@ import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.HttpException
 import dev.jeromeswannack.chineselearning.lab.data.api.LibraryAssignmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemDto
-import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
+import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummary
 import dev.jeromeswannack.chineselearning.lab.data.api.archiveLibraryItem
 import dev.jeromeswannack.chineselearning.lab.data.api.createLibraryItem
 import dev.jeromeswannack.chineselearning.lab.data.api.duplicateLibraryItem
@@ -141,7 +141,7 @@ object LibraryText {
 
     fun plural(n: Int, word: String, many: String = word + "s") = "$n ${if (n == 1) word else many}"
 
-    fun meta(item: LibraryItemSummaryDto): String =
+    fun meta(item: LibraryItemSummary): String =
         "${plural(item.exercise_count, "exercise")} · " +
             (if (item.assignment_count == 0) "not assigned" else "assigned to ${plural(item.assignment_count, "student")}") +
             " · updated ${shortDate(item.updated_at)}"
@@ -193,13 +193,13 @@ data class NewLessonUi(
 // ============================ Library list ============================
 
 data class LibraryUi(
-    val list: Loadable<List<LibraryItemSummaryDto>> = Loadable(loading = true),
+    val list: Loadable<List<LibraryItemSummary>> = Loadable(loading = true),
     val notice: Notice? = null,
     val newLesson: NewLessonUi? = null,
     val pageMenu: Boolean = false,
     /** The card whose ⋯ sheet is open. */
-    val menuFor: LibraryItemSummaryDto? = null,
-    val confirmArchive: LibraryItemSummaryDto? = null,
+    val menuFor: LibraryItemSummary? = null,
+    val confirmArchive: LibraryItemSummary? = null,
     val assign: AssignUi? = null,
     /** An item with a duplicate / export / archive in flight (its buttons dim). */
     val busyItemId: String? = null,
@@ -209,8 +209,8 @@ private data class LibraryLocal(
     val notice: Notice? = null,
     val newLesson: NewLessonUi? = null,
     val pageMenu: Boolean = false,
-    val menuFor: LibraryItemSummaryDto? = null,
-    val confirmArchive: LibraryItemSummaryDto? = null,
+    val menuFor: LibraryItemSummary? = null,
+    val confirmArchive: LibraryItemSummary? = null,
     val busyItemId: String? = null,
 )
 
@@ -253,8 +253,8 @@ abstract class LibraryModelBase(protected val scope: CoroutineScope, protected v
 }
 
 class LibraryModel(scope: CoroutineScope, deps: LibraryDeps) : LibraryModelBase(scope, deps) {
-    val list: CachedResource<List<LibraryItemSummaryDto>> = CachedResource(
-        scope, deps.cache, LibraryKeys.LIST, LibraryKeys.KIND, ListSerializer(LibraryItemSummaryDto.serializer()), online = deps.online,
+    val list: CachedResource<List<LibraryItemSummary>> = CachedResource(
+        scope, deps.cache, LibraryKeys.LIST, LibraryKeys.KIND, ListSerializer(LibraryItemSummary.serializer()), online = deps.online,
     ) { deps.api.libraryItems() }
 
     private val local = MutableStateFlow(LibraryLocal())
@@ -369,33 +369,33 @@ class LibraryModel(scope: CoroutineScope, deps: LibraryDeps) : LibraryModelBase(
     }
 
     // ---- per-card actions ----
-    fun openMenu(item: LibraryItemSummaryDto) { deps.feel.tick(); local.update { it.copy(menuFor = item) } }
+    fun openMenu(item: LibraryItemSummary) { deps.feel.tick(); local.update { it.copy(menuFor = item) } }
     fun closeMenu() = local.update { it.copy(menuFor = null) }
 
-    fun edit(item: LibraryItemSummaryDto) = emit(LibraryEffect.Open(Routes.libraryEdit(item.id)))
-    fun openItem(item: LibraryItemSummaryDto) = emit(LibraryEffect.Open(Routes.libraryItem(item.id)))
-    fun assign(item: LibraryItemSummaryDto) { deps.feel.tick(); assign.open(item.id, item.title) }
-    fun anki(item: LibraryItemSummaryDto) { closeMenu(); emit(LibraryEffect.OpenInMainApp(Routes.libraryItem(item.id))) }
+    fun edit(item: LibraryItemSummary) = emit(LibraryEffect.Open(Routes.libraryEdit(item.id)))
+    fun openItem(item: LibraryItemSummary) = emit(LibraryEffect.Open(Routes.libraryItem(item.id)))
+    fun assign(item: LibraryItemSummary) { deps.feel.tick(); assign.open(item.id, item.title) }
+    fun anki(item: LibraryItemSummary) { closeMenu(); emit(LibraryEffect.OpenInMainApp(Routes.libraryItem(item.id))) }
 
-    fun duplicate(item: LibraryItemSummaryDto) = withItem(item, "Could not duplicate") {
+    fun duplicate(item: LibraryItemSummary) = withItem(item, "Could not duplicate") {
         val copy = deps.api.duplicateLibraryItem(item.id)
         list.refresh()
         emit(LibraryEffect.Open(Routes.libraryEdit(copy.id)))
     }
 
-    fun export(item: LibraryItemSummaryDto, format: ExportFormat, save: Boolean) = withItem(item, "Export failed") {
+    fun export(item: LibraryItemSummary, format: ExportFormat, save: Boolean) = withItem(item, "Export failed") {
         exportEffect(fullItem(item.id).spec, format, save)
     }
 
-    fun print(item: LibraryItemSummaryDto) = withItem(item, "Export failed") {
+    fun print(item: LibraryItemSummary) = withItem(item, "Export failed") {
         val full = fullItem(item.id)
         printEffect(full.title, full.spec)
     }
 
-    fun askArchive(item: LibraryItemSummaryDto) = local.update { it.copy(menuFor = null, confirmArchive = item) }
+    fun askArchive(item: LibraryItemSummary) = local.update { it.copy(menuFor = null, confirmArchive = item) }
     fun cancelArchive() = local.update { it.copy(confirmArchive = null) }
 
-    fun archive(item: LibraryItemSummaryDto) {
+    fun archive(item: LibraryItemSummary) {
         local.update { it.copy(confirmArchive = null) }
         withItem(item, "Could not archive") {
             deps.api.archiveLibraryItem(item.id)
@@ -405,7 +405,7 @@ class LibraryModel(scope: CoroutineScope, deps: LibraryDeps) : LibraryModelBase(
         }
     }
 
-    private fun withItem(item: LibraryItemSummaryDto, fallback: String, block: suspend () -> Unit) {
+    private fun withItem(item: LibraryItemSummary, fallback: String, block: suspend () -> Unit) {
         local.update { it.copy(menuFor = null, busyItemId = item.id) }
         scope.launch {
             try {
@@ -453,7 +453,7 @@ class LibraryItemModel(scope: CoroutineScope, deps: LibraryDeps, val id: String)
         assignments.refresh()
         // The list's "assigned to N" changed: refresh it behind the scenes.
         scope.launch {
-            runCatching { deps.cache.put(LibraryKeys.LIST, LibraryKeys.KIND, deps.api.libraryItems(), ListSerializer(LibraryItemSummaryDto.serializer())) }
+            runCatching { deps.cache.put(LibraryKeys.LIST, LibraryKeys.KIND, deps.api.libraryItems(), ListSerializer(LibraryItemSummary.serializer())) }
         }
     }
 

@@ -4,7 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
-import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
+import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummary
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.ui.catalogue.CatalogueModel
@@ -87,7 +87,7 @@ class LibraryModelTest {
         val model = LibraryModel(scope, deps)
         val ui = await(model.ui) { it.list.data != null }
         assertEquals(listOf("lib1", "lib2"), ui.list.data!!.map { it.id })
-        assertEquals(2, deps.cache.get(LibraryKeys.LIST, ListSerializer(LibraryItemSummaryDto.serializer()))!!.size)
+        assertEquals(2, deps.cache.get(LibraryKeys.LIST, ListSerializer(LibraryItemSummary.serializer()))!!.size)
     }
 
     @Test fun longTermAssignUsesTheLibraryEndpointAndTheWebMessage() = runBlocking {

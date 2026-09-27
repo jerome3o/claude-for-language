@@ -33,7 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
+import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummary
 import dev.jeromeswannack.chineselearning.lab.ui.editor.ExportFormat
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
@@ -60,17 +60,17 @@ data class LibraryActions(
     val onImport: () -> Unit = {},
     val onMyLessons: () -> Unit = {},
     val onCatalogue: () -> Unit = {},
-    val onOpen: (LibraryItemSummaryDto) -> Unit = {},
-    val onEdit: (LibraryItemSummaryDto) -> Unit = {},
-    val onAssign: (LibraryItemSummaryDto) -> Unit = {},
-    val onMenu: (LibraryItemSummaryDto) -> Unit = {},
+    val onOpen: (LibraryItemSummary) -> Unit = {},
+    val onEdit: (LibraryItemSummary) -> Unit = {},
+    val onAssign: (LibraryItemSummary) -> Unit = {},
+    val onMenu: (LibraryItemSummary) -> Unit = {},
     val onCloseMenu: () -> Unit = {},
-    val onDuplicate: (LibraryItemSummaryDto) -> Unit = {},
-    val onExport: (LibraryItemSummaryDto, ExportFormat, Boolean) -> Unit = { _, _, _ -> },
-    val onPrint: (LibraryItemSummaryDto) -> Unit = {},
-    val onAnki: (LibraryItemSummaryDto) -> Unit = {},
-    val onArchive: (LibraryItemSummaryDto) -> Unit = {},
-    val onConfirmArchive: (LibraryItemSummaryDto) -> Unit = {},
+    val onDuplicate: (LibraryItemSummary) -> Unit = {},
+    val onExport: (LibraryItemSummary, ExportFormat, Boolean) -> Unit = { _, _, _ -> },
+    val onPrint: (LibraryItemSummary) -> Unit = {},
+    val onAnki: (LibraryItemSummary) -> Unit = {},
+    val onArchive: (LibraryItemSummary) -> Unit = {},
+    val onConfirmArchive: (LibraryItemSummary) -> Unit = {},
     val onCancelArchive: () -> Unit = {},
     val onDismissNotice: () -> Unit = {},
     val newLesson: NewLessonActions = NewLessonActions(),
@@ -168,7 +168,7 @@ internal fun MoreButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun LibraryCard(item: LibraryItemSummaryDto, busy: Boolean, actions: LibraryActions) {
+private fun LibraryCard(item: LibraryItemSummary, busy: Boolean, actions: LibraryActions) {
     LabCard(Modifier.alpha(if (busy) 0.6f else 1f)) {
         Row(
             Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.98f) { actions.onOpen(item) }.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp),
@@ -215,7 +215,7 @@ internal fun TagPill(tag: String) {
 }
 
 @Composable
-private fun ItemMenuSheet(item: LibraryItemSummaryDto, actions: LibraryActions) {
+private fun ItemMenuSheet(item: LibraryItemSummary, actions: LibraryActions) {
     LabBottomSheet(onDismiss = actions.onCloseMenu, title = item.title) {
         NavRow("⧉", "Duplicate", desc = "The copy opens in the editor", onClick = { actions.onDuplicate(item) })
         RowDivider()

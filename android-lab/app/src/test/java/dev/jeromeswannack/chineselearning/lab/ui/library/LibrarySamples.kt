@@ -4,7 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.core.spec.LessonCatalogue
 import dev.jeromeswannack.chineselearning.lab.data.api.LastScoreDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LibraryAssignmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemDto
-import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
+import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummary
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.UserSummaryDto
@@ -16,15 +16,15 @@ import java.time.LocalDate
 /** Realistic library data for the library / catalogue tests (real hanzi). */
 object LibrarySamples {
     val items = listOf(
-        LibraryItemSummaryDto(
+        LibraryItemSummary(
             "lib1", "把 sentences in the kitchen", "Word order with 把 and kitchen verbs: 切、洗、放、打开", "🍳",
             listOf("grammar", "HSK 3"), 3, "2026-09-01 10:00:00", "2026-09-27 09:30:00", 2, 8,
         ),
-        LibraryItemSummaryDto(
+        LibraryItemSummary(
             "lib2", "Checking in at a hotel", "A conversation lesson: 我预订了一个双人间。", "🏨",
             listOf("conversation"), 1, "2026-09-20 18:00:00", "2026-09-24T08:15:00Z", 0, 3,
         ),
-        LibraryItemSummaryDto(
+        LibraryItemSummary(
             "lib3", "Tones: 买 or 卖?", null, "👂",
             emptyList(), 2, "2026-08-02 10:00:00", "2026-08-30 12:00:00", 1, 1,
         ),

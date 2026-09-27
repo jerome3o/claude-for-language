@@ -12,7 +12,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.core.spec.SampleLesson
-import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
+import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummary
 import dev.jeromeswannack.chineselearning.lab.data.api.createLibraryItem
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.ui.library.LibraryDeps
@@ -79,9 +79,9 @@ class CatalogueModel(private val scope: CoroutineScope, private val deps: Librar
                 val item = deps.api.createLibraryItem(sample.spec)
                 // The library list shows it straight away (its next refresh fills in the counts).
                 runCatching {
-                    val ser = ListSerializer(LibraryItemSummaryDto.serializer())
+                    val ser = ListSerializer(LibraryItemSummary.serializer())
                     deps.cache.get(LibraryKeys.LIST, ser)?.let { list ->
-                        val row = LibraryItemSummaryDto(item.id, item.title, item.description, item.icon, item.tags, item.version, item.created_at, item.updated_at, 0, item.spec.let { dev.jeromeswannack.chineselearning.lab.ui.library.LibraryText.exerciseCount(it) })
+                        val row = LibraryItemSummary(item.id, item.title, item.description, item.icon, item.tags, item.version, item.created_at, item.updated_at, 0, item.spec.let { dev.jeromeswannack.chineselearning.lab.ui.library.LibraryText.exerciseCount(it) })
                         deps.cache.put(LibraryKeys.LIST, LibraryKeys.KIND, listOf(row) + list.filter { it.id != item.id }, ser)
                     }
                 }

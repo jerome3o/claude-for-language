@@ -1,6 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.library
 
-import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
+import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummary
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.libraryItems
 import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSync
@@ -23,6 +23,6 @@ object LibrarySync : FeatureSync {
         val seen = ctx.cache.entry(LibraryKeys.LIST) != null
         if (!teaches && !seen) return
         if (!ctx.full && ctx.cache.isFresh(LibraryKeys.LIST, MAX_AGE_MS)) return
-        ctx.cache.put(LibraryKeys.LIST, LibraryKeys.KIND, ctx.api.libraryItems(), ListSerializer(LibraryItemSummaryDto.serializer()))
+        ctx.cache.put(LibraryKeys.LIST, LibraryKeys.KIND, ctx.api.libraryItems(), ListSerializer(LibraryItemSummary.serializer()))
     }
 }

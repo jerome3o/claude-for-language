@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonObject
 // Specs travel as JSON trees (core/…/spec): the editor and exports work on the same value the web holds.
 
 @Serializable
-data class LibraryItemSummaryDto(
+data class LibraryItemSummary(
     val id: String,
     val title: String = "",
     val description: String? = null,
@@ -38,7 +38,7 @@ data class LibraryItemDto(
 )
 
 @Serializable
-data class LibraryListDto(val items: List<LibraryItemSummaryDto> = emptyList())
+data class LibraryItemsListDto(val items: List<LibraryItemSummary> = emptyList())
 
 @Serializable
 data class LastScoreDto(val correct: Int = 0, val total: Int = 0)
@@ -76,10 +76,10 @@ data class PushUpdateResultDto(val updated: Int = 0, val skipped: Int = 0, val i
 @Serializable private data class SpecBody(val spec: JsonElement, val tags: List<String>? = null)
 @Serializable private data class GenerateInner(val prompt: String)
 @Serializable private data class GenerateBody(val generate: GenerateInner)
-@Serializable private data class AssignBody(val relationship_ids: List<String>)
+@Serializable private data class LibraryAssignBody(val relationship_ids: List<String>)
 @Serializable private data class PushBody(val relationship_ids: List<String>? = null)
 
-suspend fun Api.libraryItems(): List<LibraryItemSummaryDto> = get<LibraryListDto>("/api/lesson-library").items
+suspend fun Api.libraryItems(): List<LibraryItemSummary> = get<LibraryItemsListDto>("/api/lesson-library").items
 
 suspend fun Api.libraryItem(id: String): LibraryItemDto = get("/api/lesson-library/${enc(id)}")
 
@@ -98,7 +98,7 @@ suspend fun Api.archiveLibraryItem(id: String) { delete<JsonElement>("/api/lesso
 suspend fun Api.duplicateLibraryItem(id: String): LibraryItemDto = post("/api/lesson-library/${enc(id)}/duplicate")
 
 suspend fun Api.assignLibraryItem(id: String, relationshipIds: List<String>): AssignResultDto =
-    post("/api/lesson-library/${enc(id)}/assign", AssignBody(relationshipIds))
+    post("/api/lesson-library/${enc(id)}/assign", LibraryAssignBody(relationshipIds))
 
 suspend fun Api.libraryAssignments(id: String): List<LibraryAssignmentDto> =
     get<LibraryAssignmentsDto>("/api/lesson-library/${enc(id)}/assignments").assignments
