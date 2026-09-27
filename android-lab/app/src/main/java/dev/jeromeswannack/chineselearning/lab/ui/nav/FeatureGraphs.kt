@@ -4,6 +4,7 @@ import androidx.navigation.NavGraphBuilder
 import dev.jeromeswannack.chineselearning.lab.ui.connections.connectionsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.decks.decksGraph
 import dev.jeromeswannack.chineselearning.lab.ui.home.homeGraph
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.lessonsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.library.libraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.more.moreGraph
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.placeholderGraph
@@ -24,6 +25,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     connectionsGraph(nav)   // "/connections" E (+ F dashboard)
     libraryGraph(nav)       // "/library"     G
     moreGraph(nav)          // "/more"        shell
+    lessonsGraph(nav)       // "/lessons", "/lesson-attempts"  B
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }
