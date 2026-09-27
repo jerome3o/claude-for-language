@@ -8,6 +8,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.library.libraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.more.moreGraph
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.placeholderGraph
 import dev.jeromeswannack.chineselearning.lab.ui.progress.progressGraph
+import dev.jeromeswannack.chineselearning.lab.ui.settings.settingsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.study.studyGraph
 
 /**
@@ -24,6 +25,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     connectionsGraph(nav)   // "/connections" E (+ F dashboard)
     libraryGraph(nav)       // "/library"     G
     moreGraph(nav)          // "/more"        shell
+    settingsGraph(nav)      // "/settings"   D
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }
