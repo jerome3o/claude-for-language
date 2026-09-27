@@ -16,6 +16,7 @@ import {
   type StudentUserRow,
 } from '../tutor-dashboard';
 import { rankStruggling, listRecordings, type InsightReviewRow } from '../insights';
+import { dropGhostShares } from '../../db/tutor-dashboard-queries';
 
 const NOW = new Date('2026-09-18T10:00:00Z');
 
@@ -385,5 +386,22 @@ describe('parseTzOffset', () => {
     expect(parseTzOffset('abc')).toBe(0);
     expect(parseTzOffset('-480')).toBe(-480);
     expect(parseTzOffset('99999')).toBe(840);
+  });
+});
+
+describe('dropGhostShares (homework rows)', () => {
+  const base = {
+    shared_at: '2026-09-21', cards_total: 3, cards_started: 1, cards_mastered: 0, notes_missing: 0, notes_total: 1, notes_introduced: 1,
+  };
+  it('drops a share whose tutor deck and student copy are both gone, keeps the rest', () => {
+    const rows: HomeworkDeckInput[] = [
+      { ...base, shared_deck_id: 'ghost', source_deck_id: 's1', target_deck_id: 't1', source_deck_name: '(deleted)', target_deck_name: null },
+      { ...base, shared_deck_id: 'student-deleted', source_deck_id: 's2', target_deck_id: 't2', source_deck_name: 'Lesson 3', target_deck_name: null },
+      { ...base, shared_deck_id: 'tutor-deleted', source_deck_id: 's3', target_deck_id: 't3', source_deck_name: '(deleted)', target_deck_name: 'Lesson 8 (from tutor)' },
+    ];
+    const out = dropGhostShares(rows);
+    expect(out.map((r) => r.shared_deck_id)).toEqual(['student-deleted', 'tutor-deleted']);
+    expect(out[0]).toMatchObject({ cards_total: 0, notes_total: 0 });
+    expect(out[1]).toMatchObject({ cards_total: 3 });
   });
 });

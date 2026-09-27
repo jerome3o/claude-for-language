@@ -381,6 +381,8 @@ export interface SyncLogEntry {
     events_uploaded?: number;
     events_downloaded?: number;
     recordings_uploaded?: number;
+    /** Local decks the server no longer had (no tombstone) and the sync removed. */
+    ghost_decks_removed?: number;
   };
 }
 

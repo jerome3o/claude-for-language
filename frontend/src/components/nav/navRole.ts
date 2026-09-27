@@ -1,4 +1,4 @@
-import type { MyRelationships } from '../../types';
+import type { MyRelationships, UserRole } from '../../types';
 
 /**
  * What the navigation needs to know about the account. Derived, never stored:
@@ -18,6 +18,13 @@ export interface NavRole {
   isTutorOnly: boolean;
   /** False until the relationships have been fetched (or read from the cache). */
   loaded: boolean;
+  /**
+   * The account's role is `tutor` (users.role, set by the admin): the
+   * tutor-first app — Students · Decks · Library · More, opens on Students,
+   * no study nagging. Known from the signed-in user, so it never waits for
+   * relationships.
+   */
+  isTutorAccount: boolean;
 }
 
 export interface NavRoleInputs {
@@ -26,6 +33,8 @@ export interface NavRoleInputs {
   dueCount: number;
   /** While the local counts are still loading nobody is "tutor-only" (no tab flash). */
   countsLoading?: boolean;
+  /** users.role of the signed-in account. */
+  accountRole?: UserRole | null;
 }
 
 export const STUDENT_ROLE: NavRole = {
@@ -33,16 +42,20 @@ export const STUDENT_ROLE: NavRole = {
   hasTutor: false,
   isTutorOnly: false,
   loaded: false,
+  isTutorAccount: false,
 };
 
-export function deriveNavRole({ relationships, deckCount, dueCount, countsLoading }: NavRoleInputs): NavRole {
-  if (!relationships) return STUDENT_ROLE;
+export function deriveNavRole({ relationships, deckCount, dueCount, countsLoading, accountRole }: NavRoleInputs): NavRole {
+  const isTutorAccount = accountRole === 'tutor';
+  if (!relationships) return { ...STUDENT_ROLE, isTutorAccount };
   const hasStudents = relationships.students.some((r) => r.status === 'active');
   const hasTutor = relationships.tutors.some((r) => r.status === 'active');
   return {
     hasStudents,
     hasTutor,
-    isTutorOnly: hasStudents && !countsLoading && deckCount === 0 && dueCount === 0,
+    // A tutor account is tutor-first whatever its decks: those are homework it writes, not its own study.
+    isTutorOnly: isTutorAccount || (hasStudents && !countsLoading && deckCount === 0 && dueCount === 0),
     loaded: true,
+    isTutorAccount,
   };
 }

@@ -36,6 +36,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "@vitest/coverage-v8": "^4.0.17",
     "fake-indexeddb": "^6.2.5",
+    "hanzi-writer-data": "^2.0.1",
     "happy-dom": "^20.3.3",
     "msw": "^2.12.7",
     "typescript": "^5.4.5",

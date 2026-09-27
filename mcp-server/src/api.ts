@@ -114,7 +114,8 @@ export class ApiClient {
     return this.request<T>('PATCH', path, body ?? {});
   }
 
-  delete<T = unknown>(path: string): Promise<T> {
-    return this.request<T>('DELETE', path);
+  /** A body is optional (e.g. the admin account delete's `confirm_email`). */
+  delete<T = unknown>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>('DELETE', path, body);
   }
 }

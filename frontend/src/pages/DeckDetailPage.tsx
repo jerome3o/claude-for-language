@@ -1961,9 +1961,14 @@ export function DeckDetailPage() {
           <h1 className="mt-1">{deck.name}</h1>
           {deck.description && <p className="text-light mt-1">{deck.description}</p>}
           <div className="deck-primary-actions mt-3">
-            <Link to={`/study?deck=${id}&autostart=true`} className="btn btn-primary deck-study-btn">
-              {cardsDue > 0 ? `Study · ${cardsDue} due` : 'Study'}
-            </Link>
+            {user?.role === 'tutor' ? (
+              // A tutor account doesn't study its homework decks: it previews them, nothing recorded.
+              <Link to={`/decks/${id}/try`} className="btn btn-primary deck-study-btn">▶ Try it as a student</Link>
+            ) : (
+              <Link to={`/study?deck=${id}&autostart=true`} className="btn btn-primary deck-study-btn">
+                {cardsDue > 0 ? `Study · ${cardsDue} due` : 'Study'}
+              </Link>
+            )}
             <DeckOverflowMenu items={menuItems} />
           </div>
           <OneOffDeckBanner
