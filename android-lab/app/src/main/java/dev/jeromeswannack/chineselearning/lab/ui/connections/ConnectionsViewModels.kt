@@ -10,8 +10,8 @@ import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatQuestionDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.MyClaudeChatsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
@@ -20,8 +20,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSharedDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.acceptRelationship
 import dev.jeromeswannack.chineselearning.lab.data.api.cancelInvitation
-import dev.jeromeswannack.chineselearning.lab.data.api.cardFlags
-import dev.jeromeswannack.chineselearning.lab.data.api.conversations
+import dev.jeromeswannack.chineselearning.lab.data.api.myCardFlags
+import dev.jeromeswannack.chineselearning.lab.data.api.chatConversations
 import dev.jeromeswannack.chineselearning.lab.data.api.startConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.createLessonNote
 import dev.jeromeswannack.chineselearning.lab.data.api.createRelationship
@@ -102,8 +102,8 @@ class ConnectionsViewModel(private val app: LabApp) : ViewModel() {
 /** `/connections/:relId` seen by the student. Each part is cached, so the page opens offline. */
 class TutorPageViewModel(private val app: LabApp, private val relId: String) : ViewModel() {
     private val relationship = app.cachedResource<RelationshipDto>(viewModelScope, ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND) { relationship(relId) }
-    private val conversations = app.cachedResource<List<ConversationDto>>(viewModelScope, ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND) { conversations(relId) }
-    private val flags = app.cachedResource<FlagsDto>(viewModelScope, ConnectionsKeys.flags(relId), ConnectionsKeys.KIND) { cardFlags(relId) }
+    private val conversations = app.cachedResource<List<ChatConversationDto>>(viewModelScope, ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND) { chatConversations(relId) }
+    private val flags = app.cachedResource<FlagsDto>(viewModelScope, ConnectionsKeys.flags(relId), ConnectionsKeys.KIND) { myCardFlags(relId) }
     private val shared = app.cachedResource<List<SharedDeckDto>>(viewModelScope, ConnectionsKeys.sharedDecks(relId), ConnectionsKeys.KIND) { sharedDecks(relId) }
     private val studentShared = app.cachedResource<List<StudentSharedDeckDto>>(viewModelScope, ConnectionsKeys.studentSharedDecks(relId), ConnectionsKeys.KIND) { studentSharedDecks(relId) }
     private val me = MutableStateFlow<String?>(null)
@@ -116,7 +116,7 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
         TutorPageUi(
             relationship = p[0] as Loadable<RelationshipDto>,
             myId = m,
-            conversations = p[1] as Loadable<List<ConversationDto>>,
+            conversations = p[1] as Loadable<List<ChatConversationDto>>,
             flags = p[2] as Loadable<FlagsDto>,
             sharedDecks = p[3] as Loadable<List<SharedDeckDto>>,
             studentSharedDecks = (p[4] as Loadable<List<StudentSharedDeckDto>>).data.orEmpty(),
@@ -195,7 +195,7 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
 
 /** `/claude-chats`: the first page cached for offline; older pages on demand. */
 class ClaudeChatsViewModel(private val app: LabApp) : ViewModel() {
-    private val first = app.cachedResource<ClaudeChatsDto>(viewModelScope, ConnectionsKeys.CLAUDE_CHATS, ConnectionsKeys.KIND) { myClaudeChats(PAGE) }
+    private val first = app.cachedResource<MyClaudeChatsDto>(viewModelScope, ConnectionsKeys.CLAUDE_CHATS, ConnectionsKeys.KIND) { myClaudeChats(PAGE) }
     private val extra = MutableStateFlow<List<ClaudeChatQuestionDto>>(emptyList())
     private val cursor = MutableStateFlow<String?>(null)
     private val cursorSet = MutableStateFlow(false)

@@ -4,7 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatQuestionDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteFileDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MessageDto
@@ -42,8 +42,8 @@ class ConnectionsScreenshots : LabScreenshotTest() {
         private val now = Instant.now()
         private fun ago(h: Long) = now.minusSeconds(h * 3600).toString()
         val conversations = listOf(
-            ConversationDto("c1", "rel1", "Lesson questions", ago(30), ago(1), last_message = MessageDto("m1", content = "明天上课前把这些词复习一下，好吗？")),
-            ConversationDto("c2", "rel1", null, ago(24 * 9), ago(24 * 3), last_message = MessageDto("m2", content = "Thanks! 我今天学了二十个新词。")),
+            ChatConversationDto("c1", "rel1", "Lesson questions", ago(30), ago(1), last_message = MessageDto("m1", content = "明天上课前把这些词复习一下，好吗？")),
+            ChatConversationDto("c2", "rel1", null, ago(24 * 9), ago(24 * 3), last_message = MessageDto("m2", content = "Thanks! 我今天学了二十个新词。")),
         )
         val flags = FlagsDto(
             listOf(

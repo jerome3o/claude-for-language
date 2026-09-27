@@ -39,7 +39,7 @@ import dev.jeromeswannack.chineselearning.lab.core.HwTutor
 import dev.jeromeswannack.chineselearning.lab.core.TutorHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NotificationDto
-import dev.jeromeswannack.chineselearning.lab.data.api.conversations
+import dev.jeromeswannack.chineselearning.lab.data.api.chatConversations
 import dev.jeromeswannack.chineselearning.lab.data.api.displayName
 import dev.jeromeswannack.chineselearning.lab.data.api.tutor
 import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
@@ -187,7 +187,7 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
     fun reply(nav: LabNav, pick: HwPick) {
         pick.unreadMessage?.let { nav.open(Routes.chat(pick.relationshipId, it.conversationId)); return }
         viewModelScope.launch {
-            val latest = runCatching { app.repo.api.conversations(pick.relationshipId) }.getOrNull()
+            val latest = runCatching { app.repo.api.chatConversations(pick.relationshipId) }.getOrNull()
                 ?.let { list -> list.firstOrNull { !it.is_ai_conversation } ?: list.firstOrNull() }
             nav.open(if (latest != null) Routes.chat(pick.relationshipId, latest.id) else Routes.connection(pick.relationshipId))
         }

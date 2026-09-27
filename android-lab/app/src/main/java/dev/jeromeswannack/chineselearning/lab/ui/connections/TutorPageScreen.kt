@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckDto
@@ -61,7 +61,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 data class TutorPageUi(
     val relationship: Loadable<RelationshipDto> = Loadable(loading = true),
     val myId: String? = null,
-    val conversations: Loadable<List<ConversationDto>> = Loadable(loading = true),
+    val conversations: Loadable<List<ChatConversationDto>> = Loadable(loading = true),
     val flags: Loadable<FlagsDto> = Loadable(loading = true),
     val sharedDecks: Loadable<List<SharedDeckDto>> = Loadable(loading = true),
     val studentSharedDecks: List<StudentSharedDeckDto> = emptyList(),
@@ -181,7 +181,7 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
 }
 
 @Composable
-fun ConversationList(list: List<ConversationDto>, onOpen: (String) -> Unit) {
+fun ConversationList(list: List<ChatConversationDto>, onOpen: (String) -> Unit) {
     LabCard(Modifier.testTag("conversations")) {
         list.forEachIndexed { i, c ->
             if (i > 0) RowDivider()

@@ -30,8 +30,6 @@ suspend fun Api.relationship(id: String): RelationshipDto = get("/api/relationsh
 
 suspend fun Api.acceptRelationship(id: String): RelationshipDto = post("/api/relationships/${enc(id)}/accept")
 
-suspend fun Api.removeRelationship(id: String): Unit = exchange("DELETE", "/api/relationships/${enc(id)}", null, Unit.serializer())
-
 suspend fun Api.cancelInvitation(id: String): Unit = exchange("DELETE", "/api/invitations/${enc(id)}", null, Unit.serializer())
 
 @Serializable
@@ -64,7 +62,7 @@ data class MessageDto(
 )
 
 @Serializable
-data class ConversationDto(
+data class ChatConversationDto(
     val id: String,
     val relationship_id: String = "",
     val title: String? = null,
@@ -80,23 +78,12 @@ data class ConversationDto(
     val other_user: UserSummaryDto? = null,
 )
 
-suspend fun Api.conversations(relId: String): List<ConversationDto> = get("/api/relationships/${enc(relId)}/conversations")
-
-@Serializable
-data class OpenConversationDto(val conversation_id: String, val created: Boolean = false)
-
-/** Most recent conversation, created when there is none (either side). */
-suspend fun Api.openConversation(relId: String): OpenConversationDto = post("/api/relationships/${enc(relId)}/conversations/open")
+suspend fun Api.chatConversations(relId: String): List<ChatConversationDto> = get("/api/relationships/${enc(relId)}/conversations")
 
 @Serializable
 data class PracticeConversationBody(val title: String? = null, val scenario: String? = null, val user_role: String? = null, val ai_role: String? = null)
 
-suspend fun Api.startConversation(relId: String, body: PracticeConversationBody): ConversationDto = post("/api/relationships/${enc(relId)}/conversations", body)
-
-@Serializable
-data class StudentSharedDeckDto(val id: String, val deck_name: String = "", val note_count: Int = 0, val shared_at: String = "")
-
-suspend fun Api.studentSharedDecks(relId: String): List<StudentSharedDeckDto> = get("/api/relationships/${enc(relId)}/student-shared-decks")
+suspend fun Api.startConversation(relId: String, body: PracticeConversationBody): ChatConversationDto = post("/api/relationships/${enc(relId)}/conversations", body)
 
 // ---------------- card flags ----------------
 
@@ -124,14 +111,7 @@ data class FlagDto(
 @Serializable
 data class FlagsDto(val flags: List<FlagDto> = emptyList(), val open: Int = 0)
 
-@Serializable
-data class FlagOne(val flag: FlagDto? = null)
-
-suspend fun Api.cardFlags(relId: String, status: String = "all"): FlagsDto = get("/api/relationships/${enc(relId)}/card-flags?status=${enc(status)}")
-
-suspend fun Api.resolveCardFlag(id: String): FlagOne = post("/api/card-flags/${enc(id)}/resolve")
-
-suspend fun Api.reopenCardFlag(id: String): FlagOne = post("/api/card-flags/${enc(id)}/reopen")
+suspend fun Api.myCardFlags(relId: String, status: String = "all"): FlagsDto = get("/api/relationships/${enc(relId)}/card-flags?status=${enc(status)}")
 
 suspend fun Api.deleteCardFlag(id: String): Unit = exchange("DELETE", "/api/card-flags/${enc(id)}", null, Unit.serializer())
 
@@ -152,9 +132,9 @@ data class ClaudeChatQuestionDto(
 ) : QuestionRowLike
 
 @Serializable
-data class ClaudeChatsDto(val questions: List<ClaudeChatQuestionDto> = emptyList(), val next_cursor: String? = null, val total: Int = 0)
+data class MyClaudeChatsDto(val questions: List<ClaudeChatQuestionDto> = emptyList(), val next_cursor: String? = null, val total: Int = 0)
 
-suspend fun Api.myClaudeChats(limit: Int = 100, before: String? = null): ClaudeChatsDto =
+suspend fun Api.myClaudeChats(limit: Int = 100, before: String? = null): MyClaudeChatsDto =
     get("/api/me/claude-chats?limit=$limit" + (before?.let { "&before=${enc(it)}" } ?: ""))
 
 // ---------------- the student's own lesson notes (/lesson-notes) ----------------
@@ -179,3 +159,6 @@ suspend fun Api.lessonNotes(): List<LessonNoteDto> = get<LessonNotesDto>("/api/l
 suspend fun Api.createLessonNote(text: String, givenAt: String?): NewLessonNoteDto = post("/api/lesson-notes", NewLessonNoteBody(text, givenAt))
 
 suspend fun Api.deleteLessonNote(id: String): Unit = exchange("DELETE", "/api/lesson-notes/${enc(id)}", null, Unit.serializer())
+
+// Shared with package F (TeachingApi.kt): openConversation, removeRelationship, studentSharedDecks,
+// resolveCardFlag / reopenCardFlag — the same endpoints either side of the relationship.
