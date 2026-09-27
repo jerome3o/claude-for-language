@@ -39,7 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
@@ -73,7 +73,7 @@ data class StudentPageUi(
     val email: String? = null,
     val overview: Loadable<StudentOverviewDto> = Loadable(loading = true),
     val homework: Loadable<RelationshipHomeworkDto> = Loadable(loading = true),
-    val flags: Loadable<CardFlagsDto> = Loadable(loading = true),
+    val flags: Loadable<TeachFlagsDto> = Loadable(loading = true),
     val claude: Loadable<ClaudeChatsDto> = Loadable(loading = true),
     val conversations: Loadable<List<ConversationDto>> = Loadable(loading = true),
     val lessons: Loadable<List<StudentLessonDto>> = Loadable(loading = true),

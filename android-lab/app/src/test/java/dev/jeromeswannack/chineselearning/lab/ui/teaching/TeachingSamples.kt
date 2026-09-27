@@ -2,8 +2,8 @@ package dev.jeromeswannack.chineselearning.lab.ui.teaching
 
 import dev.jeromeswannack.chineselearning.lab.data.api.ActivityDayDto
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
@@ -137,10 +137,10 @@ object TeachingSamples {
         today = TODAY,
     )
 
-    val flags = CardFlagsDto(
+    val flags = TeachFlagsDto(
         listOf(
-            CardFlagDto("f1", "n2", "Is 站 here the same as in 站起来? The audio sounds different to me.", "open", created_at = "2026-09-26T21:05:00Z", hanzi = "地铁站", pinyin = "dìtiězhàn", english = "subway station", deck_name = "第四周作业：交通", student_name = "Jerome"),
-            CardFlagDto("f2", "n4", "Why 了 twice here?", "resolved", tutor_reply = "The second 了 means it is still true now — 我学了两年了 = I have been studying for two years (and still am).", replied_at = "2026-09-20T10:00:00Z", created_at = "2026-09-19T21:05:00Z", hanzi = "我学了两年了", pinyin = "wǒ xué le liǎng nián le", english = "I've been studying for two years", deck_name = "HSK 3 · Plans & time", student_name = "Jerome"),
+            TeachFlagDto("f1", "n2", "Is 站 here the same as in 站起来? The audio sounds different to me.", "open", created_at = "2026-09-26T21:05:00Z", hanzi = "地铁站", pinyin = "dìtiězhàn", english = "subway station", deck_name = "第四周作业：交通", student_name = "Jerome"),
+            TeachFlagDto("f2", "n4", "Why 了 twice here?", "resolved", tutor_reply = "The second 了 means it is still true now — 我学了两年了 = I have been studying for two years (and still am).", replied_at = "2026-09-20T10:00:00Z", created_at = "2026-09-19T21:05:00Z", hanzi = "我学了两年了", pinyin = "wǒ xué le liǎng nián le", english = "I've been studying for two years", deck_name = "HSK 3 · Plans & time", student_name = "Jerome"),
         ),
         open = 1,
     )

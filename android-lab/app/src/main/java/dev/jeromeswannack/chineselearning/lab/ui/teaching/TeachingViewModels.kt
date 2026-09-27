@@ -7,7 +7,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignItemDto
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentPatchBody
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LibraryItemSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PendingInviteDto
@@ -350,13 +350,13 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
             .onFailure { say(it.userMessage(), true) }
     }
 
-    fun replyFlag(flag: CardFlagDto, text: String, done: (String?) -> Unit) = viewModelScope.launch {
+    fun replyFlag(flag: TeachFlagDto, text: String, done: (String?) -> Unit) = viewModelScope.launch {
         attempt { app.repo.api.replyToCardFlag(flag.id, text) }
             .onSuccess { app.haptics.correct(); app.sounds.play(Sounds.Sfx.POP); done(null); flags.refresh(); overview.refresh() }
             .onFailure { done(it.userMessage()) }
     }
 
-    fun toggleFlag(flag: CardFlagDto, done: (String?) -> Unit) = viewModelScope.launch {
+    fun toggleFlag(flag: TeachFlagDto, done: (String?) -> Unit) = viewModelScope.launch {
         attempt { if (flag.status == "open") app.repo.api.resolveCardFlag(flag.id) else app.repo.api.reopenCardFlag(flag.id) }
             .onSuccess { app.haptics.tick(); done(null); flags.refresh(); overview.refresh() }
             .onFailure { done(it.userMessage()) }

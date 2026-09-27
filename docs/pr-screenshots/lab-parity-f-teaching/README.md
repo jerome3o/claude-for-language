@@ -40,3 +40,20 @@ Invite a student: Starter Chinese ticked, own decks, welcome message, Options.
 
 ![Invite result](teaching-18-invite-result.png)
 The created link: QR (zxing), Copy / Share, summary.
+
+## Part 2 — Insights, History, Recordings
+
+![Insights](teaching-19-insights.png)
+Insights: range chips (since last lesson), stat tiles, needs attention with wrong answers, going well, also this period, Claude's summary (EN / 中文), lesson log.
+
+![Insights unfolded](teaching-24-insights-unfolded.png)
+Unfolded.
+
+![History](teaching-21-history.png)
+History: search + filter chips, attempts with card type, rating, seconds, typed-answer diff (wrong red, expected blue), ▶ for spoken attempts.
+
+![History by word](teaching-22-history-by-word.png)
+By word: most-forgotten first with the wrong answers typed.
+
+![Recordings](teaching-23-recordings.png)
+Recordings inbox: unlistened first (purple edge), needs work (orange) with the note, Listened / Needs work / + Note; one playing.

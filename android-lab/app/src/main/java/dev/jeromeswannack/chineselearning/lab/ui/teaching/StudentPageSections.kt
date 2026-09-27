@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkPlan
 import dev.jeromeswannack.chineselearning.lab.data.api.ActivityDayDto
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
@@ -198,14 +198,14 @@ fun SetupChecklistCard(
 // ---------------- flagged cards ----------------
 
 data class FlagActions(
-    val reply: (CardFlagDto, String, (String?) -> Unit) -> Unit = { _, _, done -> done(null) },
-    val toggleResolved: (CardFlagDto, (String?) -> Unit) -> Unit = { _, done -> done(null) },
+    val reply: (TeachFlagDto, String, (String?) -> Unit) -> Unit = { _, _, done -> done(null) },
+    val toggleResolved: (TeachFlagDto, (String?) -> Unit) -> Unit = { _, done -> done(null) },
     val openCard: (String) -> Unit = {},
 )
 
 /** "🚩 Flagged cards" on the student page: open ones first, resolved behind a toggle (web: FlaggedCardsSection). */
 @Composable
-fun FlaggedCardsSection(flags: List<CardFlagDto>?, error: String?, actions: FlagActions, now: Instant = Instant.now()) {
+fun FlaggedCardsSection(flags: List<TeachFlagDto>?, error: String?, actions: FlagActions, now: Instant = Instant.now()) {
     val open = flags.orEmpty().filter { it.status == "open" }
     val resolved = flags.orEmpty().filter { it.status != "open" }
     var showResolved by remember { mutableStateOf(false) }
@@ -227,7 +227,7 @@ fun FlaggedCardsSection(flags: List<CardFlagDto>?, error: String?, actions: Flag
 }
 
 @Composable
-fun FlagRow(flag: CardFlagDto, actions: FlagActions, now: Instant = Instant.now(), showCard: Boolean = true) {
+fun FlagRow(flag: TeachFlagDto, actions: FlagActions, now: Instant = Instant.now(), showCard: Boolean = true) {
     var replying by remember { mutableStateOf(false) }
     var reply by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }

@@ -374,7 +374,7 @@ suspend fun Api.updateHomeworkAssignment(relId: String, id: String, patch: Assig
 // ---------------- card flags + Ask-Claude threads (tutor view) ----------------
 
 @Serializable
-data class CardFlagDto(
+data class TeachFlagDto(
     val id: String,
     val note_id: String,
     val message: String = "",
@@ -392,9 +392,9 @@ data class CardFlagDto(
 )
 
 @Serializable
-data class CardFlagsDto(val flags: List<CardFlagDto> = emptyList(), val open: Int = 0)
+data class TeachFlagsDto(val flags: List<TeachFlagDto> = emptyList(), val open: Int = 0)
 
-suspend fun Api.cardFlags(relId: String, status: String = "all"): CardFlagsDto = get("${rel(relId)}/card-flags?status=$status")
+suspend fun Api.cardFlags(relId: String, status: String = "all"): TeachFlagsDto = get("${rel(relId)}/card-flags?status=$status")
 
 @Serializable
 data class ReplyBody(val reply: String)
@@ -439,13 +439,13 @@ data class TeachingMeDto(val id: String = "", val can_invite: Boolean = false, v
 suspend fun Api.teachingMe(): TeachingMeDto = get("/api/auth/me")
 
 @Serializable
-data class NewDeckBody(val name: String)
+data class TeachNewDeckBody(val name: String)
 
 @Serializable
 data class CreatedDeckDto(val id: String, val name: String = "")
 
 /** "+ New homework deck → Write it" (POST /api/decks; the content service fills the defaults). */
-suspend fun Api.createDeckNamed(name: String): CreatedDeckDto = post("/api/decks", NewDeckBody(name))
+suspend fun Api.createDeckNamed(name: String): CreatedDeckDto = post("/api/decks", TeachNewDeckBody(name))
 
 @Serializable
 data class CallRefDto(val id: String)
@@ -492,9 +492,9 @@ data class InviteDto(
 suspend fun Api.createInvite(body: CreateInviteBody): InviteDto = post("/api/invites", body)
 
 @Serializable
-data class StarterDeckDto(val deck: CreatedDeckDto, val created: Boolean = false, val word_count: Int = 0)
+data class TeachStarterDeckDto(val deck: CreatedDeckDto, val created: Boolean = false, val word_count: Int = 0)
 
-suspend fun Api.createStarterDeck(): StarterDeckDto = post("/api/decks/starter")
+suspend fun Api.createStarterDeck(): TeachStarterDeckDto = post("/api/decks/starter")
 
 // ---------------- insights, history, recording marks (web: api/insights.ts, types/insights.ts) ----------------
 
