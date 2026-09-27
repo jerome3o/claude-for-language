@@ -71,6 +71,47 @@ object MultipleChoice {
     /** `initialMcSelections`: punctuation (single option) and English rows are pre-selected. */
     fun initialSelections(rows: List<Row>): List<String?> = rows.map { if (it.options.size == 1 || isEnglishEntry(it.correct)) it.correct else null }
 
+    /** `isChoiceRow`: a row the learner picks in (not punctuation, not an English text row). */
+    fun isChoiceRow(row: Row): Boolean = row.options.size > 1 && !isEnglishEntry(row.correct)
+
+    /** `hasMcPick`: has the learner picked anything yet? Pre-selected rows don't count. */
+    fun hasPick(rows: List<Row>, selections: List<String?>): Boolean =
+        rows.withIndex().any { (i, row) -> isChoiceRow(row) && selections.getOrNull(i) != null }
+
+    /**
+     * `mcSubmitLabel`: one submit, any time — the grid never waits for every row. Nothing
+     * picked → "Show answer" (give up and move on); anything picked → "Submit".
+     */
+    fun submitLabel(rows: List<Row>, selections: List<String?>): String = if (hasPick(rows, selections)) "Submit" else "Show answer"
+
+    /**
+     * `mcSubmittedAnswer`: the review's user_answer — the picks in row order, unselected rows
+     * skipped. Nothing picked → "" (exactly like revealing an empty typed card).
+     */
+    fun submittedAnswer(rows: List<Row>, selections: List<String?>): String =
+        if (!hasPick(rows, selections)) "" else selections.filterNotNull().joinToString("")
+
+    enum class SlotStatus { RIGHT, WRONG, SKIPPED, GIVEN }
+
+    data class Slot(val correct: String, val chosen: String?, val status: SlotStatus)
+
+    /**
+     * `mcAnswerSlots`: row-by-row result for the answer side (a partial answer can't be diffed
+     * position by position — a skipped row shifts everything after it).
+     */
+    fun answerSlots(rows: List<Row>, selections: List<String?>): List<Slot> = rows.mapIndexed { i, row ->
+        val chosen = selections.getOrNull(i)
+        when {
+            !isChoiceRow(row) -> Slot(row.correct, row.correct, SlotStatus.GIVEN)
+            chosen == null -> Slot(row.correct, null, SlotStatus.SKIPPED)
+            chosen == row.correct -> Slot(row.correct, chosen, SlotStatus.RIGHT)
+            else -> Slot(row.correct, chosen, SlotStatus.WRONG)
+        }
+    }
+
+    /** Every row right (or given): the back shows the ordinary green answer. */
+    fun allRight(slots: List<Slot>): Boolean = slots.all { it.status == SlotStatus.RIGHT || it.status == SlotStatus.GIVEN }
+
     /**
      * `loadMultipleChoice`: cached options, freshly generated ones, or the typing fallback.
      * [generate] is only called when online and nothing is cached, and is cut at [timeoutMs].
