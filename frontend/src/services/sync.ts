@@ -23,7 +23,7 @@ import { syncReviewEvents, downloadReviewEvents, fixAllCardStates, reconcileAllE
 import { syncReaderReviewEvents, downloadReaderReviewEvents } from './reader-study';
 import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from './readerSync';
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
-import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
+import { syncCustomLessons, uploadCustomLessonCompletions, uploadLessonAttemptMedia, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncRecordingNotes } from './recording-notes';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
@@ -740,6 +740,8 @@ class SyncService {
     // Custom lesson completion events (same idempotent pattern)
     try {
       await uploadCustomLessonCompletions();
+      // Recordings from lesson attempts go up after their attempts.
+      await uploadLessonAttemptMedia();
     } catch (err) {
       console.error('[Sync] Custom lesson completion upload failed:', err);
     }

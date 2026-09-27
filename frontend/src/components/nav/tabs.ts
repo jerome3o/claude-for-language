@@ -63,6 +63,7 @@ const IMMERSIVE = [
   /^\/quests\/[^/]+\/?$/,
   /^\/readers\/(?!generate$)[^/]+(\/(edit|print))?\/?$/,
   /^\/library\/[^/]+\/(edit|print|try)\/?$/,
+  /^\/library\/catalogue\/[^/]+\/?$/,
   /^\/decks\/[^/]+\/try\/?$/,
   /^\/lessons\/[^/]+\/(edit|print)\/?$/,
   /^\/connections\/[^/]+\/chat\//,

@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { CustomLessonSpec, LessonExercise, countScoreable } from '@shared/lesson';
+import { CustomLessonSpec, LessonExercise, countScoreable, EXERCISE_TYPE_INFO, exercisePrimaryText } from '@shared/lesson';
 import { computeCardState, DEFAULT_DECK_SETTINGS } from '@shared/scheduler';
 import { getCustomLessons, deleteCustomLessonById, CustomLessonListItem } from '../api/client';
 import { db, getStudyCutoff } from '../db/database';
@@ -65,17 +65,9 @@ function scheduleChip(schedule: LessonSchedule): { label: string; cls: string } 
   };
 }
 
-const EXERCISE_LABELS: Record<LessonExercise['type'], string> = {
-  note: '📖 Note',
-  scramble: '🧩 Word order',
-  choice: '🔘 Choice',
-  translate: '✍️ Translate',
-  match: '🔗 Match',
-  describe_image: '🖼 Describe picture',
-  speak: '🎤 Speak',
-  listen_choice: '👂 Listen & pick',
-  listen_translate: '👂 Listen & translate',
-};
+const EXERCISE_LABELS = Object.fromEntries(
+  Object.values(EXERCISE_TYPE_INFO).map(info => [info.type, `${info.icon} ${info.name}`]),
+) as Record<LessonExercise['type'], string>;
 
 function exerciseSummary(ex: LessonExercise): string {
   switch (ex.type) {
@@ -97,6 +89,8 @@ function exerciseSummary(ex: LessonExercise): string {
       return ex.question || ex.audio.hanzi;
     case 'listen_translate':
       return ex.audio.hanzi;
+    default:
+      return exercisePrimaryText(ex);
   }
 }
 
@@ -146,6 +140,9 @@ function LessonCard({ lesson, onDelete, deleting }: {
           ))}
           <div className="mini-lesson-actions">
             <Link to={`/lessons/${lesson.id}/edit`} className="btn btn-primary btn-sm">✏️ Edit</Link>
+            {schedule.reps > 0 && (
+              <Link to={`/lesson-attempts?lesson=${lesson.id}`} className="btn btn-secondary btn-sm">📝 My answers</Link>
+            )}
             <button
               className="btn btn-secondary btn-sm mini-lesson-delete"
               onClick={() => onDelete(lesson)}

@@ -38,17 +38,29 @@ function formatDate(iso: string): string {
 
 // ============ New lesson sheet ============
 
+const CONVERSATION_LEVELS = ['Beginner (HSK 1-2)', 'Elementary (HSK 3)', 'Intermediate (HSK 4)', 'Upper intermediate (HSK 5+)'];
+
+/** The drafting prompt for a conversation lesson from just a situation + level. */
+export function conversationLessonPrompt(situation: string, level: string): string {
+  return `A conversation lesson for a ${level} learner. Situation: ${situation.trim()}. `
+    + 'Open with a short note of 2-3 key phrases, then a conversation exercise (two speakers, one female and one male voice, '
+    + '6-12 natural lines at this level with pinyin and English, 3-4 comprehension questions in English about what happened), '
+    + 'and end with an oral_expression exercise where the learner plays one of the roles in the same situation.';
+}
+
 function NewLessonSheet({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [prompt, setPrompt] = useState('');
+  const [situation, setSituation] = useState('');
+  const [level, setLevel] = useState(CONVERSATION_LEVELS[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function draft() {
-    if (!prompt.trim() || busy) return;
+  async function draft(text = prompt) {
+    if (!text.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const item = await generateLibraryItem(prompt.trim());
+      const item = await generateLibraryItem(text.trim());
       onCreated(item.id);
     } catch (err) {
       setError(err instanceof LessonApiError && err.status === 503
@@ -95,9 +107,25 @@ function NewLessonSheet({ onClose, onCreated }: { onClose: () => void; onCreated
             />
           </label>
           {error && <ErrorMessage message={error} />}
-          <button className="btn btn-primary btn-block" onClick={draft} disabled={busy || !prompt.trim()}>
+          <button className="btn btn-primary btn-block" onClick={() => draft()} disabled={busy || !prompt.trim()}>
             {busy ? 'Drafting… (about a minute)' : '✨ Draft with Claude'}
           </button>
+          <div className="lib-convo-quick">
+            <span className="ed-label">💬 Or a conversation lesson from a situation</span>
+            <input
+              className="ed-input"
+              value={situation}
+              onChange={e => setSituation(e.target.value)}
+              placeholder="e.g. Booking a hotel room by phone"
+              disabled={busy}
+            />
+            <select className="ed-input" value={level} onChange={e => setLevel(e.target.value)} disabled={busy} aria-label="Level">
+              {CONVERSATION_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <button className="btn btn-secondary btn-block" onClick={() => draft(conversationLessonPrompt(situation, level))} disabled={busy || !situation.trim()}>
+              {busy ? 'Drafting…' : '💬 Draft the conversation lesson'}
+            </button>
+          </div>
           <button className="btn btn-link lib-blank-link" onClick={blank} disabled={busy}>
             or start blank
           </button>
@@ -366,6 +394,14 @@ export function LessonLibraryPage() {
           Master copies of your mini lessons. Assign one to a student and they get their own copy in their study
           sessions; edit here and push the update to keep everyone in step.
         </p>
+        <Link to="/library/catalogue" className="lib-catalogue-link">
+          <span className="lib-catalogue-icon">🧭</span>
+          <span>
+            <strong>Exercise catalogue</strong>
+            <span className="lib-catalogue-sub">Every exercise type — sentence making, writing, dictation, speaking, conversations — with a sample lesson you can take.</span>
+          </span>
+          <span aria-hidden="true">›</span>
+        </Link>
 
         {library.isLoading && <Loading message="Loading library…" />}
         {library.isError && <ErrorMessage message={library.error instanceof Error ? library.error.message : 'Could not load the library'} />}

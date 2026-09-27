@@ -32,6 +32,10 @@ const StudentProgressPage = lazy(() => import('./pages/StudentProgressPage').the
 const SessionNotesPage = lazy(() => import('./pages/tutor/SessionNotesPage').then(m => ({ default: m.SessionNotesPage })));
 const StudentInsightsPage = lazy(() => import('./pages/tutor/StudentInsightsPage').then(m => ({ default: m.StudentInsightsPage })));
 const StudentHistoryPage = lazy(() => import('./pages/tutor/StudentHistoryPage').then(m => ({ default: m.StudentHistoryPage })));
+const StudentLessonAttemptsPage = lazy(() => import('./pages/LessonAttemptsPage').then(m => ({ default: m.StudentLessonAttemptsPage })));
+const MyLessonAttemptsPage = lazy(() => import('./pages/LessonAttemptsPage').then(m => ({ default: m.MyLessonAttemptsPage })));
+const ExerciseCataloguePage = lazy(() => import('./pages/editor/ExerciseCataloguePage').then(m => ({ default: m.ExerciseCataloguePage })));
+const CatalogueTrialPage = lazy(() => import('./pages/editor/ExerciseCataloguePage').then(m => ({ default: m.CatalogueTrialPage })));
 const RecordingsInboxPage = lazy(() => import('./pages/tutor/RecordingsInboxPage').then(m => ({ default: m.RecordingsInboxPage })));
 const SharedDeckProgressPage = lazy(() => import('./pages/SharedDeckProgressPage').then(m => ({ default: m.SharedDeckProgressPage })));
 const DayDetailPage = lazy(() => import('./pages/DayDetailPage').then(m => ({ default: m.DayDetailPage })));
@@ -280,6 +284,8 @@ function AppRoutes() {
       />
       <Route path="/connections/:relId/cards/:noteId" element={<ProtectedRoute><Header /><CardHubPage /></ProtectedRoute>} />
       <Route path="/connections/:relId/claude-chats" element={<ProtectedRoute><Header /><ClaudeChatsPage /></ProtectedRoute>} />
+      <Route path="/connections/:relId/lesson-attempts" element={<ProtectedRoute><Header /><StudentLessonAttemptsPage /></ProtectedRoute>} />
+      <Route path="/connections/:relId/lesson-attempts/:attemptId" element={<ProtectedRoute><Header /><StudentLessonAttemptsPage /></ProtectedRoute>} />
       <Route path="/cards/:noteId" element={<ProtectedRoute><Header /><CardHubPage /></ProtectedRoute>} />
       <Route path="/claude-chats" element={<ProtectedRoute><Header /><ClaudeChatsPage /></ProtectedRoute>} />
       <Route path="/calls" element={<ProtectedRoute><Header /><CallsListPage /></ProtectedRoute>} />
@@ -493,6 +499,10 @@ function AppRoutes() {
       />
       {/* Lesson library + editor. The editor and print view have their own chrome (no <Header />). */}
       <Route path="/library" element={<ProtectedRoute><Header /><LessonLibraryPage /></ProtectedRoute>} />
+      <Route path="/library/catalogue" element={<ProtectedRoute><Header /><ExerciseCataloguePage /></ProtectedRoute>} />
+      <Route path="/library/catalogue/:sampleId" element={<ProtectedRoute><CatalogueTrialPage /></ProtectedRoute>} />
+      <Route path="/lesson-attempts" element={<ProtectedRoute><Header /><MyLessonAttemptsPage /></ProtectedRoute>} />
+      <Route path="/lesson-attempts/:attemptId" element={<ProtectedRoute><Header /><MyLessonAttemptsPage /></ProtectedRoute>} />
       <Route path="/library/:id" element={<ProtectedRoute><Header /><LibraryItemPage /></ProtectedRoute>} />
       <Route path="/library/:id/edit" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load the editor"><LessonEditorPage target="library" /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/library/:id/print" element={<ProtectedRoute><LessonPrintPage target="library" /></ProtectedRoute>} />

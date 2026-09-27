@@ -6,6 +6,10 @@
  */
 import './app.css';
 import { validateLessonSpec } from '../../../../../shared/lesson/validate';
+import { EXERCISE_TYPE_INFO } from '../../../../../shared/lesson/registry';
+import { exercisePrimaryText } from '../../../../../shared/lesson/diff';
+import { defaultExercise } from '../../../../../shared/lesson/defaults';
+import { resolveConversationVoices } from '../../../../../shared/lesson/voices';
 import type {
   AssignResult,
   CustomLessonSpec,
@@ -22,18 +26,12 @@ import { pickStudents } from '../_shared/picker';
 
 type ExType = LessonExercise['type'];
 
-const TYPE_LABELS: Record<ExType, string> = {
-  note: 'Note',
-  scramble: 'Word order',
-  choice: 'Multiple choice',
-  translate: 'Translate',
-  match: 'Match pairs',
-  describe_image: 'Describe picture',
-  speak: 'Speak',
-  listen_choice: 'Listen & pick',
-  listen_translate: 'Listen & translate',
-};
-const LISTENING = new Set<ExType>(['listen_choice', 'listen_translate']);
+const TYPE_LABELS = Object.fromEntries(
+  Object.values(EXERCISE_TYPE_INFO).map((info) => [info.type, info.name]),
+) as Record<ExType, string>;
+const LISTENING = new Set<ExType>(['listen_choice', 'listen_translate', 'dictation', 'conversation']);
+/** Types edited as JSON here (the web editor has full forms for them). */
+const JSON_EDITED = new Set<ExType>(['sentence_making', 'write_typed', 'write_handwriting', 'dictation', 'oral_expression', 'conversation']);
 
 let data: LessonPayload | null = null;
 let spec: CustomLessonSpec | null = null;
@@ -82,6 +80,8 @@ function exerciseText(ex: LessonExercise): string {
     case 'listen_choice':
     case 'listen_translate':
       return ex.audio.hanzi;
+    default:
+      return exercisePrimaryText(ex);
   }
 }
 
@@ -277,8 +277,74 @@ function viewExercise(ex: LessonExercise): HTMLElement {
     case 'listen_translate':
       body.append(hiddenAudio(ex.audio), h('div', { class: 'small muted' }, 'Answer:'), h('div', { class: 'bold' }, ex.audio.english ?? ''), ex.note ? h('div', { class: 'xs faint' }, ex.note) : '');
       break;
+    case 'sentence_making':
+      body.append(
+        h('div', { class: 'question' }, ex.task || 'Make your own sentence with these words.'),
+        h('div', { class: 'tiles' }, ...ex.words.map((w) => h('span', { class: 'tile', lang: 'zh-CN' }, w.hanzi))),
+        h('div', { class: 'xs faint' }, ex.input === 'handwrite' ? '✍️ Handwritten' : '⌨️ Typed', ' · Claude checks it when online'),
+        ex.example ? reference(ex.example.hanzi, ex.example.pinyin, ex.example.english) : '',
+      );
+      break;
+    case 'write_typed':
+    case 'write_handwriting':
+      body.append(
+        ex.prompt ? h('div', { class: 'question' }, ex.prompt) : '',
+        h('div', { class: 'xs faint' }, ex.type === 'write_handwriting' ? '✍️ Write by hand' : '⌨️ Type it', ` · cues: ${(ex.cues ?? ['english', 'pinyin']).join(', ')}`),
+        reference(ex.answer.hanzi, ex.answer.pinyin, ex.answer.english),
+      );
+      break;
+    case 'dictation':
+      body.append(hiddenAudio(ex.audio), h('div', { class: 'xs faint' }, ex.input === 'handwrite' ? '✍️ Written by hand' : '⌨️ Typed, checked character by character'));
+      break;
+    case 'oral_expression':
+      body.append(
+        h('div', { class: 'question' }, ex.prompt),
+        ex.question_audio ? sentenceRow(ex.question_audio, false) : '',
+        ex.hints?.length ? h('div', { class: 'tiles' }, ...ex.hints.map((w) => h('span', { class: 'tile', lang: 'zh-CN' }, w.hanzi))) : '',
+        h('div', { class: 'xs faint' }, '🎙 Recorded — you can listen afterwards'),
+        ex.example ? reference(ex.example.hanzi, ex.example.pinyin, ex.example.english) : '',
+      );
+      break;
+    case 'conversation': {
+      const voices = resolveConversationVoices(ex.speakers);
+      body.append(
+        h('div', { class: 'question' }, ex.situation),
+        ...ex.lines.map((l) => h('div', { class: 'sentence' },
+          h('span', { class: 'pill' }, ex.speakers[l.speaker]?.name ?? '?'),
+          h('div', { class: 'text' }, h('div', { class: 'zh-s', lang: 'zh-CN' }, l.hanzi), l.english ? h('div', { class: 'xs faint' }, l.english) : null),
+        )),
+        h('div', { class: 'xs faint' }, `Voices: ${voices.map((v) => v.replace('Chinese (Mandarin)_', '')).join(' / ')}`),
+        ...ex.questions.map((q, i) => h('div', { class: 'small' }, `${i + 1}. ${q.question} → `, h('span', { class: 'bold' }, q.options && typeof q.correct === 'number' ? q.options[q.correct] ?? '' : q.answer ?? ''))),
+      );
+      break;
+    }
   }
   return body;
+}
+
+/** JSON editor for exercise types without a form here — validated on save like every other edit. */
+function jsonExerciseEditor(ex: LessonExercise): HTMLElement {
+  const note = h('div', { class: 'xs faint' }, 'Edit as JSON (the web editor has a full form for this type).');
+  const area = h('textarea', {
+    class: 'input',
+    rows: 10,
+    style: 'font-family:monospace;font-size:0.8rem',
+    oninput: (e) => {
+      try {
+        const next = JSON.parse((e.target as HTMLTextAreaElement).value) as LessonExercise;
+        if (next && typeof next === 'object' && next.type === ex.type) {
+          for (const k of Object.keys(ex)) delete (ex as unknown as Record<string, unknown>)[k];
+          Object.assign(ex, next);
+          note.textContent = 'Edit as JSON — parsed ✓';
+          markDirty();
+        }
+      } catch {
+        note.textContent = 'Edit as JSON — not valid JSON yet';
+      }
+    },
+  }) as HTMLTextAreaElement;
+  area.value = JSON.stringify(ex, null, 2);
+  return h('div', { class: 'edit-grid' }, note, area);
 }
 
 // ---------- Edit view ----------
@@ -356,6 +422,7 @@ function field(label: string, value: string, on: (v: string) => void, o: { zh?: 
 }
 
 function editExercise(ex: LessonExercise): HTMLElement {
+  if (JSON_EDITED.has(ex.type)) return jsonExerciseEditor(ex);
   const g = h('div', { class: 'edit-grid' });
   switch (ex.type) {
     case 'note':
@@ -434,26 +501,7 @@ function editExercise(ex: LessonExercise): HTMLElement {
 }
 
 function newExercise(type: ExType): LessonExercise {
-  switch (type) {
-    case 'note':
-      return { type, title: '', body: '', sentences: [] };
-    case 'scramble':
-      return { type, english: '', tiles: [], correct_order: [] };
-    case 'choice':
-      return { type, question: '', options: [{ hanzi: '' }, { hanzi: '' }], correct: 0 };
-    case 'translate':
-      return { type, english: '', reference_hanzi: '' };
-    case 'match':
-      return { type, pairs: [{ hanzi: '', english: '' }, { hanzi: '', english: '' }] };
-    case 'describe_image':
-      return { type, image_prompt: '', reference_hanzi: '' };
-    case 'speak':
-      return { type, prompt: '' };
-    case 'listen_choice':
-      return { type, audio: { hanzi: '' }, options: [{ hanzi: '' }, { hanzi: '' }], correct: 0 };
-    case 'listen_translate':
-      return { type, audio: { hanzi: '', english: '' } };
-  }
+  return defaultExercise(type);
 }
 
 function moveItem<T>(arr: T[], i: number, delta: number): boolean {

@@ -7,17 +7,7 @@
 import { useMemo, useState } from 'react';
 import type { CustomLessonSpec, LessonExercise } from '@shared/lesson';
 import { exercisePrimaryText } from '@shared/lesson';
-import {
-  ScrambleExercise,
-  ChoiceExercise,
-  TranslateExercise,
-  MatchExercise,
-  DescribeImageExercise,
-  SpeakPromptExercise,
-  ListenChoiceExercise,
-  ListenTranslateExercise,
-  LessonNoteCard,
-} from '../lesson-exercises';
+import { ExerciseView } from '../ExerciseView';
 import { EXERCISE_ICONS, EXERCISE_TYPE_NAMES } from './DiffCard';
 import type { Speak } from './fields';
 import '../../pages/PracticePage.css';
@@ -51,6 +41,11 @@ function renderable(ex: LessonExercise): boolean {
       return ex.options.length >= 2 && ex.correct >= 0 && ex.correct < ex.options.length;
     case 'match':
       return ex.pairs.length >= 2;
+    case 'sentence_making':
+      return ex.words.length > 0;
+    case 'conversation':
+      return ex.speakers.length >= 2 && ex.lines.length > 0 && ex.questions.length > 0
+        && ex.lines.every(l => l.speaker >= 0 && l.speaker < ex.speakers.length);
     default:
       return true;
   }
@@ -81,35 +76,7 @@ export function LessonPreview({ spec, speak }: { spec: CustomLessonSpec; speak: 
   if (!renderable(exercise)) {
     body = <div className="ed-preview-empty">This exercise isn't complete yet — fill in its fields to preview it.</div>;
   } else {
-    switch (exercise.type) {
-      case 'note':
-        body = <LessonNoteCard key={key} title={exercise.title} body={exercise.body} sentences={exercise.sentences} speak={speak} onNext={advance} />;
-        break;
-      case 'scramble':
-        body = <ScrambleExercise key={key} english={exercise.english} tiles={exercise.tiles} correctOrder={exercise.correct_order} altOrders={exercise.alt_orders} speak={speak} onNext={advance} />;
-        break;
-      case 'choice':
-        body = <ChoiceExercise key={key} question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} speak={speak} onNext={advance} />;
-        break;
-      case 'translate':
-        body = <TranslateExercise key={key} english={exercise.english} referenceHanzi={exercise.reference_hanzi} referencePinyin={exercise.reference_pinyin} note={exercise.note} speak={speak} onNext={advance} />;
-        break;
-      case 'match':
-        body = <MatchExercise key={key} pairs={exercise.pairs} speak={speak} onNext={advance} />;
-        break;
-      case 'describe_image':
-        body = <DescribeImageExercise key={key} imageKey={exercise.image_url} imagePrompt={exercise.image_prompt} task={exercise.task} referenceHanzi={exercise.reference_hanzi} referencePinyin={exercise.reference_pinyin} referenceEnglish={exercise.reference_english} speak={speak} onNext={advance} />;
-        break;
-      case 'speak':
-        body = <SpeakPromptExercise key={key} prompt={exercise.prompt} example={exercise.example} speak={speak} onNext={advance} />;
-        break;
-      case 'listen_choice':
-        body = <ListenChoiceExercise key={key} audio={exercise.audio} question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} speak={speak} onNext={advance} />;
-        break;
-      case 'listen_translate':
-        body = <ListenTranslateExercise key={key} audio={exercise.audio} note={exercise.note} speak={speak} onNext={advance} />;
-        break;
-    }
+    body = <ExerciseView key={key} exercise={exercise} speak={speak} onDone={advance} />;
   }
 
   return (

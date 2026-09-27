@@ -4,31 +4,15 @@
  * proposals in the editor chat.
  */
 
-import { LessonDiff, LessonExercise, exercisePrimaryText } from '@shared/lesson';
+import { LessonDiff, LessonExercise, exercisePrimaryText, EXERCISE_TYPE_INFO } from '@shared/lesson';
 
-export const EXERCISE_ICONS: Record<LessonExercise['type'], string> = {
-  note: '📖',
-  scramble: '🧩',
-  choice: '🔘',
-  translate: '✍️',
-  match: '🔗',
-  describe_image: '🖼',
-  speak: '🎤',
-  listen_choice: '👂',
-  listen_translate: '👂',
-};
+export const EXERCISE_ICONS = Object.fromEntries(
+  Object.values(EXERCISE_TYPE_INFO).map(info => [info.type, info.icon]),
+) as Record<LessonExercise['type'], string>;
 
-export const EXERCISE_TYPE_NAMES: Record<LessonExercise['type'], string> = {
-  note: 'Note',
-  scramble: 'Word order',
-  choice: 'Multiple choice',
-  translate: 'Translate',
-  match: 'Match pairs',
-  describe_image: 'Describe picture',
-  speak: 'Speak',
-  listen_choice: 'Listen & pick',
-  listen_translate: 'Listen & translate',
-};
+export const EXERCISE_TYPE_NAMES = Object.fromEntries(
+  Object.values(EXERCISE_TYPE_INFO).map(info => [info.type, info.name]),
+) as Record<LessonExercise['type'], string>;
 
 function short(value: unknown, max = 50): string {
   const text = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);

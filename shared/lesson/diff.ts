@@ -14,6 +14,7 @@
  */
 
 import { CustomLessonSpec, LessonExercise, LessonSection } from './types';
+import { EXERCISE_TYPE_INFO } from './registry';
 
 export interface FieldChange {
   field: string;
@@ -97,6 +98,17 @@ export function exercisePrimaryText(ex: LessonExercise): string {
       return ex.audio.hanzi;
     case 'listen_translate':
       return ex.audio.hanzi;
+    case 'sentence_making':
+      return ex.task || ex.words.map(w => w.hanzi).join(' · ');
+    case 'write_typed':
+    case 'write_handwriting':
+      return ex.answer.hanzi;
+    case 'dictation':
+      return ex.audio.hanzi;
+    case 'oral_expression':
+      return ex.prompt;
+    case 'conversation':
+      return ex.situation;
     default:
       return '';
   }
@@ -123,6 +135,17 @@ function identityFields(ex: LessonExercise): string[] {
       return ['audio', 'options', 'question'];
     case 'listen_translate':
       return ['audio'];
+    case 'sentence_making':
+      return ['words', 'task'];
+    case 'write_typed':
+    case 'write_handwriting':
+      return ['answer'];
+    case 'dictation':
+      return ['audio'];
+    case 'oral_expression':
+      return ['prompt', 'question_audio'];
+    case 'conversation':
+      return ['situation', 'lines'];
     default:
       return [];
   }
@@ -270,17 +293,9 @@ export function diffLessonSpecs(before: CustomLessonSpec, after: CustomLessonSpe
   };
 }
 
-export const EXERCISE_TYPE_LABELS: Record<LessonExercise['type'], string> = {
-  note: 'note',
-  scramble: 'word order',
-  choice: 'multiple choice',
-  translate: 'translate',
-  match: 'match pairs',
-  describe_image: 'describe picture',
-  speak: 'speak',
-  listen_choice: 'listen & pick',
-  listen_translate: 'listen & translate',
-};
+export const EXERCISE_TYPE_LABELS = Object.fromEntries(
+  Object.values(EXERCISE_TYPE_INFO).map(info => [info.type, info.label]),
+) as Record<LessonExercise['type'], string>;
 
 function short(value: unknown, max = 60): string {
   const text = typeof value === 'string' ? value : value === undefined || value === null ? '' : JSON.stringify(value);

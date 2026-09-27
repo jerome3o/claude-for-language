@@ -18,6 +18,7 @@ import type { ToolAction, CoachChatTurn } from './services/ai';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { StructuredCallError } from './services/structured-call';
+import { LESSON_VOICE_IDS } from '@shared/lesson';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet, sentenceAudioRetryDelay } from './services/sentence-set';
@@ -74,6 +75,9 @@ import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
 import noteSearchRoutes from './routes/note-search';
 import { tutorNotesRoutes } from './routes/tutor-notes';
+import lessonAttemptsRoutes from './routes/lesson-attempts';
+import { insertLessonAttempt } from './db/lesson-attempt-queries';
+import { sanitizeAttemptData } from '@shared/lesson';
 import { homeworkRoutes } from './routes/homework';
 import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
@@ -466,6 +470,8 @@ app.route('/api', noteSearchRoutes);
 // Session notes → agent jobs for a student (routes/tutor-notes.ts; runs on tutor-notes-queue)
 app.route('/api', tutorNotesRoutes);
 
+// Lesson attempts: per-exercise answers + time, recordings, sentence-making feedback (routes/lesson-attempts.ts)
+app.route('/api', lessonAttemptsRoutes);
 // Homework assignments: one-off passes with due dates and / or long-term review (routes/homework.ts, docs/HOMEWORK.md)
 app.route('/api', homeworkRoutes);
 // Lesson notes → homework drafts the tutor reviews with Claude, then assigns (routes/homework-drafts.ts)
@@ -6182,11 +6188,16 @@ app.post('/api/daily/reader/generate', async (c) => {
 // ============ Grammar Practice ============
 
 app.post('/api/practice/tts', async (c) => {
-  const { text, speed } = await c.req.json<{ text: string; speed?: number }>();
+  const { text, speed, voice_id } = await c.req.json<{ text: string; speed?: number; voice_id?: string }>();
   if (!text) return c.json({ error: 'text required' }, 400);
   // MiniMax accepts speeds in [0.5, 2.0]
   const clampedSpeed = typeof speed === 'number' ? Math.min(2, Math.max(0.5, speed)) : undefined;
-  const result = await generateConversationTTS(c.env, text, { speed: clampedSpeed });
+  // Conversation exercises speak each speaker in its own voice — only the
+  // lesson voices are allowed (shared/lesson/voices.ts).
+  if (voice_id !== undefined && !LESSON_VOICE_IDS.has(voice_id)) {
+    return c.json({ error: 'Unknown voice' }, 400);
+  }
+  const result = await generateConversationTTS(c.env, text, { speed: clampedSpeed, voiceId: voice_id });
   if (!result) return c.json({ error: 'TTS failed' }, 502);
   return c.json({ audio_base64: result.audioBase64, content_type: result.contentType });
 });
@@ -6333,20 +6344,25 @@ app.delete('/api/custom-lessons/:id', async (c) => {
 app.post('/api/custom-lessons/offline-complete', async (c) => {
   const userId = c.get('user').id;
   const { events } = await c.req.json<{
-    events: Array<{ id: string; lesson_id: string; correct: number; total: number; completed_at: string; rating?: number | null }>;
+    events: Array<{ id: string; lesson_id: string; correct: number; total: number; completed_at: string; rating?: number | null; attempt?: unknown }>;
   }>();
   if (!events || !Array.isArray(events)) {
     return c.json({ error: 'events array is required' }, 400);
   }
 
   let applied = 0;
+  let attempts = 0;
   for (const event of events) {
     if (!event.id || !event.lesson_id || !event.completed_at) continue;
     if (await db.applyCustomLessonCompletion(c.env.DB, userId, event)) {
       applied++;
     }
+    // Per-exercise answers ride on the completion (same id); stored even when
+    // the completion itself was already there (a re-upload is a no-op).
+    const attempt = event.attempt === undefined ? null : sanitizeAttemptData(event.attempt);
+    if (attempt && await insertLessonAttempt(c.env.DB, userId, event, attempt)) attempts++;
   }
-  return c.json({ applied, skipped: events.length - applied });
+  return c.json({ applied, skipped: events.length - applied, attempts });
 });
 
 // ============ Feature Requests ============

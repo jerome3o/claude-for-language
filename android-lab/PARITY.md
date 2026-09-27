@@ -35,6 +35,13 @@ main app / website at that screen instead) · ➖ not applicable natively
 | Tap a character → definition popup; pinyin under typed answer | ⬜ | `WordDefinitionPopup`, `pinyin-pro` | |
 | Sentence set generated when rating Again | ⬜ | `ensureSentenceSetForNote` | |
 | Custom mini lessons mixed into the session | ⬜ | `shared/lesson`, `lesson-exercises.tsx` | |
+| Lesson exercise: sentence making (typed / handwritten; Claude check online, self-assessed offline) | ⬜ | `practice-exercises.tsx` `SentenceMakingExercise`, `POST /api/lessons/sentence-feedback` | |
+| Lesson exercise: writing — typed (auto-checked, wrong characters marked) | ⬜ — port `shared/lesson/answer-check.ts` (`diffHanzi`) to `core/` with parity vectors | `WriteTypedExercise` | |
+| Lesson exercise: writing — handwriting (stroke-order pad, sketch fallback offline) | ⬜ — needs the `shared/strokes` port (row below) | `WriteHandwritingExercise`, `components/strokes/WritingExercise.tsx` | |
+| Lesson exercise: dictation (typed / handwritten) | ⬜ | `DictationExercise` | |
+| Lesson exercise: oral expression (recorded, queued upload by media key) | ⬜ | `OralExpressionExercise`, `uploadLessonAttemptMedia` | |
+| Lesson exercise: conversation (two TTS voices, comprehension questions, transcript) | ⬜ — voices from `shared/lesson/voices.ts` (`resolveConversationVoices`; `voice_id` on `/api/practice/tts`) | `ConversationExercise`, `hooks/useLessonClips.ts` | |
+| Lesson attempts: per-exercise answers + time, uploaded with the completion event | ⬜ — `attempt` on `POST /api/custom-lessons/offline-complete` (`shared/lesson/attempt.ts`) | `StudyCustomLesson.tsx`, `services/custom-lesson-study.ts` | |
 | Graded readers (one a day) | ⬜ | `services/reader-study.ts` | |
 | First-card explainer | ⬜ | `FirstCardExplainer.tsx` | |
 
@@ -70,6 +77,8 @@ main app / website at that screen instead) · ➖ not applicable natively
 | Handwriting / stroke-order practice (preview: `/practice/strokes`, study ⋯ → Write it) | ⬜ — port `shared/strokes` (pure matcher + quiz, unit-tested) to `core/` with parity vectors, draw on a Compose `Canvas` with `pointerInput`; see docs/STROKE_ORDER.md |
 | Readers list & reader editor | ⬜ |
 | Mini lessons list & editor | ⬜ |
+| Exercise catalogue with sample-lesson trials (`/library/catalogue`) | ⬜ |
+| Lesson attempt review — tutor (`/connections/:relId/lesson-attempts`) and "My answers" (`/lesson-attempts`) | ⬜ |
 | Video calls | ⬜ |
 | Invites / onboarding / sign-up | ➖ (sign-in only; accounts are made on the web) |
 

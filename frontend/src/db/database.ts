@@ -287,8 +287,27 @@ export interface LocalCustomLessonCompletionEvent {
   completed_at: string;
   // Again/Hard/Good/Easy; null on legacy events (treated as Good)
   rating: Rating | null;
+  /** What was answered in each exercise and how long it took (uploaded with
+   * the event; absent on events from before attempts were recorded and on
+   * events downloaded from other devices). */
+  attempt?: import('@shared/lesson').LessonAttemptData;
   // Sync metadata (0 = unsynced, 1 = synced)
   _synced: number;
+}
+
+/** A recording made during a lesson attempt (oral expression), queued for
+ * upload once its attempt is on the server. id = `${attempt_id}:${media_key}`. */
+export interface LocalLessonAttemptMedia {
+  id: string;
+  attempt_id: string;
+  media_key: string;
+  blob: Blob;
+  content_type: string;
+  created_at: string;
+  /** 0 = waiting to upload, 1 = uploaded (kept a while so the learner can replay it) */
+  _synced: number;
+  attempts?: number;
+  error?: string;
 }
 
 /**
@@ -495,6 +514,7 @@ export class ChineseLearningDB extends Dexie {
   // Custom mini lessons (agent-authored, mixed into the card flow)
   customLessons!: Table<LocalCustomLesson, string>;
   customLessonCompletionEvents!: Table<LocalCustomLessonCompletionEvent, string>;
+  lessonAttemptMedia!: Table<LocalLessonAttemptMedia, string>;
 
   // Sentence sets: graded example sentences per note (offline, with audio)
   noteSentences!: Table<LocalNoteSentence, string>;
@@ -904,6 +924,12 @@ export class ChineseLearningDB extends Dexie {
     this.version(19).stores({
       homeworkAssignments: 'id, status, due_date, target_id, kind',
       homeworkEvents: 'id, assignment_id, _synced',
+    });
+
+    // Version 20: recordings made during mini-lesson attempts (oral
+    // expression), queued offline and uploaded by the next sync.
+    this.version(20).stores({
+      lessonAttemptMedia: 'id, attempt_id, _synced',
     });
   }
 }

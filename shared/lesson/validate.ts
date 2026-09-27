@@ -11,6 +11,19 @@ const MAX_SECTIONS = 20;
 const MAX_EXERCISES = 50;
 const MAX_TILES = 14;
 const MAX_MATCH_PAIRS = 8;
+const MAX_TARGET_WORDS = 4;
+const MAX_HINTS = 8;
+const MAX_HANDWRITING_CHARS = 12;
+const MAX_HANDWRITTEN_DICTATION_CHARS = 16;
+const MAX_CONVERSATION_LINES = 24;
+const MAX_CONVERSATION_QUESTIONS = 6;
+
+/** Every exercise type the validator accepts, in catalogue order. */
+export const EXERCISE_TYPE_IDS = [
+  'note', 'scramble', 'choice', 'translate', 'match', 'describe_image', 'speak',
+  'listen_choice', 'listen_translate', 'sentence_making', 'write_typed', 'write_handwriting',
+  'dictation', 'oral_expression', 'conversation',
+] as const;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -145,11 +158,173 @@ function checkExercise(ex: unknown, where: string, errors: string[]): void {
       }
       break;
     }
+    case 'sentence_making': {
+      const words = ex.words as unknown;
+      if (!Array.isArray(words) || words.length < 1 || words.length > MAX_TARGET_WORDS) {
+        errors.push(`${where}: sentence_making needs "words": 1-${MAX_TARGET_WORDS} target words ({hanzi, pinyin?, english?})`);
+      } else {
+        words.forEach((w, i) => checkWord(w, `${where}.words[${i}]`, errors));
+      }
+      checkInput(ex.input, where, errors);
+      if (ex.task !== undefined && typeof ex.task !== 'string') errors.push(`${where}: "task" must be a string`);
+      if (ex.example !== undefined) checkSentence(ex.example, `${where}.example`, errors);
+      break;
+    }
+    case 'write_typed':
+    case 'write_handwriting': {
+      checkSentence(ex.answer, `${where}.answer`, errors);
+      const cues = checkCues(ex.cues, where, errors);
+      if (isRecord(ex.answer) && nonEmptyString(ex.answer.hanzi)) {
+        const answer = ex.answer as Record<string, unknown>;
+        const shown = cues.filter(c => c === 'audio' || nonEmptyString(answer[c]));
+        if (shown.length === 0) {
+          errors.push(`${where}: nothing to go on — give "answer.english" and/or "answer.pinyin", or add "audio" to "cues" (shown: ${cues.join(', ')})`);
+        }
+        if (ex.type === 'write_handwriting' && hanCount(answer.hanzi as string) > MAX_HANDWRITING_CHARS) {
+          errors.push(`${where}: handwriting answers are character recall — keep "answer.hanzi" to ${MAX_HANDWRITING_CHARS} characters or fewer (use write_typed or sentence_making for longer text)`);
+        }
+      }
+      if (ex.type === 'write_typed') checkAlternatives(ex.alternatives, where, errors);
+      break;
+    }
+    case 'dictation': {
+      checkSentence(ex.audio, `${where}.audio`, errors);
+      checkInput(ex.input, where, errors);
+      checkAlternatives(ex.alternatives, where, errors);
+      if (ex.input === 'handwrite' && isRecord(ex.audio) && nonEmptyString(ex.audio.hanzi) && hanCount(ex.audio.hanzi) > MAX_HANDWRITTEN_DICTATION_CHARS) {
+        errors.push(`${where}: handwritten dictation should be short — ${MAX_HANDWRITTEN_DICTATION_CHARS} characters or fewer`);
+      }
+      break;
+    }
+    case 'oral_expression': {
+      if (!nonEmptyString(ex.prompt)) errors.push(`${where}: oral_expression needs "prompt" (what to talk about)`);
+      if (ex.question_audio !== undefined) checkSentence(ex.question_audio, `${where}.question_audio`, errors);
+      if (ex.example !== undefined) checkSentence(ex.example, `${where}.example`, errors);
+      if (ex.hints !== undefined) {
+        if (!Array.isArray(ex.hints) || ex.hints.length > MAX_HINTS) {
+          errors.push(`${where}: "hints" must be a list of up to ${MAX_HINTS} words`);
+        } else {
+          (ex.hints as unknown[]).forEach((w, i) => checkWord(w, `${where}.hints[${i}]`, errors));
+        }
+      }
+      if (ex.target_seconds !== undefined) {
+        const s = ex.target_seconds;
+        if (typeof s !== 'number' || !Number.isFinite(s) || s < 5 || s > 180) {
+          errors.push(`${where}: "target_seconds" must be 5-180`);
+        }
+      }
+      break;
+    }
+    case 'conversation':
+      checkConversation(ex, where, errors);
+      break;
     default:
       errors.push(
-        `${where}: unknown exercise type "${String(ex.type)}" (valid: note, scramble, choice, translate, match, describe_image, speak, listen_choice, listen_translate)`
+        `${where}: unknown exercise type "${String(ex.type)}" (valid: ${EXERCISE_TYPE_IDS.join(', ')})`
       );
   }
+}
+
+function checkWord(v: unknown, where: string, errors: string[]): void {
+  if (!isRecord(v) || !nonEmptyString(v.hanzi)) {
+    errors.push(`${where}: expected a word object with non-empty "hanzi"`);
+  }
+}
+
+function checkInput(v: unknown, where: string, errors: string[]): void {
+  if (v !== undefined && v !== 'type' && v !== 'handwrite') {
+    errors.push(`${where}: "input" must be "type" or "handwrite"`);
+  }
+}
+
+const CUES = ['english', 'pinyin', 'audio'] as const;
+
+/** Returns the effective cue list (default english + pinyin). */
+function checkCues(v: unknown, where: string, errors: string[]): string[] {
+  if (v === undefined) return ['english', 'pinyin'];
+  if (!Array.isArray(v) || v.length === 0 || !v.every(c => (CUES as readonly unknown[]).includes(c))) {
+    errors.push(`${where}: "cues" must be a non-empty list of ${CUES.map(c => `"${c}"`).join(' / ')}`);
+    return [];
+  }
+  return v as string[];
+}
+
+function checkAlternatives(v: unknown, where: string, errors: string[]): void {
+  if (v !== undefined && (!Array.isArray(v) || !v.every(nonEmptyString))) {
+    errors.push(`${where}: "alternatives" must be a list of non-empty strings`);
+  }
+}
+
+/** Number of Han characters (punctuation and latin don't count). */
+function hanCount(s: string): number {
+  return (s.match(/\p{Script=Han}/gu) ?? []).length;
+}
+
+function checkConversation(ex: Record<string, unknown>, where: string, errors: string[]): void {
+  if (!nonEmptyString(ex.situation)) errors.push(`${where}: conversation needs "situation" (e.g. "Checking in at a hotel")`);
+
+  const speakers = ex.speakers as unknown;
+  let speakerCount = 0;
+  if (!Array.isArray(speakers) || speakers.length < 2 || speakers.length > 3) {
+    errors.push(`${where}: "speakers" must be 2-3 speakers ({name, voice?: "female"|"male"})`);
+  } else {
+    speakerCount = speakers.length;
+    speakers.forEach((s, i) => {
+      if (!isRecord(s) || !nonEmptyString(s.name)) {
+        errors.push(`${where}.speakers[${i}]: needs a non-empty "name"`);
+      } else if (s.voice !== undefined && s.voice !== 'female' && s.voice !== 'male') {
+        errors.push(`${where}.speakers[${i}]: "voice" must be "female" or "male"`);
+      }
+    });
+  }
+
+  const lines = ex.lines as unknown;
+  if (!Array.isArray(lines) || lines.length < 2 || lines.length > MAX_CONVERSATION_LINES) {
+    errors.push(`${where}: "lines" must be 2-${MAX_CONVERSATION_LINES} lines ({speaker, hanzi, pinyin?, english?})`);
+  } else {
+    const spoke = new Set<number>();
+    lines.forEach((line, i) => {
+      if (!isRecord(line) || !nonEmptyString(line.hanzi)) {
+        errors.push(`${where}.lines[${i}]: needs non-empty "hanzi"`);
+        return;
+      }
+      const sp = line.speaker;
+      if (typeof sp !== 'number' || !Number.isInteger(sp) || sp < 0 || (speakerCount > 0 && sp >= speakerCount)) {
+        errors.push(`${where}.lines[${i}]: "speaker" must be a speaker index (0-${Math.max(speakerCount - 1, 0)})`);
+      } else {
+        spoke.add(sp);
+      }
+    });
+    if (speakerCount > 0 && spoke.size > 0 && spoke.size < speakerCount) {
+      errors.push(`${where}: every speaker needs at least one line`);
+    }
+  }
+
+  const questions = ex.questions as unknown;
+  if (!Array.isArray(questions) || questions.length < 1 || questions.length > MAX_CONVERSATION_QUESTIONS) {
+    errors.push(`${where}: "questions" must be 1-${MAX_CONVERSATION_QUESTIONS} comprehension questions`);
+    return;
+  }
+  questions.forEach((q, i) => {
+    const qWhere = `${where}.questions[${i}]`;
+    if (!isRecord(q) || !nonEmptyString(q.question)) {
+      errors.push(`${qWhere}: needs non-empty "question"`);
+      return;
+    }
+    if (q.options !== undefined) {
+      const options = q.options;
+      if (!Array.isArray(options) || options.length < 2 || options.length > 5 || !options.every(nonEmptyString)) {
+        errors.push(`${qWhere}: "options" must be 2-5 non-empty strings`);
+        return;
+      }
+      const correct = q.correct;
+      if (typeof correct !== 'number' || !Number.isInteger(correct) || correct < 0 || correct >= options.length) {
+        errors.push(`${qWhere}: "correct" must be an option index (0-${options.length - 1})`);
+      }
+    } else if (!nonEmptyString(q.answer)) {
+      errors.push(`${qWhere}: give "options" + "correct" (multiple choice) or "answer" (free answer, self-assessed)`);
+    }
+  });
 }
 
 /**

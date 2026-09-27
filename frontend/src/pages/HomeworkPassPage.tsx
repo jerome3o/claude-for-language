@@ -5,7 +5,7 @@ import { dueLabel, localDate, nextPassItem, passItemIds, passProgress, hasFsrs }
 import { DEFAULT_DECK_SETTINGS } from '@shared/decks';
 import { db, type LocalNote } from '../db/database';
 import { recordPassEvent, syncHomework, titleParts } from '../services/homework';
-import { completeCustomLesson, getCustomLessonIntervalPreviews } from '../services/custom-lesson-study';
+import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
 import { recordReaderReview, getReaderIntervalPreviews } from '../services/reader-study';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { StudyReader } from '../components/StudyReader';
@@ -273,8 +273,13 @@ function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmen
     <StudyCustomLesson
       lesson={lesson}
       intervalPreviews={previews}
-      onComplete={(correct: number, total: number, rating: Rating) => {
-        void completeCustomLesson(lesson.id, correct, total, rating).then(() => setFinished(true));
+      onComplete={(correct, total, rating, attempt, recordings) => {
+        // The per-exercise attempt (and any recordings) travels with the completion, as in a study session.
+        void completeCustomLesson(lesson.id, correct, total, rating, attempt, recordings)
+          .then(() => {
+            setFinished(true);
+            if (navigator.onLine) void syncCustomLessons().catch(() => {});
+          });
       }}
       onEnd={onExit}
     />

@@ -10,7 +10,8 @@
  * lesson-exercises.css for the new match / describe-image views.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ExerciseAnswer } from '@shared/lesson';
 import { useCachedImageUrl } from '../hooks/useCachedImageUrl';
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import './lesson-exercises.css';
@@ -22,6 +23,10 @@ export interface ExerciseSentence {
 }
 
 type Speak = (text: string) => void;
+
+/** What an exercise reports when the learner moves on: the verdict plus what
+ * they answered (recorded in the lesson attempt for the tutor to review). */
+export type OnNext = (correct: boolean, answer?: ExerciseAnswer) => void;
 
 /** Joined-sentence scramble check: whitespace-insensitive, alt orders accepted. */
 export function checkScrambleOrder(
@@ -43,7 +48,7 @@ export function ScrambleExercise(props: {
   correctOrder: string[];
   altOrders?: string[][];
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { english, tiles, correctOrder, altOrders, speak, onNext } = props;
   const [pickedOrder, setPickedOrder] = useState<number[]>([]);
@@ -117,7 +122,7 @@ export function ScrambleExercise(props: {
           </div>
           {!result && <div className="result-correction">{correctOrder.join(' ')}</div>}
           <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={() => onNext(result)}>
+            <button className="practice-btn primary" onClick={() => onNext(result, { order: picked, hint_used: showEnglish })}>
               Continue
             </button>
           </div>
@@ -135,7 +140,7 @@ export function ChoiceExercise(props: {
   correctIndex: number;
   explanation?: string;
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { question, options, correctIndex, explanation, speak, onNext } = props;
   const [choice, setChoice] = useState<number | null>(null);
@@ -178,7 +183,7 @@ export function ChoiceExercise(props: {
           </div>
           {explanation && <p className="result-explanation">{explanation}</p>}
           <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={() => onNext(result)}>
+            <button className="practice-btn primary" onClick={() => onNext(result, { choice: choice ?? undefined })}>
               Continue
             </button>
           </div>
@@ -192,7 +197,7 @@ export function ChoiceExercise(props: {
 
 /** Compare a typed answer to the reference ignoring whitespace and
  * punctuation, so 蛋糕被妹妹吃掉了 matches 蛋糕被妹妹吃掉了。 */
-function isExactHanziMatch(answer: string, reference: string): boolean {
+export function isExactHanziMatch(answer: string, reference: string): boolean {
   const normalize = (s: string) => s.replace(/[\s。，！？；：、．…,.!?;:'"''""()（）]/g, '');
   const a = normalize(answer);
   return a.length > 0 && a === normalize(reference);
@@ -205,7 +210,7 @@ export function TranslateExercise(props: {
   referencePinyin?: string | null;
   note?: string;
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { label, english, referenceHanzi, referencePinyin, note, speak, onNext } = props;
   const [answer, setAnswer] = useState('');
@@ -261,10 +266,10 @@ export function TranslateExercise(props: {
             {note || 'Did yours match the meaning? (Different wording is fine.)'}
           </p>
           <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false)}>
+            <button className="practice-btn" onClick={() => onNext(false, { text: answer.trim() || undefined, self_assessed: true })}>
               ✗ Missed it
             </button>
-            <button className="practice-btn primary" onClick={() => onNext(true)}>
+            <button className="practice-btn primary" onClick={() => onNext(true, { text: answer.trim() || undefined, self_assessed: true })}>
               ✓ Got it
             </button>
           </div>
@@ -283,7 +288,7 @@ export function TranslateExercise(props: {
 export function MatchExercise(props: {
   pairs: Array<{ hanzi: string; pinyin?: string | null; english: string }>;
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { pairs, speak, onNext } = props;
   const [leftOrder] = useState(() => shuffledIndexes(pairs.length));
@@ -372,7 +377,7 @@ export function MatchExercise(props: {
             {mistakes === 0 ? '✓ All matched!' : `Matched with ${mistakes} miss${mistakes === 1 ? '' : 'es'}`}
           </div>
           <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={() => onNext(mistakes === 0)}>
+            <button className="practice-btn primary" onClick={() => onNext(mistakes === 0, { mistakes })}>
               Continue
             </button>
           </div>
@@ -392,7 +397,7 @@ export function DescribeImageExercise(props: {
   referencePinyin?: string | null;
   referenceEnglish?: string | null;
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { imageKey, imagePrompt, task, referenceHanzi, referencePinyin, referenceEnglish, speak, onNext } = props;
   const [revealed, setRevealed] = useState(false);
@@ -437,10 +442,10 @@ export function DescribeImageExercise(props: {
             Did your description capture the scene? (Any correct sentence counts.)
           </p>
           <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false)}>
+            <button className="practice-btn" onClick={() => onNext(false, { self_assessed: true })}>
               ✗ Not quite
             </button>
-            <button className="practice-btn primary" onClick={() => onNext(true)}>
+            <button className="practice-btn primary" onClick={() => onNext(true, { self_assessed: true })}>
               ✓ Got it
             </button>
           </div>
@@ -456,7 +461,7 @@ export function SpeakPromptExercise(props: {
   prompt: string;
   example?: ExerciseSentence | null;
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { prompt, example, speak, onNext } = props;
   const [finished, setFinished] = useState(false);
@@ -487,10 +492,10 @@ export function SpeakPromptExercise(props: {
           )}
           <p className="result-explanation">Was your sentence grammatical and on task?</p>
           <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false)}>
+            <button className="practice-btn" onClick={() => onNext(false, { self_assessed: true })}>
               ✗ Not quite
             </button>
-            <button className="practice-btn primary" onClick={() => onNext(true)}>
+            <button className="practice-btn primary" onClick={() => onNext(true, { self_assessed: true })}>
               ✓ Yes
             </button>
           </div>
@@ -504,15 +509,17 @@ export function SpeakPromptExercise(props: {
 
 /** Big replayable play button shared by the listening exercises. The played
  * text is never rendered next to it — hearing it IS the exercise. */
-function ListenPlayButton(props: { text: string; speak: Speak }) {
-  const { text, speak } = props;
+export function ListenPlayButton(props: { text: string; speak: Speak; onPlay?: () => void; autoPlay?: boolean }) {
+  const { text, speak, onPlay, autoPlay = true } = props;
   // Auto-play once on mount so the exercise starts in the ear, not the eye.
   useEffect(() => {
+    if (!autoPlay) return;
     speak(text);
+    onPlay?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <button className="listen-play-btn" onClick={() => speak(text)} aria-label="Play audio">
+    <button className="listen-play-btn" onClick={() => { speak(text); onPlay?.(); }} aria-label="Play audio">
       🔊
       <span className="listen-play-hint">Tap to replay</span>
     </button>
@@ -526,18 +533,19 @@ export function ListenChoiceExercise(props: {
   correctIndex: number;
   explanation?: string;
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { audio, question, options, correctIndex, explanation, speak, onNext } = props;
   const [choice, setChoice] = useState<number | null>(null);
   const [optionOrder] = useState(() => shuffledIndexes(options.length));
+  const plays = useRef(0);
   const result = choice === null ? null : choice === correctIndex;
 
   return (
     <div className="exercise">
       <div className="phase-label">What do you hear?</div>
       {question && <div className="contrast-context">{question}</div>}
-      <ListenPlayButton text={audio.hanzi} speak={speak} />
+      <ListenPlayButton text={audio.hanzi} speak={speak} onPlay={() => { plays.current++; }} />
       {optionOrder.map(index => {
         const s = options[index];
         const cls =
@@ -571,7 +579,7 @@ export function ListenChoiceExercise(props: {
           </div>
           {explanation && <p className="result-explanation">{explanation}</p>}
           <div className="exercise-actions">
-            <button className="practice-btn primary" onClick={() => onNext(result)}>
+            <button className="practice-btn primary" onClick={() => onNext(result, { choice: choice ?? undefined, plays: plays.current })}>
               Continue
             </button>
           </div>
@@ -600,16 +608,18 @@ export function ListenTranslateExercise(props: {
   audio: ExerciseSentence;
   note?: string;
   speak: Speak;
-  onNext: (correct: boolean) => void;
+  onNext: OnNext;
 }) {
   const { audio, note, speak, onNext } = props;
   const [answer, setAnswer] = useState('');
   const [revealed, setRevealed] = useState(false);
+  const plays = useRef(0);
+  const report = () => ({ text: answer.trim() || undefined, self_assessed: true, plays: plays.current });
 
   return (
     <div className="exercise">
       <div className="phase-label">Listen and translate</div>
-      <ListenPlayButton text={audio.hanzi} speak={speak} />
+      <ListenPlayButton text={audio.hanzi} speak={speak} onPlay={() => { plays.current++; }} />
       {!revealed ? (
         <>
           <textarea
@@ -649,10 +659,10 @@ export function ListenTranslateExercise(props: {
             {note || 'Did you catch the meaning? (Different wording is fine.)'}
           </p>
           <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false)}>
+            <button className="practice-btn" onClick={() => onNext(false, report())}>
               ✗ Missed it
             </button>
-            <button className="practice-btn primary" onClick={() => onNext(true)}>
+            <button className="practice-btn primary" onClick={() => onNext(true, report())}>
               ✓ Got it
             </button>
           </div>
@@ -705,3 +715,12 @@ export function LessonNoteCard(props: {
     </div>
   );
 }
+
+export {
+  SentenceMakingExercise,
+  WriteTypedExercise,
+  WriteHandwritingExercise,
+  DictationExercise,
+  OralExpressionExercise,
+  ConversationExercise,
+} from './practice-exercises';

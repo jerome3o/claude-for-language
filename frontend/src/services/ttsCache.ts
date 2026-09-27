@@ -11,9 +11,10 @@ import { generatePracticeTTS } from '../api/client';
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from '../types';
 import { getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 
-export function ttsCacheKey(text: string, speed: number = DEFAULT_TTS_SPEED): string {
-  // djb2 string hash — deterministic, good enough for cache busting
-  const input = `${text}|${DEFAULT_MINIMAX_VOICE}`;
+export function ttsCacheKey(text: string, speed: number = DEFAULT_TTS_SPEED, voice: string = DEFAULT_MINIMAX_VOICE): string {
+  // djb2 string hash — deterministic, good enough for cache busting. The
+  // default voice hashes exactly as before, so existing caches stay valid.
+  const input = `${text}|${voice}`;
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
     hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0;
@@ -35,21 +36,33 @@ export function base64ToBlob(base64: string, contentType: string): Blob {
  */
 export async function getTTSWithCache(
   text: string,
-  speed: number = DEFAULT_TTS_SPEED
+  speed: number = DEFAULT_TTS_SPEED,
+  voice?: string,
 ): Promise<Blob | null> {
-  const key = ttsCacheKey(text, speed);
+  const key = ttsCacheKey(text, speed, voice);
   const cached = await getCachedAudio(key);
   if (cached) return cached;
   if (!navigator.onLine) return null;
 
   try {
-    const result = await generatePracticeTTS(text, speed);
+    const result = await generatePracticeTTS(text, speed, voice);
     const blob = base64ToBlob(result.audio_base64, result.content_type);
     await cacheAudio(key, blob);
     return blob;
   } catch (err) {
     console.error('[ttsCache] TTS generation failed:', err);
     return null;
+  }
+}
+
+/** Generate + cache clips (text + optional voice) not yet cached. */
+export async function prefetchTTSClips(clips: Array<{ text: string; voice?: string }>, speed: number = DEFAULT_TTS_SPEED): Promise<void> {
+  for (const clip of clips) {
+    if (!navigator.onLine) return;
+    if (!clip.text.trim()) continue;
+    if (!(await isAudioCached(ttsCacheKey(clip.text, speed, clip.voice)))) {
+      await getTTSWithCache(clip.text, speed, clip.voice);
+    }
   }
 }
 

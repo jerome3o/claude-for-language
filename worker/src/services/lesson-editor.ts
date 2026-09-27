@@ -34,7 +34,11 @@ export const LESSON_STYLE_RULES = `Language rules:
 - Choice/listen_choice: 2-5 options, "correct" is a 0-based index into options.
 - Match: 2-8 pairs, no duplicate hanzi or english.
 - listen_translate audio needs "english" (the answer to check against).
-- describe_image: image_prompt is a detailed English scene description with no text in the image.`;
+- describe_image: image_prompt is a detailed English scene description with no text in the image.
+- Typing and handwriting are separate skills: write_typed vs write_handwriting (≤ 12 characters), and input "type" / "handwrite" on sentence_making and dictation. When the author asks for "writing" without saying which, use write_typed and mention the handwriting option.
+- sentence_making: 1-4 target words the learner must use in their own sentence; give a task (situation) and an example answer.
+- oral_expression: the answer is recorded for the tutor; give useful words as hints and a model answer as example.
+- conversation: 2 speakers (voice "female" / "male" so they sound different), 6-12 natural lines at the learner's level with pinyin + english, 2-4 comprehension questions in English about what happened (mostly multiple choice). Asked for a lesson about a situation ("booking a hotel, beginner"), build: a note with 2-3 key phrases → the conversation → a production exercise (oral_expression or sentence_making) in the same situation.`;
 
 export const LESSON_SPEC_SCHEMA_TEXT = `Lesson spec shape (JSON):
 { title, icon? (one emoji), description?, sections: [ { title?, exercises: [ ... ] } ] }
@@ -75,7 +79,7 @@ function repairMessage(errors: string[], toolName: string): string {
 
 // ============ Generate a lesson from a prompt ============
 
-const GENERATE_SYSTEM = `You write short custom mini lessons for a Chinese-learning app. A lesson is sections of exercises in any order (teaching notes, word order, multiple choice, translation, matching, picture description, speaking, listening). Aim for 1-3 sections and 5-10 exercises: open with a note that teaches the point with 2-3 example sentences, then practise it in several exercise types, and end with a production exercise (translate or speak). Return the whole lesson with the create_lesson_spec tool.
+const GENERATE_SYSTEM = `You write short custom mini lessons for a Chinese-learning app. A lesson is sections of exercises in any order (teaching notes, word order, multiple choice, translation, matching, picture description, speaking, listening, sentence making, typed and handwritten writing, dictation, recorded oral expression, and two-voice conversations with comprehension questions). Aim for 1-3 sections and 5-10 exercises: open with a note that teaches the point with 2-3 example sentences, then practise it in several exercise types, and end with a production exercise (translate, sentence_making or oral_expression). When the request is a situation (ordering food, at the doctor…) or asks for a conversation / dialogue / listening lesson, centre it on a conversation exercise at the requested level. Return the whole lesson with the create_lesson_spec tool.
 
 ${LESSON_STYLE_RULES}
 

@@ -11,6 +11,7 @@ import { READER_STANDARD_SHORT } from '../../../../shared/reader/standard';
 import type { ReaderSpec } from '../../../../shared/reader/types';
 import { validateLessonSpec } from '../../../../shared/lesson/validate';
 import { cardTextProblems } from '../../../../shared/cards/standard';
+import { LESSON_SPEC_DOC as SHARED_LESSON_SPEC_DOC } from '../../../../shared/lesson/doc';
 import type { CustomLessonSpec } from '../../../../shared/lesson/types';
 
 export type { ReaderSpec, CustomLessonSpec };
@@ -36,18 +37,8 @@ export const READER_SPEC_DOC = `ReaderSpec shape (JSON):
 }
 Rules: ${READER_STANDARD_SHORT} Keep to the learner's level; always tone marks, never tone numbers; image_prompt in English, no text in the picture. Pages over the standard come back as warnings (the reader is still saved).`;
 
-export const LESSON_SPEC_DOC = `CustomLessonSpec shape (JSON): { "title": string, "icon"?: string (one emoji), "description"?: string, "sections": [{ "title"?: string, "exercises": [Exercise, ...] }] }.
-Exercise objects (each needs a "type"):
-- {type:"note", title?, body?, sentences?:[{hanzi,pinyin?,english?}]} — teaching text with example sentences (sentences get TTS). Not scored.
-- {type:"scramble", english, tiles:[...], correct_order:[...], alt_orders?} — arrange tiles into the sentence; tiles must be exactly a permutation of correct_order.
-- {type:"choice", question, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — multiple choice (2-5 options).
-- {type:"translate", english, reference_hanzi, reference_pinyin?, note?} — translate EN→ZH, self-assessed against the reference.
-- {type:"match", pairs:[{hanzi,pinyin?,english}]} — connect hanzi with meanings (2-8 pairs, no duplicate hanzi/english).
-- {type:"describe_image", image_prompt, task?, reference_hanzi, reference_pinyin?, reference_english?} — an illustration is generated in the background from image_prompt (English, detailed, no text in the image); the learner describes it aloud and self-assesses.
-- {type:"speak", prompt, example?:{hanzi,pinyin?,english?}} — say your own sentence out loud, self-assessed.
-- {type:"listen_choice", audio:{hanzi,pinyin?,english?}, question?, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — LISTENING: the audio hanzi is played via TTS (never shown until answered); pick the option matching what was heard. Ideal for tone/minimal-pair discrimination (有 yǒu vs 又 yòu).
-- {type:"listen_translate", audio:{hanzi,pinyin?,english}, note?} — LISTENING: the audio hanzi is played (hidden); translate what you heard, self-assessed against audio.english (required).
-Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always tone-marked pinyin (nǐ hǎo), never tone numbers.`;
+/** The lesson spec documentation — one text in shared/lesson/doc.ts, also read by the worker's lesson authors. */
+export const LESSON_SPEC_DOC = SHARED_LESSON_SPEC_DOC;
 
 // ============ Local pre-validation ============
 

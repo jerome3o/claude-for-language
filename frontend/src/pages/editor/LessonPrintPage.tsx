@@ -100,6 +100,57 @@ function Body({ ex }: { ex: LessonExercise }) {
           <div className="pr-answerline" />
         </>
       );
+    case 'sentence_making':
+      return (
+        <>
+          <div className="pr-instr">{ex.task || 'Make your own sentence using these words.'}{ex.input === 'handwrite' ? ' (write it by hand)' : ''}</div>
+          <div className="pr-tiles">{ex.words.map((w, i) => <span key={i} className="pr-tile">{w.hanzi}{w.pinyin ? ` ${w.pinyin}` : ''}</span>)}</div>
+          <div className="pr-answerline" /><div className="pr-answerline" />
+        </>
+      );
+    case 'write_typed':
+    case 'write_handwriting': {
+      const cues = ex.cues ?? ['english', 'pinyin'];
+      return (
+        <>
+          <div className="pr-instr">
+            {ex.prompt || 'Write it in characters'}
+            {cues.includes('english') && ex.answer.english ? <>: <em>{ex.answer.english}</em></> : null}
+            {cues.includes('pinyin') && ex.answer.pinyin ? <> — {ex.answer.pinyin}</> : null}
+            {cues.includes('audio') ? <span className="pr-hint"> (teacher reads it aloud)</span> : null}
+          </div>
+          <div className="pr-answerline" />
+        </>
+      );
+    }
+    case 'dictation':
+      return (
+        <>
+          <div className="pr-instr">Dictation: write down what you hear. <span className="pr-hint">(teacher reads the sentence aloud)</span></div>
+          <div className="pr-answerline" />
+        </>
+      );
+    case 'oral_expression':
+      return (
+        <>
+          <div className="pr-instr">Speak: <em>{ex.prompt}</em>{ex.question_audio ? <> — {ex.question_audio.hanzi}</> : null}</div>
+          {ex.hints?.length ? <div className="pr-hint">Useful words: {ex.hints.map(w => w.hanzi).join('、')}</div> : null}
+        </>
+      );
+    case 'conversation':
+      return (
+        <>
+          <div className="pr-instr">Conversation — {ex.situation}. Listen, then answer. <span className="pr-hint">(teacher reads the dialogue aloud)</span></div>
+          <ol className="pr-options">
+            {ex.questions.map((q, i) => (
+              <li key={i}>
+                {q.question}
+                {q.options ? <ol type="A">{q.options.map((o, j) => <li key={j}>{o}</li>)}</ol> : <div className="pr-answerline" />}
+              </li>
+            ))}
+          </ol>
+        </>
+      );
   }
 }
 
@@ -125,6 +176,21 @@ function answer(ex: LessonExercise): React.ReactNode {
     }
     case 'listen_translate':
       return <>Read: {ex.audio.hanzi}{ex.audio.pinyin ? ` (${ex.audio.pinyin})` : ''}. Answer: {ex.audio.english}</>;
+    case 'sentence_making':
+    case 'oral_expression':
+      return ex.example ? <>e.g. {ex.example.hanzi}{ex.example.english ? ` — ${ex.example.english}` : ''}</> : null;
+    case 'write_typed':
+    case 'write_handwriting':
+      return <>{ex.answer.hanzi}{ex.answer.pinyin ? ` (${ex.answer.pinyin})` : ''}</>;
+    case 'dictation':
+      return <>Read: {ex.audio.hanzi}{ex.audio.pinyin ? ` (${ex.audio.pinyin})` : ''}</>;
+    case 'conversation':
+      return (
+        <>
+          Read: {ex.lines.map(l => `${ex.speakers[l.speaker]?.name ?? ''}: ${l.hanzi}`).join(' / ')}.{' '}
+          Answers: {ex.questions.map((q, i) => `${i + 1}) ${q.options && typeof q.correct === 'number' ? `${letter(q.correct)}. ${q.options[q.correct] ?? ''}` : q.answer ?? ''}`).join('; ')}
+        </>
+      );
     default:
       return null;
   }

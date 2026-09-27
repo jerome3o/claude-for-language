@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '../../shared/cards/standard';
+import { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '../../shared/lesson/doc';
 import OAuthProvider, {
   type AuthRequest,
   type OAuthHelpers,
@@ -437,16 +438,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
     this.server.tool(
       "create_custom_lesson",
       `Create a custom mini lesson that appears in the user's next study session (fully offline). A lesson is ordered sections, each holding any number of exercises of any type in any order. Exercise objects (each needs a "type"):
-- {type:"note", title?, body?, sentences?:[{hanzi,pinyin?,english?}]} — teaching text with example sentences (sentences get TTS). Not scored.
-- {type:"scramble", english, tiles:[...], correct_order:[...], alt_orders?} — arrange tiles into the sentence; tiles must be exactly a permutation of correct_order.
-- {type:"choice", question, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — multiple choice (2-5 options).
-- {type:"translate", english, reference_hanzi, reference_pinyin?, note?} — translate EN→ZH, self-assessed against the reference.
-- {type:"match", pairs:[{hanzi,pinyin?,english}]} — connect hanzi with meanings (2-8 pairs, no duplicate hanzi/english).
-- {type:"describe_image", image_prompt, task?, reference_hanzi, reference_pinyin?, reference_english?} — an illustration is generated in the background from image_prompt (write it in English, detailed, no text in the image); the learner describes it aloud and self-assesses.
-- {type:"speak", prompt, example?:{hanzi,pinyin?,english?}} — say your own sentence out loud, self-assessed.
-- {type:"listen_choice", audio:{hanzi,pinyin?,english?}, question?, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — LISTENING: the audio hanzi is played via TTS (never shown until answered); the learner picks the option matching what they heard. Ideal for tone/minimal-pair discrimination (e.g. hear 我又去了 and choose 又 vs 有).
-- {type:"listen_translate", audio:{hanzi,pinyin?,english}, note?} — LISTENING: the audio hanzi is played (hidden); the learner translates what they heard, self-assessed against audio.english (required).
-Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-marked pinyin (nǐ hǎo), never tone numbers. Invalid specs are rejected with a list of problems — fix them and retry.`,
+${LESSON_EXERCISE_DOC}
+${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems — fix them and retry.`,
       {
         title: z.string().describe("Short lesson title, e.g. 'Ordering at a café'"),
         icon: z.string().optional().describe("One emoji for the lesson (default 🎓)"),

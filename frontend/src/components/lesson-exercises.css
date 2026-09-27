@@ -199,3 +199,432 @@
   color: #6b7280;
   letter-spacing: 0.02em;
 }
+
+/* ======== Practice types: sentence making, writing, dictation, oral, conversation ======== */
+
+.word-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.word-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 44px;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  background: #eef2ff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.word-chip.used {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.word-chip.missing {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.word-chip-hanzi {
+  font-size: 1.2rem;
+}
+
+.word-chip-pinyin {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.word-chip-english {
+  font-size: 0.75rem;
+  color: #4b5563;
+}
+
+.hint-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.cue-pinyin {
+  font-size: 1.1rem;
+  color: #4b5563;
+}
+
+.write-input {
+  font-size: 1.5rem;
+  text-align: center;
+}
+
+/* Claude's verdict on a made sentence */
+.feedback-card {
+  border-radius: 10px;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.feedback-card.correct {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.feedback-card.minor {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.feedback-card.incorrect {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.feedback-verdict {
+  font-weight: 700;
+}
+
+.feedback-note {
+  font-size: 0.85rem;
+  color: #a01616;
+}
+
+.feedback-corrected {
+  cursor: pointer;
+}
+
+.feedback-comment {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+/* Typed answer vs the expected characters */
+.char-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.char-diff-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.char-diff-label {
+  flex: 0 0 4.5rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.char-diff-chars {
+  font-size: 1.4rem;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+}
+
+.char-diff-chars .hit {
+  color: #166534;
+}
+
+.char-diff-chars .extra {
+  color: #b91c1c;
+  text-decoration: line-through;
+}
+
+.char-diff-chars .miss {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-radius: 4px;
+  padding: 0 0.1em;
+}
+
+.char-diff-empty {
+  font-size: 0.9rem;
+  color: #9ca3af;
+}
+
+/* Handwriting next to the model characters */
+.hw-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.hw-compare-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.hw-model {
+  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', serif;
+  font-size: 2.6rem;
+  line-height: 1.2;
+  border: none;
+  background: none;
+  color: #111827;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.hw-model-caption {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+/* Oral expression recorder */
+.question-audio {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.oral-recorder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0;
+}
+
+.rec-btn {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: none;
+  background: #dc2626;
+  color: #fff;
+  font-size: 2.2rem;
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.35);
+  cursor: pointer;
+}
+
+.rec-btn.stop {
+  background: #1f2937;
+  font-size: 1.8rem;
+  box-shadow: 0 6px 18px rgba(31, 41, 55, 0.3);
+}
+
+.rec-hint,
+.rec-target {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.rec-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.rec-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #dc2626;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  50% { opacity: 0.3; }
+}
+
+.rec-level {
+  width: 70%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.rec-level > div {
+  height: 100%;
+  background: #22c55e;
+  transition: width 0.1s;
+}
+
+.oral-recorder .exercise-actions {
+  width: 100%;
+}
+
+.result-explanation.small {
+  font-size: 0.8rem;
+}
+
+/* Conversation */
+.convo-situation {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.convo-speakers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.convo-speaker {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  background: #fce7f3;
+}
+
+.convo-speaker.s1 {
+  background: #dbeafe;
+}
+
+.convo-speaker.s2 {
+  background: #fef3c7;
+}
+
+.convo-bubbles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.convo-bubble {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  max-width: 88%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #fbcfe8;
+  border-radius: 14px 14px 14px 4px;
+  background: #fdf2f8;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.convo-bubble.s1 {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+  border-color: #bfdbfe;
+  border-radius: 14px 14px 4px 14px;
+  background: #eff6ff;
+  text-align: right;
+}
+
+.convo-bubble.s2 {
+  align-self: center;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.convo-bubble.active {
+  transform: scale(1.03);
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
+}
+
+.convo-bubble-icon {
+  font-size: 1.3rem;
+  line-height: 1.4;
+}
+
+.convo-wave {
+  font-size: 1.1rem;
+  letter-spacing: 0.15em;
+  color: #9ca3af;
+  line-height: 1.6;
+}
+
+.convo-bubble.active .convo-wave {
+  color: #3b82f6;
+}
+
+.convo-bubble-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.convo-hanzi {
+  font-size: 1.1rem;
+}
+
+.convo-pinyin {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.convo-english {
+  font-size: 0.8rem;
+  color: #4b5563;
+  font-style: italic;
+}
+
+.convo-offline {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+
+.convo-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.convo-question {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+.convo-question-text {
+  font-weight: 600;
+}
+
+.convo-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.convo-options .contrast-option {
+  min-height: 48px;
+  padding: 0.65rem 0.9rem;
+}
+
+.convo-your-answer {
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+
+.convo-model-answer {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: #f6f8fc;
+  font-weight: 500;
+}
+
+/* Answered options stay readable (disabled buttons fade by default). */
+.convo-options .contrast-option:disabled {
+  opacity: 1;
+  color: var(--color-text);
+}
