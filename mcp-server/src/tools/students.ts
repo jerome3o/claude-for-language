@@ -32,7 +32,14 @@ import type {
   TutorDashboard,
 } from './students/types.js';
 import {
+  STUDENT_PROFILE_MAX_CHARS,
+  STUDENT_PROFILE_MAX_WORDS_PER_LESSON,
+  parseStudentProfileInput,
+  type StudentProfile,
+} from '../../../shared/students/profile';
+import {
   clampInt,
+  mergeStudentProfile,
   compactCardFlag,
   compactClaudeThreads,
   compactConversation,
@@ -78,6 +85,9 @@ const RATING_DOC = 'Ratings: 0 again (forgot), 1 hard, 2 good, 3 easy.';
 
 const rel = (id: string) => `/api/relationships/${encodeURIComponent(id)}`;
 
+const PROFILE_DOC =
+  "The student profile is the tutor's PRIVATE note on this student (the student never sees it): what kind of learner they are and what homework suits them — level, whether they write characters by hand, how many new words per lesson, which kinds of homework work (listening, radicals, own sentences, grammar mini lessons, readers, writing in formats, oral recordings…), interests for reader topics, weak spots, pace. Read it before making homework, lessons, readers or cards for the student and follow it; never quote it to the student.";
+
 export function registerStudentTools(ctx: ToolContext): void {
   const { server, api } = ctx;
   const apiBase = api.baseUrl;
@@ -106,14 +116,49 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'get_student_overview',
-    `One student's full status card (the student page in the app): status and streak, pills, EVERY needs-attention word from the last 7 days with the wrong answers typed and whether there is an unheard recording, homework decks with per-deck progress (cards started/mastered, words missing from the student's copy — see update_student_deck_copy), assigned lessons with completions and last rating, the setup checklist and install kind (pwa / android / browser, cached audio clips), the two most recent active days and \`last_conversation_id\`. Use get_student_insights for a longer range and ranked struggling words.`,
+    `One student's full status card (the student page in the app): status and streak, pills, EVERY needs-attention word from the last 7 days with the wrong answers typed and whether there is an unheard recording, homework decks with per-deck progress (cards started/mastered, words missing from the student's copy — see update_student_deck_copy), assigned lessons with completions and last rating, the setup checklist and install kind (pwa / android / browser, cached audio clips), the two most recent active days, \`last_conversation_id\` and \`student_profile\` (the tutor's private notes on what suits this student — follow it when making anything for them; null when not written yet). Use get_student_insights for a longer range and ranked struggling words.`,
     { relationship_id: RELATIONSHIP_ID, tz_offset_minutes: TZ_OFFSET },
     async ({ relationship_id, tz_offset_minutes }) =>
       guard(async () => {
-        const overview = await api.get<StudentOverview>(`${rel(relationship_id)}/overview`, {
-          tz_offset: tz_offset_minutes ?? 0,
-        });
-        return jsonResult(compactStudentOverview(overview, apiBase));
+        const [overview, profile] = await Promise.all([
+          api.get<StudentOverview>(`${rel(relationship_id)}/overview`, { tz_offset: tz_offset_minutes ?? 0 }),
+          api.get<{ profile: StudentProfile | null }>(`${rel(relationship_id)}/student-profile`).catch(() => ({ profile: null })),
+        ]);
+        return jsonResult({ ...compactStudentOverview(overview, apiBase), student_profile: profile.profile });
+      })
+  );
+
+  // ============ The tutor's private profile of a student ============
+
+  server.tool(
+    'get_student_profile',
+    `The tutor's private profile of one student: \`body\` (markdown), \`level\` (beginner / elementary / intermediate / advanced or null), \`handwriting\` (writes characters by hand: true / false / null), \`words_per_lesson\` (or null) and \`updated_at\`; \`profile: null\` when nothing is written yet. ${PROFILE_DOC} The in-app homework assistant (session notes, lesson-note drafts, video-call homework) and the lesson co-editor already read it.`,
+    { relationship_id: RELATIONSHIP_ID },
+    async ({ relationship_id }) =>
+      guard(async () => {
+        const r = await api.get<{ profile: StudentProfile | null }>(`${rel(relationship_id)}/student-profile`);
+        return jsonResult(r);
+      })
+  );
+
+  server.tool(
+    'update_student_profile',
+    `Write or change the tutor's private profile of one student (tutor only; the student never sees it). Only the fields you pass change: \`body\` replaces the whole text (markdown, max ${STUDENT_PROFILE_MAX_CHARS} characters — to add a line, get_student_profile first and send the full new text), \`level\` / \`handwriting\` / \`words_per_lesson\` set the short structured part (null clears one). An empty profile is deleted. ${PROFILE_DOC} Write it the way the tutor would — goals, what homework works, how much, handwriting or not, interests, weak spots, pace — and only with what the tutor told you.`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      body: z.string().max(STUDENT_PROFILE_MAX_CHARS).optional().describe('The whole profile text (markdown). Replaces the current text.'),
+      level: z.enum(['beginner', 'elementary', 'intermediate', 'advanced']).nullable().optional().describe('Level; null clears it.'),
+      handwriting: z.boolean().nullable().optional().describe('Writes characters by hand (handwriting practice, dictation by hand); false = typed only; null = not said.'),
+      words_per_lesson: z.number().int().min(1).max(STUDENT_PROFILE_MAX_WORDS_PER_LESSON).nullable().optional().describe('New words (cards) a lesson\'s homework aims for; null clears it.'),
+    },
+    async ({ relationship_id, body, level, handwriting, words_per_lesson }) =>
+      guard(async () => {
+        const current = await api.get<{ profile: StudentProfile | null }>(`${rel(relationship_id)}/student-profile`);
+        const next = mergeStudentProfile(current.profile, { body, level, handwriting, words_per_lesson });
+        const { problems } = parseStudentProfileInput(next);
+        if (problems.length) return errorResult(`The profile is not valid:\n- ${problems.join('\n- ')}`);
+        const r = await api.put<{ profile: StudentProfile | null }>(`${rel(relationship_id)}/student-profile`, next);
+        return jsonResult({ ...r, deleted: r.profile === null });
       })
   );
 

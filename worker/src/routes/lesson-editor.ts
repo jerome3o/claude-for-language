@@ -34,6 +34,9 @@ import { prewarmLessonImages } from '../services/lesson-images';
 import { generateLessonSpec, proposeLessonRevision, CoEditTurn } from '../services/lesson-editor';
 import { proposeReaderRevision, mergeKeptReaderImages } from '../services/reader-editor';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
+import { getStudentProfile } from '../db/student-profile-queries';
+import { getUserBrief } from '../db/tutor-notes-queries';
+import { studentProfilePrompt } from '@shared/students';
 
 type AppEnv = { Bindings: Env };
 type Ctx = Context<AppEnv>;
@@ -157,6 +160,22 @@ async function loadTarget(db: D1Database, targetType: string, targetId: string, 
   return null;
 }
 
+/**
+ * A tutor editing a lesson they assigned to a student: the tutor's private
+ * profile of that student goes into the co-editor's prompt. '' otherwise
+ * (the student editing their own copy never gets it).
+ */
+async function tutorProfileForTarget(db: D1Database, target: EditorTarget, userId: string): Promise<string> {
+  if (target.type !== 'lesson') return '';
+  const row = target.row;
+  if (row.user_id === userId || row.assigned_by !== userId || !row.assigned_relationship_id) return '';
+  const [profile, student] = await Promise.all([
+    getStudentProfile(db, row.assigned_relationship_id, userId).catch(() => null),
+    getUserBrief(db, row.user_id).catch(() => null),
+  ]);
+  return studentProfilePrompt(profile, student?.name);
+}
+
 // The chat is spec-agnostic: everything that depends on the kind of spec
 // (validation shape, diff, formatting, the Claude call) goes through an
 // adapter chosen from the target type.
@@ -168,7 +187,7 @@ interface SpecAdapter {
   looksLikeSpec(v: unknown): boolean;
   diff(a: EditorSpec, b: EditorSpec): EditorDiff;
   format(d: EditorDiff): string[];
-  propose(apiKey: string, input: { spec: EditorSpec; authorChanges: string[]; history: CoEditTurn[]; message: string }): Promise<{ text: string; proposal: EditorSpec | null }>;
+  propose(apiKey: string, input: { spec: EditorSpec; authorChanges: string[]; history: CoEditTurn[]; message: string; studentProfile?: string }): Promise<{ text: string; proposal: EditorSpec | null }>;
   /** Carry server-filled image keys from the current spec into a proposal. */
   mergeKept(current: EditorSpec, proposal: EditorSpec): EditorSpec;
 }
@@ -634,6 +653,8 @@ lessonEditor.post('/editor-chat/:targetType/:targetId/messages', async (c) => {
     proposalStatus: r.proposal_status,
   }));
 
+  const studentProfile = await tutorProfileForTarget(c.env.DB, target, userId);
+
   const userRow = await lib.insertEditorChatMessage(c.env.DB, {
     chat_id: chat.id,
     role: 'user',
@@ -648,6 +669,7 @@ lessonEditor.post('/editor-chat/:targetType/:targetId/messages', async (c) => {
       authorChanges,
       history,
       message,
+      studentProfile,
     });
   } catch (error) {
     console.error('[editor-chat] Claude call failed:', error);

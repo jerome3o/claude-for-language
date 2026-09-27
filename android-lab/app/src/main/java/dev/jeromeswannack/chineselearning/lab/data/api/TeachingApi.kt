@@ -136,6 +136,8 @@ data class StudentOverviewDto(
     val setup: SetupStatusDto = SetupStatusDto(),
     val activity: List<ActivityDayDto> = emptyList(),
     val last_conversation_id: String? = null,
+    /** The tutor has written a private student profile (null from an older server). */
+    val has_profile: Boolean? = null,
 )
 
 @Serializable

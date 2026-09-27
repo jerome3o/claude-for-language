@@ -346,6 +346,13 @@ describe('buildStudentOverview', () => {
     expect(o.student).toEqual({ id: 'student-1', email: 'li.hua@example.com', name: 'Li Hua', picture_url: null });
   });
 
+  it('says whether the tutor has written a student profile (never the profile itself)', () => {
+    expect(buildStudentOverview(base).has_profile).toBe(false);
+    const o = buildStudentOverview({ ...base, has_profile: true });
+    expect(o.has_profile).toBe(true);
+    expect(Object.keys(o)).not.toContain('profile');
+  });
+
   it('builds the pills and status line for an active student', () => {
     const weekRows = [
       row({ note_id: 'n1', hanzi: '刮风', rating: 0, user_answer: '括风', reviewed_at: '2026-09-18T08:00:00Z' }),

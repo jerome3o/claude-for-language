@@ -118,4 +118,22 @@ object DecksSamples {
         fromServer = true,
         tutors = listOf(HubTutor("rel1", "王老师")),
     )
+
+    val tutorShares = listOf(
+        TutorShareUi("rel-1", "王老师", "wang@example.com", "2026-09-20 08:12:00"),
+        TutorShareUi("rel-2", "Li Na", "lina@example.com", "2026-09-25T10:00:00.000Z"),
+    )
+    val tutors = listOf(
+        TutorOptionUi("rel-1", "王老师", "wang@example.com"),
+        TutorOptionUi("rel-3", "Chen Jing", "chen@example.com"),
+    )
+    val tryUi = DeckTryUi(
+        loaded = true,
+        deckName = "Homework — 周末的活动",
+        notes = listOf(
+            TryNoteUi("n1", "打算", "dǎsuàn", "to plan; to intend", "a.mp3", "你周末打算做什么？", "nǐ zhōumò dǎsuàn zuò shénme?", "What are you planning to do at the weekend?", "**打** (dǎ) to strike · **算** (suàn) to calculate → to plan.\nUsed before a verb: 我打算去北京。"),
+            TryNoteUi("n2", "爬山", "páshān", "to climb a mountain; to hike", "b.mp3", "我们周六去爬山吧。", "wǒmen zhōuliù qù páshān ba.", "Let's go hiking on Saturday.", "**爬** (pá) to climb · **山** (shān) mountain.\nA verb-object word: 爬了一次山."),
+            TryNoteUi("n3", "有意思", "yǒu yìsi", "interesting", null),
+        ),
+    )
 }

@@ -75,8 +75,10 @@ fun TutorHomeScreen(ui: TutorHomeUi, onOpen: (String) -> Unit) {
             Column {
                 NavSection(
                     "Try it as your student",
-                    rows = if (ui.decks.isEmpty()) listOf({ NavRow("🃏", "Your decks will appear here") })
-                    else ui.decks.take(5).map { (id, name) -> { NavRow("▶", name, desc = "Try this deck", onClick = { onOpen(Routes.deckTry(id)) }) } },
+                    rows = (
+                        if (ui.decks.isEmpty()) listOf<@Composable () -> Unit>({ NavRow("🃏", "Your decks will appear here") })
+                        else ui.decks.take(5).map { (id, name) -> @Composable { NavRow("▶", name, desc = "Try this deck", onClick = { onOpen(Routes.deckTry(id)) }) } }
+                    ) + listOf<@Composable () -> Unit>({ NavRow("🧩", "Try a lesson", desc = "Open it in the Library → Try it", onClick = { onOpen(Routes.LIBRARY) }) }),
                 )
                 Text(
                     "Go through a deck or a lesson exactly as a student gets it. Nothing is recorded — no reviews, no streak, no schedule.",

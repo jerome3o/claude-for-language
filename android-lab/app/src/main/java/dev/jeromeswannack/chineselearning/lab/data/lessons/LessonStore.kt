@@ -174,7 +174,6 @@ class LessonStore(private val cache: JsonCache, private val outbox: Outbox, priv
         val local = cache.get(LOCAL, localSerializer).orEmpty()
         val kept = local.filter { it.id !in onServer && (it.lessonId in ids || it.id in pending) }
         if (kept.size != local.size) cache.put(LOCAL, KIND, kept, localSerializer)
-        runCatching { homework.refresh(api) }
     }
 
     /** `uploadLessonAttemptMedia`: PUT each recording by media key; 404 waits, 400/413 give up. */

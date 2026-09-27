@@ -1,11 +1,11 @@
 package dev.jeromeswannack.chineselearning.lab.data.lessons
 
+import dev.jeromeswannack.chineselearning.lab.core.Homework
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.data.Api
-import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkEventUpload
-import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkEventsBody
-import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkLiteDto
-import dev.jeromeswannack.chineselearning.lab.data.api.homeworkLite
+import dev.jeromeswannack.chineselearning.lab.data.api.PassEventsBody
+import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
 
@@ -14,51 +14,40 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
  * web's `oneOffOnlyTargetIds` and `recordTargetDone` in services/homework.ts:
  *  - a lesson / reader assigned one-off only is done in the homework pass, never in the
  *    FSRS rotation;
- *  - finishing a lesson / reading a reader anywhere records the assignment's `done`.
+ *  - finishing a lesson / reading a reader anywhere (the session or the homework pass)
+ *    records the assignment's `done`.
  *
- * It keeps its own small copy of `GET /api/me/homework` (the homework pass itself is
- * package E's); the done event goes through the Outbox with a deterministic id, so it is
- * sent once even if E's pass records the same completion (the server dedupes by id and
- * recomputes progress).
+ * It reads and writes the ONE homework mirror (package E's `HomeworkKeys.ASSIGNMENTS` /
+ * `EVENTS`, filled by HomeworkSync), so the pass and Home show the item done at once. The
+ * done event goes through the Outbox under the homework kind (so a sync merging events
+ * keeps it until it is uploaded), with a deterministic id so it is only ever sent once.
  */
 class HomeworkLink(private val cache: JsonCache, private val outbox: Outbox) {
 
-    suspend fun refresh(api: Api) {
-        cache.put(KEY, KIND, api.homeworkLite(), HomeworkLiteDto.serializer())
-    }
-
-    private suspend fun data(): HomeworkLiteDto = cache.get(KEY, HomeworkLiteDto.serializer()) ?: HomeworkLiteDto()
+    private suspend fun assignments(): List<HomeworkAssignment> = cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty()
 
     /** `oneOffOnlyTargetIds`: one-off assignments whose target has no long-term (fsrs / both) assignment. */
-    suspend fun oneOffOnly(): Set<String> {
-        val list = data().assignments
-        val fsrs = list.filter { it.mode != "one_off" }.mapTo(HashSet()) { it.targetId }
-        return list.filter { it.mode == "one_off" && it.targetId !in fsrs }.mapTo(HashSet()) { it.targetId }
-    }
+    suspend fun oneOffOnly(): Set<String> = runCatching { Homework.oneOffOnlyTargets(assignments()) }.getOrDefault(emptySet())
 
-    /** `recordTargetDone`: a `done` pass event for each active one-off / both assignment of [targetId]. */
-    suspend fun recordDone(kind: String, targetId: String): Boolean {
-        val d = data()
-        var queued = false
-        for (a in d.assignments) {
-            if (a.targetId != targetId || a.kind != kind || a.status != "active" || a.mode == "fsrs") continue
-            if (d.events.any { it.assignmentId == a.id && it.result == "done" }) continue
-            val id = "lab-done-${a.id}"
-            val event = HomeworkEventUpload(id, a.id, targetId, "done", Js.toIsoString(System.currentTimeMillis()))
-            outbox.enqueueJson("homework-done", "POST", "/api/me/homework/events", HomeworkEventsBody(listOf(event)), id = id)
-            queued = true
-        }
-        if (queued) {
-            // Locally the assignment is done now, so a second finish doesn't queue again.
-            cache.put(KEY, KIND, d.copy(events = d.events + d.assignments.filter { it.targetId == targetId }.map {
-                dev.jeromeswannack.chineselearning.lab.data.api.HomeworkEventLite("lab-done-${it.id}", it.id, "done")
-            }), HomeworkLiteDto.serializer())
-        }
-        return queued
-    }
+    /**
+     * `recordTargetDone`: a `done` pass event for each active one-off / both assignment of
+     * [targetId] that has none yet. Never throws — study must not fail because of homework
+     * bookkeeping. Returns whether anything was queued (the caller drains the outbox).
+     */
+    suspend fun recordDone(kind: String, targetId: String, nowMs: Long = System.currentTimeMillis()): Boolean = runCatching {
+        val events = cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
+        val fresh = assignments().filter { a ->
+            a.target_id == targetId && a.kind == kind && a.status == "active" && a.mode != "fsrs" &&
+                events.none { it.assignment_id == a.id && it.result == "done" }
+        }.map { a -> HomeworkEvent(doneEventId(a.id), a.id, targetId, "done", Js.toIsoString(nowMs)) }
+        // Queue first: a sync merging events in between keeps anything still in the outbox.
+        for (e in fresh) outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(e)), id = e.id)
+        if (fresh.isNotEmpty()) cache.put(HomeworkKeys.EVENTS, HomeworkKeys.KIND, events + fresh)
+        fresh.isNotEmpty()
+    }.getOrDefault(false)
 
-    private companion object {
-        const val KEY = "lessons/homework"
-        const val KIND = "lessons"
+    companion object {
+        /** One done event per assignment from this phone (the server dedupes by id). */
+        fun doneEventId(assignmentId: String) = "lab-done-$assignmentId"
     }
 }

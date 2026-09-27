@@ -69,6 +69,7 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO tutor_lesson_log (id, relationship_id, tutor_id, student_id, lesson_at) VALUES ('ll-1', 'rel-1', ?, ?, '2026-09-20')", TUTOR, STUDENT);
   exec(db, "INSERT INTO student_summaries (id, relationship_id, range_from, range_to, narrative_en, narrative_zh, stats_json) VALUES ('ss-1', 'rel-1', 'a', 'b', 'en', 'zh', '{}')");
   exec(db, "INSERT INTO tutor_note_jobs (id, relationship_id, tutor_id, student_id, notes) VALUES ('job-1', 'rel-1', ?, ?, 'notes')", TUTOR, STUDENT);
+  exec(db, "INSERT INTO student_profiles (relationship_id, tutor_id, student_id, body) VALUES ('rel-1', ?, ?, 'Adult beginner')", TUTOR, STUDENT);
   exec(db, "INSERT INTO calls (id, relationship_id, created_by) VALUES ('call-1', 'rel-1', ?)", TUTOR);
   exec(db, "INSERT INTO call_recording_pieces (id, call_id, user_id, piece_index, started_at, audio_key) VALUES ('piece-1', 'call-1', ?, 0, 0, 'calls/piece-1.webm')", STUDENT);
   exec(db, "INSERT INTO call_recording_chunks (piece_id, idx, r2_key, size_bytes) VALUES ('piece-1', 0, 'calls/piece-1/0', 10)");
@@ -154,7 +155,7 @@ describe('deleteUserAccount', () => {
     expect(db.rows("SELECT assigned_by, library_item_id, assigned_relationship_id FROM custom_lessons WHERE id = 's-lesson'"))
       .toEqual([{ assigned_by: null, library_item_id: null, assigned_relationship_id: null }]);
     // The relationship and everything in it are gone (incl. the student's messages there).
-    for (const table of ['tutor_relationships', 'conversations', 'messages', 'shared_decks', 'shared_readers', 'card_flags', 'calls', 'call_recording_pieces', 'call_transcript_segments', 'tutor_note_jobs', 'student_summaries', 'tutor_lesson_log', 'homework_assignments', 'tutor_recording_marks']) {
+    for (const table of ['tutor_relationships', 'conversations', 'messages', 'shared_decks', 'shared_readers', 'card_flags', 'calls', 'call_recording_pieces', 'call_transcript_segments', 'tutor_note_jobs', 'student_profiles', 'student_summaries', 'tutor_lesson_log', 'homework_assignments', 'tutor_recording_marks']) {
       expect(db.rows(`SELECT COUNT(*) AS n FROM ${table}`)[0], table).toEqual({ n: 0 });
     }
     // The bystander is untouched.

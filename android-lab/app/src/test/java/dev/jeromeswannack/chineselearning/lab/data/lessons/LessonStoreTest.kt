@@ -12,6 +12,9 @@ import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
+import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -48,11 +51,11 @@ class LessonStoreTest {
     private lateinit var api: Api
     private lateinit var store: LessonStore
     private lateinit var outbox: Outbox
+    private lateinit var cache: JsonCache
     private val requests = CopyOnWriteArrayList<Pair<String, String>>()
 
     /** Completions the fake server knows; the media endpoint 404s until the attempt is there. */
     private val serverCompletions = CopyOnWriteArrayList<String>()
-    private var homework = """{"assignments":[],"events":[]}"""
 
     private fun lessonsJson(): String {
         val completions = serverCompletions.joinToString(",") { """{"id":"$it","lesson_id":"L1","correct":3,"total":4,"completed_at":"2026-09-27T10:00:00.000Z","rating":2}""" }
@@ -80,7 +83,6 @@ class LessonStoreTest {
                         val id = request.path!!.split("/")[3]
                         if (id in serverCompletions) MockResponse().setBody("{}") else MockResponse().setResponseCode(404).setBody("""{"error":"Attempt not found"}""")
                     }
-                    request.path == "/api/me/homework" -> MockResponse().setBody(homework)
                     request.path == "/api/me/homework/events" -> MockResponse().setBody("""{"accepted":1}""")
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -92,7 +94,8 @@ class LessonStoreTest {
         api = Api(server.url("").toString().removeSuffix("/")) { "t" }
         val dir = File(ctx.filesDir, "lesson-store-test/outbox").apply { parentFile!!.deleteRecursively(); mkdirs() }
         outbox = Outbox(db.platform(), api, dir)
-        store = LessonStore(JsonCache(db.platform(), api.json), outbox, api)
+        cache = JsonCache(db.platform(), api.json)
+        store = LessonStore(cache, outbox, api)
     }
 
     @After fun tearDown() {
@@ -139,10 +142,11 @@ class LessonStoreTest {
     }
 
     @Test fun oneOffHomeworkLessonsStayOutAndGetTheirDoneEvent() = runBlocking {
-        homework = """{"assignments":[
-            {"id":"A1","kind":"lesson","target_id":"L2","mode":"one_off","status":"active"},
-            {"id":"A2","kind":"lesson","target_id":"L1","mode":"both","status":"active"}
-        ],"events":[]}"""
+        // The homework mirror (package E's HomeworkSync fills it on every sync).
+        cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, listOf(
+            HomeworkAssignment(id = "A1", kind = "lesson", target_id = "L2", mode = "one_off", status = "active"),
+            HomeworkAssignment(id = "A2", kind = "lesson", target_id = "L1", mode = "both", status = "active"),
+        ))
         store.sync(prefetch = false)
         assertEquals(listOf("L1"), store.dueLessons(cutoff).map { it.id })
 
@@ -152,5 +156,8 @@ class LessonStoreTest {
         val done = requests.filter { it.first == "POST /api/me/homework/events" }
         assertEquals(1, done.size)
         assertTrue(done[0].second.contains("\"assignment_id\":\"A2\"") && done[0].second.contains("\"result\":\"done\""))
+        // Written into the same mirror the homework pass reads, so the pass shows it done at once.
+        val events = cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
+        assertEquals(listOf("A2" to "done"), events.map { it.assignment_id to it.result })
     }
 }

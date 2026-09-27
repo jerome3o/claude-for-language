@@ -80,6 +80,7 @@ import transcriptionRoutes from './routes/transcription';
 import { tutorNotesRoutes } from './routes/tutor-notes';
 import debugReportsRoutes from './routes/debug-reports';
 import lessonImagesRoutes from './routes/lesson-images';
+import studentProfileRoutes from './routes/student-profile';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
 import { sanitizeAttemptData } from '@shared/lesson';
@@ -496,6 +497,8 @@ app.route('/api', adminRoutes);
 app.route('/api', debugReportsRoutes);
 // Lesson illustrations by scene description: ensure / top-up / admin backfill (routes/lesson-images.ts)
 app.route('/api', lessonImagesRoutes);
+// The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
+app.route('/api', studentProfileRoutes);
 
 // ============ Admin Routes ============
 
