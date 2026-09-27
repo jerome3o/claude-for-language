@@ -30,6 +30,7 @@ import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
+import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storage-cleanup';
 import { handleLessonImageMessage, lessonImageHash, normalizeImagePrompt, LESSON_IMAGE_PREFIX, type LessonImageMessage } from './services/lesson-images';
 import lessonEditor from './routes/lesson-editor';
 import readerEditor from './routes/reader-editor';
@@ -555,104 +556,40 @@ app.get('/api/admin/storage', adminMiddleware, async (c) => {
   });
 });
 
-// Find orphaned audio files (in R2 but not referenced in DB)
+// R2 clean-up (services/admin/storage-cleanup.ts). The bucket holds EVERY kind
+// of stored object, so only registered, collectable prefixes are considered,
+// against references from every key column; unknown prefixes are never touched.
+// GET /orphans and POST /cleanup are both a DRY RUN (counts + sample keys per
+// prefix) unless POST /cleanup?apply=1. `min_age_days` (default 7, at least 1)
+// keeps in-flight uploads; `force=1` overrides the "more than half of a prefix"
+// refusal.
+function storageCleanupOptions(c: { req: { query(name: string): string | undefined } }) {
+  const raw = Number(c.req.query('min_age_days'));
+  const minAgeDays = Number.isFinite(raw) && raw > 0 ? Math.min(Math.max(raw, 1), 365) : DEFAULT_MIN_AGE_DAYS;
+  return { minAgeDays, force: c.req.query('force') === '1' };
+}
+
 app.get('/api/admin/storage/orphans', adminMiddleware, async (c) => {
-  // Get all audio URLs from DB
-  const dbResult = await c.env.DB.prepare(
-    'SELECT DISTINCT audio_url FROM notes WHERE audio_url IS NOT NULL'
-  ).all<{ audio_url: string }>();
-  const dbAudioUrls = new Set(dbResult.results.map(r => r.audio_url));
-
-  // Also get recording URLs from review_events
-  const reviewResult = await c.env.DB.prepare(
-    'SELECT DISTINCT recording_url FROM review_events WHERE recording_url IS NOT NULL'
-  ).all<{ recording_url: string }>();
-  for (const r of reviewResult.results) {
-    dbAudioUrls.add(r.recording_url);
+  try {
+    return c.json(await runStorageCleanup(c.env, { ...storageCleanupOptions(c), apply: false }));
+  } catch (err) {
+    console.error('[storage-cleanup] dry run failed:', err);
+    return c.json({ error: err instanceof Error ? err.message : 'Storage scan failed' }, 500);
   }
-
-  // Uploaded profile pictures (routes/profile.ts) live in the same bucket.
-  const avatarResult = await c.env.DB.prepare(
-    'SELECT picture_key FROM users WHERE picture_key IS NOT NULL'
-  ).all<{ picture_key: string }>();
-  for (const r of avatarResult.results) {
-    dbAudioUrls.add(r.picture_key);
-  }
-
-  // List all R2 objects and find orphans
-  const orphans: Array<{ key: string; size: number }> = [];
-  let cursor: string | undefined;
-
-  do {
-    const listed = await c.env.AUDIO_BUCKET.list({ cursor, limit: 1000 });
-    for (const obj of listed.objects) {
-      if (!dbAudioUrls.has(obj.key)) {
-        orphans.push({ key: obj.key, size: obj.size });
-      }
-    }
-    cursor = listed.truncated ? listed.cursor : undefined;
-  } while (cursor);
-
-  const totalOrphanSize = orphans.reduce((sum, o) => sum + o.size, 0);
-
-  return c.json({
-    orphan_count: orphans.length,
-    orphan_size_bytes: totalOrphanSize,
-    orphan_size_mb: Math.round(totalOrphanSize / 1024 / 1024 * 100) / 100,
-    orphans: orphans.slice(0, 100), // Return first 100 for preview
-  });
 });
 
-// Delete orphaned audio files
 app.post('/api/admin/storage/cleanup', adminMiddleware, async (c) => {
-  // Get all audio URLs from DB
-  const dbResult = await c.env.DB.prepare(
-    'SELECT DISTINCT audio_url FROM notes WHERE audio_url IS NOT NULL'
-  ).all<{ audio_url: string }>();
-  const dbAudioUrls = new Set(dbResult.results.map(r => r.audio_url));
-
-  // Also get recording URLs from review_events
-  const reviewResult = await c.env.DB.prepare(
-    'SELECT DISTINCT recording_url FROM review_events WHERE recording_url IS NOT NULL'
-  ).all<{ recording_url: string }>();
-  for (const r of reviewResult.results) {
-    dbAudioUrls.add(r.recording_url);
-  }
-
-  // Uploaded profile pictures (routes/profile.ts) live in the same bucket.
-  const avatarResult = await c.env.DB.prepare(
-    'SELECT picture_key FROM users WHERE picture_key IS NOT NULL'
-  ).all<{ picture_key: string }>();
-  for (const r of avatarResult.results) {
-    dbAudioUrls.add(r.picture_key);
-  }
-
-  // List all R2 objects and delete orphans
-  let deletedCount = 0;
-  let deletedSize = 0;
-  let cursor: string | undefined;
-
-  do {
-    const listed = await c.env.AUDIO_BUCKET.list({ cursor, limit: 1000 });
-    for (const obj of listed.objects) {
-      if (!dbAudioUrls.has(obj.key)) {
-        try {
-          await c.env.AUDIO_BUCKET.delete(obj.key);
-          deletedCount++;
-          deletedSize += obj.size;
-        } catch (err) {
-          console.error('[Cleanup] Failed to delete:', obj.key, err);
-        }
-      }
+  const apply = c.req.query('apply') === '1';
+  try {
+    const result = await runStorageCleanup(c.env, { ...storageCleanupOptions(c), apply });
+    if (result.mode === 'refused') {
+      return c.json({ ...result, error: `Refused — nothing deleted. ${result.warnings.join(' ')}` }, 409);
     }
-    cursor = listed.truncated ? listed.cursor : undefined;
-  } while (cursor);
-
-  return c.json({
-    deleted_count: deletedCount,
-    deleted_size_bytes: deletedSize,
-    deleted_size_mb: Math.round(deletedSize / 1024 / 1024 * 100) / 100,
-  });
+    return c.json(result);
+  } catch (err) {
+    console.error('[storage-cleanup] failed:', err);
+    return c.json({ error: err instanceof Error ? err.message : 'Storage clean-up failed' }, 500);
+  }
 });
 
 // ============ User Profile ============

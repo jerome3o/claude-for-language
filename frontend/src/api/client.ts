@@ -162,29 +162,47 @@ export interface StorageStats {
   total_size_mb: number;
 }
 
-export interface OrphanStats {
-  orphan_count: number;
-  orphan_size_bytes: number;
-  orphan_size_mb: number;
-  orphans: Array<{ key: string; size: number }>;
+/** One registered R2 key prefix in a storage clean-up report (worker services/admin/storage-cleanup.ts). */
+export interface StoragePrefixReport {
+  prefix: string;
+  what: string;
+  /** Only collectable prefixes are ever deleted from. */
+  collectable: boolean;
+  protected_reason: string | null;
+  objects: number;
+  bytes: number;
+  referenced: number;
+  /** Unreferenced but younger than the minimum age — kept. */
+  too_recent: number;
+  unreferenced: number;
+  unreferenced_bytes: number;
+  sample_keys: string[];
 }
 
-export interface CleanupResult {
-  deleted_count: number;
-  deleted_size_bytes: number;
-  deleted_size_mb: number;
+/** Dry-run (or applied) storage clean-up report. */
+export interface StorageCleanupReport {
+  mode: 'dry_run' | 'applied' | 'refused';
+  min_age_days: number;
+  total: { objects: number; bytes: number };
+  prefixes: StoragePrefixReport[];
+  unknown: { objects: number; bytes: number; top_level: Record<string, number>; sample_keys: string[] };
+  deletable: { count: number; bytes: number };
+  warnings: string[];
+  deleted: { count: number; bytes: number; failed: number };
 }
 
 export async function getStorageStats(): Promise<StorageStats> {
   return fetchJSON<StorageStats>('/admin/storage');
 }
 
-export async function getOrphanStats(): Promise<OrphanStats> {
-  return fetchJSON<OrphanStats>('/admin/storage/orphans');
+/** Dry run: what the clean-up would delete, per prefix. Deletes nothing. */
+export async function getOrphanStats(): Promise<StorageCleanupReport> {
+  return fetchJSON<StorageCleanupReport>('/admin/storage/orphans');
 }
 
-export async function cleanupOrphans(): Promise<CleanupResult> {
-  return fetchJSON<CleanupResult>('/admin/storage/cleanup', { method: 'POST' });
+/** Actually delete the unreferenced, old-enough objects under collectable prefixes. */
+export async function cleanupOrphans(): Promise<StorageCleanupReport> {
+  return fetchJSON<StorageCleanupReport>('/admin/storage/cleanup?apply=1', { method: 'POST' });
 }
 
 // ============ Decks ============

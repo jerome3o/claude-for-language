@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AdminUser } from '../types';
-import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, OrphanStats, getFeatureRequests, approveFeatureRequest, FeatureRequest, API_BASE } from '../api/client';
+import { getAdminUsers, getStorageStats, getOrphanStats, cleanupOrphans, StorageStats, StorageCleanupReport, getFeatureRequests, approveFeatureRequest, FeatureRequest, API_BASE } from '../api/client';
 import { syncService } from '../services/sync';
 import { getSyncLogs, SyncLogEntry } from '../db/database';
 import { listAccessRequests, approveAccessRequest, dismissAccessRequest, setUserCanInvite, listInvites, revokeInvite } from '../api/invites';
@@ -28,6 +28,57 @@ function CanInviteToggle({ user, busy, onToggle }: { user: AdminUser; busy: bool
   );
 }
 
+const formatMb = (bytes: number) => Math.round(bytes / 1024 / 1024 * 100) / 100;
+
+/** Dry-run result of the storage clean-up: what would go, per prefix, and what is protected. */
+function StorageDryRun({ report }: { report: StorageCleanupReport }) {
+  const rows = report.prefixes.filter((p) => p.objects > 0);
+  return (
+    <div className="orphan-stats">
+      <p className={report.deletable.count ? 'orphan-warning' : 'no-orphans'}>
+        {report.deletable.count
+          ? `Dry run: ${report.deletable.count} unused files (${formatMb(report.deletable.bytes)} MB) could be deleted.`
+          : 'Dry run: nothing to delete.'}
+        {' '}Only files older than {report.min_age_days} days; nothing has been deleted yet.
+      </p>
+      {report.warnings.map((w) => <p key={w} className="orphan-warning">⚠ {w}</p>)}
+      <ul className="storage-prefixes">
+        {rows.map((p) => (
+          <li key={p.prefix}>
+            <div className="storage-prefix-head">
+              <code>{p.prefix}</code>
+              <span>{p.objects} files · {formatMb(p.bytes)} MB</span>
+              <span className={p.collectable ? 'storage-tag collectable' : 'storage-tag'}>{p.collectable ? 'collectable' : 'protected'}</span>
+            </div>
+            <div className="storage-prefix-counts">
+              {p.referenced} in use · {p.too_recent} too recent · {p.unreferenced} unreferenced
+              {!p.collectable && p.unreferenced > 0 ? ' (kept)' : ''}
+            </div>
+            {p.collectable && p.sample_keys.length > 0 && (
+              <details>
+                <summary>Sample keys</summary>
+                <ul className="storage-samples">{p.sample_keys.map((k) => <li key={k}><code>{k}</code></li>)}</ul>
+              </details>
+            )}
+          </li>
+        ))}
+        {report.unknown.objects > 0 && (
+          <li>
+            <div className="storage-prefix-head">
+              <code>unknown</code>
+              <span>{report.unknown.objects} files · {formatMb(report.unknown.bytes)} MB</span>
+              <span className="storage-tag">never deleted</span>
+            </div>
+            <div className="storage-prefix-counts">
+              {Object.entries(report.unknown.top_level).map(([k, n]) => `${k} ${n}`).join(' · ')}
+            </div>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
 export function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,7 +86,7 @@ export function AdminPage() {
 
   // Storage state
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
-  const [orphanStats, setOrphanStats] = useState<OrphanStats | null>(null);
+  const [orphanStats, setOrphanStats] = useState<StorageCleanupReport | null>(null);
   const [isLoadingStorage, setIsLoadingStorage] = useState(false);
   const [isCheckingOrphans, setIsCheckingOrphans] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
@@ -198,12 +249,26 @@ export function AdminPage() {
   };
 
   const handleCleanup = async () => {
-    if (!confirm('Delete all orphaned audio files? This cannot be undone.')) return;
+    // Only offered after a dry run: the confirm repeats exactly what it found.
+    if (!orphanStats || orphanStats.deletable.count === 0) return;
+    const byPrefix = orphanStats.prefixes
+      .filter((p) => p.collectable && p.unreferenced > 0)
+      .map((p) => `  ${p.prefix} ${p.unreferenced} files (${formatMb(p.unreferenced_bytes)} MB)`)
+      .join('\n');
+    const ok = confirm(
+      `Delete ${orphanStats.deletable.count} unused files (${formatMb(orphanStats.deletable.bytes)} MB)?\n\n${byPrefix}\n\n` +
+      `Only generated audio and pictures nothing refers to, older than ${orphanStats.min_age_days} days. ` +
+      'Recordings, photos, calls and unknown files are never touched. This cannot be undone.'
+    );
+    if (!ok) return;
     setIsCleaning(true);
     setCleanupResult(null);
     try {
       const result = await cleanupOrphans();
-      setCleanupResult(`Deleted ${result.deleted_count} files (${result.deleted_size_mb} MB)`);
+      setCleanupResult(
+        `Deleted ${result.deleted.count} files (${formatMb(result.deleted.bytes)} MB)` +
+        (result.deleted.failed ? ` · ${result.deleted.failed} failed` : '')
+      );
       setOrphanStats(null);
       // Refresh storage stats
       loadStorageStats();
@@ -439,13 +504,13 @@ export function AdminPage() {
             >
               {isCheckingOrphans ? 'Checking...' : 'Find Orphans'}
             </button>
-            {orphanStats && orphanStats.orphan_count > 0 && (
+            {orphanStats && orphanStats.deletable.count > 0 && (
               <button
                 className="btn btn-primary"
                 onClick={handleCleanup}
                 disabled={isCleaning}
               >
-                {isCleaning ? 'Cleaning...' : `Delete ${orphanStats.orphan_count} Orphans`}
+                {isCleaning ? 'Cleaning...' : `Delete ${orphanStats.deletable.count} unused files…`}
               </button>
             )}
           </div>
@@ -457,17 +522,7 @@ export function AdminPage() {
             </div>
           )}
 
-          {orphanStats && (
-            <div className="orphan-stats">
-              {orphanStats.orphan_count === 0 ? (
-                <span className="no-orphans">No orphaned files found</span>
-              ) : (
-                <span className="orphan-warning">
-                  {orphanStats.orphan_count} orphaned files ({orphanStats.orphan_size_mb} MB)
-                </span>
-              )}
-            </div>
-          )}
+          {orphanStats && <StorageDryRun report={orphanStats} />}
 
           {cleanupResult && (
             <div className="cleanup-result">{cleanupResult}</div>
