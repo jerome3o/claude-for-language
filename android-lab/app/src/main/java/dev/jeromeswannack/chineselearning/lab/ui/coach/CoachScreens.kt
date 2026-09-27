@@ -348,7 +348,7 @@ private fun AnalysisView(a: CoachAnalysisDto) {
             Card {
                 Badge(if (r.isCorrect) "✓ Looks good!" else "Needs a little work", if (r.isCorrect) Palette.Good else Palette.Hard)
                 Headline(r.corrected)
-                if (r.critique.isNotBlank()) Text(r.critique, color = Lab.colors.ink, fontSize = 15.sp)
+                if (r.critique.isNotBlank()) MarkdownText(r.critique, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp))
             }
             Alternatives(r.alternatives)
             a.explanation?.let { Explanation(it) }
@@ -358,7 +358,7 @@ private fun AnalysisView(a: CoachAnalysisDto) {
                 Badge("Translation", Palette.Good)
                 Headline(t.primary)
                 t.primary.note?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
-                t.usage_note?.let { Text(it, color = Lab.colors.ink, fontSize = 15.sp) }
+                t.usage_note?.let { MarkdownText(it, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)) }
             }
             Alternatives(t.alternatives)
         }
@@ -390,7 +390,7 @@ private fun Alternatives(alts: List<CoachLine>) {
 /** Legacy conversations still carry the full breakdown. */
 @Composable
 private fun Explanation(e: CoachExplanationDto) {
-    if (e.overview.isNotBlank()) Card { Text("Overview", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); Text(e.overview, color = Lab.colors.ink) }
+    if (e.overview.isNotBlank()) Card { Text("Overview", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); MarkdownText(e.overview) }
     if (e.words.isNotEmpty()) Card {
         Text("Word by word", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         e.words.forEach { w ->
@@ -403,11 +403,11 @@ private fun Explanation(e: CoachExplanationDto) {
         Text("Grammar", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         e.grammar_points.forEach { g ->
             Text(g.pattern, fontWeight = FontWeight.SemiBold, color = Lab.colors.accent)
-            Text(g.explanation, color = Lab.colors.ink, fontSize = 14.sp)
+            MarkdownText(g.explanation, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp))
             g.example?.let { Text("e.g. $it", fontSize = 13.sp, color = Lab.colors.muted) }
         }
     }
-    e.nuance?.let { Card { Text("Nuance & usage", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); Text(it, color = Lab.colors.ink) } }
+    e.nuance?.let { Card { Text("Nuance & usage", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); MarkdownText(it) } }
     if (e.similar_examples.isNotEmpty()) Card {
         Text("Similar sentences", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         e.similar_examples.forEach { Text(it.hanzi, fontSize = 18.sp, color = Lab.colors.ink); Text("${it.pinyin} — ${it.english}", fontSize = 14.sp, color = Lab.colors.muted) }

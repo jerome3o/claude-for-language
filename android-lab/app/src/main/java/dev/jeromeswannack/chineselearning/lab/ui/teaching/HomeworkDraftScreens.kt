@@ -57,6 +57,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.DraftViewDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DraftWordDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNotesEntryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SessionJobDto
+import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
@@ -334,7 +335,7 @@ private fun LazyListScope.draftColumn(ui: DraftUi, view: DraftViewDto, actions: 
     ui.assignedNote?.let { item(key = "note") { InlineNotice(it, kind = NoticeKind.Success) } }
     ui.error?.let { item(key = "err") { InlineNotice(it, kind = NoticeKind.Error) } }
     item(key = "load") { LoadGauge(view.load, view.student_name, after = if (assigned) null else view.load_after) }
-    if (!job.result.summary.isNullOrBlank() && !working) item(key = "summary") { Text(job.result.summary!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink) }
+    if (!job.result.summary.isNullOrBlank() && !working) item(key = "summary") { MarkdownText(job.result.summary!!, style = MaterialTheme.typography.bodyMedium) }
 
     plan.items.forEach { it0 ->
         item(key = "item-${it0.key}") {

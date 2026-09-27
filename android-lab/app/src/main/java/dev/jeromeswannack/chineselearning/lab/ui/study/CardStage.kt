@@ -85,7 +85,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import androidx.compose.runtime.collectAsState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
-import dev.jeromeswannack.chineselearning.lab.ui.kit.markdownLite
+import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 
 /** Card-local state that tests / screenshots can start from. */
 data class CardStartState(val flipped: Boolean = false, val answer: String = "", val showClue: Boolean = false)
@@ -436,11 +436,10 @@ private fun CardBack(
     val details: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth()) {
             note.funFacts?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    markdownLite(it),
+                MarkdownText(
+                    it,
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).padding(14.dp),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Lab.colors.ink,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).padding(14.dp),
                 )
                 Spacer(Modifier.height(16.dp))
             }
