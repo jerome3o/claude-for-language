@@ -49,6 +49,7 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
+import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
 import { SyncBadge } from '../components/OfflineBanner';
@@ -439,6 +440,13 @@ function StudyCard({
   const [isRecordingDelayActive, setIsRecordingDelayActive] = useState(false);
   const recordingDelayTimeoutRef = useRef<number | null>(null);
 
+  // Live transcription (Soniox): the take streams while the learner speaks, so the
+  // transcript is final right after Stop. `liveAllowedRef` = online and not forced offline.
+  const liveAllowedRef = useRef(false);
+  const liveRef = useRef<LiveTranscriber | null>(null);
+  const livePromiseRef = useRef<Promise<string> | null>(null);
+  useEffect(() => () => { liveRef.current?.abort(); }, []);
+
   // Enhanced startRecording with 0.5s delay
   const startRecordingWithDelay = useCallback((skipDelay = false) => {
     // Clear any existing timeout
@@ -446,8 +454,21 @@ function StudyCard({
       clearTimeout(recordingDelayTimeoutRef.current);
     }
 
+    liveRef.current?.abort();
+    liveRef.current = null;
+    livePromiseRef.current = null;
+    const live = liveAllowedRef.current && !liveSessionUnavailable() ? new LiveTranscriber(getLiveSession()) : null;
+    liveRef.current = live;
+
     // Start recording with selected device
-    startRecording(micDeviceId || undefined);
+    startRecording(micDeviceId || undefined, live ? {
+      onChunk: (chunk) => live.push(chunk),
+      onStop: () => {
+        const p = live.finish();
+        p.catch(() => { /* falls back to the upload in useTranscription */ });
+        livePromiseRef.current = p;
+      },
+    } : undefined);
 
     // Only enable delay flag if not skipping
     if (!skipDelay) {
@@ -596,12 +617,17 @@ function StudyCard({
   }, [showDebug, card.id]);
 
 
-  // Trigger transcription when speaking card is flipped with a recording
+  // Transcribe as soon as a take exists (not on flip), so "You said" is usually ready by the
+  // time the answer shows: the live (Soniox) result when it streamed, else the upload.
+  liveAllowedRef.current = isSpeakingCard && aiAvailable;
   useEffect(() => {
-    if (flipped && isSpeakingCard && audioBlob) {
-      transcribe(audioBlob, card.note.hanzi, card.note.pinyin);
+    if (isSpeakingCard && aiAvailable) prefetchLiveSession();
+  }, [isSpeakingCard, aiAvailable]);
+  useEffect(() => {
+    if (isSpeakingCard && audioBlob) {
+      transcribe(audioBlob, card.note.hanzi, card.note.pinyin, livePromiseRef.current);
     }
-  }, [flipped, isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe]);
+  }, [isSpeakingCard, audioBlob, card.note.hanzi, card.note.pinyin, transcribe]);
 
   // Auto-play audio when answer is revealed
   useEffect(() => {

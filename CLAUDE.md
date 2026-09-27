@@ -755,6 +755,22 @@ minutes so a wedged job can't poll forever).
 - `GET /api/audio/*` - Get audio file from R2
 - `GET /api/audio-manifest` - All audio URLs the user owns (note audio, sentence clues, sentence sets, recordings) for offline prefetch
 
+### Pronunciation transcription ("You said: …" on read cards)
+A take is transcribed **as soon as the learner stops**, not when the card flips. When `SONIOX_API_KEY` is set, the
+take **streams to Soniox real-time while they speak** (`stt-rt-v5`, zh + en hints, no context, so the answer never
+biases the recogniser), and the transcript is final a few hundred ms after Stop. The permanent key never leaves the worker:
+`POST /api/transcribe/live` mints a **temporary Soniox key** (`usage_type: transcribe_websocket`, 30 min, tagged with the
+user id; `services/live-transcription.ts`, `routes/transcription.ts`) that the client caches and reuses until a minute
+before expiry, fetched ahead of time when a read card shows. The protocol (config frame, token folding, end-of-audio) is
+`shared/transcription/soniox.ts`. Web: `services/liveTranscription.ts` (`LiveTranscriber`: MediaRecorder webm chunks
+every 250 ms, `audio_format: auto`) + `useTranscription(…, live)`. Lab: `ui/study/LiveTranscription.kt` (a port of the
+protocol + `SonioxStream` on OkHttp) with `VoiceRecorder.startLive` (AudioRecord 16 kHz PCM → `pcm_s16le`, the take kept as
+WAV). **Fallback**: no key, the mint fails, the socket errors, empty text or a 4 s timeout → the take is uploaded to
+`POST /api/transcribe` (Workers AI Whisper, the old path) exactly as before; offline shows "will transcribe when online".
+- `POST /api/transcribe/live` - `{ provider: 'soniox', api_key, expires_at, websocket_url, model, language_hints }` or `{ provider: 'upload' }`; 502 when Soniox refuses (client falls back)
+- `POST /api/transcribe` - multipart `file` → `{ text, language }` (Whisper; the fallback)
+- `GET /api/admin/transcription` - admin: which providers are configured (booleans only, never a key)
+
 ### AI
 - `POST /api/ai/generate-deck` - Generate deck from prompt
 - `POST /api/ai/suggest-cards` - Get card suggestions
