@@ -81,14 +81,26 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
+import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.markdownLite
 
 /** Card-local state that tests / screenshots can start from. */
-data class CardStartState(val flipped: Boolean = false, val answer: String = "")
+data class CardStartState(val flipped: Boolean = false, val answer: String = "", val showClue: Boolean = false)
+
+/** The sheets a card can open over itself. */
+private sealed interface CardSheet {
+    data object More : CardSheet
+    data object Edit : CardSheet
+    data object Flag : CardSheet
+    data object Ask : CardSheet
+    data class Define(val hanzi: String) : CardSheet
+}
 
 @Composable
 fun CardStage(
     view: CardView,
+    ui: StudyUi,
     playingKey: String?,
     actions: StudyActions,
     start: CardStartState = CardStartState(),
@@ -102,6 +114,7 @@ fun CardStage(
         mutableStateOf(if (start.flipped && typing && start.answer.isNotBlank()) AnswerKey.check(start.answer, note.hanzi, view.alternatives) else null)
     }
     var rated by remember(view.presentation) { mutableStateOf(false) }
+    var sheet by remember(view.presentation) { mutableStateOf<CardSheet?>(null) }
     var burst by remember { mutableIntStateOf(0) }
     val startedAt = remember(view.presentation) { System.currentTimeMillis() }
     val shake = remember { ShakeState() }
@@ -126,7 +139,7 @@ fun CardStage(
         if (!autoplay) return@LaunchedEffect
         if (view.card.cardType == CardTypes.AUDIO_TO_HANZI && !start.flipped) {
             delay(250)
-            actions.onPlay(note.audioUrl, note.hanzi)
+            actions.onPlayWord(false)
         } else if (typing && !start.flipped) {
             runCatching { focus.requestFocus() }
         }
@@ -142,10 +155,11 @@ fun CardStage(
         if (v != null && !AnswerKey.isAccepted(v)) scope.launch { shake.shake() }
         scope.launch {
             delay(if (v != null && AnswerKey.isAccepted(v)) 380 else 160)
-            if (autoplay) actions.onPlay(note.audioUrl, note.hanzi)
+            if (autoplay) actions.onPlayWord(false)
         }
     }
 
+    val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     Column(Modifier.fillMaxSize().imePadding()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             val wide = maxWidth >= 640.dp
@@ -164,10 +178,10 @@ fun CardStage(
                     .border(if (verdict != null) 2.dp else 1.dp, glow, RoundedCornerShape(28.dp)),
             ) {
                 if (rotation <= 90f) {
-                    CardFront(view, playingKey, actions, onTapToReveal = { if (!typing) reveal() })
+                    CardFront(view, ui, playingKey, actions, start.showClue, onTapToReveal = { if (!typing) reveal() })
                 } else {
                     Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
-                        CardBack(view, answer.trim().takeIf { typing && it.isNotEmpty() }, verdict, playingKey, actions, wide)
+                        CardBack(view, ui, typed, verdict, playingKey, actions, wide, onCharacter = { sheet = CardSheet.Define(it) })
                     }
                 }
             }
@@ -175,7 +189,7 @@ fun CardStage(
         }
 
         // Bottom controls
-        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
             if (!flipped) {
                 if (typing) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -198,6 +212,13 @@ fun CardStage(
                     PrimaryPill("Show answer", Modifier.fillMaxWidth().height(60.dp)) { reveal() }
                 }
             } else {
+                StudyActionRow(
+                    aiAvailable = ui.aiAvailable,
+                    onAskClaude = { sheet = CardSheet.Ask },
+                    onEditCard = { sheet = CardSheet.Edit },
+                    onMore = { sheet = CardSheet.More },
+                )
+                Spacer(Modifier.height(10.dp))
                 RatingBar(view.previews, enabled = !rated) { rating ->
                     rated = true
                     actions.onRate(rating, System.currentTimeMillis() - startedAt, answer.takeIf { typing && it.isNotEmpty() })
@@ -205,12 +226,33 @@ fun CardStage(
             }
         }
     }
+
+    when (val s = sheet) {
+        null -> Unit
+        CardSheet.More -> StudyMoreSheet(
+            items = studyMenuItems(view, ui, actions, hasRecording = false, onFlag = { sheet = CardSheet.Flag }),
+            footer = CardExtrasLogic.formatAddedDate(note.createdAt),
+            onDismiss = { if (sheet == CardSheet.More) sheet = null },
+        )
+        CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
+        CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
+        CardSheet.Ask -> AskClaudeSheet(view, ui.extras.ask, typed, actions.ask, onDismiss = { sheet = null })
+        is CardSheet.Define -> WordDefinitionSheet(
+            hanzi = s.hanzi,
+            context = note.hanzi,
+            define = actions.define,
+            deckHolding = actions.deckHolding,
+            addNote = actions.addDefinition,
+            onDismiss = { sheet = null },
+        )
+    }
 }
 
 @Composable
-private fun CardFront(view: CardView, playingKey: String?, actions: StudyActions, onTapToReveal: () -> Unit) {
+private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startShowClue: Boolean, onTapToReveal: () -> Unit) {
     val note = view.note
-    var showClue by remember(view.presentation) { mutableStateOf(false) }
+    var showClue by remember(view.presentation) { mutableStateOf(startShowClue) }
+    val generating = CardBusy.SENTENCE_CLUE in ui.extras.busy
     Column(
         Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTapToReveal).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -244,54 +286,112 @@ private fun CardFront(view: CardView, playingKey: String?, actions: StudyActions
                 color = Lab.colors.ink,
                 textAlign = TextAlign.Center,
             )
-            else -> BigPlayButton(playing = playingKey != null && playingKey == note.audioUrl || playingKey == "tts:${note.hanzi}") {
-                actions.onPlay(note.audioUrl, note.hanzi)
+            else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BigPlayButton(playing = isWordPlaying(playingKey, view, ui)) { actions.onPlayWord(true) }
+                val voices = ui.extras.voices
+                if (voices.size > 1) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Voice ${ui.extras.voiceIndex + 1}/${voices.size} · tap for the next", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+                }
+                OfflineAudioNote(view, ui)
             }
         }
         Spacer(Modifier.weight(1f))
-        if (!note.sentenceClue.isNullOrBlank()) {
-            AnimatedVisibility(showClue && view.card.cardType == CardTypes.HANZI_TO_MEANING, enter = fadeIn() + expandVertically()) {
-                Text(note.sentenceClue, style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 8.dp))
-            }
-            TextButton(onClick = {
-                showClue = true
-                // For the typing cards the text would give the answer away: play it instead.
-                if (view.card.cardType != CardTypes.HANZI_TO_MEANING) actions.onPlay(note.sentenceClueAudioUrl, note.sentenceClue)
-            }) {
+        val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
+        val reading = view.card.cardType == CardTypes.HANZI_TO_MEANING
+        // On the front only what doesn't give the answer away: the sentence text on a read
+        // card, its audio on the typing cards (the text would show the hanzi).
+        AnimatedVisibility(showClue && clue != null && reading, enter = fadeIn() + expandVertically()) {
+            Text(clue.orEmpty(), style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 4.dp))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(
+                enabled = !generating && (clue != null || ui.aiAvailable),
+                onClick = {
+                    when {
+                        clue == null -> actions.onGenerateSentenceClue()
+                        reading -> showClue = !showClue
+                        else -> actions.onPlay(note.sentenceClueAudioUrl, clue)
+                    }
+                },
+            ) {
                 Icon(Icons.Filled.Lightbulb, null, Modifier.size(18.dp), tint = Lab.colors.accent)
                 Spacer(Modifier.width(6.dp))
-                Text(if (view.card.cardType == CardTypes.HANZI_TO_MEANING) "Use in a sentence" else "Play a sentence", color = Lab.colors.accent)
+                Text(
+                    when {
+                        generating -> "Generating…"
+                        clue == null && !ui.aiAvailable -> "Use in sentence · $NEEDS_INTERNET"
+                        reading && showClue -> "Hide sentence"
+                        reading || clue == null -> "Use in a sentence"
+                        else -> "Play a sentence"
+                    },
+                    color = Lab.colors.accent,
+                )
+            }
+            if (clue != null && (showClue || !reading) && ui.aiAvailable) {
+                TextButton(enabled = !generating, onClick = actions.onGenerateSentenceClue) { Text("↻", color = Lab.colors.muted, fontSize = 18.sp) }
             }
         }
-        if (view.card.cardType == CardTypes.HANZI_TO_MEANING) {
+        if (reading) {
             Text("Say it aloud, then tap to check", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
         }
     }
 }
 
+private fun isWordPlaying(playingKey: String?, view: CardView, ui: StudyUi): Boolean =
+    playingKey != null && (playingKey == view.note.audioUrl || playingKey == "tts:${view.note.hanzi}" || playingKey in ui.extras.voices)
+
+/** One quiet line: offline and this word's clip was never downloaded (OfflineAudioNote.tsx). */
 @Composable
-private fun CardBack(view: CardView, typed: String?, verdict: AnswerKey.Verdict?, playingKey: String?, actions: StudyActions, wide: Boolean) {
+private fun OfflineAudioNote(view: CardView, ui: StudyUi) {
+    if (ui.aiAvailable || view.audioCached) return
+    Spacer(Modifier.height(8.dp))
+    Text("Audio not downloaded for this word — using the device voice.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
+}
+
+@Composable
+private fun CardBack(
+    view: CardView,
+    ui: StudyUi,
+    typed: String?,
+    verdict: AnswerKey.Verdict?,
+    playingKey: String?,
+    actions: StudyActions,
+    wide: Boolean,
+    onCharacter: (String) -> Unit,
+) {
     val note = view.note
+    val onChar: (String) -> Unit = { ch -> if (CardExtrasLogic.isLookupCharacter(ch)) onCharacter(ch) }
     val main: @Composable () -> Unit = {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             if (typed != null && verdict != null) {
-                AnswerDiff(typed, note.hanzi, verdict)
+                AnswerDiff(typed, note.hanzi, verdict, onChar)
             } else {
-                Text(note.hanzi, fontSize = hanziSize(note.hanzi) * 0.85f, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = hanziSize(note.hanzi))
+                TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
+            if (ui.extras.tutorNotes.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                TutorNoteLine(ui.extras.tutorNotes)
+            }
             Spacer(Modifier.height(4.dp))
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
             Spacer(Modifier.height(12.dp))
-            val playing = playingKey != null && (playingKey == note.audioUrl || playingKey == "tts:${note.hanzi}")
+            val playing = isWordPlaying(playingKey, view, ui)
+            val voices = ui.extras.voices
             Row(
-                Modifier.clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlay(note.audioUrl, note.hanzi) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                Modifier.clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.AutoMirrored.Filled.VolumeUp, null, Modifier.size(18.dp), tint = Lab.colors.accent)
                 Spacer(Modifier.width(6.dp))
-                Text("Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
+                Text(if (voices.size > 1) "Play (${ui.extras.voiceIndex + 1}/${voices.size})" else "Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
+            }
+            OfflineAudioNote(view, ui)
+            ui.extras.notice?.let {
+                Spacer(Modifier.height(10.dp))
+                InlineNotice(it, kind = NoticeKind.Error, actionLabel = "OK", onAction = actions.onDismissNotice)
             }
         }
     }
@@ -307,16 +407,11 @@ private fun CardBack(view: CardView, typed: String?, verdict: AnswerKey.Verdict?
                 Spacer(Modifier.height(16.dp))
             }
             SentenceList(view, playingKey, actions)
-            TextButton(onClick = { actions.onOpenInApp(note.id) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(16.dp), tint = Lab.colors.muted)
-                Spacer(Modifier.width(6.dp))
-                Text("Ask Claude · edit · flag — in the main app", color = Lab.colors.muted, style = MaterialTheme.typography.labelMedium)
-            }
         }
     }
     if (wide) {
         Row(Modifier.fillMaxSize().padding(24.dp)) {
-            Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) { main() }
+            Box(Modifier.weight(1f).fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) { main() }
             Spacer(Modifier.width(24.dp))
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { details() }
         }
@@ -330,24 +425,57 @@ private fun CardBack(view: CardView, typed: String?, verdict: AnswerKey.Verdict?
     }
 }
 
-/** The web's AnswerDiff: accepted answers in green; otherwise a character-by-character diff. */
+/** Hanzi where each character can be tapped for its definition (`hanzi-char-clickable`). */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict) {
+private fun TappableHanzi(text: String, size: TextUnit, color: Color, onChar: (String) -> Unit, weight: FontWeight = FontWeight.Medium) {
+    val chars = text.codePoints().toArray().map { String(Character.toChars(it)) }
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.Center) {
+        for (ch in chars) {
+            Text(
+                ch,
+                fontSize = size,
+                fontWeight = weight,
+                color = color,
+                lineHeight = size * 1.15f,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { onChar(ch) },
+            )
+        }
+    }
+}
+
+/**
+ * The web's AnswerDiff: accepted answers in green with their pinyin; otherwise a
+ * character-by-character diff with the pinyin of what was typed. Characters are tappable.
+ */
+@Composable
+private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit) {
     val size = hanziSize(correct) * 0.7f
+    val pinyinStyle = MaterialTheme.typography.bodyMedium
     when (verdict) {
-        AnswerKey.Verdict.EXACT -> Text(typed, fontSize = size, color = Palette.Good, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
-        AnswerKey.Verdict.PUNCTUATION_ONLY -> Text(correct, fontSize = size, color = Palette.Good, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+        AnswerKey.Verdict.EXACT, AnswerKey.Verdict.PUNCTUATION_ONLY -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // A punctuation-only difference shows the canonical answer (with its punctuation).
+            val shown = if (verdict == AnswerKey.Verdict.EXACT) typed else correct
+            TappableHanzi(shown, size, Palette.Good, onChar)
+            Text(Pinyin.of(shown), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
+        }
         AnswerKey.Verdict.ALTERNATIVE, AnswerKey.Verdict.EQUIVALENT -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(typed, fontSize = size, color = Palette.Good, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+            TappableHanzi(typed, size, Palette.Good, onChar)
+            Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("Also accepted — canonical answer:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
-            Text(correct, fontSize = size * 0.8f, color = Lab.colors.ink, textAlign = TextAlign.Center)
+            TappableHanzi(correct, size * 0.8f, Lab.colors.ink, onChar)
+            Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val user = typed.codePoints().toArray().map { String(Character.toChars(it)) }
             val target = correct.codePoints().toArray().map { String(Character.toChars(it)) }
-            Row { user.forEachIndexed { i, ch -> Text(ch, fontSize = size * 0.8f, color = if (target.getOrNull(i) == ch) Palette.Good else Palette.Again, fontWeight = FontWeight.Medium) } }
+            Row { user.forEachIndexed { i, ch -> Text(ch, fontSize = size * 0.8f, color = if (target.getOrNull(i) == ch) Palette.Good else Palette.Again, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(ch) }) } }
+            Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("↓", color = Lab.colors.muted)
-            Row { target.forEachIndexed { i, ch -> Text(ch, fontSize = size, color = if (user.getOrNull(i) == ch) Palette.Good else Lab.colors.ink, fontWeight = FontWeight.Medium) } }
+            Row { target.forEachIndexed { i, ch -> Text(ch, fontSize = size, color = if (user.getOrNull(i) == ch) Palette.Good else Lab.colors.ink, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(ch) }) } }
         }
     }
 }
