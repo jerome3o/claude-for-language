@@ -65,6 +65,21 @@
   font-weight: 700;
 }
 
+.join-about {
+  margin: 0;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid #fbbf24;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef1f7;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 .join-muted {
   margin: 0;
   color: #c4cad6;

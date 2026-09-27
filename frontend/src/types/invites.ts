@@ -57,6 +57,8 @@ export interface PublicInvite {
   valid: boolean;
   inviter_name: string;
   inviter_picture_url: string | null;
+  /** The inviter's public About me (Profile screen). */
+  inviter_about?: string | null;
   inviter_role: RelationshipRole | null;
   email_bound: boolean;
   shares_decks: boolean;

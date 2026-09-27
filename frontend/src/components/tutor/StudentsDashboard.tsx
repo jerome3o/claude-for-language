@@ -8,6 +8,7 @@ import { StudentCard } from './StudentCard';
 import { PendingInviteRow } from './PendingInviteRow';
 import { HomeworkDecks } from './HomeworkDecks';
 import { SendHomeworkSheet } from './SendHomeworkSheet';
+import { ProfileNudge } from '../profile/ProfileChip';
 import './tutor-dashboard.css';
 
 /**
@@ -43,6 +44,7 @@ export function StudentsDashboard({ canInvite }: { canInvite: boolean }) {
 
   return (
     <>
+      <ProfileNudge />
       <section className="td-section" aria-label="Students">
         <div className="td-list">
           {students.map((s) => (
