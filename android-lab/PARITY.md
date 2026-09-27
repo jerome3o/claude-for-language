@@ -54,7 +54,7 @@ already opens a placeholder — registering the route in your graph is what make
 | Generic API helpers (`get/post/put/patch/delete`, multipart `upload`, error sentences) | ✅ | `api/client.ts` | `data/api/Http.kt` |
 | UI kit + screenshot helper | ✅ | — | `ui/kit/`, `docs/UI_KIT.md`, `testing/LabScreenshotTest.kt` |
 | Study-state debug report (upload after sync every 30 min, More → Lab app → "Send debug report"), diffed with the web app's | ✅ unit + contract-tested | `services/debugReport.ts`, `shared/debug/`, Settings → Advanced | `data/DebugReport.kt`, `ui/more/MoreExtraRows.kt` |
-| Tutor account home (`/` for users.role = tutor) | 🟡 students count, Make rows, Try-it deck rows; Try it itself is ⬜ (C/G) | `components/home/TutorHome.tsx` | `ui/home/TutorHomeScreen.kt` |
+| Tutor account home (`/` for users.role = tutor) | ✅ students count, Make rows, Try it as your student (deck rows → the native Try-it viewer, "Try a lesson" → Library) | `components/home/TutorHome.tsx` | `ui/home/TutorHomeScreen.kt` |
 
 ## A — Study card extras (web: `StudyPage.tsx`, `useStudySession.ts`, `components/study/`)
 
@@ -130,9 +130,9 @@ Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/De
 | Paste a list (parse, plan, fill gaps, ✨ write explanations, save, update students' copies) | ✅ `parseWordList` / `planImport` / pinyin helpers parity-tested (`core/…/Import.kt`); on-device pinyin from the pinyin-pro port (`core/…/Pinyin.kt`), "Check the reading: a / b" for a one-character word filled in on the phone (`Pinyin.readings`, parity-tested against `polyphonic`, `parity/fixtures/polyphonic.ts`) | `components/import/PasteWordsModal.tsx`, `services/wordImport.ts`, `shared/import/` | `ui/decks/PasteWords*.kt` |
 | Generate a deck with Claude (`/generate`) | ✅ | `pages/GeneratePage.tsx`, `POST /api/ai/generate-deck` | `ui/decks/GenerateDeck.kt` |
 | Anki export | ⬜ hand-off: ⋯ → Export → Anki opens the deck in the main app | `services/anki/` | |
-| Share with tutor / Shared with Tutors | ⬜ | `DeckDetailPage.tsx`, `GET /api/decks/:id/tutor-shares` | |
-| Try it as a student (`/decks/:id/try`, nothing recorded) | ⬜ (the button opens the placeholder) | `pages/DeckTryPage.tsx` | |
-| One-off deck banner + "Add to my daily review" | ⬜ needs E's homework cache | `components/homework/OneOffDeckBanner.tsx` | |
+| Share with tutor / Shared with Tutors | ✅ ⋯ → Share with tutor (only with a tutor; already-shared greyed out), "Shared with Tutors (N)" with Stop sharing; list cached for offline | `DeckDetailPage.tsx`, `GET /api/decks/:id/tutor-shares`, `POST …/student-share-deck`, `DELETE …/student-shared-decks/:deckId` | `ui/decks/DeckExtras.kt`, `data/api/DeckSharesApi.kt` |
+| Try it as a student (`/decks/:id/try`, nothing recorded) | ✅ viewer over Room in any of the three card types, audio card autoplays, offline | `pages/DeckTryPage.tsx` | `ui/decks/DeckTry.kt` |
+| One-off deck banner + "Add to my daily review" | ✅ from E's homework cache (live one-off assignment + caps 0 + 0), link to the pass, default caps via the deck-settings write (online only, as the web) | `components/homework/OneOffDeckBanner.tsx` | `ui/decks/DeckExtras.kt`, `DeckViewModel.kt` |
 
 ## D — Progress & settings (web: `MyProgressPage.tsx`, `SettingsPage.tsx`)
 

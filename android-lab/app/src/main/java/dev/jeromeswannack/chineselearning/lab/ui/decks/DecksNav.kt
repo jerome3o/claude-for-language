@@ -24,6 +24,15 @@ fun NavGraphBuilder.decksGraph(nav: LabNav) {
     composable(Routes.route(Routes.DECKS)) { DecksRoute(nav) }
     composable(Routes.route("/decks/{id}")) { entry -> DeckRoute(nav, entry.arguments?.getString("id").orEmpty()) }
     composable(Routes.route("/generate")) { GenerateRoute(nav) }
+    composable(Routes.route("/decks/{id}/try")) { entry -> DeckTryRoute(nav, entry.arguments?.getString("id").orEmpty()) }
+}
+
+@Composable
+private fun DeckTryRoute(nav: LabNav, deckId: String) {
+    val env = remember { DecksEnv.from(nav.app) }
+    val vm: DeckTryViewModel = viewModel(key = "try-$deckId", factory = DeckTryViewModel.Factory(env, deckId))
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    DeckTryScreen(ui, DeckTryActions(onClose = nav::back, onPlay = vm::play, onFlip = vm::flip))
 }
 
 @Composable
@@ -119,6 +128,7 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
     val vm: DeckViewModel = viewModel(key = "deck-$deckId", factory = DeckViewModel.Factory(env, deckId))
     val ui by vm.ui.collectAsStateWithLifecycle()
     var settings by remember { mutableStateOf(false) }
+    var shareTutor by remember { mutableStateOf(false) }
     var paste by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     if (paste) {
         PasteRoute(env, deckId) { paste = false }
@@ -146,8 +156,15 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
             onMoveSelected = vm::moveSelected,
             onRegenerateSelected = vm::regenerateSelected,
             onDismissNotice = vm::dismissNotice,
+            onOpenHomeworkPass = { nav.open(Routes.homeworkPass(it)) },
+            onAddToDailyReview = vm::addToDailyReview,
+            onShareWithTutor = { vm.clearShareError(); vm.refreshTutorShares(); shareTutor = true },
+            onUnshareTutor = vm::unshareTutor,
         ),
     )
+    if (shareTutor) {
+        ShareWithTutorSheet(ui, onShare = { rel -> vm.shareWithTutor(rel) { shareTutor = false } }, onFindTutors = { shareTutor = false; nav.open(Routes.CONNECTIONS) }, onDismiss = { shareTutor = false })
+    }
     if (settings) {
         DeckSettingsSheet(ui, onSave = { n, d, a, b -> vm.saveSettings(n, d, a, b) { settings = false } }, onDismiss = { settings = false })
     }
