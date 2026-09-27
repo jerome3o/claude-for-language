@@ -252,6 +252,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     val transient: StateFlow<Transient> = _t.asStateFlow()
 
     val send = SendHomeworkController(app, viewModelScope) { refreshAfterHomework() }
+    val lessonNotes = LessonNotesController(app, this, relId)
 
     init {
         // Offline-first: the dashboard already holds this student's card — show it at once.
@@ -272,7 +273,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     }
 
     fun refresh() {
-        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh()
+        overview.refresh(); homework.refresh(); flags.refresh(); claude.refresh(); conversations.refresh(); lessons.refresh(); lessonLog.refresh(); lessonNotes.entries.refresh()
     }
 
     private fun refreshAfterHomework() {
@@ -280,7 +281,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
         app.scope.launch { app.cache.delete(TeachingKeys.DASHBOARD) }
     }
 
-    private fun say(text: String, error: Boolean = false) = _t.update { it.copy(notice = text, noticeIsError = error) }
+    fun say(text: String, error: Boolean = false) = _t.update { it.copy(notice = text, noticeIsError = error) }
 
     /** Message: the most recent conversation, created when there is none. */
     fun message(go: (String) -> Unit) {

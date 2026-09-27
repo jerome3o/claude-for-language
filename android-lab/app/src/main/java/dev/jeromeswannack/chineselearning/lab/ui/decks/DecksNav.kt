@@ -23,6 +23,53 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 fun NavGraphBuilder.decksGraph(nav: LabNav) {
     composable(Routes.route(Routes.DECKS)) { DecksRoute(nav) }
     composable(Routes.route("/decks/{id}")) { entry -> DeckRoute(nav, entry.arguments?.getString("id").orEmpty()) }
+    composable(Routes.route("/generate")) { GenerateRoute(nav) }
+}
+
+@Composable
+private fun GenerateRoute(nav: LabNav) {
+    val env = remember { DecksEnv.from(nav.app) }
+    val vm: GenerateDeckViewModel = viewModel(factory = GenerateDeckViewModel.Factory(env))
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    GenerateDeckScreen(
+        ui,
+        GenerateActions(
+            onBack = nav::back,
+            onPrompt = vm::setPrompt,
+            onDeckName = vm::setDeckName,
+            onGenerate = vm::generate,
+            onAgain = vm::again,
+            onOpenDeck = { nav.open(Routes.deck(it)) },
+            onPlay = vm::play,
+        ),
+    )
+}
+
+/** "Paste a list" over the deck page (the web's modal); back closes it. */
+@Composable
+private fun PasteRoute(env: DecksEnv, deckId: String, onClose: () -> Unit) {
+    val vm: PasteWordsViewModel = viewModel(key = "paste-$deckId", factory = PasteWordsViewModel.Factory(env, deckId, dev.jeromeswannack.chineselearning.lab.ui.study.Pinyin::of))
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    androidx.activity.compose.BackHandler(enabled = ui.stage != PasteStage.RUNNING, onBack = onClose)
+    PasteWordsScreen(
+        ui,
+        PasteActions(
+            onClose = onClose,
+            onText = vm::setText,
+            onColumnSeparator = vm::setColumnSeparator,
+            onCustomSeparator = vm::setCustomSeparator,
+            onRowSeparator = vm::setRowSeparator,
+            onPolicy = vm::setPolicy,
+            onGloss = vm::fillWithClaude,
+            onEnrich = vm::writeWithClaude,
+            onToggleEditing = vm::toggleEditing,
+            onEdit = vm::edit,
+            onToggleExcluded = vm::toggleExcluded,
+            onToggleUnchanged = vm::toggleUnchanged,
+            onSave = { vm.save() },
+            onUpdateShare = vm::updateShare,
+        ),
+    )
 }
 
 @Composable
@@ -72,6 +119,11 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
     val vm: DeckViewModel = viewModel(key = "deck-$deckId", factory = DeckViewModel.Factory(env, deckId))
     val ui by vm.ui.collectAsStateWithLifecycle()
     var settings by remember { mutableStateOf(false) }
+    var paste by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    if (paste) {
+        PasteRoute(env, deckId) { paste = false }
+        return
+    }
     DeckScreen(
         ui,
         DeckActions(
@@ -81,7 +133,7 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
             onEdit = vm.editor::openEdit,
             onPlay = vm::play,
             onAddWord = { vm.editor.openAdd(deckId) },
-            onPaste = { nav.openInMainApp(Routes.deck(deckId)) },
+            onPaste = { paste = true },
             onSettings = { vm.clearSettingsError(); settings = true },
             onGenerateAudio = vm::generateMissingAudio,
             onRegenerateMode = { ui.notes.firstOrNull { it.audioUrl != null }?.let { vm.startSelect(it.id) } },

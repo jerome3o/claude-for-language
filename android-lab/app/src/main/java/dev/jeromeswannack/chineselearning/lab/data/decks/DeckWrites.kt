@@ -24,6 +24,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ReorderBody
 import dev.jeromeswannack.chineselearning.lab.data.api.createDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.addNoteToDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.encode
+import dev.jeromeswannack.chineselearning.lab.data.api.generateDeck
+import dev.jeromeswannack.chineselearning.lab.data.api.putNote
 import dev.jeromeswannack.chineselearning.lab.data.api.makeNoteAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.writeSentenceClue
 import dev.jeromeswannack.chineselearning.lab.data.api.remakeNoteAudio
@@ -253,6 +255,28 @@ class DeckWrites(
                 ),
             )
         }
+    }
+
+    /**
+     * A partial update from "Paste a list" (only the fields that changed, as the web's
+     * runImport sends them) — online; the server's answer is mirrored.
+     */
+    suspend fun patchNote(noteId: String, patch: Map<String, String>): Result<NoteDto> {
+        CardStandard.editProblem(null, patch["pinyin"], patch["english"], patch["sentence_clue"])?.let { return Result.failure(RefusedException(it)) }
+        return online("update a word") {
+            val body = buildJsonObject { for ((k, v) in patch) put(k, JsonPrimitive(v)) }
+            val note = api.putNote(noteId, body)
+            mirrorNote(note, withCards = false)
+            note
+        }
+    }
+
+    /** "Generate with Claude": the new deck with its words, mirrored so the deck page opens at once. */
+    suspend fun generateDeck(prompt: String, deckName: String?): Result<dev.jeromeswannack.chineselearning.lab.data.api.GeneratedDeckDto> = online("generate a deck") {
+        val r = api.generateDeck(NoteSearch.jsTrim(prompt), deckName?.let(NoteSearch::jsTrim)?.ifEmpty { null })
+        dao.upsertDecks(listOf(deckEntity(r.deck)))
+        r.notes.forEach { mirrorNote(it) }
+        r
     }
 
     /** Delete a note and its three cards (the web's deleteNote + removeNotesLocally). */

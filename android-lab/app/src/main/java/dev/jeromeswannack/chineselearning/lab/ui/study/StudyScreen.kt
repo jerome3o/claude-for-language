@@ -95,13 +95,25 @@ class StudyActions(
     val onRegenerateAudio: () -> Unit = {},
     val onNewVoice: () -> Unit = {},
     val onRoleplay: () -> Unit = {},
-    val onWriteIt: (hanzi: String) -> Unit = {},
     val onPlayMyRecording: () -> Unit = {},
+    // my pronunciation (read cards)
+    val onStartRecording: (skipDelay: Boolean) -> Unit = {},
+    val onStopRecording: (flipped: Boolean) -> Unit = {},
+    val onClearRecording: () -> Unit = {},
+    val recordingLevel: kotlinx.coroutines.flow.StateFlow<Float> = kotlinx.coroutines.flow.MutableStateFlow(0f),
     /** "Use in sentence" when the note has none yet, and ↻ on the shown one. */
     val onGenerateSentenceClue: () -> Unit = {},
+    // multiple choice
+    val onShowMc: () -> Unit = {},
+    val onRegenerateMc: () -> Unit = {},
+    val onRevealMc: () -> Unit = {},
+    val onTypeInstead: () -> Unit = {},
+    /** A light tick (choosing an option). */
+    val onTick: () -> Unit = {},
     val sendFlag: suspend (FlagTutor, String) -> Boolean = { _, _ -> false },
     val edit: EditCardActions = EditCardActions(),
     val ask: AskActions = AskActions(),
+    val sentences: SentenceActions = SentenceActions(),
     // tap a character
     val define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition = { _, _, _ -> error("offline") },
     val deckHolding: suspend (String) -> String? = { null },
@@ -109,7 +121,7 @@ class StudyActions(
 )
 
 @Composable
-fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit, onHandoff: (String) -> Unit) {
+fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit) {
     val vm: StudyViewModel = viewModel(key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
     val ui by vm.ui.collectAsStateWithLifecycle()
     val playing by app.audio.playingKey.collectAsState()
@@ -139,8 +151,17 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onRegenerateAudio = vm::regenerateAudio,
             onNewVoice = vm::newVoice,
             onRoleplay = { vm.roleplay(onOpen) },
-            onWriteIt = { hanzi -> onHandoff("/practice/strokes?text=" + java.net.URLEncoder.encode(hanzi, "UTF-8").replace("+", "%20")) },
             onGenerateSentenceClue = { vm.generateSentenceClue() },
+            onShowMc = vm::showMc,
+            onRegenerateMc = vm::regenerateMc,
+            onRevealMc = vm::revealMc,
+            onTypeInstead = vm::typeInstead,
+            onTick = { app.haptics.tick() },
+            onPlayMyRecording = vm::playMyRecording,
+            onStartRecording = vm::startRecording,
+            onStopRecording = vm::stopRecording,
+            onClearRecording = vm::clearRecording,
+            recordingLevel = vm.level,
             sendFlag = vm::flag,
             edit = EditCardActions(
                 save = vm::saveEdit,
@@ -158,6 +179,15 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
                 toFlashcard = tools::toFlashcard,
                 decks = vm::deckChoices,
                 addFlashcard = { deckId, d -> tools.addNote(deckId, NewNoteBody(d.hanzi, d.pinyin, d.english, d.fun_facts)) },
+            ),
+            sentences = SentenceActions(
+                generate = vm::generateSentences,
+                clear = vm::clearSentences,
+                cachedExplanation = { r -> tools.cachedExplanation(r.sentenceId, r.hanzi) },
+                explain = { r -> tools.explain(r.sentenceId, r.hanzi, r.pinyin, r.translation) },
+                decks = vm::deckChoices,
+                deckHas = tools::deckHas,
+                addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english)) },
             ),
             define = { h, c, r -> tools.define(h, c, r) },
             deckHolding = tools::deckHolding,

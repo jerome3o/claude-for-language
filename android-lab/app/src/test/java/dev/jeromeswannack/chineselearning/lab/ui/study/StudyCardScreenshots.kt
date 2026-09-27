@@ -199,4 +199,99 @@ class StudyCardScreenshots : LabScreenshotTest() {
     @Test fun darkBack() = shoot("study-a16-dark-back", dark = true) {
         study(ui(view(CardTypes.MEANING_TO_HANZI), CardExtras(tutorNotes = notes)), CardStartState(flipped = true, answer = "打算"))
     }
+
+    // ---------------- part 2: multiple choice, recording, sentence tools ----------------
+
+    private val mcRows = listOf(
+        MultipleChoice.Row("打", listOf("找", "打", "灯", "扛")),
+        MultipleChoice.Row("算", listOf("笔", "蒜", "算", "篮")),
+    )
+
+    @Test fun mcGrid() = shoot("study-b01-mc-grid") {
+        study(ui(view(CardTypes.AUDIO_TO_HANZI), CardExtras(mc = McUi(rows = mcRows, showing = true, cached = true, auto = true))))
+    }
+
+    @Test fun mcChecked() = shoot("study-b02-mc-checked") {
+        val v = view(CardTypes.MEANING_TO_HANZI)
+        Box(Modifier.fillMaxSize()) {
+            study(ui(v, CardExtras(mc = McUi(rows = mcRows, showing = true))))
+            Box(Modifier.align(Alignment.BottomCenter).background(Lab.colors.background).padding(16.dp)) {
+                McGrid(mcRows, aiAvailable = true, regenerating = false, onContinue = {}, onTypeInstead = {}, onRegenerate = {}, startSelections = listOf("打", "蒜"), startSubmitted = true)
+            }
+        }
+    }
+
+    @Test fun mcShowOptions() = shoot("study-b03-listen-show-options") {
+        study(ui(view(CardTypes.AUDIO_TO_HANZI), CardExtras(mc = McUi(rows = mcRows, ready = true, auto = true, cached = true), voices = listOf("a", "b"))))
+    }
+
+    @Test fun mcLoading() = shoot("study-b04-mc-loading", settleMs = 300) {
+        study(ui(view(CardTypes.AUDIO_TO_HANZI), CardExtras(mc = McUi(loading = true, auto = true))))
+    }
+
+    @Test fun mcFallback() = shoot("study-b05-mc-fallback") {
+        study(ui(view(CardTypes.AUDIO_TO_HANZI), CardExtras(mc = McUi(skip = true, auto = true, fallbackNote = MultipleChoice.Fallback.TIMEOUT.message))), CardStartState(answer = "打"))
+    }
+
+    @Test fun readFrontRecord() = shoot("study-b06-read-front-record") {
+        study(ui(view(CardTypes.HANZI_TO_MEANING)))
+    }
+
+    @Test fun readFrontRecording() = shoot("study-b07-read-front-recording") {
+        study(ui(view(CardTypes.HANZI_TO_MEANING), CardExtras(take = TakeUi(recording = true))))
+    }
+
+    @Test fun readFrontTake() = shoot("study-b08-read-front-take") {
+        study(ui(view(CardTypes.HANZI_TO_MEANING), CardExtras(take = TakeUi(hasTake = true))))
+    }
+
+    @Test fun readBackTranscribed() = shoot("study-b09-read-back-you-said") {
+        val said = TranscriptionComparison("我打算明天去", "wǒ dǎ suàn míng tiān qù", isMatch = false, containsExpected = true)
+        study(ui(view(CardTypes.HANZI_TO_MEANING), CardExtras(take = TakeUi(hasTake = true, transcription = TranscriptionUi.Done(said)))), CardStartState(flipped = true))
+    }
+
+    @Test fun readBackOfflineTake() = shoot("study-b10-read-back-offline-take") {
+        study(ui(view(CardTypes.HANZI_TO_MEANING), CardExtras(take = TakeUi(hasTake = true, transcription = TranscriptionUi.Offline)), online = false), CardStartState(flipped = true))
+    }
+
+    private val breakdown = dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation(
+        words = listOf(
+            dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord("你", "nǐ", "you"),
+            dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord("周末", "zhōumò", "weekend"),
+            dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord("打算", "dǎsuàn", "plan to"),
+            dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord("做", "zuò", "do"),
+            dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord("什么", "shénme", "what"),
+        ),
+        construction = "Time word (周末) goes before the verb; 打算 + verb phrase = plan to do.",
+    )
+
+    @Test fun sentenceTools() = shoot("study-b11-sentence-tools") {
+        val v = view(CardTypes.HANZI_TO_MEANING)
+        Column(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(20.dp)) {
+            // The clue row fully open with its breakdown; the set rows closed.
+            SentenceListOpen(v, breakdown)
+        }
+    }
+
+    @Composable
+    private fun SentenceListOpen(v: CardView, ex: dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation) {
+        val u = ui(v)
+        // "Show all" opens every row; the clue row has its explanation cached.
+        SentenceList(v, u, null, StudyActions(), startExplained = mapOf("clue:n1" to ex), startShowAll = true)
+    }
+
+    @Test fun addChunk() = shoot("study-b12-add-as-card") {
+        overCard(ui(view(CardTypes.HANZI_TO_MEANING)), CardStartState(flipped = true)) {
+            AddChunkBody(
+                Chunk("周末", "zhōumò", "weekend"), "d1",
+                SentenceActions(decks = { listOf("d1" to "HSK 3 · Plans & time", "d2" to "Homework — 周末的活动", "d3" to "Food & ordering") }, deckHas = { d, _ -> d == "d2" }),
+                onDismiss = {},
+            )
+        }
+    }
+
+    @Test fun sentencesEmpty() = shoot("study-b13-sentences-empty") {
+        val v = view(CardTypes.HANZI_TO_MEANING, note = Samples.note.copy(sentenceClue = null)).copy(sentences = emptyList())
+        study(ui(v), CardStartState(flipped = true))
+    }
 }
