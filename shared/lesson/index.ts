@@ -1,5 +1,12 @@
 export * from './types';
-export { validateLessonSpec, assertValidLessonSpec } from './validate';
+export { validateLessonSpec, assertValidLessonSpec, EXERCISE_TYPE_IDS } from './validate';
 export { diffLessonSpecs, formatLessonDiff, canonicalJson, exercisePrimaryText, EXERCISE_TYPE_LABELS } from './diff';
 export type { LessonDiff, ExerciseDiffEntry, SectionDiffEntry, FieldChange } from './diff';
 export { lessonToMarkdown, lessonToJson, lessonToCsv, lessonToExportSpec, lessonVocabRows, lessonExportFilename } from './export';
+export { EXERCISE_TYPE_INFO, EXERCISE_TYPE_LIST, SKILL_LABELS, exerciseTypeInfo } from './registry';
+export type { ExerciseTypeInfo, ExerciseSkill } from './registry';
+export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC } from './doc';
+export { resolveConversationVoices, LESSON_VOICE_IDS, LESSON_VOICE_POOLS, DEFAULT_LESSON_VOICE } from './voices';
+export * from './answer-check';
+export * from './attempt';
+export { defaultExercise } from './defaults';

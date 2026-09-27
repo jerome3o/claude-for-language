@@ -1,0 +1,179 @@
+.cat-page {
+  padding-bottom: 2rem;
+}
+
+.cat-back {
+  display: inline-block;
+  margin: 0.25rem 0 0.5rem;
+  color: var(--color-text-light);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.cat-page h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.5rem;
+}
+
+.cat-intro {
+  margin: 0 0 0.9rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.cat-filters {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.75rem;
+  scrollbar-width: none;
+}
+
+.cat-filters button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.cat-filters button.on {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.cat-group h2 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.cat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  scroll-margin-top: 1rem;
+}
+
+.cat-card-head {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.cat-card-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.cat-card-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.cat-card-titles h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.cat-card-summary {
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+}
+
+.cat-card-desc {
+  margin: 0;
+  font-size: 0.925rem;
+  line-height: 1.45;
+}
+
+.cat-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.cat-meta-item {
+  font-size: 0.8rem;
+  color: #166534;
+}
+
+.cat-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.cat-badge.new {
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 700;
+}
+
+.cat-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--color-border);
+}
+
+.cat-sample-title {
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+}
+
+.cat-sample-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.cat-sample-actions .btn {
+  flex: 1;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lesson-trial-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+@media (min-width: 640px) {
+  .cat-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 0.75rem;
+  }
+  .cat-group h2 {
+    grid-column: 1 / -1;
+  }
+}

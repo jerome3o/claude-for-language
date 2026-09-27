@@ -3,54 +3,64 @@
  *
  * The lesson spec (shared/lesson) is a list of sections, each holding any
  * number of exercises of any type in any order — this player just walks the
- * flattened list and renders each exercise with the shared exercise views.
- * Fully offline: TTS comes from the cache-first speak hook, images from the
- * blob cache, and production exercises are self-assessed.
+ * flattened list and renders each exercise with ExerciseView. Fully offline:
+ * TTS comes from the cache-first speak hook, images from the blob cache, and
+ * production exercises are self-assessed (Claude checks made sentences when
+ * online).
+ *
+ * While the learner works it builds the attempt — what they answered in each
+ * exercise and how long it took — handed to onComplete with the rating so it
+ * travels with the completion event (and any recordings) for the tutor.
+ *
+ * `trial` runs the same lesson with nothing recorded: no rating, no event —
+ * the tutor catalogue uses it so a tutor can take a sample lesson.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LessonExercise } from '@shared/lesson';
-import { LocalCustomLesson } from '../db/database';
+import {
+  exerciseMediaKey,
+  exercisePoints,
+  type CustomLessonSpec,
+  type ExerciseAnswer,
+  type ExerciseAttempt,
+  type LessonAttemptData,
+  type LessonExercise,
+} from '@shared/lesson';
 import { QueueCounts, Rating, IntervalPreview } from '../types';
 import { QueueCountsHeader } from './QueueCountsHeader';
 import { RatingButtons } from './RatingButtons';
-import {
-  ScrambleExercise,
-  ChoiceExercise,
-  TranslateExercise,
-  MatchExercise,
-  DescribeImageExercise,
-  SpeakPromptExercise,
-  ListenChoiceExercise,
-  ListenTranslateExercise,
-  LessonNoteCard,
-} from './lesson-exercises';
+import { ExerciseView } from './ExerciseView';
 import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
+import type { LessonRecording } from '../services/custom-lesson-study';
 import '../pages/PracticePage.css';
 
 interface FlatExercise {
   exercise: LessonExercise;
+  section: number;
+  index: number;
   sectionTitle: string | null;
   /** True for the first exercise of a section — shows the section heading. */
   sectionStart: boolean;
 }
 
-function flattenSpec(lesson: LocalCustomLesson): FlatExercise[] {
+function flattenSpec(spec: CustomLessonSpec): FlatExercise[] {
   const items: FlatExercise[] = [];
-  for (const section of lesson.spec.sections) {
+  spec.sections.forEach((section, si) => {
     section.exercises.forEach((exercise, i) => {
       items.push({
         exercise,
+        section: si,
+        index: i,
         sectionTitle: section.title ?? null,
         sectionStart: i === 0 && !!section.title,
       });
     });
-  }
+  });
   return items;
 }
 
-function useOfflineSpeak(): (text: string) => void {
+export function useOfflineSpeak(): (text: string) => void {
   const playerRef = useRef(createAudioPlayer());
 
   useEffect(() => {
@@ -67,31 +77,83 @@ function useOfflineSpeak(): (text: string) => void {
   }, []);
 }
 
+/** The lesson fields the player needs (a cached lesson or a catalogue sample). */
+export interface PlayableLesson {
+  title: string;
+  icon: string | null;
+  spec: CustomLessonSpec;
+}
+
 export function StudyCustomLesson({
   lesson,
   intervalPreviews,
   counts,
   onComplete,
   onEnd,
+  trial = false,
 }: {
-  lesson: LocalCustomLesson;
-  intervalPreviews: Record<Rating, IntervalPreview>;
-  counts: QueueCounts;
-  onComplete: (correct: number, total: number, rating: Rating) => void;
+  lesson: PlayableLesson;
+  intervalPreviews?: Record<Rating, IntervalPreview>;
+  counts?: QueueCounts;
+  onComplete: (correct: number, total: number, rating: Rating, attempt: LessonAttemptData, recordings: LessonRecording[]) => void;
   onEnd: () => void;
+  trial?: boolean;
 }) {
   const speak = useOfflineSpeak();
-  const items = useMemo(() => flattenSpec(lesson), [lesson]);
+  const items = useMemo(() => flattenSpec(lesson.spec), [lesson]);
   const [idx, setIdx] = useState(0);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [isRating, setIsRating] = useState(false);
   const done = idx >= items.length;
 
-  function advance(gotPoint: boolean | null) {
-    if (gotPoint !== null) {
-      setScore(s => ({ correct: s.correct + (gotPoint ? 1 : 0), total: s.total + 1 }));
+  // The attempt, built as the learner goes (refs: nothing here re-renders).
+  const startedAt = useRef(new Date());
+  const exerciseStart = useRef(Date.now());
+  const attempts = useRef<ExerciseAttempt[]>([]);
+  const recordings = useRef<LessonRecording[]>([]);
+
+  function advance(correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) {
+    const item = items[idx];
+    const maxPoints = exercisePoints(item.exercise);
+    // A conversation scores one point per question; everything else 0/1.
+    const points = answer?.questions
+      ? answer.questions.filter(q => q.correct).length
+      : correct ? maxPoints : 0;
+    if (correct !== null && maxPoints > 0) {
+      setScore(s => ({ correct: s.correct + Math.min(points, maxPoints), total: s.total + maxPoints }));
     }
+    attempts.current.push({
+      section: item.section,
+      index: item.index,
+      type: item.exercise.type,
+      correct,
+      points: correct === null ? 0 : Math.min(points, maxPoints),
+      max_points: correct === null ? 0 : maxPoints,
+      duration_ms: Date.now() - exerciseStart.current,
+      answer,
+    });
+    if (recording && answer?.recording) {
+      recordings.current.push({ media_key: answer.recording.media_key, blob: recording });
+    }
+    exerciseStart.current = Date.now();
     setIdx(i => i + 1);
+  }
+
+  function attemptData(): LessonAttemptData {
+    return {
+      started_at: startedAt.current.toISOString(),
+      duration_ms: Date.now() - startedAt.current.getTime(),
+      exercises: attempts.current,
+    };
+  }
+
+  function restart() {
+    attempts.current = [];
+    recordings.current = [];
+    startedAt.current = new Date();
+    exerciseStart.current = Date.now();
+    setScore({ correct: 0, total: 0 });
+    setIdx(0);
   }
 
   const body = (() => {
@@ -107,117 +169,20 @@ export function StudyCustomLesson({
               {score.correct}/{score.total} correct ({pct}%)
             </div>
           )}
+          {trial && <p className="text-light">Trial run — nothing was recorded.</p>}
         </div>
       );
     }
-
-    const { exercise } = items[idx];
-    const key = `ex-${idx}`;
-    switch (exercise.type) {
-      case 'note':
-        return (
-          <LessonNoteCard
-            key={key}
-            title={exercise.title}
-            body={exercise.body}
-            sentences={exercise.sentences}
-            speak={speak}
-            onNext={() => advance(null)}
-          />
-        );
-      case 'scramble':
-        return (
-          <ScrambleExercise
-            key={key}
-            english={exercise.english}
-            tiles={exercise.tiles}
-            correctOrder={exercise.correct_order}
-            altOrders={exercise.alt_orders}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-      case 'choice':
-        return (
-          <ChoiceExercise
-            key={key}
-            question={exercise.question}
-            options={exercise.options}
-            correctIndex={exercise.correct}
-            explanation={exercise.explanation}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-      case 'translate':
-        return (
-          <TranslateExercise
-            key={key}
-            english={exercise.english}
-            referenceHanzi={exercise.reference_hanzi}
-            referencePinyin={exercise.reference_pinyin}
-            note={exercise.note}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-      case 'match':
-        return (
-          <MatchExercise
-            key={key}
-            pairs={exercise.pairs}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-      case 'describe_image':
-        return (
-          <DescribeImageExercise
-            key={key}
-            imageKey={exercise.image_url}
-            imagePrompt={exercise.image_prompt}
-            task={exercise.task}
-            referenceHanzi={exercise.reference_hanzi}
-            referencePinyin={exercise.reference_pinyin}
-            referenceEnglish={exercise.reference_english}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-      case 'speak':
-        return (
-          <SpeakPromptExercise
-            key={key}
-            prompt={exercise.prompt}
-            example={exercise.example}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-      case 'listen_choice':
-        return (
-          <ListenChoiceExercise
-            key={key}
-            audio={exercise.audio}
-            question={exercise.question}
-            options={exercise.options}
-            correctIndex={exercise.correct}
-            explanation={exercise.explanation}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-      case 'listen_translate':
-        return (
-          <ListenTranslateExercise
-            key={key}
-            audio={exercise.audio}
-            note={exercise.note}
-            speak={speak}
-            onNext={correct => advance(correct)}
-          />
-        );
-    }
+    const item = items[idx];
+    return (
+      <ExerciseView
+        key={`ex-${idx}`}
+        exercise={item.exercise}
+        speak={speak}
+        mediaKey={trial ? undefined : exerciseMediaKey(item.section, item.index)}
+        onDone={advance}
+      />
+    );
   })();
 
   const current = done ? null : items[idx];
@@ -225,9 +190,9 @@ export function StudyCustomLesson({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        <QueueCountsHeader counts={counts} />
+        {counts ? <QueueCountsHeader counts={counts} /> : <div className="lesson-trial-badge">{trial ? 'Trial — nothing is recorded' : ''}</div>}
         <div className="study-topbar-controls">
-          <button className="study-close-btn" onClick={onEnd} aria-label="End session">
+          <button className="study-close-btn" onClick={onEnd} aria-label={trial ? 'Close trial' : 'End session'}>
             ✕
           </button>
         </div>
@@ -261,7 +226,7 @@ export function StudyCustomLesson({
 
       {/* Fixed rating footer once the lesson is finished — same FSRS rating
           bar as cards and readers, pinned to the bottom of the screen. */}
-      {done && (
+      {done && !trial && intervalPreviews && (
         <div className="study-rating-sticky">
           <div className="study-reader-rating-header">
             {/* marginRight 0: the shared prompt class offsets for a Back
@@ -275,10 +240,18 @@ export function StudyCustomLesson({
             onRate={rating => {
               if (isRating) return;
               setIsRating(true);
-              onComplete(score.correct, score.total, rating);
+              onComplete(score.correct, score.total, rating, attemptData(), recordings.current);
             }}
             disabled={isRating}
           />
+        </div>
+      )}
+      {done && trial && (
+        <div className="study-rating-sticky">
+          <div className="exercise-actions" style={{ padding: '0 1rem 1rem' }}>
+            <button className="practice-btn" onClick={restart}>↻ Try again</button>
+            <button className="practice-btn primary" onClick={onEnd}>Done</button>
+          </div>
         </div>
       )}
     </div>

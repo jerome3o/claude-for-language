@@ -26,6 +26,7 @@ import {
 import { ReaderSpec, ReaderDiff, diffReaderSpecs, formatReaderDiff } from '@shared/reader';
 import { Env, GradedReaderWithPages } from '../types';
 import * as lib from '../db/lesson-library-queries';
+import { latestAttemptIds } from '../db/lesson-attempt-queries';
 import { getGradedReader } from '../db/queries';
 import { readerToSpec } from '../db/reader-editor-queries';
 import { queueLessonImages, mergeKeptImages } from '../services/custom-lesson';
@@ -378,6 +379,7 @@ lessonEditor.get('/lesson-library/:id/assignments', async (c) => {
   const itemSpec = parseSpec(item.spec);
   const rows = await lib.listAssignmentsForItem(c.env.DB, item.id);
   const aggregates = await lib.aggregateCompletions(c.env.DB, rows.map(r => r.id));
+  const attempts = await latestAttemptIds(c.env.DB, rows.map(r => r.id));
   return c.json({
     assignments: rows.map(row => {
       const agg = aggregates.get(row.id);
@@ -396,6 +398,7 @@ lessonEditor.get('/lesson-library/:id/assignments', async (c) => {
         last_rating: agg?.last_rating ?? null,
         last_score: agg && agg.last_total ? { correct: agg.last_correct ?? 0, total: agg.last_total } : null,
         up_to_date: sameContent(parseSpec(row.spec), itemSpec),
+        last_attempt_id: attempts.get(row.id) ?? null,
       };
     }),
   });
@@ -489,6 +492,7 @@ lessonEditor.get('/relationships/:relId/student-lessons', async (c) => {
   }
   const rows = await lib.listLessonsForUser(c.env.DB, studentId);
   const aggregates = await lib.aggregateCompletions(c.env.DB, rows.map(r => r.id));
+  const attempts = await latestAttemptIds(c.env.DB, rows.map(r => r.id));
   return c.json({
     lessons: rows.map(row => {
       const agg = aggregates.get(row.id);
@@ -508,6 +512,7 @@ lessonEditor.get('/relationships/:relId/student-lessons', async (c) => {
         last_completed_at: agg?.last_completed_at ?? null,
         last_rating: agg?.last_rating ?? null,
         last_score: agg && agg.last_total ? { correct: agg.last_correct ?? 0, total: agg.last_total } : null,
+        last_attempt_id: attempts.get(row.id) ?? null,
       };
     }),
   });

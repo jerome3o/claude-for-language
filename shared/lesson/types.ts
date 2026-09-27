@@ -123,7 +123,150 @@ export type LessonExercise =
   | DescribeImageExerciseSpec
   | SpeakExerciseSpec
   | ListenChoiceExerciseSpec
-  | ListenTranslateExerciseSpec;
+  | ListenTranslateExerciseSpec
+  | SentenceMakingExerciseSpec
+  | WriteTypedExerciseSpec
+  | WriteHandwritingExerciseSpec
+  | DictationExerciseSpec
+  | OralExpressionExerciseSpec
+  | ConversationExerciseSpec;
+
+export type ExerciseType = LessonExercise['type'];
+
+// ============ Production: sentence making, writing, speaking ============
+
+/** How the learner produces written Chinese. Typing (a pinyin keyboard →
+ * choosing the right characters) and handwriting (recalling the characters
+ * stroke by stroke) train different skills, so an exercise that asks for
+ * written Chinese always says which one it wants. */
+export type WritingInput = 'type' | 'handwrite';
+
+/** A target word for sentence making / a hint for oral expression. */
+export interface LessonWord {
+  hanzi: string;
+  pinyin?: string;
+  english?: string;
+}
+
+/** Sentence making: write your OWN sentence that uses the target words.
+ * Claude checks it when online (grammar, naturalness, were the words used);
+ * offline the learner compares with the example and self-assesses. */
+export interface SentenceMakingExerciseSpec {
+  type: 'sentence_making';
+  /** 1-4 words the sentence must use. */
+  words: LessonWord[];
+  /** Situation / instruction, e.g. "Say what you did last weekend." */
+  task?: string;
+  /** 'type' (default) or 'handwrite'. */
+  input?: WritingInput;
+  /** One possible answer, shown afterwards. */
+  example?: LessonSentence;
+}
+
+/** What a writing exercise shows as the cue for the characters to write. */
+export type WritingCue = 'english' | 'pinyin' | 'audio';
+
+/** Writing (typed): produce the characters with the keyboard — choosing the
+ * right characters for the sounds. Checked automatically against the answer
+ * (punctuation and spaces ignored; alternatives accepted). */
+export interface WriteTypedExerciseSpec {
+  type: 'write_typed';
+  /** What to write: hanzi is the answer; english / pinyin serve as cues. */
+  answer: LessonSentence;
+  /** Optional instruction, e.g. "Write the name of the dish." */
+  prompt?: string;
+  /** Cues shown (default english + pinyin). */
+  cues?: WritingCue[];
+  /** Other accepted spellings of the answer. */
+  alternatives?: string[];
+}
+
+/** Writing (handwriting): write the characters by hand on the writing pad.
+ * Kept short (≤ 12 characters) — handwriting is character recall, not
+ * composition. Checked by the pad's stroke checker when one is available,
+ * otherwise self-assessed against the model characters. */
+export interface WriteHandwritingExerciseSpec {
+  type: 'write_handwriting';
+  answer: LessonSentence;
+  prompt?: string;
+  /** Cues shown (default english + pinyin). */
+  cues?: WritingCue[];
+}
+
+/** Dictation: hear a sentence (text hidden) and write down what you heard —
+ * typed (checked automatically, character by character) or handwritten. */
+export interface DictationExerciseSpec {
+  type: 'dictation';
+  /** What is PLAYED; hanzi is the answer. */
+  audio: LessonSentence;
+  /** 'type' (default) or 'handwrite'. */
+  input?: WritingInput;
+  /** Other accepted spellings (typed). */
+  alternatives?: string[];
+  note?: string;
+}
+
+/** Oral expression: answer a prompt out loud. The answer is RECORDED so the
+ * learner can play it back and the tutor can listen to it (transcribed when
+ * online). Self-assessed against an optional model answer. */
+export interface OralExpressionExerciseSpec {
+  type: 'oral_expression';
+  /** What to talk about, e.g. "Describe your favourite restaurant." */
+  prompt: string;
+  /** Optional question played in Chinese (e.g. 你周末做了什么？). */
+  question_audio?: LessonSentence;
+  /** Useful words shown with the prompt. */
+  hints?: LessonWord[];
+  /** A model answer shown after recording. */
+  example?: LessonSentence;
+  /** Suggested length in seconds (default 30). */
+  target_seconds?: number;
+}
+
+// ============ Listening: conversation ============
+
+/** A voice for a conversation speaker. Each speaker gets a distinct TTS
+ * voice (voices.ts); the gender picks the pool it comes from. */
+export type LessonVoice = 'female' | 'male';
+
+export interface ConversationSpeaker {
+  /** Shown after listening, e.g. "前台 Receptionist". */
+  name: string;
+  voice?: LessonVoice;
+}
+
+export interface ConversationLine {
+  /** Index into speakers. */
+  speaker: number;
+  hanzi: string;
+  pinyin?: string;
+  english?: string;
+}
+
+/** A comprehension question: multiple choice when "options" is given (then
+ * "correct" is required), otherwise a free answer self-assessed against
+ * "answer". */
+export interface ConversationQuestion {
+  question: string;
+  options?: string[];
+  correct?: number;
+  answer?: string;
+  explanation?: string;
+}
+
+/** A dialogue between two (or three) speakers in a situation, played with a
+ * different voice per speaker and the transcript hidden. The learner listens
+ * to the whole conversation (replays allowed), then answers comprehension
+ * questions; the transcript with pinyin and English is revealed at the end.
+ * Each question scores one point. */
+export interface ConversationExerciseSpec {
+  type: 'conversation';
+  /** Shown before listening, e.g. "Checking in at a hotel". */
+  situation: string;
+  speakers: ConversationSpeaker[];
+  lines: ConversationLine[];
+  questions: ConversationQuestion[];
+}
 
 export interface LessonSection {
   title?: string;
@@ -139,7 +282,10 @@ export interface CustomLessonSpec {
 }
 
 /** Exercise types that contribute to the lesson score. */
-const SCOREABLE = new Set(['scramble', 'choice', 'translate', 'match', 'describe_image', 'speak', 'listen_choice', 'listen_translate']);
+const SCOREABLE = new Set<string>([
+  'scramble', 'choice', 'translate', 'match', 'describe_image', 'speak', 'listen_choice', 'listen_translate',
+  'sentence_making', 'write_typed', 'write_handwriting', 'dictation', 'oral_expression', 'conversation',
+]);
 
 export function isScoreable(exercise: LessonExercise): boolean {
   return SCOREABLE.has(exercise.type);
@@ -188,8 +334,58 @@ export function lessonTtsTexts(spec: CustomLessonSpec): string[] {
         case 'listen_translate':
           texts.push(ex.audio.hanzi);
           break;
+        case 'sentence_making':
+          for (const w of ex.words) texts.push(w.hanzi);
+          if (ex.example) texts.push(ex.example.hanzi);
+          break;
+        case 'write_typed':
+        case 'write_handwriting':
+          texts.push(ex.answer.hanzi);
+          break;
+        case 'dictation':
+          texts.push(ex.audio.hanzi);
+          break;
+        case 'oral_expression':
+          if (ex.question_audio) texts.push(ex.question_audio.hanzi);
+          for (const w of ex.hints ?? []) texts.push(w.hanzi);
+          if (ex.example) texts.push(ex.example.hanzi);
+          break;
+        case 'conversation':
+          // Lines are spoken in per-speaker voices — see lessonTtsClips.
+          break;
       }
     }
   }
   return texts;
+}
+
+/** One clip to speak: the text and, for a conversation speaker, the TTS
+ * voice id (undefined = the app's default voice). */
+export interface LessonTtsClip {
+  text: string;
+  voice?: string;
+}
+
+/** Every clip a lesson plays, for offline prefetch: the default-voice texts
+ * plus each conversation line in its speaker's voice. */
+export function lessonTtsClips(
+  spec: CustomLessonSpec,
+  resolveVoices: (speakers: ConversationSpeaker[]) => string[],
+): LessonTtsClip[] {
+  const clips: LessonTtsClip[] = lessonTtsTexts(spec).map(text => ({ text }));
+  for (const section of spec.sections) {
+    for (const ex of section.exercises) {
+      if (ex.type !== 'conversation') continue;
+      const voices = resolveVoices(ex.speakers);
+      for (const line of ex.lines) clips.push({ text: line.hanzi, voice: voices[line.speaker] });
+    }
+  }
+  return clips;
+}
+
+/** Points an exercise is worth in the lesson score: a conversation scores
+ * one per question, every other scoreable exercise one. */
+export function exercisePoints(exercise: LessonExercise): number {
+  if (!isScoreable(exercise)) return 0;
+  return exercise.type === 'conversation' ? Math.max(1, exercise.questions.length) : 1;
 }

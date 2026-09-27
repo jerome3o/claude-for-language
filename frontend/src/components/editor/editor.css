@@ -684,3 +684,21 @@ textarea.ed-input { min-height: 0; resize: vertical; }
   border-radius: var(--radius-md);
 }
 .ed-preview-image-pending span:first-child { font-size: 1.75rem; }
+
+/* Segmented toggles (typed / handwritten, cues, question mode) */
+.ed-seg { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.ed-seg button {
+  flex: 1;
+  min-height: 40px;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.ed-seg button.on { border-color: #3b82f6; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+.ed-voice { flex: 0 0 8.5rem; }
+.ed-line-speaker { flex: 0 0 7rem; align-self: flex-start; }
+.ed-question { display: flex; flex-direction: column; gap: 0.375rem; padding: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); }

@@ -1,0 +1,91 @@
+.hw-pad {
+  width: 100%;
+  margin: 0.5rem 0;
+}
+
+.hw-canvas-wrap {
+  position: relative;
+  width: 100%;
+  border: 2px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--color-surface, #fff);
+  overflow: hidden;
+}
+
+.hw-grid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+/* 田字格: a faint box per character with its centre lines */
+.hw-box {
+  flex: 1;
+  border-right: 1px solid rgba(148, 163, 184, 0.35);
+  background:
+    linear-gradient(to right, transparent calc(50% - 0.5px), rgba(148, 163, 184, 0.3) calc(50% - 0.5px), rgba(148, 163, 184, 0.3) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(to bottom, transparent calc(50% - 0.5px), rgba(148, 163, 184, 0.3) calc(50% - 0.5px), rgba(148, 163, 184, 0.3) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
+
+.hw-box:last-child {
+  border-right: none;
+}
+
+.hw-canvas {
+  position: relative;
+  display: block;
+  touch-action: none;
+  color: var(--color-text, #1f2937);
+  cursor: crosshair;
+}
+
+.hw-pad.disabled .hw-canvas {
+  cursor: default;
+}
+
+.hw-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.hw-tool {
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1f2937);
+  font-size: 0.95rem;
+}
+
+.hw-tool:disabled {
+  opacity: 0.4;
+}
+
+.hw-view {
+  margin: 0;
+  padding: 0.5rem;
+  border: 1px dashed var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--color-surface, #fff);
+}
+
+.hw-view figcaption {
+  font-size: 0.75rem;
+  color: var(--color-text-light, #6b7280);
+  text-align: center;
+}
+
+.hw-line {
+  fill: none;
+  stroke: var(--color-text, #1f2937);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hw-dot {
+  fill: var(--color-text, #1f2937);
+}

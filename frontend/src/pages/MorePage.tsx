@@ -133,6 +133,7 @@ export function MorePage() {
         {showTeaching && (
           <NavSection title="Teaching">
             <NavRow icon="🗂️" label="Lesson Library" desc="Lessons you assign to students" to="/library" />
+            <NavRow icon="🧭" label="Exercise catalogue" desc="Every exercise type, with sample lessons to try" to="/library/catalogue" />
           </NavSection>
         )}
 

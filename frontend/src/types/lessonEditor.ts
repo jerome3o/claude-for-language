@@ -59,6 +59,8 @@ export interface LibraryAssignment {
   last_completed_at: string | null;
   last_rating: number | null;
   last_score: { correct: number; total: number } | null;
+  /** The newest attempt with per-exercise answers (null before any, or for runs recorded before attempts existed). */
+  last_attempt_id?: string | null;
   up_to_date: boolean;
 }
 
@@ -90,6 +92,8 @@ export interface StudentLessonSummary {
   last_completed_at: string | null;
   last_rating: number | null;
   last_score: { correct: number; total: number } | null;
+  /** The newest attempt with per-exercise answers (null before any, or for runs recorded before attempts existed). */
+  last_attempt_id?: string | null;
 }
 
 /** What an editor chat is about: a student's lesson, a tutor's library item,

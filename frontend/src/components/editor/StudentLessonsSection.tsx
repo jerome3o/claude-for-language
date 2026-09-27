@@ -32,7 +32,10 @@ export function StudentLessonsSection({ relId, isTutor }: { relId: string; isTut
     <div className="detail-section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Mini Lessons</h2>
-        <Link to="/library" className="btn btn-secondary btn-sm">📚 Assign from library</Link>
+        <span style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          <Link to={`/connections/${relId}/lesson-attempts`} className="btn btn-secondary btn-sm">📝 Answers</Link>
+          <Link to="/library" className="btn btn-secondary btn-sm">📚 Assign from library</Link>
+        </span>
       </div>
       {lessons.isLoading && <Loading message="Loading lessons…" />}
       {lessons.isError && <p className="text-light">Couldn't load the student's lessons.</p>}
@@ -51,6 +54,9 @@ export function StudentLessonsSection({ relId, isTutor }: { relId: string; isTut
                   {' • '}{l.completions === 0 ? 'not studied yet' : `studied ${l.completions}× · last ${l.last_rating !== null ? RATING_LABELS[l.last_rating] : ''} ${when(l.last_completed_at)}`}
                 </span>
               </div>
+              {l.last_attempt_id && (
+                <Link to={`/connections/${relId}/lesson-attempts/${l.last_attempt_id}`} className="btn btn-link btn-sm">📝 Answers</Link>
+              )}
               {l.assigned_by_me && (
                 <Link to={`/lessons/${l.id}/edit`} className="btn btn-link btn-sm">✏️ Edit</Link>
               )}

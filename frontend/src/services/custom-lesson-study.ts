@@ -12,7 +12,7 @@
  *   (a lesson has only a handful, so they ride along with the content).
  */
 
-import { CustomLessonSpec, lessonTtsTexts } from '@shared/lesson';
+import { CustomLessonSpec, LessonAttemptData, lessonTtsClips, resolveConversationVoices } from '@shared/lesson';
 import {
   db,
   getStudyCutoff,
@@ -29,7 +29,7 @@ import {
 } from '@shared/scheduler';
 import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
-import { prefetchTTS } from './ttsCache';
+import { prefetchTTSClips } from './ttsCache';
 import { getAudioWithCache, isAudioCached } from './audioCache';
 
 /** At most this many NEW (never-studied) lessons join a single study session,
@@ -108,11 +108,19 @@ export async function computeLessonState(lessonId: string): Promise<ComputedCard
  * update the cached scheduling state. Mirrors the card/reader flow (event
  * first, state derived from events).
  */
+/** A recording made in one exercise of an attempt, keyed like the attempt data. */
+export interface LessonRecording {
+  media_key: string;
+  blob: Blob;
+}
+
 export async function completeCustomLesson(
   lessonId: string,
   correct: number,
   total: number,
   rating: Rating,
+  attempt?: LessonAttemptData,
+  recordings: LessonRecording[] = [],
 ): Promise<{ event: LocalCustomLessonCompletionEvent; newState: ComputedCardState }> {
   const now = new Date().toISOString();
 
@@ -129,10 +137,24 @@ export async function completeCustomLesson(
     total,
     completed_at: now,
     rating,
+    attempt,
     _synced: 0,
   };
 
   await db.customLessonCompletionEvents.put(event);
+  // Recordings wait in their own queue: they upload after the attempt has
+  // reached the server (the media endpoint 404s until then).
+  for (const rec of recordings) {
+    await db.lessonAttemptMedia.put({
+      id: `${event.id}:${rec.media_key}`,
+      attempt_id: event.id,
+      media_key: rec.media_key,
+      blob: rec.blob,
+      content_type: rec.blob.type || 'audio/webm',
+      created_at: now,
+      _synced: 0,
+    });
+  }
   await db.customLessons.update(lessonId, lessonSchedulingFields(newState));
 
   return { event, newState };
@@ -281,6 +303,7 @@ export async function uploadCustomLessonCompletions(): Promise<{ uploaded: numbe
         total: e.total,
         completed_at: e.completed_at,
         rating: e.rating,
+        ...(e.attempt ? { attempt: e.attempt } : {}),
       })),
     }),
   });
@@ -290,6 +313,43 @@ export async function uploadCustomLessonCompletions(): Promise<{ uploaded: numbe
 
   await db.customLessonCompletionEvents.where('id').anyOf(unsynced.map(e => e.id)).modify({ _synced: 1 });
   return { uploaded: unsynced.length };
+}
+
+/** Keep uploaded recordings on the device this long (the learner may replay them). */
+const UPLOADED_MEDIA_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Upload recordings made in lesson attempts (after the attempts themselves —
+ * call uploadCustomLessonCompletions first). Idempotent server-side (PUT by
+ * attempt + media key); a 404 means the attempt hasn't landed yet and the
+ * recording waits for the next sync.
+ */
+export async function uploadLessonAttemptMedia(): Promise<{ uploaded: number }> {
+  const pending = await db.lessonAttemptMedia.where('_synced').equals(0).toArray();
+  let uploaded = 0;
+  for (const media of pending) {
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/lesson-attempts/${encodeURIComponent(media.attempt_id)}/media/${encodeURIComponent(media.media_key)}`,
+        { method: 'PUT', headers: { ...getAuthHeaders(), 'Content-Type': media.content_type }, body: media.blob },
+      );
+      if (response.ok) {
+        await db.lessonAttemptMedia.update(media.id, { _synced: 1, error: undefined });
+        uploaded++;
+      } else {
+        const attempts = (media.attempts ?? 0) + 1;
+        // 413 / 400 won't get better; give up after a few tries so the queue can't clog.
+        const giveUp = response.status === 413 || response.status === 400 || attempts >= 20;
+        await db.lessonAttemptMedia.update(media.id, { attempts, error: `HTTP ${response.status}`, ...(giveUp ? { _synced: 1 } : {}) });
+      }
+    } catch (err) {
+      await db.lessonAttemptMedia.update(media.id, { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  const cutoff = new Date(Date.now() - UPLOADED_MEDIA_TTL_MS).toISOString();
+  const old = await db.lessonAttemptMedia.where('_synced').equals(1).filter(m => m.created_at < cutoff).primaryKeys();
+  if (old.length > 0) await db.lessonAttemptMedia.bulkDelete(old);
+  return { uploaded };
 }
 
 /**
@@ -302,7 +362,7 @@ export async function prefetchCustomLessonMedia(): Promise<void> {
 
   const lessons = await getDueCustomLessons();
   for (const lesson of lessons) {
-    await prefetchTTS(lessonTtsTexts(lesson.spec));
+    await prefetchTTSClips(lessonTtsClips(lesson.spec, resolveConversationVoices));
     for (const section of lesson.spec.sections) {
       for (const ex of section.exercises) {
         if (ex.type === 'describe_image' && ex.image_url && !(await isAudioCached(ex.image_url))) {

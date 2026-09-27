@@ -91,6 +91,41 @@ function exerciseBody(ex: LessonExercise): string[] {
       ];
     case 'listen_translate':
       return ['**Listening.** Translate what you hear into English. (the teacher reads the sentence aloud)'];
+    case 'sentence_making':
+      return [
+        `**Make a sentence${ex.input === 'handwrite' ? ' (write it by hand)' : ''}.** ${ex.task || 'Write your own sentence using these words.'}`,
+        '',
+        `Words: ${ex.words.map(w => `${w.hanzi}${w.pinyin ? ` (*${w.pinyin}*)` : ''}${w.english ? ` ${w.english}` : ''}`).join(' · ')}`,
+      ];
+    case 'write_typed':
+    case 'write_handwriting': {
+      const cues = ex.cues ?? ['english', 'pinyin'];
+      const shown: string[] = [];
+      if (cues.includes('english') && ex.answer.english) shown.push(ex.answer.english);
+      if (cues.includes('pinyin') && ex.answer.pinyin) shown.push(`*${ex.answer.pinyin}*`);
+      if (cues.includes('audio')) shown.push('(the teacher reads it aloud)');
+      return [
+        `**Write it in characters${ex.type === 'write_handwriting' ? ' by hand' : ''}.** ${ex.prompt ?? ''}`.trim(),
+        '',
+        shown.join(' — '),
+      ];
+    }
+    case 'dictation':
+      return [`**Dictation.** Write down what you hear${ex.input === 'handwrite' ? ', by hand' : ''}. (the teacher reads the sentence aloud)`];
+    case 'oral_expression':
+      return [
+        `**Speak.** ${ex.prompt}${ex.question_audio ? ` — ${ex.question_audio.hanzi}` : ''}`,
+        ...(ex.hints?.length ? ['', `Useful words: ${ex.hints.map(w => `${w.hanzi}${w.pinyin ? ` (*${w.pinyin}*)` : ''}`).join(' · ')}`] : []),
+      ];
+    case 'conversation':
+      return [
+        `**Conversation — ${ex.situation}.** Listen to the conversation (the teacher reads it aloud), then answer:`,
+        '',
+        ...ex.questions.flatMap((q, i) => [
+          `${i + 1}) ${q.question}`,
+          ...(q.options ?? []).map((o, j) => `   ${String.fromCharCode(65 + j)}. ${o}`),
+        ]),
+      ];
     default:
       return [];
   }
@@ -121,6 +156,22 @@ function exerciseAnswer(ex: LessonExercise): string | null {
     }
     case 'listen_translate':
       return `Read aloud: ${ex.audio.hanzi}${ex.audio.pinyin ? ` (${ex.audio.pinyin})` : ''}. Answer: ${ex.audio.english ?? ''}`;
+    case 'sentence_making':
+      return ex.example ? `e.g. ${sentenceLine(ex.example).replace(/\*/g, '')}` : 'Any correct sentence using the words.';
+    case 'write_typed':
+    case 'write_handwriting':
+      return `${ex.answer.hanzi}${ex.answer.pinyin ? ` (${ex.answer.pinyin})` : ''}`;
+    case 'dictation':
+      return `Read aloud: ${ex.audio.hanzi}${ex.audio.pinyin ? ` (${ex.audio.pinyin})` : ''}${ex.audio.english ? ` — ${ex.audio.english}` : ''}`;
+    case 'oral_expression':
+      return ex.example ? `e.g. ${sentenceLine(ex.example).replace(/\*/g, '')}` : null;
+    case 'conversation': {
+      const script = ex.lines.map(l => `${ex.speakers[l.speaker]?.name ?? '?'}: ${l.hanzi}`).join(' / ');
+      const answers = ex.questions.map((q, i) =>
+        `${i + 1}) ${q.options && typeof q.correct === 'number' ? `${String.fromCharCode(65 + q.correct)}. ${q.options[q.correct] ?? ''}` : q.answer ?? ''}`,
+      ).join('; ');
+      return `Read aloud: ${script}. Answers: ${answers}`;
+    }
     default:
       return null;
   }
@@ -225,6 +276,24 @@ export function lessonVocabRows(spec: CustomLessonSpec): VocabRow[] {
           break;
         case 'listen_translate':
           addSentence(ex.audio);
+          break;
+        case 'sentence_making':
+          for (const w of ex.words) add(w.hanzi, w.english, w.pinyin);
+          addSentence(ex.example);
+          break;
+        case 'write_typed':
+        case 'write_handwriting':
+          addSentence(ex.answer);
+          break;
+        case 'dictation':
+          addSentence(ex.audio);
+          break;
+        case 'oral_expression':
+          for (const w of ex.hints ?? []) add(w.hanzi, w.english, w.pinyin);
+          addSentence(ex.example);
+          break;
+        case 'conversation':
+          for (const l of ex.lines) add(l.hanzi, l.english, l.pinyin);
           break;
       }
     }

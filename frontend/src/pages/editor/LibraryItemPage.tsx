@@ -115,6 +115,9 @@ export function LibraryItemPage() {
                       {r.up_to_date ? <span className="lib-pill ok">current</span> : <span className="lib-pill warn">behind</span>}
                     </td>
                     <td>
+                      {r.last_attempt_id && r.relationship_id && (
+                        <Link to={`/connections/${r.relationship_id}/lesson-attempts/${r.last_attempt_id}`} className="btn btn-link btn-sm">📝 Answers</Link>
+                      )}
                       <Link to={`/lessons/${r.lesson_id}/edit`} className="btn btn-link btn-sm">Open copy</Link>
                     </td>
                   </tr>

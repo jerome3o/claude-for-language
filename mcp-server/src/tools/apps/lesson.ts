@@ -4,6 +4,7 @@
  * (`PUT /api/lesson-library/:id`) or a student's copy (`PUT /api/lessons/:id`),
  * assigned to students and pushed to the copies that are behind.
  */
+import { EXERCISE_TYPE_INFO } from '../../../../shared/lesson/registry';
 import { z } from 'zod';
 import { validateLessonSpec } from '../../../../shared/lesson/validate';
 import type { ToolContext } from '../context.js';
@@ -37,17 +38,9 @@ interface StudentLessonResponse {
   is_owner: boolean;
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  note: 'note',
-  scramble: 'word order',
-  choice: 'multiple choice',
-  translate: 'translate',
-  match: 'match pairs',
-  describe_image: 'describe picture',
-  speak: 'speak',
-  listen_choice: 'listen & pick',
-  listen_translate: 'listen & translate',
-};
+const TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  Object.values(EXERCISE_TYPE_INFO).map((info) => [info.type, info.label]),
+);
 
 export function lessonSummary(spec: CustomLessonSpec): string {
   const sections = spec.sections.map((s, i) => {

@@ -261,6 +261,24 @@ export function lessonToAnki(spec: CustomLessonSpec, options: LessonToAnkiOption
         case 'listen_translate':
           collector.auto(ex.audio);
           break;
+        case 'sentence_making':
+          for (const w of ex.words) collector.word(w.hanzi, w.pinyin, w.english);
+          if (ex.example) collector.sentence(ex.example.hanzi, ex.example.pinyin, ex.example.english);
+          break;
+        case 'write_typed':
+        case 'write_handwriting':
+          collector.auto(ex.answer);
+          break;
+        case 'dictation':
+          collector.auto(ex.audio);
+          break;
+        case 'oral_expression':
+          for (const w of ex.hints ?? []) collector.word(w.hanzi, w.pinyin, w.english);
+          if (ex.example) collector.sentence(ex.example.hanzi, ex.example.pinyin, ex.example.english);
+          break;
+        case 'conversation':
+          for (const l of ex.lines) collector.sentence(l.hanzi, l.pinyin, l.english);
+          break;
       }
     }
   }

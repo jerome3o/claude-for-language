@@ -3,6 +3,8 @@ import {
   getDueCustomLessons,
   completeCustomLesson,
   MAX_NEW_LESSONS_PER_SESSION,
+  uploadCustomLessonCompletions,
+  uploadLessonAttemptMedia,
 } from './custom-lesson-study';
 import { selectNextItem, LESSON_MIX_INTERVAL } from '../hooks/useStudySession';
 import { db, LocalCustomLesson, LocalCard, LocalReader, LocalGrammarLesson } from '../db/database';
@@ -182,5 +184,54 @@ describe('selectNextItem lesson mixing', () => {
 
   it('exposes the interleave interval as a sane constant', () => {
     expect(LESSON_MIX_INTERVAL).toBeGreaterThan(2);
+  });
+});
+
+describe('lesson attempts (per-exercise answers + recordings)', () => {
+  const attempt = {
+    started_at: '2026-09-27T10:00:00Z',
+    duration_ms: 95_000,
+    exercises: [
+      { section: 0, index: 0, type: 'oral_expression', correct: true, points: 1, max_points: 1, duration_ms: 40_000,
+        answer: { self_assessed: true, recording: { media_key: 's0e0', duration_ms: 12_000, mime: 'audio/webm' } } },
+    ],
+  };
+
+  it('keeps the attempt on the completion event and queues the recording', async () => {
+    await db.customLessons.put(makeLesson({ id: 'l-att' }));
+    const blob = new Blob(['voice'], { type: 'audio/webm' });
+
+    const { event } = await completeCustomLesson('l-att', 1, 1, 2, attempt, [{ media_key: 's0e0', blob }]);
+
+    expect((await db.customLessonCompletionEvents.get(event.id))?.attempt).toEqual(attempt);
+    const media = await db.lessonAttemptMedia.get(event.id + ':s0e0');
+    expect(media?._synced).toBe(0);
+    expect(media?.attempt_id).toBe(event.id);
+  });
+
+  it('uploads the attempt with its event, then the recording by media key', async () => {
+    await db.customLessons.put(makeLesson({ id: 'l-up' }));
+    const recording = { media_key: 's0e0', blob: new Blob(['v'], { type: 'audio/webm' }) };
+    const { event } = await completeCustomLesson('l-up', 1, 1, 2, attempt, [recording]);
+
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      await uploadCustomLessonCompletions();
+      await uploadLessonAttemptMedia();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    const upload = calls.find(c => c.url.endsWith('/api/custom-lessons/offline-complete'))!;
+    const sent = JSON.parse(String(upload.init.body)).events.find((e: { id: string }) => e.id === event.id);
+    expect(sent.attempt).toEqual(attempt);
+    const media = calls.find(c => c.url.includes('/api/lesson-attempts/' + event.id + '/media/s0e0'))!;
+    expect(media.init.method).toBe('PUT');
+    expect((await db.lessonAttemptMedia.get(event.id + ':s0e0'))?._synced).toBe(1);
   });
 });

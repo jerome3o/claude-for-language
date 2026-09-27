@@ -41,6 +41,7 @@ import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, gram
 import {
   getDueCustomLessons,
   completeCustomLesson as recordCustomLessonCompletion,
+  type LessonRecording,
   getCustomLessonIntervalPreviews,
   lessonSchedulingFields,
   syncCustomLessons,
@@ -51,6 +52,7 @@ import { ensureSentenceSetForNote } from '../services/sentence-sets';
 import { markDailyActivity } from '../api/client';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
+import type { LessonAttemptData } from '@shared/lesson';
 
 // Helper: Pick a random element from an array
 function pickRandom<T>(arr: T[]): T | null {
@@ -1050,7 +1052,13 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // event (synced up in the background) and advance. Like readers, a lesson
   // rated back into learning stays in the session queue with its new
   // scheduling; otherwise FSRS has pushed it out to a future day.
-  const completeCustomLessonAction = useCallback(async (correct: number, total: number, rating: Rating) => {
+  const completeCustomLessonAction = useCallback(async (
+    correct: number,
+    total: number,
+    rating: Rating,
+    attempt?: LessonAttemptData,
+    recordings?: LessonRecording[],
+  ) => {
     const lesson = currentCardState.customLesson;
     if (!lesson) return;
 
@@ -1069,7 +1077,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     let newLessonQueue = customLessonQueue.filter(l => l.id !== lesson.id);
     try {
-      const { newState } = await recordCustomLessonCompletion(lesson.id, correct, total, rating);
+      const { newState } = await recordCustomLessonCompletion(lesson.id, correct, total, rating, attempt, recordings);
       if (newState.queue === CardQueue.LEARNING || newState.queue === CardQueue.RELEARNING) {
         newLessonQueue = [...newLessonQueue, { ...lesson, ...lessonSchedulingFields(newState) }];
       }

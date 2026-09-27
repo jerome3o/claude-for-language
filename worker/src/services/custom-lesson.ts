@@ -8,7 +8,7 @@
  * database and queue.
  */
 
-import { CustomLessonSpec, validateLessonSpec } from '@shared/lesson';
+import { CustomLessonSpec, validateLessonSpec, LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '@shared/lesson';
 import { Env } from '../types';
 import * as db from '../db/queries';
 
@@ -33,16 +33,8 @@ export const LESSON_SPEC_INPUT_SCHEMA = {
           exercises: {
             type: 'array',
             description: `Exercises, each an object with a "type" plus type-specific fields:
-- {type:"note", title?, body?, sentences?:[{hanzi,pinyin?,english?}]} — teaching text with example sentences (has TTS). Not scored.
-- {type:"scramble", english, tiles:[...], correct_order:[...], alt_orders?} — arrange tiles into the sentence; tiles must be exactly a permutation of correct_order.
-- {type:"choice", question, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — multiple choice (2-5 options).
-- {type:"translate", english, reference_hanzi, reference_pinyin?, note?} — translate EN→ZH, self-assessed against the reference.
-- {type:"match", pairs:[{hanzi,pinyin?,english}]} — connect hanzi with meanings (2-8 pairs, no duplicates).
-- {type:"describe_image", image_prompt, task?, reference_hanzi, reference_pinyin?, reference_english?} — an illustration is generated from image_prompt (English, detailed, no text in image); the learner describes it aloud and self-assesses.
-- {type:"speak", prompt, example?:{hanzi,pinyin?,english?}} — say your own sentence out loud, self-assessed.
-- {type:"listen_choice", audio:{hanzi,pinyin?,english?}, question?, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — LISTENING: the audio hanzi is played (never shown until answered); pick the option that matches what you heard. Ideal for tone/minimal-pair discrimination (e.g. hear 我又去了 and choose 又 vs 有).
-- {type:"listen_translate", audio:{hanzi,pinyin?,english}, note?} — LISTENING: the audio hanzi is played (hidden); translate what you heard, self-assessed against audio.english (required).
-Always use tone-marked pinyin (nǐ hǎo), never tone numbers.`,
+${LESSON_EXERCISE_DOC}
+${LESSON_AUTHORING_RULES}`,
             items: { type: 'object' },
           },
         },

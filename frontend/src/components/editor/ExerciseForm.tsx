@@ -16,7 +16,17 @@ import type {
   SpeakExerciseSpec,
   ListenChoiceExerciseSpec,
   ListenTranslateExerciseSpec,
+  SentenceMakingExerciseSpec,
+  WriteTypedExerciseSpec,
+  WriteHandwritingExerciseSpec,
+  DictationExerciseSpec,
+  OralExpressionExerciseSpec,
+  ConversationExerciseSpec,
+  LessonWord,
+  WritingCue,
+  WritingInput,
 } from '@shared/lesson';
+import { EXERCISE_TYPE_LIST, defaultExercise as sharedDefaultExercise } from '@shared/lesson';
 import { useCachedImageUrl } from '../../hooks/useCachedImageUrl';
 import { Field, TextInput, TextArea, HanziInput, SentenceEditor, RowControls, moveItem, toPinyin, Speak } from './fields';
 
@@ -27,39 +37,15 @@ export interface ExerciseTypeInfo {
   description: string;
 }
 
-export const EXERCISE_TYPES: ExerciseTypeInfo[] = [
-  { type: 'note', icon: '📖', name: 'Note', description: 'Teaching text with example sentences (has audio). Not scored.' },
-  { type: 'scramble', icon: '🧩', name: 'Word order', description: 'Arrange tiles into the correct sentence.' },
-  { type: 'choice', icon: '🔘', name: 'Multiple choice', description: 'Pick the sentence or word that fits (2–5 options).' },
-  { type: 'translate', icon: '✍️', name: 'Translate', description: 'English → Chinese, self-checked against a reference.' },
-  { type: 'match', icon: '🔗', name: 'Match pairs', description: 'Connect Chinese words with their meanings (2–8 pairs).' },
-  { type: 'describe_image', icon: '🖼', name: 'Describe picture', description: 'An illustration is generated; the learner describes it aloud.' },
-  { type: 'speak', icon: '🎤', name: 'Speak', description: 'Say your own sentence out loud, self-assessed.' },
-  { type: 'listen_choice', icon: '👂', name: 'Listen & pick', description: 'Audio plays with text hidden; pick what you heard (tones, minimal pairs).' },
-  { type: 'listen_translate', icon: '👂', name: 'Listen & translate', description: 'Audio plays hidden; translate what you heard.' },
-];
+export const EXERCISE_TYPES: ExerciseTypeInfo[] = EXERCISE_TYPE_LIST.map(info => ({
+  type: info.type,
+  icon: info.icon,
+  name: info.name,
+  description: info.summary,
+}));
 
 export function defaultExercise(type: LessonExercise['type']): LessonExercise {
-  switch (type) {
-    case 'note':
-      return { type, title: '', body: '', sentences: [{ hanzi: '' }] };
-    case 'scramble':
-      return { type, english: '', tiles: [], correct_order: [] };
-    case 'choice':
-      return { type, question: '', options: [{ hanzi: '' }, { hanzi: '' }], correct: 0 };
-    case 'translate':
-      return { type, english: '', reference_hanzi: '' };
-    case 'match':
-      return { type, pairs: [{ hanzi: '', english: '' }, { hanzi: '', english: '' }] };
-    case 'describe_image':
-      return { type, image_prompt: '', reference_hanzi: '' };
-    case 'speak':
-      return { type, prompt: '' };
-    case 'listen_choice':
-      return { type, audio: { hanzi: '' }, options: [{ hanzi: '' }, { hanzi: '' }], correct: 0 };
-    case 'listen_translate':
-      return { type, audio: { hanzi: '', english: '' } };
-  }
+  return sharedDefaultExercise(type);
 }
 
 interface FormProps<T> {
@@ -373,6 +359,304 @@ function ListenTranslateForm({ exercise, onChange, speak }: FormProps<ListenTran
   );
 }
 
+// ---------- Practice types ----------
+
+function InputModeToggle({ value, onChange }: { value: WritingInput | undefined; onChange: (v: WritingInput) => void }) {
+  const mode = value ?? 'type';
+  return (
+    <div className="ed-seg" role="radiogroup" aria-label="How the learner writes">
+      <button type="button" role="radio" aria-checked={mode === 'type'} className={mode === 'type' ? 'on' : ''} onClick={() => onChange('type')}>⌨️ Typed</button>
+      <button type="button" role="radio" aria-checked={mode === 'handwrite'} className={mode === 'handwrite' ? 'on' : ''} onClick={() => onChange('handwrite')}>✍️ Handwritten</button>
+    </div>
+  );
+}
+
+function WordList(props: { items: LessonWord[]; onChange: (items: LessonWord[]) => void; speak: Speak; addLabel: string; max: number; min?: number }) {
+  const { items, onChange, speak, addLabel, max, min = 0 } = props;
+  const set = (i: number, patch: Partial<LessonWord>) => onChange(items.map((w, j) => (j === i ? { ...w, ...patch } : w)));
+  return (
+    <div className="ed-pairs">
+      {items.map((w, i) => (
+        <div key={i} className="ed-pair-row">
+          <HanziInput value={w.hanzi} onChange={v => set(i, { hanzi: v })} onPinyin={py => set(i, { pinyin: py })} speak={speak} placeholder="词语" />
+          <input className="ed-input" value={w.pinyin ?? ''} onChange={e => set(i, { pinyin: e.target.value || undefined })} placeholder="pinyin" />
+          <input className="ed-input" value={w.english ?? ''} onChange={e => set(i, { english: e.target.value || undefined })} placeholder="meaning" />
+          <RowControls
+            index={i}
+            count={items.length}
+            onMove={(from, to) => onChange(moveItem(items, from, to))}
+            onRemove={() => items.length > min && onChange(items.filter((_, j) => j !== i))}
+          />
+        </div>
+      ))}
+      {items.length < max && (
+        <button type="button" className="ed-add-btn" onClick={() => onChange([...items, { hanzi: '' }])}>+ {addLabel}</button>
+      )}
+    </div>
+  );
+}
+
+function OptionalSentence(props: { value: LessonSentence | undefined; onChange: (v: LessonSentence | undefined) => void; speak: Speak; addLabel: string }) {
+  const { value, onChange, speak, addLabel } = props;
+  return value ? (
+    <div className="ed-list-row">
+      <SentenceEditor value={value} onChange={onChange} speak={speak} compact />
+      <button type="button" className="ed-mini-btn danger" onClick={() => onChange(undefined)} aria-label="Remove">✕</button>
+    </div>
+  ) : (
+    <button type="button" className="ed-add-btn" onClick={() => onChange({ hanzi: '' })}>+ {addLabel}</button>
+  );
+}
+
+function AlternativesField({ value, onChange }: { value: string[] | undefined; onChange: (v: string[] | undefined) => void }) {
+  const [text, setText] = useState((value ?? []).join('\n'));
+  return (
+    <Field label="Also accept" hint="optional, one per line">
+      <textarea
+        className="ed-input"
+        lang="zh-CN"
+        rows={2}
+        value={text}
+        onChange={e => {
+          setText(e.target.value);
+          const list = e.target.value.split('\n').map(l => l.trim()).filter(Boolean);
+          onChange(list.length ? list : undefined);
+        }}
+      />
+    </Field>
+  );
+}
+
+const CUE_LABELS: Record<WritingCue, string> = { english: 'English', pinyin: 'Pinyin', audio: '🔊 Audio' };
+
+function CuesField({ value, onChange }: { value: WritingCue[] | undefined; onChange: (v: WritingCue[] | undefined) => void }) {
+  const cues = value ?? ['english', 'pinyin'];
+  const toggle = (c: WritingCue) => {
+    const next = cues.includes(c) ? cues.filter(x => x !== c) : [...cues, c];
+    onChange(next.length === 0 ? cues : next);
+  };
+  return (
+    <Field label="Show as the cue">
+      <div className="ed-seg multi">
+        {(Object.keys(CUE_LABELS) as WritingCue[]).map(c => (
+          <button key={c} type="button" aria-pressed={cues.includes(c)} className={cues.includes(c) ? 'on' : ''} onClick={() => toggle(c)}>{CUE_LABELS[c]}</button>
+        ))}
+      </div>
+    </Field>
+  );
+}
+
+function SentenceMakingForm({ exercise, onChange, speak }: FormProps<SentenceMakingExerciseSpec>) {
+  return (
+    <>
+      <Field label="Target words" hint="1–4, the sentence must use all of them">
+        <WordList items={exercise.words} onChange={words => onChange({ ...exercise, words })} speak={speak} addLabel="Add word" max={4} min={1} />
+      </Field>
+      <Field label="Task / situation" hint="optional">
+        <TextInput value={exercise.task} onChange={v => onChange({ ...exercise, task: clean(v) })} placeholder="Explain why you were late today." />
+      </Field>
+      <Field label="The learner writes by">
+        <InputModeToggle value={exercise.input} onChange={input => onChange({ ...exercise, input })} />
+      </Field>
+      <Field label="Example answer" hint="optional, shown afterwards">
+        <OptionalSentence value={exercise.example} onChange={example => onChange({ ...exercise, example })} speak={speak} addLabel="Add example" />
+      </Field>
+    </>
+  );
+}
+
+function WriteForm({ exercise, onChange, speak }: FormProps<WriteTypedExerciseSpec | WriteHandwritingExerciseSpec>) {
+  const handwriting = exercise.type === 'write_handwriting';
+  const chars = (exercise.answer.hanzi.match(/\p{Script=Han}/gu) ?? []).length;
+  return (
+    <>
+      <Field label="What to write" hint={handwriting ? `${chars}/12 characters — a word or short phrase` : 'hanzi is the answer; English / pinyin are the cues'}>
+        <SentenceEditor value={exercise.answer} onChange={answer => onChange({ ...exercise, answer })} speak={speak} />
+      </Field>
+      <CuesField value={exercise.cues} onChange={cues => onChange({ ...exercise, cues })} />
+      <Field label="Instruction" hint="optional">
+        <TextInput value={exercise.prompt} onChange={v => onChange({ ...exercise, prompt: clean(v) })} placeholder="Where do you borrow books?" />
+      </Field>
+      {exercise.type === 'write_typed' && (
+        <AlternativesField value={exercise.alternatives} onChange={alternatives => onChange({ ...exercise, alternatives })} />
+      )}
+    </>
+  );
+}
+
+function DictationForm({ exercise, onChange, speak }: FormProps<DictationExerciseSpec>) {
+  return (
+    <>
+      <Field label="What is played" hint="the hanzi is the answer">
+        <SentenceEditor value={exercise.audio} onChange={audio => onChange({ ...exercise, audio })} speak={speak} />
+      </Field>
+      <Field label="The learner writes by">
+        <InputModeToggle value={exercise.input} onChange={input => onChange({ ...exercise, input })} />
+      </Field>
+      {exercise.input !== 'handwrite' && (
+        <AlternativesField value={exercise.alternatives} onChange={alternatives => onChange({ ...exercise, alternatives })} />
+      )}
+      <Field label="Note" hint="optional, shown with the answer">
+        <TextInput value={exercise.note} onChange={v => onChange({ ...exercise, note: clean(v) })} />
+      </Field>
+    </>
+  );
+}
+
+function OralExpressionForm({ exercise, onChange, speak }: FormProps<OralExpressionExerciseSpec>) {
+  return (
+    <>
+      <Field label="What to talk about">
+        <TextArea value={exercise.prompt} onChange={v => onChange({ ...exercise, prompt: v })} rows={2} placeholder="Talk about what you did last weekend." />
+      </Field>
+      <Field label="Question played in Chinese" hint="optional">
+        <OptionalSentence value={exercise.question_audio} onChange={question_audio => onChange({ ...exercise, question_audio })} speak={speak} addLabel="Add a spoken question" />
+      </Field>
+      <Field label="Useful words" hint="optional, up to 8">
+        <WordList items={exercise.hints ?? []} onChange={hints => onChange({ ...exercise, hints: hints.length ? hints : undefined })} speak={speak} addLabel="Add word" max={8} />
+      </Field>
+      <Field label="Model answer" hint="optional, shown after recording">
+        <OptionalSentence value={exercise.example} onChange={example => onChange({ ...exercise, example })} speak={speak} addLabel="Add model answer" />
+      </Field>
+      <Field label="About how long" hint="seconds">
+        <input
+          className="ed-input"
+          type="number"
+          min={5}
+          max={180}
+          value={exercise.target_seconds ?? ''}
+          placeholder="30"
+          onChange={e => onChange({ ...exercise, target_seconds: e.target.value ? Number(e.target.value) : undefined })}
+        />
+      </Field>
+    </>
+  );
+}
+
+function ConversationForm({ exercise, onChange, speak }: FormProps<ConversationExerciseSpec>) {
+  const { speakers, lines, questions } = exercise;
+  const setSpeaker = (i: number, patch: Partial<ConversationExerciseSpec['speakers'][number]>) =>
+    onChange({ ...exercise, speakers: speakers.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+  const setLine = (i: number, patch: Partial<ConversationExerciseSpec['lines'][number]>) =>
+    onChange({ ...exercise, lines: lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
+  const setQuestion = (i: number, q: ConversationExerciseSpec['questions'][number]) =>
+    onChange({ ...exercise, questions: questions.map((x, j) => (j === i ? q : x)) });
+
+  return (
+    <>
+      <Field label="Situation" hint="shown before listening">
+        <TextInput value={exercise.situation} onChange={v => onChange({ ...exercise, situation: v })} placeholder="Checking in at a hotel" />
+      </Field>
+      <Field label="Speakers" hint="each gets a different voice">
+        <div className="ed-list">
+          {speakers.map((s, i) => (
+            <div key={i} className="ed-hanzi-row">
+              <input className="ed-input" value={s.name} onChange={e => setSpeaker(i, { name: e.target.value })} placeholder={i === 0 ? '前台 Receptionist' : '客人 Guest'} />
+              <select className="ed-input ed-voice" value={s.voice ?? (i % 2 === 0 ? 'female' : 'male')} onChange={e => setSpeaker(i, { voice: e.target.value as 'female' | 'male' })} aria-label="Voice">
+                <option value="female">👩 Female</option>
+                <option value="male">👨 Male</option>
+              </select>
+              {speakers.length > 2 && (
+                <button type="button" className="ed-mini-btn danger" aria-label="Remove speaker" onClick={() => onChange({
+                  ...exercise,
+                  speakers: speakers.filter((_, j) => j !== i),
+                  lines: lines.filter(l => l.speaker !== i).map(l => (l.speaker > i ? { ...l, speaker: l.speaker - 1 } : l)),
+                })}>✕</button>
+              )}
+            </div>
+          ))}
+          {speakers.length < 3 && (
+            <button type="button" className="ed-add-btn" onClick={() => onChange({ ...exercise, speakers: [...speakers, { name: '', voice: 'female' }] })}>+ Add speaker</button>
+          )}
+        </div>
+      </Field>
+      <Field label="Lines" hint={`${lines.length}/24 — the learner hears these, text hidden`}>
+        <div className="ed-list">
+          {lines.map((line, i) => (
+            <div key={i} className="ed-list-row">
+              <select className="ed-input ed-line-speaker" value={line.speaker} onChange={e => setLine(i, { speaker: Number(e.target.value) })} aria-label="Speaker">
+                {speakers.map((s, j) => <option key={j} value={j}>{s.name || `Speaker ${j + 1}`}</option>)}
+              </select>
+              <SentenceEditor
+                value={{ hanzi: line.hanzi, pinyin: line.pinyin, english: line.english }}
+                onChange={v => setLine(i, { hanzi: v.hanzi, pinyin: v.pinyin, english: v.english })}
+                speak={speak}
+                compact
+              />
+              <RowControls
+                index={i}
+                count={lines.length}
+                onMove={(from, to) => onChange({ ...exercise, lines: moveItem(lines, from, to) })}
+                onRemove={() => lines.length > 2 && onChange({ ...exercise, lines: lines.filter((_, j) => j !== i) })}
+              />
+            </div>
+          ))}
+          {lines.length < 24 && (
+            <button type="button" className="ed-add-btn" onClick={() => {
+              const last = lines[lines.length - 1];
+              const speaker = last ? (last.speaker + 1) % speakers.length : 0;
+              onChange({ ...exercise, lines: [...lines, { speaker, hanzi: '' }] });
+            }}>+ Add line</button>
+          )}
+        </div>
+      </Field>
+      <Field label="Comprehension questions" hint="1–6, one point each">
+        <div className="ed-list">
+          {questions.map((q, i) => {
+            const choice = q.options !== undefined;
+            return (
+              <div key={i} className="ed-question">
+                <div className="ed-hanzi-row">
+                  <input className="ed-input" value={q.question} onChange={e => setQuestion(i, { ...q, question: e.target.value })} placeholder="How many nights is the guest staying?" />
+                  <RowControls
+                    index={i}
+                    count={questions.length}
+                    onMove={(from, to) => onChange({ ...exercise, questions: moveItem(questions, from, to) })}
+                    onRemove={() => questions.length > 1 && onChange({ ...exercise, questions: questions.filter((_, j) => j !== i) })}
+                  />
+                </div>
+                <div className="ed-seg">
+                  <button type="button" className={choice ? 'on' : ''} onClick={() => setQuestion(i, { question: q.question, explanation: q.explanation, options: q.options ?? ['', ''], correct: q.correct ?? 0 })}>Multiple choice</button>
+                  <button type="button" className={!choice ? 'on' : ''} onClick={() => setQuestion(i, { question: q.question, explanation: q.explanation, answer: q.answer ?? '' })}>Free answer</button>
+                </div>
+                {choice ? (
+                  <div className="ed-list">
+                    {(q.options ?? []).map((o, oi) => (
+                      <div key={oi} className={`ed-list-row ${q.correct === oi ? 'correct' : ''}`}>
+                        <label className="ed-correct-radio" title="Correct answer">
+                          <input type="radio" name={`convo-q${i}`} checked={q.correct === oi} onChange={() => setQuestion(i, { ...q, correct: oi })} />
+                          <span>✓</span>
+                        </label>
+                        <input className="ed-input" value={o} onChange={e => setQuestion(i, { ...q, options: q.options!.map((x, k) => (k === oi ? e.target.value : x)) })} placeholder={`Option ${oi + 1}`} />
+                        {q.options!.length > 2 && (
+                          <button type="button" className="ed-mini-btn danger" aria-label="Remove option" onClick={() => {
+                            const options = q.options!.filter((_, k) => k !== oi);
+                            const correct = q.correct === oi ? 0 : (q.correct ?? 0) > oi ? (q.correct ?? 0) - 1 : q.correct;
+                            setQuestion(i, { ...q, options, correct });
+                          }}>✕</button>
+                        )}
+                      </div>
+                    ))}
+                    {(q.options ?? []).length < 5 && (
+                      <button type="button" className="ed-add-btn" onClick={() => setQuestion(i, { ...q, options: [...(q.options ?? []), ''] })}>+ Add option</button>
+                    )}
+                  </div>
+                ) : (
+                  <input className="ed-input" value={q.answer ?? ''} onChange={e => setQuestion(i, { ...q, answer: e.target.value })} placeholder="Model answer (the learner checks theirs against it)" />
+                )}
+                <input className="ed-input" value={q.explanation ?? ''} onChange={e => setQuestion(i, { ...q, explanation: e.target.value || undefined })} placeholder="Explanation (optional, shown after answering)" />
+              </div>
+            );
+          })}
+          {questions.length < 6 && (
+            <button type="button" className="ed-add-btn" onClick={() => onChange({ ...exercise, questions: [...questions, { question: '', options: ['', ''], correct: 0 }] })}>+ Add question</button>
+          )}
+        </div>
+      </Field>
+    </>
+  );
+}
+
 export function ExerciseForm(props: { exercise: LessonExercise; onChange: (ex: LessonExercise) => void; speak: Speak; errors: string[] }) {
   const { exercise, onChange, speak, errors } = props;
   let form: JSX.Element;
@@ -403,6 +687,22 @@ export function ExerciseForm(props: { exercise: LessonExercise; onChange: (ex: L
       break;
     case 'listen_translate':
       form = <ListenTranslateForm exercise={exercise} onChange={onChange} speak={speak} />;
+      break;
+    case 'sentence_making':
+      form = <SentenceMakingForm exercise={exercise} onChange={onChange} speak={speak} />;
+      break;
+    case 'write_typed':
+    case 'write_handwriting':
+      form = <WriteForm exercise={exercise} onChange={onChange as (ex: WriteTypedExerciseSpec | WriteHandwritingExerciseSpec) => void} speak={speak} />;
+      break;
+    case 'dictation':
+      form = <DictationForm exercise={exercise} onChange={onChange} speak={speak} />;
+      break;
+    case 'oral_expression':
+      form = <OralExpressionForm exercise={exercise} onChange={onChange} speak={speak} />;
+      break;
+    case 'conversation':
+      form = <ConversationForm exercise={exercise} onChange={onChange} speak={speak} />;
       break;
   }
   return (
@@ -437,6 +737,22 @@ export function fillMissingPinyin(ex: LessonExercise): LessonExercise {
       return { ...ex, audio: fillSentence(ex.audio), options: ex.options.map(fillSentence) };
     case 'listen_translate':
       return { ...ex, audio: fillSentence(ex.audio) };
+    case 'sentence_making':
+      return { ...ex, words: ex.words.map(fillSentence), example: ex.example ? fillSentence(ex.example) : undefined };
+    case 'write_typed':
+    case 'write_handwriting':
+      return { ...ex, answer: fillSentence(ex.answer) };
+    case 'dictation':
+      return { ...ex, audio: fillSentence(ex.audio) };
+    case 'oral_expression':
+      return {
+        ...ex,
+        hints: ex.hints?.map(fillSentence),
+        question_audio: ex.question_audio ? fillSentence(ex.question_audio) : undefined,
+        example: ex.example ? fillSentence(ex.example) : undefined,
+      };
+    case 'conversation':
+      return { ...ex, lines: ex.lines.map(l => (l.pinyin || !l.hanzi.trim() ? l : { ...l, pinyin: toPinyin(l.hanzi) })) };
     default:
       return ex;
   }

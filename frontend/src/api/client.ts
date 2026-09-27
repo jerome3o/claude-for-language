@@ -1745,10 +1745,11 @@ export async function markDailyActivity(activity: 'reader', refId?: string): Pro
 export async function generatePracticeTTS(
   text: string,
   speed?: number,
+  voiceId?: string,
 ): Promise<{ audio_base64: string; content_type: string }> {
   return fetchJSON('/practice/tts', {
     method: 'POST',
-    body: JSON.stringify({ text, speed }),
+    body: JSON.stringify(voiceId ? { text, speed, voice_id: voiceId } : { text, speed }),
   });
 }
 
