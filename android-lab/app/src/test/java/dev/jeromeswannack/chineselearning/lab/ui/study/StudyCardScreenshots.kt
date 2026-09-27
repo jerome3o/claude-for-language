@@ -58,7 +58,7 @@ class StudyCardScreenshots : LabScreenshotTest() {
     )
 
     private fun ui(v: CardView, extras: CardExtras = CardExtras(flagTutors = tutors, roleplayRelId = "r-claude"), online: Boolean = true, forced: Boolean = false, explainer: Boolean = false) =
-        StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(reviews = 14, correct = 12, streak = 6, bestStreak = 9), canUndo = true, online = online, forcedOffline = forced, extras = extras, showExplainer = explainer)
+        StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(reviews = 14, correct = 12), canUndo = true, online = online, forcedOffline = forced, extras = extras, showExplainer = explainer)
 
     @Composable
     private fun study(ui: StudyUi, start: CardStartState = CardStartState()) =

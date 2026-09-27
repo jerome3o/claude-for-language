@@ -18,19 +18,19 @@ import {
   getStudyCutoff,
   ensureDailyStatsInitialized,
   createLocalReviewEvent,
+  getCardReviewEvents,
   storePendingRecording,
-  incrementNewCardsStudiedToday,
-  decrementNewCardsStudiedToday,
   deleteCardCheckpoint,
   addPendingReviewDeletion,
 } from '../db/database';
 import {
-  scheduleCard,
   deckSettingsFromDb,
   DeckSettings,
   DEFAULT_DECK_SETTINGS,
   getIntervalPreview,
 } from '../services/anki-scheduler';
+import { computeCardState, type ComputedCardState, type ReviewEvent } from '@shared/scheduler';
+import { recomputeCardFromEvents } from '../services/review-events';
 import {
   getDueReaders,
   recordReaderReview,
@@ -293,8 +293,6 @@ export interface SessionStats {
   totalReviews: number;
   correctCount: number;
   againCount: number;
-  bestStreak: number;
-  currentStreak: number;
   cardsRatedAgainMultiple: Set<string>;
   timeStarted: number;
 }
@@ -367,8 +365,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     totalReviews: 0,
     correctCount: 0,
     againCount: 0,
-    bestStreak: 0,
-    currentStreak: 0,
     cardsRatedAgainMultiple: new Set(),
     timeStarted: Date.now(),
   });
@@ -633,11 +629,20 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // A NEW card being introduced counts against the primary (blue) quota, or
   // the secondary (purple) quota if its note already has a reviewed card.
-  const countNewCardIntroduced = useCallback(async (card: LocalCard) => {
-    if (card.queue !== CardQueue.NEW) return;
-    const siblings = await db.cards.where('note_id').equals(card.note_id).toArray();
-    const isSecondary = siblings.some(s => s.id !== card.id && s.queue !== CardQueue.NEW);
-    await incrementNewCardsStudiedToday(card.deck_id, isSecondary);
+
+  // Review history per card for this session: loaded from IndexedDB the first
+  // time a card is rated, then extended in memory, so a card re-rated before
+  // its previous event reached IndexedDB still replays its full history.
+  const sessionEventsRef = useRef(new Map<string, ReviewEvent[]>());
+  const replayWithRating = useCallback(async (cardId: string, event: ReviewEvent): Promise<ComputedCardState> => {
+    let history = sessionEventsRef.current.get(cardId);
+    if (!history) {
+      const stored = await getCardReviewEvents(cardId);
+      history = stored.map(e => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at }));
+    }
+    const next = [...history.filter(e => e.id !== event.id), event];
+    sessionEventsRef.current.set(cardId, next);
+    return computeCardState(next, DEFAULT_DECK_SETTINGS);
   }, []);
 
   // Select the next item from the queues (async version for fallback cases)
@@ -720,10 +725,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       userAnswer,
       sessionId: _sessionId,
       recordingBlob,
+      reviewedAt,
     }: {
       reviewId: string;
       cardId: string;
       rating: Rating;
+      reviewedAt: string;
       timeSpentMs?: number;
       userAnswer?: string;
       sessionId?: string;
@@ -732,51 +739,17 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       const card = await db.cards.get(cardId);
       if (!card) throw new Error('Card not found');
 
-      await countNewCardIntroduced(card);
-
-      // Get deck settings and calculate new state
-      const deck = await db.decks.get(card.deck_id);
-      const settings = deck ? deckSettingsFromDb(deck) : DEFAULT_DECK_SETTINGS;
-
-      const result = scheduleCard(
-        rating,
-        card.queue,
-        card.learning_step,
-        card.ease_factor,
-        card.interval,
-        card.repetitions,
-        settings,
-        card.stability,
-        card.difficulty,
-        card.lapses,
-        getCardLastReviewTime(card)
-      );
-
-      const reviewedAt = new Date().toISOString();
-
-      // Update card in IndexedDB (including FSRS fields)
-      await db.cards.update(cardId, {
-        queue: result.queue,
-        learning_step: result.learning_step,
-        ease_factor: result.ease_factor,
-        interval: result.interval,
-        repetitions: result.repetitions,
-        next_review_at: result.next_review_at?.toISOString() || null,
-        due_timestamp: result.due_timestamp,
-        stability: result.stability,
-        difficulty: result.difficulty,
-        lapses: result.lapses,
-        last_reviewed_at: reviewedAt,
-        updated_at: reviewedAt,
-      });
-
+      // Event-sourced (CLAUDE.md): store the event, then the card's state is the
+      // replay of its whole history — never an incremental update of the stored
+      // row, which drifted from the replay by whole days (27 Sep debug report).
       await persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob);
+      const result = await recomputeCardFromEvents(cardId);
 
       return {
         cardId,
-        newQueue: result.queue,
-        newDueTimestamp: result.due_timestamp,
-        interval: result.interval,
+        newQueue: result?.queue ?? card.queue,
+        newDueTimestamp: result?.due_timestamp ?? null,
+        interval: result?.interval ?? card.interval,
       };
     },
   });
@@ -821,8 +794,6 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     setSessionStats(prev => {
       const isCorrect = rating === 2 || rating === 3; // Good or Easy
       const isAgain = rating === 0;
-      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
-      const newBestStreak = Math.max(prev.bestStreak, newCurrentStreak);
 
       // Track again counts per note for leech detection
       const newAgainMultiple = new Set(prev.cardsRatedAgainMultiple);
@@ -839,29 +810,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         totalReviews: prev.totalReviews + 1,
         correctCount: prev.correctCount + (isCorrect ? 1 : 0),
         againCount: prev.againCount + (isAgain ? 1 : 0),
-        currentStreak: newCurrentStreak,
-        bestStreak: newBestStreak,
         cardsRatedAgainMultiple: newAgainMultiple,
       };
     });
 
-    // Get deck settings for calculating new state
-    const settings = currentDeck ? deckSettingsFromDb(currentDeck) : DEFAULT_DECK_SETTINGS;
-
-    // Calculate what the new state will be
-    const result = scheduleCard(
-      rating,
-      currentCard.queue,
-      currentCard.learning_step,
-      currentCard.ease_factor,
-      currentCard.interval,
-      currentCard.repetitions,
-      settings,
-      currentCard.stability,
-      currentCard.difficulty,
-      currentCard.lapses,
-      getCardLastReviewTime(currentCard)
-    );
+    // The card's next state = replay of its review history plus this rating
+    // (the same computeCardState every device and the server use).
+    const reviewedAt = new Date().toISOString();
+    const result = await replayWithRating(cardId, { id: reviewId, card_id: cardId, rating, reviewed_at: reviewedAt });
 
     // Build the new queue
     const newQueue = queue.filter(c => c.id !== cardId);
@@ -879,7 +835,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         stability: result.stability,
         difficulty: result.difficulty,
         lapses: result.lapses,
-        last_reviewed_at: new Date().toISOString(),
+        next_review_at: result.next_review_at,
+        last_reviewed_at: reviewedAt,
       };
       newQueue.push(updatedCard);
     }
@@ -914,6 +871,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
         timeSpentMs,
         userAnswer,
         recordingBlob,
+        reviewedAt,
       }));
       return;
     }
@@ -929,16 +887,13 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       pendingWritesRef.current = [];
     }
 
-    await countNewCardIntroduced(currentCard);
-
-    const reviewedAt = new Date().toISOString();
     await db.cards.update(cardId, {
       queue: result.queue,
       learning_step: result.learning_step,
       ease_factor: result.ease_factor,
       interval: result.interval,
       repetitions: result.repetitions,
-      next_review_at: result.next_review_at?.toISOString() || null,
+      next_review_at: result.next_review_at,
       due_timestamp: result.due_timestamp,
       stability: result.stability,
       difficulty: result.difficulty,
@@ -960,7 +915,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     console.log('[useStudySession] No cards available - session complete');
     presentNothing(updates);
     trackWrite(persistReviewEvent(reviewId, cardId, rating, reviewedAt, timeSpentMs, userAnswer, recordingBlob));
-  }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, sessionStats, reviewMutation, presentCard, presentSelection, presentNothing, trackWrite, persistReviewEvent, countNewCardIntroduced, findDelayedLearningCard]);
+  }, [currentCardState, queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, sessionStats, reviewMutation, presentCard, presentSelection, presentNothing, trackWrite, persistReviewEvent, findDelayedLearningCard]);
 
   // Rate the current reader and transition to the next item. Reader reviews
   // follow the same FSRS cadence as cards; they aren't undoable yet, so
@@ -977,14 +932,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     setSessionStats(prev => {
       const isCorrect = rating === 2 || rating === 3; // Good or Easy
-      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
       return {
         ...prev,
         totalReviews: prev.totalReviews + 1,
         correctCount: prev.correctCount + (isCorrect ? 1 : 0),
         againCount: prev.againCount + (rating === 0 ? 1 : 0),
-        currentStreak: newCurrentStreak,
-        bestStreak: Math.max(prev.bestStreak, newCurrentStreak),
       };
     });
 
@@ -1064,14 +1016,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     setSessionStats(prev => {
       const isCorrect = rating === 2 || rating === 3; // Good or Easy
-      const newCurrentStreak = isCorrect ? prev.currentStreak + 1 : 0;
       return {
         ...prev,
         totalReviews: prev.totalReviews + 1,
         correctCount: prev.correctCount + (isCorrect ? 1 : 0),
         againCount: prev.againCount + (rating === 0 ? 1 : 0),
-        currentStreak: newCurrentStreak,
-        bestStreak: Math.max(prev.bestStreak, newCurrentStreak),
       };
     });
 
@@ -1118,19 +1067,11 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const cardId = snap.card.id;
     const noteId = snap.card.note_id;
 
-    // The daily new-card counter was incremented if the undone card was NEW.
-    // Recompute the same primary/secondary classification — sibling queues
-    // are unchanged by the review, so this matches what was counted.
-    if (snap.card.queue === CardQueue.NEW) {
-      const siblings = await db.cards.where('note_id').equals(noteId).toArray();
-      const isSecondary = siblings.some(s => s.id !== cardId && s.queue !== CardQueue.NEW);
-      await decrementNewCardsStudiedToday(snap.card.deck_id, isSecondary);
-    }
-
     // Remove the event and any recording tied to it, then restore the card
     // row. A checkpoint may have been written at this review — drop it (it's
     // a pure cache, recreated on the next review).
     await db.reviewEvents.delete(snap.eventId);
+    sessionEventsRef.current.delete(cardId); // re-read the history on the next rating
     await db.pendingRecordings.delete(snap.eventId);
     await deleteCardCheckpoint(cardId);
     await db.cards.put(snap.card);

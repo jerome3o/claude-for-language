@@ -8,9 +8,11 @@ export function formatTimeMs(ms: number): string {
 }
 
 /**
- * The session's numbers: reviews, accuracy, time, streak, leeches, plus
+ * The session's numbers: reviews, accuracy, time, leeches, plus
  * today's totals when they are known. Shown on the All Done screen and in
- * the "End session?" confirm when the learner leaves early.
+ * the "End session?" confirm when the learner leaves early. No in-session
+ * "streak" of Good/Easy ratings: it rewarded pressing Easy, and the rating
+ * should be honest (effort and completion are what get celebrated).
  */
 export function SessionRecap({
   stats,
@@ -50,10 +52,6 @@ export function SessionRecap({
         <div className="recap-stat">
           <div className="recap-stat-value">{sessionTimeStr}</div>
           <div className="recap-stat-label">This Session</div>
-        </div>
-        <div className="recap-stat">
-          <div className="recap-stat-value">{stats.bestStreak}</div>
-          <div className="recap-stat-label">Best Streak</div>
         </div>
         {leechCount > 0 && (
           <div className="recap-stat recap-attention">

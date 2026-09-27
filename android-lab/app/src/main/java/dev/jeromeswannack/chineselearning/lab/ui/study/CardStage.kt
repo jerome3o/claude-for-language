@@ -580,7 +580,7 @@ private fun hanziSize(hanzi: String): TextUnit = when {
 
 /**
  * Front of a read card (StudyPage.tsx `renderSpeakingCardButtons`): record yourself saying
- * it, or go straight to the answer. While recording: a level meter and Stop (after half a
+ * it (the primary button — the card prompts you to speak), or skip straight to the answer. While recording: a level meter and Stop (after half a
  * second, so a double tap can't end it); with a take: play it back / re-record / check.
  */
 @Composable
@@ -608,9 +608,11 @@ private fun RecordControls(take: TakeUi, actions: StudyActions, onReveal: () -> 
             Spacer(Modifier.height(8.dp))
             PrimaryPill("Check answer", Modifier.fillMaxWidth().height(60.dp), onClick = onReveal)
         }
+        // Record is the prompt (the web's primary "Record Your Pronunciation"): the big filled
+        // button on the thumb side; Show answer is the outlined skip.
         else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SecondaryPill("🎤  Record", Modifier.weight(1f).height(60.dp), onClick = start)
-            PrimaryPill("Show answer", Modifier.weight(1.4f).height(60.dp), onClick = onReveal)
+            SecondaryPill("Show answer", Modifier.weight(1f).height(60.dp), onClick = onReveal)
+            PrimaryPill("🎤  Record", Modifier.weight(1.4f).height(60.dp), onClick = start)
         }
     }
 }

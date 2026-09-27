@@ -73,7 +73,7 @@ class ScreenshotTest {
     }
 
     private val counts = QueueCounts(new = 3, secondaryNew = 2, learning = 1, review = 18)
-    private val stats = SessionStats(reviews = 14, correct = 12, streak = 6, bestStreak = 9, startedAt = System.currentTimeMillis() - 7 * 60_000)
+    private val stats = SessionStats(reviews = 14, correct = 12, startedAt = System.currentTimeMillis() - 7 * 60_000)
 
     private fun shoot(name: String, content: @Composable () -> Unit) {
         compose.setContent { LabTheme(dark = false) { content() } }

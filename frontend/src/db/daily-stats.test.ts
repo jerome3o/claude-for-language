@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   db,
   getNewCardsStudiedToday,
-  incrementNewCardsStudiedToday,
   cleanupOldDailyStats,
   createLocalReviewEvent,
   LocalCard,
@@ -112,19 +111,20 @@ describe('Daily Stats', () => {
       expect(cached).toBeUndefined(); // No caching on read
     });
 
-    it('returns cached value on subsequent calls', async () => {
-      // Manually set the counter
+    it('ignores a drifted dailyStats counter: the number comes from events', async () => {
       const today = new Date().toISOString().slice(0, 10);
-      await db.dailyStats.put({
-        id: `${today}:${deckId}`,
-        date: today,
-        deck_id: deckId,
-        new_cards_studied: 5,
-      });
+      await db.dailyStats.put({ id: `${today}:${deckId}`, date: today, deck_id: deckId, new_cards_studied: 5 });
+      const card = await createTestCard('card-x', deckId);
+      await createReviewEvent(card.id, new Date());
+      expect(await getNewCardsStudiedToday(deckId)).toBe(1);
+    });
 
-      // Should return cached value without computing
-      const count = await getNewCardsStudiedToday(deckId);
-      expect(count).toBe(5);
+    it('counts a first review just after local midnight (local day, not the UTC date string)', async () => {
+      const card = await createTestCard('card-m', deckId);
+      const justAfterMidnight = new Date();
+      justAfterMidnight.setHours(0, 0, 30, 0);
+      await createReviewEvent(card.id, justAfterMidnight);
+      expect(await getNewCardsStudiedToday(deckId)).toBe(1);
     });
 
     it('does not count cards that were already reviewed before today', async () => {
@@ -147,63 +147,11 @@ describe('Daily Stats', () => {
     it('handles "All Decks" mode (no deckId)', async () => {
       const deckId2 = 'deck-2';
       await createTestDeck(deckId2, 'Test Deck 2');
-
-      // Set counters for both decks
-      const today = new Date().toISOString().slice(0, 10);
-      await db.dailyStats.put({
-        id: `${today}:${deckId}`,
-        date: today,
-        deck_id: deckId,
-        new_cards_studied: 3,
-      });
-      await db.dailyStats.put({
-        id: `${today}:${deckId2}`,
-        date: today,
-        deck_id: deckId2,
-        new_cards_studied: 2,
-      });
-
-      // Should sum both decks
-      const count = await getNewCardsStudiedToday();
-      expect(count).toBe(5);
-    });
-  });
-
-  describe('incrementNewCardsStudiedToday', () => {
-    it('increments the counter', async () => {
-      // Initialize counter
-      const today = new Date().toISOString().slice(0, 10);
-      await db.dailyStats.put({
-        id: `${today}:${deckId}`,
-        date: today,
-        deck_id: deckId,
-        new_cards_studied: 3,
-      });
-
-      // Increment
-      await incrementNewCardsStudiedToday(deckId);
-
-      // Verify
-      const count = await getNewCardsStudiedToday(deckId);
-      expect(count).toBe(4);
-    });
-
-    it('initializes counter if it does not exist', async () => {
-      // Increment without prior counter
-      await incrementNewCardsStudiedToday(deckId);
-
-      // Should have initialized to 0 and then incremented to 1
-      const count = await getNewCardsStudiedToday(deckId);
-      expect(count).toBe(1);
-    });
-
-    it('multiple increments work correctly', async () => {
-      await incrementNewCardsStudiedToday(deckId);
-      await incrementNewCardsStudiedToday(deckId);
-      await incrementNewCardsStudiedToday(deckId);
-
-      const count = await getNewCardsStudiedToday(deckId);
-      expect(count).toBe(3);
+      for (const [id, d] of [['a1', deckId], ['a2', deckId], ['a3', deckId], ['b1', deckId2], ['b2', deckId2]] as const) {
+        await createTestCard(id, d);
+        await createReviewEvent(id, new Date());
+      }
+      expect(await getNewCardsStudiedToday()).toBe(5);
     });
   });
 
