@@ -13,6 +13,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.NavSync
 object FeatureSyncs {
     fun registerAll(platform: LabPlatform) {
         platform.register("nav", NavSync) // relationships → tab set / landing (ui/nav/NavData.kt)
+        platform.register("connections", dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionsSync) // E: my id + notifications (Tutor tab badge)
+        platform.register("homework", dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkSync) // E: homework, "From <tutor>", onboarding
         // Add yours below, one line each (keep the order: what study needs offline first).
     }
 }

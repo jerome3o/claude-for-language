@@ -70,7 +70,15 @@ class HomeActions(
 
 /** The Study tab's home (`/`). Lab settings live in the More tab. */
 @Composable
-fun HomeScreen(ui: HomeUi, sync: SyncStatus, online: Boolean, actions: HomeActions, nowMs: Long = System.currentTimeMillis()) {
+fun HomeScreen(
+    ui: HomeUi,
+    sync: SyncStatus,
+    online: Boolean,
+    actions: HomeActions,
+    nowMs: Long = System.currentTimeMillis(),
+    /** Package E: the Homework card + "From <tutor>" card, under the Study button (web HomePage order). */
+    homework: (@Composable () -> Unit)? = null,
+) {
     Box(Modifier.fillMaxSize().background(Lab.colors.background).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             Modifier.fillMaxSize().widthIn(max = 720.dp),
@@ -91,6 +99,7 @@ fun HomeScreen(ui: HomeUi, sync: SyncStatus, online: Boolean, actions: HomeActio
             }
             if (sync.signedOut) item { SignedOutBanner(actions.onSignIn) }
             item { StudyHero(ui, sync, actions.onStudyAll) }
+            if (homework != null) item { homework() }
             if (ui.decks.isNotEmpty()) {
                 item {
                     Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {

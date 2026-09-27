@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -60,7 +61,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
  * haptic tick on every switch.
  */
 @Composable
-fun LabTabBar(tabs: List<TabSpec>, active: TabId?, onSelect: (TabSpec) -> Unit, modifier: Modifier = Modifier) {
+fun LabTabBar(tabs: List<TabSpec>, active: TabId?, onSelect: (TabSpec) -> Unit, modifier: Modifier = Modifier, badges: Map<TabId, Int> = emptyMap()) {
     Column(modifier.fillMaxWidth().background(Lab.colors.card).testTag("tab-bar")) {
         HorizontalDivider(color = Lab.colors.cardBorder, thickness = 0.5.dp)
         Row(
@@ -69,14 +70,14 @@ fun LabTabBar(tabs: List<TabSpec>, active: TabId?, onSelect: (TabSpec) -> Unit, 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for (tab in tabs) {
-                TabItem(tab, selected = tab.id == active, onClick = { onSelect(tab) }, modifier = Modifier.weight(1f))
+                TabItem(tab, selected = tab.id == active, onClick = { onSelect(tab) }, modifier = Modifier.weight(1f), badge = badges[tab.id] ?: 0)
             }
         }
     }
 }
 
 @Composable
-private fun TabItem(tab: TabSpec, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun TabItem(tab: TabSpec, selected: Boolean, onClick: () -> Unit, modifier: Modifier, badge: Int = 0) {
     val pill by animateFloatAsState(if (selected) 1f else 0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), label = "pill")
     val tint by animateColorAsState(if (selected) Lab.colors.accent else Lab.colors.muted, label = "tint")
     Column(
@@ -84,7 +85,7 @@ private fun TabItem(tab: TabSpec, selected: Boolean, onClick: () -> Unit, modifi
             .widthIn(max = 120.dp)
             .clip(RoundedCornerShape(16.dp))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Tab, onClick = onClick)
-            .semantics { this.selected = selected; contentDescription = tab.label }
+            .semantics { this.selected = selected; contentDescription = if (badge > 0) "${tab.label}, $badge unread" else tab.label }
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -97,9 +98,34 @@ private fun TabItem(tab: TabSpec, selected: Boolean, onClick: () -> Unit, modifi
                     .background(Lab.colors.accentSoft.copy(alpha = pill.coerceIn(0f, 1f))),
             )
             Icon(iconFor(tab.id, selected), null, Modifier.size(24.dp), tint = tint)
+            if (badge > 0) TabBadge(badge, Modifier.align(Alignment.TopEnd))
         }
         Spacer(Modifier.height(3.dp))
         Text(tab.label, fontSize = 12.sp, color = tint, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
+    }
+}
+
+/** Unread count on a tab icon (TabBadges): a red pill, "99+" past 99, springing in. */
+@Composable
+private fun TabBadge(count: Int, modifier: Modifier) {
+    val pop = remember { androidx.compose.animation.core.Animatable(1f) }
+    androidx.compose.runtime.LaunchedEffect(count) {
+        pop.snapTo(0.5f)
+        pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
+    }
+    Box(
+        modifier
+            .padding(end = 6.dp)
+            .scale(pop.value)
+            .heightIn(min = 18.dp)
+            .widthIn(min = 18.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(dev.jeromeswannack.chineselearning.lab.ui.theme.Palette.Again)
+            .padding(horizontal = 5.dp)
+            .testTag("tab-badge"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(if (count > 99) "99+" else count.toString(), color = androidx.compose.ui.graphics.Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
