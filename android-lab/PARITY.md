@@ -49,6 +49,8 @@ main app / website at that screen instead) · ➖ not applicable natively
 | Add / edit / delete notes; Paste a list; Generate with Claude | ⬜ | `components/import/`, `services/content` (API) |
 | Deck settings, delete deck, starter deck | ⬜ | |
 | Homework from tutor card, Next up line | ⬜ | `components/home/` |
+| Homework due list on Home (one-off items with due labels: overdue / due today / due in N days) | ⬜ | `components/homework/HomeworkDueCard.tsx`, `services/homework.ts`, `shared/homework/due.ts` |
+| One-off homework pass: word list (each word once, "Not yet" words again until right), lesson / reader once; events offline + uploaded (`/api/me/homework/events`); one-off lessons / readers kept out of the FSRS rotation; one-off decks capped out of the budget + "Add to my daily review" | ⬜ | `pages/HomeworkPassPage.tsx`, `pages/HomeworkPage.tsx`, `shared/homework/pass.ts`, docs/HOMEWORK.md |
 | Progress (mastered, % per deck, daily counts) | ⬜ | Progress tab |
 | Settings: study budget, start on, offline mode, audio quality | 🟡 sound/haptics toggles, resync, sign out only | `SettingsPage` |
 
@@ -58,6 +60,7 @@ main app / website at that screen instead) · ➖ not applicable natively
 |---|---|
 | Tutor tab: chat, flagged cards, Claude conversations, card hub | ⬜ |
 | Students dashboard / tutor tools / session notes / library & editors | ⬜ |
+| Tutor homework: Send homework as one-off / long-term / both with due date + split over days + leave out known words; load gauge; assigned-homework list (move date / cancel); lesson notes → draft → review with Claude → assign | ⬜ |
 | Sentence Coach | ⬜ |
 | Quests | ⬜ |
 | Readers list & reader editor | ⬜ |

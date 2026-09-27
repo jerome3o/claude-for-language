@@ -29,6 +29,7 @@ import {
 } from '@shared/scheduler';
 import { Rating, IntervalPreview, CardQueue } from '../types';
 import { API_BASE } from '../api/client';
+import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
 
 /**
  * ONE graded reader a day (Jerome's rule). The day's reader is whichever
@@ -123,6 +124,8 @@ export async function recordReaderReview(
 
   await db.readerReviewEvents.put(event);
   await db.readers.update(readerId, readerSchedulingFields(newState));
+  // Reading it anywhere completes its homework (docs/HOMEWORK.md).
+  await recordTargetDone('reader', readerId);
 
   return { event, newState };
 }
@@ -235,7 +238,9 @@ export function pickTodaysReader(
  * there is none yet; ensureDailyReader generates one when nothing is due).
  */
 export async function getDueReaders(): Promise<LocalReader[]> {
-  const [readers, readToday] = await Promise.all([db.readers.toArray(), readersReadToday()]);
+  const [allReaders, readToday, oneOffOnly] = await Promise.all([db.readers.toArray(), readersReadToday(), oneOffOnlyTargetIds()]);
+  // One-off homework readers are read in the homework pass, not rotated by FSRS.
+  const readers = allReaders.filter(r => !oneOffOnly.has(r.id));
   const reader = pickTodaysReader(readers, readToday, getStudyCutoff());
   return reader ? [reader] : [];
 }

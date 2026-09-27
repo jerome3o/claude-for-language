@@ -76,7 +76,8 @@ export function StudyCustomLesson({
 }: {
   lesson: LocalCustomLesson;
   intervalPreviews: Record<Rating, IntervalPreview>;
-  counts: QueueCounts;
+  /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
+  counts?: QueueCounts;
   onComplete: (correct: number, total: number, rating: Rating) => void;
   onEnd: () => void;
 }) {
@@ -225,7 +226,7 @@ export function StudyCustomLesson({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        <QueueCountsHeader counts={counts} />
+        {counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
         <div className="study-topbar-controls">
           <button className="study-close-btn" onClick={onEnd} aria-label="End session">
             ✕

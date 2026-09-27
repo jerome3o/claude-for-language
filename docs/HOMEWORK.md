@@ -1,7 +1,8 @@
 # Homework: assignments, due dates and the one-off pass
 
-Status: implemented (model + student side + direct assign first, then the tutor's lesson-notes → draft →
-review flow). The tutor UX is deliberately a first cut — Jerome will give feedback.
+Status: the model, the student side and direct assigning (Send homework, MCP) are live; the tutor's lesson-notes →
+draft → review flow (§4 steps 1–3) follows in a second PR. The tutor UX is deliberately a first cut — Jerome will
+give feedback.
 
 Why: Minghui asked to (5) split homework over days when it is too much, (6) add a word list without it
 being "today's homework", (7) set a deadline, (8) not send words the student already has. Before this,
@@ -12,7 +13,7 @@ everything a tutor sent landed in the student's FSRS queue and nothing had a dat
 An **assignment** is "this thing, for this student, done this way, by this date".
 
 ```
-homework_assignments                        homework_events (append-only, idempotent by id)
+assignments                        assignment_events (append-only, idempotent by id)
   id                                          id            client uuid
   relationship_id, tutor_id, student_id       assignment_id
   batch_id     items assigned together        student_id
@@ -139,7 +140,8 @@ MCP (tutor, `mcp-server/src/tools/homework.ts`): `get_student_homework`, `assign
 Nothing to convert: every deck / lesson / reader already sent IS long-term (`fsrs`) homework and keeps
 working unchanged; `shared_decks`, the library assign and `share-reader` stay as they are. Assignments are
 created only from now on (new API, Send homework, drafts). Old session-notes jobs (`review = 0`) keep
-auto-sending; `submit_session_notes` is unchanged. Migration `0073_homework.sql` only adds the two tables,
+auto-sending; `submit_session_notes` is unchanged. Migration `0073_homework.sql` only adds the two tables (named `assignments` / `assignment_events` because the
+unused legacy reader-homework table `homework_assignments` of migration 0024 still exists; it is left alone),
 `tutor_lesson_log.title` and `tutor_note_jobs.review / plan / chat / assigned_at`.
 
 ## 7. Open questions for Jerome

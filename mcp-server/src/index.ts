@@ -20,6 +20,7 @@ import { ApiClient, ApiError } from './api.js';
 import { errorResult, guard, textResult, type ToolContext } from './tools/context.js';
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
+import { registerHomeworkTools } from './tools/homework.js';
 import { registerTutorApps } from './tools/apps.js';
 
 interface User {
@@ -1920,6 +1921,7 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
     // main API as this user, so ownership and tutor checks stay in one place.
     registerStudentTools(ctx);
     registerContentTools(ctx);
+    registerHomeworkTools(ctx);
     registerTutorApps(ctx);
   }
 }

@@ -121,6 +121,7 @@ export function MorePage() {
 
         {!role.isTutorOnly && (
           <NavSection title="From your tutor">
+            <NavRow icon="✅" label="Homework" desc="One-off practice with a due date" to="/homework" />
             <NavRow
               icon="📝"
               label="Lesson Notes"

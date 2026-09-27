@@ -25,6 +25,7 @@ import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from '.
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
 import { syncCustomLessons, uploadCustomLessonCompletions, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncRecordingNotes } from './recording-notes';
+import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
 import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
@@ -441,6 +442,14 @@ class SyncService {
       );
     } catch (err) {
       console.error('[Sync] Custom lesson sync failed:', err);
+    }
+    try {
+      // Homework from the tutor: pass events up, assignments down (one-off
+      // passes with due dates; docs/HOMEWORK.md). After the lessons, so a
+      // freshly assigned lesson is already on the device.
+      await syncHomework();
+    } catch (err) {
+      console.error('[Sync] Homework sync failed:', err);
     }
     try {
       // Cards flagged for the tutor while offline go up first, so a reply

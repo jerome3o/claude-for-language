@@ -17,6 +17,8 @@ import { SplashPage } from './pages/SplashPage';
 // Lazy-loaded pages
 const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ default: m.DeckDetailPage })));
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
+const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
+const HomeworkPassPage = lazy(() => import('./pages/HomeworkPassPage').then(m => ({ default: m.HomeworkPassPage })));
 const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
 const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
 const SentenceAnalysisPage = lazy(() => import('./pages/SentenceAnalysisPage').then(m => ({ default: m.SentenceAnalysisPage })));
@@ -400,6 +402,18 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <MiniLessonsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/homework" element={<ProtectedRoute><Header /><HomeworkPage /></ProtectedRoute>} />
+      <Route
+        path="/homework/:id"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ErrorBoundary fallbackTitle="Homework interrupted">
+              <HomeworkPassPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />

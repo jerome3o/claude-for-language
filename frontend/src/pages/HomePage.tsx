@@ -7,6 +7,7 @@ import { Loading } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
 import { StudyTodayCard } from '../components/home/StudyTodayCard';
 import { HomeworkCard } from '../components/home/HomeworkCard';
+import { HomeworkDueCard } from '../components/homework/HomeworkDueCard';
 import { DeckList, HOME_DECK_LIMIT } from '../components/home/DeckList';
 import { NextUpLine } from '../components/home/NextUpLine';
 import { moveDeckInQueue } from '../services/deckOrder';
@@ -140,6 +141,8 @@ export function HomePage() {
           onStudy={handleStudyAll}
           onMoreNew={bumpBonus}
         />
+
+        <HomeworkDueCard />
 
         <HomeworkCard view={homework} />
 

@@ -478,8 +478,10 @@ export async function shareDeck(
   relationshipId: string,
   tutorId: string,
   sourceDeckId: string,
-  priority: HomeworkPriority = 'core'
-): Promise<SharedDeckWithDetails> {
+  priority: HomeworkPriority = 'core',
+  /** Source notes to leave out of the copy (homework dedupe). */
+  options: { excludeNoteIds?: ReadonlySet<string> } = {}
+): Promise<SharedDeckWithDetails & { note_ids: string[] }> {
   // Verify relationship and that user is the tutor
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
   const myRole = getMyRole(rel, tutorId);
@@ -504,7 +506,7 @@ export async function shareDeck(
   // tutor's notes with their clips (same R2 keys) and fresh cards.
   // 'core' goes to the top of the student's queue, 'non_urgent' to the bottom.
   const targetDeckName = `${sourceDeck.name} (from tutor)`;
-  const { deck: targetDeck } = await copyDeckForUser(db, sourceDeck, studentId, targetDeckName, priority === 'non_urgent' ? 'bottom' : 'top');
+  const { deck: targetDeck, noteIds } = await copyDeckForUser(db, sourceDeck, studentId, targetDeckName, priority === 'non_urgent' ? 'bottom' : 'top', options);
   const targetDeckId = targetDeck.id;
 
   // Record the share
@@ -525,6 +527,7 @@ export async function shareDeck(
     shared_at: new Date().toISOString(),
     source_deck_name: sourceDeck.name,
     target_deck_name: targetDeckName,
+    note_ids: noteIds,
   };
 }
 

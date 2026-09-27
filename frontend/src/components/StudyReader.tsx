@@ -147,7 +147,8 @@ export function StudyReader({
 }: {
   reader: LocalReader;
   intervalPreviews: Record<Rating, IntervalPreview>;
-  counts: QueueCounts;
+  /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
+  counts?: QueueCounts;
   isRating: boolean;
   onRate: (rating: Rating, timeSpentMs: number) => void;
   onEnd: () => void;
@@ -165,7 +166,7 @@ export function StudyReader({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        <QueueCountsHeader counts={counts} activeQueue={reader.queue} />
+        {counts ? <QueueCountsHeader counts={counts} activeQueue={reader.queue} /> : <span className="study-topbar-label">Homework</span>}
         <div className="study-topbar-controls">
           <button className="study-close-btn" onClick={onEnd} aria-label="End session">
             ✕
