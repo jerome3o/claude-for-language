@@ -30,8 +30,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
+import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
@@ -62,7 +62,7 @@ data class TutorPageUi(
     val relationship: Loadable<RelationshipDto> = Loadable(loading = true),
     val myId: String? = null,
     val conversations: Loadable<List<ConversationDto>> = Loadable(loading = true),
-    val flags: Loadable<CardFlagsDto> = Loadable(loading = true),
+    val flags: Loadable<FlagsDto> = Loadable(loading = true),
     val sharedDecks: Loadable<List<SharedDeckDto>> = Loadable(loading = true),
     val studentSharedDecks: List<StudentSharedDeckDto> = emptyList(),
     val busy: Boolean = false,
@@ -77,8 +77,8 @@ class TutorPageActions(
     val onVideoCall: () -> Unit = {},
     val onOpenConversation: (String) -> Unit = {},
     val onOpenCard: (noteId: String) -> Unit = {},
-    val onToggleFlag: (CardFlagDto) -> Unit = {},
-    val onDeleteFlag: (CardFlagDto) -> Unit = {},
+    val onToggleFlag: (FlagDto) -> Unit = {},
+    val onDeleteFlag: (FlagDto) -> Unit = {},
     val onOpenClaudeChats: () -> Unit = {},
     val onRemoveConnection: () -> Unit = {},
     val onRetry: () -> Unit = {},
@@ -204,9 +204,9 @@ fun ConversationList(list: List<ConversationDto>, onOpen: (String) -> Unit) {
 
 /** "🚩 Cards you flagged": open first, resolved behind a toggle (web: FlaggedCardsSection role=student). */
 @Composable
-fun FlagsSection(flags: Loadable<CardFlagsDto>, actions: TutorPageActions) {
+fun FlagsSection(flags: Loadable<FlagsDto>, actions: TutorPageActions) {
     var showResolved by rememberSaveable { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf<CardFlagDto?>(null) }
+    var confirmDelete by remember { mutableStateOf<FlagDto?>(null) }
     val data = flags.data
     val open = data?.flags.orEmpty().filter { it.status == "open" }
     val resolved = data?.flags.orEmpty().filter { it.status != "open" }
@@ -235,7 +235,7 @@ fun FlagsSection(flags: Loadable<CardFlagsDto>, actions: TutorPageActions) {
 }
 
 @Composable
-private fun FlagCard(flag: CardFlagDto, actions: TutorPageActions, onDelete: () -> Unit) {
+private fun FlagCard(flag: FlagDto, actions: TutorPageActions, onDelete: () -> Unit) {
     LabCard(Modifier.testTag("card-flag")) {
         Row(
             Modifier.fillMaxWidth().bouncyClickable { actions.onOpenCard(flag.note_id) }.padding(horizontal = 16.dp, vertical = 12.dp),

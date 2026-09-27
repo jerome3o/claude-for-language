@@ -1,8 +1,8 @@
 package dev.jeromeswannack.chineselearning.lab.ui.connections
 
 import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
+import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
@@ -45,10 +45,10 @@ class ConnectionsScreenshots : LabScreenshotTest() {
             ConversationDto("c1", "rel1", "Lesson questions", ago(30), ago(1), last_message = MessageDto("m1", content = "明天上课前把这些词复习一下，好吗？")),
             ConversationDto("c2", "rel1", null, ago(24 * 9), ago(24 * 3), last_message = MessageDto("m2", content = "Thanks! 我今天学了二十个新词。")),
         )
-        val flags = CardFlagsDto(
+        val flags = FlagsDto(
             listOf(
-                CardFlagDto("f1", "rel1", "n1", message = "Why is 了 at the end here and not after the verb?", status = "open", created_at = ago(20), hanzi = "我吃饭了", pinyin = "wǒ chī fàn le", english = "I have eaten", deck_name = "Week 3"),
-                CardFlagDto("f2", "rel1", "n2", message = "Is 晴天 the same as 天晴?", status = "resolved", tutor_reply = "Almost — 晴天 is a noun (a sunny day), 天晴 describes the weather clearing.", replied_at = ago(5), created_at = ago(50), hanzi = "晴天", pinyin = "qíngtiān", english = "sunny day", deck_name = "天气", tutor_name = "王老师"),
+                FlagDto("f1", "rel1", "n1", message = "Why is 了 at the end here and not after the verb?", status = "open", created_at = ago(20), hanzi = "我吃饭了", pinyin = "wǒ chī fàn le", english = "I have eaten", deck_name = "Week 3"),
+                FlagDto("f2", "rel1", "n2", message = "Is 晴天 the same as 天晴?", status = "resolved", tutor_reply = "Almost — 晴天 is a noun (a sunny day), 天晴 describes the weather clearing.", replied_at = ago(5), created_at = ago(50), hanzi = "晴天", pinyin = "qíngtiān", english = "sunny day", deck_name = "天气", tutor_name = "王老师"),
             ),
             open = 1,
         )

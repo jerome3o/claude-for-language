@@ -7,8 +7,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
-import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
+import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
@@ -103,7 +103,7 @@ class ConnectionsViewModel(private val app: LabApp) : ViewModel() {
 class TutorPageViewModel(private val app: LabApp, private val relId: String) : ViewModel() {
     private val relationship = app.cachedResource<RelationshipDto>(viewModelScope, ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND) { relationship(relId) }
     private val conversations = app.cachedResource<List<ConversationDto>>(viewModelScope, ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND) { conversations(relId) }
-    private val flags = app.cachedResource<CardFlagsDto>(viewModelScope, ConnectionsKeys.flags(relId), ConnectionsKeys.KIND) { cardFlags(relId) }
+    private val flags = app.cachedResource<FlagsDto>(viewModelScope, ConnectionsKeys.flags(relId), ConnectionsKeys.KIND) { cardFlags(relId) }
     private val shared = app.cachedResource<List<SharedDeckDto>>(viewModelScope, ConnectionsKeys.sharedDecks(relId), ConnectionsKeys.KIND) { sharedDecks(relId) }
     private val studentShared = app.cachedResource<List<StudentSharedDeckDto>>(viewModelScope, ConnectionsKeys.studentSharedDecks(relId), ConnectionsKeys.KIND) { studentSharedDecks(relId) }
     private val me = MutableStateFlow<String?>(null)
@@ -117,7 +117,7 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
             relationship = p[0] as Loadable<RelationshipDto>,
             myId = m,
             conversations = p[1] as Loadable<List<ConversationDto>>,
-            flags = p[2] as Loadable<CardFlagsDto>,
+            flags = p[2] as Loadable<FlagsDto>,
             sharedDecks = p[3] as Loadable<List<SharedDeckDto>>,
             studentSharedDecks = (p[4] as Loadable<List<StudentSharedDeckDto>>).data.orEmpty(),
             busy = s.busy,
@@ -160,8 +160,8 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
         }
     }
 
-    fun toggleFlag(flag: CardFlagDto) = flagAction { if (flag.status == "open") app.repo.api.resolveCardFlag(flag.id) else app.repo.api.reopenCardFlag(flag.id) }
-    fun deleteFlag(flag: CardFlagDto) = flagAction { app.repo.api.deleteCardFlag(flag.id) }
+    fun toggleFlag(flag: FlagDto) = flagAction { if (flag.status == "open") app.repo.api.resolveCardFlag(flag.id) else app.repo.api.reopenCardFlag(flag.id) }
+    fun deleteFlag(flag: FlagDto) = flagAction { app.repo.api.deleteCardFlag(flag.id) }
 
     private fun flagAction(block: suspend () -> Unit) {
         viewModelScope.launch {

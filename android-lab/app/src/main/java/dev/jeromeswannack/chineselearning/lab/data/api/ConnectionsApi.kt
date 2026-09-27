@@ -101,7 +101,7 @@ suspend fun Api.studentSharedDecks(relId: String): List<StudentSharedDeckDto> = 
 // ---------------- card flags ----------------
 
 @Serializable
-data class CardFlagDto(
+data class FlagDto(
     val id: String,
     val relationship_id: String = "",
     val note_id: String = "",
@@ -122,16 +122,16 @@ data class CardFlagDto(
 )
 
 @Serializable
-data class CardFlagsDto(val flags: List<CardFlagDto> = emptyList(), val open: Int = 0)
+data class FlagsDto(val flags: List<FlagDto> = emptyList(), val open: Int = 0)
 
 @Serializable
-data class CardFlagOne(val flag: CardFlagDto? = null)
+data class FlagOne(val flag: FlagDto? = null)
 
-suspend fun Api.cardFlags(relId: String, status: String = "all"): CardFlagsDto = get("/api/relationships/${enc(relId)}/card-flags?status=${enc(status)}")
+suspend fun Api.cardFlags(relId: String, status: String = "all"): FlagsDto = get("/api/relationships/${enc(relId)}/card-flags?status=${enc(status)}")
 
-suspend fun Api.resolveCardFlag(id: String): CardFlagOne = post("/api/card-flags/${enc(id)}/resolve")
+suspend fun Api.resolveCardFlag(id: String): FlagOne = post("/api/card-flags/${enc(id)}/resolve")
 
-suspend fun Api.reopenCardFlag(id: String): CardFlagOne = post("/api/card-flags/${enc(id)}/reopen")
+suspend fun Api.reopenCardFlag(id: String): FlagOne = post("/api/card-flags/${enc(id)}/reopen")
 
 suspend fun Api.deleteCardFlag(id: String): Unit = exchange("DELETE", "/api/card-flags/${enc(id)}", null, Unit.serializer())
 
