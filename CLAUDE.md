@@ -113,6 +113,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
+│   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
@@ -1577,4 +1578,5 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)
 - `/connections/:relId/cards/:noteId`, `/connections/:relId/claude-chats` - Tutor's view of one of the student's cards (hub) / all their Ask-Claude conversations
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
+- `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards
