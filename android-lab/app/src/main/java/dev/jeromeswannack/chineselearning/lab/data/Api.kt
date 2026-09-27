@@ -25,6 +25,12 @@ data class MeDto(
     val email: String? = null,
     val new_cards_per_day: Int = 3,
     val secondary_cards_per_day: Int = 6,
+    val picture_url: String? = null,
+    val is_admin: Boolean = false,
+    /** users.role: 'student' | 'tutor' — a tutor account gets the tutor-first shell (ui/nav/NavRole.kt). */
+    val role: String? = null,
+    /** Settings → "Start on": study | students | decks, null = automatic (nav/NavRole.kt resolveLanding). */
+    val landing_page: String? = null,
 )
 
 @Serializable
@@ -109,16 +115,22 @@ data class SentenceDto(
 data class SentencesPageDto(val sentences: List<SentenceDto> = emptyList(), val server_time: String? = null)
 
 class UnauthorizedException : IOException("Signed out")
-class HttpException(val code: Int, message: String) : IOException("HTTP $code: $message")
+/** A non-2xx answer. [body] is the full response body when known (see data/api/Http.kt `serverMessage()`). */
+class HttpException(val code: Int, message: String, val body: String? = null) : IOException("HTTP $code: $message")
 
+/**
+ * The API client. Sync's own calls are below; features add theirs as extension
+ * functions in data/api/<Feature>Api.kt on top of the generic helpers in
+ * data/api/Http.kt (`get` / `post` / `put` / `patch` / `delete` / `send` / `upload`).
+ */
 class Api(val baseUrl: String = Config.API_BASE, private val tokenProvider: () -> String?) {
     val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; explicitNulls = false }
-    private val http = OkHttpClient.Builder()
+    internal val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private fun request(path: String): Request.Builder {
+    internal fun request(path: String): Request.Builder {
         val b = Request.Builder().url("$baseUrl$path")
         tokenProvider()?.let { b.header("Authorization", "Bearer $it") }
         return b

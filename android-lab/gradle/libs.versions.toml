@@ -12,6 +12,7 @@ lifecycle = "2.8.7"
 coreKtx = "1.15.0"
 browser = "1.8.0"
 work = "2.10.0"
+navigation = "2.8.5"
 junit = "4.13.2"
 robolectric = "4.14.1"
 roborazzi = "1.39.0"
@@ -25,6 +26,7 @@ androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
 androidx-work = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
