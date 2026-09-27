@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { transcribeAudio, TranscriptionResult } from '../api/client';
 import { pinyin } from 'pinyin-pro';
 import { normalizeNumbersToHanzi } from '../utils/numberHanzi';
@@ -82,49 +82,55 @@ export function useTranscription() {
     isOffline: false,
   });
 
-  const transcribe = useCallback(async (audioBlob: Blob, expectedHanzi: string, expectedPinyin: string) => {
-    if (!navigator.onLine) {
-      setState({
-        isTranscribing: false,
-        result: null,
-        comparison: null,
-        error: null,
-        isOffline: true,
-      });
+  // A newer take (or reset) makes an older, still-running transcription stale.
+  const generation = useRef(0);
+
+  /**
+   * Called as soon as a take exists (not on "Check answer"), so the result is usually
+   * waiting by the time the card flips. `live` is the streaming transcriber's final text
+   * (Soniox, ready a few hundred ms after Stop); when it's missing, empty or fails, the take
+   * is uploaded to POST /api/transcribe (Whisper) as before. Offline: "will transcribe when
+   * online" (the recording still goes up with the review).
+   */
+  const transcribe = useCallback(async (audioBlob: Blob, expectedHanzi: string, expectedPinyin: string, live?: Promise<string> | null) => {
+    const gen = ++generation.current;
+    const set = (next: TranscriptionState) => { if (gen === generation.current) setState(next); };
+    const startedAt = performance.now();
+    const done = (text: string, via: string, result: TranscriptionResult) => {
+      console.info(`[transcribe] ${via} ready ${Math.round(performance.now() - startedAt)} ms after stop`);
+      set({ isTranscribing: false, result, comparison: compareTranscription(text, expectedHanzi, expectedPinyin), error: null, isOffline: false });
+    };
+
+    if (!live && !navigator.onLine) {
+      set({ isTranscribing: false, result: null, comparison: null, error: null, isOffline: true });
       return;
     }
+    set({ isTranscribing: true, result: null, comparison: null, error: null, isOffline: false });
 
-    setState({
-      isTranscribing: true,
-      result: null,
-      comparison: null,
-      error: null,
-      isOffline: false,
-    });
+    if (live) {
+      try {
+        const text = await live;
+        if (text.trim()) return done(text, 'live (Soniox)', { text, language: 'zh' });
+        // Nothing heard live: let Whisper have a go at the file.
+      } catch (err) {
+        console.warn('[transcribe] live transcription failed, uploading instead:', (err as Error).message);
+      }
+      if (!navigator.onLine) {
+        set({ isTranscribing: false, result: null, comparison: null, error: null, isOffline: true });
+        return;
+      }
+    }
 
     try {
       const result = await transcribeAudio(audioBlob);
-      const comparison = compareTranscription(result.text, expectedHanzi, expectedPinyin);
-
-      setState({
-        isTranscribing: false,
-        result,
-        comparison,
-        error: null,
-        isOffline: false,
-      });
-    } catch (err) {
-      setState({
-        isTranscribing: false,
-        result: null,
-        comparison: null,
-        error: 'Transcription failed',
-        isOffline: false,
-      });
+      done(result.text, 'upload (Whisper)', result);
+    } catch {
+      set({ isTranscribing: false, result: null, comparison: null, error: 'Transcription failed', isOffline: false });
     }
   }, []);
 
   const reset = useCallback(() => {
+    generation.current++;
     setState({
       isTranscribing: false,
       result: null,
