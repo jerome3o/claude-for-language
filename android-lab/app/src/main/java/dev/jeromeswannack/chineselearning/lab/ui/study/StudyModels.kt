@@ -33,6 +33,8 @@ data class SessionStats(
 sealed interface StudyPhase {
     data object Loading : StudyPhase
     data class Showing(val view: CardView) : StudyPhase
+    // ---- Package B: a mini lesson in the card flow (ui/lessons/StudyExtras.kt) ----
+    data class Lesson(val lesson: dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLesson) : StudyPhase
     data object Done : StudyPhase
 }
 

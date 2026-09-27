@@ -60,6 +60,50 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     )
     private var undo: UndoSnapshot? = null
 
+    // ---- Package B: mini lessons mixed into the cards (ui/lessons/StudyExtras.kt) ----
+    private val extras = dev.jeromeswannack.chineselearning.lab.ui.lessons.StudyExtras(app, deckId)
+
+    /** Shows what [StudyExtras.next] picked: a card, a lesson, or nothing. */
+    private suspend fun presentNext(item: dev.jeromeswannack.chineselearning.lab.core.SessionItem?) {
+        when (item) {
+            is dev.jeromeswannack.chineselearning.lab.core.SessionItem.Lesson -> {
+                val lesson = extras.present(item.lesson) ?: return present(null)
+                _ui.update { it.copy(phase = StudyPhase.Lesson(lesson), counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+            }
+            is dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card -> present(item.card)
+            else -> present(null)
+        }
+    }
+
+    private fun nextItem(lastRatedCardId: String?, breakAllowed: Boolean = true) =
+        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, breakAllowed)
+
+    /** A finished mini lesson was rated: record it, count it in the session, move on. */
+    fun completeLesson(result: dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) {
+        val lesson = (_ui.value.phase as? StudyPhase.Lesson)?.lesson ?: return
+        if (busy) return
+        busy = true
+        val before = _ui.value.stats
+        val correct = result.rating >= 2
+        val streak = if (correct) before.streak + 1 else 0
+        _ui.update {
+            it.copy(lastRating = result.rating, stats = before.copy(
+                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0, streak = streak,
+                bestStreak = maxOf(before.bestStreak, streak), againCount = before.againCount + if (result.rating == 0) 1 else 0,
+            ))
+        }
+        app.haptics.rated(result.rating)
+        viewModelScope.launch {
+            extras.complete(lesson, result)
+            var next = nextItem(null, breakAllowed = false)
+            if (next == null) next = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }
+            presentNext(next)
+            busy = false
+            if (next == null) celebrate()
+        }
+    }
+    // ---- end Package B ----
+
     init {
         viewModelScope.launch { app.online.collect { online -> _ui.update { it.copy(online = online) } } }
         viewModelScope.launch { load(resetRecent = true) }
@@ -84,7 +128,8 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         if (resetRecent) recentNoteIds = emptyList()
         _ui.update { it.copy(hasMoreNew = built.hasMoreNew, bonus = bonus, deckName = deckId?.let { id -> deckNames[id] }) }
-        present(StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, null, now, cutoff, random))
+        extras.load(cutoff) // Package B
+        presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
     }
 
     private suspend fun present(card: QueueCard?) {
@@ -113,7 +158,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         if (view == null) {
             // Orphaned card (note deleted on another device): drop it and move on.
             queue.removeAll { it.id == card.id }
-            present(StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, null, System.currentTimeMillis(), cutoff, random))
+            presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
             return
         }
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds)) }
@@ -174,10 +219,10 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             recentNoteIds = recentNoteIds.takeLast(4) + card.noteId
             _ui.update { it.copy(canUndo = true) }
 
-            val now = System.currentTimeMillis()
-            var chosen = StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, card.id, now, cutoff, random)
-            if (chosen == null) chosen = findDelayedLearningCard()?.also { queue.add(it) }
-            present(chosen)
+            extras.cardRated() // Package B
+            var chosen = nextItem(card.id) // Package B (was StudyQueue.selectNext)
+            if (chosen == null) chosen = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }
+            presentNext(chosen)
             busy = false
             if (chosen == null) celebrate()
             schedulePush()
@@ -237,6 +282,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
 
     override fun onCleared() {
         app.audio.stop()
+        extras.stopAudio() // Package B
         app.scope.launch { if (app.online.value) repo.pushEvents() }
         if (_ui.value.stats.reviews > 0) app.scheduleBackgroundUpload()
     }
