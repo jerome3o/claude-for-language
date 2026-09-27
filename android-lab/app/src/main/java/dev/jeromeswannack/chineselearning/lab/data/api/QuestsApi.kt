@@ -43,8 +43,6 @@ data class QuestDto(
 @Serializable data class NewQuestBody(val topic: String? = null, val difficulty: String? = null, val goal_count: Int? = null)
 @Serializable data class QuestCreatedDto(val id: String, val status: String = "generating")
 @Serializable data class QuestCompleteBody(val moves: Int)
-@Serializable data class PracticeTtsBody(val text: String, val speed: Double? = null)
-@Serializable data class PracticeTtsDto(val audio_base64: String, val content_type: String = "audio/mpeg")
 
 suspend fun Api.quests(): List<QuestSummaryDto> = get<QuestListDto>("/api/quests").quests
 suspend fun Api.quest(id: String): QuestDto = get<QuestEnvelopeDto>("/api/quests/${enc(id)}").quest
@@ -52,5 +50,3 @@ suspend fun Api.createQuest(body: NewQuestBody): QuestCreatedDto = post("/api/qu
 suspend fun Api.retryQuest(id: String): QuestCreatedDto = post("/api/quests/${enc(id)}/retry")
 suspend fun Api.deleteQuest(id: String) { send("DELETE", "/api/quests/${enc(id)}").let { if (!it.ok && it.code != 404) throw dev.jeromeswannack.chineselearning.lab.data.HttpException(it.code, it.body.take(200), it.body) } }
 
-/** A Chinese clip for any text (`POST /api/practice/tts`, MiniMax) — the quest instructions. */
-suspend fun Api.practiceTts(text: String): PracticeTtsDto = post("/api/practice/tts", PracticeTtsBody(text))

@@ -34,11 +34,11 @@ class QuestSpeech(private val app: LabApp) {
             val file = fileFor(text)
             if (!file.exists() && app.online.value) {
                 runCatching {
-                    val clip = app.repo.api.practiceTts(text)
+                    val clip = app.repo.api.practiceTts(text, null, null)
                     withContext(Dispatchers.IO) {
                         dir.mkdirs()
                         val tmp = File(dir, file.name + ".part")
-                        tmp.writeBytes(Base64.decode(clip.audio_base64, Base64.DEFAULT))
+                        tmp.writeBytes(Base64.decode(clip.audioBase64, Base64.DEFAULT))
                         tmp.renameTo(file)
                     }
                 }
