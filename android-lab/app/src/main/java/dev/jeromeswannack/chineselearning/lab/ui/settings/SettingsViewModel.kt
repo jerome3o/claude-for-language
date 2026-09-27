@@ -12,7 +12,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.FeatureRequestDetailDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FeatureRequestDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetDto
 import dev.jeromeswannack.chineselearning.lab.data.api.audioQuality
-import dev.jeromeswannack.chineselearning.lab.data.api.bio
 import dev.jeromeswannack.chineselearning.lab.data.api.classifyAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.commentOnFeatureRequest
 import dev.jeromeswannack.chineselearning.lab.data.api.createFeatureRequest
@@ -21,7 +20,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.featureRequest
 import dev.jeromeswannack.chineselearning.lab.data.api.featureRequests
 import dev.jeromeswannack.chineselearning.lab.data.api.problems
 import dev.jeromeswannack.chineselearning.lab.data.api.regenerateFallbackAudio
-import dev.jeromeswannack.chineselearning.lab.data.api.saveBio
 import dev.jeromeswannack.chineselearning.lab.data.api.saveLandingPage
 import dev.jeromeswannack.chineselearning.lab.data.api.saveStudyBudget
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
@@ -40,10 +38,6 @@ import java.io.File
 data class Busy(val busy: Boolean = false, val status: String? = null, val error: String? = null)
 
 data class SettingsUi(
-    val bio: String = "",
-    val bioSaved: String = "",
-    val bioLoaded: Boolean = false,
-    val bioBusy: Busy = Busy(),
     /** The saved account budget (Prefs.budget, mirrored from /api/auth/me). */
     val budget: StudyBudget = StudyBudget.DEFAULT,
     /** What the steppers show. */
@@ -89,7 +83,6 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
     private var pendingExport: File? = null
 
     init {
-        loadBio()
         // After a sync the account budget / landing page may have changed elsewhere.
         viewModelScope.launch {
             app.repo.dataVersion.collect {
@@ -107,37 +100,6 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
 
     private suspend fun <T> call(block: suspend () -> T): T = withContext(Dispatchers.IO) { block() }
 
-    // ---------------- bio ----------------
-
-    fun loadBio() = viewModelScope.launch {
-        val cached = app.cache.get<String>(BIO_KEY)
-        if (cached != null) _ui.update { it.copy(bio = cached, bioSaved = cached, bioLoaded = true) }
-        try {
-            val b = call { app.repo.api.bio() }.orEmpty()
-            app.cache.put(BIO_KEY, "settings", b)
-            _ui.update { if (it.bio == it.bioSaved) it.copy(bio = b, bioSaved = b, bioLoaded = true) else it.copy(bioSaved = b, bioLoaded = true) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            _ui.update { it.copy(bioLoaded = true, bioBusy = Busy(error = if (cached == null) e.userMessage() else null)) }
-        }
-    }
-
-    fun editBio(text: String) = _ui.update { it.copy(bio = text.take(BIO_MAX)) }
-
-    fun saveBio() = viewModelScope.launch {
-        _ui.update { it.copy(bioBusy = Busy(busy = true)) }
-        try {
-            val saved = call { app.repo.api.saveBio(_ui.value.bio.trim().ifEmpty { null }) }.orEmpty()
-            app.cache.put(BIO_KEY, "settings", saved)
-            _ui.update { it.copy(bio = saved, bioSaved = saved, bioBusy = Busy(status = "Saved ✓")) }
-            app.haptics.tick()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            _ui.update { it.copy(bioBusy = Busy(error = e.userMessage())) }
-        }
-    }
 
     // ---------------- budget ----------------
 
@@ -348,10 +310,5 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
     class Factory(private val app: LabApp) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = SettingsViewModel(app) as T
-    }
-
-    companion object {
-        const val BIO_KEY = "settings/bio"
-        const val BIO_MAX = 500
     }
 }

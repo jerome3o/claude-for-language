@@ -68,8 +68,6 @@ data class SettingsEnv(
 
 class SettingsActions(
     val onBack: (() -> Unit)? = null,
-    val editBio: (String) -> Unit = {},
-    val saveBio: () -> Unit = {},
     val downloadAudio: () -> Unit = {},
     val setForcedOffline: (Boolean) -> Unit = {},
     val exportBackup: () -> Unit = {},
@@ -92,7 +90,7 @@ class SettingsActions(
 private val LANDING_OPTIONS = listOf<Pair<String?, String>>(null to "Automatic", "study" to "Study", "students" to "Students", "decks" to "Decks")
 
 /**
- * Settings, section for section as the web (pages/SettingsPage.tsx): bio, offline audio,
+ * Settings, section for section as the web (pages/SettingsPage.tsx): Profile link, offline audio,
  * offline mode, backup, new cards a day, Start on, sign out, and Advanced (audio quality,
  * sentence coverage, feature requests, duplicate finder, full sync, updates, debug report,
  * last-sync timings). The Lab's own toggles (sound, haptics) sit with the app settings.
@@ -110,7 +108,16 @@ fun SettingsScreen(
     var confirmSignOut by remember { mutableStateOf(false) }
     val role = env.role
     LabScreen(title = "Settings", onBack = actions.onBack, listState = listState) {
-        if (!role.isTutorOnly) item { BioSection(ui, env, actions) }
+        // Name, photo, About me, time zone and the private bio live on the Profile screen (web: SettingsPage → /profile).
+        item {
+            LabCard {
+                NavRow(
+                    "👤", "Profile",
+                    desc = if (role.isTutorOnly || role.isTutorAccount) "Name, photo, about me for students, time zone" else "Name, photo, about me, bio for Claude, time zone",
+                    onClick = { actions.open(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.profile()) },
+                )
+            }
+        }
         if (!role.isTutorOnly) item { OfflineAudioLine(env, actions) }
         item { OfflineModeSection(env, actions) }
         item { BackupSection(ui, actions, env) }
@@ -177,35 +184,6 @@ fun SettingsScreen(
             onConfirm = actions.signOut,
             onDismiss = { confirmSignOut = false },
         )
-    }
-}
-
-@Composable
-private fun BioSection(ui: SettingsUi, env: SettingsEnv, actions: SettingsActions) {
-    SettingsSection(
-        "Personal Bio",
-        "Tell us a bit about yourself. This is used to personalize example sentences — e.g. if you mention you like coffee, you might get sentences about ordering coffee.",
-    ) {
-        if (!ui.bioLoaded) {
-            Text("Loading…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-            return@SettingsSection
-        }
-        OutlinedTextField(
-            value = ui.bio,
-            onValueChange = actions.editBio,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp),
-            placeholder = { Text("e.g. I'm a software developer living in New Zealand. I like hiking, coffee, and cooking. I'm learning Chinese to talk to my partner's family.", color = Lab.colors.muted) },
-            enabled = !ui.bioBusy.busy,
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent, unfocusedBorderColor = Lab.colors.cardBorder),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Lab.colors.ink),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            PrimaryPill(if (ui.bioBusy.busy) "Saving…" else "Save Bio", enabled = !ui.bioBusy.busy && ui.bio != ui.bioSaved && env.online, onClick = actions.saveBio)
-            Spacer(Modifier.width(12.dp))
-            Text("${ui.bio.length}/${SettingsViewModel.BIO_MAX}", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.weight(1f))
-            if (ui.bio == ui.bioSaved) StatusLine(ui.bioBusy.status)
-        }
-        ui.bioBusy.error?.let { StatusLine(it, error = true) }
     }
 }
 

@@ -39,6 +39,7 @@ object Routes {
     fun sessionReview(id: String) = "/study/review/${seg(id)}"
     fun sentenceCoverage() = "/settings/sentences"
     fun conversationVoices() = "/settings/voices"
+    fun profile() = "/profile"
     fun duplicateFinder() = "/duplicate-finder"
 
     // ---- tutor tab for students (package E) ----

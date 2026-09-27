@@ -404,7 +404,7 @@ pack. The story generator carries it in its prompt and gets ONE repair round whe
 
 5. **Idempotent event sync**: Events are deduplicated by ID. Syncing the same event twice is safe - it's skipped if already exists.
 
-7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has. Syncs never write back an id this device removed during the session (`wasRemovedLocally`), a full sync's cursor is the moment its snapshot was taken (so deletions made mid-sync still arrive), and a deck page that gets a 404 removes the deck locally. Decks deleted before tombstones existed (23 Sep 2026) were never announced, so `/api/sync/changes` also returns `live_deck_ids` (+ `live_deck_ids_at`, taken before the change queries) and the incremental sync drops local decks missing from it that predate the snapshot (`findGhostDecks`, `services/deckReconcile.ts`). The tutor's student page no longer lists shares whose tutor deck AND student copy are both gone (`dropGhostShares`).
+7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has. Syncs never write back an id this device removed during the session (`wasRemovedLocally`), a full sync's cursor is the moment its snapshot was taken (so deletions made mid-sync still arrive), and a deck page that gets a 404 removes the deck locally. Decks deleted before tombstones existed (23 Sep 2026) were never announced, so `/api/sync/changes` also returns `live_deck_ids` (+ `live_deck_ids_at`, taken before the change queries) and the incremental sync drops local decks missing from it that predate the snapshot (`findGhostDecks`, `shared/decks/ghosts.ts`; the Lab app's port is parity-tested). The tutor's student page no longer lists shares whose tutor deck AND student copy are both gone (`dropGhostShares`).
 
 6. **Checkpoints for performance**: `card_checkpoints` table stores computed state at a point in time. This avoids replaying all events from the beginning. Checkpoints are ALWAYS re-derivable from events.
 
@@ -863,7 +863,7 @@ beat. Voices come from the account's **enabled pool** (Settings → Advanced →
 `/settings/voices`; Lab: same path): `conversationVoicesFor(ex, enabled)` picks two different voices
 per dialogue, rotated by a hash of the dialogue (stable for one dialogue, varied across them), gender
 as the spec says / alternating. Selection per account in `users.conversation_voices` (migration
-0077); NULL = the admin's own selection, else the catalogue's `default_on` voices (newsreader /
+0078); NULL = the admin's own selection, else the catalogue's `default_on` voices (newsreader /
 neutral / warm only — the breathy, "sweet", role-play voices ship off). It rides on `/api/auth/me`
 (`conversation_voices`) and is cached on the device (`services/conversationVoices.ts`, Lab
 `ConversationVoiceCache`), so a changed selection just makes new clips on the next prefetch. The study views are `components/ExerciseView.tsx` (the one

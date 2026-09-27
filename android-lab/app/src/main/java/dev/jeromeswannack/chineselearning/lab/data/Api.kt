@@ -81,6 +81,9 @@ data class ChangesDto(
     val cards: List<CardDto> = emptyList(),
     val deleted: DeletedDto = DeletedDto(),
     val server_time: String,
+    /** Every deck id the account has, and when that list was taken (ghost decks: [core.GhostDecks]). */
+    val live_deck_ids: List<String>? = null,
+    val live_deck_ids_at: String? = null,
 )
 
 @Serializable
@@ -99,6 +102,10 @@ data class EventsPageDto(val events: List<EventDto> = emptyList(), val has_more:
 
 @Serializable
 data class UploadDto(val events: List<EventDto>)
+
+/** POST /api/reviews: events whose card is not in the account come back as `orphan_event_ids`. */
+@Serializable
+data class UploadResultDto(val orphan_event_ids: List<String> = emptyList())
 
 @Serializable
 data class SentenceDto(
@@ -169,9 +176,10 @@ class Api(val baseUrl: String = Config.API_BASE, private val tokenProvider: () -
 
     suspend fun changes(sinceMs: Long): ChangesDto = call(request("/api/sync/changes?since=$sinceMs").build(), ChangesDto.serializer())
 
-    suspend fun uploadEvents(events: List<EventDto>) {
+    /** Uploads a batch; returns the ids the server refused (their card is not in the account). */
+    suspend fun uploadEvents(events: List<EventDto>): List<String> {
         val body = json.encodeToString(UploadDto.serializer(), UploadDto(events)).toRequestBody(JSON)
-        status(request("/api/reviews").post(body).build()).let { if (it !in 200..299) throw HttpException(it, "upload failed") }
+        return call(request("/api/reviews").post(body).build(), UploadResultDto.serializer()).orphan_event_ids
     }
 
     suspend fun events(since: String, afterId: String?, limit: Int = 1000): EventsPageDto {
