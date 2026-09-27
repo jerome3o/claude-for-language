@@ -33,7 +33,11 @@ export function useAudioRecorder() {
     setAudioLevel(0);
   }, []);
 
-  const startRecording = useCallback(async (deviceId?: string) => {
+  /**
+   * `live.onChunk` gets the webm/Opus data every `timesliceMs` while recording (streamed to
+   * the live transcriber); `live.onStop` runs once the last chunk has been delivered.
+   */
+  const startRecording = useCallback(async (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: () => void; timesliceMs?: number }) => {
     try {
       setError(null);
       setAudioBlob(null);
@@ -69,6 +73,7 @@ export function useAudioRecorder() {
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
           chunksRef.current.push(e.data);
+          live?.onChunk(e.data);
         }
       };
 
@@ -77,9 +82,12 @@ export function useAudioRecorder() {
         setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
         stopLevelMonitor();
+        live?.onStop();
       };
 
-      mediaRecorder.start();
+      // With a live transcriber, hand over audio every 250 ms instead of once at the end.
+      if (live) mediaRecorder.start(live.timesliceMs ?? 250);
+      else mediaRecorder.start();
       setIsRecording(true);
     } catch (err: unknown) {
       const e = err as DOMException;

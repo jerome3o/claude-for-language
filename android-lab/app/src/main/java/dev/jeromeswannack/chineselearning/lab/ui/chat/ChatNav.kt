@@ -67,7 +67,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onWord = vm::openWord,
             onGenerateCard = vm::generateCard,
             onDismissNotice = vm::dismissNotice,
-            onJoinCall = { nav.openOrHandoff(Routes.call(it)) },
+            onJoinCall = { nav.open(Routes.call(it)) },
             onRetry = { nav.back(); nav.open(Routes.chat(relId, convId)) },
         ),
     ) {

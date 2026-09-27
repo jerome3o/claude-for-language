@@ -16,7 +16,6 @@ import {
   LocalCustomLesson,
   getStudyQueue,
   getStudyCutoff,
-  ensureDailyStatsInitialized,
   createLocalReviewEvent,
   getCardReviewEvents,
   storePendingRecording,
@@ -393,14 +392,19 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     if (!enabled) return;
     setIsLoading(true);
     try {
-      await ensureDailyStatsInitialized();
-      const [{ dueCards, counts, reviewedNoteIds: reviewedIds }, dueReaders, todaysGrammar, pendingLessons] = await Promise.all([
+      const load = () => Promise.all([
         // One pass over the cards table for due cards, counts and reviewed notes.
         getStudyQueue(deckId, bonusNewCards),
         deckId ? Promise.resolve([]) : getDueReaders(),
         deckId || !GRAMMAR_LESSONS_ENABLED ? Promise.resolve(null) : getTodaysGrammarLesson(),
         deckId ? Promise.resolve([]) : getDueCustomLessons(),
       ]);
+      // A failed load used to fall through to an empty queue — "All Done" while
+      // Home counted cards. Try once more before giving up.
+      const [{ dueCards, counts, reviewedNoteIds: reviewedIds }, dueReaders, todaysGrammar, pendingLessons] = await load().catch(err => {
+        console.warn('[useStudySession] Queue load failed, retrying once:', err);
+        return new Promise<Awaited<ReturnType<typeof load>>>((resolve, reject) => setTimeout(() => load().then(resolve, reject), 300));
+      });
       setQueue(dueCards);
       setReaderQueue(dueReaders);
       setGrammarLesson(todaysGrammar);

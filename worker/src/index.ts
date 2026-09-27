@@ -74,6 +74,7 @@ import callsRoutes, { mountCallSocket } from './routes/calls';
 import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
 import noteSearchRoutes from './routes/note-search';
+import transcriptionRoutes from './routes/transcription';
 import { tutorNotesRoutes } from './routes/tutor-notes';
 import debugReportsRoutes from './routes/debug-reports';
 import studentProfileRoutes from './routes/student-profile';
@@ -468,6 +469,8 @@ app.route('/api', callsRoutes);
 
 // Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
 app.route('/api', noteSearchRoutes);
+// Live pronunciation transcription: POST /api/transcribe/live (temporary Soniox key), GET /api/admin/transcription
+app.route('/api', transcriptionRoutes);
 
 // Session notes → agent jobs for a student (routes/tutor-notes.ts; runs on tutor-notes-queue)
 app.route('/api', tutorNotesRoutes);
@@ -2756,6 +2759,8 @@ app.get('/api/audio/*', async (c) => {
 });
 
 // ============ Transcription (Workers AI Whisper) ============
+// The upload path — the fallback. Streaming (Soniox, ready the moment the learner stops)
+// is POST /api/transcribe/live in routes/transcription.ts.
 
 app.post('/api/transcribe', async (c) => {
   const user = c.get('user');

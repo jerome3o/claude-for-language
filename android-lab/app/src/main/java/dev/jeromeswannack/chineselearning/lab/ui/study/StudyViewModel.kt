@@ -14,6 +14,7 @@ import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.api.generateMultipleChoice
 import dev.jeromeswannack.chineselearning.lab.data.api.studyNote
 import dev.jeromeswannack.chineselearning.lab.data.api.transcribe
+import dev.jeromeswannack.chineselearning.lab.data.api.liveTranscriptionSession
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -214,6 +216,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         if (recorder.recording) recorder.stop()?.delete()
         take?.delete()
         take = null
+        dropLive()
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras()) }
         loadExtras(view)
     }
@@ -229,6 +232,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel)) }
             setUpMc(view)
             if (!aiAvailable) return@launch
+            if (view.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING) liveKeys.prefetch(viewModelScope)
             runCatching { tools.voices(view.note.id) }.getOrNull()?.let { v -> updateExtras(view) { it.copy(voices = v) } }
             // Nothing cached but online: the set may exist server-side and not have synced yet.
             if (view.sentences.isEmpty()) runCatching { tools.fetchSetIfMissing(view.note.id) }.getOrNull()?.let { showSentences(view.note.id, it) }
@@ -382,13 +386,34 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
 
     private fun updateTake(view: CardView, change: (TakeUi) -> TakeUi) = updateExtras(view) { it.copy(take = change(it.take)) }
 
+    // Live transcription (Soniox, streamed while speaking): the key is fetched when a read
+    // card shows, so Record never waits for it; without one the take is uploaded as before.
+    private val liveKeys = LiveSessionCache { repo.api.liveTranscriptionSession() }
+    private var liveStream: SonioxStream? = null
+    private var liveResult: kotlinx.coroutines.Deferred<String>? = null
+    /** Bumped by every new take so a slower, older transcription never lands on it. */
+    private var takeGeneration = 0
+
+    private fun dropLive() {
+        liveStream?.abort()
+        liveStream = null
+        liveResult = null
+    }
+
     /** "Record your pronunciation" / "Record again" (the permission was granted by the card). */
     fun startRecording(skipDelay: Boolean = false) {
         val v = currentView() ?: return
         take?.delete()
         take = null
+        takeGeneration++
+        dropLive()
         app.audio.stop()
-        if (!recorder.start()) {
+        val live = liveKeys.usable()?.takeIf { aiAvailable }?.let { runCatching { SonioxStream(repo.api.http, it) }.getOrNull() }
+        val started = when {
+            live != null && recorder.startLive { buf, n -> live.send(buf, n) } -> { liveStream = live; true }
+            else -> { live?.abort(); recorder.start() }
+        }
+        if (!started) {
             updateExtras(v) { it.copy(notice = "Couldn't open the microphone.", take = TakeUi()) }
             return
         }
@@ -398,14 +423,16 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         if (!skipDelay) takeJob = viewModelScope.launch { delay(500); updateTake(v) { it.copy(starting = false) } }
     }
 
-    /** Stop: keep the take; on the back it is transcribed at once. */
-    fun stopRecording(flipped: Boolean) {
+    /** Stop: keep the take and transcribe it straight away (it shows on the back). */
+    fun stopRecording(@Suppress("UNUSED_PARAMETER") flipped: Boolean) {
         val v = currentView() ?: return
         takeJob?.cancel()
         take = recorder.stop()
+        liveResult = liveStream?.let { s -> viewModelScope.async { s.finish() } }
+        liveStream = null
         app.haptics.tick()
         updateTake(v) { TakeUi(hasTake = take != null) }
-        if (flipped) transcribe(v)
+        transcribe(v)
     }
 
     /** "Re-record" on the front: drop the take. */
@@ -413,21 +440,36 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         val v = currentView() ?: return
         take?.delete()
         take = null
+        takeGeneration++
+        dropLive()
         updateTake(v) { TakeUi() }
     }
 
     fun playMyRecording() { take?.let { recorder.play(it) } }
 
-    /** `useTranscription`: Whisper on the server, compared in pinyin here; offline says so. */
+    /**
+     * `useTranscription`: the live (Soniox) text when the take was streamed, else the take
+     * uploaded to Whisper; compared in pinyin here; offline says so.
+     */
     private fun transcribe(v: CardView) {
         val file = take ?: return
-        if (!aiAvailable) return updateTake(v) { it.copy(transcription = TranscriptionUi.Offline) }
+        val live = liveResult
+        if (!aiAvailable && live == null) return updateTake(v) { it.copy(transcription = TranscriptionUi.Offline) }
+        val gen = takeGeneration
+        val mime = recorder.mime
         updateTake(v) { it.copy(transcription = TranscriptionUi.Working) }
         viewModelScope.launch {
-            val result = runCatching { repo.api.transcribe(file, recorder.mime) }
-            updateTake(v) {
-                it.copy(transcription = result.fold({ r -> TranscriptionUi.Done(Transcription.compare(r.text, v.note.hanzi)) }, { TranscriptionUi.Failed }))
+            val started = System.currentTimeMillis()
+            val liveText = live?.let { d -> runCatching { d.await() }.onFailure { android.util.Log.w("transcribe", "live failed, uploading: ${it.message}") }.getOrNull() }
+                ?.takeIf { it.isNotBlank() }
+            val outcome: TranscriptionUi = when {
+                liveText != null -> TranscriptionUi.Done(Transcription.compare(liveText, v.note.hanzi))
+                !aiAvailable -> TranscriptionUi.Offline
+                else -> runCatching { repo.api.transcribe(file, mime) }
+                    .fold({ r -> TranscriptionUi.Done(Transcription.compare(r.text, v.note.hanzi)) }, { TranscriptionUi.Failed })
             }
+            android.util.Log.i("transcribe", "${if (liveText != null) "live (Soniox)" else "upload (Whisper)"} ready ${System.currentTimeMillis() - started} ms after stop")
+            if (gen == takeGeneration) updateTake(v) { it.copy(transcription = outcome) }
         }
     }
 
@@ -600,7 +642,8 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     /** Typed answer checked (or the answer revealed): feedback only, nothing recorded yet. */
     fun onRevealed(verdict: AnswerKey.Verdict?) {
         currentView()?.let { v ->
-            if (_ui.value.extras.take.recording) stopRecording(flipped = true) else if (take != null) transcribe(v)
+            if (_ui.value.extras.take.recording) stopRecording(flipped = true)
+            else if (take != null && _ui.value.extras.take.transcription == null) transcribe(v)
         }
         when {
             verdict == null -> { app.sounds.play(Sounds.Sfx.FLIP, 0.5f); app.haptics.flip() }
@@ -717,6 +760,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
 
     override fun onCleared() {
         app.audio.stop()
+        liveStream?.abort()
         recorder.release()
         take?.delete()
         extras.stopAudio() // Package B
