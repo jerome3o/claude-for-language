@@ -37,7 +37,7 @@ describe('deriveNavRole', () => {
 
   it('a student with a tutor: hasTutor, no students', () => {
     const role = deriveNavRole({ relationships: relationships({ tutors: [rel('active')] }), deckCount: 2, dueCount: 9 });
-    expect(role).toEqual({ hasStudents: false, hasTutor: true, isTutorOnly: false, loaded: true });
+    expect(role).toEqual({ hasStudents: false, hasTutor: true, isTutorOnly: false, loaded: true, isTutorAccount: false });
   });
 
   it('only active relationships count', () => {
@@ -121,4 +121,29 @@ describe('isImmersiveRoute', () => {
     '/lessons', '/connections/1', '/decks', '/more', '/settings', '/calls', '/calls/c1/review'])(
     '%s keeps the bar', (p) => expect(isImmersiveRoute(p)).toBe(false),
   );
+});
+
+describe('tutor account (users.role = tutor)', () => {
+  it('is tutor-first even before relationships load, and whatever its decks', () => {
+    expect(deriveNavRole({ relationships: undefined, deckCount: 4, dueCount: 12, accountRole: 'tutor' }).isTutorAccount).toBe(true);
+    const role = deriveNavRole({ relationships: relationships(), deckCount: 4, dueCount: 12, accountRole: 'tutor' });
+    expect(role).toMatchObject({ isTutorAccount: true, isTutorOnly: true, hasStudents: false });
+  });
+
+  it('gets Students · Decks · Library · More, with no Study or Progress tab', () => {
+    const role = deriveNavRole({ relationships: relationships({ students: [rel('active')] }), deckCount: 2, dueCount: 5, accountRole: 'tutor' });
+    expect(tabsFor(role).map((t) => t.id)).toEqual(['students', 'decks', 'library', 'more']);
+    expect(activeTab(tabsFor(role), '/library/abc')).toBe('library');
+  });
+
+  it('a student account is unchanged', () => {
+    const role = deriveNavRole({ relationships: relationships(), deckCount: 2, dueCount: 5, accountRole: 'student' });
+    expect(tabsFor(role).map((t) => t.id)).toEqual(['study', 'decks', 'tutor', 'progress', 'more']);
+  });
+
+  it('try pages are immersive', () => {
+    expect(isImmersiveRoute('/decks/d1/try')).toBe(true);
+    expect(isImmersiveRoute('/library/l1/try')).toBe(true);
+    expect(isImmersiveRoute('/decks/d1')).toBe(false);
+  });
 });

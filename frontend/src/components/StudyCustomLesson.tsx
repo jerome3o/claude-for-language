@@ -73,12 +73,15 @@ export function StudyCustomLesson({
   counts,
   onComplete,
   onEnd,
+  preview = false,
 }: {
   lesson: LocalCustomLesson;
   intervalPreviews: Record<Rating, IntervalPreview>;
   counts: QueueCounts;
   onComplete: (correct: number, total: number, rating: Rating) => void;
   onEnd: () => void;
+  /** "Try it" for a tutor: no queue counts, no rating — finishing just calls onEnd. Nothing is recorded. */
+  preview?: boolean;
 }) {
   const speak = useOfflineSpeak();
   const items = useMemo(() => flattenSpec(lesson), [lesson]);
@@ -225,7 +228,7 @@ export function StudyCustomLesson({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        <QueueCountsHeader counts={counts} />
+        {preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : <QueueCountsHeader counts={counts} />}
         <div className="study-topbar-controls">
           <button className="study-close-btn" onClick={onEnd} aria-label="End session">
             ✕
@@ -261,7 +264,14 @@ export function StudyCustomLesson({
 
       {/* Fixed rating footer once the lesson is finished — same FSRS rating
           bar as cards and readers, pinned to the bottom of the screen. */}
-      {done && (
+      {done && preview && (
+        <div className="study-rating-sticky">
+          <button type="button" className="btn btn-primary btn-block" onClick={onEnd}>
+            Done — back to the lesson
+          </button>
+        </div>
+      )}
+      {done && !preview && (
         <div className="study-rating-sticky">
           <div className="study-reader-rating-header">
             {/* marginRight 0: the shared prompt class offsets for a Back

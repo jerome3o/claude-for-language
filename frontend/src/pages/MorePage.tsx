@@ -69,7 +69,7 @@ export function MorePage() {
   const libraryQuery = useQuery({
     queryKey: ['lesson-library-count'],
     queryFn: async () => (await listLibrary()).length,
-    enabled: !role.hasStudents && role.loaded,
+    enabled: !role.hasStudents && !role.isTutorAccount && role.loaded,
     retry: false,
     staleTime: 5 * 60_000,
   });
@@ -105,6 +105,20 @@ export function MorePage() {
           </Link>
         )}
 
+        {role.isTutorAccount ? (
+          <>
+            <NavSection title="Teaching">
+              <NavRow icon="👥" label="Students" desc="Progress, homework, messages" to="/connections" />
+              <NavRow icon="🗂️" label="Lesson Library" desc="Mini lessons you assign — tap one to try it" to="/library" />
+              <NavRow icon="📚" label="Readers" desc="Graded stories to share with students" to="/readers" />
+              <NavRow icon="📹" label="Video calls (beta)" desc="Lessons with a whiteboard, then a transcript" to="/calls" />
+            </NavSection>
+            <NavSection title="Tools">
+              <NavRow icon="🧑‍🏫" label="Sentence Coach" desc="Check or translate a sentence" to="/coach" />
+              <NavRow icon="🔍" label="Sentence Breakdown" desc="Split any sentence into words" to="/analyze" />
+            </NavSection>
+          </>
+        ) : (<>
         <NavSection title="Practice">
           <NavRow icon="🧑‍🏫" label="Sentence Coach" desc="Check a sentence you wrote" to="/coach" />
           <NavRow icon="🔍" label="Sentence Breakdown" desc="Split any sentence into words" to="/analyze" />
@@ -136,6 +150,7 @@ export function MorePage() {
             <NavRow icon="🗂️" label="Lesson Library" desc="Lessons you assign to students" to="/library" />
           </NavSection>
         )}
+        </>)}
 
         <NavSection title="Account">
           <NavRow

@@ -25,7 +25,7 @@ export function LandingResolver({ children }: { children: ReactNode }) {
 
   if (location.key !== 'default') return <>{children}</>;
 
-  const target = resolveLanding(user?.landing_page, role.hasStudents, dueCount, isLoading || !isInitialized);
+  const target = resolveLanding(user?.landing_page, role.hasStudents, dueCount, isLoading || !isInitialized, role.isTutorAccount);
   if (target !== 'study') {
     return <Navigate to={LANDING_PATHS[target]} replace />;
   }

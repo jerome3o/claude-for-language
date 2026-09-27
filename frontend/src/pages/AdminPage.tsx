@@ -6,6 +6,7 @@ import { getSyncLogs, SyncLogEntry } from '../db/database';
 import { listAccessRequests, approveAccessRequest, dismissAccessRequest, setUserCanInvite, listInvites, revokeInvite } from '../api/invites';
 import type { AccessRequest, Invite } from '../types/invites';
 import { InviteList } from '../components/invites/InviteList';
+import { AdminUserSheet } from '../components/admin/AdminUserSheet';
 import './AdminPage.css';
 
 /** Per-user "may invite new people" switch. Admins always may, so theirs is fixed on. */
@@ -60,6 +61,9 @@ export function AdminPage() {
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [allInvites, setAllInvites] = useState<Invite[]>([]);
   const [canInviteBusyId, setCanInviteBusyId] = useState<string | null>(null);
+  // Account sheet (inspect, role, delete)
+  const [openUserId, setOpenUserId] = useState<string | null>(null);
+  const [userFilter, setUserFilter] = useState('');
 
   const loadAccessRequests = useCallback(async () => {
     try {
@@ -260,6 +264,11 @@ export function AdminPage() {
     });
   };
 
+  const filterText = userFilter.trim().toLowerCase();
+  const shownUsers = filterText
+    ? users.filter(u => `${u.email ?? ''} ${u.name ?? ''}`.toLowerCase().includes(filterText))
+    : users;
+
   if (isLoading) {
     return (
       <div className="container">
@@ -459,9 +468,17 @@ export function AdminPage() {
         </div>
 
         <h2>All Users</h2>
+        <input
+          type="search"
+          className="admin-user-filter"
+          placeholder="Find by email or name"
+          value={userFilter}
+          onChange={(e) => setUserFilter(e.target.value)}
+          aria-label="Find a user"
+        />
         <div className="users-table-container">
           {/* Mobile: Card layout */}
-          {users.map(user => (
+          {shownUsers.map(user => (
             <div key={user.id} className="user-card">
               <div className="user-card-header">
                 {user.picture_url && (
@@ -496,7 +513,7 @@ export function AdminPage() {
               <div className="user-card-details">
                 <div className="user-detail">
                   <span className="user-detail-label">Role</span>
-                  <span className="user-detail-value">{user.role}</span>
+                  <span className="user-detail-value"><span className={`admin-role-badge ${user.role}`}>{user.role}</span></span>
                 </div>
                 <div className="user-detail">
                   <span className="user-detail-label">Last Login</span>
@@ -509,6 +526,9 @@ export function AdminPage() {
                   </span>
                 </div>
               </div>
+              <button type="button" className="btn btn-secondary admin-manage-btn" onClick={() => setOpenUserId(user.id)}>
+                Manage · inspect
+              </button>
             </div>
           ))}
 
@@ -522,11 +542,13 @@ export function AdminPage() {
                 <th>Notes</th>
                 <th>Reviews</th>
                 <th>Last Login</th>
+                <th>Role</th>
                 <th>Can invite</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {users.map(user => (
+              {shownUsers.map(user => (
                 <tr key={user.id}>
                   <td className="user-cell">
                     {user.picture_url && (
@@ -544,14 +566,30 @@ export function AdminPage() {
                   <td className="stat-cell">{user.note_count}</td>
                   <td className="stat-cell">{user.review_count}</td>
                   <td>{formatDate(user.last_login_at)}</td>
+                  <td><span className={`admin-role-badge ${user.role}`}>{user.role}</span></td>
                   <td className="stat-cell">
                     <CanInviteToggle user={user} busy={canInviteBusyId === user.id} onToggle={handleToggleCanInvite} />
+                  </td>
+                  <td>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpenUserId(user.id)}>Manage</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {openUserId && (
+          <AdminUserSheet
+            userId={openUserId}
+            onClose={() => setOpenUserId(null)}
+            onRoleChanged={(id, role) => setUsers(prev => prev.map(u => (u.id === id ? { ...u, role } : u)))}
+            onDeleted={(id) => {
+              setUsers(prev => prev.filter(u => u.id !== id));
+              setOpenUserId(null);
+            }}
+          />
+        )}
 
         <h2>All invites</h2>
         <div className="all-invites-section">

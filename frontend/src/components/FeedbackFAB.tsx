@@ -224,7 +224,8 @@ export function FeedbackFAB() {
   // A video call fills the screen and has its own controls where the FAB would sit.
   if (/^\/calls\/[^/]+\/?$/.test(location.pathname)) return null;
 
-  const isStudying = location.pathname === '/study';
+  // Study and the tutor's "Try it" previews: keep the FAB out of the way of the card footer.
+  const isStudying = location.pathname === '/study' || /^\/(decks|library)\/[^/]+\/try\/?$/.test(location.pathname);
   const pos = getPos();
 
   return (
