@@ -54,11 +54,13 @@ class MainActivity : ComponentActivity() {
                             val ui by vm.ui.collectAsStateWithLifecycle()
                             val sync by app.repo.status.collectAsState()
                             val online by app.online.collectAsState()
+                            val debugReport by app.debugReports.status.collectAsState()
+                            val sendingDebugReport by app.debugReports.sending.collectAsState()
                             HomeScreen(
                                 ui = ui,
                                 sync = sync,
                                 online = online,
-                                settings = HomeSettings(app.prefs.soundOn, app.prefs.hapticsOn),
+                                settings = HomeSettings(app.prefs.soundOn, app.prefs.hapticsOn, debugReport, sendingDebugReport),
                                 actions = HomeActions(
                                     onStudyAll = { screen = Screen.Study(null) },
                                     onStudyDeck = { screen = Screen.Study(it) },
@@ -69,6 +71,7 @@ class MainActivity : ComponentActivity() {
                                     onSignIn = ::startSignIn,
                                     onToggleSound = { app.prefs.soundOn = it },
                                     onToggleHaptics = { app.prefs.hapticsOn = it },
+                                    onSendDebugReport = { app.scope.launch { app.debugReports.sendNow() } },
                                 ),
                             )
                         }
