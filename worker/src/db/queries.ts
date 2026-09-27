@@ -683,14 +683,18 @@ export async function recordDeletedItems(db: D1Database, userId: string, kind: D
   }
 }
 
-/** Ids deleted since a SQLite datetime string ('YYYY-MM-DD HH:MM:SS'), grouped by kind. */
+/**
+ * Ids deleted since a SQLite datetime string ('YYYY-MM-DD HH:MM:SS'), grouped by kind.
+ * Inclusive: `deleted_at` has whole seconds, so a tombstone written in the same second as
+ * the caller's cursor must still be returned (re-sending one is harmless).
+ */
 export async function getDeletedItemsSince(
   db: D1Database,
   userId: string,
   sinceDate: string
 ): Promise<{ deck_ids: string[]; note_ids: string[] }> {
   const rows = await db
-    .prepare('SELECT kind, item_id FROM deleted_items WHERE user_id = ? AND deleted_at > ?')
+    .prepare('SELECT kind, item_id FROM deleted_items WHERE user_id = ? AND deleted_at >= ?')
     .bind(userId, sinceDate)
     .all<{ kind: DeletedItemKind; item_id: string }>();
   const deck_ids = new Set<string>();
@@ -3498,12 +3502,15 @@ export async function setNoteSentenceAudio(
   provider: 'minimax' | 'gtts' | null = null
 ): Promise<void> {
   // updated_at bumps so /api/sentences/changes carries the new clip down to
-  // devices that already have the row cached.
+  // devices that already have the row cached. ISO like every other write to this
+  // column: the clients' cursor is an ISO server_time, and a datetime('now') value
+  // ("YYYY-MM-DD HH:MM:SS") string-compares BELOW an ISO time of the same day, so
+  // the clip never reached a device that had synced earlier that day.
   await db
     .prepare(
-      "UPDATE note_sentences SET audio_url = ?, audio_provider = ?, updated_at = datetime('now') WHERE id = ?"
+      'UPDATE note_sentences SET audio_url = ?, audio_provider = ?, updated_at = ? WHERE id = ?'
     )
-    .bind(audioUrl, provider, sentenceId)
+    .bind(audioUrl, provider, new Date().toISOString(), sentenceId)
     .run();
 }
 
