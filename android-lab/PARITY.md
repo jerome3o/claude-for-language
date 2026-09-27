@@ -160,20 +160,21 @@ Owns `ui/connections/` (incl. the `/connections` stub + role dispatch), `ui/chat
 
 ## F — Teaching (web: `components/tutor/`, `pages/tutor/`)
 
-Owns `ui/teaching/` (students dashboard, student page, insights, history, recordings, session notes, homework drafts, invites, queue moves, lesson attempt review — tutor side), `data/api/TeachingApi.kt`, `core/…/Load*.kt` if the load gauge is ported. Registers `/connections/{relId}/…` tutor routes in `ui/teaching/TeachingNav.kt`; the `/connections` root dispatch lives in E's file (one `if`).
+Owns `ui/teaching/` (students dashboard, student page, insights, history, recordings, session notes, homework drafts, invites, queue moves, lesson attempt review — tutor side), `data/api/TeachingApi.kt`, `core/…/Load*.kt` if the load gauge is ported. Registers `/connections/{relId}/…` tutor routes in `ui/teaching/TeachingNav.kt`; the `/connections` root dispatch lives in E's file (one `if`). `/connections/{relId}` is registered in `TeachingNav.kt`: the student page when the other person is my student, else E's tutor page (a placeholder until E's screen replaces the `else` branch).
 
-| Feature | Status | Web source |
-|---|---|---|
-| Students dashboard (cards, pills, getting-set-up checklist, pending invites, homework decks) | ⬜ | `StudentsDashboard.tsx`, `StudentCard.tsx`, `SetupChecklist.tsx` |
-| Student page: status, Message / Send homework, needs attention, homework (+ queue #N moves), conversations, activity | ⬜ | `ConnectionDetailPage.tsx`, `QueuePositionMenu.tsx` |
-| Send homework: one-off / long-term / both, due date, split over days, leave out known words; load gauge; assigned list (move date / cancel) | ⬜ | `SendHomeworkSheet.tsx`, `HomeworkModePicker.tsx`, `LoadGauge.tsx`, `AssignedHomeworkSection.tsx` |
-| Lesson notes → draft → review with Claude → assign | ⬜ | `LessonNotesSection.tsx`, `pages/tutor/HomeworkDraftPage.tsx` |
-| Session notes jobs | ⬜ | `SessionNotesSection.tsx`, `pages/tutor/SessionNotesPage.tsx` |
-| Insights, review history, recordings inbox (marks) | ⬜ | `pages/tutor/StudentInsightsPage.tsx`, `StudentHistoryPage.tsx`, `RecordingsInboxPage.tsx` |
-| Student progress / day / shared-deck progress | ⬜ | `StudentProgressPage.tsx`, `DayDetailPage.tsx`, `SharedDeckProgressPage.tsx` |
-| Flagged cards (reply), Asked Claude, student card hub | ⬜ | `FlaggedCardsSection.tsx`, `ClaudeChatsSection.tsx`, `CardHubPage.tsx` |
-| Lesson attempt review (`/connections/:relId/lesson-attempts`) | ⬜ | `pages/LessonAttemptsPage.tsx` |
-| Invites (create, QR, resend / revoke) | ⬜ | `components/invites/`, `InviteQRSheet.tsx` |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Students dashboard (cards, pills, getting-set-up checklist, pending invites, homework decks) | ✅ cached for offline (TeachingSync); avatars are initials (no image loader yet) | `StudentsDashboard.tsx`, `StudentCard.tsx`, `SetupChecklist.tsx` | `ui/teaching/StudentsDashboardScreen.kt`, `TeachingSync.kt` |
+| Student page: status, Message / Send homework / Video call, needs attention (hear recording), homework (+ queue #N moves, Update copy), mini lessons, conversations, activity, ⋯ (student's decks, remove) | ✅ two panes when unfolded; opens from the dashboard cache offline | `ConnectionDetailPage.tsx`, `QueuePositionMenu.tsx`, `StudentLessonsSection.tsx` | `ui/teaching/StudentPageScreen.kt`, `StudentPageSections.kt` |
+| Send homework: one-off / long-term / both, due date, split over days, leave out known words, core / non-urgent; load gauge; assigned list (move date / cancel) | ✅ date maths + split parity-tested (`core/…/LoadPlan.kt`, `parity/fixtures/teaching.ts`); the load itself is server-computed | `SendHomeworkSheet.tsx`, `HomeworkModePicker.tsx`, `LoadGauge.tsx`, `AssignedHomeworkSection.tsx` | `ui/teaching/SendHomeworkSheet.kt`, `TeachingKit.kt` |
+| Lesson notes → draft → review with Claude → assign | ⬜ | `LessonNotesSection.tsx`, `pages/tutor/HomeworkDraftPage.tsx` | |
+| Session notes jobs | ⬜ | `SessionNotesSection.tsx`, `pages/tutor/SessionNotesPage.tsx` | |
+| Insights (range, tiles, needs attention with every attempt + typed-answer diff, going well, also this period, Claude summary EN / 中文, lesson log), review history (filters, infinite scroll, by word), recordings inbox (Listened / Needs work / note, playback) | ✅ preset ranges cached (shared between Insights and Recordings), history's default view cached | `pages/tutor/StudentInsightsPage.tsx`, `StudentHistoryPage.tsx`, `RecordingsInboxPage.tsx`, `tutor-shared.tsx` | `ui/teaching/InsightsScreen.kt`, `HistoryAndRecordingsScreens.kt`, `TutorPagesKit.kt` |
+| Student progress / day / shared-deck progress | ⬜ | `StudentProgressPage.tsx`, `DayDetailPage.tsx`, `SharedDeckProgressPage.tsx` | |
+| Flagged cards (reply, resolve / reopen), Asked Claude (threads) on the student page | ✅ `groupQuestionThreads` ported (unit-tested) | `FlaggedCardsSection.tsx`, `ClaudeChatsSection.tsx`, `shared/chats/threads.ts` | `ui/teaching/StudentPageSections.kt` |
+| Student card hub, all Asked-Claude conversations pages | ⬜ | `CardHubPage.tsx`, `ClaudeChatsPage.tsx` | |
+| Lesson attempt review (`/connections/:relId/lesson-attempts`) | ⬜ | `pages/LessonAttemptsPage.tsx` | |
+| Invites (create with decks / Starter Chinese / welcome message / options, QR, copy / share, resend / revoke) | ✅ QR via zxing | `components/invites/`, `InviteQRSheet.tsx` | `ui/teaching/InviteSheet.kt` |
 
 ## G — Library, editors, catalogue (web: `pages/editor/`, `components/editor/`)
 

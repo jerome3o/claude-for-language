@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.connections
 
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
@@ -15,6 +17,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.placeholder.PlaceholderScreen
  */
 fun NavGraphBuilder.connectionsGraph(nav: LabNav) {
     composable(Routes.route(Routes.CONNECTIONS)) {
-        PlaceholderScreen(Routes.CONNECTIONS, onBack = null) { nav.openInMainApp(Routes.CONNECTIONS) }
+        val shell by nav.shell.collectAsStateWithLifecycle()
+        if (shell?.role?.hasStudents == true) dev.jeromeswannack.chineselearning.lab.ui.teaching.StudentsDashboardRoute(nav) // F
+        else PlaceholderScreen(Routes.CONNECTIONS, onBack = null) { nav.openInMainApp(Routes.CONNECTIONS) }
     }
 }
