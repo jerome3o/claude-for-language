@@ -124,8 +124,8 @@ Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/De
 | Card hub (`/cards/:noteId`: note, card states, flags + flag form (Outbox), resolve / reopen / delete, Claude threads, recent reviews + recordings) | ✅ cached for offline; before first load Room answers note / cards / reviews | `pages/CardHubPage.tsx` | `ui/cards/CardHubScreen.kt`, `CardHubViewModel.kt` |
 | Deck settings (name, description, new / secondary caps) and delete deck (tombstone, gone locally at once) | ✅ `pickDeckSettings` parity-tested; legacy SM-2 fields stay in the main app (FSRS ignores them) | `DeckSettingsModal`, `PUT /api/decks/:id/settings`, `DELETE /api/decks/:id` | `DeckSettingsForm`, `DeckWrites.kt`, `core/…/DeckSettings.kt` |
 | Note history modal | ➖ unreachable on the web (nothing opens it); the card hub covers it | `NoteHistoryModal` | — |
-| Paste a list (parse, plan, fill gaps, ✨ write explanations, save, update students' copies) | ⬜ — port `shared/import/` (next PR); the deck page's "📋 Paste list" opens the main app | `components/import/PasteWordsModal.tsx` | |
-| Generate a deck with Claude | ⬜ (next PR; `/generate` placeholder) | `pages/GeneratePage.tsx` | |
+| Paste a list (parse, plan, fill gaps, ✨ write explanations, save, update students' copies) | ✅ `parseWordList` / `planImport` / pinyin helpers parity-tested (`core/…/Import.kt`); on-device pinyin via ICU (package A's `Pinyin`); 🟡 no "check the reading" hint for polyphonic single characters (pinyin-pro's `polyphonic` has no ICU equivalent) | `components/import/PasteWordsModal.tsx`, `services/wordImport.ts`, `shared/import/` | `ui/decks/PasteWords*.kt` |
+| Generate a deck with Claude (`/generate`) | ✅ | `pages/GeneratePage.tsx`, `POST /api/ai/generate-deck` | `ui/decks/GenerateDeck.kt` |
 | Anki export | ⬜ hand-off: ⋯ → Export → Anki opens the deck in the main app | `services/anki/` | |
 | Share with tutor / Shared with Tutors | ⬜ | `DeckDetailPage.tsx`, `GET /api/decks/:id/tutor-shares` | |
 | Try it as a student (`/decks/:id/try`, nothing recorded) | ⬜ (the button opens the placeholder) | `pages/DeckTryPage.tsx` | |
