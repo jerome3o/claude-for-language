@@ -133,16 +133,19 @@ Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/De
 
 ## D — Progress & settings (web: `MyProgressPage.tsx`, `SettingsPage.tsx`)
 
-Owns `ui/progress/` (incl. the `/progress` stub), `ui/settings/` (`/settings`, `/settings/sentences`, `/duplicate-finder`, `/study/review/:id`), `data/api/ProgressApi.kt`, `SettingsApi.kt`. More → Lab app rows stay in `ui/more/` (shell).
+Owns `ui/progress/` (incl. the `/progress` stub, `/progress/day/…`, `/study/review/:id`), `ui/settings/` (`/settings`, `/settings/sentences`, `/duplicate-finder`), `data/progress/`, `data/settings/`, `data/api/ProgressApi.kt`, `SettingsApi.kt`, `core/…/Progress.kt` + `OfflineMode.kt` + `Duplicates.kt`, `parity/fixtures/progress.ts`. More → Lab app rows stay in `ui/more/` (shell).
 
 | Feature | Status | Web source |
 |---|---|---|
-| Progress: cards mastered, % through each deck, daily review counts, streak | ⬜ | `pages/MyProgressPage.tsx` |
-| Day detail / card on a day | ⬜ | `MyDayDetailPage.tsx`, `MyCardReviewDetailPage.tsx` |
-| Session review | ⬜ | `SessionReviewPage.tsx` |
-| Settings: study budget (`PUT /api/profile/study-budget`), Start on (`PUT /api/profile/landing-page`), bio, backup | ⬜ (sound/haptics/resync/sign-out ✅ in More) | `pages/SettingsPage.tsx` |
-| Sentence coverage page | ⬜ | `SentenceCoveragePage.tsx` |
-| Duplicate finder | ⬜ | `DuplicateFinderPage.tsx` |
+| Progress: cards mastered, % through each deck, daily review counts, streak | ✅ from the phone's own events (offline); the numbers are `core/…/Progress.kt`, parity-tested against `shared/progress` (the definition the server's SQL follows — `my-progress-parity.test.ts`). Streak + 30-day heatmap, mastery ring, reviews-a-day chart (tap a bar → the day), % mastered per deck in queue order, the web's 30-day summary + daily list | `pages/MyProgressPage.tsx`, `components/StudyStreak.tsx`, `DeckDetailPage.tsx` mastery |
+| Day detail / card on a day | ✅ local; the review's recording comes from the server when online (the phone keeps no recording URLs); 🎤 marker on the day list is web-only | `MyDayDetailPage.tsx`, `MyCardReviewDetailPage.tsx` |
+| Session review | ✅ (server data, cached) | `SessionReviewPage.tsx` |
+| Settings: study budget (`PUT /api/profile/study-budget`, writes `Prefs.budget`), Start on (`PUT /api/profile/landing-page`), bio, offline audio line + Download now, backup (Save as…), sign out, sound / haptics | ✅ writes need a connection, like the web | `pages/SettingsPage.tsx` |
+| Offline mode (automatic + forced override) | ✅ Settings → Offline mode and the study top-bar pill (A) share ONE flag, `ui/study/StudyPrefs.forcedOffline`; labels from `core/…/OfflineMode.kt`; `fx/WordAudio` never streams while forced | `services/offlineMode.ts`, `OfflineModeToggle.tsx` |
+| Advanced: audio quality (check / regenerate fallback clips), feature requests (list, detail + comments, 💬 send feedback), full sync + last-sync timings, send debug report, update app (→ GitHub releases) | ✅ | `SettingsPage.tsx` |
+| Native playback panel, playback-quality report, debug console, copy debug dump | ➖ web / hybrid-app tools (the Lab has its own debug report + sync timings) | `SettingsPage.tsx` |
+| Sentence coverage page (polling while jobs run, generate 20/100, clue audio, sync to this device) | ✅ | `SentenceCoveragePage.tsx` |
+| Duplicate finder | ✅ (`core/…/Duplicates.kt`) | `DuplicateFinderPage.tsx` |
 
 ## E — Tutor tab for students (web: `ConnectionsPage.tsx`, `ConnectionDetailPage.tsx`, `ChatPage.tsx`)
 
@@ -182,12 +185,12 @@ Owns `ui/library/` (incl. the `/library` stub), `ui/editor/` (lesson + reader ed
 
 | Feature | Status | Web source |
 |---|---|---|
-| Lesson Library list, library item (assignments, push update), assign | ⬜ | `LessonLibraryPage.tsx`, `LibraryItemPage.tsx` |
-| Try a lesson (`/library/:id/try`, nothing recorded) | ⬜ | `LessonTryPage.tsx` |
-| Exercise catalogue + sample-lesson trials (`/library/catalogue`; entry points: More → Teaching for tutor accounts, accounts with students and admins — the Lab More rows exist — plus the top of the Lesson Library) | ⬜ | `ExerciseCataloguePage.tsx`, `shared/lesson/registry.ts`, `samples.ts` |
-| Lesson editor (all 15 types) + Claude co-editor chat (proposal diff, accept/reject) | ⬜ | `LessonEditorPage.tsx`, `components/editor/` |
-| Reader editor + co-editor, import JSON | ⬜ | `ReaderEditorPage.tsx`, `NewReaderPage.tsx` |
-| Exports (Markdown / JSON / CSV, print views) | ⬜ | `shared/lesson/export.ts`, `shared/reader/export.ts`, print pages |
+| Lesson Library list, library item (assignments, push update), assign (Long-term = the library assign; One-off / Both with a due date = the homework model), New lesson (Draft with Claude, conversation lesson, blank), Import JSON, duplicate, archive | ✅ | `LessonLibraryPage.tsx`, `LibraryItemPage.tsx` |
+| Try a lesson (`/library/:id/try`, nothing recorded) | 🟡 the Lab's own walkthrough (`ui/editor/LessonWalkthrough.kt`: word order, choices, matching playable; self-assessed types reveal the model answer) — swap in B's lesson player when it lands | `LessonTryPage.tsx` |
+| Exercise catalogue + sample-lesson trials (`/library/catalogue`; entry points: More → Teaching for tutor accounts, accounts with students and admins — the Lab More rows exist — plus the top of the Lesson Library) | ✅ registry + samples bundled (`core/…/spec/LessonCatalogue`, `resources/lesson/catalogue.json`, parity-checked); trials use the walkthrough (🟡 as Try it) | `ExerciseCataloguePage.tsx`, `shared/lesson/registry.ts`, `samples.ts` |
+| Lesson editor (all 15 types) + Claude co-editor chat (proposal diff, accept/reject) | ✅ forms for every type, live validation (`LessonValidator`, parity-tested), auto-pinyin (`core/…/Pinyin.kt`, pinyin-pro 3.28 port, parity-tested), 🔊 lesson TTS, raw JSON, unsaved drafts kept on the phone; Edit / Preview / Claude tabs folded, form + chat side by side unfolded. Preview = walkthrough (🟡 see Try it) | `LessonEditorPage.tsx`, `components/editor/` |
+| Reader editor + co-editor, import JSON | ✅ page cards (拼音, Translate, Suggest, Illustrate, move / duplicate / insert / delete), `ReaderValidator` + `ReaderDiff` parity-tested, reading-view preview, image polling after save, `/readers/new/edit`. Import JSON: `rememberReaderImporter(nav)` (ui/editor/ReaderImport.kt) for B's readers list ⋯ | `ReaderEditorPage.tsx`, `NewReaderPage.tsx` |
+| Exports (Markdown / JSON / CSV, print views) | ✅ built on the phone (`LessonExport` / `ReaderExport`, byte-identical to the TS), Share or Save (SAF); print views `/library/:id/print`, `/lessons/:id/print`, `/readers/:id/print` → system print / PDF. Anki (.apkg) opens the main app (↗) | `shared/lesson/export.ts`, `shared/reader/export.ts`, print pages |
 
 ## H — Coach, quests, stroke writing
 
