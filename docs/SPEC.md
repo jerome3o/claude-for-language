@@ -129,6 +129,13 @@ While editing a deck/note, user can:
 - After the call: a merged Chinese + English transcript with pinyin and translations, a Claude lesson report (summary, corrections, follow-ups) and vocabulary that becomes flashcards in one tap
 - Details, setup and the transcription-provider comparison: [VIDEO_CALLS.md](./VIDEO_CALLS.md)
 
+### 9. Handwriting practice (preview)
+- Write a character or word by hand and get feedback on every stroke: the right stroke, in the right order, in the right direction (wrong order and backwards strokes are named, not just "wrong")
+- Trace mode (grey outline + animated stroke order with numbers) and From-memory mode (blank 米字格 grid, pinyin + English as the prompt); hints escalate from a start dot to the whole stroke, and a stroke is filled in after 5 misses
+- Per-character result: mistakes and hints per stroke, time, a perfect / good / practice grade
+- More → Practice → Write characters (`/practice/strokes?text=`), and ⋯ → Write it on a study card
+- Offline once a character's data is on the device; details, data licence and the road to a full feature: [STROKE_ORDER.md](./STROKE_ORDER.md)
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities
