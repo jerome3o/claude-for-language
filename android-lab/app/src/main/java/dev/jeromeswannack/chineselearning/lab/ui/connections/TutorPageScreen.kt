@@ -74,6 +74,10 @@ data class TutorPageUi(
     val busy: Boolean = false,
     val error: String? = null,
     val online: Boolean = true,
+    /** Fixed clock for the tutor's local time (screenshots); null = live. */
+    val now: java.time.Instant? = null,
+    /** Draws the tutor's photo directly (screenshots). */
+    val previewPhoto: androidx.compose.ui.graphics.ImageBitmap? = null,
 )
 
 class TutorPageActions(
@@ -115,12 +119,18 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
         }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(other?.name, other?.email, size = 64.dp, isClaude = isClaude)
+                if (isClaude || other?.picture_url.isNullOrBlank()) Avatar(other?.name, other?.email, size = 64.dp, isClaude = isClaude)
+                else dev.jeromeswannack.chineselearning.lab.ui.profile.ProfilePhoto(other?.picture_url, other?.name, other?.email, size = 64.dp, preview = ui.previewPhoto)
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text(other.displayName(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Lab.colors.ink)
                     Text(if (isClaude) "Practice Chinese conversations" else "Your tutor", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
                 }
+            }
+        }
+        if (!isClaude && (!other?.about.isNullOrBlank() || !other?.time_zone.isNullOrBlank())) item {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard {
+                dev.jeromeswannack.chineselearning.lab.ui.profile.PersonAbout(other?.about, other?.time_zone, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), now = ui.now)
             }
         }
         if (!isClaude && ui.liveCallId != null) item {

@@ -273,6 +273,8 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             relId = relId,
             name = name,
             email = student?.email,
+            about = student?.about,
+            timeZone = student?.time_zone,
             overview = overview,
             homework = homework,
             flags = flags,

@@ -61,7 +61,7 @@ object NavRules {
     val MORE = TabSpec(
         TabId.MORE, "More", "/more",
         listOf(
-            "/more", "/settings", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
+            "/more", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
             "/quests", "/library", "/duplicate-finder", "/admin",
         ),
     )
