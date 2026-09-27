@@ -332,17 +332,17 @@
   gap: 0.375rem;
 }
 
-.hwt-ready {
+.hwt-status-ready {
   color: #6d28d9;
   font-weight: 600;
 }
 
-.hwt-assigned {
+.hwt-status-assigned {
   color: #15803d;
   font-weight: 600;
 }
 
-.hwt-failed {
+.hwt-status-failed {
   color: #b91c1c;
   font-weight: 600;
 }

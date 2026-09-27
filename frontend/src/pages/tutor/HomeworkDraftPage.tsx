@@ -227,7 +227,7 @@ export function HomeworkDraftPage() {
         <h1 className="hwt-draft-title">Homework draft</h1>
         <p className="hwt-muted">
           <span lang="zh">{job.title || job.result.deck?.name || 'Lesson notes'}</span>
-          {job.lesson_at ? ` · lesson ${shortDate(job.lesson_at)}` : ''} · nothing is sent until you assign it
+          {job.lesson_at ? ` · lesson ${shortDate(job.lesson_at)}` : ''}{assigned ? '' : ' · nothing is sent until you assign it'}
         </p>
         {!wide && (
           <div className="td-tabs" role="tablist">

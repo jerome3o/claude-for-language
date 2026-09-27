@@ -57,7 +57,7 @@ function EntryState({ relId, entry }: { relId: string; entry: LessonNotesEntry }
   if (job.status === 'failed' || job.status === 'cancelled') {
     return (
       <div className="hwt-entry-state">
-        <span className="hwt-entry-status hwt-failed">{job.status === 'failed' ? 'Draft failed' : 'Cancelled'}</span>
+        <span className="hwt-entry-status hwt-status-failed">{job.status === 'failed' ? 'Draft failed' : 'Cancelled'}</span>
         <Link to={review} className="btn btn-secondary sn-small">Open</Link>
       </div>
     );
@@ -68,14 +68,14 @@ function EntryState({ relId, entry }: { relId: string; entry: LessonNotesEntry }
   if (job.assigned_at) {
     return (
       <div className="hwt-entry-state">
-        <span className="hwt-entry-status hwt-assigned">✓ Assigned {shortDate(job.assigned_at)}</span>
+        <span className="hwt-entry-status hwt-status-assigned">✓ Assigned {shortDate(job.assigned_at)}</span>
         <Link to={review} className="btn-link">View</Link>
       </div>
     );
   }
   return (
     <div className="hwt-entry-state">
-      <span className="hwt-entry-status hwt-ready">Draft ready</span>
+      <span className="hwt-entry-status hwt-status-ready">Draft ready</span>
       <Link to={review} className="btn btn-primary sn-small" data-testid="ln-review">Review</Link>
     </div>
   );

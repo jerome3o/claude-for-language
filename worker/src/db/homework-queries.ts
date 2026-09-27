@@ -183,10 +183,11 @@ export async function getStudentBudget(db: D1Database, studentId: string): Promi
 }
 
 /** Hanzi of every note the student has (for dedupe). */
-export async function listStudentHanzi(db: D1Database, studentId: string): Promise<string[]> {
+export async function listStudentHanzi(db: D1Database, studentId: string, excludeDeckIds: string[] = []): Promise<string[]> {
+  const not = excludeDeckIds.length ? ` AND d.id NOT IN (${excludeDeckIds.map(() => '?').join(',')})` : '';
   const r = await db
-    .prepare(`SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ?`)
-    .bind(studentId)
+    .prepare(`SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ?${not}`)
+    .bind(studentId, ...excludeDeckIds)
     .all<{ hanzi: string }>();
   return r.results.map((x) => x.hanzi);
 }

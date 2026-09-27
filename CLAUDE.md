@@ -1106,6 +1106,24 @@ Lesson types and future kinds plug into this model — never a second queue (con
 - `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors }`
 - `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`
 
+**Lesson notes → draft → review → assign** (`routes/homework-drafts.ts`, `services/homework-drafts.ts`): the student
+page's **Lesson notes** section (`components/tutor/LessonNotesSection.tsx`, replaces Session notes) lists
+`tutor_lesson_log` entries (+ `title`, migration 0073) with their homework state (No homework yet · Drafting… ·
+Draft ready → Review · Assigned). *+ Add lesson notes* saves an entry and, by default, starts a DRAFT: a
+session-notes job with `review = 1` — the same agent/queue/checkpoints, but it never shares; the briefing carries
+the student's load and says DRAFT; extra tools `remove_cards`, `update_card`, `set_plan`; `finish` writes the
+reply into `chat` and a plan into `plan` (`DraftPlan`, `shared/homework/plan.ts`). The review page
+`/connections/:relId/homework/:jobId` (`pages/tutor/HomeworkDraftPage.tsx`; side-by-side at ≥1024px, Draft / Claude
+tabs on phones) shows the load gauge now → after, the words with the ones the student already has skipped
+(*Include anyway*), per item One-off / Long-term / Both + due date, "spread over N days", and a Claude chat: a
+message is appended to the job's transcript (`appendTutorRequest`) and the job is re-queued, so revisions reuse
+the whole agent. **Assign** (`assignDraft`) turns the plan into assignments through `assignHomework`
+(`batch_id` = the job), once. E2E seeds a finished draft with `POST /api/test/homework-draft`.
+- `GET|POST /api/relationships/:relId/lesson-notes` - entries with their draft job / `{ notes, title?, lesson_at?, draft? }` (draft default true → 201 `{ entry, job }`)
+- `POST /api/relationships/:relId/lesson-notes/:logId/draft` - draft homework from an existing entry → 202
+- `GET /api/relationships/:relId/homework-drafts/:jobId?today=` - the review view (`words` with `known` / `skipped`, `plan`, `load`, `load_after`, `job.chat`, `assignments`)
+- `PUT …/homework-drafts/:jobId/plan` `{ plan }` · `POST …/messages` `{ message }` → 202 (503 without a key; 409 while running / once assigned) · `POST …/assign` → 201 `{ assignments, skipped, errors }` (409 twice)
+
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
 - `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
@@ -1346,6 +1364,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
 | `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
 | `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, sent to the student by default) / poll one job's progress, steps and result / list a student's jobs |
+| `list_student_lesson_notes` / `add_student_lesson_notes` / `get_homework_draft` / `update_homework_draft_plan` / `revise_homework_draft` / `assign_homework_draft` (`tools/homework.ts`) | Lesson-notes entries and their homework state / add notes (+ draft by default, nothing sent) / the draft with skipped words, plan and load now → after / change modes, dates, split / ask the assistant to change it (same job) / assign it |
 | `get_student_homework` / `assign_homework` / `update_homework_assignment` (`tools/homework.ts`) | The load gauge + assignments with due labels and progress / assign decks, library lessons and readers as `one_off` (due date, `split_days`, known words left out) / `fsrs` / `both` / move a due date or cancel |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
@@ -1642,6 +1661,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)
 - `/connections/:relId/cards/:noteId`, `/connections/:relId/claude-chats` - Tutor's view of one of the student's cards (hub) / all their Ask-Claude conversations
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
+- `/connections/:relId/homework/:jobId` - Review a homework draft made from lesson notes (tutor): load gauge, words / skipped, modes, split, Claude chat, Assign
 - `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards

@@ -108,7 +108,7 @@ testAuth.post('/auth', async (c) => {
  * Body: { relationship_id, deck_id, deck_name?, library_items?: [{ id, title, exercise_count? }], title?, notes?, summary?, skipped? }
  */
 testAuth.post('/homework-draft', async (c) => {
-  const b = await c.req.json<{ relationship_id: string; deck_id?: string; deck_name?: string; library_items?: Array<{ id: string; title: string; exercise_count?: number }>; title?: string; notes?: string; summary?: string; skipped?: string[] }>();
+  const b = await c.req.json<{ relationship_id: string; deck_id?: string; deck_name?: string; library_items?: Array<{ id: string; title: string; exercise_count?: number }>; title?: string; notes?: string; summary?: string; skipped?: string[]; chat?: Array<{ role: 'tutor' | 'assistant'; text: string }> }>();
   const rel = await c.env.DB.prepare('SELECT * FROM tutor_relationships WHERE id = ?').bind(b.relationship_id).first<{ requester_id: string; recipient_id: string; requester_role: string }>();
   if (!rel) return c.json({ error: 'relationship not found' }, 404);
   const tutorId = rel.requester_role === 'tutor' ? rel.requester_id : rel.recipient_id;
@@ -129,7 +129,7 @@ testAuth.post('/homework-draft', async (c) => {
       summary,
       skipped: b.skipped ?? [],
     },
-    chat: [{ role: 'assistant', text: summary, at }],
+    chat: b.chat ? b.chat.map((m) => ({ ...m, at })) : [{ role: 'assistant', text: summary, at }],
     steps: [{ at, kind: 'done', text: 'Draft ready for review' }],
   });
   return c.json({ job_id: job.id, lesson_log_id: entry.id });

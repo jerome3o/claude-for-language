@@ -49,9 +49,11 @@ export interface DraftView {
 export async function buildDraftView(env: Env, job: jobs.TutorNotesJob, today: string): Promise<DraftView> {
   const contents = draftContents(job.result);
   const plan = normalizeDraftPlan(job.plan, contents, today);
+  // Once assigned, the student's copy of the words must not count as "already has".
+  const copies = job.result.deck?.target_deck_id ? [job.result.deck.target_deck_id] : [];
   const [notes, studentHanzi, loadInputs, assignments, student] = await Promise.all([
     contents.deck ? hw.listDeckNotes(env.DB, contents.deck.id) : Promise.resolve([]),
-    hw.listStudentHanzi(env.DB, job.student_id),
+    hw.listStudentHanzi(env.DB, job.student_id, copies),
     studentLoadInputs(env.DB, job.student_id),
     hw.listBatchAssignments(env.DB, job.id),
     jobs.getUserBrief(env.DB, job.student_id).catch(() => null),

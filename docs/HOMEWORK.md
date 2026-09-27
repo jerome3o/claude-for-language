@@ -1,8 +1,7 @@
 # Homework: assignments, due dates and the one-off pass
 
-Status: the model, the student side and direct assigning (Send homework, MCP) are live; the tutor's lesson-notes →
-draft → review flow (§4 steps 1–3) follows in a second PR. The tutor UX is deliberately a first cut — Jerome will
-give feedback.
+Status: implemented — the model, the student side and direct assigning (#398), then the tutor's lesson-notes →
+draft → review → assign flow. The tutor UX is deliberately a first cut — Jerome will give feedback.
 
 Why: Minghui asked to (5) split homework over days when it is too much, (6) add a word list without it
 being "today's homework", (7) set a deadline, (8) not send words the student already has. Before this,
