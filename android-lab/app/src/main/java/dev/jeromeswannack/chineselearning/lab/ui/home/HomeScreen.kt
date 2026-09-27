@@ -235,7 +235,7 @@ private fun DeckRow(deck: DeckSummary, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: HomeActions) {
+internal fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: HomeActions) {
     var sound by remember { mutableStateOf(settings.soundOn) }
     var haptics by remember { mutableStateOf(settings.hapticsOn) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp)) {

@@ -17,6 +17,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.home.DeckSummary
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeActions
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeScreen
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeSettings
+import dev.jeromeswannack.chineselearning.lab.ui.home.SettingsSheet
 import dev.jeromeswannack.chineselearning.lab.ui.home.HomeUi
 import dev.jeromeswannack.chineselearning.lab.ui.home.SignInScreen
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardStartState
@@ -104,6 +105,17 @@ class ScreenshotTest {
             settings = HomeSettings(soundOn = true, hapticsOn = true),
             actions = HomeActions(),
         )
+    }
+
+    /** The Lab settings sheet with "Send debug report" (data/DebugReport.kt) after a send. */
+    @Test fun settingsDebugReport() = shoot("12-settings-debug-report") {
+        androidx.compose.material3.Surface(color = dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.card) {
+            SettingsSheet(
+                SyncStatus(lastSyncAt = System.currentTimeMillis() - 4 * 60_000, audioTotal = 830, audioCached = 812),
+                HomeSettings(soundOn = true, hapticsOn = true, debugReport = "Sent: 24 due · 8946 cards · 41210 reviews (212.4 KB)"),
+                HomeActions(),
+            )
+        }
     }
 
     @Test fun readFront() = shoot("03-read-front") { study(view(CardTypes.HANZI_TO_MEANING)) }

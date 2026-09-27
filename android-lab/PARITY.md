@@ -61,6 +61,7 @@ main app / website at that screen instead) · ➖ not applicable natively
 | One-off homework pass: word list (each word once, "Not yet" words again until right), lesson / reader once; events offline + uploaded (`/api/me/homework/events`); one-off lessons / readers kept out of the FSRS rotation; one-off decks capped out of the budget + "Add to my daily review" | ⬜ | `pages/HomeworkPassPage.tsx`, `pages/HomeworkPage.tsx`, `shared/homework/pass.ts`, docs/HOMEWORK.md |
 | Progress (mastered, % per deck, daily counts) | ⬜ | Progress tab |
 | Settings: study budget, start on, offline mode, audio quality | 🟡 sound/haptics toggles, resync, sign out only | `SettingsPage` |
+| Study-state debug report (upload after sync, "Send debug report"), diffed with the web app's | ✅ unit + contract-tested | `services/debugReport.ts`, `shared/debug/`, Settings → Advanced (Lab: `data/DebugReport.kt`, home ⚙ sheet) |
 
 ## Everything else (opens the main app for now)
 
