@@ -156,7 +156,7 @@ Owns `ui/connections/` (incl. the `/connections` stub + role dispatch), `ui/chat
 
 | Feature | Status | Web source |
 |---|---|---|
-| Connections list + pending requests (accept / decline / cancel, email invitations, + Invite by email); tutor page (student view: Message → latest conversation or a new one, conversations, homework decks, decks you shared, ⋯ → Remove connection; Claude → New practice conversation) | ✅ cached for offline; avatars are initials (no remote pictures); 📹 Video call hands off (J); the Students dashboard / tutor's student page are F's slots in `ConnectionsNav.kt` | `ConnectionsPage.tsx`, `ConnectionDetailPage.tsx` |
+| Connections list + pending requests (accept / decline / cancel, email invitations, + Invite by email); tutor page (student view: Message → latest conversation or a new one, conversations, homework decks, decks you shared, ⋯ → Remove connection; Claude → New practice conversation) | ✅ cached for offline; avatars are initials (no remote pictures); 📹 Video call starts / joins the relationship's call (J), 🔴 Join banner while one is live; the Students dashboard / tutor's student page are F's slots in `ConnectionsNav.kt` | `ConnectionsPage.tsx`, `ConnectionDetailPage.tsx` |
 | Unread badge on the Tutor (Students) tab | ✅ unread chat notifications, polled every 60 s + each sync (`ui/nav/TabBadges.kt`) — the web shows them on its header bell | `components/Header.tsx` |
 | Chat (polling every 3 s) + message tools: Reply, Play (conversation TTS), ⋯ / long-press sheet with reactions (quick row + recents + full grid), Check my Chinese / View corrections, Translate & make flashcard / Make a card from this, Word by word (tappable words → definition → save), Discuss with Claude (persisted, quick actions, card suggestions), Copy; + Card from the conversation, 💡 Help me say it, new conversation (`?new=1`, `chat/new`), rename, voice settings (Claude), deck picker with pins + create deck; Claude practice chats answer with audio; call invites → Join | ✅ tool rules parity-tested (`core/…/MessageTools.kt`); history cached for offline (sending needs a connection, like the web — nothing is queued) | `ChatPage.tsx`, `components/chat/`, `InteractiveMessage.tsx`, `MessageDiscussionModal.tsx` |
 | Cards you flagged (resolve / reopen / delete, open the card); Claude conversations (`/claude-chats`, threads, load older) | ✅ threads parity-tested (`core/…/QuestionThreads.kt`); the card link opens C's card hub (placeholder until native) | `components/cardFlags/`, `ClaudeChatsPage.tsx`, `shared/chats/threads.ts` |
@@ -224,11 +224,17 @@ Owns `app/src/main/res/xml/`, widget / shortcut / notification classes under `sh
 
 ## J — Video calls (last)
 
-Owns `ui/calls/`, `data/api/CallsApi.kt`, the call recorder (uploads via Outbox multipart).
+Owns `ui/calls/`, `data/api/CallsApi.kt`, `data/calls/` (upload queue, recorder glue), `core/…/calls/` (board ops, transcript helpers, protocol, Ogg/Opus muxer, piece/chunk recorder), `parity/fixtures/calls.ts`.
 
-| Feature | Status | Web source |
-|---|---|---|
-| Calls list + start, live call (WebRTC, whiteboard, chat), review (transcript, report, flashcards, Make homework) | ⬜ | `CallsListPage.tsx`, `CallPage.tsx`, `CallReviewPage.tsx`, docs/VIDEO_CALLS.md |
+| Feature | Status | Web source | Lab source |
+|---|---|---|---|
+| Whiteboard ops (sanitize / apply / undo target) + transcript helpers (merge, turns, offsets) | ✅ parity-tested (`parity/fixtures/calls.ts` → `CallsParityTest`) | `shared/calls/board.ts`, `transcript.ts` | `core/…/calls/CallBoard.kt`, `CallTranscript.kt` |
+| `/calls`: start a call (per active tutor / student, or a solo test call), past calls with state (notes ready / transcript ready / processing…), LIVE rows → the call | ✅ cached for offline, refreshes every 15 s like the web | `CallsListPage.tsx` | `ui/calls/CallsListScreen.kt` |
+| `/calls/:id/review`: summary + topics, corrections, words → "Add N cards" (new deck or one of mine), before next time, transcript turns with ▶ per line (plays that stretch of the speaker's piece) and 拼音 / EN toggles (pinyin made on the phone when the transcriber gave none), whiteboard snapshot, chat, Process now / Transcribe again, Delete (creator), live banner → Join, "still uploading from this phone" | ✅ polls every 5 s while processing; cached for offline | `CallReviewPage.tsx`, `boardRender.ts` | `ui/calls/CallReviewScreen.kt`, `BoardCanvas.kt` |
+| Tutor: "Make homework from this lesson" with the session-notes job card (progress, retry / cancel / delete) | ✅ | `CallHomeworkSection.tsx` | `CallReviewScreen.kt` (reuses F's `SessionJobCard`) |
+| Recording upload queue: register → raw chunks → close through the Outbox (Room, survives process death), drained during the call / after sync / by SyncWorker; open pieces of a killed app closed on the next sync | ✅ unit-tested against a fake server (`CallUploadsTest`) | `services/calls/uploads.ts` | `data/calls/CallUploads.kt`, `Outbox.enqueueRaw` |
+| Recording pieces (5 min, standalone files) in 10 s chunks, piece start on the server clock | ✅ logic unit-tested (`PieceRecorderTest`, `OggOpusTest`): Opus in Ogg (`audio/ogg`, which the server already accepts) instead of MediaRecorder's webm | `services/calls/recorder.ts` | `core/…/calls/CallRecording.kt`, `OggOpus.kt` |
+| Live call `/calls/:id` (WebRTC, whiteboard, chat, controls, recording) | ⬜ next PR — opens the main app until then | `CallPage.tsx`, `useCall.ts`, `peer.ts`, `room.ts` | — |
 
 ## Not native
 
