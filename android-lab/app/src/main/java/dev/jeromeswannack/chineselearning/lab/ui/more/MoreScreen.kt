@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.SyncStatus
+import dev.jeromeswannack.chineselearning.lab.ui.home.LastSyncDetails
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen
@@ -54,6 +57,8 @@ data class MoreUi(
     val pendingWrites: Int = 0,
     val soundOn: Boolean = true,
     val hapticsOn: Boolean = true,
+    /** Open the "Last sync" step timings at first (screenshots). */
+    val syncDetailsOpen: Boolean = false,
     /** Paths with a native screen (their rows get a chevron; the rest show ↗). */
     val native: Set<String> = emptySet(),
 )
@@ -74,7 +79,7 @@ class MoreActions(
  * [extraRows] (MoreExtraRows.kt), not here.
  */
 @Composable
-fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () -> Unit> = emptyList()) {
+fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () -> Unit> = emptyList(), listState: LazyListState = rememberLazyListState()) {
     var confirmSignOut by remember { mutableStateOf(false) }
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     val role = ui.role
@@ -82,7 +87,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
         NavRow(icon, label, desc = desc, external = path !in ui.native, onClick = { actions.open(path) })
     }
 
-    LabScreen(title = "More", spacing = 4.dp) {
+    LabScreen(title = "More", spacing = 4.dp, listState = listState) {
         item { UserCard(ui) { actions.open(Routes.SETTINGS) } }
 
         if (role.isTutorAccount) {
@@ -240,6 +245,9 @@ private fun LabSection(ui: MoreUi, actions: MoreActions, extraRows: List<@Compos
                 enabled = !ui.sync.running,
                 onClick = actions.onFullSync,
             )
+            if (ui.sync.lastRun != null) {
+                Box(Modifier.padding(start = 60.dp, end = 16.dp)) { LastSyncDetails(ui.sync.lastRun, startOpen = ui.syncDetailsOpen) }
+            }
             RowDivider()
             NavRow("📱", "Open the main app", desc = "Everything the Lab app doesn't do yet", external = true, onClick = actions.onOpenMainApp)
             for (extra in extraRows) {

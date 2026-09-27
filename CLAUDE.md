@@ -1003,7 +1003,7 @@ would get, per-deck caps / introduced today / pools / allocation / counts, compa
 `[card_id, note_id, deck_id, card_type, queue, due_ms, reps, lapses, event_count, in_due_queue,
 first_review_ms]` and every event id as an 8-hex FNV-1a `eventIdHash` (same vectors tested in TS and
 Kotlin). Uploaded after a sync at most every 30 min, and on demand: web **Settings → Advanced → Send
-debug report**, Lab **home ⚙ → Send debug report**. `compareDebugReports` (pure, unit-tested) diffs two
+debug report**, Lab **More → Lab app → Send debug report**. `compareDebugReports` (pure, unit-tested) diffs two
 reports plus the server's own `review_events` (which side is missing events / holds unuploaded ones).
 - `POST /api/debug/reports` - `{ client: 'lab'|'web', app_version, install_kind?, report }`, JSON or gzip (`Content-Type: application/gzip`) → 201 `{ report: row }`
 - `GET /api/debug/reports?client=&limit=` - index rows newest first (with `summary`)

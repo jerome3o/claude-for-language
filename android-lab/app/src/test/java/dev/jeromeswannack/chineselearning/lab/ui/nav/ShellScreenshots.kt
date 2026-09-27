@@ -12,6 +12,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.more.MoreActions
 import dev.jeromeswannack.chineselearning.lab.ui.more.MoreScreen
 import dev.jeromeswannack.chineselearning.lab.ui.more.MoreUi
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.PlaceholderScreen
+import dev.jeromeswannack.chineselearning.lab.data.SyncPhase
+import dev.jeromeswannack.chineselearning.lab.data.SyncRun
 import dev.jeromeswannack.chineselearning.lab.data.SyncStatus
 import dev.jeromeswannack.chineselearning.lab.ui.more.DebugReportRow
 import org.junit.Test
@@ -57,6 +59,23 @@ class ShellScreenshots : LabScreenshotTest() {
 
     @Test fun studentWithStudentsDark() = shootInShell("shell-08-dark-more", TabId.MORE, tabs = NavRules.tabsFor(NavRole(hasStudents = true, loaded = true)), dark = true) {
         MoreScreen(more(NavRole(hasStudents = true, hasTutor = true, loaded = true), admin = true), MoreActions())
+    }
+
+    /** More → Lab app scrolled to the sync rows: Last sync opened with per-step timings (Repository.sync). */
+    @Test fun moreSyncTimings() = shootInShell("shell-10-more-sync-timings", TabId.MORE) {
+        val run = SyncRun(
+            full = true, atMs = System.currentTimeMillis() - 60_000, totalMs = 5_699, ok = true,
+            phases = listOf(
+                SyncPhase("Profile", 113),
+                SyncPhase("Downloading decks", 580, "24 decks · 3,000 notes"),
+                SyncPhase("Saving decks", 2150, "3,000 notes · 9,000 cards"),
+                SyncPhase("Downloading reviews", 1048, "45,470 received · 45,470 new · 10 pages"),
+                SyncPhase("Card states", 1748, "9,000 replayed · 6,487 changed"),
+                SyncPhase("Sentences", 14, "0 sentences"),
+            ),
+        )
+        val state = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 5)
+        MoreScreen(more(student).copy(sync = SyncStatus(lastSyncAt = System.currentTimeMillis() - 60_000, audioTotal = 6200, audioCached = 1450, lastRun = run), syncDetailsOpen = true), MoreActions(), listState = state)
     }
 
     @Config(qualifiers = LabScreenshotTest.UNFOLDED)

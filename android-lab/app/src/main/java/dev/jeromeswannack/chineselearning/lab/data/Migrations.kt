@@ -14,7 +14,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * (data/platform/) instead.
  */
 object LabMigrations {
-    /** v2: the generic feature tables — json_cache (synced feature data) and outbox (offline writes). */
+    /**
+     * v2: the generic feature tables — json_cache (synced feature data) and outbox (offline
+     * writes) — and an index on review_events(cardId, reviewedAt), which turns the per-card
+     * MIN(reviewedAt) of LabDao.firstReviews (every Home / queue build) into an index scan.
+     */
     val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS `json_cache` (`key` TEXT NOT NULL, `kind` TEXT NOT NULL, `json` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`key`))")
@@ -23,6 +27,7 @@ object LabMigrations {
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_outbox_id` ON `outbox` (`id`)")
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_kind` ON `outbox` (`kind`)")
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_state` ON `outbox` (`state`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_review_events_cardId_reviewedAt` ON `review_events` (`cardId`, `reviewedAt`)")
         }
     }
 

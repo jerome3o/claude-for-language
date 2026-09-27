@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import java.io.File
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,7 +49,7 @@ class MigrationTest {
         return db
     }
 
-    @Test fun v1ToV2KeepsEventsCardsAndPendingDeletions() {
+    @Test fun v1ToV2KeepsEventsCardsAndPendingDeletionsAndIndexesFirstReviews() {
         createFromExportedSchema(1).use { db ->
             db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt) VALUES ('d1', 'HSK 3', NULL, 3, 6, 5, '2026-09-01 10:00:00')")
             db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt) VALUES ('n1', 'd1', '打算', 'dǎsuàn', 'to plan', '2026-09-01 10:00:00')")
@@ -78,6 +79,13 @@ class MigrationTest {
             assertEquals(listOf("e0"), dao.pendingDeletions().map { it.eventId })
             assertEquals(5, dao.decks().single().studyPriority)
             assertEquals(1, dao.noteCount())
+
+            // The index for firstReviews exists and the query plan uses it (no temp B-tree for GROUP BY).
+            val indexes = room.query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'review_events'", null).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+            assertTrue(indexes.toString(), "index_review_events_cardId_reviewedAt" in indexes)
+            val plan = room.query("EXPLAIN QUERY PLAN SELECT cardId, MIN(reviewedAt) AS firstAt FROM review_events GROUP BY cardId", null).use { c -> buildList { while (c.moveToNext()) add(c.getString(3)) } }.joinToString(" | ")
+            assertTrue(plan, plan.contains("index_review_events_cardId_reviewedAt") && !plan.contains("TEMP B-TREE"))
+            assertEquals(listOf("c1" to "2026-09-20T08:00:00.000Z"), dao.firstReviews().map { it.cardId to it.firstAt })
 
             // The new tables work.
             val cache = JsonCache(room.platform(), Json)

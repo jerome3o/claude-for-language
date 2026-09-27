@@ -166,8 +166,6 @@ class Fsrs(val param: FsrsParameters) {
         require(param.requestRetention > 0 && param.requestRetention <= 1)
         Js.toFixed8((StrictMath.pow(param.requestRetention, 1 / decay) - 1) / factor)
     }
-    internal var seed: String = ""
-
     fun forgettingCurve(elapsedDays: Double, stability: Double): Double =
         Js.toFixed8(StrictMath.pow(1 + factor * elapsedDays / stability, decay))
 
@@ -178,9 +176,14 @@ class Fsrs(val param: FsrsParameters) {
         return Js.toFixed8(d)
     }
 
-    fun applyFuzz(ivl: Double, elapsedDays: Long): Double {
+    /**
+     * [fuzzFactor] gives `alea(seed).next()` for this review's seed. It is a function so
+     * the seed (and its Number→String) is only built when an interval is actually fuzzed,
+     * and so two reviews computed at once never share a seed through this shared instance.
+     */
+    fun applyFuzz(ivl: Double, elapsedDays: Long, fuzzFactor: () -> Double): Double {
         if (!param.enableFuzz || ivl < 2.5) return Js.round(ivl)
-        val fuzzFactor = Alea(seed).next()
+        val fuzzFactor = fuzzFactor()
         var delta = 1.0
         for ((start, end, f) in FUZZ_RANGES) {
             delta += f * Math.max(Math.min(ivl, end) - start, 0.0)
@@ -193,9 +196,9 @@ class Fsrs(val param: FsrsParameters) {
         return Math.floor(fuzzFactor * (maxIvl - minIvl + 1) + minIvl)
     }
 
-    fun nextInterval(s: Double, elapsedDays: Long): Long {
+    fun nextInterval(s: Double, elapsedDays: Long, fuzzFactor: () -> Double): Long {
         val newInterval = Math.min(Math.max(1.0, Js.round(s * intervalModifier)), param.maximumInterval)
-        return applyFuzz(newInterval, elapsedDays).toLong()
+        return applyFuzz(newInterval, elapsedDays, fuzzFactor).toLong()
     }
 
     private fun linearDamping(deltaD: Double, oldD: Double): Double = Js.toFixed8(deltaD * (10 - oldD) / 9)
@@ -272,9 +275,17 @@ private class BasicScheduler(card: FsrsCard, private val reviewTime: Long, priva
         }
         current = card.copy(lastReview = reviewTime, elapsedDays = interval, reps = card.reps + 1)
         elapsedDays = interval
-        // DefaultInitSeedStrategy: `${time}_${reps}_${difficulty * stability}`
-        algorithm.seed = "${reviewTime}_${current.reps}_${Js.numberToString(current.difficulty * current.stability)}"
     }
+
+    // DefaultInitSeedStrategy: `${time}_${reps}_${difficulty * stability}` of the card as it
+    // enters this review. Every fuzzed interval of one review uses that same seed, so the
+    // first Alea output is computed once — and only if an interval is fuzzed at all.
+    private val seedReps = current.reps
+    private val seedDs = current.difficulty * current.stability
+    private val fuzzFactor: Double by lazy(LazyThreadSafetyMode.NONE) {
+        Alea("${reviewTime}_${seedReps}_${Js.numberToString(seedDs)}").next()
+    }
+    private val fuzz: () -> Double = { fuzzFactor }
 
     fun review(grade: Int): FsrsCard = when (last.state) {
         FsrsState.New -> newState(grade)
@@ -318,11 +329,11 @@ private class BasicScheduler(card: FsrsCard, private val reviewTime: Long, priva
         val hardS = algorithm.nextRecallStability(difficulty, stability, retrievability, Grade.HARD)
         val goodS = algorithm.nextRecallStability(difficulty, stability, retrievability, Grade.GOOD)
         val easyS = algorithm.nextRecallStability(difficulty, stability, retrievability, Grade.EASY)
-        var hardInterval = algorithm.nextInterval(hardS, interval)
-        var goodInterval = algorithm.nextInterval(goodS, interval)
+        var hardInterval = algorithm.nextInterval(hardS, interval, fuzz)
+        var goodInterval = algorithm.nextInterval(goodS, interval, fuzz)
         hardInterval = Math.min(hardInterval, goodInterval)
         goodInterval = Math.max(goodInterval, hardInterval + 1)
-        val easyInterval = Math.max(algorithm.nextInterval(easyS, interval), goodInterval + 1)
+        val easyInterval = Math.max(algorithm.nextInterval(easyS, interval, fuzz), goodInterval + 1)
         val (s, days) = when (grade) {
             Grade.HARD -> hardS to hardInterval
             Grade.GOOD -> goodS to goodInterval
@@ -379,7 +390,7 @@ private class BasicScheduler(card: FsrsCard, private val reviewTime: Long, priva
                 scheduledDays = scheduledMinutes / 1440,
             )
         } else {
-            val interval = algorithm.nextInterval(nextCard.stability, elapsedDays)
+            val interval = algorithm.nextInterval(nextCard.stability, elapsedDays, fuzz)
             nextCard.copy(
                 state = FsrsState.Review,
                 learningSteps = 0,

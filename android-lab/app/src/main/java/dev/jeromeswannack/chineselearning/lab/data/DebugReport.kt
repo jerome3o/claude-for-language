@@ -90,6 +90,8 @@ object DebugReportBuilder {
         appVersion: String,
         nowMs: Long = System.currentTimeMillis(),
         zone: ZoneId = ZoneId.systemDefault(),
+        /** The last sync's per-step timings (Repository.status), so a slow sync can be read off a report. */
+        lastRun: SyncRun? = null,
     ): JsonObject = withContext(Dispatchers.IO) {
         val dao = db.dao()
         val budget: StudyBudget = prefs.budget
@@ -166,6 +168,15 @@ object DebugReportBuilder {
                 put("events_cursor", prefs.eventsCursor)
                 put("sentences_cursor", prefs.sentencesCursor)
                 put("last_sync_at", prefs.lastSyncAt)
+                if (lastRun != null) putJsonObject("last_run") {
+                    put("full", lastRun.full)
+                    put("ok", lastRun.ok)
+                    put("at", iso(lastRun.atMs))
+                    put("total_ms", lastRun.totalMs)
+                    putJsonArray("phases") {
+                        for (p in lastRun.phases) add(buildJsonObject { put("name", p.name); put("ms", p.ms); put("detail", p.detail) })
+                    }
+                }
             }
             putJsonObject("totals") {
                 put("decks", decks.size)
@@ -266,7 +277,7 @@ class DebugReporter(
     /** Build + upload now. Throws on failure. */
     suspend fun send(nowMs: Long = System.currentTimeMillis()): Sent = withContext(Dispatchers.IO) {
         val token = repo.prefs.sessionToken ?: throw UnauthorizedException()
-        val report = DebugReportBuilder.build(repo.db, repo.prefs, appVersion, nowMs)
+        val report = DebugReportBuilder.build(repo.db, repo.prefs, appVersion, nowMs, lastRun = repo.status.value.lastRun)
         val body = buildJsonObject {
             put("client", "lab")
             put("app_version", appVersion)

@@ -28,3 +28,6 @@ Dark theme, account with students (Students · Decks · Study · Progress · Mor
 
 ![Unfolded More](shell-09-unfolded-more.png)
 Unfolded (841dp): content capped at 720dp.
+
+![More sync timings](shell-10-more-sync-timings.png)
+More → Lab app: last sync with per-step timings (moved from the old home ⚙ sheet, #405).

@@ -94,6 +94,16 @@ incremental (`/api/sync/changes`, tombstones first), events (`POST /api/reviews`
 upload, `GET /api/reviews` cursor download, `DELETE` for undone reviews), sentence sets
 (`/api/sentences/changes`), then every referenced audio clip is downloaded for the train.
 
+**Sync speed** (a first sync of 24 decks / 3,000 notes / 9,000 cards / 45k events): deck
+downloads run 4 at a time, review pages hold 5,000 events and the next page is fetched
+while the current one is written, and card states are replayed ONCE per sync, after the
+events are in, in batched transactions (500 cards each, only changed rows written) — never
+one transaction per card. Audio downloads run after the sync in their own background job,
+outside the sync lock, so the review upload after each rating never waits for them. Every
+sync records per-step timings (`SyncStatus.lastRun`: Lab settings → Last sync, and the debug
+report's `sync.last_run`); `SyncBenchmarkTest` (opt-in, against a seeded local worker) and
+`core/…/ReplayBenchmarkTest` measure it.
+
 ## Parity: proving the logic matches
 
 `./gradlew :core:test` first runs `parity/generate.sh`, which bundles

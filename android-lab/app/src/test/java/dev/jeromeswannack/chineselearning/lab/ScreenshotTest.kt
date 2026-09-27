@@ -104,6 +104,16 @@ class ScreenshotTest {
         )
     }
 
+    /** A first sync of a big account: what it is doing and how far it got. */
+    @Test fun homeFirstSync() = shoot("13-home-first-sync") {
+        HomeScreen(
+            ui = HomeUi(loaded = true, userName = "Jerome Swannack"),
+            sync = SyncStatus(running = true, phase = "Downloading reviews", progress = "25,000 so far"),
+            online = true,
+            actions = HomeActions(),
+        )
+    }
+
     @Test fun readFront() = shoot("03-read-front") { study(view(CardTypes.HANZI_TO_MEANING)) }
 
     @Test fun readBack() = shoot("04-read-back") { study(view(CardTypes.HANZI_TO_MEANING), CardStartState(flipped = true)) }

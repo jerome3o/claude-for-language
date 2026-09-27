@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -111,7 +113,7 @@ private fun greeting(): String = when (LocalTime.now().hour) {
 @Composable
 private fun SyncLine(sync: SyncStatus, online: Boolean, nowMs: Long) {
     val text = when {
-        sync.running -> "Syncing…"
+        sync.running -> syncProgressText(sync)
         !online -> "Offline" + if (sync.unsynced > 0) " · ${sync.unsynced} review${if (sync.unsynced == 1) "" else "s"} waiting" else " · studying from this phone"
         sync.error != null -> "Sync failed: ${sync.error}"
         sync.lastSyncAt == 0L -> "Not synced yet"
@@ -144,7 +146,7 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "hero")
-    val empty = ui.loaded && due.total == 0
+    val empty = ui.loaded && due.total == 0 && !sync.running
     Column(
         Modifier
             .fillMaxWidth()
@@ -159,7 +161,7 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
         val minutes = Math.max(1, Math.round(due.total * 20 / 60f))
         Text(
             when {
-                !ui.loaded || (sync.running && due.total == 0) -> "Getting your cards…"
+                !ui.loaded || (sync.running && due.total == 0) -> "Getting your cards…" + (sync.progress?.let { "\n${sync.phase} · $it" } ?: "")
                 empty -> "Nothing due. ${ui.reviewedToday} reviews today — 很好！"
                 else -> "${due.total} card${if (due.total == 1) "" else "s"} due · about $minutes min"
             },

@@ -19,8 +19,39 @@ import java.time.format.DateTimeParseException
  * Math.pow / exp / log.
  */
 object Js {
-    /** `+x.toFixed(8)`: round the EXACT binary value of |x| to 8 decimals, ties away from zero. */
-    fun toFixed8(x: Double): Double = toFixedDecimal(x, 8).toDouble()
+    /**
+     * `+x.toFixed(8)`: round the EXACT binary value of |x| to 8 decimals, ties away from zero.
+     *
+     * Fast path (the FSRS replay calls this several times per review): n = the rounded
+     * count of 1e-8 steps, taken from the floating product x·1e8 whenever that product is
+     * clearly away from a .5 boundary (its rounding error is below one ulp, so it cannot
+     * cross one), and the result is n / 1e8 — one correctly rounded IEEE division of two
+     * exact values, which is exactly the double nearest the decimal. Anything near a
+     * boundary (or large) takes the exact BigDecimal path. [toFixed8Exact] is the reference;
+     * JsCompatTest holds the two equal.
+     */
+    fun toFixed8(x: Double): Double {
+        val a = Math.abs(x)
+        if (a < 1e7) { // a·1e8 < 2^53: n and the product are exact-integer representable
+            val y = a * 1e8
+            val f = Math.floor(y)
+            val d = y - f // exact (Sterbenz)
+            val margin = 4 * Math.ulp(y)
+            val n = when {
+                d < 0.5 - margin -> f
+                d > 0.5 + margin -> f + 1
+                else -> Double.NaN
+            }
+            if (!n.isNaN()) {
+                if (n == 0.0) return 0.0 // BigDecimal has no -0: the exact path gives +0 too
+                val r = n / 1e8
+                return if (x < 0) -r else r
+            }
+        }
+        return toFixed8Exact(x)
+    }
+
+    internal fun toFixed8Exact(x: Double): Double = toFixedDecimal(x, 8).toDouble()
 
     /** `x.toFixed(digits)` as a string (no exponent form; |x| < 1e21 assumed). */
     fun toFixed(x: Double, digits: Int): String {
@@ -62,14 +93,56 @@ object Js {
         if (x == 0.0) return "0"
         if (x.isInfinite()) return if (x > 0) "Infinity" else "-Infinity"
         if (x < 0) return "-" + numberToString(-x)
+        return formatShortest(x, shortestDigits(x))
+    }
+
+    /** The reference: try every precision from 1 up. [numberToString] must equal this. */
+    internal fun numberToStringReference(x: Double): String {
+        if (x.isNaN()) return "NaN"
+        if (x == 0.0) return "0"
+        if (x.isInfinite()) return if (x > 0) "Infinity" else "-Infinity"
+        if (x < 0) return "-" + numberToStringReference(-x)
         val exact = BigDecimal(x)
-        // Shortest digit string that round-trips; BigDecimal rounding is on the exact value,
-        // which also gives the closest candidate when several have the same length.
         var rounded: BigDecimal = exact
         for (p in 1..17) {
             val candidate = exact.round(MathContext(p, RoundingMode.HALF_EVEN))
             if (candidate.toDouble() == x) { rounded = candidate; break }
         }
+        return formatShortest(x, rounded)
+    }
+
+    /**
+     * Shortest digit string that round-trips (x > 0, finite); BigDecimal rounding is on the
+     * exact value, which also gives the closest candidate when several have the same length.
+     *
+     * "p digits round-trip" is monotonic in p whenever x's rounding interval is symmetric —
+     * any significand but an exact power of two: the correctly rounded (p+1)-digit value is
+     * at least as close to x as the p-digit one (which is also a (p+1)-digit decimal), so it
+     * lies inside the interval too. There a binary search over 1..17 finds the same smallest
+     * p as the linear scan with ~5 BigDecimal roundings instead of up to 17 (this runs once
+     * per fuzzed review in the FSRS replay). Powers of two keep the linear scan.
+     */
+    private fun shortestDigits(x: Double): BigDecimal {
+        val exact = BigDecimal(x)
+        fun at(p: Int) = exact.round(MathContext(p, RoundingMode.HALF_EVEN))
+        val powerOfTwo = (java.lang.Double.doubleToRawLongBits(x) and 0x000F_FFFF_FFFF_FFFFL) == 0L
+        if (powerOfTwo) {
+            for (p in 1..17) at(p).let { if (it.toDouble() == x) return it }
+            return exact
+        }
+        var lo = 1
+        var hi = 17 // 17 significant digits always round-trip
+        var best: BigDecimal? = null
+        var bestP = 0
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            val c = at(mid)
+            if (c.toDouble() == x) { hi = mid; best = c; bestP = mid } else lo = mid + 1
+        }
+        return if (best != null && bestP == lo) best else at(lo)
+    }
+
+    private fun formatShortest(x: Double, rounded: BigDecimal): String {
         val stripped = rounded.stripTrailingZeros()
         val digits = stripped.unscaledValue().toString()
         val k = digits.length
