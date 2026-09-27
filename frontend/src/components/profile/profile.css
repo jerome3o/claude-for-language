@@ -1,0 +1,657 @@
+/* Profile screen (/profile), its crop sheet, and PersonAbout (tutor / student pages, /join). Mobile first. */
+
+.pf-page {
+  padding: 0.5rem 0 6rem;
+  max-width: 640px;
+}
+
+.pf-page h1 {
+  font-size: 1.25rem;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.pf-lead {
+  color: var(--color-text-light);
+  font-size: 0.9375rem;
+  margin: 0 0 1rem;
+}
+
+.pf-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pf-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.pf-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+}
+
+.pf-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- Photo ---------- */
+.pf-photo-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.pf-photo-button {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.pf-photo-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.pf-photo-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.pf-avatar {
+  display: block;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e5e7eb;
+  flex: none;
+}
+
+.pf-avatar-xl {
+  width: 104px;
+  height: 104px;
+  font-size: 2.5rem;
+}
+
+.pf-avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: 1.375rem;
+}
+
+.pf-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3b82f6;
+  color: #fff;
+  font-weight: 700;
+}
+
+.pf-photo-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.pf-btn {
+  min-height: 44px;
+  margin-bottom: 0.25rem;
+}
+
+.pf-link {
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  min-height: 36px;
+  color: var(--color-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pf-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pf-link.pf-inline {
+  padding: 0;
+  min-height: 0;
+  font-size: inherit;
+}
+
+.pf-link-danger {
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+.pf-card-error {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+
+/* ---------- Fields ---------- */
+.pf-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.pf-desc {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  margin: 0 0 0.625rem;
+  line-height: 1.4;
+}
+
+.pf-input {
+  width: 100%;
+  font-size: 1rem; /* 16px: no zoom on focus */
+  padding: 0.625rem 0.75rem;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--color-text);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.pf-input:focus {
+  outline: 2px solid rgba(220, 38, 38, 0.25);
+  border-color: var(--color-primary);
+}
+
+.pf-textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.pf-select {
+  appearance: auto;
+}
+
+.pf-field-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-top: 0.375rem;
+}
+
+.pf-help {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  line-height: 1.4;
+}
+
+.pf-count {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.pf-count-over {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.pf-tz-device {
+  margin-top: 0.25rem;
+}
+
+.pf-field-problem {
+  margin: 0.375rem 0 0;
+  color: #b91c1c;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.pf-toast-lift .app-toast {
+  bottom: calc(var(--tab-bar-total, 0px) + 84px);
+}
+
+.pf-private {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+}
+
+.pf-problems {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+/* ---------- Preview ---------- */
+.pf-preview-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+  margin: 0 0 0.375rem 0.25rem;
+}
+
+.pf-preview-card {
+  background: var(--color-surface);
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+}
+
+.pf-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pf-preview-name {
+  font-weight: 700;
+  font-size: 1.125rem;
+  overflow-wrap: anywhere;
+}
+
+.pf-preview-title {
+  min-width: 0;
+}
+
+.pf-preview-empty {
+  margin: 0.75rem 0 0;
+}
+
+/* ---------- Save bar ---------- */
+.pf-savebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 600; /* above the feedback button, which would cover Save */
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
+  transform: translateY(110%);
+  visibility: hidden;
+  transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2), visibility 0s linear 0.22s;
+}
+
+html.has-tab-bar .pf-savebar {
+  bottom: var(--tab-bar-total);
+  padding-bottom: 0.75rem;
+}
+
+.pf-savebar-on {
+  transform: translateY(0);
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+html.has-tab-bar .pf-savebar:not(.pf-savebar-on) {
+  transform: translateY(calc(110% + var(--tab-bar-total)));
+}
+
+.pf-savebar .btn {
+  min-height: 44px;
+  flex: 1;
+  max-width: 220px;
+}
+
+/* ---------- Crop sheet ---------- */
+.pf-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.pf-sheet {
+  width: 100%;
+  max-width: 480px;
+  max-height: 100dvh;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-radius: 16px 16px 0 0;
+  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  animation: pf-sheet-up 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+@keyframes pf-sheet-up {
+  from { transform: translateY(40px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.pf-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pf-sheet-head h2 {
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+.pf-sheet-close {
+  background: none;
+  border: none;
+  font-size: 1.75rem;
+  line-height: 1;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--color-text-light);
+}
+
+.pf-sheet-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.pf-crop-frame {
+  position: relative;
+  width: min(100%, 360px);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #0f172a;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.pf-crop-frame:active {
+  cursor: grabbing;
+}
+
+.pf-crop-img {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+.pf-crop-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 999px rgba(15, 23, 42, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+}
+
+.pf-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 360px;
+  margin: 1rem auto 0;
+  font-size: 1.25rem;
+  color: var(--color-text-light);
+}
+
+.pf-zoom input {
+  flex: 1;
+  min-height: 44px;
+  accent-color: var(--color-primary);
+}
+
+.pf-sheet-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.pf-sheet-actions .btn {
+  flex: 1;
+  min-height: 48px;
+}
+
+/* ---------- PersonAbout ---------- */
+.person-about {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.person-about-text {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  font-size: 0.9375rem;
+}
+
+.person-about-time {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.person-about-compact {
+  margin-top: 0.25rem;
+}
+
+.person-about-compact .person-about-text {
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+/* Tutor / student page: the blurb sits in a soft card under the name. */
+.td-person-about {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.td-person-about .person-about {
+  margin-top: 0;
+}
+
+/* ---------- Dashboard: profile chip + nudge ---------- */
+.pf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.25rem 0.75rem 0.25rem 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pf-chip:hover {
+  text-decoration: none;
+  background: #fff7f6;
+}
+
+.pf-chip img,
+.pf-chip .pf-chip-initial {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.pf-chip .pf-chip-initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3b82f6;
+  color: #fff;
+}
+
+.pf-nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem 0.75rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-lg);
+  padding: 0.75rem 0.5rem 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.pf-nudge-text {
+  flex: 1 1 calc(100% - 48px);
+  min-width: 0;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  padding-top: 0.375rem;
+}
+
+.pf-nudge-text strong {
+  display: block;
+}
+
+.pf-nudge .btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .pf-nudge {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .pf-nudge-text {
+    flex: 1;
+    padding-top: 0;
+  }
+
+  .pf-nudge .btn {
+    order: 1;
+  }
+
+  .pf-nudge-dismiss {
+    order: 2;
+  }
+}
+
+.pf-nudge-dismiss {
+  background: none;
+  border: none;
+  min-width: 36px;
+  min-height: 44px;
+  font-size: 1.25rem;
+  color: #64748b;
+  cursor: pointer;
+}
+
+@media (min-width: 640px) {
+  .pf-page h1 {
+    font-size: 1.5rem;
+  }
+
+  .pf-sheet-backdrop {
+    align-items: center;
+  }
+
+  .pf-sheet {
+    border-radius: 16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .pf-page {
+    max-width: 960px;
+  }
+
+  .pf-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+
+  .pf-form {
+    flex: 1;
+  }
+
+  .pf-preview {
+    width: 320px;
+    flex: none;
+    position: sticky;
+    top: 1rem;
+  }
+
+  .pf-savebar {
+    justify-content: center;
+  }
+}
+
+.pf-chip-text {
+  display: none;
+}
+
+.pf-chip {
+  padding-right: 0.25rem;
+}
+
+.connections-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .pf-chip-text {
+    display: inline;
+  }
+
+  .pf-chip {
+    padding-right: 0.875rem;
+  }
+}

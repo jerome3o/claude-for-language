@@ -120,6 +120,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
+│   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
 │   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
@@ -303,6 +304,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
+- `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
@@ -678,6 +680,8 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `POST /api/decks/:id/move` - `{ to: 'top' | 'bottom' }` move a deck in the study queue (`study_priority`)
 - `PUT /api/decks/reorder` - `{ deck_ids }` the whole queue, first = studied first
 - `PUT /api/profile/study-budget` - `{ new_cards_per_day?, secondary_cards_per_day? }` the account's global daily new-card budget (0–200; 400 with `problems`); current values on `/api/auth/me`
+- `GET|PUT /api/profile` - The editable profile (`routes/profile.ts`, `services/profile.ts`, validation `shared/profile`): `{ name?, bio?, about?, time_zone? }` (400 + `problems`; `name: null` = back to the Google name) → `{ name, picture_url, picture_source: google|upload|none, name_custom, google_name, google_picture_url, bio, about, time_zone }`
+- `POST /api/profile/picture` (raw image or multipart `picture`; JPEG/PNG/WebP sniffed from the bytes, ≤ 2 MB; the clients crop to a square and send ~512px JPEG) · `DELETE /api/profile/picture?use=google|none`
 - `DELETE /api/decks/:id` - Delete deck (tombstones for every device; audio clean-up in the background)
 
 ### Notes
@@ -1738,7 +1742,8 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
 - `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
 - `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
-- `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
+- `/profile` - Profile (`pages/ProfilePage.tsx`, `components/profile/`): display name, photo (crop sheet → 512px JPEG → R2 `avatars/<user>/<id>.jpg`, served by the public `GET /api/audio/<key>`), About me (public: `PersonAbout` on the tutor / student page, the /join page), time zone (the other side sees your local time), and the learner's private bio. **`users.name` / `picture_url` stay the effective values every query reads** (migration 0076 adds `google_name`, `google_picture_url`, `name_custom`, `picture_source`, `picture_key`, `about`, `time_zone`); the Google sign-in (`touchExistingUser` → `googleProfileRefresh`, and the MCP server's OAuth callback) always refreshes the `google_*` columns but only overwrites name / picture while the user follows Google. Reached from More (user card + Account → Profile), Settings, and the tutor's Students dashboard header chip / "Introduce yourself" nudge
+- `/settings` - Profile link · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
 - `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
 - `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
 - `/connections/:relId/chat/:convId` - Chat interface
