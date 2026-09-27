@@ -105,7 +105,11 @@ private fun ReaderHead(spec: JsonObject, errors: List<String>, host: ReaderFormH
         }
         EdField("English title") { EdTextField(spec.text("title_english"), { host.onChange(spec.with("title_english", it)) }, placeholder = "Winter in Changchun") }
         EdField("Difficulty") {
-            Segmented(ReaderValidator.DIFFICULTIES.map { it to ReaderExport.difficultyLabel(it) }, { it == spec.str("difficulty_level") }, { host.haptic(); host.onChange(spec.with("difficulty_level", it)) })
+            dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow {
+                for (d in ReaderValidator.DIFFICULTIES) {
+                    dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip(ReaderExport.difficultyLabel(d), selected = d == spec.str("difficulty_level")) { host.haptic(); host.onChange(spec.with("difficulty_level", d)) }
+                }
+            }
         }
         EdField("Topic", hint = "optional") {
             EdTextField(spec.text("topic"), { host.onChange(spec.with("topic", if (it.isEmpty()) JsonNull else JsJson.s(it))) }, placeholder = "winter, daily life…")

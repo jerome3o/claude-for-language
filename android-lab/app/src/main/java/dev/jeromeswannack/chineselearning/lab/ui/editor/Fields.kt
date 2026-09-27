@@ -123,7 +123,7 @@ fun MiniButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
 @Composable
 fun HanziInput(value: String, onChange: (String) -> Unit, speak: Speak, modifier: Modifier = Modifier, onPinyin: ((String) -> Unit)? = null, placeholder: String = "中文") {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        EdTextField(value, onChange, Modifier.weight(1f), placeholder = placeholder, chinese = true)
+        EdTextField(value, onChange, Modifier.weight(1f), placeholder = placeholder, chinese = true, singleLine = false)
         MiniButton("🔊", { speak(value) }, enabled = JsJson.trim(value).isNotEmpty(), description = "Play")
         if (onPinyin != null) MiniButton("拼音", { onPinyin(toPinyin(value)) }, enabled = JsJson.trim(value).isNotEmpty(), description = "Fill pinyin from the hanzi")
     }
@@ -134,8 +134,8 @@ fun HanziInput(value: String, onChange: (String) -> Unit, speak: Speak, modifier
 fun SentenceEditor(value: JsonObject, onChange: (JsonObject) -> Unit, speak: Speak, modifier: Modifier = Modifier, englishRequired: Boolean = false, englishLabel: String? = null) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         HanziInput(value.text("hanzi"), { onChange(value.with("hanzi", it)) }, speak, onPinyin = { onChange(value.with("pinyin", it)) })
-        EdTextField(value.text("pinyin"), { onChange(value.with("pinyin", it.ifEmpty { null })) }, placeholder = "pinyin (nǐ hǎo)")
-        EdTextField(value.text("english"), { onChange(value.with("english", it.ifEmpty { null })) }, placeholder = englishLabel ?: if (englishRequired) "English (required)" else "English")
+        EdTextField(value.text("pinyin"), { onChange(value.with("pinyin", it.ifEmpty { null })) }, placeholder = "pinyin (nǐ hǎo)", singleLine = false)
+        EdTextField(value.text("english"), { onChange(value.with("english", it.ifEmpty { null })) }, placeholder = englishLabel ?: if (englishRequired) "English (required)" else "English", singleLine = false)
     }
 }
 
