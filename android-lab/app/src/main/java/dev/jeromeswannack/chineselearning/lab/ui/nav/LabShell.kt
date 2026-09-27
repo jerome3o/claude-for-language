@@ -15,10 +15,10 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -94,10 +94,10 @@ fun LabShell(
  * The stateless frame: content above, tab bar below (sliding away on immersive routes and
  * while typing). Screenshot tests render it with any content.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ShellFrame(tabs: List<TabSpec>, active: TabId?, showBar: Boolean, onSelect: (TabSpec) -> Unit, content: @Composable () -> Unit) {
-    val imeUp = WindowInsets.isImeVisible
+    // Measured, not WindowInsets.isImeVisible: that reads true where no keyboard exists (tests).
+    val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
         Box(Modifier.weight(1f)) { content() }
         AnimatedVisibility(

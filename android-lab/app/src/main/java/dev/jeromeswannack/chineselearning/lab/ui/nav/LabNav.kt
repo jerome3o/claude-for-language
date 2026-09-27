@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.ui.nav
 
-import android.net.Uri
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -42,7 +41,8 @@ class LabNav(
     /** True when [path] has a native screen (e.g. to mark More rows that open the main app). */
     fun isNative(path: String): Boolean {
         val route = Routes.routeForPath(path.substringBefore('?'))
-        return runCatching { controller.graph.hasDeepLink(Uri.parse("android-app://androidx.navigation/$route")) }.getOrDefault(false)
+        // findNode matches a filled-in route ("decks/abc") against the patterns ("decks/{id}").
+        return runCatching { controller.graph.findNode(route)?.let { it.route != Routes.PLACEHOLDER_ROUTE } == true }.getOrDefault(false)
     }
 
     /** Switches to a tab's root, keeping each tab's own back stack (like the web's tab bar). */
