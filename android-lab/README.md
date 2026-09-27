@@ -54,6 +54,7 @@ android-lab/
 │   ├── StudyQueue.kt   getStudyQueue / selectNextItem from the web study session
 │   ├── AnswerKey.kt    typed-answer checking (utils/numberHanzi.ts + AnswerDiff)
 │   ├── Pinyin.kt       port of pinyin-pro 3.28.0 `pinyin()` (editors' offline 拼音 fill); dict in resources/pinyin, regenerate: node parity/extract-pinyin-dict.mjs
+│   ├── spec/           shared/lesson + shared/reader as JSON trees: validate, diff, export, the exercise catalogue (JsJson = JS semantics)
 │   └── JsCompat.kt     JS number/date semantics (toFixed, Math.round, Number→String)
 ├── parity/   generate-fixtures.ts + fixtures/<feature>.ts: run the web's TypeScript for golden vectors
 ├── docs/     UI_KIT.md — the shared Compose pieces and how to screenshot them
