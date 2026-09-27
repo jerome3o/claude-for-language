@@ -221,6 +221,10 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
   for (const k of COUNT_KEYS) put(`home.${k}`, Number(a.home.counts[k] ?? 0), Number(b.home.counts[k] ?? 0));
   const extraKeys = new Set([...Object.keys(a.home.extras ?? {}), ...Object.keys(b.home.extras ?? {})]);
   for (const k of extraKeys) put(`home.extras.${k}`, a.home.extras?.[k] ?? 0, b.home.extras?.[k] ?? 0);
+  if (a.homework || b.homework) {
+    put('homework.todo', a.homework?.todo ?? 0, b.homework?.todo ?? 0);
+    put('homework.overdue', a.homework?.overdue ?? 0, b.homework?.overdue ?? 0);
+  }
   put('queue.due_cards', a.queue.due_cards, b.queue.due_cards);
   for (const k of COUNT_KEYS) put(`queue.${k}`, Number(a.queue.from_due_cards[k] ?? 0), Number(b.queue.from_due_cards[k] ?? 0));
   for (const k of ['decks', 'notes', 'cards', 'events', 'unsynced_events', 'pending_deletions', 'orphan_events'] as const) {
@@ -238,8 +242,13 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
         '.'
     );
   }
+  for (const [r, other, label, otherLabel] of [[a, b, A, B], [b, a, B, A]] as const) {
+    if (r.homework && !other.homework && r.homework.todo > 0) {
+      hints.push(`${label} shows ${r.homework.todo} homework item(s) to do; ${otherLabel} does not report homework at all (it has no homework screen yet).`);
+    }
+  }
   for (const [r, label] of [[a, A], [b, B]] as const) {
-    const extras = Object.entries(r.home.extras ?? {}).filter(([, v]) => v > 0);
+    const extras =Object.entries(r.home.extras ?? {}).filter(([, v]) => v > 0);
     if (extras.length) hints.push(`${label}'s home total includes non-card items: ${extras.map(([k, v]) => `${k} ${v}`).join(', ')}.`);
     const homeLearning = Number(r.home.counts.learning ?? 0);
     const dueLearning = Number(r.queue.from_due_cards.learning ?? 0);

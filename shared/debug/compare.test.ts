@@ -183,4 +183,14 @@ describe('compareDebugReports', () => {
     expect(cmp.cards.same_events_different_state).toBe(1);
     expect(cmp.hints.join('\n')).toContain('SAME number of events');
   });
+
+  it('puts homework in the headline and says when only one side reports it', () => {
+    const lab = report('lab');
+    const web = report('web', { homework: { todo: 2, overdue: 1, due_today: 1, done: 3 } });
+    const cmp = compareDebugReports(lab, web);
+    expect(cmp.headline['homework.todo']).toEqual({ a: 0, b: 2, diff: 2 });
+    expect(cmp.headline['homework.overdue']).toEqual({ a: 0, b: 1, diff: 1 });
+    expect(cmp.hints.join('\n')).toContain('WEB shows 2 homework item(s) to do; LAB does not report homework');
+    expect('homework.todo' in compareDebugReports(lab, report('web')).headline).toBe(false);
+  });
 });

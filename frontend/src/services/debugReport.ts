@@ -34,6 +34,7 @@ import { API_BASE, getAuthHeaders } from '../api/client';
 import { readBonus, bonusKey } from '../utils/bonusNewCards';
 import { readStudyBudget } from './studyBudget';
 import { getDueReaders } from './reader-study';
+import { loadHomeworkItems, sortHomeworkItems } from './homework';
 import { detectInstallKind } from './clientState';
 import { BUILD_TIME } from '../utils/appUpdates';
 import { CardQueue } from '../types';
@@ -78,6 +79,8 @@ export async function buildDebugReport(): Promise<DebugReport> {
       introducedTodayFromEvents(),
       getDueReaders(),
     ]);
+  // The Home screen's Homework card (HomeworkDueCard → useHomeworkItems): same functions.
+  const homeworkItems = await loadHomeworkItems().then(sortHomeworkItems).catch(() => null);
 
   const bonusAll = readBonus(undefined);
   const byDeckBonus: Record<string, number> = {};
@@ -216,6 +219,16 @@ export async function buildDebugReport(): Promise<DebugReport> {
       from_due_cards: fromDue,
       reported: counts(queue.counts),
     },
+    ...(homeworkItems
+      ? {
+          homework: {
+            todo: homeworkItems.todo.length,
+            overdue: homeworkItems.todo.filter(i => i.due.tone === 'overdue').length,
+            due_today: homeworkItems.todo.filter(i => i.due.tone === 'today').length,
+            done: homeworkItems.done.length,
+          },
+        }
+      : {}),
     decks: deckRows,
     card_columns: DEBUG_CARD_COLUMNS,
     cards: cardRows,

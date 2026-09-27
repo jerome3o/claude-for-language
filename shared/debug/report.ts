@@ -128,6 +128,11 @@ export interface DebugReport {
     /** The counts the queue builder reports alongside (web: raw learning counts; lab: same as from_due_cards). */
     reported: DebugQueueCounts;
   };
+  /**
+   * One-off homework (docs/HOMEWORK.md) as the home screen's Homework card
+   * shows it. Not part of the card count; omitted by clients without homework.
+   */
+  homework?: { todo: number; overdue: number; due_today: number; done: number };
   decks: DebugDeckRow[];
   card_columns: readonly string[];
   cards: DebugCardRow[];

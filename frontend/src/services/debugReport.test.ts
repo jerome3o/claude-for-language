@@ -54,6 +54,13 @@ async function seed() {
   ] as const) {
     await createLocalReviewEvent({ id, card_id: cardId, rating: 2, time_spent_ms: 1000, user_answer: null, reviewed_at: new Date(at).toISOString(), _synced: id === 'e3' ? 0 : 1 });
   }
+  // One overdue one-off homework pass (the Home screen's Homework card).
+  await db.homeworkAssignments.put({
+    id: 'hw1', relationship_id: 'r', tutor_id: 't', student_id: 'u', batch_id: null, kind: 'deck', target_id: 'd1',
+    source_id: null, title: 'Week 1', mode: 'one_off', due_date: '2020-01-01', item_ids: ['n1', 'n2'], item_count: 2,
+    part_index: 0, part_count: 1, status: 'active', done_count: 0, completed_at: null,
+    created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', _synced_at: 0,
+  });
 }
 
 afterEach(() => {
@@ -86,6 +93,7 @@ describe('buildDebugReport', () => {
     const d1 = r.decks.find(d => d.id === 'd1')!;
     expect(d1).toMatchObject({ priority: 1, note_count: 2, card_count: 3, pools: { totalNew: 1, totalSecondaryNew: 1, review: 1 } });
     expect(r.decks.find(d => d.id === 'd2')!.pools.learning).toBe(1);
+    expect(r.homework).toEqual({ todo: 1, overdue: 1, due_today: 0, done: 0 });
   });
 });
 
