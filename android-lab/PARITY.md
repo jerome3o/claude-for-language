@@ -185,12 +185,12 @@ Owns `ui/library/` (incl. the `/library` stub), `ui/editor/` (lesson + reader ed
 
 | Feature | Status | Web source |
 |---|---|---|
-| Lesson Library list, library item (assignments, push update), assign | ⬜ | `LessonLibraryPage.tsx`, `LibraryItemPage.tsx` |
-| Try a lesson (`/library/:id/try`, nothing recorded) | ⬜ | `LessonTryPage.tsx` |
-| Exercise catalogue + sample-lesson trials (`/library/catalogue`; entry points: More → Teaching for tutor accounts, accounts with students and admins — the Lab More rows exist — plus the top of the Lesson Library) | ⬜ | `ExerciseCataloguePage.tsx`, `shared/lesson/registry.ts`, `samples.ts` |
-| Lesson editor (all 15 types) + Claude co-editor chat (proposal diff, accept/reject) | ⬜ | `LessonEditorPage.tsx`, `components/editor/` |
-| Reader editor + co-editor, import JSON | ⬜ | `ReaderEditorPage.tsx`, `NewReaderPage.tsx` |
-| Exports (Markdown / JSON / CSV, print views) | ⬜ | `shared/lesson/export.ts`, `shared/reader/export.ts`, print pages |
+| Lesson Library list, library item (assignments, push update), assign (Long-term = the library assign; One-off / Both with a due date = the homework model), New lesson (Draft with Claude, conversation lesson, blank), Import JSON, duplicate, archive | ✅ | `LessonLibraryPage.tsx`, `LibraryItemPage.tsx` |
+| Try a lesson (`/library/:id/try`, nothing recorded) | 🟡 the Lab's own walkthrough (`ui/editor/LessonWalkthrough.kt`: word order, choices, matching playable; self-assessed types reveal the model answer) — swap in B's lesson player when it lands | `LessonTryPage.tsx` |
+| Exercise catalogue + sample-lesson trials (`/library/catalogue`; entry points: More → Teaching for tutor accounts, accounts with students and admins — the Lab More rows exist — plus the top of the Lesson Library) | ✅ registry + samples bundled (`core/…/spec/LessonCatalogue`, `resources/lesson/catalogue.json`, parity-checked); trials use the walkthrough (🟡 as Try it) | `ExerciseCataloguePage.tsx`, `shared/lesson/registry.ts`, `samples.ts` |
+| Lesson editor (all 15 types) + Claude co-editor chat (proposal diff, accept/reject) | ✅ forms for every type, live validation (`LessonValidator`, parity-tested), auto-pinyin (`core/…/Pinyin.kt`, pinyin-pro 3.28 port, parity-tested), 🔊 lesson TTS, raw JSON, unsaved drafts kept on the phone; Edit / Preview / Claude tabs folded, form + chat side by side unfolded. Preview = walkthrough (🟡 see Try it) | `LessonEditorPage.tsx`, `components/editor/` |
+| Reader editor + co-editor, import JSON | ✅ page cards (拼音, Translate, Suggest, Illustrate, move / duplicate / insert / delete), `ReaderValidator` + `ReaderDiff` parity-tested, reading-view preview, image polling after save, `/readers/new/edit`. Import JSON: `rememberReaderImporter(nav)` (ui/editor/ReaderImport.kt) for B's readers list ⋯ | `ReaderEditorPage.tsx`, `NewReaderPage.tsx` |
+| Exports (Markdown / JSON / CSV, print views) | ✅ built on the phone (`LessonExport` / `ReaderExport`, byte-identical to the TS), Share or Save (SAF); print views `/library/:id/print`, `/lessons/:id/print`, `/readers/:id/print` → system print / PDF. Anki (.apkg) opens the main app (↗) | `shared/lesson/export.ts`, `shared/reader/export.ts`, print pages |
 
 ## H — Coach, quests, stroke writing
 
