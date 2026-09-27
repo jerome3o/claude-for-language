@@ -7,6 +7,18 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- shell/: due-card + homework notifications (asked once after sign-in on Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ui/calls (package J): video calls — camera, audio routing (speaker / Bluetooth), and a
+         foreground service so the call and its recording carry on with the screen off. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
     <queries>
         <!-- Open-in-main-app hand-off and Custom Tabs for sign-in. -->
@@ -85,6 +97,11 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/shell_widget_due_info" />
         </receiver>
         <!-- ===== end native shell ===== -->
+        <!-- ui/calls: keeps a live video call (mic, camera, screen share) running in the background. -->
+        <service
+            android:name=".data.calls.CallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|camera|mediaProjection" />
         <!-- Images handed to other apps (study counts → clipboard / share sheet). -->
         <provider
             android:name="androidx.core.content.FileProvider"
