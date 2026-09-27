@@ -6,7 +6,7 @@ import {
   getQueueCounts,
   getReviewedNoteIds,
   getNewCardsStudiedToday,
-  ensureDailyStatsInitialized,
+  introducedTodayFromEvents,
   createLocalReviewEvent,
   LocalCard,
 } from './database';
@@ -171,12 +171,10 @@ describe('first-of-day recompute (batched first-review lookup)', () => {
       await review(`${n}-h`, now); // a second review today must not double count
       await review(`${n}-a`, now);
     }
-    await ensureDailyStatsInitialized();
-    const row = await db.dailyStats.where('deck_id').equals('d1').first();
+    const row = (await introducedTodayFromEvents()).get('d1');
     // h2m cards were first reviewed today but their m2h sibling was in
     // circulation since yesterday, so all 30 count as secondary; a2h too.
-    expect(row?.new_cards_studied).toBe(0);
-    expect(row?.secondary_cards_studied).toBe(60);
+    expect(row).toEqual({ primary: 0, secondary: 60 });
   });
 
   it('counts a note whose first card was introduced today as primary, later siblings as secondary', async () => {
@@ -188,27 +186,17 @@ describe('first-of-day recompute (batched first-review lookup)', () => {
     await review('n1-h', new Date(now - 30_000));
     await review('n1-m', new Date(now - 10_000));
     expect(await getNewCardsStudiedToday('d1')).toBe(1);
-    await ensureDailyStatsInitialized();
-    const row = await db.dailyStats.where('deck_id').equals('d1').first();
-    expect(row).toMatchObject({ new_cards_studied: 1, secondary_cards_studied: 1 });
+    expect((await introducedTodayFromEvents()).get('d1')).toEqual({ primary: 1, secondary: 1 });
   });
 
-  it('shares one run between concurrent ensureDailyStatsInitialized calls', async () => {
+  it('gives every caller its own run (no promise shared across Dexie zones)', async () => {
     await createTestDeck('d1');
-    await createTestDeck('d2');
     await createCard('n1-h', 'd1', 'n1', 'hanzi_to_meaning', CardQueue.LEARNING);
     await review('n1-h', new Date());
-    const a = ensureDailyStatsInitialized();
-    const b = ensureDailyStatsInitialized();
-    expect(b).toBe(a); // same in-flight promise
-    await Promise.all([a, b]);
-    const rows = await db.dailyStats.toArray();
-    expect(rows).toHaveLength(2);
-    expect(rows.find(r => r.deck_id === 'd1')?.new_cards_studied).toBe(1);
-    // A later call is a fresh (cheap) run, not the settled promise
-    const c = ensureDailyStatsInitialized();
-    expect(c).not.toBe(a);
-    await c;
-    expect(await db.dailyStats.count()).toBe(2);
+    const a = introducedTodayFromEvents();
+    const b = introducedTodayFromEvents();
+    expect(b).not.toBe(a);
+    expect(await a).toEqual(await b);
+    expect((await a).get('d1')).toEqual({ primary: 1, secondary: 0 });
   });
 });

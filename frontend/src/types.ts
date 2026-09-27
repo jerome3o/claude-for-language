@@ -49,6 +49,10 @@ export interface AuthUser {
   secondary_cards_per_day?: number;
   /** Voices this account's conversation exercises use (shared/lesson/voices.ts). */
   conversation_voices?: string[] | null;
+  /** Profile screen (/profile): public About me, time zone, where the picture comes from. */
+  about?: string | null;
+  time_zone?: string | null;
+  picture_source?: 'google' | 'upload' | 'none';
 }
 
 /** Explicit "Start on" preference. null = automatic. */
@@ -289,6 +293,10 @@ export interface UserSummary {
   email: string | null;
   name: string | null;
   picture_url: string | null;
+  /** Their public "About me" from the Profile screen (relationships only). */
+  about?: string | null;
+  /** Their IANA time zone — shown as their local time (relationships only). */
+  time_zone?: string | null;
 }
 
 export interface TutorRelationshipWithUsers extends TutorRelationship {

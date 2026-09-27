@@ -60,6 +60,23 @@ Tables (migration `0071_video_calls.sql`): `calls`, `call_recording_pieces`,
 under `calls/<callId>/…` and is served by the public `/api/audio/*` route (unguessable
 keys, same model as study recordings).
 
+## The native Lab app (android-lab/)
+
+The Lab app is a second client of the same API, room protocol and upload routes
+(`android-lab/app/…/ui/calls/`, `data/calls/`, `core/…/calls/`). Differences worth knowing:
+
+- **Recording format**: Android has no streaming webm MediaRecorder, so the phone encodes Opus with
+  MediaCodec (Android 10+) and writes the Ogg pages itself (`core/…/calls/OggOpus.kt`); pieces are
+  registered as `audio/ogg;codecs=opus`, which the worker already accepts. Chunks are cut by audio
+  time (10 s of samples), pieces every 5 minutes, exactly like the web's timers.
+- **Mic source**: while a peer is connected the recorder taps WebRTC's own (echo-cancelled) capture;
+  alone in the room it opens its own AudioRecord, because WebRTC only captures while sending.
+- **Uploads** go through the app's Outbox (Room): register → raw chunk PUTs → close, drained during
+  the call, after every sync and by the background worker; a killed app's open pieces are closed on
+  the next sync.
+- **Background**: a foreground service (microphone / camera / mediaProjection) keeps the call and
+  its recording alive with the screen off; screen sharing uses MediaProjection.
+
 ## Setup — what needs a key
 
 **Nothing new is required.** With the secrets the app already has:
@@ -119,7 +136,7 @@ review page shows which provider made each transcript.
 - Only **audio** is recorded (for the transcript). Recording video would mean an SFU
   recording pipeline (Cloudflare Realtime / RealtimeKit) or large client uploads.
 - Screen sharing needs `getDisplayMedia` — desktop browsers yes, Android Chrome no (the
-  button is hidden where unsupported).
+  button is hidden where unsupported). The native Lab app shares its screen with MediaProjection.
 - Transcripts are after the call, not live captions.
 - The review page seeks inside MediaRecorder webm files, which have no cue index; Chrome
   copes for ≤5-minute pieces.

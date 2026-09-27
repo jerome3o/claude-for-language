@@ -2048,22 +2048,25 @@ app.get("/callback", async (c) => {
         .prepare(`
           UPDATE users SET
             google_id = ?,
-            name = ?,
-            picture_url = ?,
+            google_name = ?,
+            google_picture_url = ?,
+            name = CASE WHEN name_custom = 1 THEN name ELSE ? END,
+            picture_url = CASE WHEN picture_source = 'google' THEN ? ELSE picture_url END,
             last_login_at = datetime('now')
           WHERE id = ?
         `)
-        .bind(googleUser.id, googleUser.name, googleUser.picture, user.id)
+        // A name / picture the user set on their Profile survives (worker services/profile.ts).
+        .bind(googleUser.id, googleUser.name, googleUser.picture, googleUser.name, googleUser.picture, user.id)
         .run();
     } else {
       // Create new user
       const newUserId = generateId();
       await c.env.DB
         .prepare(`
-          INSERT INTO users (id, email, google_id, name, picture_url, role, is_admin, last_login_at)
-          VALUES (?, ?, ?, ?, ?, 'student', 0, datetime('now'))
+          INSERT INTO users (id, email, google_id, name, picture_url, google_name, google_picture_url, role, is_admin, last_login_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 0, datetime('now'))
         `)
-        .bind(newUserId, googleUser.email, googleUser.id, googleUser.name, googleUser.picture)
+        .bind(newUserId, googleUser.email, googleUser.id, googleUser.name, googleUser.picture, googleUser.name, googleUser.picture)
         .run();
 
       user = await c.env.DB

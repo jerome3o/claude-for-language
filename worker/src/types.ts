@@ -150,12 +150,20 @@ export interface User {
   can_invite: number;
   last_login_at: string | null;
   bio: string | null;
+  /** Profile screen (migration 0076): Google's own values, what the user replaced, public About me, time zone. */
+  google_name?: string | null;
+  google_picture_url?: string | null;
+  name_custom?: number | null;
+  picture_source?: 'google' | 'upload' | 'none' | null;
+  picture_key?: string | null;
+  about?: string | null;
+  time_zone?: string | null;
   /** Which tab the app opens on; NULL = automatic (see PUT /api/profile/landing-page). */
   landing_page: LandingPage | null;
   /** Daily new-card budget across all decks (migration 0069); NULL = DEFAULT_STUDY_BUDGET. */
   new_cards_per_day?: number | null;
   secondary_cards_per_day?: number | null;
-  /** JSON array of the conversation voices this account plays (migration 0076);
+  /** JSON array of the conversation voices this account plays (migration 0077);
    * NULL = the admin's selection, else the shipped defaults (shared/lesson/voices.ts). */
   conversation_voices?: string | null;
   conversation_voices_updated_at?: string | null;
@@ -471,8 +479,8 @@ export interface TutorRelationship {
 }
 
 export interface TutorRelationshipWithUsers extends TutorRelationship {
-  requester: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
-  recipient: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
+  requester: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone'>;
+  recipient: Pick<User, 'id' | 'email' | 'name' | 'picture_url' | 'about' | 'time_zone'>;
 }
 
 export interface Conversation {

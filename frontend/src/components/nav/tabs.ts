@@ -21,7 +21,7 @@ const MORE: TabSpec = {
   label: 'More',
   to: '/more',
   match: [
-    '/more', '/settings', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
+    '/more', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
     '/quests', '/library', '/duplicate-finder', '/admin',
   ],
 };

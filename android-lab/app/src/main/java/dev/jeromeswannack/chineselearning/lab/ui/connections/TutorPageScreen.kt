@@ -1,5 +1,8 @@
 package dev.jeromeswannack.chineselearning.lab.ui.connections
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -59,6 +62,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
 data class TutorPageUi(
+    /** A video call in progress in this relationship (Join banner). */
+    val liveCallId: String? = null,
+    val callBusy: Boolean = false,
     val relationship: Loadable<RelationshipDto> = Loadable(loading = true),
     val myId: String? = null,
     val conversations: Loadable<List<ChatConversationDto>> = Loadable(loading = true),
@@ -75,6 +81,7 @@ class TutorPageActions(
     val onMessage: () -> Unit = {},
     val onNewPracticeConversation: (PracticeConversationBody) -> Unit = {},
     val onVideoCall: () -> Unit = {},
+    val onJoinCall: (String) -> Unit = {},
     val onOpenConversation: (String) -> Unit = {},
     val onOpenCard: (noteId: String) -> Unit = {},
     val onToggleFlag: (FlagDto) -> Unit = {},
@@ -116,12 +123,21 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
                 }
             }
         }
+        if (!isClaude && ui.liveCallId != null) item {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Again.copy(alpha = 0.1f)).padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("🔴 Video call in progress", color = Lab.colors.ink, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                PrimaryPill("Join", Modifier.height(44.dp)) { actions.onJoinCall(ui.liveCallId) }
+            }
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryPill(if (isClaude) "💬 New practice conversation" else "💬 Message", Modifier.weight(1f).height(52.dp), enabled = !ui.busy) {
                     if (isClaude) newConv = true else actions.onMessage()
                 }
-                if (!isClaude) SecondaryPill("📹 Video call", Modifier.weight(0.8f)) { actions.onVideoCall() }
+                if (!isClaude) SecondaryPill(if (ui.callBusy) "Starting…" else "📹 Video call", Modifier.weight(0.8f), enabled = !ui.callBusy) { actions.onVideoCall() }
             }
         }
         ui.error?.let { item { InlineNotice(it, kind = NoticeKind.Error) } }

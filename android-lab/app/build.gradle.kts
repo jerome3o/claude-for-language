@@ -25,6 +25,8 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
+        // WebRTC ships native code for 4 ABIs (~20 MB); phones are ARM, the emulator x86_64.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
     signingConfigs {
@@ -91,6 +93,7 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.okhttp)
     implementation(libs.zxing.core) // invite QR codes (ui/teaching)
+    implementation(libs.webrtc) // video calls (ui/calls, data/calls): org.webrtc, Google's WebRTC built for Android
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.compose.ui.tooling)

@@ -82,6 +82,14 @@ suspend fun Api.upload(
     }
 }
 
+/** Sends [file] as the raw request body (Content-Type [mime]). Throws only for 401 and network errors. */
+suspend fun Api.sendFile(method: String, path: String, file: File, mime: String): ApiResponse = withContext(Dispatchers.IO) {
+    http.newCall(request(path).method(method, file.asRequestBody(mime.toMediaTypeOrNull())).build()).execute().use { res ->
+        if (res.code == 401) throw UnauthorizedException()
+        ApiResponse(res.code, res.body?.string().orEmpty())
+    }
+}
+
 /** [send] that throws [HttpException] for a non-2xx answer; decodes the body with [serializer]. */
 suspend fun <T> Api.exchange(method: String, path: String, bodyJson: String?, serializer: KSerializer<T>): T {
     val res = send(method, path, bodyJson)
