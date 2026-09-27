@@ -18,6 +18,7 @@ on:
       - 'shared/decks/**'
       - 'shared/calls/**'
       - 'frontend/src/utils/numberHanzi.ts'
+      - 'frontend/src/services/anki/**'
       - '.github/workflows/android-lab-build.yml'
   pull_request:
     paths:
@@ -26,6 +27,7 @@ on:
       - 'shared/decks/**'
       - 'shared/calls/**'
       - 'frontend/src/utils/numberHanzi.ts'
+      - 'frontend/src/services/anki/**'
       - '.github/workflows/android-lab-build.yml'
   workflow_dispatch:
 

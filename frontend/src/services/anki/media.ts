@@ -13,7 +13,7 @@
 import { getAudioWithCache, getCachedAudio } from '../audioCache';
 import { getTTSWithCache, ttsCacheKey } from '../ttsCache';
 import { getReaderPageTTS, readerTtsKey } from '../readerSync';
-import { sha1Hex } from './hash';
+import { mediaFilename } from './naming';
 import type { AudioRef } from './sources';
 
 export interface ResolvedMedia {
@@ -56,19 +56,9 @@ async function defaultLoad(ref: AudioRef, fetchMissing: boolean): Promise<Blob |
   }
 }
 
-function extensionFor(type: string): string {
-  const t = type.toLowerCase();
-  if (t.includes('mpeg') || t.includes('mp3')) return 'mp3';
-  if (t.includes('wav')) return 'wav';
-  if (t.includes('ogg')) return 'ogg';
-  if (t.includes('webm')) return 'webm';
-  if (t.includes('aac') || t.includes('mp4')) return 'm4a';
-  return 'mp3';
-}
-
 export async function blobToMedia(blob: Blob): Promise<ResolvedMedia> {
   const data = new Uint8Array(await blob.arrayBuffer());
-  return { filename: `${sha1Hex(data).slice(0, 20)}.${extensionFor(blob.type)}`, data };
+  return { filename: mediaFilename(data, blob.type), data };
 }
 
 /**

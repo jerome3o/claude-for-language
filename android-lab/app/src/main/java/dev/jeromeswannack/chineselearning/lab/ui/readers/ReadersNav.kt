@@ -15,6 +15,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateReaderBody
 import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
@@ -24,6 +25,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.reader
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.data.readers.ReaderStore
+import dev.jeromeswannack.chineselearning.lab.ui.editor.rememberReaderImporter
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AnkiExportSheet
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import kotlinx.coroutines.CancellationException
@@ -40,8 +43,12 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
     composable(Routes.route("/readers")) {
         val vm: ReadersViewModel = viewModel(factory = factory { ReadersViewModel(nav.app) })
         val ui by vm.ui.collectAsStateWithLifecycle()
+        var message by remember { mutableStateOf<String?>(null) }
+        var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
+        val importReader = rememberReaderImporter(nav) { message = it }
+        AnkiExportSheet(anki) { anki = null }
         ReadersListScreen(
-            ui,
+            ui.copy(message = message),
             ReadersActions(
                 onBack = nav::back,
                 onOpen = { nav.open(Routes.reader(it)) },
@@ -52,6 +59,9 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
                 onRetry = vm::retry,
                 onDeleteAllFailed = vm::deleteAllFailed,
                 onRefresh = vm::refresh,
+                onImport = { message = null; importReader() },
+                onAnki = { r -> anki = AnkiExportTarget.Reader(r.id, r.titleChinese) },
+                onDismissMessage = { message = null },
             ),
         )
     }
@@ -77,11 +87,14 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
         val vm: ReaderViewModel = viewModel(key = "reader-$id", factory = factory { ReaderViewModel(nav.app, id) })
         val state by vm.state.collectAsStateWithLifecycle()
         val env = rememberReaderEnv(nav.app, id, words = true)
+        var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
+        AnkiExportSheet(anki) { anki = null }
         ReaderScreen(
             state.first, state.second, env,
             onBack = nav::back,
             onEdit = { nav.open(Routes.readerEdit(id)) },
             onFinish = { vm.finish(); nav.app.haptics.celebrate(); nav.back() },
+            onAnki = { state.first?.let { r -> anki = AnkiExportTarget.Reader(r.id, r.titleChinese) } },
         )
     }
 }

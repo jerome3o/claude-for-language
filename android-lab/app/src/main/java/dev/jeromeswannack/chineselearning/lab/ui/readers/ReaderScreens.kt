@@ -123,7 +123,7 @@ private fun NavFooter(page: Int, count: Int, onPrev: () -> Unit, onNext: () -> U
  * shows a waiting state (the screen polls).
  */
 @Composable
-fun ReaderScreen(reader: GradedReaderDto?, error: String?, env: ReaderEnv, onBack: () -> Unit, onEdit: () -> Unit, onFinish: () -> Unit) {
+fun ReaderScreen(reader: GradedReaderDto?, error: String?, env: ReaderEnv, onBack: () -> Unit, onEdit: () -> Unit, onFinish: () -> Unit, onAnki: (() -> Unit)? = null) {
     var page by rememberSaveable(reader?.id) { mutableIntStateOf(0) }
     Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
@@ -135,6 +135,7 @@ fun ReaderScreen(reader: GradedReaderDto?, error: String?, env: ReaderEnv, onBac
                 }
                 if (reader != null) {
                     Text("Edit", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable(onClick = onEdit).padding(horizontal = 10.dp, vertical = 12.dp))
+                    if (onAnki != null) Text("⬇ Anki", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable(onClick = onAnki).padding(horizontal = 8.dp, vertical = 12.dp))
                     DifficultyBadge(reader.difficulty)
                     Spacer(Modifier.padding(end = 12.dp))
                 }

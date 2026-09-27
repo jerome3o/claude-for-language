@@ -120,6 +120,7 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     var settings by remember { mutableStateOf(false) }
     var paste by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var anki by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget?>(null) }
     if (paste) {
         PasteRoute(env, deckId) { paste = false }
         return
@@ -137,7 +138,7 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
             onSettings = { vm.clearSettingsError(); settings = true },
             onGenerateAudio = vm::generateMissingAudio,
             onRegenerateMode = { ui.notes.firstOrNull { it.audioUrl != null }?.let { vm.startSelect(it.id) } },
-            onExportAnki = { nav.openInMainApp(Routes.deck(deckId)) },
+            onExportAnki = { anki = dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget.Deck(deckId, ui.deck?.name.orEmpty()) },
             onDelete = { vm.deleteDeck { nav.back() } },
             onStartSelect = vm::startSelect,
             onToggleSelect = vm::toggleSelect,
@@ -151,6 +152,7 @@ private fun DeckRoute(nav: LabNav, deckId: String) {
     if (settings) {
         DeckSettingsSheet(ui, onSave = { n, d, a, b -> vm.saveSettings(n, d, a, b) { settings = false } }, onDismiss = { settings = false })
     }
+    dev.jeromeswannack.chineselearning.lab.ui.kit.AnkiExportSheet(anki) { anki = null }
     NoteEditorSheets(vm.editor, nav)
 }
 

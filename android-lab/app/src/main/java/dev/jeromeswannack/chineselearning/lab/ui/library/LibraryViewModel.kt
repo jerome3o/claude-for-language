@@ -111,6 +111,8 @@ sealed interface LibraryEffect {
     data class OpenInMainApp(val path: String) : LibraryEffect
     data class Export(val file: ExportFile, val save: Boolean) : LibraryEffect
     data class Print(val title: String, val markdown: String) : LibraryEffect
+    /** Open the Anki export sheet (ui/kit/AnkiExportSheet.kt) for a lesson. */
+    data class Anki(val target: dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget) : LibraryEffect
 }
 
 /** A line at the top of the screen: success lines fade after a few seconds, errors stay. */
@@ -375,7 +377,9 @@ class LibraryModel(scope: CoroutineScope, deps: LibraryDeps) : LibraryModelBase(
     fun edit(item: LibraryItemSummary) = emit(LibraryEffect.Open(Routes.libraryEdit(item.id)))
     fun openItem(item: LibraryItemSummary) = emit(LibraryEffect.Open(Routes.libraryItem(item.id)))
     fun assign(item: LibraryItemSummary) { deps.feel.tick(); assign.open(item.id, item.title) }
-    fun anki(item: LibraryItemSummary) { closeMenu(); emit(LibraryEffect.OpenInMainApp(Routes.libraryItem(item.id))) }
+    fun anki(item: LibraryItemSummary) = withItem(item, "Export failed") {
+        emit(LibraryEffect.Anki(dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget.Lesson(fullItem(item.id).spec, item.id)))
+    }
 
     fun duplicate(item: LibraryItemSummary) = withItem(item, "Could not duplicate") {
         val copy = deps.api.duplicateLibraryItem(item.id)
@@ -500,7 +504,8 @@ class LibraryItemModel(scope: CoroutineScope, deps: LibraryDeps, val id: String)
 
     fun anki() {
         local.update { it.copy(exportSheet = false) }
-        emit(LibraryEffect.OpenInMainApp(Routes.libraryItem(id)))
+        val it = item.state.value.data ?: return
+        emit(LibraryEffect.Anki(dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget.Lesson(it.spec, id)))
     }
 
     fun push() {

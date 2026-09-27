@@ -8,6 +8,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,7 +19,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -62,6 +69,8 @@ data class ReadersUi(
     val error: String? = null,
     val busy: Set<String> = emptySet(),
     val deletingAll: Boolean = false,
+    /** A line from the ⋯ menu's Import JSON (invalid file, the server's problems). */
+    val message: String? = null,
 )
 
 class ReadersActions(
@@ -74,6 +83,11 @@ class ReadersActions(
     val onRetry: (String) -> Unit = {},
     val onDeleteAllFailed: () -> Unit = {},
     val onRefresh: () -> Unit = {},
+    /** Page ⋯ → "⬆ Import JSON" (a reader exported from the editor). */
+    val onImport: () -> Unit = {},
+    /** "⬇ Anki" on a ready reader's card. */
+    val onAnki: (GradedReaderDto) -> Unit = {},
+    val onDismissMessage: () -> Unit = {},
 )
 
 /** `formatDate` of the list: "Sep 27", with the year when it isn't this year. */
@@ -95,13 +109,14 @@ fun ReadersListScreen(ui: ReadersUi, actions: ReadersActions) {
     val all = ui.readers
     val active = all.orEmpty().filter { it.status != "failed" }
     val failed = all.orEmpty().filter { it.status == "failed" }
-    LabScreen("Graded Readers", onBack = actions.onBack) {
+    LabScreen("Graded Readers", onBack = actions.onBack, actions = { ReadersOverflowMenu(actions.onImport) }) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryPill("✨ AI Generate", Modifier.weight(1f).heightIn(min = 52.dp), onClick = actions.onGenerate)
                 SecondaryPill("Create New", Modifier.weight(1f).heightIn(min = 52.dp), onClick = actions.onCreate)
             }
         }
+        ui.message?.let { m -> item { InlineNotice(m, kind = NoticeKind.Error, actionLabel = "OK", onAction = actions.onDismissMessage) } }
         if (ui.offline) item { OfflineNotice(updatedAt = ui.updatedAt) }
         else ui.error?.let { e -> item { InlineNotice(e, kind = NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRefresh) } }
         if (all == null) { item { LoadingState() }; return@LabScreen }
@@ -154,9 +169,26 @@ private fun ReaderCard(r: GradedReaderDto, actions: ReadersActions, onDelete: ()
             } else {
                 PrimaryPill("Read", Modifier.heightIn(min = 44.dp)) { actions.onOpen(r.id) }
                 SecondaryPill("Edit", Modifier.heightIn(min = 44.dp)) { actions.onEdit(r.id) }
+                // Compact (a text action, like the reader page's): four pills don't fit a 412dp card.
+                Text(
+                    "⬇ Anki", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).bouncyClickable { actions.onAnki(r) }.padding(horizontal = 6.dp, vertical = 12.dp),
+                )
                 Spacer(Modifier.weight(1f))
             }
             SecondaryPill(if (generating) "Cancel" else "Delete", Modifier.heightIn(min = 44.dp), danger = true, onClick = onDelete)
+        }
+    }
+}
+
+/** The page's ⋯ menu (web: ReadersOverflowMenu) — Import JSON. */
+@Composable
+private fun ReadersOverflowMenu(onImport: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, "More actions", tint = Lab.colors.ink) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("⬆ Import JSON") }, onClick = { open = false; onImport() })
         }
     }
 }
