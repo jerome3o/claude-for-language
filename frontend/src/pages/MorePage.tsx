@@ -90,7 +90,7 @@ export function MorePage() {
         <h1>More</h1>
 
         {user && (
-          <Link to="/settings" className="more-user-card">
+          <Link to="/profile" className="more-user-card" aria-label="Edit your profile">
             {user.picture_url ? (
               <img src={user.picture_url} alt="" className="more-user-avatar" />
             ) : (
@@ -100,7 +100,7 @@ export function MorePage() {
             )}
             <span className="nav-row-text">
               <span className="nav-row-label">{user.name || 'You'}</span>
-              <span className="nav-row-desc">{user.email}</span>
+              <span className="nav-row-desc">Edit profile · {user.email}</span>
             </span>
             <span className="nav-row-chevron" aria-hidden="true">›</span>
           </Link>
@@ -158,9 +158,15 @@ export function MorePage() {
 
         <NavSection title="Account">
           <NavRow
+            icon="👤"
+            label="Profile"
+            desc={role.isTutorOnly || role.isTutorAccount ? 'Name, photo, about me for students, time zone' : 'Name, photo, about me, bio, time zone'}
+            to="/profile"
+          />
+          <NavRow
             icon="⚙️"
             label="Settings"
-            desc={role.isTutorOnly ? 'Backup · Start on' : 'Bio · Offline audio · Backup · Start on'}
+            desc={role.isTutorOnly ? 'Backup · Start on' : 'Offline audio · Backup · Start on'}
             to="/settings"
           />
           <NavRow icon="🚪" label="Sign out" onClick={() => { logout(); }} danger />

@@ -144,6 +144,15 @@ While editing a deck/note, user can:
 - Every lesson run records what was answered in each exercise and the time spent; the tutor reviews it (typed text, choices, handwriting, recordings)
 - Tutors browse all exercise types in the Exercise catalogue and take a sample lesson of each (nothing is recorded)
 
+### 11. Profile
+
+Everyone can edit how others see them at **/profile** (More → Profile, Settings, the tutor's
+Students dashboard): display name, photo (cropped to a square and resized to 512px on the
+device, stored in R2), a public **About me** (shown to the other side of a tutor relationship
+and on invite links), a **time zone** (the other side sees your local time), and — for
+learners — the private bio that personalises example sentences. Edited names and photos show
+everywhere people are shown and are not overwritten by the next Google sign-in.
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

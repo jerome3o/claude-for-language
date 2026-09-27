@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, getUserBio, updateUserBio, updateLandingPage, updateStudyBudget } from '../api/client';
+import { API_BASE, getAuthHeaders, getFeatureRequests, getFeatureRequest, addFeatureRequestComment, updateLandingPage, updateStudyBudget } from '../api/client';
 import { readStudyBudget, writeStudyBudget } from '../services/studyBudget';
 import { STUDY_BUDGET_MAX } from '@shared/decks';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
@@ -713,34 +713,9 @@ export function SettingsPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [bio, setBio] = useState('');
-  const [bioSaved, setBioSaved] = useState('');
-  const [isSavingBio, setIsSavingBio] = useState(false);
-  const [bioLoaded, setBioLoaded] = useState(false);
 
   const lastExport = localStorage.getItem('lastExportDate');
   const lastExportSize = localStorage.getItem('lastExportSize');
-
-  useEffect(() => {
-    getUserBio().then((b) => {
-      setBio(b || '');
-      setBioSaved(b || '');
-      setBioLoaded(true);
-    }).catch(() => setBioLoaded(true));
-  }, []);
-
-  const handleSaveBio = async () => {
-    setIsSavingBio(true);
-    try {
-      const saved = await updateUserBio(bio.trim() || null);
-      setBioSaved(saved || '');
-      setBio(saved || '');
-    } catch (err) {
-      console.error('Failed to save bio:', err);
-    } finally {
-      setIsSavingBio(false);
-    }
-  };
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -777,37 +752,17 @@ export function SettingsPage() {
       <div className="container settings-page">
         <h1>Settings</h1>
 
-        {!role.isTutorOnly && (
-          <div className="settings-section" data-testid="personal-bio">
-            <h2>Personal Bio</h2>
-            <p className="settings-section-desc">
-              Tell us a bit about yourself. This is used to personalize example sentences — e.g. if you mention you like coffee, you might get sentences about ordering coffee.
-            </p>
-            {bioLoaded && (
-              <>
-                <textarea
-                  className="feedback-textarea"
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  placeholder="e.g. I'm a software developer living in New Zealand. I like hiking, coffee, and cooking. I'm learning Chinese to talk to my partner's family."
-                  rows={3}
-                  maxLength={500}
-                  disabled={isSavingBio}
-                />
-                <div className="feedback-actions">
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSaveBio}
-                    disabled={isSavingBio || bio === bioSaved}
-                  >
-                    {isSavingBio ? 'Saving...' : 'Save Bio'}
-                  </button>
-                  <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>{bio.length}/500</span>
-                </div>
-              </>
-            )}
+        {/* Name, photo, About me, time zone and the private bio live on the Profile screen. */}
+        <section className="nav-section" data-testid="settings-profile">
+          <div className="nav-list">
+            <NavRow
+              icon="👤"
+              label="Profile"
+              desc={role.isTutorOnly || role.isTutorAccount ? 'Name, photo, about me for students, time zone' : 'Name, photo, about me, bio for Claude, time zone'}
+              to="/profile"
+            />
           </div>
-        )}
+        </section>
 
         {!role.isTutorOnly && <OfflineAudioLine />}
 
