@@ -52,10 +52,17 @@ async function fakeSoniox(page: import('@playwright/test').Page) {
 }
 
 async function recordOneTake(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: "Study today's cards" }).click();
-  // The starter deck's first new cards are hanzi → meaning (read) cards.
+  // The starter deck's first new cards are hanzi → meaning (read) cards. The first sync of a
+  // brand-new account can still be landing when Study opens, so retry from Home.
   const record = page.getByRole('button', { name: 'Record Your Pronunciation' });
-  await record.waitFor({ timeout: 15000 });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await expect(page.getByText(/[1-9]\d* cards? due/)).toBeVisible({ timeout: 30000 });
+    await page.getByRole('button', { name: "Study today's cards" }).click();
+    if (await record.waitFor({ timeout: 8000 }).then(() => true, () => false)) break;
+    await page.getByRole('button', { name: 'Done', exact: true }).click().catch(() => {});
+    await page.waitForTimeout(2000);
+  }
+  await record.waitFor({ timeout: 5000 });
   // The first-card explainer covers the very first card of a new account.
   const gotIt = page.getByRole('button', { name: 'Got it', exact: true });
   await gotIt.click({ timeout: 3000 }).catch(() => {});
