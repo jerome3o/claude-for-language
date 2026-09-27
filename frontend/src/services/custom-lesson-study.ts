@@ -226,6 +226,8 @@ export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
  */
 export async function syncCustomLessons(): Promise<{ synced: number }> {
   await uploadCustomLessonCompletions();
+  // Recordings from a just-finished attempt go up right behind it.
+  await uploadLessonAttemptMedia().catch(err => console.warn('[custom-lessons] recording upload failed:', err));
 
   const response = await fetch(`${API_BASE}/api/custom-lessons`, {
     headers: getAuthHeaders(),
