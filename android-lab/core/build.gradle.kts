@@ -31,6 +31,7 @@ val generateParityFixtures by tasks.registering(Exec::class) {
     inputs.dir(rootProject.file("parity/fixtures")) // per-package generators (see parity/fixtures/README.md)
     inputs.dir(File(repoRoot, "shared"))
     inputs.dir(File(repoRoot, "frontend/src/utils"))
+    inputs.dir(File(repoRoot, "frontend/src/components/home")) // package E: the "From <tutor>" card rules
     outputs.dir(parityDir)
     commandLine("bash", rootProject.file("parity/generate.sh").absolutePath, parityDir.get().asFile.absolutePath)
 }

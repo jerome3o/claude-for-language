@@ -23,6 +23,7 @@ import { formatDuration, sectionTimes, type LessonAttemptData } from '../../../s
 (import.meta as unknown as { env: Record<string, string> }).env ??= {};
 const { checkScrambleOrder, isExactHanziMatch } = await import('../../../frontend/src/components/lesson-exercises');
 const { pickTodaysReader } = await import('../../../frontend/src/services/reader-study');
+const { friendlyReaderError, failedReadersLabel } = await import('../../../frontend/src/services/readerFailures');
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: lesson <out-dir>');
@@ -180,7 +181,17 @@ for (let i = 0; i < 300; i++) {
   });
 }
 
+const failureMessages = [
+  null, '', 'ANTHROPIC_API_KEY not configured', 'HTTP 401', 'Request timed out after 30s', 'Deadline exceeded',
+  'Rate limit reached', 'overloaded_error 529', 'Service Unavailable 503', 'Not enough learned vocabulary',
+  'fetch failed', 'ECONNRESET', 'socket hang up', 'TypeError: x is undefined', 'Too few words', 'The model is BUSY',
+];
+const failures = failureMessages.map(m => ({ raw: m, text: friendlyReaderError(m) }));
+const labels = [0, 1, 2, 38].map(n => ({ n, text: failedReadersLabel(n) }));
+
 writeFileSync(join(OUT, 'lesson.json'), JSON.stringify({
+  failures,
+  labels,
   answers,
   scrambles,
   voices,

@@ -3,19 +3,25 @@ package dev.jeromeswannack.chineselearning.lab.ui.nav
 import androidx.navigation.NavGraphBuilder
 import dev.jeromeswannack.chineselearning.lab.ui.catalogue.catalogueGraph
 import dev.jeromeswannack.chineselearning.lab.ui.cards.cardsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.chat.chatGraph
 import dev.jeromeswannack.chineselearning.lab.ui.connections.connectionsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.decks.decksGraph
 import dev.jeromeswannack.chineselearning.lab.ui.editor.editorGraph
 import dev.jeromeswannack.chineselearning.lab.ui.home.homeGraph
+import dev.jeromeswannack.chineselearning.lab.ui.homework.homeworkGraph
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.lessonsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.library.libraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.more.moreGraph
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.placeholderGraph
 import dev.jeromeswannack.chineselearning.lab.ui.progress.progressGraph
+import dev.jeromeswannack.chineselearning.lab.ui.readers.readersGraph
 import dev.jeromeswannack.chineselearning.lab.ui.settings.settingsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.study.studyGraph
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.teachingGraph
 import dev.jeromeswannack.chineselearning.lab.ui.strokes.strokesGraph
+import dev.jeromeswannack.chineselearning.lab.ui.quests.questsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.coach.coachGraph
+import dev.jeromeswannack.chineselearning.lab.ui.analyze.analyzeGraph
 
 /**
  * THE registry of screens — one line per feature, nothing else. Each feature registers its
@@ -33,11 +39,17 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     catalogueGraph(nav)     // "/library/catalogue" G (above /library/{id})
     libraryGraph(nav)       // "/library"     G
     moreGraph(nav)          // "/more"        shell
+    homeworkGraph(nav)      // "/homework"    E
     settingsGraph(nav)      // "/settings"   D
     teachingGraph(nav)      // "/connections/{relId}/…" F (tutor side)
     cardsGraph(nav)         // "/cards/:noteId" C (card hub)
+    chatGraph(nav)          // "/connections/:relId/chat/:convId" E
     strokesGraph(nav)       // "/practice/strokes" H
     lessonsGraph(nav)       // "/lessons", "/lesson-attempts"  B
+    readersGraph(nav)       // "/readers", "/readers/generate", "/readers/:id"  B
+    questsGraph(nav)        // "/quests"     H
+    coachGraph(nav)         // "/coach"      H
+    analyzeGraph(nav)       // "/analyze"    H
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }

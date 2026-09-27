@@ -37,6 +37,7 @@ sealed interface StudyPhase {
     data class Showing(val view: CardView) : StudyPhase
     // ---- Package B: a mini lesson in the card flow (ui/lessons/StudyExtras.kt) ----
     data class Lesson(val lesson: dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLesson) : StudyPhase
+    data class Reader(val reader: dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader) : StudyPhase
     data object Done : StudyPhase
 }
 

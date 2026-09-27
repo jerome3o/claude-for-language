@@ -79,6 +79,10 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
                 val lesson = extras.present(item.lesson) ?: return present(null)
                 _ui.update { it.copy(phase = StudyPhase.Lesson(lesson), counts = StudyQueue.counts(queue, reviewedNoteIds)) }
             }
+            is dev.jeromeswannack.chineselearning.lab.core.SessionItem.Reader -> {
+                val reader = extras.presentReader(item.reader) ?: return present(null)
+                _ui.update { it.copy(phase = StudyPhase.Reader(reader), counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+            }
             is dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card -> present(item.card)
             else -> present(null)
         }
@@ -110,6 +114,36 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             busy = false
             if (next == null) celebrate()
         }
+    }
+    /** The last page of today's reader was rated: record it, count it, move on. */
+    fun rateReader(rating: Int, timeSpentMs: Long) {
+        val reader = (_ui.value.phase as? StudyPhase.Reader)?.reader ?: return
+        if (busy) return
+        busy = true
+        undo = null
+        val before = _ui.value.stats
+        val correct = rating >= 2
+        val streak = if (correct) before.streak + 1 else 0
+        _ui.update {
+            it.copy(lastRating = rating, canUndo = false, stats = before.copy(
+                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0, streak = streak,
+                bestStreak = maxOf(before.bestStreak, streak), againCount = before.againCount + if (rating == 0) 1 else 0,
+            ))
+        }
+        app.haptics.rated(rating)
+        viewModelScope.launch {
+            extras.rateReader(reader.reader.id, rating, timeSpentMs)
+            var next = nextItem(null)
+            if (next == null) next = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }
+            presentNext(next)
+            busy = false
+            if (next == null) celebrate()
+        }
+    }
+
+    /** Today's reader finished generating mid-session: if the session had run dry, show it now. */
+    private fun onReaderArrived() {
+        if (_ui.value.phase is StudyPhase.Done && !busy) viewModelScope.launch { presentNext(nextItem(null)) }
     }
     // ---- end Package B ----
 
@@ -144,7 +178,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         if (resetRecent) recentNoteIds = emptyList()
         _ui.update { it.copy(hasMoreNew = built.hasMoreNew, bonus = bonus, deckName = deckId?.let { id -> deckNames[id] }) }
-        extras.load(cutoff) // Package B
+        extras.load(cutoff, queue.map { it.noteId }.distinct(), viewModelScope, ::onReaderArrived) // Package B
         presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
     }
 

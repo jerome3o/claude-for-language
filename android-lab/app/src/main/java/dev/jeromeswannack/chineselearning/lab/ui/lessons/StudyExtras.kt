@@ -20,6 +20,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.sentenceFeedback
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
+import dev.jeromeswannack.chineselearning.lab.data.api.markDailyReader
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 /** A mini lesson presented in the session. [key] changes when the same lesson comes back. */
@@ -33,14 +35,45 @@ data class SessionLesson(val entry: LessonEntry, val previews: List<IntervalPrev
  */
 class StudyExtras(private val app: LabApp, private val deckId: String?) {
     private val runtime by lazy { LessonRuntime.of(app) }
+    private val zone = java.time.ZoneId.systemDefault()
     private var lessons: List<LessonEntry> = emptyList()
+    private var readers: List<dev.jeromeswannack.chineselearning.lab.data.readers.ReaderEntry> = emptyList()
     private var reviewsSinceLesson = 0
     private var shown = 0
+    private var lastRatedReaderId: String? = null
+    private var dailyPoll: kotlinx.coroutines.Job? = null
 
-    /** Lessons aren't deck-scoped: all-decks sessions only. */
-    suspend fun load(cutoff: StudyCutoff) {
+    /**
+     * Lessons and readers aren't deck-scoped: all-decks sessions only. Today's reader (one a
+     * day) closes out the session; when there's none, one is asked for in the background
+     * (`ensureDailyReader`) and polled for every 20 s until it lands ([onReaderArrived]).
+     */
+    suspend fun load(cutoff: StudyCutoff, dueNoteIds: List<String> = emptyList(), scope: kotlinx.coroutines.CoroutineScope? = null, onReaderArrived: () -> Unit = {}) {
         reviewsSinceLesson = 0
-        lessons = if (deckId != null) emptyList() else runCatching { runtime.store.dueLessons(cutoff) }.getOrDefault(emptyList())
+        if (deckId != null) { lessons = emptyList(); readers = emptyList(); return }
+        lessons = runCatching { runtime.store.dueLessons(cutoff) }.getOrDefault(emptyList())
+        val now = System.currentTimeMillis()
+        readers = listOfNotNull(runCatching { runtime.readers.todaysReader(now, cutoff, zone) }.getOrNull())
+        if (scope != null && readers.isEmpty() && app.online.value && dailyPoll?.isActive != true) {
+            dailyPoll = scope.launch {
+                if (!runtime.readers.ensureDaily(dueNoteIds, now, cutoff, zone, app.online.value)) {
+                    // A story generated earlier may just have been pulled in.
+                    runtime.readers.todaysReader(System.currentTimeMillis(), cutoff, zone)?.let { readers = listOf(it); onReaderArrived() }
+                    return@launch
+                }
+                repeat(30) {
+                    kotlinx.coroutines.delay(20_000)
+                    if (!app.online.value) return@repeat
+                    runCatching { runtime.readers.refresh() }
+                    val fresh = runtime.readers.todaysReader(System.currentTimeMillis(), cutoff, zone)
+                    if (fresh != null && fresh.state.queue == CardQueue.NEW) {
+                        readers = listOf(fresh)
+                        onReaderArrived()
+                        return@launch
+                    }
+                }
+            }
+        }
     }
 
     /** One more card review toward the next lesson break. */
@@ -59,9 +92,29 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         random: Random,
         breakAllowed: Boolean = true,
     ): SessionItem? = SessionMix.next(
-        queue, lessons.map { it.item }, emptyList(), breakAllowed && reviewsSinceLesson >= LessonSchedule.MIX_INTERVAL,
-        reviewedNoteIds, recentNoteIds, lastRatedCardId, null, nowMs, cutoff, random,
+        queue, lessons.map { it.item }, readers.map { it.item }, breakAllowed && reviewsSinceLesson >= LessonSchedule.MIX_INTERVAL,
+        reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random,
     )
+
+    /** The reader for a [SessionItem.Reader]. */
+    fun presentReader(item: ScheduledItem): dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader? {
+        val entry = readers.firstOrNull { it.id == item.id } ?: return null
+        return dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader(entry.reader, CardScheduler.intervalPreviews(entry.state, System.currentTimeMillis()), ++shown)
+    }
+
+    /**
+     * `rateReader`: records the review; a reader rated back into learning stays in the session,
+     * otherwise FSRS has scheduled it out. Reading counts as the day's reader activity.
+     */
+    suspend fun rateReader(readerId: String, rating: Int, timeSpentMs: Long) {
+        val entry = readers.firstOrNull { it.id == readerId }
+        readers = readers.filter { it.id != readerId }
+        lastRatedReaderId = readerId
+        val state = runCatching { runtime.readers.rate(readerId, rating, timeSpentMs) }.getOrNull()
+        if (entry != null && state != null && CardQueue.isLearning(state.queue)) readers = readers + entry.copy(state = state)
+        runtime.uploadSoon()
+        if (app.online.value) app.scope.launch { runCatching { app.repo.api.markDailyReader(readerId) } }
+    }
 
     /** The lesson for a [SessionItem.Lesson]; starting it resets the break counter. */
     fun present(item: ScheduledItem): SessionLesson? {
@@ -85,7 +138,10 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         runtime.uploadSoon()
     }
 
-    fun stopAudio() = runtime.audio.stop()
+    fun stopAudio() {
+        dailyPoll?.cancel()
+        runtime.audio.stop()
+    }
 }
 
 /**
