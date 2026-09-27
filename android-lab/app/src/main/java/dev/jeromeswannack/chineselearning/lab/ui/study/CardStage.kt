@@ -305,8 +305,9 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
             Text(clue.orEmpty(), style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 4.dp))
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
+            val clueEnabled = !generating && (clue != null || ui.aiAvailable)
             TextButton(
-                enabled = !generating && (clue != null || ui.aiAvailable),
+                enabled = clueEnabled,
                 onClick = {
                     when {
                         clue == null -> actions.onGenerateSentenceClue()
@@ -315,7 +316,8 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                     }
                 },
             ) {
-                Icon(Icons.Filled.Lightbulb, null, Modifier.size(18.dp), tint = Lab.colors.accent)
+                val tint = if (clueEnabled) Lab.colors.accent else Lab.colors.muted
+                Icon(Icons.Filled.Lightbulb, null, Modifier.size(18.dp), tint = tint)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     when {
@@ -325,7 +327,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                         reading || clue == null -> "Use in a sentence"
                         else -> "Play a sentence"
                     },
-                    color = Lab.colors.accent,
+                    color = tint,
                 )
             }
             if (clue != null && (showClue || !reading) && ui.aiAvailable) {
