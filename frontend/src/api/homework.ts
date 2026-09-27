@@ -5,7 +5,8 @@
  */
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
-import { localDate, type HomeworkAssignment, type HomeworkLoad, type HomeworkMode } from '@shared/homework';
+import { localDate, type DraftPlan, type HomeworkAssignment, type HomeworkLoad, type HomeworkMode } from '@shared/homework';
+import type { SessionNotesJob, SessionNotesJobStatus, SessionNotesResult, SessionNotesStep } from '../types/tutorNotes';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -63,4 +64,84 @@ export function assignHomework(relId: string, items: AssignItem[]): Promise<Assi
 
 export function updateHomeworkAssignment(relId: string, id: string, patch: { due_date?: string | null; status?: 'cancelled' | 'active' }): Promise<{ assignment: HomeworkAssignment }> {
   return request<{ assignment: HomeworkAssignment }>(`${rel(relId)}/homework/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+// ============ Lesson notes → homework drafts (routes/homework-drafts.ts) ============
+
+export interface LessonNotesJobBrief {
+  id: string;
+  status: SessionNotesJobStatus;
+  progress: string | null;
+  review: boolean;
+  assigned_at: string | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+  result: SessionNotesResult;
+}
+
+export interface LessonNotesEntry {
+  id: string;
+  lesson_at: string;
+  title: string | null;
+  notes: string | null;
+  created_at: string;
+  job: LessonNotesJobBrief | null;
+}
+
+export interface DraftChatMessage {
+  role: 'tutor' | 'assistant';
+  text: string;
+  at: string;
+}
+
+export interface DraftWord {
+  id: string;
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  known: { deck_name: string; state: string } | null;
+  skipped: boolean;
+}
+
+export interface DraftView {
+  student_name: string;
+  job: Omit<SessionNotesJob, 'notes_chars'> & { review: number; assigned_at: string | null; chat: DraftChatMessage[]; steps: SessionNotesStep[] };
+  plan: DraftPlan;
+  words: DraftWord[];
+  kept_count: number;
+  skipped_count: number;
+  load: HomeworkLoad;
+  load_after: HomeworkLoad;
+  assignments: HomeworkAssignment[];
+}
+
+export async function listLessonNotes(relId: string): Promise<LessonNotesEntry[]> {
+  return (await request<{ entries: LessonNotesEntry[] }>(`${rel(relId)}/lesson-notes`)).entries;
+}
+
+export function addLessonNotes(relId: string, input: { notes: string; title?: string; lesson_at?: string; draft: boolean }): Promise<{ entry: LessonNotesEntry | null; job: LessonNotesJobBrief | null }> {
+  return request(`${rel(relId)}/lesson-notes`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function draftFromLessonNotes(relId: string, logId: string): Promise<{ job: LessonNotesJobBrief }> {
+  return request(`${rel(relId)}/lesson-notes/${encodeURIComponent(logId)}/draft`, { method: 'POST' });
+}
+
+const draft = (relId: string, jobId: string) => `${rel(relId)}/homework-drafts/${encodeURIComponent(jobId)}`;
+
+export function getHomeworkDraft(relId: string, jobId: string): Promise<DraftView> {
+  return request<DraftView>(`${draft(relId, jobId)}?today=${localDate()}`);
+}
+
+export function saveDraftPlan(relId: string, jobId: string, plan: DraftPlan): Promise<DraftView> {
+  return request<DraftView>(`${draft(relId, jobId)}/plan`, { method: 'PUT', body: JSON.stringify({ plan, today: localDate() }) });
+}
+
+export function sendDraftMessage(relId: string, jobId: string, message: string): Promise<{ job: LessonNotesJobBrief }> {
+  return request(`${draft(relId, jobId)}/messages`, { method: 'POST', body: JSON.stringify({ message }) });
+}
+
+export function assignHomeworkDraft(relId: string, jobId: string): Promise<AssignResponse> {
+  return request<AssignResponse>(`${draft(relId, jobId)}/assign`, { method: 'POST', body: JSON.stringify({ today: localDate() }) });
 }
