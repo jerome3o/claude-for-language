@@ -291,6 +291,7 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
     `SELECT audio_url AS k FROM homework_recordings WHERE homework_id IN ${HOMEWORK}`,
     `SELECT audio_feedback_url AS k FROM homework_feedback WHERE tutor_id = ?1 OR homework_id IN ${HOMEWORK}`,
     `SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') AS k FROM feature_requests WHERE user_id = ?1`,
+    `SELECT picture_key AS k FROM users WHERE id = ?1`,
   ]);
 
   const keys = new Set<string>(unique);

@@ -71,6 +71,7 @@ import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
 import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
+import profileRoutes from './routes/profile';
 import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
 import noteSearchRoutes from './routes/note-search';
@@ -420,6 +421,10 @@ app.get('/api/auth/me', async (c) => {
     is_admin: !!user.is_admin,
     can_invite: userMayInvite(user),
     bio: user.bio || null,
+    // Profile screen fields (routes/profile.ts); name / picture_url above are already the edited ones.
+    about: user.about || null,
+    time_zone: user.time_zone || null,
+    picture_source: user.picture_source || 'google',
     landing_page: user.landing_page || null,
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
@@ -444,6 +449,8 @@ app.route('/api', readerEditor);
 
 // Invite-only sign-up: invites, access requests, can_invite (see routes/invites.ts)
 app.route('/api', invitesRoutes);
+// Editable profile: name, picture (R2), bio, about, time zone (routes/profile.ts)
+app.route('/api', profileRoutes);
 app.route('/api', onboardingRoutes); // GET /api/me/onboarding, POST /api/decks/starter (see routes/onboarding.ts)
 
 // Tutor "Student Insights" (lesson log, insights, summaries, recording marks, history)
@@ -546,6 +553,14 @@ app.get('/api/admin/storage/orphans', adminMiddleware, async (c) => {
     dbAudioUrls.add(r.recording_url);
   }
 
+  // Uploaded profile pictures (routes/profile.ts) live in the same bucket.
+  const avatarResult = await c.env.DB.prepare(
+    'SELECT picture_key FROM users WHERE picture_key IS NOT NULL'
+  ).all<{ picture_key: string }>();
+  for (const r of avatarResult.results) {
+    dbAudioUrls.add(r.picture_key);
+  }
+
   // List all R2 objects and find orphans
   const orphans: Array<{ key: string; size: number }> = [];
   let cursor: string | undefined;
@@ -584,6 +599,14 @@ app.post('/api/admin/storage/cleanup', adminMiddleware, async (c) => {
   ).all<{ recording_url: string }>();
   for (const r of reviewResult.results) {
     dbAudioUrls.add(r.recording_url);
+  }
+
+  // Uploaded profile pictures (routes/profile.ts) live in the same bucket.
+  const avatarResult = await c.env.DB.prepare(
+    'SELECT picture_key FROM users WHERE picture_key IS NOT NULL'
+  ).all<{ picture_key: string }>();
+  for (const r of avatarResult.results) {
+    dbAudioUrls.add(r.picture_key);
   }
 
   // List all R2 objects and delete orphans
