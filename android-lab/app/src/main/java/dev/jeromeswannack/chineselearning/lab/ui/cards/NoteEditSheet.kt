@@ -73,15 +73,15 @@ data class NoteEditActions(
  * web's "Delete this note and all three of its cards?" strip).
  */
 @Composable
-fun NoteEditSheet(ui: NoteEditUi, actions: NoteEditActions) {
+fun NoteEditSheet(ui: NoteEditUi, actions: NoteEditActions, extras: (@Composable (NoteFields) -> Unit)? = null) {
     LabBottomSheet(onDismiss = actions.onClose) {
-        NoteEditForm(ui, actions)
+        NoteEditForm(ui, actions, extras)
     }
 }
 
 /** The sheet's body — also rendered on its own in screenshots. */
 @Composable
-fun NoteEditForm(ui: NoteEditUi, actions: NoteEditActions) {
+fun NoteEditForm(ui: NoteEditUi, actions: NoteEditActions, extras: (@Composable (NoteFields) -> Unit)? = null) {
     var f by rememberSaveable(ui.noteId, ui.revision, saver = NoteFieldsSaver) { mutableStateOf(ui.initial) }
     var confirmDelete by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -147,6 +147,9 @@ fun NoteEditForm(ui: NoteEditUi, actions: NoteEditActions) {
         Field("Example sentence", f.sentenceClue, lines = 2, hint = "Example sentence using this word…") { f = f.copy(sentenceClue = it) }
         Field("Sentence pinyin", f.sentenceCluePinyin) { f = f.copy(sentenceCluePinyin = it) }
         Field("Translation", f.sentenceClueTranslation) { f = f.copy(sentenceClueTranslation = it) }
+
+        // Editing an existing note: its sentence set and audio recordings (CardEditModal.tsx).
+        if (!adding) extras?.invoke(f)
 
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

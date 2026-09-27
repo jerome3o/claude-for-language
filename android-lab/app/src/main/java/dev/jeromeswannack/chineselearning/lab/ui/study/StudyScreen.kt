@@ -176,6 +176,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
                 setPrimary = { id -> currentNote()?.let { n -> tools.setPrimaryRecording(n.id, id) } },
                 deleteRecording = { id -> currentNote()?.let { n -> tools.deleteRecording(n.id, id) } },
                 play = vm::play,
+                media = { noteId, fields -> dev.jeromeswannack.chineselearning.lab.ui.cards.NoteMediaSections(app, noteId, fields) },
             ),
             ask = AskActions(
                 ask = vm::ask,
