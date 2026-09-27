@@ -5,8 +5,6 @@ import {
   getPendingReviewDeletions,
   getPendingReviewDeletionIds,
   removePendingReviewDeletion,
-  incrementNewCardsStudiedToday,
-  decrementNewCardsStudiedToday,
   createLocalReviewEvent,
 } from '../db/database';
 import { processPendingReviewDeletions, downloadReviewEvents } from './review-events';
@@ -14,11 +12,6 @@ import { processPendingReviewDeletions, downloadReviewEvents } from './review-ev
 // Mock fetch globally
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
-
-function getTodayString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
 
 describe('Undo review support', () => {
   beforeEach(() => {
@@ -40,39 +33,6 @@ describe('Undo review support', () => {
       await removePendingReviewDeletion('event-1');
       const remaining = await getPendingReviewDeletions();
       expect(remaining.map(p => p.id)).toEqual(['event-2']);
-    });
-  });
-
-  describe('decrementNewCardsStudiedToday', () => {
-    it('reverses a primary increment', async () => {
-      await incrementNewCardsStudiedToday('deck-1');
-      await incrementNewCardsStudiedToday('deck-1');
-      await decrementNewCardsStudiedToday('deck-1');
-
-      const row = await db.dailyStats.get(`${getTodayString()}:deck-1`);
-      expect(row?.new_cards_studied).toBe(1);
-      expect(row?.secondary_cards_studied ?? 0).toBe(0);
-    });
-
-    it('reverses a secondary increment', async () => {
-      await incrementNewCardsStudiedToday('deck-1', true);
-      await decrementNewCardsStudiedToday('deck-1', true);
-
-      const row = await db.dailyStats.get(`${getTodayString()}:deck-1`);
-      expect(row?.secondary_cards_studied).toBe(0);
-    });
-
-    it('never goes below zero and tolerates a missing row', async () => {
-      // Missing row: no-op, no throw
-      await decrementNewCardsStudiedToday('deck-none');
-      expect(await db.dailyStats.get(`${getTodayString()}:deck-none`)).toBeUndefined();
-
-      // Existing row at 0 stays at 0
-      await incrementNewCardsStudiedToday('deck-1');
-      await decrementNewCardsStudiedToday('deck-1');
-      await decrementNewCardsStudiedToday('deck-1');
-      const row = await db.dailyStats.get(`${getTodayString()}:deck-1`);
-      expect(row?.new_cards_studied).toBe(0);
     });
   });
 

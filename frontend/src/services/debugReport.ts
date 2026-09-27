@@ -187,13 +187,14 @@ export async function buildDebugReport(): Promise<DebugReport> {
     cutoff: { ms: cutoff.ts, iso: cutoff.iso },
     day_start: { ms: dayStart.getTime(), iso: dayStart.toISOString(), local_date: localDate(now) },
     introduced_basis:
-      'dailyStats counter keyed by local date (seeded from events whose UTC reviewed_at >= the local date string)',
+      'derived from review events: a card\'s first-ever review at/after local midnight (shared/decks/study-queue.ts introducedToday)',
     budget: { ...budget },
     bonus: { all: bonusAll, by_deck: byDeckBonus, day_key: bonusKey(undefined).split('_').pop() ?? '' },
     sync: {
       sync_meta: syncMeta,
       event_sync_meta: eventSyncMeta,
       online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+      rejected_events: await db.reviewEvents.where('_synced').equals(-1).count(),
       install_kind: detectInstallKind(),
       user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
     },

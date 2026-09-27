@@ -64,7 +64,9 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 |---|---|---|---|
 | FSRS scheduling (event replay, live review, interval previews) | ✅ parity-tested | `shared/scheduler/compute-state.ts` | `core/…/Fsrs.kt`, `CardState.kt` |
 | Global new-card budget, deck queue, per-deck caps | ✅ parity-tested | `shared/decks/budget.ts` | `core/…/Budget.kt` |
-| Queue building (cutoff, due cards, tiers) & next-card pick | ✅ unit-tested | `db/database.ts` `getStudyQueue`, `useStudySession.ts` `selectNextItem` | `core/…/StudyQueue.kt` |
+| Queue building (cutoff, due cards, tiers), introduced today, Home counts | ✅ parity-tested (`parity/fixtures/study-queue.ts`) | `shared/decks/study-queue.ts` (`getStudyQueue`, Home) | `core/…/StudyQueue.kt` |
+| Next-card pick | ✅ unit-tested | `useStudySession.ts` `selectNextItem` | `core/…/StudyQueue.kt` |
+| Events the server refuses (`orphan_event_ids` from `POST /api/reviews`) marked rejected, not synced | 🟡 web only — the Lab still marks the whole batch synced (the events are for cards neither side has; counts unaffected) | `services/review-events.ts` | `data/Repository.kt` `uploadPending` |
 | Three card types (read / write / listen), flip, rating bar | ✅ | `StudyPage.tsx` | `ui/study/CardStage.kt` |
 | Typed-answer check (punctuation, numbers, 两/二, alternatives) + diff | ✅ parity-tested | `utils/numberHanzi.ts`, `AnswerDiff` | `core/…/AnswerKey.kt` |
 | Example sentences (clue row + set, tap-to-reveal, EN mode, show all) | ✅ | `components/SentenceSet.tsx` | `ui/study/Sentences.kt` |

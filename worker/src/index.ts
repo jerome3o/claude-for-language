@@ -5508,10 +5508,14 @@ app.post('/api/reviews', async (c) => {
     }
   }
 
-  // Return result including skipped orphans so client can mark all events as synced
+  // Events for cards this account doesn't have are refused. The client marks
+  // the accepted ones synced and these as rejected (`_synced = -1`), instead of
+  // pretending the server holds them.
+  const validIds = new Set(validEvents.map(e => e.id));
   return c.json({
     ...result,
     skipped_orphans: skippedOrphans,
+    orphan_event_ids: events.filter(e => !validIds.has(e.id)).map(e => e.id),
   });
 });
 
