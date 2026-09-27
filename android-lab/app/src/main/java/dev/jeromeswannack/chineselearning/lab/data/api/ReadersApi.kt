@@ -93,14 +93,3 @@ suspend fun Api.dailyReader(noteIds: List<String>, localDate: String): DailyRead
 
 suspend fun Api.markDailyReader(readerId: String): Unit = post("/api/daily/mark", DailyMarkBody("reader", readerId))
 
-/** One aligned chunk of `POST /api/sentence/analyze` (SentenceChunk). */
-@Serializable
-data class SentenceChunkDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val note: String? = null)
-
-@Serializable
-data class SentenceBreakdownDto(val hanzi: String = "", val pinyin: String = "", val english: String = "", val chunks: List<SentenceChunkDto> = emptyList())
-
-@Serializable
-data class AnalyzeBody(val sentence: String)
-
-suspend fun Api.analyzeSentence(sentence: String): SentenceBreakdownDto = post("/api/sentence/analyze", AnalyzeBody(sentence))

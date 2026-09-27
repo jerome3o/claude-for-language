@@ -145,6 +145,7 @@ data class HomeworkEventsBody(val events: List<HomeworkEventUpload>)
 
 suspend fun Api.customLessons(): CustomLessonsDto = get("/api/custom-lessons")
 
+suspend fun Api.deleteCustomLesson(id: String): Unit = delete("/api/custom-lessons/${enc(id)}")
 
 suspend fun Api.sentenceFeedback(words: List<String>, task: String?, sentence: String): SentenceFeedback =
     post<SentenceFeedbackBody, SentenceFeedbackDto>("/api/lessons/sentence-feedback", SentenceFeedbackBody(words, task, sentence)).feedback

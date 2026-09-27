@@ -139,7 +139,7 @@ class ReaderScreenshots : LabScreenshotTest() {
         dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("。", "", ""),
         dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("他", "tā", "he"),
         dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("很", "hěn", "very"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("兴奋", "xīngfèn", "excited", "Stronger than 高兴 — thrilled, keyed up."),
+        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("兴奋", "xīngfèn", "excited", note = "Stronger than 高兴 — thrilled, keyed up."),
         dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("。", "", ""),
     )
     @Test fun words() = shootAfter("readers-13-reader-words", {
