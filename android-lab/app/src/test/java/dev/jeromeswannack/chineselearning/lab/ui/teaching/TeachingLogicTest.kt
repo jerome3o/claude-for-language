@@ -5,6 +5,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.PillsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyStatusDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TodayStatsDto
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -77,5 +78,39 @@ class TeachingLogicTest {
         assertEquals("at the bottom of their queue, after everything they already have", sendHow("deck", o.copy(priority = "non_urgent")))
         assertEquals("as one-off homework over 3 days from Tue 29 Sep, then in long-term review", sendHow("deck", o.copy(mode = HomeworkMode.BOTH, splitDays = 3)))
         assertEquals("as one-off homework by Tue 29 Sep", sendHow("lesson", o.copy(mode = HomeworkMode.ONE_OFF, splitDays = 3)))
+    }
+
+    @Test fun historyGroupsByWordLikeTheWeb() {
+        val groups = groupByWord(TutorPagesSamples.history)
+        assertEquals(listOf("打算", "换乘", "地铁站"), groups.map { it.note.hanzi })
+        assertEquals(2, groups[0].forgot)
+        assertEquals(listOf("大算", "打算了"), groups[0].wrong)
+        assertEquals(listOf("换成"), groups[1].wrong) // 换乘 typed correctly is not a wrong answer
+    }
+
+    @Test fun recordingsSortUnlistenedFirst() {
+        val sorted = sortRecordings(TutorPagesSamples.report.recordings)
+        assertEquals(listOf("e7", "e2", "e8", "e9"), sorted.map { it.event_id })
+        assertEquals(listOf("e8"), filterRecordings(sorted, RecordingFilter.NEEDS_WORK).map { it.event_id })
+        assertEquals(listOf("e7", "e2"), filterRecordings(sorted, RecordingFilter.UNLISTENED).map { it.event_id })
+    }
+
+    @Test fun answerDiffMatchesTutorShared() {
+        assertTrue(TutorPageFormat.answersMatch("我 学了，两年了。", "我学了两年了"))
+        val (user, expected) = TutorPageFormat.answerDiff("大算", "打算")
+        assertEquals(listOf(TutorPageFormat.DiffKind.WRONG, TutorPageFormat.DiffKind.CORRECT), user.map { it.second })
+        assertEquals(listOf('打' to TutorPageFormat.DiffKind.EXPECTED, '算' to TutorPageFormat.DiffKind.CORRECT), expected)
+        assertEquals(null, TutorPageFormat.answerDiff("打算。", "打算").second)
+        assertEquals("4.2s", TutorPageFormat.seconds(4200))
+        assertEquals("12s", TutorPageFormat.seconds(12400))
+        assertEquals("1h 13m", TutorPageFormat.duration(73 * 60_000L))
+        assertEquals("<1m", TutorPageFormat.duration(10_000))
+    }
+
+    @Test fun insightsPresetsQuery() {
+        val today = LocalDate.parse("2026-09-27")
+        assertEquals(null to null, InsightsRange(InsightsPreset.LESSON).query(today))
+        assertEquals("2026-09-20" to null, InsightsRange(InsightsPreset.D7).query(today))
+        assertEquals("2026-09-13" to "2026-09-27", InsightsRange(InsightsPreset.CUSTOM).query(today))
     }
 }

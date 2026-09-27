@@ -43,6 +43,72 @@ fun NavGraphBuilder.teachingGraph(nav: LabNav) {
             else -> PlaceholderScreen(Routes.connection(relId), onBack = nav::back) { nav.openInMainApp(Routes.connection(relId)) }
         }
     }
+    tutorPage(nav, "/connections/{relId}/insights") { relId, name -> InsightsRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/history") { relId, name -> HistoryRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/recordings") { relId, name -> RecordingsRoute(nav, relId, name) }
+}
+
+@Composable
+private fun playToggle(nav: LabNav): (String) -> Unit {
+    val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
+    val online by nav.app.online.collectAsStateWithLifecycle()
+    return { url -> if (playing == url) nav.app.audio.stop() else nav.app.audio.play(url, "", online) }
+}
+
+@Composable
+private fun InsightsRoute(nav: LabNav, relId: String, name: String) {
+    val vm: InsightsViewModel = viewModel(key = "insights-$relId", factory = InsightsViewModel.Factory(nav.app, relId))
+    val report by vm.report.collectAsStateWithLifecycle()
+    val log by vm.lessonLog.state.collectAsStateWithLifecycle()
+    val summaries by vm.summaries.state.collectAsStateWithLifecycle()
+    val t by vm.transient.collectAsStateWithLifecycle()
+    val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
+    InsightsScreen(
+        InsightsUi(relId, name, t.range, report, log, summaries.data.orEmpty(), t.latest, t.writing, t.summaryError, t.lessonError, t.savingLesson, playing),
+        InsightsActions(
+            back = nav::back, open = nav::open, setRange = vm::setRange, writeSummary = { vm.writeSummary() },
+            logLesson = { d, n, done -> vm.logLesson(d, n, done) }, deleteLesson = { vm.deleteLesson(it) },
+            play = playToggle(nav), refresh = vm::refresh,
+        ),
+    )
+}
+
+@Composable
+private fun HistoryRoute(nav: LabNav, relId: String, name: String) {
+    val vm: HistoryViewModel = viewModel(key = "history-$relId", factory = HistoryViewModel.Factory(nav.app, relId))
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
+    HistoryScreen(
+        ui.copy(studentName = name, playingKey = playing),
+        HistoryActions(back = nav::back, open = nav::open, setFilters = vm::setFilters, setByWord = { vm.setByWord(it) }, loadMore = vm::loadMore, play = playToggle(nav), retry = { vm.reload() }),
+    )
+}
+
+@Composable
+private fun RecordingsRoute(nav: LabNav, relId: String, name: String) {
+    val vm: RecordingsViewModel = viewModel(key = "recordings-$relId", factory = RecordingsViewModel.Factory(nav.app, relId))
+    val report by vm.report.collectAsStateWithLifecycle()
+    val t by vm.transient.collectAsStateWithLifecycle()
+    val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
+    RecordingsScreen(
+        RecordingsUi(relId, name, t.range, t.filter, report.data?.recordings, report.loading, report.error, report.offline, playing, t.saving, t.markError),
+        RecordingsActions(back = nav::back, open = nav::open, setRange = vm::setRange, setFilter = { vm.setFilter(it) }, play = playToggle(nav), mark = { r, s, c -> vm.mark(r, s, c) }, retry = { vm.retry() }),
+    )
+}
+
+/** The tutor's pages about one student (only when the relationship is one where I am the tutor). */
+private fun NavGraphBuilder.tutorPage(nav: LabNav, pattern: String, content: @Composable (relId: String, studentName: String) -> Unit) {
+    composable(Routes.route(pattern)) { entry ->
+        val relId = entry.arguments?.getString("relId").orEmpty()
+        val relationships by nav.app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS).collectAsStateWithLifecycle(null)
+        val rel = relationships?.students?.firstOrNull { it.id == relId }
+        val path = "/" + pattern.removePrefix("/").replace("{relId}", Routes.seg(relId))
+        when {
+            rel != null -> content(relId, rel.studentUser()?.let { it.name ?: it.email } ?: "Student")
+            relationships == null -> Unit
+            else -> PlaceholderScreen(path, onBack = nav::back) { nav.openInMainApp(path) }
+        }
+    }
 }
 
 /** The student in a relationship where I am the tutor. */

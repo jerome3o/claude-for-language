@@ -495,3 +495,179 @@ suspend fun Api.createInvite(body: CreateInviteBody): InviteDto = post("/api/inv
 data class StarterDeckDto(val deck: CreatedDeckDto, val created: Boolean = false, val word_count: Int = 0)
 
 suspend fun Api.createStarterDeck(): StarterDeckDto = post("/api/decks/starter")
+
+// ---------------- insights, history, recording marks (web: api/insights.ts, types/insights.ts) ----------------
+
+@Serializable
+data class InsightTotalsDto(
+    val reviews: Int = 0,
+    val unique_notes: Int = 0,
+    val days_active: Int = 0,
+    val accuracy: Double = 0.0,
+    val again_rate: Double = 0.0,
+    val time_ms: Long = 0,
+    val new_words_introduced: Int = 0,
+)
+
+@Serializable
+data class InsightAttemptDto(
+    val event_id: String,
+    val card_type: String = "hanzi_to_meaning",
+    val rating: Int = 2,
+    val reviewed_at: String = "",
+    val time_spent_ms: Long? = null,
+    val user_answer: String? = null,
+    val recording_url: String? = null,
+)
+
+@Serializable
+data class StrugglingDto(
+    val note: NoteRefDto,
+    val attempts: Int = 0,
+    val again_count: Int = 0,
+    val again_rate: Double = 0.0,
+    val hard_count: Int = 0,
+    val forgot_count: Int = 0,
+    val avg_time_ms: Double? = null,
+    val wrong_answers: List<String> = emptyList(),
+    val recordings_count: Int = 0,
+    val events: List<InsightAttemptDto> = emptyList(),
+)
+
+@Serializable
+data class GoingWellDto(
+    val note: NoteRefDto,
+    val attempts: Int = 0,
+    val easy_count: Int = 0,
+    /** consistent | graduated */
+    val reason: String = "consistent",
+    val max_interval_days: Int? = null,
+)
+
+@Serializable
+data class RecordingMarkDto(val review_event_id: String = "", val status: String = "listened", val comment: String? = null, val updated_at: String = "")
+
+@Serializable
+data class InsightRecordingDto(
+    val event_id: String,
+    val note: NoteRefDto,
+    val card_type: String = "hanzi_to_meaning",
+    val rating: Int = 2,
+    val reviewed_at: String = "",
+    val recording_url: String = "",
+    val user_answer: String? = null,
+    val mark: RecordingMarkDto? = null,
+)
+
+@Serializable
+data class ActivityLessonDto(val lesson_id: String, val title: String = "", val rating: Int? = null, val completed_at: String = "")
+
+@Serializable
+data class ActivityReaderDto(val reader_id: String, val title_chinese: String = "", val title_english: String = "", val rating: Int = 2, val reviewed_at: String = "")
+
+@Serializable
+data class ActivityQuestDto(val quest_id: String, val title: String = "", val completed_at: String = "", val best_moves: Int? = null)
+
+@Serializable
+data class InsightActivityDto(
+    val lessons: List<ActivityLessonDto> = emptyList(),
+    val readers: List<ActivityReaderDto> = emptyList(),
+    val quests: List<ActivityQuestDto> = emptyList(),
+)
+
+@Serializable
+data class InsightRangeDto(val from: String = "", val to: String = "")
+
+@Serializable
+data class InsightsReportDto(
+    val range: InsightRangeDto = InsightRangeDto(),
+    val totals: InsightTotalsDto = InsightTotalsDto(),
+    val struggling: List<StrugglingDto> = emptyList(),
+    val going_well: List<GoingWellDto> = emptyList(),
+    val activity: InsightActivityDto = InsightActivityDto(),
+    val recordings: List<InsightRecordingDto> = emptyList(),
+)
+
+private fun qs(vararg p: Pair<String, String?>): String {
+    val present = p.filter { !it.second.isNullOrEmpty() }
+    return if (present.isEmpty()) "" else "?" + present.joinToString("&") { (k, v) -> "$k=${enc(v!!)}" }
+}
+
+suspend fun Api.studentInsights(relId: String, from: String? = null, to: String? = null): InsightsReportDto =
+    get("${rel(relId)}/insights${qs("from" to from, "to" to to)}")
+
+@Serializable
+data class StudentSummaryDto(
+    val id: String,
+    val range_from: String = "",
+    val range_to: String = "",
+    val narrative_en: String = "",
+    val narrative_zh: String = "",
+    val created_at: String = "",
+)
+
+@Serializable
+private data class SummariesDto(val summaries: List<StudentSummaryDto> = emptyList())
+
+@Serializable
+private data class SummaryDto(val summary: StudentSummaryDto)
+
+suspend fun Api.studentSummaries(relId: String): List<StudentSummaryDto> = get<SummariesDto>("${rel(relId)}/insights/summaries").summaries
+
+suspend fun Api.writeStudentSummary(relId: String, range: InsightRangeDto): StudentSummaryDto =
+    post<InsightRangeDto, SummaryDto>("${rel(relId)}/insights/summary", range).summary
+
+@Serializable
+data class MarkBody(val status: String, val comment: String? = null)
+
+@Serializable
+private data class MarkDto(val mark: RecordingMarkDto)
+
+suspend fun Api.markRecording(relId: String, eventId: String, body: MarkBody): RecordingMarkDto =
+    put<MarkBody, MarkDto>("${rel(relId)}/recordings/${enc(eventId)}/mark", body).mark
+
+suspend fun Api.clearRecordingMark(relId: String, eventId: String) = delete<Unit>("${rel(relId)}/recordings/${enc(eventId)}/mark")
+
+@Serializable
+data class HistoryEventDto(
+    val event_id: String,
+    val card_type: String = "hanzi_to_meaning",
+    val note_id: String = "",
+    val hanzi: String = "",
+    val pinyin: String = "",
+    val english: String = "",
+    val deck_name: String = "",
+    val rating: Int = 2,
+    val time_spent_ms: Long? = null,
+    val user_answer: String? = null,
+    val recording_url: String? = null,
+    val reviewed_at: String = "",
+)
+
+@Serializable
+data class DeckRefDto(val id: String, val name: String = "")
+
+@Serializable
+data class HistoryPageDto(
+    val range: InsightRangeDto = InsightRangeDto(),
+    val events: List<HistoryEventDto> = emptyList(),
+    val next_cursor: String? = null,
+    val decks: List<DeckRefDto>? = null,
+)
+
+data class HistoryQuery(
+    val from: String? = null,
+    val deckId: String? = null,
+    val cardType: String? = null,
+    val rating: Int? = null,
+    val q: String? = null,
+    val cursor: String? = null,
+    val limit: Int = 100,
+)
+
+suspend fun Api.studentHistory(relId: String, h: HistoryQuery): HistoryPageDto = get(
+    "${rel(relId)}/history" + qs(
+        "from" to h.from, "deck_id" to h.deckId, "card_type" to h.cardType, "rating" to h.rating?.toString(),
+        "q" to h.q, "cursor" to h.cursor, "limit" to h.limit.toString(),
+    ),
+)

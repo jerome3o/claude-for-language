@@ -108,6 +108,37 @@ class TeachingScreenshots : LabScreenshotTest() {
         }
     }
 
+    private val P = TutorPagesSamples
+
+    @Config(qualifiers = TALL)
+    @Test fun insights() = shoot("teaching-19-insights") {
+        InsightsScreen(
+            InsightsUi("rel-jerome", "Jerome Swannack", report = S.loaded(P.report), lessonLog = S.loaded(P.lessonLog), summaries = listOf(P.summary)),
+            InsightsActions(), S.now,
+        )
+    }
+
+    @Test fun insightsTop() = shoot("teaching-20-insights-top") {
+        InsightsScreen(InsightsUi("rel-jerome", "Jerome Swannack", report = S.loaded(P.report), lessonLog = S.loaded(P.lessonLog), summaries = listOf(P.summary)), InsightsActions(), S.now)
+    }
+
+    @Test fun history() = shoot("teaching-21-history") {
+        HistoryScreen(HistoryUi("rel-jerome", "Jerome Swannack", events = P.history, decks = P.decks, range = P.report.range, loading = false, hasMore = true), HistoryActions(), S.now)
+    }
+
+    @Test fun historyByWord() = shoot("teaching-22-history-by-word") {
+        HistoryScreen(HistoryUi("rel-jerome", "Jerome Swannack", events = P.history, decks = P.decks, range = P.report.range, loading = false, byWord = true), HistoryActions(), S.now)
+    }
+
+    @Test fun recordings() = shoot("teaching-23-recordings") {
+        RecordingsScreen(RecordingsUi("rel-jerome", "Jerome Swannack", recordings = P.report.recordings, loading = false, playingKey = "recordings/e7.webm"), RecordingsActions(), S.now)
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun insightsUnfolded() = shoot("teaching-24-insights-unfolded") {
+        InsightsScreen(InsightsUi("rel-jerome", "Jerome Swannack", report = S.loaded(P.report), lessonLog = S.loaded(P.lessonLog), summaries = listOf(P.summary)), InsightsActions(), S.now)
+    }
+
     @androidx.compose.runtime.Composable
     private fun Sheet(content: @androidx.compose.runtime.Composable () -> Unit) {
         Box(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) { content() }
