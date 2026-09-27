@@ -174,6 +174,12 @@ interface LabDao {
     @Query("SELECT id FROM review_events WHERE id IN (:ids)") suspend fun existingEventIds(ids: List<String>): List<String>
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertEvents(events: List<ReviewEventEntity>)
     @Query("UPDATE review_events SET synced = 1 WHERE id IN (:ids)") suspend fun markSynced(ids: List<String>)
+    /**
+     * Events the server refused (`orphan_event_ids`): `synced = -1`, like the web's `_synced = -1`.
+     * Never uploaded again (`unsyncedEvents` reads `synced = 0`); the Boolean field reads it as true.
+     */
+    @Query("UPDATE review_events SET synced = -1 WHERE id IN (:ids)") suspend fun markRejected(ids: List<String>)
+    @Query("SELECT COUNT(*) FROM review_events WHERE synced = -1") suspend fun rejectedCount(): Int
     @Query("DELETE FROM review_events WHERE id = :id") suspend fun deleteEvent(id: String)
     @Query("SELECT * FROM review_events WHERE id = :id") suspend fun event(id: String): ReviewEventEntity?
     @Query("SELECT cardId, MIN(reviewedAt) AS firstAt FROM review_events GROUP BY cardId") suspend fun firstReviews(): List<FirstReview>

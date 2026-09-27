@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import dev.jeromeswannack.chineselearning.lab.Config
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
+import dev.jeromeswannack.chineselearning.lab.core.GhostDecks
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
@@ -264,6 +265,13 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                     dao.deleteCardsOfNotes(it); dao.deleteSentencesOf(it); dao.deleteNotes(it)
                 }
                 if (changes.deleted.card_ids.isNotEmpty()) changes.deleted.card_ids.chunked(500).forEach { dao.deleteCards(it) }
+                // Decks the server no longer has but never tombstoned (deleted before tombstones
+                // existed): an incremental sync would otherwise keep them forever.
+                changes.live_deck_ids?.let { live ->
+                    val ghosts = GhostDecks.find(dao.decks().map { GhostDecks.LocalDeck(it.id, it.createdAt) }, live, changes.live_deck_ids_at)
+                    ghosts.chunked(500).forEach { dao.deleteCardsOfDecks(it); dao.deleteNotesOfDecks(it); dao.deleteDecks(it) }
+                    if (ghosts.isNotEmpty()) android.util.Log.i("LabSync", "Removed ${ghosts.size} decks the server no longer has: $ghosts")
+                }
                 dao.upsertDecks(changes.decks.map(::deckEntity))
                 val notes = changes.notes.map { noteEntity(it) }
                 dao.upsertNotes(notes)
@@ -289,8 +297,10 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         while (true) {
             val batch = dao.unsyncedEvents(100)
             if (batch.isEmpty()) break
-            api.uploadEvents(batch.map { EventDto(it.id, it.cardId, it.rating, it.reviewedAt, it.timeSpentMs, it.userAnswer) })
-            dao.markSynced(batch.map { it.id })
+            val refused = api.uploadEvents(batch.map { EventDto(it.id, it.cardId, it.rating, it.reviewedAt, it.timeSpentMs, it.userAnswer) }).toHashSet()
+            // Refused events (their card is not in the account) are rejected, never "synced".
+            dao.markSynced(batch.map { it.id }.filter { it !in refused })
+            if (refused.isNotEmpty()) dao.markRejected(batch.map { it.id }.filter { it in refused })
             sent += batch.size
         }
         return sent
