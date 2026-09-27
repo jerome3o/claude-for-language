@@ -108,6 +108,8 @@ fun LessonPlayer(
     startAt: Int = 0,
     /** False inside the study session, which keeps its own top bar (counts, ✕, undo). */
     showTopBar: Boolean = true,
+    /** The exercise now on screen (the editor preview's jump bar follows it); items.size = done. */
+    onIndex: (Int) -> Unit = {},
 ) {
     val items = remember(spec) { flattenSpec(spec) }
     var run by remember { mutableIntStateOf(0) }
@@ -123,6 +125,7 @@ fun LessonPlayer(
     val done = idx >= items.size
 
     LaunchedEffect(done) { if (done) onCelebrate() }
+    LaunchedEffect(idx) { onIndex(idx) }
 
     fun advance(isCorrect: Boolean?, answer: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, recording: java.io.File?) {
         val item = items[idx]
@@ -183,7 +186,13 @@ fun LessonPlayer(
                                 if (item.sectionStart) {
                                     Text(item.sectionTitle.orEmpty(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Lab.colors.ink)
                                 }
-                                ExerciseView(item.exercise, env, if (preview) null else LessonAttempts.mediaKey(item.section, item.index)) { c, a, r -> if (i == idx) advance(c, a, r) }
+                                if (Lessons.renderable(item.exercise)) {
+                                    ExerciseView(item.exercise, env, if (preview) null else LessonAttempts.mediaKey(item.section, item.index)) { c, a, r -> if (i == idx) advance(c, a, r) }
+                                } else {
+                                    // A half-typed exercise in the editor (the validator is the authority; this keeps it from crashing).
+                                    Text("This exercise isn't complete yet — fill in its fields to preview it.", color = Lab.colors.muted)
+                                    SecondaryPill("Skip", Modifier.height(48.dp)) { if (i == idx) advance(null, null, null) }
+                                }
                             }
                         }
                     }

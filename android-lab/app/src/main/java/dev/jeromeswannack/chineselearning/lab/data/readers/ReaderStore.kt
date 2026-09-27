@@ -230,7 +230,6 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
     suspend fun sync(zone: ZoneId = ZoneId.systemDefault(), prefetch: Boolean = true) {
         downloadEvents()
         refresh()
-        runCatching { homework.refresh(api) }
         if (prefetch) {
             val now = System.currentTimeMillis()
             prefetchMedia(now, dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(now, zone), zone)

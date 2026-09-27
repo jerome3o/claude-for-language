@@ -22,6 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv
 import dev.jeromeswannack.chineselearning.lab.core.spec.LessonCatalogue
 import dev.jeromeswannack.chineselearning.lab.core.spec.LessonExport
 import dev.jeromeswannack.chineselearning.lab.core.spec.ReaderExport
@@ -104,6 +105,7 @@ private fun LessonEditorRoute(nav: LabNav, target: String, id: String) {
             onRawJson = vm::applyRawJson,
             onArchive = if (ui.isOwner) ({ vm.archiveOrDelete { nav.open(if (target == "library") Routes.LIBRARY else Routes.lessons()) } }) else null,
             speak = speak,
+            previewEnv = rememberExerciseEnv(app, preview = true),
             chat = EditorChatActions(
                 onDraft = vm.chat::setDraft,
                 onSend = { text -> spec?.let { vm.chat.send(text, it, pendingChangesFor(chat.messages, it, EditorChatKind.LESSON)) } },
@@ -115,43 +117,30 @@ private fun LessonEditorRoute(nav: LabNav, target: String, id: String) {
     )
 }
 
-/** A lesson to take without recording anything: "Try it" and the catalogue trials. */
-@Composable
-fun LessonTrialScreen(title: String, spec: JsonObject?, error: String?, speak: Speak, onBack: () -> Unit, onFinished: () -> Unit, onRetry: (() -> Unit)? = null) {
-    LabScreenFrame {
-        ScreenTitle(title, subtitle = "Try it — nothing is recorded", onBack = onBack)
-        when {
-            spec != null -> LessonWalkthrough(spec, speak, note = "Trial — nothing is recorded.", onFinished = onFinished)
-            error != null -> ErrorState(error, onRetry = onRetry)
-            else -> LoadingState(text = "Loading lesson…")
-        }
-    }
-}
-
 @Composable
 private fun LessonTryRoute(nav: LabNav, id: String) {
     val app = nav.app
-    val speak = rememberSpeaker(app)
+    val env = rememberExerciseEnv(app, preview = true)
     val loaded by produceState<Pair<JsonObject?, String?>>(null to null, id) {
         val cached = app.cache.get("editor/lesson/library/$id", CachedLessonTarget.serializer())?.spec
         value = cached to null
         value = try { app.repo.api.libraryItem(id).spec to null } catch (e: Exception) { if (cached != null) cached to null else null to e.userMessage() }
     }
     val back = { if (!nav.controller.popBackStack()) nav.open(Routes.libraryItem(id)) }
-    LessonTrialScreen(loaded.first?.text("title") ?: "Try it", loaded.first, loaded.second, speak, back, { app.haptics.correct(); back() })
+    LessonTrialScreen(loaded.first?.text("title") ?: "Try it", loaded.first, loaded.second, env, back, back)
 }
 
 @Composable
 private fun CatalogueTrialRoute(nav: LabNav, sampleId: String) {
     val app = nav.app
-    val speak = rememberSpeaker(app)
+    val env = rememberExerciseEnv(app, preview = true)
     val sample = remember(sampleId) { LessonCatalogue.sample(sampleId) }
     val back = { if (!nav.controller.popBackStack()) nav.open(Routes.catalogue()) }
     LessonTrialScreen(
         sample?.spec?.text("title") ?: "Sample lesson",
         sample?.spec,
         if (sample == null) "That sample lesson doesn't exist." else null,
-        speak, back, { app.haptics.correct(); back() },
+        env, back, back,
     )
 }
 

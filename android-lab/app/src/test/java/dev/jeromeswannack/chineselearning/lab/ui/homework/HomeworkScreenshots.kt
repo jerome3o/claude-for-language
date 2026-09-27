@@ -15,6 +15,18 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.TabId
 import dev.jeromeswannack.chineselearning.lab.ui.onboarding.FirstOpenActions
 import dev.jeromeswannack.chineselearning.lab.ui.onboarding.FirstOpenScreen
 import dev.jeromeswannack.chineselearning.lab.ui.onboarding.FirstOpenUi
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import com.github.takahirom.roborazzi.captureRoboImage
+import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonSamples
+import dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv
+import dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader
 import org.junit.Test
 import org.robolectric.annotation.Config
 
@@ -78,7 +90,50 @@ class HomeworkScreenshots : LabScreenshotTest() {
         HomeworkPassScreen(deckPass(false).copy(progress = progress.copy(done = 12, total = 12, remaining = emptyList(), retrying = 0, complete = true), addState = AddState.Done), PassActions())
     }
 
-    @Test fun passLesson() = shoot("homework-07-pass-lesson") { HomeworkPassScreen(PassUi.Player("lesson", "把字句", complete = false, available = true), PassActions()) }
+    // Lesson / reader items play in the Lab's own players (package K).
+    private val previews = dev.jeromeswannack.chineselearning.lab.core.CardScheduler.intervalPreviews(
+        dev.jeromeswannack.chineselearning.lab.core.CardScheduler.initialCardState(), java.time.Instant.parse("2026-09-27T09:00:00Z").toEpochMilli(),
+    )
+    private val lessonSpec = LessonSamples.lesson(LessonSamples.choice, LessonSamples.scramble)
+    private val passLesson = PassLesson("t-a4", lessonSpec.title, lessonSpec.icon, lessonSpec, previews)
+    private val env = ExerciseEnv(random = kotlin.random.Random(7))
+    private val reader = GradedReaderDto(
+        "t-a5", "小明在巴黎", "Xiaoming in Paris", "beginner", "travel", emptyList(), "ready", null, "2026-09-26T08:00:00Z",
+        listOf(
+            ReaderPageDto("p1", 1, "小明今天第一次去巴黎。他很兴奋。", "Xiǎomíng jīntiān dì yī cì qù Bālí. Tā hěn xīngfèn.", "Today Xiaoming is going to Paris for the first time. He is very excited.", null, null),
+            ReaderPageDto("p2", 2, "他在咖啡店点了一杯咖啡和一个面包。", "Tā zài kāfēidiàn diǎnle yì bēi kāfēi hé yí ge miànbāo.", "At a café he ordered a coffee and a croissant.", null, null),
+        ),
+    )
+
+    @Test fun passLesson() = shoot("homework-07-pass-lesson") {
+        HomeworkPassScreen(PassUi.Player("lesson", "把字句", complete = false, lesson = passLesson), PassActions(), env)
+    }
+
+    @Test fun passLessonRating() {
+        compose.setContent {
+            dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme {
+                HomeworkPassScreen(PassUi.Player("lesson", "把字句", complete = false, lesson = passLesson.copy(spec = LessonSamples.lesson(LessonSamples.choice))), PassActions(), env)
+            }
+        }
+        compose.mainClock.advanceTimeBy(1_500)
+        compose.onNodeWithText("请把窗户关上。").performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onAllNodesWithText("Continue").onFirst().performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.onRoot().captureRoboImage("screenshots/homework-12-pass-lesson-rating.png")
+    }
+
+    @Test fun passLessonMissing() = shoot("homework-13-pass-lesson-missing") {
+        HomeworkPassScreen(PassUi.Player("lesson", "把字句", complete = false, lesson = null), PassActions(), env)
+    }
+
+    @Test fun passReader() = shoot("homework-14-pass-reader") {
+        HomeworkPassScreen(PassUi.Player("reader", "小明在巴黎", complete = false, reader = SessionReader(reader, previews, 1)), PassActions(), env, ReaderEnv())
+    }
+
+    @Test fun passLessonDone() = shoot("homework-15-pass-lesson-done") {
+        HomeworkPassScreen(PassUi.Player("lesson", "把字句", complete = true, lesson = passLesson), PassActions(), env)
+    }
 
     @Test fun passMissing() = shoot("homework-08-pass-missing") { HomeworkPassScreen(PassUi.Missing, PassActions()) }
 
