@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.nav
 import androidx.navigation.NavGraphBuilder
 import dev.jeromeswannack.chineselearning.lab.ui.connections.connectionsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.decks.decksGraph
+import dev.jeromeswannack.chineselearning.lab.ui.editor.editorGraph
 import dev.jeromeswannack.chineselearning.lab.ui.home.homeGraph
 import dev.jeromeswannack.chineselearning.lab.ui.library.libraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.more.moreGraph
@@ -22,6 +23,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     decksGraph(nav)         // "/decks"       C
     progressGraph(nav)      // "/progress"    D
     connectionsGraph(nav)   // "/connections" E (+ F dashboard)
+    editorGraph(nav)        // editors, Try it, catalogue trials, print views  G
     libraryGraph(nav)       // "/library"     G
     moreGraph(nav)          // "/more"        shell
     // Add yours above this line, one line each.
