@@ -1,5 +1,5 @@
 /**
- * student_profiles (migration 0076): the tutor's private profile of a student,
+ * student_profiles (migration 0077): the tutor's private profile of a student,
  * one row per tutor_relationship. Only the tutor-only route
  * (routes/student-profile.ts), the tutor dashboard's `has_profile` flag and the
  * tutor-side content agents read it — never a student-facing path.
