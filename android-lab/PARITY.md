@@ -64,6 +64,7 @@ main app / website at that screen instead) · ➖ not applicable natively
 | Admin page: account inspect / role / delete | ➖ (admin is web + MCP only) |
 | Sentence Coach | ⬜ |
 | Quests | ⬜ |
+| Handwriting / stroke-order practice (preview: `/practice/strokes`, study ⋯ → Write it) | ⬜ — port `shared/strokes` (pure matcher + quiz, unit-tested) to `core/` with parity vectors, draw on a Compose `Canvas` with `pointerInput`; see docs/STROKE_ORDER.md |
 | Readers list & reader editor | ⬜ |
 | Mini lessons list & editor | ⬜ |
 | Video calls | ⬜ |

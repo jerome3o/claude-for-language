@@ -64,6 +64,8 @@ import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import { getUnseenRecordingNotesForCard, markRecordingNoteSeen } from '../services/recording-notes';
 import { getRememberedTutors, humanTutors, rememberTutors, type RememberedTutor } from '../services/cardFlags';
 import { FlagCardSheet } from '../components/study/FlagCardSheet';
+import { WritingSheet } from '../components/strokes/WritingSheet';
+import { writableCharacters } from '@shared/strokes';
 import { useAuth } from '../contexts/AuthContext';
 import {
   loadMultipleChoice,
@@ -137,6 +139,12 @@ function ToolCallsCollapsible({ calls }: { calls: ReadOnlyToolCall[] }) {
       )}
     </div>
   );
+}
+
+/** A word short enough to write by hand (sentence cards are skipped). */
+function canWriteHanzi(hanzi: string): boolean {
+  const n = writableCharacters(hanzi).length;
+  return n >= 1 && n <= 6;
 }
 
 function normalizeHanzi(s: string) { return s.trim().toLowerCase(); }
@@ -333,6 +341,8 @@ function StudyCard({
   // Flag for tutor: the sheet under ⋯. Human tutors only; the list is
   // mirrored to localStorage so the item is still there offline.
   const [showFlagSheet, setShowFlagSheet] = useState(false);
+  // Handwriting practice for this card's hanzi (⋯ → Write it; preview).
+  const [showWriting, setShowWriting] = useState(false);
   const { user } = useAuth();
   const flagTutors: RememberedTutor[] = useMemo(() => {
     const live = user ? humanTutors(tutors, user.id) : [];
@@ -1858,6 +1868,9 @@ function StudyCard({
       ...(claudeRelationship
         ? [{ key: 'roleplay', label: 'Roleplay this word', icon: '🎭', hint: needsInternet, disabled: !aiAvailable, busy: isInitiatingConversation, onSelect: handleUseInConversation }]
         : []),
+      ...(canWriteHanzi(card.note.hanzi)
+        ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => setShowWriting(true) }]
+        : []),
       ...(flagTutors.length > 0
         ? [{ key: 'flag', label: 'Flag for tutor', icon: '🚩', onSelect: () => setShowFlagSheet(true) }]
         : []),
@@ -2362,6 +2375,16 @@ function StudyCard({
 
       {/* Ask Claude Modal */}
       {renderAskClaudeModal()}
+
+      {/* Handwriting practice (⋯ → Write it) */}
+      {showWriting && (
+        <WritingSheet
+          text={card.note.hanzi}
+          pinyin={card.note.pinyin}
+          english={card.note.english}
+          onClose={() => setShowWriting(false)}
+        />
+      )}
 
       {/* Flag for tutor (⋯ menu) */}
       {showFlagSheet && (

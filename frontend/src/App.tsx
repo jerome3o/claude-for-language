@@ -38,6 +38,7 @@ const MyDayDetailPage = lazy(() => import('./pages/MyDayDetailPage').then(m => (
 const MyCardReviewDetailPage = lazy(() => import('./pages/MyCardReviewDetailPage').then(m => ({ default: m.MyCardReviewDetailPage })));
 const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => ({ default: m.ReadersListPage })));
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => ({ default: m.LessonNotesPage })));
+const StrokePracticePage = lazy(() => import('./pages/StrokePracticePage').then(m => ({ default: m.StrokePracticePage })));
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const NewReaderPage = lazy(() => import('./pages/NewReaderPage').then(m => ({ default: m.NewReaderPage })));
@@ -453,6 +454,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/practice/strokes" element={<ProtectedRoute><Header /><StrokePracticePage /></ProtectedRoute>} />
       <Route
         path="/quests"
         element={
