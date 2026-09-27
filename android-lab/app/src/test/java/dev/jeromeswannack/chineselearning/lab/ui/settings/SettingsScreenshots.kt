@@ -30,9 +30,6 @@ class SettingsScreenshots : LabScreenshotTest() {
     private val iso = { minsAgo: Long -> dev.jeromeswannack.chineselearning.lab.core.Js.toIsoString(now - minsAgo * 60_000) }
 
     private val ui = SettingsUi(
-        bio = "I'm a software developer in Wellington. I like hiking, coffee and cooking; learning Chinese to talk with my partner's family.",
-        bioSaved = "I'm a software developer in Wellington. I like hiking, coffee and cooking; learning Chinese to talk with my partner's family.",
-        bioLoaded = true,
         budget = StudyBudget(3, 6),
         budgetDraft = StudyBudget(5, 6),
         landing = null,
