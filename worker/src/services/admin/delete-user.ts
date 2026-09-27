@@ -231,29 +231,30 @@ export function deletionBlockers(user: AccountSummary, guard: DeletionGuardInput
 
 /** Keys only the deleted rows reference, split into "maybe shared" (checked) and "user-unique". */
 async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> {
-  const col = async (sql: string): Promise<string[]> => {
-    const res = await db.prepare(sql).bind(userId).all<{ k: string | null }>();
+  // D1 caps compound SELECTs (UNION) at a handful of terms: one plain SELECT per query.
+  const col = async (sql: string, ...extra: unknown[]): Promise<string[]> => {
+    const res = await db.prepare(sql).bind(userId, ...extra).all<{ k: string | null }>();
     return (res.results || []).map((r) => r.k).filter((k): k is string => !!k);
   };
+  const cols = async (sqls: string[]): Promise<string[]> => (await Promise.all(sqls.map((q) => col(q)))).flat();
 
-  // Clips shared with deck copies in other accounts (either direction) stay.
-  const noteKeys = await col(
-    `SELECT audio_url AS k FROM notes WHERE deck_id IN ${DECKS}
-     UNION SELECT sentence_clue_audio_url FROM notes WHERE deck_id IN ${DECKS}
-     UNION SELECT audio_url FROM note_sentences WHERE note_id IN ${NOTES}
-     UNION SELECT audio_url FROM note_audio_recordings WHERE note_id IN ${NOTES}`
-  );
-  const MINE = `(SELECT k FROM mine)`;
-  const sharedNoteKeys = new Set(await col(
-    `WITH mine(k) AS (
-       SELECT audio_url FROM notes WHERE deck_id IN ${DECKS}
-       UNION SELECT sentence_clue_audio_url FROM notes WHERE deck_id IN ${DECKS}
-       UNION SELECT audio_url FROM note_sentences WHERE note_id IN ${NOTES}
-       UNION SELECT audio_url FROM note_audio_recordings WHERE note_id IN ${NOTES})
-     SELECT audio_url AS k FROM notes WHERE deck_id NOT IN ${DECKS} AND audio_url IN ${MINE}
-     UNION SELECT sentence_clue_audio_url FROM notes WHERE deck_id NOT IN ${DECKS} AND sentence_clue_audio_url IN ${MINE}
-     UNION SELECT audio_url FROM note_sentences WHERE note_id NOT IN ${NOTES} AND audio_url IN ${MINE}
-     UNION SELECT audio_url FROM note_audio_recordings WHERE note_id NOT IN ${NOTES} AND audio_url IN ${MINE}`
+  // Clips of the user's notes. Deck copies in other accounts (either direction)
+  // share the same keys, so any key another account's row still uses stays.
+  const MINE_NOTE_KEYS = [
+    `SELECT audio_url FROM notes WHERE deck_id IN ${DECKS}`,
+    `SELECT sentence_clue_audio_url FROM notes WHERE deck_id IN ${DECKS}`,
+    `SELECT audio_url FROM note_sentences WHERE note_id IN ${NOTES}`,
+    `SELECT audio_url FROM note_audio_recordings WHERE note_id IN ${NOTES}`,
+  ];
+  const OTHER_NOTE_KEYS = [
+    { col: 'audio_url', from: `notes WHERE deck_id NOT IN ${DECKS}` },
+    { col: 'sentence_clue_audio_url', from: `notes WHERE deck_id NOT IN ${DECKS}` },
+    { col: 'audio_url', from: `note_sentences WHERE note_id NOT IN ${NOTES}` },
+    { col: 'audio_url', from: `note_audio_recordings WHERE note_id NOT IN ${NOTES}` },
+  ];
+  const noteKeys = await cols(MINE_NOTE_KEYS.map((q) => q.replace(/^SELECT (\w+)/, 'SELECT $1 AS k')));
+  const sharedNoteKeys = new Set(await cols(
+    OTHER_NOTE_KEYS.flatMap((o) => MINE_NOTE_KEYS.map((mine) => `SELECT ${o.col} AS k FROM ${o.from} AND ${o.col} IN (${mine})`))
   ));
 
   // Reader illustrations are shared with reader copies.
@@ -263,36 +264,34 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
   ));
 
   // Lesson illustrations live inside the spec JSON; copies share them.
-  const specs = await col(`SELECT spec AS k FROM custom_lessons WHERE user_id = ?1 UNION ALL SELECT spec FROM lesson_library WHERE owner_id = ?1`);
+  const specs = await cols([
+    `SELECT spec AS k FROM custom_lessons WHERE user_id = ?1`,
+    `SELECT spec AS k FROM lesson_library WHERE owner_id = ?1`,
+  ]);
   const lessonImageKeys = new Set<string>();
   for (const spec of specs) {
     for (const m of spec.matchAll(/"image_url"\s*:\s*"([^"]+)"/g)) lessonImageKeys.add(m[1]);
   }
   const sharedLessonKeys = new Set<string>();
   for (const key of lessonImageKeys) {
-    const other = await db
-      .prepare(
-        `SELECT 1 AS k FROM custom_lessons WHERE user_id != ?1 AND instr(spec, ?2) > 0
-         UNION SELECT 1 FROM lesson_library WHERE owner_id != ?1 AND instr(spec, ?2) > 0 LIMIT 1`
-      )
-      .bind(userId, key)
-      .first();
-    if (other) sharedLessonKeys.add(key);
+    const inLessons = await db.prepare('SELECT 1 AS k FROM custom_lessons WHERE user_id != ?1 AND instr(spec, ?2) > 0 LIMIT 1').bind(userId, key).first();
+    const inLibrary = inLessons ? null : await db.prepare('SELECT 1 AS k FROM lesson_library WHERE owner_id != ?1 AND instr(spec, ?2) > 0 LIMIT 1').bind(userId, key).first();
+    if (inLessons || inLibrary) sharedLessonKeys.add(key);
   }
 
   // Only ever the user's own.
-  const unique = await col(
-    `SELECT recording_url AS k FROM review_events WHERE user_id = ?1
-     UNION SELECT recording_url FROM messages WHERE id IN ${MESSAGES}
-     UNION SELECT audio_key FROM call_recording_pieces WHERE id IN ${PIECES}
-     UNION SELECT r2_key FROM call_recording_chunks WHERE piece_id IN ${PIECES}
-     UNION SELECT r2_key FROM lesson_note_files WHERE lesson_note_id IN (SELECT id FROM lesson_notes WHERE user_id = ?1)
-     UNION SELECT audio_key FROM audio_lessons WHERE user_id = ?1
-     UNION SELECT image_url FROM roleplay_messages WHERE session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?1)
-     UNION SELECT audio_url FROM homework_recordings WHERE homework_id IN ${HOMEWORK}
-     UNION SELECT audio_feedback_url FROM homework_feedback WHERE tutor_id = ?1 OR homework_id IN ${HOMEWORK}
-     UNION SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') FROM feature_requests WHERE user_id = ?1`
-  );
+  const unique = await cols([
+    `SELECT recording_url AS k FROM review_events WHERE user_id = ?1`,
+    `SELECT recording_url AS k FROM messages WHERE id IN ${MESSAGES}`,
+    `SELECT audio_key AS k FROM call_recording_pieces WHERE id IN ${PIECES}`,
+    `SELECT r2_key AS k FROM call_recording_chunks WHERE piece_id IN ${PIECES}`,
+    `SELECT r2_key AS k FROM lesson_note_files WHERE lesson_note_id IN (SELECT id FROM lesson_notes WHERE user_id = ?1)`,
+    `SELECT audio_key AS k FROM audio_lessons WHERE user_id = ?1`,
+    `SELECT image_url AS k FROM roleplay_messages WHERE session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?1)`,
+    `SELECT audio_url AS k FROM homework_recordings WHERE homework_id IN ${HOMEWORK}`,
+    `SELECT audio_feedback_url AS k FROM homework_feedback WHERE tutor_id = ?1 OR homework_id IN ${HOMEWORK}`,
+    `SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') AS k FROM feature_requests WHERE user_id = ?1`,
+  ]);
 
   const keys = new Set<string>(unique);
   for (const k of noteKeys) if (!sharedNoteKeys.has(k)) keys.add(k);

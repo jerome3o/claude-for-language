@@ -24,6 +24,7 @@ main app / website at that screen instead) · ➖ not applicable natively
 | Exit confirm with recap, All Done + confetti | ✅ (+ sound, haptics) | `ExitSessionModal`, `SessionRecap`, `Confetti` | `StudyScreen.kt` |
 | Audio: cached clip → stream → device voice | ✅ | `useAudio.ts`, `audioPlayback.ts` | `fx/WordAudio.kt` |
 | Offline study + background upload | ✅ | `services/sync.ts` | `data/Repository.kt`, `SyncWorker.kt` |
+| Drop decks the server no longer has without a tombstone (`live_deck_ids` in `/api/sync/changes`) | ⬜ (Lab only applies tombstones) | `services/deckReconcile.ts` `findGhostDecks` | |
 | Voice recording on read cards + transcription + upload | ⬜ | `useTranscription.ts`, `pendingRecordings` | |
 | Multiple-choice fallback (8 s) / auto-MC for listen cards | ⬜ | `services/multipleChoice.ts` | |
 | Ask Claude (card chat with tools) | ⬜ (opens main app card hub) | `components/study/` Ask Claude | |
@@ -58,6 +59,9 @@ main app / website at that screen instead) · ➖ not applicable natively
 |---|---|
 | Tutor tab: chat, flagged cards, Claude conversations, card hub | ⬜ |
 | Students dashboard / tutor tools / session notes / library & editors | ⬜ |
+| Tutor account shell (users.role = tutor): Students · Decks · Library · More, opens on Students, teaching home, no study nagging / daily story | ⬜ |
+| "Try it" previews: a deck (`/decks/:id/try`) or library lesson (`/library/:id/try`) as the student sees it, nothing recorded | ⬜ |
+| Admin page: account inspect / role / delete | ➖ (admin is web + MCP only) |
 | Sentence Coach | ⬜ |
 | Quests | ⬜ |
 | Readers list & reader editor | ⬜ |

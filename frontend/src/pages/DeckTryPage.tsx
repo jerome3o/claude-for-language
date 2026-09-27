@@ -9,9 +9,9 @@ import './DeckTryPage.css';
 type Mode = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
 
 const MODES: Array<{ id: Mode; label: string }> = [
-  { id: 'hanzi_to_meaning', label: '字 → meaning' },
-  { id: 'meaning_to_hanzi', label: 'English → 字' },
-  { id: 'audio_to_hanzi', label: '🔊 → 字' },
+  { id: 'hanzi_to_meaning', label: '汉字 → EN' },
+  { id: 'meaning_to_hanzi', label: 'EN → 汉字' },
+  { id: 'audio_to_hanzi', label: '🔊 → 汉字' },
 ];
 
 /**

@@ -49,7 +49,16 @@ export async function createSqliteD1(): Promise<SqliteD1> {
     return { success: true, meta: { changes: raw.getRowsModified() }, results: [] };
   };
 
+  // D1 rejects compound SELECTs with more than a few terms ("too many terms in
+  // compound SELECT"); plain SQLite allows 500. Fail here too, so tests catch it.
+  const D1_MAX_UNIONS = 4;
+  function checkD1Limits(sql: string) {
+    const unions = (sql.match(/\bUNION\b/gi) || []).length;
+    if (unions > D1_MAX_UNIONS) throw new Error(`D1_ERROR: too many terms in compound SELECT (${unions + 1} terms)`);
+  }
+
   function statement(sql: string, params: SqlValue[] = []): D1PreparedStatement & { _exec(): unknown } {
+    checkD1Limits(sql);
     const stmt = {
       bind: (...p: unknown[]) => statement(sql, p.map((v) => (v === undefined ? null : v)) as SqlValue[]),
       first: async <T,>(col?: string) => {
