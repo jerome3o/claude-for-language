@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.core.HandwritingAnswer
 import dev.jeromeswannack.chineselearning.lab.core.HandwritingStrokes
@@ -64,7 +65,7 @@ fun SketchPad(target: String?, onChange: (HandwritingAnswer) -> Unit, modifier: 
             padSize[0] = width.value.toInt()
             padSize[1] = height.value.toInt()
             Box(
-                Modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.5.dp, grid, RoundedCornerShape(18.dp))
+                Modifier.fillMaxWidth().height(height).testTag("sketch-pad").clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.5.dp, grid, RoundedCornerShape(18.dp))
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { current.clear(); current.add(it) },

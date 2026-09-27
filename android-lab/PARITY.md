@@ -95,18 +95,18 @@ Owns `ui/lessons/` (player + all exercise views + `/lessons`, `/lesson-attempts`
 
 | Feature | Status | Web source |
 |---|---|---|
-| Lessons cached for offline, mixed into the session every ~8 reviews, max 2 new, FSRS-scheduled by completion rating | ⬜ | `services/custom-lesson-study.ts`, `useStudySession.ts` |
-| Exercises: note, scramble, choice, translate, match, describe_image, speak, listen_choice, listen_translate | ⬜ | `lesson-exercises.tsx` |
-| Exercise: sentence making (typed / handwritten; Claude check online, self-assessed offline) | ⬜ | `practice-exercises.tsx` `SentenceMakingExercise`, `POST /api/lessons/sentence-feedback` |
-| Exercise: writing — typed (auto-checked, wrong characters marked) | ⬜ — port `shared/lesson/answer-check.ts` (`diffHanzi`) to `core/` with parity vectors | `WriteTypedExercise` |
-| Exercise: writing — handwriting (stroke-order pad, sketch fallback offline) | ⬜ — uses H's stroke pad | `WriteHandwritingExercise`, `components/strokes/WritingExercise.tsx` |
-| Exercise: dictation (typed / handwritten) | ⬜ | `DictationExercise` |
-| Exercise: oral expression (recorded, uploaded by media key via Outbox) | ⬜ | `OralExpressionExercise`, `uploadLessonAttemptMedia` |
-| Exercise: conversation (two TTS voices, comprehension questions, transcript) | ⬜ — voices from `shared/lesson/voices.ts` (`resolveConversationVoices`; `voice_id` on `/api/practice/tts`) | `ConversationExercise`, `hooks/useLessonClips.ts` |
-| Lesson attempts: per-exercise answers + time, uploaded with the completion event | ⬜ — `attempt` on `POST /api/custom-lessons/offline-complete` (`shared/lesson/attempt.ts`) | `StudyCustomLesson.tsx` |
-| "My answers" (`/lesson-attempts`) | ⬜ | `pages/LessonAttemptsPage.tsx` |
-| Mini Lessons page (`/lessons`: pending + done, delete) | ⬜ | `pages/MiniLessonsPage.tsx` |
-| Graded readers in the session (one a day: due repeat → overdue → newest unread) | ⬜ | `services/reader-study.ts`, `StudyReader.tsx` |
+| Lessons cached for offline, mixed into the session every ~8 reviews, max 2 new, FSRS-scheduled by completion rating | ✅ parity-tested (`core/…/LessonSchedule.kt`, `data/lessons/`, `ui/lessons/StudyExtras.kt`); one-off homework lessons stay out and get their `done` event | `services/custom-lesson-study.ts`, `useStudySession.ts` |
+| Exercises: note, scramble, choice, translate, match, describe_image, speak, listen_choice, listen_translate | ✅ (`ui/lessons/LessonExercises.kt`; illustrations + TTS cached for offline) | `lesson-exercises.tsx` |
+| Exercise: sentence making (typed / handwritten; Claude check online, self-assessed offline) | ✅ | `practice-exercises.tsx` `SentenceMakingExercise`, `POST /api/lessons/sentence-feedback` |
+| Exercise: writing — typed (auto-checked, wrong characters marked) | ✅ `diffHanzi` parity-tested (`core/…/LessonAnswers.kt`) | `WriteTypedExercise` |
+| Exercise: writing — handwriting (stroke-order pad, sketch fallback offline) | 🟡 sketch pad + self-assessment (the web's offline fallback); the stroke-order pad plugs in when H's `shared/strokes` port lands | `WriteHandwritingExercise`, `components/strokes/WritingExercise.tsx` |
+| Exercise: dictation (typed / handwritten) | 🟡 typed ✅; handwritten = sketch pad + self-assessment until H's stroke pad | `DictationExercise` |
+| Exercise: oral expression (recorded, uploaded by media key via Outbox) | ✅ AAC recording; raw `PUT /api/lesson-attempts/:id/media/:key` from its own queue after the attempt lands (404 = wait), like the web | `OralExpressionExercise`, `uploadLessonAttemptMedia` |
+| Exercise: conversation (two TTS voices, comprehension questions, transcript) | ✅ voices parity-tested; clips prefetched per voice | `ConversationExercise`, `hooks/useLessonClips.ts` |
+| Lesson attempts: per-exercise answers + time, uploaded with the completion event | ✅ via the Outbox (idempotent by event id) | `StudyCustomLesson.tsx` |
+| "My answers" (`/lesson-attempts`) | ✅ list + review (`ui/lessons/AttemptReview.kt` — reusable by F's tutor review) | `pages/LessonAttemptsPage.tsx` |
+| Mini Lessons page (`/lessons`: pending + done, delete) | ✅ (Edit opens `/lessons/:id/edit`, package G) | `pages/MiniLessonsPage.tsx` |
+| Graded readers in the session (one a day: due repeat → overdue → newest unread) | ⬜ — `pickTodaysReader` + the reader half of `selectNextItem` are ported and parity-tested in `core/…/LessonSchedule.kt`; the screens land in the next package-B PR | `services/reader-study.ts`, `StudyReader.tsx` |
 | Readers list, reader page, generate a story, failed-generation row | ⬜ | `ReadersListPage.tsx`, `ReaderPage.tsx`, `GenerateReaderPage.tsx`, `services/readerFailures.ts` |
 
 ## C — Decks tab (web: `DecksPage.tsx`, `DeckDetailPage.tsx`, `CardHubPage.tsx`)
