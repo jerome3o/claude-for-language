@@ -66,7 +66,7 @@ class ReaderScreenshots : LabScreenshotTest() {
 
     private fun session(content: @Composable () -> Unit = {}): @Composable () -> Unit = {
         StudyScreen(
-            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, previews, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21, streak = 6)),
+            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, previews, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
             playingKey = null,
             actions = StudyActions(readerEnv = { env() }),
             autoplay = false,

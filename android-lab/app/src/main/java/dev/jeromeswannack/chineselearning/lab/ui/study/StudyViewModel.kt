@@ -98,11 +98,10 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         busy = true
         val before = _ui.value.stats
         val correct = result.rating >= 2
-        val streak = if (correct) before.streak + 1 else 0
         _ui.update {
             it.copy(lastRating = result.rating, stats = before.copy(
-                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0, streak = streak,
-                bestStreak = maxOf(before.bestStreak, streak), againCount = before.againCount + if (result.rating == 0) 1 else 0,
+                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0,
+                againCount = before.againCount + if (result.rating == 0) 1 else 0,
             ))
         }
         app.haptics.rated(result.rating)
@@ -123,11 +122,10 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         undo = null
         val before = _ui.value.stats
         val correct = rating >= 2
-        val streak = if (correct) before.streak + 1 else 0
         _ui.update {
             it.copy(lastRating = rating, canUndo = false, stats = before.copy(
-                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0, streak = streak,
-                bestStreak = maxOf(before.bestStreak, streak), againCount = before.againCount + if (rating == 0) 1 else 0,
+                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0,
+                againCount = before.againCount + if (rating == 0) 1 else 0,
             ))
         }
         app.haptics.rated(rating)
@@ -203,6 +201,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
                     presentation = ++presentation,
                     deckName = deckNames[card.deckId],
                     audioCached = it.audioUrl.isNullOrBlank() || repo.cachedAudio(it.audioUrl) != null,
+                    isSecondaryNew = card.queue == 0 && card.noteId in reviewedNoteIds,
                 )
             }
         }
@@ -622,29 +621,19 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         // Failing a card: start its sentence set so it is ready when the card comes back.
         if (rating == 0) app.scope.launch { tools.ensureSentenceSet(card.noteId) }
         val correct = rating >= 2
-        val streak = if (correct) before.streak + 1 else 0
         val againByNote = if (rating == 0) before.againByNote + (card.noteId to ((before.againByNote[card.noteId] ?: 0) + 1)) else before.againByNote
         val stats = before.copy(
             reviews = before.reviews + 1,
             correct = before.correct + if (correct) 1 else 0,
-            streak = streak,
-            bestStreak = maxOf(before.bestStreak, streak),
             againCount = before.againCount + if (rating == 0) 1 else 0,
             againByNote = againByNote,
             leeches = againByNote.filterValues { it >= 2 }.keys.toList(),
         )
 
-        // Feedback first — it must feel instant.
+        // Feedback first — it must feel instant. The same tap and pop for every rating:
+        // an honest Again is worth exactly as much as an Easy (no streaks, no rising pitch).
         app.haptics.rated(rating)
-        when {
-            rating == 0 -> app.sounds.play(Sounds.Sfx.AGAIN, 0.5f)
-            correct -> app.sounds.streakPop(streak)
-            else -> app.sounds.play(Sounds.Sfx.TAP, 0.6f)
-        }
-        if (correct && streak in MILESTONES) {
-            app.sounds.play(Sounds.Sfx.MILESTONE)
-            app.haptics.milestone()
-        }
+        app.sounds.ratingPop()
 
         val snapshotQueue = queue.toList()
         val snapshotReviewed = reviewedNoteIds.toSet()
@@ -738,9 +727,5 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     class Factory(private val app: LabApp, private val deckId: String?) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = StudyViewModel(app, deckId) as T
-    }
-
-    private companion object {
-        val MILESTONES = setOf(5, 10, 20, 30, 50, 75, 100)
     }
 }

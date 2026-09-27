@@ -13,8 +13,8 @@ import kotlin.math.sin
 /**
  * Feedback sounds, synthesised on first launch (no audio assets to license):
  * bell-like partials with exponential decay, played through SoundPool so they
- * start in a few milliseconds. The "good" pop climbs a pentatonic scale as the
- * streak grows — the monkey-brain reward loop.
+ * start in a few milliseconds. Rating a card makes the same pop whatever the rating:
+ * rewards go to effort and finishing (the session fanfare), never to pressing Easy.
  */
 class Sounds(context: Context, private val enabled: () -> Boolean) {
     enum class Sfx { CORRECT, WRONG, FLIP, POP, AGAIN, FANFARE, MILESTONE, TAP }
@@ -45,12 +45,8 @@ class Sounds(context: Context, private val enabled: () -> Boolean) {
         pool.play(id, volume, volume, 1, 0, rate.coerceIn(0.5f, 2f))
     }
 
-    /** The rating pop, pitched up the major pentatonic with the streak. */
-    fun streakPop(streak: Int) {
-        val steps = intArrayOf(0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24)
-        val semis = steps[(streak - 1).coerceIn(0, steps.size - 1)]
-        play(Sfx.POP, 0.7f, 2.0.pow(semis / 12.0).toFloat().coerceAtMost(2f))
-    }
+    /** The rating pop — one neutral sound for Again, Hard, Good and Easy alike. */
+    fun ratingPop() = play(Sfx.POP, 0.6f)
 
     fun release() = pool.release()
 
