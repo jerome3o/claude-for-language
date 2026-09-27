@@ -95,18 +95,18 @@ Owns `ui/lessons/` (player + all exercise views + `/lessons`, `/lesson-attempts`
 
 | Feature | Status | Web source |
 |---|---|---|
-| Lessons cached for offline, mixed into the session every ~8 reviews, max 2 new, FSRS-scheduled by completion rating | ⬜ | `services/custom-lesson-study.ts`, `useStudySession.ts` |
-| Exercises: note, scramble, choice, translate, match, describe_image, speak, listen_choice, listen_translate | ⬜ | `lesson-exercises.tsx` |
-| Exercise: sentence making (typed / handwritten; Claude check online, self-assessed offline) | ⬜ | `practice-exercises.tsx` `SentenceMakingExercise`, `POST /api/lessons/sentence-feedback` |
-| Exercise: writing — typed (auto-checked, wrong characters marked) | ⬜ — port `shared/lesson/answer-check.ts` (`diffHanzi`) to `core/` with parity vectors | `WriteTypedExercise` |
-| Exercise: writing — handwriting (stroke-order pad, sketch fallback offline) | ⬜ — uses H's stroke pad | `WriteHandwritingExercise`, `components/strokes/WritingExercise.tsx` |
-| Exercise: dictation (typed / handwritten) | ⬜ | `DictationExercise` |
-| Exercise: oral expression (recorded, uploaded by media key via Outbox) | ⬜ | `OralExpressionExercise`, `uploadLessonAttemptMedia` |
-| Exercise: conversation (two TTS voices, comprehension questions, transcript) | ⬜ — voices from `shared/lesson/voices.ts` (`resolveConversationVoices`; `voice_id` on `/api/practice/tts`) | `ConversationExercise`, `hooks/useLessonClips.ts` |
-| Lesson attempts: per-exercise answers + time, uploaded with the completion event | ⬜ — `attempt` on `POST /api/custom-lessons/offline-complete` (`shared/lesson/attempt.ts`) | `StudyCustomLesson.tsx` |
-| "My answers" (`/lesson-attempts`) | ⬜ | `pages/LessonAttemptsPage.tsx` |
-| Mini Lessons page (`/lessons`: pending + done, delete) | ⬜ | `pages/MiniLessonsPage.tsx` |
-| Graded readers in the session (one a day: due repeat → overdue → newest unread) | ⬜ | `services/reader-study.ts`, `StudyReader.tsx` |
+| Lessons cached for offline, mixed into the session every ~8 reviews, max 2 new, FSRS-scheduled by completion rating | ✅ parity-tested (`core/…/LessonSchedule.kt`, `data/lessons/`, `ui/lessons/StudyExtras.kt`); one-off homework lessons stay out and get their `done` event | `services/custom-lesson-study.ts`, `useStudySession.ts` |
+| Exercises: note, scramble, choice, translate, match, describe_image, speak, listen_choice, listen_translate | ✅ (`ui/lessons/LessonExercises.kt`; illustrations + TTS cached for offline) | `lesson-exercises.tsx` |
+| Exercise: sentence making (typed / handwritten; Claude check online, self-assessed offline) | ✅ | `practice-exercises.tsx` `SentenceMakingExercise`, `POST /api/lessons/sentence-feedback` |
+| Exercise: writing — typed (auto-checked, wrong characters marked) | ✅ `diffHanzi` parity-tested (`core/…/LessonAnswers.kt`) | `WriteTypedExercise` |
+| Exercise: writing — handwriting (stroke-order pad, sketch fallback offline) | ✅ H's stroke-order `WritingExercise` in recall mode (right only when written from memory, run kept in the attempt); sketch pad + self-assessment when the stroke data isn't on the phone; lesson characters prefetched in the sync | `WriteHandwritingExercise`, `components/strokes/WritingExercise.tsx` |
+| Exercise: dictation (typed / handwritten) | ✅ typed (diff) and handwritten (stroke pad, characters hidden; sketch fallback offline) | `DictationExercise` |
+| Exercise: oral expression (recorded, uploaded by media key via Outbox) | ✅ AAC recording; raw `PUT /api/lesson-attempts/:id/media/:key` from its own queue after the attempt lands (404 = wait), like the web | `OralExpressionExercise`, `uploadLessonAttemptMedia` |
+| Exercise: conversation (two TTS voices, comprehension questions, transcript) | ✅ voices parity-tested; clips prefetched per voice | `ConversationExercise`, `hooks/useLessonClips.ts` |
+| Lesson attempts: per-exercise answers + time, uploaded with the completion event | ✅ via the Outbox (idempotent by event id) | `StudyCustomLesson.tsx` |
+| "My answers" (`/lesson-attempts`) | ✅ list + review (`ui/lessons/AttemptReview.kt` — reusable by F's tutor review) | `pages/LessonAttemptsPage.tsx` |
+| Mini Lessons page (`/lessons`: pending + done, delete) | ✅ (Edit opens `/lessons/:id/edit`, package G) | `pages/MiniLessonsPage.tsx` |
+| Graded readers in the session (one a day: due repeat → overdue → newest unread) | ⬜ — `pickTodaysReader` + the reader half of `selectNextItem` are ported and parity-tested in `core/…/LessonSchedule.kt`; the screens land in the next package-B PR | `services/reader-study.ts`, `StudyReader.tsx` |
 | Readers list, reader page, generate a story, failed-generation row | ⬜ | `ReadersListPage.tsx`, `ReaderPage.tsx`, `GenerateReaderPage.tsx`, `services/readerFailures.ts` |
 
 ## C — Decks tab (web: `DecksPage.tsx`, `DeckDetailPage.tsx`, `CardHubPage.tsx`)
@@ -124,8 +124,8 @@ Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/De
 | Card hub (`/cards/:noteId`: note, card states, flags + flag form (Outbox), resolve / reopen / delete, Claude threads, recent reviews + recordings) | ✅ cached for offline; before first load Room answers note / cards / reviews | `pages/CardHubPage.tsx` | `ui/cards/CardHubScreen.kt`, `CardHubViewModel.kt` |
 | Deck settings (name, description, new / secondary caps) and delete deck (tombstone, gone locally at once) | ✅ `pickDeckSettings` parity-tested; legacy SM-2 fields stay in the main app (FSRS ignores them) | `DeckSettingsModal`, `PUT /api/decks/:id/settings`, `DELETE /api/decks/:id` | `DeckSettingsForm`, `DeckWrites.kt`, `core/…/DeckSettings.kt` |
 | Note history modal | ➖ unreachable on the web (nothing opens it); the card hub covers it | `NoteHistoryModal` | — |
-| Paste a list (parse, plan, fill gaps, ✨ write explanations, save, update students' copies) | ⬜ — port `shared/import/` (next PR); the deck page's "📋 Paste list" opens the main app | `components/import/PasteWordsModal.tsx` | |
-| Generate a deck with Claude | ⬜ (next PR; `/generate` placeholder) | `pages/GeneratePage.tsx` | |
+| Paste a list (parse, plan, fill gaps, ✨ write explanations, save, update students' copies) | ✅ `parseWordList` / `planImport` / pinyin helpers parity-tested (`core/…/Import.kt`); on-device pinyin via ICU (package A's `Pinyin`); 🟡 no "check the reading" hint for polyphonic single characters (pinyin-pro's `polyphonic` has no ICU equivalent) | `components/import/PasteWordsModal.tsx`, `services/wordImport.ts`, `shared/import/` | `ui/decks/PasteWords*.kt` |
+| Generate a deck with Claude (`/generate`) | ✅ | `pages/GeneratePage.tsx`, `POST /api/ai/generate-deck` | `ui/decks/GenerateDeck.kt` |
 | Anki export | ⬜ hand-off: ⋯ → Export → Anki opens the deck in the main app | `services/anki/` | |
 | Share with tutor / Shared with Tutors | ⬜ | `DeckDetailPage.tsx`, `GET /api/decks/:id/tutor-shares` | |
 | Try it as a student (`/decks/:id/try`, nothing recorded) | ⬜ (the button opens the placeholder) | `pages/DeckTryPage.tsx` | |
@@ -167,13 +167,13 @@ Owns `ui/teaching/` (students dashboard, student page, insights, history, record
 | Students dashboard (cards, pills, getting-set-up checklist, pending invites, homework decks) | ✅ cached for offline (TeachingSync); avatars are initials (no image loader yet) | `StudentsDashboard.tsx`, `StudentCard.tsx`, `SetupChecklist.tsx` | `ui/teaching/StudentsDashboardScreen.kt`, `TeachingSync.kt` |
 | Student page: status, Message / Send homework / Video call, needs attention (hear recording), homework (+ queue #N moves, Update copy), mini lessons, conversations, activity, ⋯ (student's decks, remove) | ✅ two panes when unfolded; opens from the dashboard cache offline | `ConnectionDetailPage.tsx`, `QueuePositionMenu.tsx`, `StudentLessonsSection.tsx` | `ui/teaching/StudentPageScreen.kt`, `StudentPageSections.kt` |
 | Send homework: one-off / long-term / both, due date, split over days, leave out known words, core / non-urgent; load gauge; assigned list (move date / cancel) | ✅ date maths + split parity-tested (`core/…/LoadPlan.kt`, `parity/fixtures/teaching.ts`); the load itself is server-computed | `SendHomeworkSheet.tsx`, `HomeworkModePicker.tsx`, `LoadGauge.tsx`, `AssignedHomeworkSection.tsx` | `ui/teaching/SendHomeworkSheet.kt`, `TeachingKit.kt` |
-| Lesson notes → draft → review with Claude → assign | ⬜ | `LessonNotesSection.tsx`, `pages/tutor/HomeworkDraftPage.tsx` | |
-| Session notes jobs | ⬜ | `SessionNotesSection.tsx`, `pages/tutor/SessionNotesPage.tsx` | |
+| Lesson notes → draft → review with Claude → assign | ✅ entries with their homework state (polls while drafting); the draft: load now → after, words / skipped (Include anyway, remove), per-item mode / due / split / queue, Claude chat (suggestions), Assign; Draft / Claude tabs on the phone, side by side unfolded | `LessonNotesSection.tsx`, `pages/tutor/HomeworkDraftPage.tsx` | `ui/teaching/HomeworkDraftScreens.kt`, `DraftViewModels.kt` |
+| Session notes jobs (live progress, steps, what it made, Retry / Cancel / Delete, + Add notes) | ✅ polls every 3 s while a job runs | `SessionNotesSection.tsx`, `SessionNotesJobCard.tsx`, `SessionNotesSheet.tsx`, `pages/tutor/SessionNotesPage.tsx` | `ui/teaching/HomeworkDraftScreens.kt` |
 | Insights (range, tiles, needs attention with every attempt + typed-answer diff, going well, also this period, Claude summary EN / 中文, lesson log), review history (filters, infinite scroll, by word), recordings inbox (Listened / Needs work / note, playback) | ✅ preset ranges cached (shared between Insights and Recordings), history's default view cached | `pages/tutor/StudentInsightsPage.tsx`, `StudentHistoryPage.tsx`, `RecordingsInboxPage.tsx`, `tutor-shared.tsx` | `ui/teaching/InsightsScreen.kt`, `HistoryAndRecordingsScreens.kt`, `TutorPagesKit.kt` |
-| Student progress / day / shared-deck progress | ⬜ | `StudentProgressPage.tsx`, `DayDetailPage.tsx`, `SharedDeckProgressPage.tsx` | |
+| Student progress / day / card on a day / shared-deck progress (both directions) | ✅ cached | `StudentProgressPage.tsx`, `DayDetailPage.tsx`, `CardReviewDetailPage.tsx`, `SharedDeckProgressPage.tsx`, `components/DeckProgress.tsx` | `ui/teaching/StudentProgressScreens.kt` |
 | Flagged cards (reply, resolve / reopen), Asked Claude (threads) on the student page | ✅ `groupQuestionThreads` ported (unit-tested) | `FlaggedCardsSection.tsx`, `ClaudeChatsSection.tsx`, `shared/chats/threads.ts` | `ui/teaching/StudentPageSections.kt` |
-| Student card hub, all Asked-Claude conversations pages | ⬜ | `CardHubPage.tsx`, `ClaudeChatsPage.tsx` | |
-| Lesson attempt review (`/connections/:relId/lesson-attempts`) | ⬜ | `pages/LessonAttemptsPage.tsx` | |
+| Student card hub (tutor view: reply to flags, threads, reviews), all Asked-Claude conversations (paged) | ✅ reuses package C's `NoteHubDto` | `CardHubPage.tsx`, `ClaudeChatsPage.tsx` | `ui/teaching/StudentCardScreens.kt` |
+| Lesson attempt review (`/connections/:relId/lesson-attempts`) | ⬜ waits for B's lesson-spec model + `diffHanzi` port (`core/…/Lesson*.kt`) and H's stroke replay; shared with B's "My answers" — whoever lands second builds the one `AttemptReview` for both | `pages/LessonAttemptsPage.tsx`, `components/lessonAttempts/AttemptReview.tsx` | |
 | Invites (create with decks / Starter Chinese / welcome message / options, QR, copy / share, resend / revoke) | ✅ QR via zxing | `components/invites/`, `InviteQRSheet.tsx` | `ui/teaching/InviteSheet.kt` |
 
 ## G — Library, editors, catalogue (web: `pages/editor/`, `components/editor/`)
