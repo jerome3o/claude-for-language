@@ -51,36 +51,69 @@ class NativeShellScreenshots : LabScreenshotTest() {
         column.captureRoboImage("screenshots/$name.png")
     }
 
-    private fun widget(activity: Context, model: ShellRules.WidgetModel): View {
+    /** The widget as the launcher draws it at [wDp] × [hDp]: the layout it would pick for that size. */
+    private fun widget(activity: Context, model: ShellRules.WidgetModel, wDp: Int, hDp: Int): View {
         val host = FrameLayout(activity)
-        host.addView(DueWidgetProvider.views(activity, model).apply(activity, host))
+        val size = ShellRules.widgetSize(wDp.toFloat(), hDp.toFloat())
+        host.addView(DueWidgetProvider.views(activity, model, size).apply(activity, host))
         return host
     }
 
     private fun label(activity: Context, text: String, color: Int) = TextView(activity).apply { this.text = text; setTextColor(color); textSize = 13f }
 
+    /** Home-screen cells on the Fold's launcher (≈ 100dp tall per row; widths per column count). */
+    private val sizes = listOf(
+        Triple("2×1", 130, 100), Triple("3×1 — lands at this size", 230, 100), Triple("4×1", 330, 100),
+        Triple("2×2", 150, 210), Triple("3×2", 250, 210), Triple("4×2", 340, 210),
+    )
+
+    /** Every size bucket of [model], each at its real size, labelled. */
+    private fun sizesBoard(name: String, bg: Int, model: ShellRules.WidgetModel) {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val column = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(bg)
+            setPadding(dp(16), dp(20), dp(16), dp(8))
+        }
+        for ((what, w, h) in sizes) {
+            val size = ShellRules.widgetSize(w.toFloat(), h.toFloat())
+            column.addView(label(activity, "$what · ${w}×${h}dp · $size", Color.WHITE))
+            column.addView(widget(activity, model, w, h), LinearLayout.LayoutParams(dp(w), dp(h)).apply { topMargin = dp(4); bottomMargin = dp(14) })
+        }
+        activity.setContentView(column)
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        column.captureRoboImage("screenshots/$name.png")
+    }
+
+    @Config(qualifiers = "w412dp-h1400dp-xxhdpi")
+    @Test
+    fun widgetSizes() = sizesBoard("nativeshell-01-widget", Color.parseColor("#FF3D5A80"), ShellRules.WidgetModel(true, QueueCounts(3, 2, 4, 15), homework))
+
+    /** Jerome's case: dark theme, nothing left today. */
+    @Config(qualifiers = "w412dp-h1400dp-night-xxhdpi")
+    @Test
+    fun widgetDark() = sizesBoard("nativeshell-02-widget-dark", Color.parseColor("#FF1B2433"), ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 0)))
+
+    @Config(qualifiers = "w412dp-h1400dp-night-xxhdpi")
+    @Test
+    fun widgetDarkDue() = sizesBoard("nativeshell-05-widget-dark-due", Color.parseColor("#FF1B2433"), ShellRules.WidgetModel(true, QueueCounts(1, 0, 2, 9), homework))
+
     @Test
     fun widgetStates() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        val muted = Color.parseColor("#FFFFFFFF")
+        val white = Color.WHITE
+        fun at(model: ShellRules.WidgetModel, w: Int, h: Int) = FrameLayout(activity).apply {
+            addView(widget(activity, model, w, h), FrameLayout.LayoutParams(dp(w), dp(h)))
+        }
         board(
-            "nativeshell-01-widget", Color.parseColor("#FF3D5A80"),
-            label(activity, "Cards due + homework (3×2)", muted) to 0,
-            widget(activity, ShellRules.WidgetModel(true, QueueCounts(3, 2, 4, 15), homework)) to 170,
-            label(activity, "All done today", muted) to 0,
-            widget(activity, ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 0))) to 150,
-            label(activity, "Signed out", muted) to 0,
-            widget(activity, ShellRules.WidgetModel(false, QueueCounts(0, 0, 0, 0))) to 150,
-        )
-    }
-
-    @Config(qualifiers = "w412dp-h915dp-night-xxhdpi")
-    @Test
-    fun widgetDark() {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
-        board(
-            "nativeshell-02-widget-dark", Color.parseColor("#FF1B2433"),
-            widget(activity, ShellRules.WidgetModel(true, QueueCounts(1, 0, 2, 9), homework)) to 170,
+            "nativeshell-06-widget-states", Color.parseColor("#FF3D5A80"),
+            label(activity, "Signed out (3×1, 2×2)", white) to 0,
+            at(ShellRules.WidgetModel(false, QueueCounts(0, 0, 0, 0)), 230, 100) to 100,
+            at(ShellRules.WidgetModel(false, QueueCounts(0, 0, 0, 0)), 150, 210) to 210,
+            label(activity, "128 due at 2×1 (count shrinks to fit)", white) to 0,
+            at(ShellRules.WidgetModel(true, QueueCounts(20, 8, 40, 60)), 110, 90) to 90,
+            label(activity, "One card due (3×1)", white) to 0,
+            at(ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 1)), 230, 100) to 100,
         )
     }
 

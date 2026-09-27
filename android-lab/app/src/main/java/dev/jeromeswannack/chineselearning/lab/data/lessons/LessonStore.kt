@@ -216,10 +216,11 @@ class LessonStore(private val cache: JsonCache, private val outbox: Outbox, priv
         // Stroke-order data for handwriting, so the writing pad checks strokes offline.
         val handwritten = due.flatMap { dev.jeromeswannack.chineselearning.lab.core.StrokeQuiz.writableCharacters(Lessons.handwritingText(it.lesson.spec)) }.distinct()
         if (handwritten.isNotEmpty()) runCatching { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore(File(filesDir, "strokes")).prefetch(handwritten) }
+        val voices = ConversationVoiceCache.get(cache)
         for (entry in due) {
-            for (clip in Lessons.ttsClips(entry.lesson.spec)) {
+            for (clip in Lessons.ttsClips(entry.lesson.spec, voices)) {
                 if (clip.text.isBlank()) continue
-                media.tts(clip.text, clip.voice, online = true)
+                media.tts(clip.text, clip.voice, speed = clip.speed ?: LessonMedia.DEFAULT_SPEED, online = true)
             }
         }
         // Pictures of EVERY lesson on the phone, not only today's: homework-only lessons skip

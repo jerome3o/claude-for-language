@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.decks
 
+import dev.jeromeswannack.chineselearning.lab.core.Pinyin
 import dev.jeromeswannack.chineselearning.lab.core.ImportPinyin
 import dev.jeromeswannack.chineselearning.lab.core.ImportPlanner
 import dev.jeromeswannack.chineselearning.lab.core.WordListParser
@@ -27,7 +28,13 @@ data class Suggestion(
 data class Filled(val pinyin: Boolean, val english: Boolean, val notes: Boolean, val sentence: Boolean)
 
 /** One effective row: pasted → Claude → on-device pinyin, with the tutor's edits on top. */
-data class EffectiveRow(val key: String, val row: WordListParser.Row, val filled: Filled)
+data class EffectiveRow(
+    val key: String,
+    val row: WordListParser.Row,
+    val filled: Filled,
+    /** A one-character word whose pinyin was filled in on the phone and that has several readings: "Check the reading: a / b". */
+    val readings: List<String> = emptyList(),
+)
 
 data class PasteInputs(
     val text: String = "",
@@ -74,7 +81,12 @@ object PasteWordsModel {
         WordListParser.ColumnSeparator.CUSTOM to "your separator",
     )
 
-    fun derive(inputs: PasteInputs, existing: List<ImportPlanner.Existing>, autoPinyin: (String) -> String): PasteDerived {
+    fun derive(
+        inputs: PasteInputs,
+        existing: List<ImportPlanner.Existing>,
+        autoPinyin: (String) -> String,
+        polyphonic: (String) -> List<String> = Pinyin::readings,
+    ): PasteDerived {
         val parsed = WordListParser.parse(inputs.text, inputs.columnSeparator, inputs.customSeparator, inputs.rowSeparator)
         val rows = parsed.rows.map { r ->
             val key = rowKey(r)
@@ -106,7 +118,9 @@ object PasteWordsModel {
                 sentenceTranslation = if (sentenceFromClaude) sug.sentenceTranslation else null,
                 problems = if (hanzi.isNotEmpty() && HAN.containsMatchIn(hanzi)) r.problems - WordListParser.NO_CHINESE else r.problems,
             )
-            EffectiveRow(key, row, filled)
+            // A one-character word with several readings deserves a look.
+            val readings = if (hanzi.length == 1 && filled.pinyin) polyphonic(hanzi) else emptyList()
+            EffectiveRow(key, row, filled, if (readings.size > 1) readings else emptyList())
         }
         val excludedIdx = rows.filter { it.key in inputs.excluded }.map { it.row.index }.toSet()
         val plan = ImportPlanner.plan(rows.map { it.row }, existing, inputs.policy, excludedIdx)

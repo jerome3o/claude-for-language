@@ -28,6 +28,16 @@ object Pinyin {
     /** `pinyin(text, { toneType: 'none', type: 'string' })`, e.g. 一个 → "yi ge". */
     fun toPinyinToneless(text: String): String = convert(text, toneless = true)
 
+    /**
+     * pinyin-pro's `polyphonic(char)[0].split(' ')` for ONE character: every reading the
+     * dictionary lists, in its order; the character itself when it has none (parity-tested,
+     * parity/fixtures/polyphonic.ts). Paste a list uses it for "Check the reading: a / b".
+     */
+    fun readings(char: String): List<String> {
+        if (char.isEmpty()) return emptyList()
+        return (dict1(dict, char) ?: char).split(' ').filter { it.isNotEmpty() }
+    }
+
     /** Loads the dictionary now (it otherwise loads on first use). */
     fun preload() {
         dict

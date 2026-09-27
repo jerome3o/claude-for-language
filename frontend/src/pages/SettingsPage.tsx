@@ -818,7 +818,7 @@ export function SettingsPage() {
           >
             <span className="nav-section-title" style={{ margin: 0 }}>Advanced</span>
             <span className="nav-section-toggle-hint">
-              {showAdvanced ? 'Hide' : 'Audio quality · Sentence coverage · Feature requests · Sync · Debug'}
+              {showAdvanced ? 'Hide' : 'Audio quality · Conversation voices · Sentence coverage · Feature requests · Sync · Debug'}
             </span>
             <span className={`nav-row-chevron nav-section-toggle-chevron${showAdvanced ? ' open' : ''}`} aria-hidden="true">›</span>
           </button>
@@ -828,6 +828,15 @@ export function SettingsPage() {
               <AudioQualityPanel />
               <NativePlaybackPanel />
               <AudioDiagnosticsPanel />
+
+              <div className="nav-list" style={{ marginBottom: '1rem' }}>
+                <NavRow
+                  icon="🗣️"
+                  label="Conversation voices"
+                  desc="Hear and choose the voices in lesson conversations"
+                  to="/settings/voices"
+                />
+              </div>
 
               <div className="settings-section">
                 <h2>Example Sentences</h2>

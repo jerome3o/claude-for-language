@@ -109,7 +109,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── registry.ts    # One entry per exercise type (name, icon, skill, how it's checked) — every type list reads it
 │   │   ├── doc.ts         # LESSON_SPEC_DOC: the spec text every lesson-authoring Claude reads (worker + MCP)
 │   │   ├── samples.ts     # Bundled sample lesson per type (tutor catalogue)
-│   │   ├── voices.ts      # Conversation speaker → distinct MiniMax voice (resolveConversationVoices)
+│   │   ├── voices.ts      # Conversation voices: curated MiniMax catalogue (default_on), enabled pools, per-dialogue rotation (conversationVoicesFor), 0.9× speed + 200 ms turn gap
 │   │   ├── answer-check.ts # Typed-hanzi checking + character diff (diffHanzi)
 │   │   ├── attempt.ts     # Per-exercise attempt data (answers, time, recordings) + server sanitizer
 │   │   ├── validate.ts    # Structural validation for agent-authored specs
@@ -297,7 +297,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
-- `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0078. See "Lesson pictures" below
+- `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0079. See "Lesson pictures" below
 - `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0074
 - `lesson_library` - A tutor's master copies of mini lessons (spec, tags, version, archived_at)
 - `editor_chats` / `editor_chat_messages` - Per-user Claude side-chat for an editor target (`target_type` 'lesson' | 'library' | 'reader', extensible); messages keep a spec snapshot and, for assistant turns, the proposed spec + accepted/rejected status
@@ -859,8 +859,17 @@ sketch-pad fallback when the stroke data isn't on the device), `dictation` (hear
 `input: type | handwrite`), `oral_expression` (answer out loud, RECORDED for the tutor,
 transcribed server-side when a transcriber is configured) and `conversation` (a 2–3 speaker
 dialogue played with a distinct TTS voice per speaker — `shared/lesson/voices.ts`, `voice_id`
-on `/api/practice/tts`, cached per voice for offline — then comprehension questions, one point
-each, transcript revealed at the end). The study views are `components/ExerciseView.tsx` (the one
+on `/api/practice/tts`, cached per voice + speed for offline — then comprehension questions, one point
+each, transcript revealed at the end). Conversation lines are generated at `CONVERSATION_TTS_SPEED`
+(0.9; every other clip stays at 0.6) and play back to back with a `CONVERSATION_LINE_GAP_MS` (200 ms)
+beat. Voices come from the account's **enabled pool** (Settings → Advanced → Conversation voices,
+`/settings/voices`; Lab: same path): `conversationVoicesFor(ex, enabled)` picks two different voices
+per dialogue, rotated by a hash of the dialogue (stable for one dialogue, varied across them), gender
+as the spec says / alternating. Selection per account in `users.conversation_voices` (migration
+0078); NULL = the admin's own selection, else the catalogue's `default_on` voices (newsreader /
+neutral / warm only — the breathy, "sweet", role-play voices ship off). It rides on `/api/auth/me`
+(`conversation_voices`) and is cached on the device (`services/conversationVoices.ts`, Lab
+`ConversationVoiceCache`), so a changed selection just makes new clips on the next prefetch. The study views are `components/ExerciseView.tsx` (the one
 switch over types) → `lesson-exercises.tsx` / `practice-exercises.tsx`. Adding a type: its
 interface in `types.ts`, a case in `validate.ts`, an entry in `registry.ts`, a line in `doc.ts`, a
 sample in `samples.ts`, the study view, the editor form — `practice-types.test.ts` checks the
@@ -1055,6 +1064,11 @@ reports plus the server's own `review_events` (which side is missing events / ho
 - `GET /api/debug/reports?client=&limit=` - index rows newest first (with `summary`)
 - `GET /api/debug/reports/:id?section=overview|decks|cards|events|full&offset&limit&deck_id&queue&in_due_queue&card_id`
 - `GET /api/debug/compare?a=&b=&max_cards=&server=0` - diff; defaults a = newest lab, b = newest web
+
+### Conversation voices (`worker/src/routes/conversation-voices.ts`, `services/conversation-voices.ts`)
+- `GET /api/conversation-voices` - catalogue + `enabled`, `customised`, `default_enabled`, `default_source` (admin | app), `is_admin`, `speed`
+- `PUT /api/conversation-voices` - `{ enabled: string[] }` (known ids, ≥ 1 female and ≥ 1 male; 400 with `problems`) or `{ reset: true }`; an admin's selection is everyone else's default
+- `GET /api/conversation-voices/sample?voice=` - `{ audio_base64, content_type }`: the sample line in that voice, MiniMax only (no fallback voice), made once and kept in R2 (`voice-samples/v1/…`)
 
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
@@ -1788,7 +1802,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
 - `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
 - `/profile` - Profile (`pages/ProfilePage.tsx`, `components/profile/`): display name, photo (crop sheet → 512px JPEG → R2 `avatars/<user>/<id>.jpg`, served by the public `GET /api/audio/<key>`), About me (public: `PersonAbout` on the tutor / student page, the /join page), time zone (the other side sees your local time), and the learner's private bio. **`users.name` / `picture_url` stay the effective values every query reads** (migration 0076 adds `google_name`, `google_picture_url`, `name_custom`, `picture_source`, `picture_key`, `about`, `time_zone`); the Google sign-in (`touchExistingUser` → `googleProfileRefresh`, and the MCP server's OAuth callback) always refreshes the `google_*` columns but only overwrites name / picture while the user follows Google. Reached from More (user card + Account → Profile), Settings, and the tutor's Students dashboard header chip / "Introduce yourself" nudge
-- `/settings` - Profile link · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
+- `/settings` - Profile link · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, conversation voices (`/settings/voices`), sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
 - `/connections` - Students dashboard for tutors with students (cards, pending invites, homework decks); otherwise connections + pending requests
 - `/connections/:relId` - Student page (tutor: status, Message / Send homework, needs attention, homework, conversations, activity; new student: setup checklist) / tutor page (student)
 - `/connections/:relId/chat/:convId` - Chat interface

@@ -20,8 +20,10 @@ export function useLessonClips() {
     return () => player.dispose();
   }, []);
 
-  /** Play one clip; resolves true when it finished, false when it couldn't play. */
-  const playClip = useCallback((text: string, voice?: string): Promise<boolean> => {
+  /** Play one clip; resolves true when it finished, false when it couldn't play.
+   * `speed` is the TTS speaking rate baked into the clip (a conversation's
+   * CONVERSATION_TTS_SPEED); undefined = the app-wide default. */
+  const playClip = useCallback((text: string, voice?: string, speed?: number): Promise<boolean> => {
     const player = playerRef.current;
     const playId = player.claim();
     return new Promise<boolean>(resolve => {
@@ -33,7 +35,7 @@ export function useLessonClips() {
         resolve(ok);
       };
       const timer = setTimeout(() => finish(player.isCurrent(playId)), CLIP_TIMEOUT_MS);
-      void getTTSWithCache(text, undefined, voice).then(blob => {
+      void getTTSWithCache(text, speed, voice).then(blob => {
         if (!blob || !player.isCurrent(playId)) return finish(false);
         player.play(blob, {
           label: 'lesson-conversation',

@@ -64,11 +64,57 @@ class LessonParityTest {
         }
     }
 
+    private fun JsonElement.stringsOrNull(): List<String>? = if (this is JsonNull) null else strings()
+
     @Test fun conversationVoices() {
         for (el in root["voices"]!!.jsonArray) {
             val c = el.jsonObject
             val speakers = LessonJson.decodeFromJsonElement(ListSerializer(ConversationSpeaker.serializer()), c["speakers"]!!)
-            assertEquals(c["voices"]!!.strings(), Lessons.conversationVoices(speakers), c.toString())
+            val enabled = c["enabled"]!!.stringsOrNull()
+            val seed = c["seed"]!!.jsonPrimitive.long
+            assertEquals(c["voices"]!!.strings(), ConversationVoices.resolve(speakers, enabled, seed), c.toString())
+            if (enabled == null && seed == 0L) assertEquals(c["voices"]!!.strings(), Lessons.conversationVoices(speakers), c.toString())
+        }
+    }
+
+    @Test fun voiceCatalogue() {
+        val cat = root["voice_catalogue"]!!.jsonObject
+        val web = cat["voices"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(web.size, ConversationVoices.ALL.size, "catalogue size")
+        for ((w, k) in web.zip(ConversationVoices.ALL)) {
+            assertEquals(w["id"]!!.str, k.id)
+            assertEquals(w["name"]!!.str, k.name, k.id)
+            assertEquals(w["gender"]!!.str, k.gender, k.id)
+            assertEquals(w["age"]!!.str, k.age, k.id)
+            assertEquals(w["accent"]!!.str, k.accent, k.id)
+            assertEquals(w["style"]!!.str, k.style, k.id)
+            assertEquals(w["family"]!!.str, k.family, k.id)
+            assertEquals(w["default_on"]!!.jsonPrimitive.boolean, k.defaultOn, k.id)
+            assertEquals(w["note"]!!.str, k.note, k.id)
+        }
+        assertEquals(cat["speed"]!!.jsonPrimitive.double, ConversationVoices.SPEED)
+        assertEquals(cat["gap_ms"]!!.jsonPrimitive.long, ConversationVoices.LINE_GAP_MS)
+        assertEquals(cat["sample_text"]!!.str, ConversationVoices.SAMPLE_TEXT)
+        for (el in cat["pools"]!!.jsonArray) {
+            val c = el.jsonObject
+            val p = c["pools"]!!.jsonObject
+            val k = ConversationVoices.pools(c["enabled"]!!.stringsOrNull())
+            assertEquals(p["female"]!!.strings(), k["female"], c.toString())
+            assertEquals(p["male"]!!.strings(), k["male"], c.toString())
+        }
+        for (el in cat["validations"]!!.jsonArray) {
+            val c = el.jsonObject
+            val k = ConversationVoices.validate(c["input"]!!.strings())
+            assertEquals(c["enabled"]!!.strings(), k.enabled, c.toString())
+            assertEquals(c["problems"]!!.strings(), k.problems, c.toString())
+        }
+        for (el in cat["seeds"]!!.jsonArray) {
+            val c = el.jsonObject
+            val lines = LessonJson.decodeFromJsonElement(ListSerializer(ConversationLine.serializer()), c["lines"]!!)
+            val situation = c["situation"]!!.str!!
+            assertEquals(c["seed"]!!.jsonPrimitive.long, ConversationVoices.seed(situation, lines), situation)
+            val ex = ConversationExercise(situation, listOf(ConversationSpeaker("A"), ConversationSpeaker("B", "male")), lines)
+            assertEquals(c["voices"]!!.strings(), ConversationVoices.forConversation(ex), situation)
         }
     }
 
@@ -87,8 +133,8 @@ class LessonParityTest {
             assertEquals(c["primary"]!!.strings(), exercises.map(Lessons::primaryText), "$id primary text")
             assertEquals(c["tts_texts"]!!.strings(), Lessons.ttsTexts(spec), "$id tts texts")
             assertEquals(
-                c["tts_clips"]!!.jsonArray.map { it.jsonObject["text"]!!.str to it.jsonObject["voice"]!!.str },
-                Lessons.ttsClips(spec).map { it.text to it.voice },
+                c["tts_clips"]!!.jsonArray.map { Triple(it.jsonObject["text"]!!.str, it.jsonObject["voice"]!!.str, it.jsonObject["speed"]!!.let { s -> if (s is JsonNull) null else s.jsonPrimitive.double }) },
+                Lessons.ttsClips(spec).map { Triple(it.text, it.voice, it.speed) },
                 "$id tts clips",
             )
             // Round trip: encoding keeps every field the server sent.

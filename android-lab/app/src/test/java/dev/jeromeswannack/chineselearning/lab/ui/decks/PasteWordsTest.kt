@@ -85,6 +85,15 @@ class PasteWordsTest {
         assertEquals("spaces between word, pinyin and meaning · 3 rows", d.detectedCaption) // one tab line in three is not a table
     }
 
+    @Test fun aOneCharacterWordFilledOnThePhoneAsksToCheckItsReading() {
+        val d = PasteWordsModel.derive(PasteInputs(text = "行\n长 zhǎng\n你\n银行"), emptyList(), dev.jeromeswannack.chineselearning.lab.core.Pinyin::toPinyin)
+        val byHanzi = d.rows.associateBy { it.row.hanzi }
+        assertEquals(listOf("xíng", "háng", "hàng", "héng"), byHanzi["行"]!!.readings)
+        assertEquals(emptyList<String>(), byHanzi["长"]!!.readings) // pasted pinyin: nothing to check
+        assertEquals(emptyList<String>(), byHanzi["你"]!!.readings) // one reading
+        assertEquals(emptyList<String>(), byHanzi["银行"]!!.readings) // words only for one character
+    }
+
     @Test fun editsAndSkipsWinOverEverything() {
         val base = PasteInputs(text = "葡萄\n面包 bread")
         val key = "葡萄"

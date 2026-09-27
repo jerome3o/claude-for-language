@@ -3,7 +3,7 @@ import { validateLessonSpec, EXERCISE_TYPE_IDS } from './validate';
 import { CustomLessonSpec, LessonExercise, lessonTtsClips, exercisePoints, countScoreable } from './types';
 import { EXERCISE_TYPE_INFO } from './registry';
 import { SAMPLE_LESSONS } from './samples';
-import { resolveConversationVoices, LESSON_VOICE_IDS, LESSON_VOICE_POOLS } from './voices';
+import { resolveConversationVoices, conversationVoicesFor, CONVERSATION_TTS_SPEED, LESSON_VOICE_IDS, LESSON_VOICE_POOLS } from './voices';
 import { diffHanzi, isHanziAnswerCorrect, normalizeHanziAnswer, sentenceUsesWord } from './answer-check';
 import { sanitizeAttemptData, sectionTimes, formatDuration } from './attempt';
 import { lessonToMarkdown, lessonVocabRows } from './export';
@@ -118,13 +118,14 @@ describe('conversation voices', () => {
     for (const v of voices) expect(LESSON_VOICE_IDS.has(v)).toBe(true);
     expect(resolveConversationVoices([{ name: 'A' }, { name: 'B' }])).toEqual([LESSON_VOICE_POOLS.female[0], LESSON_VOICE_POOLS.male[0]]);
   });
-  it('prefetches each line in its speaker voice', () => {
-    const clips = lessonTtsClips(conversation, resolveConversationVoices);
+  it('prefetches each line in its speaker voice at the conversation speed', () => {
+    const clips = lessonTtsClips(conversation, ex => conversationVoicesFor(ex), CONVERSATION_TTS_SPEED);
     const lineClips = clips.filter(c => c.voice);
     if (hotel.type !== 'conversation') throw new Error('sample changed');
     expect(lineClips).toHaveLength(hotel.lines.length);
     expect(new Set(lineClips.map(c => c.voice)).size).toBe(2);
-    expect(clips.some(c => !c.voice && c.text === '请问有预订吗？')).toBe(true);
+    expect(lineClips.every(c => c.speed === 0.9)).toBe(true);
+    expect(clips.some(c => !c.voice && c.speed === undefined && c.text === '请问有预订吗？')).toBe(true);
   });
 });
 

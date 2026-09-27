@@ -9,7 +9,7 @@ import { validateLessonSpec } from '../../../../../shared/lesson/validate';
 import { EXERCISE_TYPE_INFO } from '../../../../../shared/lesson/registry';
 import { exercisePrimaryText } from '../../../../../shared/lesson/diff';
 import { defaultExercise } from '../../../../../shared/lesson/defaults';
-import { resolveConversationVoices } from '../../../../../shared/lesson/voices';
+import { conversationVoicesFor } from '../../../../../shared/lesson/voices';
 import type {
   AssignResult,
   CustomLessonSpec,
@@ -306,7 +306,8 @@ function viewExercise(ex: LessonExercise): HTMLElement {
       );
       break;
     case 'conversation': {
-      const voices = resolveConversationVoices(ex.speakers);
+      // The shipped default voices: the student's device may use their own selection.
+      const voices = conversationVoicesFor(ex);
       body.append(
         h('div', { class: 'question' }, ex.situation),
         ...ex.lines.map((l) => h('div', { class: 'sentence' },

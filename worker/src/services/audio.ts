@@ -293,6 +293,25 @@ export interface ConversationTTSResult {
   provider: AudioProvider;
 }
 
+/**
+ * MiniMax only, no Google fallback: for voice samples (Settings → Conversation
+ * voices), where a different voice would misrepresent the one being auditioned.
+ * Null when MiniMax can't speak it (e.g. a voice id it doesn't know).
+ */
+export async function generateMiniMaxTTS(
+  env: Env,
+  text: string,
+  speed: number,
+  voiceId: string,
+): Promise<Uint8Array | null> {
+  const mm = await callMiniMaxTTS(env, text, speed, voiceId);
+  if (!mm.ok) {
+    console.error('[TTS] MiniMax only failed for', voiceId, mm.reason);
+    return null;
+  }
+  return mm.bytes;
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);

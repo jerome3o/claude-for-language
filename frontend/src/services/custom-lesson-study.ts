@@ -12,7 +12,8 @@
  *   (a lesson has only a handful, so they ride along with the content).
  */
 
-import { CustomLessonSpec, LessonAttemptData, lessonTtsClips, resolveConversationVoices } from '@shared/lesson';
+import { CustomLessonSpec, LessonAttemptData, lessonTtsClips, CONVERSATION_TTS_SPEED } from '@shared/lesson';
+import { voicesForConversation } from './conversationVoices';
 import {
   db,
   getStudyCutoff,
@@ -384,7 +385,7 @@ export async function prefetchCustomLessonMedia(): Promise<void> {
 
   const lessons = await getDueCustomLessons();
   for (const lesson of lessons) {
-    await prefetchTTSClips(lessonTtsClips(lesson.spec, resolveConversationVoices));
+    await prefetchTTSClips(lessonTtsClips(lesson.spec, voicesForConversation, CONVERSATION_TTS_SPEED));
     // Stroke-order data for handwriting, so the writing pad checks strokes offline.
     const handwritten = lessonHandwritingText(lesson.spec);
     if (handwritten) await prefetchStrokeData(writableCharacters(handwritten)).catch(() => {});

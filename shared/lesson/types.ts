@@ -361,25 +361,34 @@ export function lessonTtsTexts(spec: CustomLessonSpec): string[] {
   return texts;
 }
 
-/** One clip to speak: the text and, for a conversation speaker, the TTS
- * voice id (undefined = the app's default voice). */
+/** One clip to speak: the text and, for a conversation line, the speaker's
+ * TTS voice id and the conversation speaking rate (undefined = the app's
+ * default voice / speed). */
 export interface LessonTtsClip {
   text: string;
   voice?: string;
+  speed?: number;
 }
 
 /** Every clip a lesson plays, for offline prefetch: the default-voice texts
- * plus each conversation line in its speaker's voice. */
+ * plus each conversation line in its speaker's voice (`resolveVoices`, e.g.
+ * conversationVoicesFor with the account's enabled voices) at
+ * `conversationSpeed` (CONVERSATION_TTS_SPEED). */
 export function lessonTtsClips(
   spec: CustomLessonSpec,
-  resolveVoices: (speakers: ConversationSpeaker[]) => string[],
+  resolveVoices: (exercise: ConversationExerciseSpec) => string[],
+  conversationSpeed?: number,
 ): LessonTtsClip[] {
   const clips: LessonTtsClip[] = lessonTtsTexts(spec).map(text => ({ text }));
   for (const section of spec.sections) {
     for (const ex of section.exercises) {
       if (ex.type !== 'conversation') continue;
-      const voices = resolveVoices(ex.speakers);
-      for (const line of ex.lines) clips.push({ text: line.hanzi, voice: voices[line.speaker] });
+      const voices = resolveVoices(ex);
+      for (const line of ex.lines) {
+        const clip: LessonTtsClip = { text: line.hanzi, voice: voices[line.speaker] };
+        if (conversationSpeed !== undefined) clip.speed = conversationSpeed;
+        clips.push(clip);
+      }
     }
   }
   return clips;

@@ -157,7 +157,8 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false): ExerciseEnv {
     DisposableEffect(recorder) { onDispose { recorder.release(); runtime.audio.stop() } }
     return ExerciseEnv(
         speak = { runtime.audio.speak(it) },
-        playClip = { text, voice -> runtime.audio.playClip(text, voice) },
+        playClip = { text, voice, speed -> runtime.audio.playClip(text, voice, speed ?: dev.jeromeswannack.chineselearning.lab.data.lessons.LessonMedia.DEFAULT_SPEED) },
+        conversationVoices = { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.get(app.cache) },
         stopAudio = { runtime.audio.stop() },
         playing = playing,
         image = { key -> runtime.media.image(key, app.online.value) },
