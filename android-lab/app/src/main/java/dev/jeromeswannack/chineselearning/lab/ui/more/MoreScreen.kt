@@ -50,6 +50,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 data class MoreUi(
     val userName: String? = null,
     val email: String? = null,
+    /** The profile photo (Profile screen / Google), shown on the user card. */
+    val pictureUrl: String? = null,
     val role: NavRole = NavRole(),
     val isAdmin: Boolean = false,
     val sync: SyncStatus = SyncStatus(),
@@ -88,7 +90,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
     }
 
     LabScreen(title = "More", spacing = 4.dp, listState = listState) {
-        item { UserCard(ui) { actions.open(Routes.SETTINGS) } }
+        item { UserCard(ui) { actions.open(Routes.profile()) } }
 
         if (role.isTutorAccount) {
             item {
@@ -152,6 +154,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
             NavSection(
                 "Account",
                 rows = listOf(
+                    row("👤", "Profile", if (role.isTutorOnly || role.isTutorAccount) "Name, photo, about me for students, time zone" else "Name, photo, about me, bio, time zone", Routes.profile()),
                     row("⚙️", "Settings", if (role.isTutorOnly) "Backup · Start on" else "Study budget · Start on · Offline audio", Routes.SETTINGS),
                     {
                         NavRow("🚪", "Sign out", danger = true, onClick = { if (ui.sync.unsynced > 0 || ui.pendingWrites > 0) confirmSignOut = true else actions.onSignOut() })
@@ -211,13 +214,17 @@ private fun UserCard(ui: MoreUi, onClick: () -> Unit) {
         Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).clickable(onClick = onClick).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(48.dp).clip(CircleShape).background(Lab.colors.accent), contentAlignment = Alignment.Center) {
-            Text((ui.userName ?: ui.email ?: "?").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+        if (ui.pictureUrl != null) {
+            dev.jeromeswannack.chineselearning.lab.ui.profile.ProfilePhoto(ui.pictureUrl, ui.userName, ui.email, size = 48.dp)
+        } else {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(Lab.colors.accent), contentAlignment = Alignment.Center) {
+                Text((ui.userName ?: ui.email ?: "?").take(1).uppercase(), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+            }
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(ui.userName ?: "You", style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink)
-            if (ui.email != null) Text(ui.email, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+            Text("Edit profile" + (ui.email?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
         }
         Text("›", color = Lab.colors.muted, fontSize = 22.sp)
     }

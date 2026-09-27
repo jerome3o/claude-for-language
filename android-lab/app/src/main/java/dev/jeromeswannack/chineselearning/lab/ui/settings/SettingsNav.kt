@@ -56,8 +56,6 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
             ),
             SettingsActions(
                 onBack = if (nav.controller.previousBackStackEntry != null) nav::back else null,
-                editBio = vm::editBio,
-                saveBio = { vm.saveBio() },
                 downloadAudio = { app.repo.prefetchAudioInBackground() },
                 setForcedOffline = { store.setForcedOffline(it); app.haptics.tick() },
                 exportBackup = { vm.startExport { name -> saveAs.launch(name) } },
