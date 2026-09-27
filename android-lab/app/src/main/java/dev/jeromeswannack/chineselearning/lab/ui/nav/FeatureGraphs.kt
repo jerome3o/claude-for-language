@@ -5,6 +5,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.cards.cardsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.connections.connectionsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.decks.decksGraph
 import dev.jeromeswannack.chineselearning.lab.ui.home.homeGraph
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.lessonsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.library.libraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.more.moreGraph
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.placeholderGraph
@@ -30,6 +31,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     teachingGraph(nav)      // "/connections/{relId}/…" F (tutor side)
     cardsGraph(nav)         // "/cards/:noteId" C (card hub)
     strokesGraph(nav)       // "/practice/strokes" H
+    lessonsGraph(nav)       // "/lessons", "/lesson-attempts"  B
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }
