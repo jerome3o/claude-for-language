@@ -30,6 +30,8 @@ class CallRoomSocketTest {
     private val events = LinkedBlockingQueue<String>()
     private val serverSockets = CopyOnWriteArrayList<WebSocket>()
     private val received = LinkedBlockingQueue<String>()
+    /** Server-side sockets that finished closing — teardown waits for all of them before shutting the server down. */
+    private val serverClosed = java.util.concurrent.atomic.AtomicInteger()
 
     private val handlers = object : RoomHandlers {
         override fun onMessage(msg: ServerMessage) { events += "msg:${msg::class.simpleName}" }
@@ -41,6 +43,9 @@ class CallRoomSocketTest {
     private fun upgrade(onOpen: (WebSocket) -> Unit = {}) = MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) { serverSockets += webSocket; onOpen(webSocket) }
         override fun onMessage(webSocket: WebSocket, text: String) { received += text }
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { serverClosed.incrementAndGet() }
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { serverClosed.incrementAndGet() }
     })
 
     @Before fun setUp() { server = MockWebServer().apply { start() } }
@@ -48,7 +53,9 @@ class CallRoomSocketTest {
     @After fun tearDown() {
         scope.cancel()
         serverSockets.forEach { runCatching { it.close(1001, null) } }
-        Thread.sleep(100)
+        // Shutting the server down mid close-handshake times out on a slow runner: wait for every socket to finish.
+        val deadline = System.currentTimeMillis() + 15_000
+        while (serverClosed.get() < serverSockets.size && System.currentTimeMillis() < deadline) Thread.sleep(20)
         server.shutdown()
     }
 
