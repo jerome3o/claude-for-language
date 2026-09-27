@@ -47,6 +47,8 @@ export interface AuthUser {
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;
+  /** Voices this account's conversation exercises use (shared/lesson/voices.ts). */
+  conversation_voices?: string[] | null;
   /** Profile screen (/profile): public About me, time zone, where the picture comes from. */
   about?: string | null;
   time_zone?: string | null;

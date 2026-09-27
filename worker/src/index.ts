@@ -78,6 +78,8 @@ import noteSearchRoutes from './routes/note-search';
 import transcriptionRoutes from './routes/transcription';
 import { tutorNotesRoutes } from './routes/tutor-notes';
 import debugReportsRoutes from './routes/debug-reports';
+import conversationVoicesRoutes from './routes/conversation-voices';
+import { getConversationVoiceSettings } from './services/conversation-voices';
 import studentProfileRoutes from './routes/student-profile';
 import lessonAttemptsRoutes from './routes/lesson-attempts';
 import { insertLessonAttempt } from './db/lesson-attempt-queries';
@@ -431,6 +433,9 @@ app.get('/api/auth/me', async (c) => {
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
+    // The voices this account's conversation exercises use (its own selection,
+    // else the admin's, else the shipped defaults) — cached on the device.
+    conversation_voices: (await getConversationVoiceSettings(c.env.DB, user.id).catch(() => null))?.enabled ?? null,
   });
 });
 
@@ -495,6 +500,9 @@ app.route('/api', adminRoutes);
 app.route('/api', debugReportsRoutes);
 // The tutor's private profile of a student, read by the tutor-side content agents (routes/student-profile.ts; tutor only)
 app.route('/api', studentProfileRoutes);
+
+// Conversation voices: the catalogue, this account's selection, cached voice samples (routes/conversation-voices.ts)
+app.route('/api', conversationVoicesRoutes);
 
 // ============ Admin Routes ============
 

@@ -50,10 +50,13 @@ class LessonAudio(
         }
     }
 
-    /** One clip, awaited: true when it finished, false when it couldn't play (≤ 30 s, then moves on). */
-    suspend fun playClip(text: String, voice: String? = null): Boolean {
+    /**
+     * One clip, awaited: true when it finished, false when it couldn't play (≤ 30 s, then moves on).
+     * [speed] is the TTS rate baked into the clip (a conversation line's ConversationVoices.SPEED).
+     */
+    suspend fun playClip(text: String, voice: String? = null, speed: Double = LessonMedia.DEFAULT_SPEED): Boolean {
         val id = stopInternal()
-        val file = media.tts(text, voice, online = online()) ?: return false
+        val file = media.tts(text, voice, speed = speed, online = online()) ?: return false
         if (id != claim) return false
         return withTimeoutOrNull(CLIP_TIMEOUT_MS) {
             suspendCancellableCoroutine { cont ->

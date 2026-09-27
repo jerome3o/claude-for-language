@@ -1,0 +1,297 @@
+/* Settings → Conversation voices. Mobile-first: one voice per row, the ▶ and
+   the switch both 44px targets at the row's ends. */
+.voices-page {
+  padding: 0.5rem 0 2rem;
+}
+
+.voices-header h1 {
+  font-size: 1.25rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.voices-back {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.voices-intro,
+.voices-scope {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  margin: 0 0 0.5rem;
+  line-height: 1.45;
+}
+
+.voices-scope {
+  color: var(--color-text);
+}
+
+.voices-muted {
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+}
+
+.voices-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--color-error);
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+}
+
+.voices-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.voices-segment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.voices-chip {
+  min-height: 36px;
+  padding: 0 0.875rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.voices-chip.active {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: #fff;
+}
+
+.voices-selects {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.voices-selects label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.voices-selects select {
+  min-height: 44px;
+  font-size: 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0 0.5rem;
+}
+
+.voices-group {
+  margin-top: 1rem;
+}
+
+.voices-group-title {
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light);
+  margin: 0 0 0.375rem;
+}
+
+.voices-group-count {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  margin-left: 0.25rem;
+  color: var(--color-success);
+}
+
+.voices-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+}
+
+.voices-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.voices-row:first-child {
+  border-top: none;
+}
+
+.voices-row:not(.on) .voices-name {
+  color: var(--color-text-light);
+}
+
+.voices-play {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-primary);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.voices-play.playing {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.voices-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.voices-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.voices-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.voices-note {
+  font-size: 0.8125rem;
+  color: var(--color-text);
+  opacity: 0.8;
+  margin-top: 0.125rem;
+}
+
+/* A plain checkbox drawn as a switch: the input stays for a11y / keyboard. */
+.voices-switch {
+  flex: none;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.voices-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.voices-switch-track {
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--color-border);
+  position: relative;
+  pointer-events: none;
+  transition: background 0.15s ease;
+}
+
+.voices-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.voices-switch input:checked + .voices-switch-track {
+  background: var(--color-success);
+}
+
+.voices-switch input:checked + .voices-switch-track .voices-switch-thumb {
+  transform: translateX(18px);
+}
+
+.voices-switch input:focus-visible + .voices-switch-track {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.voices-switch.locked {
+  opacity: 0.6;
+}
+
+.voices-reset {
+  margin-top: 1.25rem;
+}
+
+/* The shared InlineNotice's styles live in ChatPage.css, which this lazy page
+   doesn't load: the same strip, scoped here. */
+.voices-page .chat-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  margin: 0.5rem 0;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+}
+
+.voices-page .chat-notice-error { background: #fee2e2; color: #991b1b; }
+.voices-page .chat-notice-success { background: #dcfce7; color: #166534; }
+.voices-page .chat-notice-info { background: #eff6ff; color: #1e40af; }
+.voices-page .chat-notice-text { flex: 1; min-width: 0; }
+
+.voices-page .chat-notice-dismiss {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin: -0.5rem 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+@media (min-width: 640px) {
+  .voices-page {
+    padding: 1.5rem 0 3rem;
+    max-width: 720px;
+  }
+
+  .voices-filters {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .voices-selects {
+    min-width: 320px;
+  }
+}

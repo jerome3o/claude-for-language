@@ -37,8 +37,10 @@ import kotlin.random.Random
 class ExerciseEnv(
     /** Fire-and-forget: speak Chinese text (cache-first TTS). */
     val speak: (String) -> Unit = {},
-    /** One clip in a speaker's voice, awaited; false when it couldn't play. */
-    val playClip: suspend (text: String, voice: String?) -> Boolean = { _, _ -> false },
+    /** One clip in a speaker's voice at a TTS speed (null = the default), awaited; false when it couldn't play. */
+    val playClip: suspend (text: String, voice: String?, speed: Double?) -> Boolean = { _, _, _ -> false },
+    /** The account's conversation voices cached on the phone (null = the shipped defaults). */
+    val conversationVoices: suspend () -> List<String>? = { null },
     val stopAudio: () -> Unit = {},
     /** What is playing now (for lit-up buttons). */
     val playing: String? = null,
