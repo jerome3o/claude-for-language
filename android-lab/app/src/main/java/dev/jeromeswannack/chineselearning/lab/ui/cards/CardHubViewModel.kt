@@ -93,8 +93,10 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
 
     private fun refresh() {
         viewModelScope.launch {
-            val state = hub.state.value
             val local = withContext(Dispatchers.IO) { localHub() }
+            // Read the server state after the Room query: refreshes overlap, and one that started
+            // before the hub arrived must not overwrite it with the stale "not loaded yet" state.
+            val state = hub.state.value
             _ui.update { s -> build(state, local).copy(tutors = s.tutors, flagBusy = s.flagBusy, notice = s.notice, noticeIsError = s.noticeIsError, online = s.online) }
         }
     }
