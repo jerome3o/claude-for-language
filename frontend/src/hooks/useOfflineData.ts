@@ -4,7 +4,6 @@ import {
   db,
   getRawQueueCounts,
   DeckQueueRaw,
-  ensureDailyStatsInitialized,
 } from '../db/database';
 import { syncService } from '../services/sync';
 
@@ -101,24 +100,12 @@ export function useOfflineDecks(apiDecks?: { id: string }[]) {
   };
 }
 
-// Seed today's dailyStats once per app load so count queries never hit the slow path.
-let dailyStatsInitDate: string | null = null;
-function ensureDailyStatsOnce() {
-  const today = new Date().toISOString().slice(0, 10);
-  if (dailyStatsInitDate === today) return;
-  dailyStatsInitDate = today;
-  ensureDailyStatsInitialized().catch(err =>
-    console.error('[useOfflineData] ensureDailyStatsInitialized failed', err)
-  );
-}
-
 /**
  * Single live query producing raw per-deck queue counts. Callers apply
  * daily-limit/bonus themselves via applyNewCardBonus(), so one DB scan can
  * serve every view on the page.
  */
 export function useRawQueueCounts() {
-  ensureDailyStatsOnce();
   const raw = useLiveQuery(() => getRawQueueCounts(), []);
   return {
     byDeck: raw ?? new Map<string, DeckQueueRaw>(),
@@ -137,8 +124,6 @@ export function usePendingReviewsCount() {
 
 // Initialize offline data - call this on app start
 export async function initializeOfflineData(): Promise<void> {
-  ensureDailyStatsOnce();
-
   if (!navigator.onLine) {
     console.log('Offline - using cached data');
     return;
@@ -148,7 +133,6 @@ export async function initializeOfflineData(): Promise<void> {
   if (needsSync) {
     console.log('Performing initial full sync...');
     await syncService.fullSync();
-    ensureDailyStatsInitialized().catch(console.error);
   } else {
     syncService.syncInBackground();
   }
