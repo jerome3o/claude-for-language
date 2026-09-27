@@ -113,4 +113,16 @@ class TeachingLogicTest {
         assertEquals("2026-09-20" to null, InsightsRange(InsightsPreset.D7).query(today))
         assertEquals("2026-09-13" to "2026-09-27", InsightsRange(InsightsPreset.CUSTOM).query(today))
     }
+
+    @Test fun draftRules() {
+        assertEquals("Restaurant ordering", entryTitle(DraftSamples.entries[0]))
+        assertEquals("Transport: 地铁, 换乘, 出租车…", entryTitle(DraftSamples.entries[1]))
+        assertEquals("x".repeat(59) + "…", entryTitle(DraftSamples.entries[3].copy(notes = "\n  " + "x".repeat(80))))
+        assertEquals("Lesson", entryTitle(DraftSamples.entries[3].copy(notes = null)))
+        assertEquals(2, includedItems(DraftSamples.view).size)
+        assertEquals(1, includedItems(DraftSamples.view.copy(kept_count = 0)).size) // a deck with no kept words isn't counted
+        assertEquals("words: one-off + long-term · lesson: one-off", assignSummary(includedItems(DraftSamples.view)))
+        assertEquals("点菜 · Ordering food", jobTitle(DraftSamples.job.copy(title = null)))
+        assertTrue(DraftSamples.job.isDraft)
+    }
 }

@@ -671,3 +671,180 @@ suspend fun Api.studentHistory(relId: String, h: HistoryQuery): HistoryPageDto =
         "q" to h.q, "cursor" to h.cursor, "limit" to h.limit.toString(),
     ),
 )
+
+// ---------------- session-notes jobs, lesson notes → homework drafts (docs/HOMEWORK.md §4) ----------------
+
+@Serializable
+data class JobStepDto(val at: String = "", val text: String = "", /** info | tool | warn | done | error */ val kind: String = "info")
+
+@Serializable
+data class JobDeckDto(val id: String, val name: String = "", val note_count: Int = 0, val target_deck_id: String? = null)
+
+@Serializable
+data class JobLessonDto(val library_item_id: String, val title: String = "", val lesson_id: String? = null, val exercise_count: Int = 0)
+
+@Serializable
+data class JobReaderDto(val id: String, val title_english: String = "", val title_chinese: String = "", val page_count: Int = 0, val target_reader_id: String? = null)
+
+@Serializable
+data class JobResultDto(
+    val deck: JobDeckDto? = null,
+    val lessons: List<JobLessonDto> = emptyList(),
+    val reader: JobReaderDto? = null,
+    val summary: String? = null,
+    val skipped: List<String> = emptyList(),
+)
+
+@Serializable
+data class ChatLineDto(/** tutor | assistant */ val role: String = "assistant", val text: String = "", val at: String = "")
+
+@Serializable
+data class SessionJobDto(
+    val id: String,
+    val title: String? = null,
+    val notes: String = "",
+    val notes_chars: Int = 0,
+    val lesson_at: String? = null,
+    /** queued | running | done | failed | cancelled */
+    val status: String = "queued",
+    val progress: String? = null,
+    val steps: List<JobStepDto> = emptyList(),
+    val result: JobResultDto = JobResultDto(),
+    val error: String? = null,
+    val source_call_id: String? = null,
+    val created_at: String = "",
+    /** 1 / true for a draft (the rows are SQLite ints; some routes send booleans). */
+    val review: kotlinx.serialization.json.JsonPrimitive? = null,
+    val assigned_at: String? = null,
+    val chat: List<ChatLineDto> = emptyList(),
+) {
+    val active: Boolean get() = status == "queued" || status == "running"
+    val isDraft: Boolean get() = review?.content.let { it == "1" || it == "true" }
+}
+
+@Serializable
+private data class JobsDto(val jobs: List<SessionJobDto> = emptyList())
+
+@Serializable
+private data class JobDto(val job: SessionJobDto)
+
+private fun sn(relId: String) = "${rel(relId)}/session-notes"
+
+suspend fun Api.sessionNotesJobs(relId: String, limit: Int = 50): List<SessionJobDto> = get<JobsDto>("${sn(relId)}?limit=$limit").jobs
+
+@Serializable
+data class SubmitSessionNotesBody(
+    val notes: String,
+    val title: String? = null,
+    val lesson_at: String? = null,
+    val priority: String? = null,
+    val auto_share: Boolean? = null,
+    val log_lesson: Boolean? = null,
+)
+
+suspend fun Api.submitSessionNotes(relId: String, body: SubmitSessionNotesBody): SessionJobDto = post<SubmitSessionNotesBody, JobDto>(sn(relId), body).job
+
+suspend fun Api.retrySessionJob(relId: String, id: String): SessionJobDto = post<JobDto>("${sn(relId)}/${enc(id)}/retry").job
+
+suspend fun Api.cancelSessionJob(relId: String, id: String): SessionJobDto = post<JobDto>("${sn(relId)}/${enc(id)}/cancel").job
+
+suspend fun Api.deleteSessionJob(relId: String, id: String) = delete<Unit>("${sn(relId)}/${enc(id)}")
+
+@Serializable
+data class LessonNotesJobBriefDto(
+    val id: String,
+    val status: String = "queued",
+    val progress: String? = null,
+    val review: Boolean = false,
+    val assigned_at: String? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class LessonNotesEntryDto(
+    val id: String,
+    val lesson_at: String = "",
+    val title: String? = null,
+    val notes: String? = null,
+    val job: LessonNotesJobBriefDto? = null,
+)
+
+@Serializable
+private data class EntriesDto(val entries: List<LessonNotesEntryDto> = emptyList())
+
+suspend fun Api.lessonNotes(relId: String): List<LessonNotesEntryDto> = get<EntriesDto>("${rel(relId)}/lesson-notes").entries
+
+@Serializable
+data class AddLessonNotesBody(val notes: String, val title: String? = null, val lesson_at: String? = null, val draft: Boolean)
+
+@Serializable
+data class AddLessonNotesDto(val entry: LessonNotesEntryDto? = null, val job: LessonNotesJobBriefDto? = null)
+
+suspend fun Api.addLessonNotes(relId: String, body: AddLessonNotesBody): AddLessonNotesDto = post("${rel(relId)}/lesson-notes", body)
+
+@Serializable
+data class DraftJobDto(val job: LessonNotesJobBriefDto)
+
+suspend fun Api.draftFromLessonNotes(relId: String, logId: String): DraftJobDto = post("${rel(relId)}/lesson-notes/${enc(logId)}/draft")
+
+@Serializable
+data class DraftPlanItemDto(
+    val key: String,
+    val kind: String,
+    val source_id: String,
+    val title: String = "",
+    val include: Boolean = true,
+    val mode: String = "one_off",
+    val due_date: String? = null,
+)
+
+@Serializable
+data class DraftPlanDto(
+    val split_days: Int = 1,
+    val priority: String = "core",
+    val include_known: List<String> = emptyList(),
+    val items: List<DraftPlanItemDto> = emptyList(),
+)
+
+@Serializable
+data class KnownDto(val deck_name: String = "", val state: String = "")
+
+@Serializable
+data class DraftWordDto(val id: String, val hanzi: String = "", val pinyin: String = "", val english: String = "", val known: KnownDto? = null, val skipped: Boolean = false)
+
+@Serializable
+data class DraftViewDto(
+    val student_name: String = "",
+    val job: SessionJobDto,
+    val plan: DraftPlanDto = DraftPlanDto(),
+    val words: List<DraftWordDto> = emptyList(),
+    val kept_count: Int = 0,
+    val skipped_count: Int = 0,
+    val load: HomeworkLoadDto = HomeworkLoadDto(),
+    val load_after: HomeworkLoadDto = HomeworkLoadDto(),
+    val assignments: List<AssignmentDto> = emptyList(),
+) {
+    val working: Boolean get() = job.active
+}
+
+private fun draftPath(relId: String, jobId: String) = "${rel(relId)}/homework-drafts/${enc(jobId)}"
+
+suspend fun Api.homeworkDraft(relId: String, jobId: String): DraftViewDto = get("${draftPath(relId, jobId)}?today=${localToday()}")
+
+@Serializable
+data class PlanBody(val plan: DraftPlanDto, val today: String)
+
+suspend fun Api.saveDraftPlan(relId: String, jobId: String, plan: DraftPlanDto): DraftViewDto = put("${draftPath(relId, jobId)}/plan", PlanBody(plan, localToday()))
+
+@Serializable
+data class DraftMessageBody(val message: String)
+
+suspend fun Api.sendDraftMessage(relId: String, jobId: String, message: String): DraftJobDto = post("${draftPath(relId, jobId)}/messages", DraftMessageBody(message))
+
+@Serializable
+data class TodayBody(val today: String)
+
+suspend fun Api.assignHomeworkDraft(relId: String, jobId: String): AssignResponseDto = post("${draftPath(relId, jobId)}/assign", TodayBody(localToday()))
+
+/** DELETE /api/notes/:id — removing a word from a draft deletes it from the tutor's draft deck (as the web). */
+suspend fun Api.deleteDraftWord(noteId: String) = delete<Unit>("/api/notes/${enc(noteId)}")

@@ -46,6 +46,12 @@ fun NavGraphBuilder.teachingGraph(nav: LabNav) {
     tutorPage(nav, "/connections/{relId}/insights") { relId, name -> InsightsRoute(nav, relId, name) }
     tutorPage(nav, "/connections/{relId}/history") { relId, name -> HistoryRoute(nav, relId, name) }
     tutorPage(nav, "/connections/{relId}/recordings") { relId, name -> RecordingsRoute(nav, relId, name) }
+    tutorPage(nav, "/connections/{relId}/session-notes") { relId, name -> SessionNotesRoute(nav, relId, name) }
+    composable(Routes.route("/connections/{relId}/homework/{jobId}")) { entry ->
+        val relId = entry.arguments?.getString("relId").orEmpty()
+        val jobId = entry.arguments?.getString("jobId").orEmpty()
+        DraftRoute(nav, relId, jobId)
+    }
 }
 
 @Composable
@@ -211,6 +217,9 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     val playing by app.audio.playingKey.collectAsStateWithLifecycle()
     val online by app.online.collectAsStateWithLifecycle()
     var showSend by remember { mutableStateOf(false) }
+    var showNotesSheet by remember { mutableStateOf(false) }
+    val notesEntries by vm.lessonNotes.entries.state.collectAsStateWithLifecycle()
+    val drafting by vm.lessonNotes.drafting.collectAsStateWithLifecycle()
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
 
@@ -236,6 +245,17 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             callBusy = t.callBusy,
             removing = t.removing,
             playingKey = playing,
+            lessonNotes = {
+                LessonNotesSection(
+                    relId, name, notesEntries.data, notesEntries.error, drafting,
+                    LessonNotesActions(
+                        add = { showNotesSheet = true },
+                        draft = { e -> vm.lessonNotes.draft(e, { job -> nav.open(Routes.homeworkDraft(relId, job)) }) { vm.say(it, true) } },
+                        openDraft = { job -> nav.open(Routes.homeworkDraft(relId, job)) },
+                        open = nav::open,
+                    ),
+                )
+            },
         ),
         StudentPageActions(
             open = nav::open,
@@ -262,4 +282,38 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
         ),
     )
     if (showSend) SendHomeworkFor(nav, vm.send, relId, name, overview.data) { showSend = false }
+    if (showNotesSheet) {
+        LessonNotesSheet(name, online, save = { notes, title, at, draft, done ->
+            vm.lessonNotes.add(notes, title, at, draft, go = { job -> nav.open(Routes.homeworkDraft(relId, job)) }) { e -> done(e); if (e == null) showNotesSheet = false }
+        }) { showNotesSheet = false }
+    }
+}
+
+@Composable
+private fun DraftRoute(nav: LabNav, relId: String, jobId: String) {
+    val vm: DraftViewModel = viewModel(key = "draft-$relId-$jobId", factory = DraftViewModel.Factory(nav.app, relId, jobId))
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    val online by nav.app.online.collectAsStateWithLifecycle()
+    HomeworkDraftScreen(
+        ui.copy(online = online),
+        DraftActions(
+            back = nav::back, open = nav::open, updatePlan = vm::updatePlan, removeWord = { vm.removeWord(it) }, assign = { vm.assign() },
+            cancelJob = { vm.cancelJob() }, retryJob = { vm.retryJob() }, send = { m, done -> vm.send(m, done) }, retry = { vm.reload() },
+        ),
+    )
+}
+
+@Composable
+private fun SessionNotesRoute(nav: LabNav, relId: String, name: String) {
+    val vm: SessionNotesViewModel = viewModel(key = "session-notes-$relId", factory = SessionNotesViewModel.Factory(nav.app, relId))
+    val jobs by vm.jobs.state.collectAsStateWithLifecycle()
+    val online by nav.app.online.collectAsStateWithLifecycle()
+    SessionNotesScreen(
+        SessionNotesUi(relId, name, jobs.data, jobs.error, online),
+        JobActions(retry = { vm.retry(it) }, cancel = { vm.cancel(it) }, delete = { vm.delete(it) }, open = nav::open),
+        back = nav::back,
+        submit = { notes, title, at, priority, auto, log, done ->
+            vm.submit(dev.jeromeswannack.chineselearning.lab.data.api.SubmitSessionNotesBody(notes, title, at, priority, auto, log), done)
+        },
+    )
 }

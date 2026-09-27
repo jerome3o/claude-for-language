@@ -139,6 +139,37 @@ class TeachingScreenshots : LabScreenshotTest() {
         InsightsScreen(InsightsUi("rel-jerome", "Jerome Swannack", report = S.loaded(P.report), lessonLog = S.loaded(P.lessonLog), summaries = listOf(P.summary)), InsightsActions(), S.now)
     }
 
+    private val D = DraftSamples
+
+    @Config(qualifiers = TALL)
+    @Test fun draft() = shoot("teaching-25-draft") {
+        HomeworkDraftScreen(DraftUi("rel-jerome", D.view, loading = false), DraftActions(), S.now)
+    }
+
+    @Test fun draftChat() = shoot("teaching-26-draft-chat") {
+        HomeworkDraftScreen(DraftUi("rel-jerome", D.view, loading = false), DraftActions(), S.now, initialTab = 1)
+    }
+
+    @Test fun draftWorking() = shoot("teaching-27-draft-working") {
+        HomeworkDraftScreen(DraftUi("rel-jerome", D.working, loading = false), DraftActions(), S.now)
+    }
+
+    @Config(qualifiers = TALL_UNFOLDED)
+    @Test fun draftUnfolded() = shoot("teaching-28-draft-unfolded") {
+        HomeworkDraftScreen(DraftUi("rel-jerome", D.view, loading = false), DraftActions(), S.now)
+    }
+
+    @Test fun lessonNotes() = shoot("teaching-29-lesson-notes") {
+        Sheet { androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 20.dp)) { LessonNotesSection("rel-jerome", "Jerome", D.entries, null, null, LessonNotesActions(), S.now) } }
+    }
+
+    @Test fun lessonNotesForm() = shoot("teaching-30-lesson-notes-form") { Sheet { LessonNotesForm(true, { _, _, _, _, _ -> }) {} } }
+
+    @Config(qualifiers = TALL)
+    @Test fun sessionNotes() = shoot("teaching-31-session-notes") {
+        SessionNotesScreen(SessionNotesUi("rel-jerome", "Jerome", D.jobs), JobActions(), back = {}, submit = { _, _, _, _, _, _, _ -> }, now = S.now)
+    }
+
     @androidx.compose.runtime.Composable
     private fun Sheet(content: @androidx.compose.runtime.Composable () -> Unit) {
         Box(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) { content() }
