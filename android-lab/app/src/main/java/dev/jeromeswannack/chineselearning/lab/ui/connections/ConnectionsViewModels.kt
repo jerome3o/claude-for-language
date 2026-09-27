@@ -1,5 +1,10 @@
 package dev.jeromeswannack.chineselearning.lab.ui.connections
 
+import dev.jeromeswannack.chineselearning.lab.data.api.startCall
+import dev.jeromeswannack.chineselearning.lab.data.api.liveCalls
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
@@ -108,12 +113,16 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
     private val studentShared = app.cachedResource<List<StudentSharedDeckDto>>(viewModelScope, ConnectionsKeys.studentSharedDecks(relId), ConnectionsKeys.KIND) { studentSharedDecks(relId) }
     private val me = MutableStateFlow<String?>(null)
     private val status = MutableStateFlow(Busy())
+    /** A live video call in this relationship (Join banner), and "starting a call" (package J). */
+    private val call = MutableStateFlow<Pair<String?, Boolean>>(null to false)
 
     private val parts = combine(relationship.state, conversations.state, flags.state, shared.state, studentShared.state) { r, c, f, s, ss -> arrayOf<Any>(r, c, f, s, ss) }
 
     @Suppress("UNCHECKED_CAST")
-    val ui: StateFlow<TutorPageUi> = combine(parts, me, status, app.online) { p, m, s, online ->
+    val ui: StateFlow<TutorPageUi> = combine(parts, me, status, app.online, call) { p, m, s, online, c ->
         TutorPageUi(
+            liveCallId = c.first,
+            callBusy = c.second,
             relationship = p[0] as Loadable<RelationshipDto>,
             myId = m,
             conversations = p[1] as Loadable<List<ChatConversationDto>>,
@@ -128,6 +137,28 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
 
     init {
         viewModelScope.launch { me.value = Connections.myId(app.cache) }
+        // A live call in this relationship shows a Join banner (web polls every 15 s).
+        viewModelScope.launch {
+            while (isActive) {
+                if (app.online.value) runCatching { app.repo.api.liveCalls(relId) }.onSuccess { r -> call.update { it.copy(first = r.calls.firstOrNull()?.id) } }
+                delay(15_000)
+            }
+        }
+    }
+
+    /** 📹 Video call: join the live one, else start one (web: handleVideoCall). */
+    fun videoCall(go: (String) -> Unit) {
+        call.value.first?.let { go(it); return }
+        if (call.value.second) return
+        call.update { it.copy(second = true) }
+        viewModelScope.launch {
+            try {
+                go(app.repo.api.startCall(relId).call.id)
+            } catch (e: Exception) {
+                status.value = Busy(false, e.userMessage(), error = true)
+            }
+            call.update { it.copy(second = false) }
+        }
     }
 
     /** Message: the most recent conversation, created when there is none. */

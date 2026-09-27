@@ -16,6 +16,7 @@ on:
       - 'android-lab/**'
       - 'shared/scheduler/**'
       - 'shared/decks/**'
+      - 'shared/calls/**'
       - 'frontend/src/utils/numberHanzi.ts'
       - '.github/workflows/android-lab-build.yml'
   pull_request:
@@ -23,6 +24,7 @@ on:
       - 'android-lab/**'
       - 'shared/scheduler/**'
       - 'shared/decks/**'
+      - 'shared/calls/**'
       - 'frontend/src/utils/numberHanzi.ts'
       - '.github/workflows/android-lab-build.yml'
   workflow_dispatch:
