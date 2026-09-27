@@ -77,7 +77,8 @@ export function StudyCustomLesson({
 }: {
   lesson: LocalCustomLesson;
   intervalPreviews: Record<Rating, IntervalPreview>;
-  counts: QueueCounts;
+  /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
+  counts?: QueueCounts;
   onComplete: (correct: number, total: number, rating: Rating) => void;
   onEnd: () => void;
   /** "Try it" for a tutor: no queue counts, no rating — finishing just calls onEnd. Nothing is recorded. */
@@ -228,7 +229,7 @@ export function StudyCustomLesson({
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
-        {preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : <QueueCountsHeader counts={counts} />}
+        {preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
         <div className="study-topbar-controls">
           <button className="study-close-btn" onClick={onEnd} aria-label="End session">
             ✕

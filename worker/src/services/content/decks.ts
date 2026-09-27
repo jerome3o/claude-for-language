@@ -122,12 +122,15 @@ export async function copyDeckForUser(
   sourceDeck: Deck,
   targetUserId: string,
   name: string,
-  placement: 'top' | 'bottom' = 'top'
+  placement: 'top' | 'bottom' = 'top',
+  /** Source notes to leave out (e.g. words the student already has). */
+  options: { excludeNoteIds?: ReadonlySet<string> } = {}
 ): Promise<{ deck: Deck; noteIds: string[] }> {
   const deck = await createDeck(d1, targetUserId, { name, description: sourceDeck.description, placement });
   const notes = await d1.prepare('SELECT * FROM notes WHERE deck_id = ? ORDER BY created_at ASC').bind(sourceDeck.id).all<Record<string, unknown>>();
   const noteIds: string[] = [];
   for (const note of notes.results || []) {
+    if (options.excludeNoteIds?.has(String(note.id))) continue;
     noteIds.push(await db.insertNoteCopy(d1, deck.id, note));
   }
   return { deck, noteIds };

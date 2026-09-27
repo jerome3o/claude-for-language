@@ -113,6 +113,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
@@ -291,6 +292,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `invite_redemptions` - Which user redeemed which invite (idempotent by pair)
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
+- `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -1080,6 +1082,30 @@ mocked model and stores (`services/__tests__/tutor-notes-agent.test.ts`).
 - `POST …/session-notes/:id/retry` | `/cancel`, `DELETE …/session-notes/:id` (what the job created stays)
 - `POST /api/calls/:id/homework` - `{ priority?, auto_share?, log_lesson? }` → 202 `{ job }` from the call's material (tutor of the call's relationship; 409 while live / still transcribing; 200 `{ job, existing: true }` when one is already running) · `GET /api/calls/:id/homework` → `{ jobs }`
 
+### Homework assignments: one-off passes with due dates (`worker/src/routes/homework.ts`, design in docs/HOMEWORK.md)
+Anything a tutor sends is an **assignment** with a `mode`: `one_off` (a single pass by a due date — NOT spaced
+repetition), `fsrs` (long-term review, what sharing always did) or `both`. `services/homework.ts`
+`assignHomework` copies each item through the usual paths (`shareDeck` — now with `excludeNoteIds` so words the
+student already has are left out, matched on normalised hanzi — `createAssignedLesson`, `shareReader`) and writes
+the rows (`assignmentRowsFor`: a one-off deck split over N days = N rows with consecutive due dates). A one-off-only
+deck copy gets caps 0 + 0 so the FSRS budget never introduces it (the deck page says so and offers *Add to my daily
+review*); one-off-only lessons / readers are left out of the session mix / daily reader on the client
+(`oneOffOnlyTargetIds`). **Student**: `services/homework.ts` syncs `homeworkAssignments` / `homeworkEvents`
+(Dexie v19) in every sync; Home shows the **Homework** card (overdue first, labels "overdue" / "due today" /
+"due in N days", `dueLabel`); `/homework` lists all; `/homework/:id` is the pass (immersive): a word list shows each
+word once, *Not yet* words come back until *Got it* (`passProgress`), a lesson / reader plays once in the regular
+player — finishing a lesson / reader anywhere records the `done` event (`recordTargetDone`). **Tutor**: the Send
+homework sheet has One-off / Long-term / Both + due date + "spread over N days" + "leave out words they already
+have" (`HomeworkModePicker`); the student page's Homework section shows the **load gauge** (`LoadGauge`,
+`computeHomeworkLoad`: pending one-off items / words, overdue, next 7 days, FSRS words to go ~days at their budget,
+light / moderate / heavy) and the open one-off assignments with the student's progress (tap: move date / cancel).
+Lesson types and future kinds plug into this model — never a second queue (contract in docs/HOMEWORK.md §2).
+- `GET /api/me/homework` - The student's assignments + events of active ones (offline sync)
+- `POST /api/me/homework/events` - `{ events: [{ id, assignment_id, item_id, result, created_at }] }` → `{ accepted, assignments }` (idempotent; progress recomputed)
+- `GET /api/relationships/:relId/homework?today=` - tutor: `{ assignments, load }`
+- `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors }`
+- `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`
+
 ### Invites & access requests (invite-only sign-up; `worker/src/routes/invites.ts`)
 - `GET /api/invites/:id/public` - **No auth.** What the `/join/:token` page shows: inviter name/avatar, `valid`, `status`, `email_bound` (never the email itself)
 - `GET /api/invites` - Invites I created (`?all=1` for admins: everyone's), each with `url`, `status`, `redemptions`
@@ -1320,6 +1346,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
 | `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
 | `submit_session_notes` / `get_session_notes_job` / `list_session_notes_jobs` | Hand the tutor's raw lesson notes to the session-notes agent (`POST …/session-notes`, or `call_id` for a recorded video lesson → `POST /api/calls/:id/homework`; deck + conditional mini lesson / reader, sent to the student by default) / poll one job's progress, steps and result / list a student's jobs |
+| `get_student_homework` / `assign_homework` / `update_homework_assignment` (`tools/homework.ts`) | The load gauge + assignments with due labels and progress / assign decks, library lessons and readers as `one_off` (due date, `split_days`, known words left out) / `fsrs` / `both` / move a due date or cancel |
 | `create_student_invite` / `list_invites` / `revoke_invite` | Invite links (`inviter_role: tutor`, decks to copy, welcome message); status, `link_opened_at`, redemptions; revoke |
 #### Tutor tools — content (`mcp-server/src/tools/content.ts`)
 
@@ -1615,5 +1642,6 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/recordings` - Recordings inbox with listened / needs-work marks (tutor only)
 - `/connections/:relId/cards/:noteId`, `/connections/:relId/claude-chats` - Tutor's view of one of the student's cards (hub) / all their Ask-Claude conversations
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
+- `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards

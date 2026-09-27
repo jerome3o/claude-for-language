@@ -1,0 +1,281 @@
+/* Tutor side of homework: mode picker, load gauge, assigned list, draft review (docs/HOMEWORK.md). Mobile first. */
+
+.hwt-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin: 0.5rem 0;
+}
+
+.hwt-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.375rem;
+}
+
+.hwt-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-height: 56px;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+}
+
+.hwt-mode input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hwt-mode strong {
+  font-size: 0.9375rem;
+}
+
+.hwt-mode span {
+  color: var(--color-text-light);
+}
+
+.hwt-mode.selected {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  box-shadow: 0 0 0 1px #7c3aed inset;
+}
+
+.hwt-due,
+.hwt-split {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.hwt-due-label,
+.hwt-split label,
+.hwt-row-edit label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.9375rem;
+}
+
+.hwt-due input,
+.hwt-split select,
+.hwt-row-edit input {
+  min-height: 44px;
+  font-size: 1rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.hwt-quick {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.hwt-chip {
+  min-height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.hwt-chip.selected {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #5b21b6;
+  font-weight: 600;
+}
+
+.hwt-suggest {
+  align-self: flex-start;
+  font-size: 0.875rem;
+}
+
+.hwt-parts {
+  margin: 0;
+  padding-left: 1.125rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+/* ---- Load gauge ---- */
+
+.hwt-load {
+  padding: 0.75rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  margin-bottom: 0.75rem;
+}
+
+.hwt-load-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.hwt-level {
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.hwt-level-light {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.hwt-level-moderate {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.hwt-level-heavy {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.hwt-load-summary {
+  margin: 0.375rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  line-height: 1.4;
+}
+
+.hwt-load-after {
+  color: #5b21b6;
+}
+
+.hwt-load-overdue {
+  margin: 0.375rem 0 0;
+  font-size: 0.8125rem;
+  color: #b91c1c;
+}
+
+.hwt-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.hwt-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.hwt-day-bar {
+  position: relative;
+  width: 100%;
+  height: 36px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  overflow: hidden;
+}
+
+.hwt-day-bar span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.hwt-day-now {
+  background: #8b5cf6;
+}
+
+.hwt-day-added {
+  background: #c4b5fd;
+}
+
+.hwt-day-label {
+  font-size: 0.6875rem;
+  color: var(--color-text-light);
+}
+
+/* ---- Assigned list ---- */
+
+.hwt-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.hwt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hwt-row-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.hwt-row-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hwt-row-meta {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.hwt-row-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.hwt-done {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.hwt-done summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--color-text-light);
+}
+
+.hwt-done ul {
+  margin: 0;
+  padding-left: 1rem;
+  line-height: 1.6;
+}

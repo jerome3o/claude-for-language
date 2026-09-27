@@ -1,3 +1,4 @@
+import { OneOffDeckBanner } from '../components/homework/OneOffDeckBanner';
 import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -1970,6 +1971,12 @@ export function DeckDetailPage() {
             )}
             <DeckOverflowMenu items={menuItems} />
           </div>
+          <OneOffDeckBanner
+            deckId={deck.id}
+            newPerDay={deck.new_cards_per_day ?? 1}
+            secondaryPerDay={deck.secondary_cards_per_day ?? 1}
+            onChanged={() => void deckQuery.refetch()}
+          />
           {isGeneratingAllAudio && (
             <p className="text-light deck-audio-progress">
               Generating audio… {audioGenerationProgress.done}/{audioGenerationProgress.total}
