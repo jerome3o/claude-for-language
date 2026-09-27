@@ -82,8 +82,41 @@ data class CardExtras(
     /** The note's audio recordings (primary first) — Play cycles through them. */
     val voices: List<String> = emptyList(),
     val voiceIndex: Int = 0,
+    /** My pronunciation take on a read card (per card). */
+    val take: TakeUi = TakeUi(),
+    /** Multiple choice on the typing cards (per card). */
+    val mc: McUi = McUi(),
     /** The Ask Claude conversation about this card (kept while the card is up). */
     val ask: AskUi = AskUi(),
+)
+
+/** The web's recorder + useTranscription state for the current card. */
+data class TakeUi(
+    val recording: Boolean = false,
+    /** The first half second of a take: "Recording…" instead of a Stop button (no stray stops). */
+    val starting: Boolean = false,
+    /** A finished take is waiting (played back, re-recorded, uploaded with the review). */
+    val hasTake: Boolean = false,
+    val transcription: TranscriptionUi? = null,
+)
+
+/** The web StudyCard's multiple-choice state (`showMultipleChoice`, `mcReady`, `skipMcForCard`…). */
+data class McUi(
+    /** Shuffled rows once loaded. */
+    val rows: List<MultipleChoice.Row>? = null,
+    /** The grid is up (instead of the typing box). */
+    val showing: Boolean = false,
+    /** Listen cards: loaded but kept behind "Show options" until asked for. */
+    val ready: Boolean = false,
+    val loading: Boolean = false,
+    /** This card fell back to typing (offline / failed / "Type instead"). */
+    val skip: Boolean = false,
+    /** The one line above the typing box saying why. */
+    val fallbackNote: String? = null,
+    /** Options are on the device (usable offline). */
+    val cached: Boolean = false,
+    /** Auto-show: listen cards, and meaning cards of pinyin-only notes. */
+    val auto: Boolean = false,
 )
 
 /** Ask Claude on a card (the web's StudyCard `conversation` / `pendingToolResults` state). */

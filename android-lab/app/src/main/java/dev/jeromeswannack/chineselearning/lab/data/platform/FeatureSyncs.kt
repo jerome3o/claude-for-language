@@ -15,5 +15,6 @@ object FeatureSyncs {
         platform.register("nav", NavSync) // relationships → tab set / landing (ui/nav/NavData.kt)
         // Add yours below, one line each (keep the order: what study needs offline first).
         platform.register("study-notes", dev.jeromeswannack.chineselearning.lab.ui.study.TutorNotes.Sync) // tutor notes on the card back (A)
+        platform.register("study-mc", dev.jeromeswannack.chineselearning.lab.ui.study.MultipleChoice.Sync) // multiple-choice options for offline listen cards (A)
     }
 }
