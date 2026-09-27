@@ -40,6 +40,7 @@ const MyDayDetailPage = lazy(() => import('./pages/MyDayDetailPage').then(m => (
 const MyCardReviewDetailPage = lazy(() => import('./pages/MyCardReviewDetailPage').then(m => ({ default: m.MyCardReviewDetailPage })));
 const ReadersListPage = lazy(() => import('./pages/ReadersListPage').then(m => ({ default: m.ReadersListPage })));
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => ({ default: m.LessonNotesPage })));
+const StrokePracticePage = lazy(() => import('./pages/StrokePracticePage').then(m => ({ default: m.StrokePracticePage })));
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const NewReaderPage = lazy(() => import('./pages/NewReaderPage').then(m => ({ default: m.NewReaderPage })));
@@ -57,6 +58,8 @@ const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ de
 const LessonEditorPage = lazy(() => import('./pages/editor/LessonEditorPage').then(m => ({ default: m.LessonEditorPage })));
 const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').then(m => ({ default: m.LessonLibraryPage })));
 const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
+const LessonTryPage = lazy(() => import('./pages/editor/LessonTryPage').then(m => ({ default: m.LessonTryPage })));
+const DeckTryPage = lazy(() => import('./pages/DeckTryPage').then(m => ({ default: m.DeckTryPage })));
 const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
 const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
 const CardHubPage = lazy(() => import('./pages/CardHubPage').then(m => ({ default: m.CardHubPage })));
@@ -159,6 +162,9 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* "Try it": a deck / library lesson as the student sees it, nothing recorded (immersive). */}
+      <Route path="/decks/:id/try" element={<ProtectedRoute><DeckTryPage /></ProtectedRoute>} />
+      <Route path="/library/:id/try" element={<ProtectedRoute><LessonTryPage /></ProtectedRoute>} />
       <Route
         path="/decks/:id"
         element={
@@ -462,6 +468,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/practice/strokes" element={<ProtectedRoute><Header /><StrokePracticePage /></ProtectedRoute>} />
       <Route
         path="/quests"
         element={

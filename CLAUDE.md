@@ -114,6 +114,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
 │   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
+│   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
@@ -390,7 +391,7 @@ pack. The story generator carries it in its prompt and gets ONE repair round whe
 
 5. **Idempotent event sync**: Events are deduplicated by ID. Syncing the same event twice is safe - it's skipped if already exists.
 
-7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has. Syncs never write back an id this device removed during the session (`wasRemovedLocally`), a full sync's cursor is the moment its snapshot was taken (so deletions made mid-sync still arrive), and a deck page that gets a 404 removes the deck locally.
+7. **Deletions travel as tombstones**: deleting a deck or note removes it locally at once (`removeDecksLocally` / `removeNotesLocally` in `db/database.ts`) and writes a `deleted_items` row on the server, which `/api/sync/changes` hands to every other device. A full sync additionally replaces decks/notes wholesale and drops cards the server no longer has. Syncs never write back an id this device removed during the session (`wasRemovedLocally`), a full sync's cursor is the moment its snapshot was taken (so deletions made mid-sync still arrive), and a deck page that gets a 404 removes the deck locally. Decks deleted before tombstones existed (23 Sep 2026) were never announced, so `/api/sync/changes` also returns `live_deck_ids` (+ `live_deck_ids_at`, taken before the change queries) and the incremental sync drops local decks missing from it that predate the snapshot (`findGhostDecks`, `services/deckReconcile.ts`). The tutor's student page no longer lists shares whose tutor deck AND student copy are both gone (`dropGhostShares`).
 
 6. **Checkpoints for performance**: `card_checkpoints` table stores computed state at a point in time. This avoids replaying all events from the beginning. Checkpoints are ALWAYS re-derivable from events.
 
@@ -1142,6 +1143,28 @@ first `GET /invites/:id/public`, i.e. the /join page loading — the tutor's lis
   **+ Add a deck** link (modal with "Generate with Claude" inside). It never says "Flashcards done"
   until a full sync has completed once (`hooks/useSyncStatus.ts`).
 
+### Admin: accounts (`worker/src/routes/admin.ts`, services in `worker/src/services/admin/`)
+Admin page (`/admin`, `pages/AdminPage.tsx`) → All Users → **Manage · inspect** opens `components/admin/AdminUserSheet.tsx`:
+role switch (student / tutor), device & sync state, links, decks incl. deleted ones and shares, recent reports, and
+**Delete account** (preview of what goes / stays, typed-email confirmation). Every route is behind `adminMiddleware`;
+`:user` is an id or an email. The same actions are the admin-only MCP tools (below).
+- `GET /api/admin/users/:user/inspect` - profile, counts, sync state (install kind, last opened, last review sync, sessions), relationships from the user's side (`my_role`), recent feature requests, and `decks` (as below)
+- `GET /api/admin/users/:user/decks` - live decks, `deleted_decks` (tombstones + a name hint from a surviving copy), `shares_sent` / `shares_received` with whether each side exists, `untombstoned_deleted_sources` (deleted before 0068)
+- `PUT /api/admin/users/:user/role` - `{ role: 'student' | 'tutor' }` (users.role)
+- `GET /api/admin/users/:user/deletion-preview` - `will_delete` counts, `will_keep` (copies in other accounts), `r2_objects`, `blockers`
+- `DELETE /api/admin/users/:user` - `{ confirm_email }` → `deleteUserAccount` (`services/admin/delete-user.ts`): every DB write child-first in ONE `db.batch` (atomic), `DELETE_STEPS` covers every table (no reliance on FK cascades), other accounts' rows are detached not deleted (assigned lessons unlinked), students' deck / reader copies are KEPT, then R2 keys only this user referenced are removed (clips / images shared with copies stay). Refuses the caller, admins, `ADMIN_EMAIL`, system users. No tombstones: no other device holds the rows. D1 caps compound SELECTs (UNION) at a few terms — keep each query a plain SELECT. Tested against real SQLite with every migration + FKs on (`services/__tests__/sqlite-d1.ts`, `admin-delete-user.test.ts`: no cell anywhere still holds the id, `PRAGMA foreign_key_check` clean, atomic on failure).
+- `GET /api/admin/users` also carries `install_kind` / `last_opened_at`. `/api/test/auth` accepts `role` / `is_admin` for specs (`e2e/tests/admin-tutor.spec.ts`).
+
+### Tutor accounts (users.role = 'tutor')
+Set by the admin (sheet or `admin_set_role`). `useNavRole` exposes `isTutorAccount` (from the signed-in user, never waits
+for relationships): tabs **Students · Decks · Library · More** (`tabsFor`), landing always Students unless "Start on" says
+otherwise (`resolveLanding`), `/` renders `components/home/TutorHome.tsx` (students, Make, "Try it as your student") instead
+of the study home — no streak, due-card button, homework card or learner onboarding; More shows Teaching / Tools; the
+background sync generates no daily story (`services/accountRole.ts`). **Try it** previews record nothing:
+`/decks/:id/try` (`pages/DeckTryPage.tsx`, a card viewer over IndexedDB in any of the three card types; the tutor's deck
+page shows "▶ Try it as a student" instead of Study) and `/library/:id/try` (`pages/editor/LessonTryPage.tsx`, the real
+`StudyCustomLesson` with `preview`: no counts, no rating, no completion event). Both are immersive routes.
+
 ## Invite-only sign-up
 
 **A Google sign-in for an email with no `users` row creates a user only if an invite admits it.**
@@ -1390,6 +1413,21 @@ like the tool's `structuredContent` (and optionally `__MCP_APP_PREVIEW_TOOLS__ =
 for canned app-only results) before the bundle runs and the app renders without a host — see
 `docs/pr-screenshots/mcp-tutor-apps/`.
 
+#### Admin tools (`mcp-server/src/tools/admin.ts`)
+
+Admin only — every tool calls the API as the signed-in user and `adminMiddleware` answers 403 to anyone else. `user` is an
+id or an email. Unit-tested in `tools/admin.test.ts`.
+
+| Tool | What it does |
+|------|--------------|
+| `admin_list_users` | Every account with role, admin, can_invite, last login / opened, install kind, counts; `query` filters |
+| `admin_get_user` | `GET /api/admin/users/:user/inspect` — profile, sync state, relationships, recent reports, decks |
+| `admin_inspect_user_decks` | Live + deleted decks, shares either way, decks deleted before tombstones |
+| `admin_set_role` | `student` / `tutor` (the tutor-first app) |
+| `admin_set_can_invite` | Allow / stop invite links |
+| `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
+| `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
+
 ### Study Tool (MCP App)
 
 The `study` tool is special - it renders an interactive flashcard UI directly in Claude.ai or other MCP hosts that support MCP Apps. Usage:
@@ -1587,8 +1625,8 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
-- `/` - Study home. On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Decks · Library · More; student: Study · Decks · Tutor · Progress · More; account with students: Students · Decks · Study · More (+ Progress if they also study). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
 - `/decks` - Decks tab: deck list + card search (`?q=`; `/search` redirects here)
 - `/more` - Grouped More page (Practice / From your tutor / Teaching / Account / Advanced) — replaces the avatar dropdown
 - `/settings` - Bio · Offline audio (one line; audio downloads itself after every sync) · Backup · Start on · Sign out · Advanced (audio quality, playback quality, sentence coverage, feature requests, duplicate finder, full sync, update app, debug)
@@ -1605,4 +1643,5 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/connections/:relId/cards/:noteId`, `/connections/:relId/claude-chats` - Tutor's view of one of the student's cards (hub) / all their Ask-Claude conversations
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
 - `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
+- `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards

@@ -367,6 +367,64 @@ describe('SyncService', () => {
       expect(decks).toHaveLength(0);
     });
 
+    it('drops local decks the server no longer has even without a tombstone (deleted before tombstones existed)', async () => {
+      // Regression: a tutor deleted decks on 21 Sep, before deleted_items existed;
+      // incremental syncs never removed them and they stayed on her home page.
+      const snapshotAt = '2026-09-24T10:47:00.000Z';
+      await db.decks.bulkPut([
+        { ...createMockDeck('ghost-deck', 'MH Lesson 8.3'), created_at: '2026-09-21 06:10:11', _synced_at: Date.now() } as LocalDeck,
+        { ...createMockDeck('kept-deck', 'Lesson vocab – 23 Sep'), created_at: '2026-09-23 09:40:38', _synced_at: Date.now() } as LocalDeck,
+        // Created on this device while the sync request was in flight: not in the snapshot, must stay.
+        { ...createMockDeck('brand-new', 'Just made'), created_at: '2026-09-24 10:47:30', _synced_at: Date.now() } as LocalDeck,
+      ]);
+      await db.notes.put(createMockNote('ghost-note', 'ghost-deck', '边'));
+      await updateSyncMeta({
+        id: 'sync_state',
+        last_full_sync: Date.now() - 86400000,
+        last_incremental_sync: Date.now() - 3600000,
+        user_id: null,
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          decks: [],
+          notes: [],
+          cards: [],
+          deleted: { deck_ids: [], note_ids: [], card_ids: [] },
+          live_deck_ids: ['kept-deck'],
+          live_deck_ids_at: snapshotAt,
+          server_time: snapshotAt,
+        }),
+      });
+
+      await syncService.incrementalSync();
+
+      const ids = (await db.decks.toArray()).map(d => d.id).sort();
+      expect(ids).toEqual(['brand-new', 'kept-deck']);
+      expect(await db.notes.get('ghost-note')).toBeUndefined();
+    });
+
+    it('keeps every local deck when the server does not send live_deck_ids (older API)', async () => {
+      await db.decks.put({ ...createMockDeck('old-deck', 'Old'), _synced_at: Date.now() } as LocalDeck);
+      await updateSyncMeta({
+        id: 'sync_state',
+        last_full_sync: Date.now() - 86400000,
+        last_incremental_sync: Date.now() - 3600000,
+        user_id: null,
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          decks: [], notes: [], cards: [],
+          deleted: { deck_ids: [], note_ids: [], card_ids: [] },
+          server_time: new Date().toISOString(),
+        }),
+      });
+      await syncService.incrementalSync();
+      expect(await db.decks.count()).toBe(1);
+    });
+
     it('should update sync timestamp after successful incremental sync', async () => {
       const lastSync = Date.now() - 3600000;
       await updateSyncMeta({

@@ -29,6 +29,8 @@ import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
 import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
+import { findGhostDecks } from './deckReconcile';
+import { isTutorAccountCached } from './accountRole';
 import { preCacheAudio } from './audioCache';
 import { prefetchAllAudio } from './audioPrefetch';
 import { reportClientStateIfDue } from './clientState';
@@ -72,6 +74,9 @@ interface SyncChangesResponse {
     note_ids: string[];
     card_ids: string[];
   };
+  /** Every deck the account has, and when that list was taken (older servers omit both). */
+  live_deck_ids?: string[];
+  live_deck_ids_at?: string;
   server_time: string;
 }
 
@@ -416,7 +421,8 @@ class SyncService {
     // becomes tomorrow's reader). Idempotent server-side; throttled here
     // because sync runs frequently, and skipped entirely while today already
     // has a reader (ensureDailyReader's one-reader-a-day check).
-    if (Date.now() - this.lastDailyReaderEnsure > SyncService.DAILY_READER_ENSURE_MS) {
+    // A tutor account doesn't study: no daily story is generated for it.
+    if (!isTutorAccountCached() && Date.now() - this.lastDailyReaderEnsure > SyncService.DAILY_READER_ENSURE_MS) {
       this.lastDailyReaderEnsure = Date.now();
       ensureDailyReader().catch(err =>
         console.error('[Sync] Daily reader kick-off failed:', err)
@@ -560,6 +566,16 @@ class SyncService {
     await removeNotesLocally(changes.deleted.note_ids);
     if (changes.deleted.deck_ids.length || changes.deleted.note_ids.length) {
       console.log('[Sync] Removed', changes.deleted.deck_ids.length, 'deleted decks and', changes.deleted.note_ids.length, 'deleted notes');
+    }
+    // Decks the server no longer has but never tombstoned (deleted before
+    // tombstones existed): an incremental sync would otherwise keep them forever.
+    if (changes.live_deck_ids) {
+      const ghosts = findGhostDecks(await db.decks.toArray(), changes.live_deck_ids, changes.live_deck_ids_at);
+      if (ghosts.length > 0) {
+        console.log('[Sync] Removing', ghosts.length, 'decks the server no longer has:', ghosts);
+        await removeDecksLocally(ghosts);
+        this.lastSyncDetails.ghost_decks_removed = ghosts.length;
+      }
     }
 
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta], async () => {

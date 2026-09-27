@@ -91,8 +91,19 @@ export async function fetchHomeworkDecks(db: D1Database, relationshipId: string)
     )
     .bind(relationshipId)
     .all<HomeworkDeckInput>();
-  // A copy the student deleted contributes nothing to progress.
-  return (res.results || []).map((d) => (d.target_deck_name == null ? { ...d, cards_total: 0, cards_started: 0, cards_mastered: 0, notes_total: 0, notes_introduced: 0 } : d));
+  return dropGhostShares(res.results || []);
+}
+
+/**
+ * A share whose tutor deck AND student copy are both deleted is history, not
+ * homework — listing it kept a "(deleted)" packet on the student page. A copy
+ * the student deleted (tutor deck still there) stays, contributing nothing to
+ * progress; a copy whose tutor deck is gone stays too (the student still has it).
+ */
+export function dropGhostShares(rows: HomeworkDeckInput[]): HomeworkDeckInput[] {
+  return rows
+    .filter((d) => !(d.target_deck_name == null && d.source_deck_name === '(deleted)'))
+    .map((d) => (d.target_deck_name == null ? { ...d, cards_total: 0, cards_started: 0, cards_mastered: 0, notes_total: 0, notes_introduced: 0 } : d));
 }
 
 /** The student's whole deck queue (first = studied first), for queue positions on the homework rows. */

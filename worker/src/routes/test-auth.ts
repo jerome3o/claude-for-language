@@ -28,13 +28,15 @@ testAuth.use('*', async (c, next) => {
  * Request body:
  * - email: string (required) - Email for the test user
  * - name: string (optional) - Display name for the test user
+ * - role: 'student' | 'tutor' (optional) - users.role (a tutor account gets the tutor-first app)
+ * - is_admin: boolean (optional) - make the user an admin
  *
  * Response:
  * - session_token: string - Session token to use for authenticated requests
  * - user: User - The created/existing user object
  */
 testAuth.post('/auth', async (c) => {
-  const body = await c.req.json<{ email: string; name?: string }>();
+  const body = await c.req.json<{ email: string; name?: string; role?: 'student' | 'tutor'; is_admin?: boolean }>();
 
   if (!body.email) {
     return c.json({ error: 'Email is required' }, 400);
@@ -71,6 +73,15 @@ testAuth.post('/auth', async (c) => {
       .prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
       .bind(user.id)
       .run();
+  }
+
+  // Optional role / admin flag, so specs can seed a tutor account or an admin.
+  if (body.role === 'student' || body.role === 'tutor' || typeof body.is_admin === 'boolean') {
+    await db
+      .prepare('UPDATE users SET role = COALESCE(?, role), is_admin = COALESCE(?, is_admin) WHERE id = ?')
+      .bind(body.role ?? null, typeof body.is_admin === 'boolean' ? (body.is_admin ? 1 : 0) : null, user!.id)
+      .run();
+    user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(user!.id).first<User>();
   }
 
   // Create session for the user

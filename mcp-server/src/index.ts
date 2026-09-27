@@ -21,6 +21,7 @@ import { errorResult, guard, textResult, type ToolContext } from './tools/contex
 import { registerStudentTools } from './tools/students.js';
 import { registerContentTools } from './tools/content.js';
 import { registerHomeworkTools } from './tools/homework.js';
+import { registerAdminTools } from './tools/admin.js';
 import { registerTutorApps } from './tools/apps.js';
 
 interface User {
@@ -1923,6 +1924,8 @@ Keep lessons short and focused (1-3 sections, ~4-10 exercises). Always use tone-
     registerContentTools(ctx);
     registerHomeworkTools(ctx);
     registerTutorApps(ctx);
+    // Admin: accounts, roles, access requests, deletion (the API answers 403 to non-admins).
+    registerAdminTools(ctx);
   }
 }
 

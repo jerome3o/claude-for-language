@@ -12,6 +12,7 @@ import { DeckList, HOME_DECK_LIMIT } from '../components/home/DeckList';
 import { NextUpLine } from '../components/home/NextUpLine';
 import { moveDeckInQueue } from '../services/deckOrder';
 import { AddDeckModal } from '../components/home/AddDeckModal';
+import { TutorHome } from '../components/home/TutorHome';
 import { useHomework } from '../components/home/useHomework';
 import { useDeckOverview } from '../components/home/useDeckOverview';
 import { totalDue as sumDue } from '../components/home/studyEstimate';
@@ -29,7 +30,17 @@ import './HomePage.css';
 
 const COUNTS_CACHE_KEY = 'lastQueueCounts';
 
+/**
+ * `/`. A tutor account (users.role = 'tutor') gets the teaching home — no
+ * streak, due-card button, homework card or learner onboarding; everyone else
+ * the study home.
+ */
 export function HomePage() {
+  const { user } = useAuth();
+  return user?.role === 'tutor' ? <TutorHome /> : <StudyHome />;
+}
+
+function StudyHome() {
   const navigate = useNavigate();
   const { isOnline } = useNetwork();
   const { user } = useAuth();
