@@ -1097,6 +1097,15 @@ function computeNewCardsStudiedTodayByDeckShared(): Promise<Map<string, NewCards
 }
 
 /**
+ * "Introduced today" per deck recomputed from review events (NOT the dailyStats
+ * counter the queue reads). For debug reports: a difference between the two
+ * means the counter drifted.
+ */
+export function introducedTodayFromEvents(): Promise<Map<string, NewCardsStudiedToday>> {
+  return computeNewCardsStudiedTodayByDeckShared();
+}
+
+/**
  * Seed today's dailyStats counters for every deck so that subsequent reads never
  * fall through to event scanning. Call once on app load (and at day rollover).
  * Safe to call repeatedly; only writes rows that don't already exist, and
