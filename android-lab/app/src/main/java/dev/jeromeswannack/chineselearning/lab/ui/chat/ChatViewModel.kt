@@ -11,7 +11,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatNoteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.CheckResultDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DiscussionTurn
 import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
@@ -23,7 +23,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.aiRespond
 import dev.jeromeswannack.chineselearning.lab.data.api.chatMessages
 import dev.jeromeswannack.chineselearning.lab.data.api.checkChatMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.conversationTts
-import dev.jeromeswannack.chineselearning.lab.data.api.conversations
+import dev.jeromeswannack.chineselearning.lab.data.api.chatConversations
 import dev.jeromeswannack.chineselearning.lab.data.api.createDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.discussMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.displayName
@@ -90,7 +90,7 @@ data class ChatUi(
     val loadError: String? = null,
     val otherName: String = "",
     val otherIsClaude: Boolean = false,
-    val conversation: ConversationDto? = null,
+    val conversation: ChatConversationDto? = null,
     val myId: String? = null,
     /** 'tutor' | 'student' — my role in the relationship (toolsForMessage). */
     val viewerRole: String = "student",
@@ -158,13 +158,13 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         val cache = app.cache
         val me = Connections.myId(cache)
         val cachedRel = cache.get<RelationshipDto>(ConnectionsKeys.relationship(relId))
-        val cachedConvs = cache.get<List<ConversationDto>>(ConnectionsKeys.conversations(relId))
+        val cachedConvs = cache.get<List<ChatConversationDto>>(ConnectionsKeys.conversations(relId))
         val cachedMsgs = cache.get<List<ChatMessageDto>>(messagesKey)
         applyHeader(cachedRel, cachedConvs, me)
         if (cachedMsgs != null) _ui.update { it.copy(loading = false, messages = cachedMsgs) }
         try {
             val rel = api.relationship(relId).also { cache.put(ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND, it) }
-            val convs = api.conversations(relId).also { cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, it) }
+            val convs = api.chatConversations(relId).also { cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, it) }
             applyHeader(rel, convs, me)
             val page = api.chatMessages(convId)
             lastTimestamp = page.latest_timestamp
@@ -179,7 +179,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    private fun applyHeader(rel: RelationshipDto?, convs: List<ConversationDto>?, me: String?) {
+    private fun applyHeader(rel: RelationshipDto?, convs: List<ChatConversationDto>?, me: String?) {
         rel ?: return
         val other = rel.other(me)
         val tutorId = if (rel.requester_role == "tutor") rel.requester_id else rel.recipient_id
@@ -460,7 +460,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             try {
                 val c = api.renameConversation(convId, title.trim())
                 _ui.update { it.copy(saving = false, sheet = null, conversation = (it.conversation ?: c).copy(title = c.title ?: title.trim())) }
-                runCatching { app.cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, api.conversations(relId)) }
+                runCatching { app.cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, api.chatConversations(relId)) }
             } catch (e: Exception) {
                 _ui.update { it.copy(saving = false, modalNotice = Notice("Couldn't save the title.", true)) }
             }

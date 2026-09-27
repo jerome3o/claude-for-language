@@ -4,7 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatReplyToDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatSenderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CheckResultDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DiscussionTurn
 import dev.jeromeswannack.chineselearning.lab.data.api.ReactionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReactionUserDto
@@ -35,14 +35,14 @@ class ChatScreenshots : LabScreenshotTest() {
         )
         val base = ChatUi(
             loading = false, otherName = "王老师", myId = "me", viewerRole = "student",
-            conversation = ConversationDto("c1", "rel1", "Lesson questions"),
+            conversation = ChatConversationDto("c1", "rel1", "Lesson questions"),
             messages = messages, draft = "明天见！",
             wordByWord = setOf("m3"),
             segmentations = mapOf("m3" to SegmentedDto("Great! Which word do you find hardest?", SentenceBreakdownDto(chunks = listOf("太好了", "！", "你", "觉得", "哪个", "词", "最", "难", "？").map { SegmentChunk(it) }))),
         )
         val aiUi = ChatUi(
             loading = false, otherName = "Claude", otherIsClaude = true, myId = "me",
-            conversation = ConversationDto("c2", "rel2", "Restaurant Practice", scenario = "Ordering food at a Chinese restaurant", user_role = "A tourist", ai_role = "A friendly waiter", is_ai_conversation = true),
+            conversation = ChatConversationDto("c2", "rel2", "Restaurant Practice", scenario = "Ordering food at a Chinese restaurant", user_role = "A tourist", ai_role = "A friendly waiter", is_ai_conversation = true),
             messages = listOf(
                 ChatMessageDto("a1", sender_id = "claude-ai", sender = ChatSenderDto("claude-ai", "Claude"), content = "欢迎光临！请问几位？", created_at = at(5)),
                 ChatMessageDto("a2", sender_id = "me", sender = me, content = "两位，谢谢。", created_at = at(4)),

@@ -124,12 +124,12 @@ suspend fun Api.toggleReaction(messageId: String, emoji: String): ReactionAnswer
 @Serializable
 data class TitleBody(val title: String)
 
-suspend fun Api.renameConversation(conversationId: String, title: String): ConversationDto = patch("/api/conversations/${enc(conversationId)}", TitleBody(title))
+suspend fun Api.renameConversation(conversationId: String, title: String): ChatConversationDto = patch("/api/conversations/${enc(conversationId)}", TitleBody(title))
 
 @Serializable
 data class VoiceSettingsBody(val voice_id: String? = null, val voice_speed: Double? = null)
 
-suspend fun Api.setVoiceSettings(conversationId: String, voiceId: String?, speed: Double?): ConversationDto =
+suspend fun Api.setVoiceSettings(conversationId: String, voiceId: String?, speed: Double?): ChatConversationDto =
     patch("/api/conversations/${enc(conversationId)}/voice-settings", VoiceSettingsBody(voiceId, speed))
 
 // ---------------- Discuss with Claude ----------------
