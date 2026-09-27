@@ -52,6 +52,10 @@ data class BuiltQueue(
     val reviewedNoteIds: Set<String>,
     /** More new cards exist than today's budget admits — offer "Study 10 more". */
     val hasMoreNew: Boolean,
+    /** The per-deck new-card pools fed to the budget (in scope), for debug reports. */
+    val pools: List<DeckNewPool> = emptyList(),
+    /** What the budget gave each deck in scope (queue order). */
+    val allocation: Map<String, DeckAllocation> = emptyMap(),
 )
 
 object StudyQueue {
@@ -158,7 +162,7 @@ object StudyQueue {
             val a = alloc[p.deckId] ?: DeckAllocation(0, 0)
             p.totalNew + p.totalSecondaryNew > a.primary + a.secondary
         }
-        return BuiltQueue(due, reviewed, hasMoreNew)
+        return BuiltQueue(due, reviewed, hasMoreNew, pools, alloc)
     }
 
     fun counts(queue: Collection<QueueCard>, reviewedNoteIds: Set<String>): QueueCounts {

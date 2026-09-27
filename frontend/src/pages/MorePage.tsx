@@ -64,16 +64,17 @@ export function MorePage() {
   const maintenance = useMaintenanceActions();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // The Lesson Library is a teaching tool: shown to anyone with students, or
-  // anyone who already has library items (a tutor between students).
+  // The Lesson Library is a teaching tool: shown to anyone with students,
+  // anyone who already has library items (a tutor between students), and
+  // admins (so the exercise catalogue is one tap away whatever the role).
   const libraryQuery = useQuery({
     queryKey: ['lesson-library-count'],
     queryFn: async () => (await listLibrary()).length,
-    enabled: !role.hasStudents && !role.isTutorAccount && role.loaded,
+    enabled: !role.hasStudents && !role.isTutorAccount && !user?.is_admin && role.loaded,
     retry: false,
     staleTime: 5 * 60_000,
   });
-  const showTeaching = role.hasStudents || (libraryQuery.data ?? 0) > 0;
+  const showTeaching = role.hasStudents || !!user?.is_admin || (libraryQuery.data ?? 0) > 0;
 
   const pendingQuery = useQuery({
     queryKey: ['pending-feature-requests'],
@@ -110,6 +111,7 @@ export function MorePage() {
             <NavSection title="Teaching">
               <NavRow icon="👥" label="Students" desc="Progress, homework, messages" to="/connections" />
               <NavRow icon="🗂️" label="Lesson Library" desc="Mini lessons you assign — tap one to try it" to="/library" />
+              <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
               <NavRow icon="📚" label="Readers" desc="Graded stories to share with students" to="/readers" />
               <NavRow icon="📹" label="Video calls (beta)" desc="Lessons with a whiteboard, then a transcript" to="/calls" />
             </NavSection>
@@ -149,7 +151,7 @@ export function MorePage() {
         {showTeaching && (
           <NavSection title="Teaching">
             <NavRow icon="🗂️" label="Lesson Library" desc="Lessons you assign to students" to="/library" />
-            <NavRow icon="🧭" label="Exercise catalogue" desc="Every exercise type, with sample lessons to try" to="/library/catalogue" />
+            <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
           </NavSection>
         )}
         </>)}

@@ -71,9 +71,11 @@ class HomeActions(
     val onSignIn: () -> Unit = {},
     val onToggleSound: (Boolean) -> Unit = {},
     val onToggleHaptics: (Boolean) -> Unit = {},
+    val onSendDebugReport: () -> Unit = {},
 )
 
-data class HomeSettings(val soundOn: Boolean, val hapticsOn: Boolean)
+/** [debugReport]: the last "Send debug report" outcome (data/DebugReport.kt), null = none yet. */
+data class HomeSettings(val soundOn: Boolean, val hapticsOn: Boolean, val debugReport: String? = null, val sendingDebugReport: Boolean = false)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -233,7 +235,7 @@ private fun DeckRow(deck: DeckSummary, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: HomeActions) {
+internal fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: HomeActions) {
     var sound by remember { mutableStateOf(settings.soundOn) }
     var haptics by remember { mutableStateOf(settings.hapticsOn) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
@@ -250,6 +252,15 @@ private fun SettingsSheet(sync: SyncStatus, settings: HomeSettings, actions: Hom
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = actions.onFullSync) { Text("Full resync", color = Lab.colors.accent) }
         TextButton(onClick = actions.onOpenFullApp) { Text("Open the main app", color = Lab.colors.accent) }
+        TextButton(onClick = actions.onSendDebugReport, enabled = !settings.sendingDebugReport) {
+            Text(if (settings.sendingDebugReport) "Sending debug report…" else "Send debug report", color = Lab.colors.accent)
+        }
+        Text(
+            settings.debugReport ?: "Uploads what this phone thinks is due, to compare with the web app",
+            style = MaterialTheme.typography.bodySmall,
+            color = Lab.colors.muted,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
         TextButton(onClick = actions.onSignOut) {
             Text(if (sync.unsynced > 0) "Sign out (${sync.unsynced} reviews not uploaded yet!)" else "Sign out", color = Palette.Again)
         }

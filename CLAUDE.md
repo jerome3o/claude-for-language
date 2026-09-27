@@ -120,6 +120,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
 │   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
+│   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
@@ -300,6 +301,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `access_requests` - Uninvited Google sign-in attempts (email, attempts, status pending/approved/dismissed) for the admin to approve
 - `tutor_note_jobs` - Session-notes agent jobs (relationship, tutor, student, notes, priority, auto_share, status queued/running/done/failed/cancelled, progress, `steps` JSON, `transcript` JSON checkpoint, rounds, `result` JSON, error). Migration 0072. See "Session notes → homework agent"
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
+- `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
 - `messages` - Individual chat messages
@@ -870,9 +872,11 @@ item's assignments via `last_attempt_id`); the learner's own at `/lesson-attempt
 - `GET /api/lesson-attempts[?lesson_id]`, `GET /api/lesson-attempts/:id` - Mine; `GET /api/relationships/:relId/lesson-attempts[/:id]` - the student's (tutor)
 - `POST /api/lessons/sentence-feedback` - `{ words, task?, sentence }` → `{ feedback }` (503 retryable / 502)
 
-**Exercise catalogue** (`/library/catalogue`, `pages/editor/ExerciseCataloguePage.tsx`, linked from the library
-and More → Teaching): every type from the registry with its sample lesson — **Try it** runs the sample in the
-real player with `trial` (nothing recorded), **Copy to my library** creates a library item. The library's
+**Exercise catalogue** (`/library/catalogue`, `pages/editor/ExerciseCataloguePage.tsx`, linked from the top of
+the library, More → Teaching — shown to tutor accounts, anyone with students or library items, and admins whatever
+their role — and the admin page; no role guard on the route): every type from the registry with its sample lesson —
+**Try it** runs the sample in the real player with `preview` (nothing recorded: no rating, no completion event, no
+attempt, no recording kept), **Copy to my library** creates a library item. The library's
 New lesson sheet also drafts a conversation lesson from just a situation + level. Sending a lesson (one-off with a
 due date, or long-term review) is the homework model's job (docs/HOMEWORK.md, `kind: 'lesson'` covers every exercise
 type); a lesson finished in a homework pass records its attempt exactly like one in a study session.
@@ -985,6 +989,25 @@ summary, corrections, card-standard vocabulary). Processing is readiness-driven
 - `POST /api/calls/:id/end` · `POST /api/calls/:id/process` (force-close stale pieces, retry failures, redo the report)
 - `POST /api/calls/:id/pieces` · `PUT /api/calls/:id/pieces/:pieceId/chunks/:idx` · `POST /api/calls/:id/pieces/:pieceId/close`
 - `POST /api/calls/:id/flashcards` `{ deck_id? | deck_name?, words }` → notes via the content service
+
+### Debug reports: web app vs Lab app (`worker/src/routes/debug-reports.ts`, `services/debug-reports.ts`, `shared/debug/`)
+When the two apps disagree about what is due, each uploads a **study-state report** built from its
+local store with the SAME functions its home screen and study queue use — web:
+`frontend/src/services/debugReport.ts` (`getRawQueueCounts` + `allocateQueueCounts` like HomePage,
+`getStudyQueue`, `getDueReaders`, `readBonus`, homework via `loadHomeworkItems`); Lab:
+`android-lab/app/…/data/DebugReport.kt` (`StudyQueue.introducedToday / cutoff / build / counts` like
+HomeViewModel). One shape (`shared/debug/report.ts`, keep `DebugReport.kt` in step): timezone, now,
+cutoff, day start, budget, bonus, sync cursors, totals, what the home screen shows, the queue a session
+would get, per-deck caps / introduced today / pools / allocation / counts, compact per-card rows
+`[card_id, note_id, deck_id, card_type, queue, due_ms, reps, lapses, event_count, in_due_queue,
+first_review_ms]` and every event id as an 8-hex FNV-1a `eventIdHash` (same vectors tested in TS and
+Kotlin). Uploaded after a sync at most every 30 min, and on demand: web **Settings → Advanced → Send
+debug report**, Lab **home ⚙ → Send debug report**. `compareDebugReports` (pure, unit-tested) diffs two
+reports plus the server's own `review_events` (which side is missing events / holds unuploaded ones).
+- `POST /api/debug/reports` - `{ client: 'lab'|'web', app_version, install_kind?, report }`, JSON or gzip (`Content-Type: application/gzip`) → 201 `{ report: row }`
+- `GET /api/debug/reports?client=&limit=` - index rows newest first (with `summary`)
+- `GET /api/debug/reports/:id?section=overview|decks|cards|events|full&offset&limit&deck_id&queue&in_due_queue&card_id`
+- `GET /api/debug/compare?a=&b=&max_cards=&server=0` - diff; defaults a = newest lab, b = newest web
 
 ### Stats
 - `GET /api/stats/overview` - Overall statistics
@@ -1484,6 +1507,16 @@ id or an email. Unit-tested in `tools/admin.test.ts`.
 | `admin_set_can_invite` | Allow / stop invite links |
 | `admin_preview_delete_user` / `admin_delete_user` | What an account deletion removes / keeps; delete with `confirm_email` |
 | `admin_list_access_requests` / `admin_handle_access_request` | Uninvited sign-in attempts; approve / dismiss |
+
+#### Debug tools (`mcp-server/src/tools/debug.ts`)
+
+The signed-in user's own study-state reports (see "Debug reports" above); nothing returns a whole report.
+
+| Tool | What it does |
+|------|--------------|
+| `list_debug_reports` | Reports newest first (`client` lab / web), each with its summary (home total + counts, queue size, cards, events, unsynced) |
+| `get_debug_report` | One report by id (or `latest_lab` / `latest_web`), a `section` at a time: overview (default), decks, cards (paged, filter by deck / queue / in_due_queue / card), events (paged hashes) |
+| `compare_debug_reports` | Server-side diff, default newest lab (a) vs newest web (b): hints, context, headline numbers, per-deck differences, differing cards with the server's event count, one-sided cards and events |
 
 ### Study Tool (MCP App)
 

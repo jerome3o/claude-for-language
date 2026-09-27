@@ -27,7 +27,7 @@ import {
   type WritingCue,
   type WritingInput,
 } from '@shared/lesson';
-import { writableCharacters, type WritingExerciseResult } from '@shared/strokes';
+import { writableCharacters, writtenFromMemory, type WritingExerciseResult } from '@shared/strokes';
 import { HandwritingPad } from './handwriting/HandwritingPad';
 import { WritingExercise } from './strokes/WritingExercise';
 import { getStrokeData } from '../services/strokeData';
@@ -340,9 +340,9 @@ function summarizeWriting(r: WritingExerciseResult): StrokeWritingSummary {
   };
 }
 
-/** Right when written from memory without the app filling strokes in. */
+/** Right only when written from memory; a Trace run (or switching to Trace) counts as needing help. */
 function strokeRunCorrect(r: WritingExerciseResult): boolean {
-  return r.mode === 'recall' && r.grade !== 'practice';
+  return writtenFromMemory(r);
 }
 
 function strokeAnswer(r: WritingExerciseResult): HandwritingAnswer {

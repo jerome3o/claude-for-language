@@ -916,6 +916,13 @@ export function SettingsPage() {
                   onClick={maintenance.copyDump}
                   disabled={maintenance.isDumping}
                 />
+                <NavRow
+                  icon="📡"
+                  label={maintenance.isSendingReport ? 'Sending report…' : 'Send debug report'}
+                  desc={maintenance.reportStatus ?? 'Upload what this device thinks is due, to compare with the Lab app'}
+                  onClick={maintenance.sendReport}
+                  disabled={maintenance.isSendingReport}
+                />
               </div>
             </div>
           )}

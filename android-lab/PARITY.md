@@ -61,6 +61,7 @@ main app / website at that screen instead) · ➖ not applicable natively
 | One-off homework pass: word list (each word once, "Not yet" words again until right), lesson / reader once; events offline + uploaded (`/api/me/homework/events`); one-off lessons / readers kept out of the FSRS rotation; one-off decks capped out of the budget + "Add to my daily review" | ⬜ | `pages/HomeworkPassPage.tsx`, `pages/HomeworkPage.tsx`, `shared/homework/pass.ts`, docs/HOMEWORK.md |
 | Progress (mastered, % per deck, daily counts) | ⬜ | Progress tab |
 | Settings: study budget, start on, offline mode, audio quality | 🟡 sound/haptics toggles, resync, sign out only | `SettingsPage` |
+| Study-state debug report (upload after sync, "Send debug report"), diffed with the web app's | ✅ unit + contract-tested | `services/debugReport.ts`, `shared/debug/`, Settings → Advanced (Lab: `data/DebugReport.kt`, home ⚙ sheet) |
 
 ## Everything else (opens the main app for now)
 
@@ -77,7 +78,7 @@ main app / website at that screen instead) · ➖ not applicable natively
 | Handwriting / stroke-order practice (preview: `/practice/strokes`, study ⋯ → Write it) | ⬜ — port `shared/strokes` (pure matcher + quiz, unit-tested) to `core/` with parity vectors, draw on a Compose `Canvas` with `pointerInput`; see docs/STROKE_ORDER.md |
 | Readers list & reader editor | ⬜ |
 | Mini lessons list & editor | ⬜ |
-| Exercise catalogue with sample-lesson trials (`/library/catalogue`) | ⬜ |
+| Exercise catalogue with sample-lesson trials (`/library/catalogue`; entry points: More → Teaching → Exercise catalogue for tutor accounts, anyone with students / library items and admins; top of the Lesson Library; admin page) | ⬜ |
 | Lesson attempt review — tutor (`/connections/:relId/lesson-attempts`) and "My answers" (`/lesson-attempts`) | ⬜ |
 | Video calls | ⬜ |
 | Invites / onboarding / sign-up | ➖ (sign-in only; accounts are made on the web) |
