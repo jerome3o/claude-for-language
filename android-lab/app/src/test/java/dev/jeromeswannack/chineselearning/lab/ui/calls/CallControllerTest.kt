@@ -166,6 +166,12 @@ class CallControllerTest {
         assertEquals(CallPhase.PREJOIN, rig.controller.state.value.phase)
         assertEquals("The microphone is blocked.", rig.controller.state.value.mediaError)
         assertEquals(0, rig.room.connects)
+        // Allowed in Settings → "Allow" opens the media again.
+        rig.media.result = MediaOpen.Ok
+        rig.controller.startPreview()
+        runCurrent()
+        assertTrue(rig.controller.state.value.mediaReady)
+        assertNull(rig.controller.state.value.mediaError)
     }
 
     @Test fun audioOnlyWhenThereIsNoCamera() = runTest(UnconfinedTestDispatcher()) {

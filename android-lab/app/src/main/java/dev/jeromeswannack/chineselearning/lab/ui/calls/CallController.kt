@@ -174,7 +174,9 @@ class CallController(
 
     /** Opens the camera + mic for the preview (after the permissions are granted). */
     fun startPreview(): Job {
-        opening?.let { return it }
+        // A run in flight (or one that opened the media) is reused; a failed one is retried (the
+        // permission was granted after a refusal).
+        opening?.let { if (it.isActive || _state.value.mediaReady) return it }
         return scope.launch {
             when (val r = media.open()) {
                 MediaOpen.Ok -> _state.update { it.copy(mediaReady = true, mediaError = null, hasCamera = media.hasCamera, localVideo = media.cameraVideo, frontCamera = media.frontCamera) }
