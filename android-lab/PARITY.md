@@ -133,16 +133,19 @@ Owns `ui/decks/` (incl. the `/decks` stub), `ui/cards/` (card hub), `data/api/De
 
 ## D — Progress & settings (web: `MyProgressPage.tsx`, `SettingsPage.tsx`)
 
-Owns `ui/progress/` (incl. the `/progress` stub), `ui/settings/` (`/settings`, `/settings/sentences`, `/duplicate-finder`, `/study/review/:id`), `data/api/ProgressApi.kt`, `SettingsApi.kt`. More → Lab app rows stay in `ui/more/` (shell).
+Owns `ui/progress/` (incl. the `/progress` stub, `/progress/day/…`, `/study/review/:id`), `ui/settings/` (`/settings`, `/settings/sentences`, `/duplicate-finder`), `data/progress/`, `data/settings/`, `data/api/ProgressApi.kt`, `SettingsApi.kt`, `core/…/Progress.kt` + `OfflineMode.kt` + `Duplicates.kt`, `parity/fixtures/progress.ts`. More → Lab app rows stay in `ui/more/` (shell).
 
 | Feature | Status | Web source |
 |---|---|---|
-| Progress: cards mastered, % through each deck, daily review counts, streak | ⬜ | `pages/MyProgressPage.tsx` |
-| Day detail / card on a day | ⬜ | `MyDayDetailPage.tsx`, `MyCardReviewDetailPage.tsx` |
-| Session review | ⬜ | `SessionReviewPage.tsx` |
-| Settings: study budget (`PUT /api/profile/study-budget`), Start on (`PUT /api/profile/landing-page`), bio, backup | ⬜ (sound/haptics/resync/sign-out ✅ in More) | `pages/SettingsPage.tsx` |
-| Sentence coverage page | ⬜ | `SentenceCoveragePage.tsx` |
-| Duplicate finder | ⬜ | `DuplicateFinderPage.tsx` |
+| Progress: cards mastered, % through each deck, daily review counts, streak | ✅ from the phone's own events (offline); the numbers are `core/…/Progress.kt`, parity-tested against `shared/progress` (the definition the server's SQL follows — `my-progress-parity.test.ts`). Streak + 30-day heatmap, mastery ring, reviews-a-day chart (tap a bar → the day), % mastered per deck in queue order, the web's 30-day summary + daily list | `pages/MyProgressPage.tsx`, `components/StudyStreak.tsx`, `DeckDetailPage.tsx` mastery |
+| Day detail / card on a day | ✅ local; the review's recording comes from the server when online (the phone keeps no recording URLs); 🎤 marker on the day list is web-only | `MyDayDetailPage.tsx`, `MyCardReviewDetailPage.tsx` |
+| Session review | ✅ (server data, cached) | `SessionReviewPage.tsx` |
+| Settings: study budget (`PUT /api/profile/study-budget`, writes `Prefs.budget`), Start on (`PUT /api/profile/landing-page`), bio, offline audio line + Download now, backup (Save as…), sign out, sound / haptics | ✅ writes need a connection, like the web | `pages/SettingsPage.tsx` |
+| Offline mode (automatic + forced override) | ✅ Settings → Offline mode and the study top-bar pill (A) share ONE flag, `ui/study/StudyPrefs.forcedOffline`; labels from `core/…/OfflineMode.kt`; `fx/WordAudio` never streams while forced | `services/offlineMode.ts`, `OfflineModeToggle.tsx` |
+| Advanced: audio quality (check / regenerate fallback clips), feature requests (list, detail + comments, 💬 send feedback), full sync + last-sync timings, send debug report, update app (→ GitHub releases) | ✅ | `SettingsPage.tsx` |
+| Native playback panel, playback-quality report, debug console, copy debug dump | ➖ web / hybrid-app tools (the Lab has its own debug report + sync timings) | `SettingsPage.tsx` |
+| Sentence coverage page (polling while jobs run, generate 20/100, clue audio, sync to this device) | ✅ | `SentenceCoveragePage.tsx` |
+| Duplicate finder | ✅ (`core/…/Duplicates.kt`) | `DuplicateFinderPage.tsx` |
 
 ## E — Tutor tab for students (web: `ConnectionsPage.tsx`, `ConnectionDetailPage.tsx`, `ChatPage.tsx`)
 

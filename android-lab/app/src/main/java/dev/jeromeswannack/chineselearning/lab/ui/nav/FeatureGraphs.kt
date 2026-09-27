@@ -10,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.library.libraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.more.moreGraph
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.placeholderGraph
 import dev.jeromeswannack.chineselearning.lab.ui.progress.progressGraph
+import dev.jeromeswannack.chineselearning.lab.ui.settings.settingsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.study.studyGraph
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.teachingGraph
 import dev.jeromeswannack.chineselearning.lab.ui.strokes.strokesGraph
@@ -28,6 +29,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     connectionsGraph(nav)   // "/connections" E (+ F dashboard)
     libraryGraph(nav)       // "/library"     G
     moreGraph(nav)          // "/more"        shell
+    settingsGraph(nav)      // "/settings"   D
     teachingGraph(nav)      // "/connections/{relId}/…" F (tutor side)
     cardsGraph(nav)         // "/cards/:noteId" C (card hub)
     strokesGraph(nav)       // "/practice/strokes" H
