@@ -147,7 +147,7 @@ class LibraryModelTest {
     @Test fun startBlankPostsTheWebBlankSpecAndOpensTheEditor() = runBlocking {
         routes["POST /api/lesson-library"] = ok(itemJson, 201)
         val model = LibraryModel(scope, deps)
-        val effect = async { withTimeout(10_000) { model.effects.first() } }
+        val effect = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { withTimeout(10_000) { model.effects.first() } }
         model.openNewLesson()
         model.startBlank()
         assertEquals(LibraryEffect.Open(Routes.libraryEdit("new1")), effect.await())
@@ -172,7 +172,7 @@ class LibraryModelTest {
     @Test fun importUnwrapsAnExportAndOpensTheItem() = runBlocking {
         routes["POST /api/lesson-library/import"] = ok("""{"id":"imp1","title":"Weather","spec":{"title":"Weather","sections":[]}}""", 201)
         val model = LibraryModel(scope, deps)
-        val effect = async { withTimeout(10_000) { model.effects.first() } }
+        val effect = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { withTimeout(10_000) { model.effects.first() } }
         model.importJson("""{"version":1,"spec":{"title":"Weather","sections":[]}}""")
         assertEquals(LibraryEffect.Open(Routes.libraryItem("imp1")), effect.await())
         assertEquals("Weather", Json.parseToJsonElement(body("POST /api/lesson-library/import")).jsonObject["spec"]!!.jsonObject["title"]!!.jsonPrimitive.content)
@@ -208,7 +208,7 @@ class LibraryModelTest {
     @Test fun catalogueCopyCreatesALibraryItemAndOpensItsEditor() = runBlocking {
         routes["POST /api/lesson-library"] = ok(itemJson, 201)
         val model = CatalogueModel(scope, deps)
-        val open = async { withTimeout(10_000) { model.opens.first() } }
+        val open = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { withTimeout(10_000) { model.opens.first() } }
         val sample = LibrarySamples.conversationSample
         model.copy(sample)
         assertEquals(Routes.libraryEdit("new1"), open.await())

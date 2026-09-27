@@ -824,6 +824,11 @@ export interface TranscriptionResult {
   language: string;
 }
 
+/** POST /api/transcribe/live — a short-lived Soniox key for streaming, or { provider: 'upload' }. */
+export async function getLiveTranscriptionSession(): Promise<import('@shared/transcription/soniox').LiveTranscriptionSession> {
+  return fetchJSON('/transcribe/live', { method: 'POST' });
+}
+
 export async function transcribeAudio(audioBlob: Blob): Promise<TranscriptionResult> {
   const formData = new FormData();
   formData.append('file', audioBlob, 'recording.webm');
