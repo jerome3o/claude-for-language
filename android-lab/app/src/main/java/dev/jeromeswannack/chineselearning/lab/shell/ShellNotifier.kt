@@ -105,7 +105,9 @@ object ShellNotifier {
         if (due.isEmpty()) return
         val path = if (due.size == 1) Routes.homeworkPass(due[0].item.id) else Routes.homework()
         val lines = due.map(ShellRules::homeworkLine)
-        val style = NotificationCompat.InboxStyle().also { s -> lines.take(5).forEach(s::addLine) }
+        val style: NotificationCompat.Style =
+            if (lines.size == 1) NotificationCompat.BigTextStyle().bigText(lines[0])
+            else NotificationCompat.InboxStyle().also { s -> lines.take(5).forEach(s::addLine) }
         post(ctx, ID_HOMEWORK, NotificationCompat.Builder(ctx, CHANNEL_HOMEWORK)
             .setSmallIcon(R.drawable.ic_stat_lab)
             .setColor(ContextCompat.getColor(ctx, R.color.shell_accent))
@@ -113,6 +115,7 @@ object ShellNotifier {
             .setContentText(lines.first())
             .setStyle(style)
             .setContentIntent(ShellLinks.pending(ctx, 30, path))
+            .setShowWhen(false)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .build())
@@ -133,6 +136,7 @@ object ShellNotifier {
             .setSmallIcon(R.drawable.ic_stat_lab)
             .setColor(ContextCompat.getColor(ctx, R.color.shell_accent))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setShowWhen(false) // a card isn't an event with a time
             // Tapping the body opens a full study session (the hybrid's /study?autostart=true).
             .setContentIntent(ShellLinks.pending(ctx, 0, ShellLinks.STUDY))
             .setOnlyAlertOnce(true)

@@ -67,7 +67,7 @@ fun NotificationsRow(ui: NotificationsRowUi, onChange: (Boolean) -> Unit) {
     val desc = when {
         !ui.on -> "Off — no due-card or homework reminders"
         !ui.permitted -> "Blocked by Android — tap to allow"
-        else -> "A due card every hour (08:00–22:00) — answer it from the notification. Homework due today, once a day."
+        else -> "A due card to answer each hour, 08:00–22:00; homework due, once a day"
     }
     ToggleRow("🔔", "Due-card notifications", checked = ui.on && ui.permitted, desc = desc, onChange = onChange)
 }
