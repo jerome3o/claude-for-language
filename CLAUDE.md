@@ -118,7 +118,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   └── index.ts       # Re-exports
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
-│   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck
+│   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
