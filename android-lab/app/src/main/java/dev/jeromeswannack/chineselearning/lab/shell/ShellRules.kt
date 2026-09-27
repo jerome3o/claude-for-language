@@ -149,22 +149,64 @@ object ShellRules {
         val total get() = due.total
     }
 
-    data class WidgetText(val count: String, val caption: String, val detail: String, val homework: String?)
+    /** [short] is the one-word caption of the tiny 2×1 widget ("due", "done"). */
+    data class WidgetText(val count: String, val caption: String, val detail: String, val homework: String?, val short: String)
 
     fun widgetText(m: WidgetModel): WidgetText {
-        if (!m.signedIn) return WidgetText("学", "Lab", "Sign in to start studying", null)
+        if (!m.signedIn) return WidgetText("学", "Lab", "Tap to sign in", null, "Lab")
         val hw = when {
             m.homework.isEmpty() -> null
             m.homework.size == 1 -> "📝 ${m.homework[0].item.title} · ${m.homework[0].label}"
             else -> "📝 ${m.homework.size} homework " + if (m.homework.any { it.days < 0 }) "· overdue" else "· due today"
         }
-        if (m.total == 0) return WidgetText("✓", "All done", "Nothing due today", hw)
+        if (m.total == 0) return WidgetText("✓", "All done", "Nothing due today", hw, "done")
         val minutes = maxOf(1, Math.round(m.total * SECONDS_PER_CARD / 60f))
         return WidgetText(
             count = m.total.toString(),
             caption = if (m.total == 1) "card due" else "cards due",
             detail = "about $minutes min",
             homework = hw,
+            short = "due",
         )
+    }
+
+    /**
+     * The widget's layout for its size on the home screen (it is resizable from 2×1 up):
+     * one row — [TINY] count + 学, [ROW] count + caption + 学, [ROW_WIDE] + 学 Study pill + ✏️;
+     * two rows or more — [SQUARE] count + caption + 学 Study, [FULL] + ✏️ Coach.
+     */
+    enum class WidgetSize { TINY, ROW, ROW_WIDE, SQUARE, FULL }
+
+    /** Minimum width / height (dp) of each layout — the Android 12+ size map's keys. */
+    data class WidgetAnchor(val widthDp: Float, val heightDp: Float, val size: WidgetSize)
+
+    const val WIDGET_ROW_DP = 200f
+    const val WIDGET_WIDE_DP = 300f
+    /** Taller than this is two launcher rows (one row is ≲ 120dp on phones and the Fold). */
+    const val WIDGET_TALL_DP = 140f
+
+    /**
+     * A full grid (3 widths × 2 heights) on purpose: Android 12+ shows the anchor nearest the
+     * real size among those that fit, and with a full grid that is always the widest and
+     * tallest one that fits — exactly [widgetSize], so pre-12 and 12+ agree.
+     */
+    val WIDGET_ANCHORS = listOf(
+        WidgetAnchor(100f, 40f, WidgetSize.TINY),
+        WidgetAnchor(WIDGET_ROW_DP, 40f, WidgetSize.ROW),
+        WidgetAnchor(WIDGET_WIDE_DP, 40f, WidgetSize.ROW_WIDE),
+        WidgetAnchor(100f, WIDGET_TALL_DP, WidgetSize.SQUARE),
+        WidgetAnchor(WIDGET_ROW_DP, WIDGET_TALL_DP, WidgetSize.FULL),
+        WidgetAnchor(WIDGET_WIDE_DP, WIDGET_TALL_DP, WidgetSize.FULL),
+    )
+
+    /** The layout for a widget of [widthDp] × [heightDp] (pre-12 launchers, from the widget's options). */
+    fun widgetSize(widthDp: Float, heightDp: Float): WidgetSize {
+        if (widthDp <= 0f || heightDp <= 0f) return WidgetSize.ROW // options not reported yet: the default 3×1
+        if (widthDp < WIDGET_ANCHORS[0].widthDp || heightDp < WIDGET_ANCHORS[0].heightDp) return WidgetSize.TINY
+        val tall = heightDp >= WIDGET_TALL_DP
+        return when {
+            widthDp >= WIDGET_ROW_DP -> if (tall) WidgetSize.FULL else if (widthDp >= WIDGET_WIDE_DP) WidgetSize.ROW_WIDE else WidgetSize.ROW
+            else -> if (tall) WidgetSize.SQUARE else WidgetSize.TINY
+        }
     }
 }
