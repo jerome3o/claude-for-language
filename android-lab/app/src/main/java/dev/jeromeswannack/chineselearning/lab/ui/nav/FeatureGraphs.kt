@@ -16,6 +16,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.settings.settingsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.study.studyGraph
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.teachingGraph
 import dev.jeromeswannack.chineselearning.lab.ui.strokes.strokesGraph
+import dev.jeromeswannack.chineselearning.lab.ui.quests.questsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.coach.coachGraph
+import dev.jeromeswannack.chineselearning.lab.ui.analyze.analyzeGraph
 
 /**
  * THE registry of screens — one line per feature, nothing else. Each feature registers its
@@ -38,6 +41,9 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     cardsGraph(nav)         // "/cards/:noteId" C (card hub)
     strokesGraph(nav)       // "/practice/strokes" H
     lessonsGraph(nav)       // "/lessons", "/lesson-attempts"  B
+    questsGraph(nav)        // "/quests"     H
+    coachGraph(nav)         // "/coach"      H
+    analyzeGraph(nav)       // "/analyze"    H
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }
