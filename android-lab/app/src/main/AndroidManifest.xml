@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- shell/: due-card + homework notifications (asked once after sign-in on Android 13+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <!-- Open-in-main-app hand-off and Custom Tabs for sign-in. -->
@@ -50,6 +52,38 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="chineselearning-lab" />
             </intent-filter>
+            <!-- shell/: launcher long-press shortcuts (Study / Coach / Analyze). -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shell_shortcuts" />
         </activity>
+
+        <!-- ===== Native shell (shell/, package I). Own ids/labels: never clashes with the hybrid app. ===== -->
+        <!-- Select text anywhere → ⋮ → "Coach (Lab)" → /coach?text=… -->
+        <activity
+            android:name=".shell.ProcessTextActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/shell_process_text_label"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Card notification actions: Show answer / Again / Good / Easy / Next card. -->
+        <receiver android:name=".shell.ShellActionReceiver" android:exported="false" />
+
+        <!-- Home-screen widget: today's due count + Study / Coach. -->
+        <receiver
+            android:name=".shell.DueWidgetProvider"
+            android:exported="false"
+            android:label="@string/shell_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/shell_widget_due_info" />
+        </receiver>
+        <!-- ===== end native shell ===== -->
     </application>
 </manifest>
