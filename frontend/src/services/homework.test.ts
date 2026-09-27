@@ -114,6 +114,19 @@ describe('one-off lessons and readers stay out of FSRS', () => {
   });
 });
 
+describe('a word pass is not an FSRS review (Jerome: no tsunami of reviews)', () => {
+  it('Got it / Not yet in a "both" pass write homework events only — no review events', async () => {
+    await db.homeworkAssignments.put(assignment({ id: 'both', mode: 'both' }));
+    const before = await db.reviewEvents.count();
+    await recordPassEvent('both', 'n1', 'wrong');
+    await recordPassEvent('both', 'n1', 'right');
+    await recordPassEvent('both', 'n2', 'right');
+    expect(await db.reviewEvents.count()).toBe(before);
+    const events = await db.homeworkEvents.where('assignment_id').equals('both').toArray();
+    expect(events.map((e) => e.result).sort()).toEqual(['right', 'right', 'wrong']);
+  });
+});
+
 describe('syncHomework', () => {
   it('uploads local events, then mirrors the server (deletes gone rows, merges other devices\' events)', async () => {
     await db.homeworkAssignments.bulkPut([assignment({ id: 'keep' }), assignment({ id: 'gone' })]);

@@ -713,3 +713,13 @@
   width: 100%;
   min-height: 44px;
 }
+
+/* Shortcuts to admin-useful pages that live elsewhere (e.g. the exercise catalogue). */
+.admin-shortcuts {
+  margin: 0.25rem 0 1.25rem;
+}
+
+/* The admin page sizes to its content, so let descriptions wrap instead of widening it. */
+.admin-shortcuts .nav-row-desc {
+  white-space: normal;
+}

@@ -78,7 +78,7 @@ main app / website at that screen instead) · ➖ not applicable natively
 | Handwriting / stroke-order practice (preview: `/practice/strokes`, study ⋯ → Write it) | ⬜ — port `shared/strokes` (pure matcher + quiz, unit-tested) to `core/` with parity vectors, draw on a Compose `Canvas` with `pointerInput`; see docs/STROKE_ORDER.md |
 | Readers list & reader editor | ⬜ |
 | Mini lessons list & editor | ⬜ |
-| Exercise catalogue with sample-lesson trials (`/library/catalogue`) | ⬜ |
+| Exercise catalogue with sample-lesson trials (`/library/catalogue`; entry points: More → Teaching → Exercise catalogue for tutor accounts, anyone with students / library items and admins; top of the Lesson Library; admin page) | ⬜ |
 | Lesson attempt review — tutor (`/connections/:relId/lesson-attempts`) and "My answers" (`/lesson-attempts`) | ⬜ |
 | Video calls | ⬜ |
 | Invites / onboarding / sign-up | ➖ (sign-in only; accounts are made on the web) |

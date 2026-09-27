@@ -872,9 +872,11 @@ item's assignments via `last_attempt_id`); the learner's own at `/lesson-attempt
 - `GET /api/lesson-attempts[?lesson_id]`, `GET /api/lesson-attempts/:id` - Mine; `GET /api/relationships/:relId/lesson-attempts[/:id]` - the student's (tutor)
 - `POST /api/lessons/sentence-feedback` - `{ words, task?, sentence }` → `{ feedback }` (503 retryable / 502)
 
-**Exercise catalogue** (`/library/catalogue`, `pages/editor/ExerciseCataloguePage.tsx`, linked from the library
-and More → Teaching): every type from the registry with its sample lesson — **Try it** runs the sample in the
-real player with `trial` (nothing recorded), **Copy to my library** creates a library item. The library's
+**Exercise catalogue** (`/library/catalogue`, `pages/editor/ExerciseCataloguePage.tsx`, linked from the top of
+the library, More → Teaching — shown to tutor accounts, anyone with students or library items, and admins whatever
+their role — and the admin page; no role guard on the route): every type from the registry with its sample lesson —
+**Try it** runs the sample in the real player with `preview` (nothing recorded: no rating, no completion event, no
+attempt, no recording kept), **Copy to my library** creates a library item. The library's
 New lesson sheet also drafts a conversation lesson from just a situation + level. Sending a lesson (one-off with a
 due date, or long-term review) is the homework model's job (docs/HOMEWORK.md, `kind: 'lesson'` covers every exercise
 type); a lesson finished in a homework pass records its attempt exactly like one in a study session.

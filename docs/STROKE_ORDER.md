@@ -101,6 +101,17 @@ letters in a word are ignored.
 | `frontend/src/pages/StrokePracticePage.tsx` | `/practice/strokes` |
 | `e2e/tests/stroke-practice.spec.ts` | Data served; wrong order called out; 十 written to the summary |
 
+### Scoring in mini lessons (Jerome's decision)
+
+In a `write_handwriting` exercise (and a `dictation` with `input: handwrite`, which has no Trace mode at all) **only writing
+from memory counts as correct**. The exercise opens in *From memory* (`initialMode="recall"`); switching to
+*Trace* — the mode tabs or "✏️ Trace it" on the summary — restarts the word in trace mode, and a traced run is
+scored as **needing help** (not correct), however clean the strokes. A from-memory run counts when nothing was
+revealed and at most light help was used (grade perfect / good); grade *practice* is not correct. One pure
+rule, `writtenFromMemory(result)` in `shared/strokes/quiz.ts` (unit-tested in `strokes.test.ts`), used by
+`strokeRunCorrect` in `frontend/src/components/practice-exercises.tsx`. The free sketch-pad fallback (no stroke
+data on the device) has no Trace mode and is self-assessed.
+
 ### Result shape (what a lesson or a tutor review would store)
 
 ```jsonc
