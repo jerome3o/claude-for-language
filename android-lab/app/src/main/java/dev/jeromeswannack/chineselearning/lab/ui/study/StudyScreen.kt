@@ -95,7 +95,6 @@ class StudyActions(
     val onRegenerateAudio: () -> Unit = {},
     val onNewVoice: () -> Unit = {},
     val onRoleplay: () -> Unit = {},
-    val onWriteIt: (hanzi: String) -> Unit = {},
     val onPlayMyRecording: () -> Unit = {},
     // my pronunciation (read cards)
     val onStartRecording: (skipDelay: Boolean) -> Unit = {},
@@ -122,7 +121,7 @@ class StudyActions(
 )
 
 @Composable
-fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit, onHandoff: (String) -> Unit) {
+fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit) {
     val vm: StudyViewModel = viewModel(key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
     val ui by vm.ui.collectAsStateWithLifecycle()
     val playing by app.audio.playingKey.collectAsState()
@@ -152,7 +151,6 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onRegenerateAudio = vm::regenerateAudio,
             onNewVoice = vm::newVoice,
             onRoleplay = { vm.roleplay(onOpen) },
-            onWriteIt = { hanzi -> onHandoff("/practice/strokes?text=" + java.net.URLEncoder.encode(hanzi, "UTF-8").replace("+", "%20")) },
             onGenerateSentenceClue = { vm.generateSentenceClue() },
             onShowMc = vm::showMc,
             onRegenerateMc = vm::regenerateMc,

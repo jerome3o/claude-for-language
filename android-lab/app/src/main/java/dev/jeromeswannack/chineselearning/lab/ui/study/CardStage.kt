@@ -96,6 +96,7 @@ private sealed interface CardSheet {
     data object Edit : CardSheet
     data object Flag : CardSheet
     data object Ask : CardSheet
+    data object Write : CardSheet
     data class Define(val hanzi: String) : CardSheet
 }
 
@@ -250,12 +251,13 @@ fun CardStage(
     when (val s = sheet) {
         null -> Unit
         CardSheet.More -> StudyMoreSheet(
-            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }),
+            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }, onWrite = { sheet = CardSheet.Write }),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
         )
         CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
+        CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
         CardSheet.Ask -> AskClaudeSheet(view, ui.extras.ask, typed, actions.ask, onDismiss = { sheet = null })
         is CardSheet.Define -> WordDefinitionSheet(
             hanzi = s.hanzi,
