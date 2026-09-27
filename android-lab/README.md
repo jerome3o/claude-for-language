@@ -9,9 +9,13 @@ instant synthesized sound effects, confetti, streaks.
 
 Status: **v1 = the study loop** — sign in, sync, study all decks or one deck with all
 three card types, example sentences, undo, "Study 10 more", offline study with
-background upload, prefetched audio. Everything else opens the main app at the
-matching screen. The checklist is [PARITY.md](PARITY.md); how to add a feature is
-[`.claude/skills/native-parity/SKILL.md`](../.claude/skills/native-parity/SKILL.md).
+background upload, prefetched audio — inside the **same tab bar as the web app** (Study ·
+Decks · Tutor · Progress · More for a student; Students · Decks · Library · More for a tutor
+account). Every other web screen already has a route: it opens natively once built, and
+until then a placeholder that opens the main app at the same screen. The checklist and the
+work packages are [PARITY.md](PARITY.md); how to add a feature is
+[`.claude/skills/native-parity/SKILL.md`](../.claude/skills/native-parity/SKILL.md); the
+shared Compose pieces are [docs/UI_KIT.md](docs/UI_KIT.md).
 
 ## Installing it (Obtainium)
 
@@ -50,12 +54,37 @@ android-lab/
 │   ├── StudyQueue.kt   getStudyQueue / selectNextItem from the web study session
 │   ├── AnswerKey.kt    typed-answer checking (utils/numberHanzi.ts + AnswerDiff)
 │   └── JsCompat.kt     JS number/date semantics (toFixed, Math.round, Number→String)
-├── parity/   generate-fixtures.ts: runs the web app's TypeScript to produce golden vectors
-└── app/      The Android app
-    ├── data/     Api (same endpoints as the web client), Room DB, Repository (sync), SyncWorker
+├── parity/   generate-fixtures.ts + fixtures/<feature>.ts: run the web's TypeScript for golden vectors
+├── docs/     UI_KIT.md — the shared Compose pieces and how to screenshot them
+└── app/src/main/java/…/lab/
+    ├── LabApp.kt, MainActivity.kt   singletons (repo, cache, outbox, fx) · sign-in gate + deep links
+    ├── data/
+    │   ├── Api.kt, Repository.kt, Db.kt, SyncWorker.kt   the core mirror + sync (web: services/sync.ts)
+    │   ├── Migrations.kt            Room migrations — never destructive (unsynced events live here)
+    │   ├── api/Http.kt              generic authed get/post/put/patch/delete/upload + error sentences
+    │   ├── api/<Feature>Api.kt      each feature's endpoints + DTOs (extension functions on Api)
+    │   └── platform/                JsonCache (offline feature data), Outbox (offline writes),
+    │                                CachedResource, LabPlatform, FeatureSyncs (the sync registry)
     ├── fx/       Sounds (synthesized, SoundPool), Haptics (composed primitives), WordAudio
-    └── ui/       Compose: home, sign-in, study (card, sentences, done), effects, theme
+    └── ui/
+        ├── nav/          LabShell (NavHost + tab bar), LabNav (open by web path), NavRules (port of
+        │                 tabs.ts / navRole.ts / landing.ts), Routes, WebDestinations, FeatureGraphs (registry)
+        ├── kit/          shared Compose pieces (docs/UI_KIT.md)
+        ├── placeholder/  "not in the Lab app yet" → open the main app at the same route
+        ├── home/ study/  Study tab (+ the tutor-account home) and the session
+        ├── more/         More tab (+ the MoreExtraRows.kt slot)
+        └── decks/ progress/ connections/ library/   tab-root stubs owned by packages C / D / E / G
 ```
+
+**Adding a screen**: `ui/<feature>/<Feature>Nav.kt` with
+`fun NavGraphBuilder.<feature>Graph(nav: LabNav)` registering web-shaped routes
+(`composable(Routes.route("/readers/{id}")) { … }`), one line in `ui/nav/FeatureGraphs.kt`,
+and navigate with `nav.open(Routes.reader(id))`. Offline data: a `FeatureSync` registered in
+`data/platform/FeatureSyncs.kt` that fills the `JsonCache`; offline writes:
+`app.outbox.enqueue…` (idempotent endpoints with a client id). Neither needs a schema change.
+
+**Deep links**: `chineselearning-lab:///<web route>` (e.g. `chineselearning-lab:///decks/abc`)
+opens that screen, or its placeholder; `chineselearning-lab://auth?…` is the sign-in callback.
 
 **Data model**: a local Room mirror of decks, notes, cards, sentence sets and review
 events. Review events are the source of truth: a card's scheduling columns are a cache
