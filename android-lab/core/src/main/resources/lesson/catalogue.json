@@ -1,0 +1,1033 @@
+{
+  "skills": {
+    "teaching": {
+      "name": "Teaching",
+      "icon": "📖"
+    },
+    "reading": {
+      "name": "Reading & grammar",
+      "icon": "🧩"
+    },
+    "listening": {
+      "name": "Listening",
+      "icon": "👂"
+    },
+    "speaking": {
+      "name": "Speaking",
+      "icon": "🎤"
+    },
+    "writing": {
+      "name": "Writing",
+      "icon": "✍️"
+    }
+  },
+  "types": [
+    {
+      "type": "note",
+      "icon": "📖",
+      "name": "Note",
+      "label": "note",
+      "skill": "teaching",
+      "summary": "Teaching text with example sentences (has audio). Not scored.",
+      "description": "Explains a point in a few short paragraphs, with example sentences the learner can tap to hear. Open a lesson with one, or put one before each new idea.",
+      "checking": "Not scored — the learner reads and continues."
+    },
+    {
+      "type": "scramble",
+      "icon": "🧩",
+      "name": "Word order",
+      "label": "word order",
+      "skill": "reading",
+      "summary": "Arrange tiles into the correct sentence.",
+      "description": "The sentence is cut into tiles (words or phrases) in a shuffled order; the learner taps them into the right order. The English is hidden until asked for, so the Chinese does the work.",
+      "checking": "Automatic — the tile order must match (alternative orders can be accepted)."
+    },
+    {
+      "type": "choice",
+      "icon": "🔘",
+      "name": "Multiple choice",
+      "label": "multiple choice",
+      "skill": "reading",
+      "summary": "Pick the sentence or word that fits (2–5 options).",
+      "description": "A situation or question with 2–5 Chinese options. Pinyin and English appear only after answering, with your explanation.",
+      "checking": "Automatic."
+    },
+    {
+      "type": "translate",
+      "icon": "✍️",
+      "name": "Translate",
+      "label": "translate",
+      "skill": "writing",
+      "summary": "English → Chinese, self-checked against a reference.",
+      "description": "The learner translates an English sentence into Chinese (typed, or in their head), then compares with your reference answer.",
+      "checking": "Self-assessed — an exact match is highlighted, other wordings can still be right."
+    },
+    {
+      "type": "match",
+      "icon": "🔗",
+      "name": "Match pairs",
+      "label": "match pairs",
+      "skill": "reading",
+      "summary": "Connect Chinese words with their meanings (2–8 pairs).",
+      "description": "Two shuffled columns — Chinese and English — to connect. Quick vocabulary warm-up.",
+      "checking": "Automatic — correct when every pair is matched without a wrong tap."
+    },
+    {
+      "type": "describe_image",
+      "icon": "🖼",
+      "name": "Describe picture",
+      "label": "describe picture",
+      "skill": "speaking",
+      "summary": "An illustration is generated; the learner describes it aloud.",
+      "description": "An illustration is generated from your scene description; the learner describes it out loud, then sees your reference description.",
+      "checking": "Self-assessed against the reference."
+    },
+    {
+      "type": "speak",
+      "icon": "🎤",
+      "name": "Speak",
+      "label": "speak",
+      "skill": "speaking",
+      "summary": "Say your own sentence out loud, self-assessed.",
+      "description": "A quick speaking prompt (\"Order two coffees, one iced.\"). Nothing is recorded — use Oral expression when you want to hear the answer.",
+      "checking": "Self-assessed, optionally against an example answer."
+    },
+    {
+      "type": "listen_choice",
+      "icon": "👂",
+      "name": "Listen & pick",
+      "label": "listen & pick",
+      "skill": "listening",
+      "summary": "Audio plays with text hidden; pick what you heard (tones, minimal pairs).",
+      "description": "A sentence is played with the text hidden; the learner picks what they heard. Built for tones and minimal pairs (有 yǒu vs 又 yòu).",
+      "checking": "Automatic."
+    },
+    {
+      "type": "listen_translate",
+      "icon": "👂",
+      "name": "Listen & translate",
+      "label": "listen & translate",
+      "skill": "listening",
+      "summary": "Audio plays hidden; translate what you heard.",
+      "description": "A sentence is played with the text hidden; the learner says or types what it means, then sees the transcript and translation.",
+      "checking": "Self-assessed."
+    },
+    {
+      "type": "sentence_making",
+      "icon": "🛠",
+      "name": "Sentence making",
+      "label": "sentence making",
+      "skill": "writing",
+      "summary": "Make your own sentence with the target words — typed or handwritten.",
+      "description": "The learner writes their OWN sentence using 1–4 target words, optionally in a situation you set. Choose typed or handwritten input. Online, Claude checks the sentence and suggests a correction; offline the learner compares with your example.",
+      "checking": "Claude feedback when online (grammar, naturalness, were the words used); self-assessed offline."
+    },
+    {
+      "type": "write_typed",
+      "icon": "⌨️",
+      "name": "Writing — typed",
+      "label": "typed writing",
+      "skill": "writing",
+      "summary": "Type the characters from the meaning / pinyin (choosing the right characters).",
+      "description": "Shows the English and/or pinyin (or plays it) and the learner types the characters with their keyboard — practising picking the right characters for the sounds.",
+      "checking": "Automatic — punctuation and spaces ignored; wrong characters are highlighted."
+    },
+    {
+      "type": "write_handwriting",
+      "icon": "🖌",
+      "name": "Writing — handwriting",
+      "label": "handwriting",
+      "skill": "writing",
+      "summary": "Write the characters by hand on the writing pad (≤ 12 characters).",
+      "description": "Shows the English and/or pinyin and the learner writes the characters by hand from memory, one character per square, on the stroke-order writing pad. Keep it to a word or short phrase.",
+      "checking": "The writing pad checks every stroke — order, direction, shape — and hints after misses; right when written from memory. You see each stroke they drew. (Self-assessed if the stroke data isn’t on the device yet.)",
+      "needs": "handwriting"
+    },
+    {
+      "type": "dictation",
+      "icon": "📝",
+      "name": "Dictation",
+      "label": "dictation",
+      "skill": "listening",
+      "summary": "Hear a sentence and write down what you heard — typed or handwritten.",
+      "description": "A sentence is played with the text hidden; the learner writes down exactly what they heard. Choose typed input (checked character by character) or handwriting.",
+      "checking": "Typed: automatic, character by character. Handwritten: the writing pad checks every stroke (characters hidden)."
+    },
+    {
+      "type": "oral_expression",
+      "icon": "🗣",
+      "name": "Oral expression",
+      "label": "oral expression",
+      "skill": "speaking",
+      "summary": "Answer a prompt out loud — the answer is recorded for you to hear.",
+      "description": "A speaking prompt (optionally a question played in Chinese, with useful words). The learner records their answer, can play it back, then compares with your model answer. You can listen to the recording afterwards; it is transcribed when online.",
+      "checking": "Self-assessed; you review the recording.",
+      "needs": "microphone"
+    },
+    {
+      "type": "conversation",
+      "icon": "💬",
+      "name": "Conversation",
+      "label": "conversation",
+      "skill": "listening",
+      "summary": "A dialogue in two voices; listen, then answer comprehension questions.",
+      "description": "A dialogue between two people in a situation (booking a hotel, ordering food, at the doctor…) played with a different voice for each speaker and the text hidden. The learner listens (and replays) the whole conversation, then answers questions about what happened. The transcript with pinyin and English is revealed at the end.",
+      "checking": "Multiple-choice questions automatic; free answers self-assessed. One point per question."
+    }
+  ],
+  "samples": [
+    {
+      "id": "note",
+      "type": "note",
+      "spec": {
+        "title": "The 把 sentence",
+        "icon": "📖",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "note",
+                "title": "Doing something TO something",
+                "body": "把 moves the object in front of the verb: Subject + 把 + object + verb + result.\n\nUse it when you do something to a specific thing and something happens to it — it gets finished, moved, closed.",
+                "sentences": [
+                  {
+                    "hanzi": "我把作业做完了。",
+                    "pinyin": "Wǒ bǎ zuòyè zuò wán le.",
+                    "english": "I finished my homework."
+                  },
+                  {
+                    "hanzi": "请把门关上。",
+                    "pinyin": "Qǐng bǎ mén guān shang.",
+                    "english": "Please close the door."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "scramble",
+      "type": "scramble",
+      "spec": {
+        "title": "Word order: 把",
+        "icon": "🧩",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "scramble",
+                "english": "I finished my homework.",
+                "tiles": [
+                  "作业",
+                  "我",
+                  "做完了",
+                  "把"
+                ],
+                "correct_order": [
+                  "我",
+                  "把",
+                  "作业",
+                  "做完了"
+                ]
+              },
+              {
+                "type": "scramble",
+                "english": "Please close the door.",
+                "tiles": [
+                  "关上",
+                  "门",
+                  "请",
+                  "把"
+                ],
+                "correct_order": [
+                  "请",
+                  "把",
+                  "门",
+                  "关上"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "choice",
+      "type": "choice",
+      "spec": {
+        "title": "Which one fits?",
+        "icon": "🔘",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "choice",
+                "question": "You want a friend at dinner to pass you the salt. You say:",
+                "options": [
+                  {
+                    "hanzi": "请把盐递给我。",
+                    "pinyin": "Qǐng bǎ yán dì gěi wǒ.",
+                    "english": "Please pass me the salt."
+                  },
+                  {
+                    "hanzi": "请盐把递给我。",
+                    "pinyin": "Qǐng yán bǎ dì gěi wǒ.",
+                    "english": "(wrong order)"
+                  },
+                  {
+                    "hanzi": "我把盐。",
+                    "pinyin": "Wǒ bǎ yán.",
+                    "english": "(no verb)"
+                  }
+                ],
+                "correct": 0,
+                "explanation": "把 + the object comes before the verb 递给 (pass to)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "translate",
+      "type": "translate",
+      "spec": {
+        "title": "Say it in Chinese",
+        "icon": "✍️",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "translate",
+                "english": "Please put the book on the table.",
+                "reference_hanzi": "请把书放在桌子上。",
+                "reference_pinyin": "Qǐng bǎ shū fàng zài zhuōzi shang."
+              },
+              {
+                "type": "translate",
+                "english": "I have already eaten.",
+                "reference_hanzi": "我已经吃饭了。",
+                "reference_pinyin": "Wǒ yǐjīng chīfàn le."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "match",
+      "type": "match",
+      "spec": {
+        "title": "Drinks",
+        "icon": "🔗",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "match",
+                "pairs": [
+                  {
+                    "hanzi": "咖啡",
+                    "pinyin": "kāfēi",
+                    "english": "coffee"
+                  },
+                  {
+                    "hanzi": "茶",
+                    "pinyin": "chá",
+                    "english": "tea"
+                  },
+                  {
+                    "hanzi": "牛奶",
+                    "pinyin": "niúnǎi",
+                    "english": "milk"
+                  },
+                  {
+                    "hanzi": "果汁",
+                    "pinyin": "guǒzhī",
+                    "english": "juice"
+                  },
+                  {
+                    "hanzi": "水",
+                    "pinyin": "shuǐ",
+                    "english": "water"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "describe_image",
+      "type": "describe_image",
+      "spec": {
+        "title": "At the café",
+        "icon": "🖼",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "describe_image",
+                "image_prompt": "A small café counter: a barista hands two cups of coffee to a smiling woman, a chalkboard menu behind them, warm morning light",
+                "task": "Describe what is happening.",
+                "reference_hanzi": "服务员给一位女士两杯咖啡。",
+                "reference_pinyin": "Fúwùyuán gěi yí wèi nǚshì liǎng bēi kāfēi.",
+                "reference_english": "The waiter gives a woman two cups of coffee."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "speak",
+      "type": "speak",
+      "spec": {
+        "title": "Ordering drinks",
+        "icon": "🎤",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "speak",
+                "prompt": "Order two coffees, one of them iced.",
+                "example": {
+                  "hanzi": "我要两杯咖啡，一杯冰的。",
+                  "pinyin": "Wǒ yào liǎng bēi kāfēi, yì bēi bīng de.",
+                  "english": "I’d like two coffees, one iced."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "listen_choice",
+      "type": "listen_choice",
+      "spec": {
+        "title": "Tones: buy or sell?",
+        "icon": "👂",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "listen_choice",
+                "audio": {
+                  "hanzi": "我想买这本书。",
+                  "pinyin": "Wǒ xiǎng mǎi zhè běn shū.",
+                  "english": "I want to buy this book."
+                },
+                "question": "Which verb did you hear?",
+                "options": [
+                  {
+                    "hanzi": "买",
+                    "pinyin": "mǎi",
+                    "english": "buy"
+                  },
+                  {
+                    "hanzi": "卖",
+                    "pinyin": "mài",
+                    "english": "sell"
+                  }
+                ],
+                "correct": 0,
+                "explanation": "买 mǎi (third tone, dips) = buy; 卖 mài (fourth tone, falls) = sell."
+              },
+              {
+                "type": "listen_choice",
+                "audio": {
+                  "hanzi": "他又来了。",
+                  "pinyin": "Tā yòu lái le.",
+                  "english": "He came again."
+                },
+                "question": "Which word did you hear?",
+                "options": [
+                  {
+                    "hanzi": "又",
+                    "pinyin": "yòu",
+                    "english": "again"
+                  },
+                  {
+                    "hanzi": "有",
+                    "pinyin": "yǒu",
+                    "english": "to have"
+                  }
+                ],
+                "correct": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "listen_translate",
+      "type": "listen_translate",
+      "spec": {
+        "title": "Weather",
+        "icon": "👂",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "listen_translate",
+                "audio": {
+                  "hanzi": "明天会下雨吗？",
+                  "pinyin": "Míngtiān huì xià yǔ ma?",
+                  "english": "Will it rain tomorrow?"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sentence_making",
+      "type": "sentence_making",
+      "spec": {
+        "title": "Make your own sentences",
+        "icon": "🛠",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "sentence_making",
+                "words": [
+                  {
+                    "hanzi": "因为",
+                    "pinyin": "yīnwèi",
+                    "english": "because"
+                  },
+                  {
+                    "hanzi": "所以",
+                    "pinyin": "suǒyǐ",
+                    "english": "so"
+                  }
+                ],
+                "task": "Explain why you were late today.",
+                "input": "type",
+                "example": {
+                  "hanzi": "因为路上堵车，所以我迟到了。",
+                  "pinyin": "Yīnwèi lùshang dǔchē, suǒyǐ wǒ chídào le.",
+                  "english": "Because there was traffic, I was late."
+                }
+              },
+              {
+                "type": "sentence_making",
+                "words": [
+                  {
+                    "hanzi": "已经",
+                    "pinyin": "yǐjīng",
+                    "english": "already"
+                  }
+                ],
+                "task": "A friend invites you to lunch — tell them you have already eaten.",
+                "input": "handwrite",
+                "example": {
+                  "hanzi": "我已经吃饭了。",
+                  "pinyin": "Wǒ yǐjīng chīfàn le.",
+                  "english": "I’ve already eaten."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "write_typed",
+      "type": "write_typed",
+      "spec": {
+        "title": "Typing: pick the right characters",
+        "icon": "⌨️",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "write_typed",
+                "prompt": "Where do you borrow books?",
+                "answer": {
+                  "hanzi": "图书馆",
+                  "pinyin": "túshūguǎn",
+                  "english": "library"
+                }
+              },
+              {
+                "type": "write_typed",
+                "answer": {
+                  "hanzi": "我明天去医院。",
+                  "pinyin": "Wǒ míngtiān qù yīyuàn.",
+                  "english": "I’m going to the hospital tomorrow."
+                }
+              },
+              {
+                "type": "write_typed",
+                "prompt": "Listen, then type the word.",
+                "cues": [
+                  "audio",
+                  "english"
+                ],
+                "answer": {
+                  "hanzi": "以前",
+                  "pinyin": "yǐqián",
+                  "english": "before; in the past"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "write_handwriting",
+      "type": "write_handwriting",
+      "spec": {
+        "title": "Handwriting: first characters",
+        "icon": "🖌",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "write_handwriting",
+                "answer": {
+                  "hanzi": "人",
+                  "pinyin": "rén",
+                  "english": "person"
+                }
+              },
+              {
+                "type": "write_handwriting",
+                "answer": {
+                  "hanzi": "你好",
+                  "pinyin": "nǐ hǎo",
+                  "english": "hello"
+                }
+              },
+              {
+                "type": "write_handwriting",
+                "answer": {
+                  "hanzi": "中国",
+                  "pinyin": "Zhōngguó",
+                  "english": "China"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "dictation",
+      "type": "dictation",
+      "spec": {
+        "title": "Dictation: daily life",
+        "icon": "📝",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "dictation",
+                "input": "type",
+                "audio": {
+                  "hanzi": "他每天早上七点起床。",
+                  "pinyin": "Tā měitiān zǎoshang qī diǎn qǐchuáng.",
+                  "english": "He gets up at seven every morning."
+                }
+              },
+              {
+                "type": "dictation",
+                "input": "type",
+                "audio": {
+                  "hanzi": "这件衣服太贵了。",
+                  "pinyin": "Zhè jiàn yīfu tài guì le.",
+                  "english": "This piece of clothing is too expensive."
+                }
+              },
+              {
+                "type": "dictation",
+                "input": "handwrite",
+                "audio": {
+                  "hanzi": "我喜欢喝茶。",
+                  "pinyin": "Wǒ xǐhuan hē chá.",
+                  "english": "I like drinking tea."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "oral_expression",
+      "type": "oral_expression",
+      "spec": {
+        "title": "Talk about your weekend",
+        "icon": "🗣",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "oral_expression",
+                "prompt": "Talk about what you did last weekend — where you went and who with.",
+                "question_audio": {
+                  "hanzi": "你上个周末做了什么？",
+                  "pinyin": "Nǐ shàng ge zhōumò zuòle shénme?",
+                  "english": "What did you do last weekend?"
+                },
+                "hints": [
+                  {
+                    "hanzi": "周末",
+                    "pinyin": "zhōumò",
+                    "english": "weekend"
+                  },
+                  {
+                    "hanzi": "和朋友",
+                    "pinyin": "hé péngyou",
+                    "english": "with friends"
+                  },
+                  {
+                    "hanzi": "公园",
+                    "pinyin": "gōngyuán",
+                    "english": "park"
+                  }
+                ],
+                "example": {
+                  "hanzi": "上个周末我和朋友去了公园，我们在那儿吃了午饭。",
+                  "pinyin": "Shàng ge zhōumò wǒ hé péngyou qùle gōngyuán, wǒmen zài nàr chīle wǔfàn.",
+                  "english": "Last weekend I went to the park with friends; we had lunch there."
+                },
+                "target_seconds": 30
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "conversation",
+      "type": "conversation",
+      "spec": {
+        "title": "Checking in at a hotel",
+        "icon": "🏨",
+        "description": "A conversation lesson: key phrases, the dialogue in two voices, then your turn.",
+        "sections": [
+          {
+            "title": "Key phrases",
+            "exercises": [
+              {
+                "type": "note",
+                "body": "Three phrases you will hear at any hotel front desk.",
+                "sentences": [
+                  {
+                    "hanzi": "请问有预订吗？",
+                    "pinyin": "Qǐngwèn yǒu yùdìng ma?",
+                    "english": "Do you have a reservation?"
+                  },
+                  {
+                    "hanzi": "我住三个晚上。",
+                    "pinyin": "Wǒ zhù sān ge wǎnshang.",
+                    "english": "I’m staying three nights."
+                  },
+                  {
+                    "hanzi": "祝您住得愉快！",
+                    "pinyin": "Zhù nín zhù de yúkuài!",
+                    "english": "Enjoy your stay!"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "title": "Listen",
+            "exercises": [
+              {
+                "type": "conversation",
+                "situation": "Checking in at a hotel front desk",
+                "speakers": [
+                  {
+                    "name": "前台 Receptionist",
+                    "voice": "female"
+                  },
+                  {
+                    "name": "客人 Guest",
+                    "voice": "male"
+                  }
+                ],
+                "lines": [
+                  {
+                    "speaker": 0,
+                    "hanzi": "您好！欢迎光临。请问有预订吗？",
+                    "pinyin": "Nín hǎo! Huānyíng guānglín. Qǐngwèn yǒu yùdìng ma?",
+                    "english": "Hello, welcome! Do you have a reservation?"
+                  },
+                  {
+                    "speaker": 1,
+                    "hanzi": "有，我叫王明，订了一个双人间。",
+                    "pinyin": "Yǒu, wǒ jiào Wáng Míng, dìngle yí ge shuāngrénjiān.",
+                    "english": "Yes, my name is Wang Ming. I booked a double room."
+                  },
+                  {
+                    "speaker": 0,
+                    "hanzi": "好的，请给我看一下您的护照。",
+                    "pinyin": "Hǎo de, qǐng gěi wǒ kàn yíxià nín de hùzhào.",
+                    "english": "OK, may I see your passport, please?"
+                  },
+                  {
+                    "speaker": 1,
+                    "hanzi": "给您。我住三个晚上。",
+                    "pinyin": "Gěi nín. Wǒ zhù sān ge wǎnshang.",
+                    "english": "Here you are. I’m staying three nights."
+                  },
+                  {
+                    "speaker": 0,
+                    "hanzi": "您的房间是八零六，在八楼。早饭七点到十点。",
+                    "pinyin": "Nín de fángjiān shì bā líng liù, zài bā lóu. Zǎofàn qī diǎn dào shí diǎn.",
+                    "english": "Your room is 806, on the eighth floor. Breakfast is from seven to ten."
+                  },
+                  {
+                    "speaker": 1,
+                    "hanzi": "房间里有无线网吗？",
+                    "pinyin": "Fángjiān lǐ yǒu wúxiàn wǎng ma?",
+                    "english": "Is there Wi-Fi in the room?"
+                  },
+                  {
+                    "speaker": 0,
+                    "hanzi": "有，密码在房卡上。祝您住得愉快！",
+                    "pinyin": "Yǒu, mìmǎ zài fángkǎ shang. Zhù nín zhù de yúkuài!",
+                    "english": "Yes, the password is on your key card. Enjoy your stay!"
+                  },
+                  {
+                    "speaker": 1,
+                    "hanzi": "谢谢！",
+                    "pinyin": "Xièxie!",
+                    "english": "Thank you!"
+                  }
+                ],
+                "questions": [
+                  {
+                    "question": "How many nights is the guest staying?",
+                    "options": [
+                      "One",
+                      "Two",
+                      "Three",
+                      "Four"
+                    ],
+                    "correct": 2
+                  },
+                  {
+                    "question": "Which floor is the room on?",
+                    "options": [
+                      "The 6th",
+                      "The 8th",
+                      "The 10th"
+                    ],
+                    "correct": 1,
+                    "explanation": "八零六，在八楼 — room 806, on the 8th floor."
+                  },
+                  {
+                    "question": "When is breakfast?",
+                    "answer": "From 7 to 10 o’clock (七点到十点)."
+                  },
+                  {
+                    "question": "Where is the Wi-Fi password?",
+                    "options": [
+                      "On the key card",
+                      "At the front desk",
+                      "On the room door"
+                    ],
+                    "correct": 0
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "title": "Your turn",
+            "exercises": [
+              {
+                "type": "oral_expression",
+                "prompt": "You are the guest. Check in: give your name, how many nights you are staying, and ask one question about the hotel.",
+                "hints": [
+                  {
+                    "hanzi": "预订",
+                    "pinyin": "yùdìng",
+                    "english": "reservation"
+                  },
+                  {
+                    "hanzi": "晚上",
+                    "pinyin": "wǎnshang",
+                    "english": "night"
+                  },
+                  {
+                    "hanzi": "早饭",
+                    "pinyin": "zǎofàn",
+                    "english": "breakfast"
+                  }
+                ],
+                "example": {
+                  "hanzi": "你好，我叫王明，有预订。我住两个晚上。请问早饭几点？",
+                  "pinyin": "Nǐ hǎo, wǒ jiào Wáng Míng, yǒu yùdìng. Wǒ zhù liǎng ge wǎnshang. Qǐngwèn zǎofàn jǐ diǎn?",
+                  "english": "Hi, I’m Wang Ming, I have a reservation. I’m staying two nights. What time is breakfast?"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "note": {
+      "type": "note",
+      "title": "",
+      "body": "",
+      "sentences": [
+        {
+          "hanzi": ""
+        }
+      ]
+    },
+    "scramble": {
+      "type": "scramble",
+      "english": "",
+      "tiles": [],
+      "correct_order": []
+    },
+    "choice": {
+      "type": "choice",
+      "question": "",
+      "options": [
+        {
+          "hanzi": ""
+        },
+        {
+          "hanzi": ""
+        }
+      ],
+      "correct": 0
+    },
+    "translate": {
+      "type": "translate",
+      "english": "",
+      "reference_hanzi": ""
+    },
+    "match": {
+      "type": "match",
+      "pairs": [
+        {
+          "hanzi": "",
+          "english": ""
+        },
+        {
+          "hanzi": "",
+          "english": ""
+        }
+      ]
+    },
+    "describe_image": {
+      "type": "describe_image",
+      "image_prompt": "",
+      "reference_hanzi": ""
+    },
+    "speak": {
+      "type": "speak",
+      "prompt": ""
+    },
+    "listen_choice": {
+      "type": "listen_choice",
+      "audio": {
+        "hanzi": ""
+      },
+      "options": [
+        {
+          "hanzi": ""
+        },
+        {
+          "hanzi": ""
+        }
+      ],
+      "correct": 0
+    },
+    "listen_translate": {
+      "type": "listen_translate",
+      "audio": {
+        "hanzi": "",
+        "english": ""
+      }
+    },
+    "sentence_making": {
+      "type": "sentence_making",
+      "words": [
+        {
+          "hanzi": ""
+        }
+      ],
+      "task": "",
+      "input": "type"
+    },
+    "write_typed": {
+      "type": "write_typed",
+      "answer": {
+        "hanzi": "",
+        "english": ""
+      }
+    },
+    "write_handwriting": {
+      "type": "write_handwriting",
+      "answer": {
+        "hanzi": "",
+        "english": ""
+      }
+    },
+    "dictation": {
+      "type": "dictation",
+      "audio": {
+        "hanzi": ""
+      },
+      "input": "type"
+    },
+    "oral_expression": {
+      "type": "oral_expression",
+      "prompt": ""
+    },
+    "conversation": {
+      "type": "conversation",
+      "situation": "",
+      "speakers": [
+        {
+          "name": "",
+          "voice": "female"
+        },
+        {
+          "name": "",
+          "voice": "male"
+        }
+      ],
+      "lines": [
+        {
+          "speaker": 0,
+          "hanzi": ""
+        },
+        {
+          "speaker": 1,
+          "hanzi": ""
+        }
+      ],
+      "questions": [
+        {
+          "question": "",
+          "options": [
+            "",
+            ""
+          ],
+          "correct": 0
+        }
+      ]
+    }
+  }
+}

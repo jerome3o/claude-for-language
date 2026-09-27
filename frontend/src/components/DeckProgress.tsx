@@ -1,25 +1,12 @@
 import { useState } from 'react';
 import { CardTypeProgressStats, NoteProgress } from '../types';
 import { EmptyState } from './Loading';
+import { formatStudyTime } from '@shared/progress';
 
 // Utility functions
 
-/**
- * Study time for stat tiles. Never says "0m" for time that was actually
- * spent: anything under a minute is "< 1 min", and minutes are rounded to
- * the nearest whole minute ("1 min", "12 min", "1h 5m").
- */
-export function formatTime(ms: number): string {
-  if (!ms || ms <= 0) return '0 min';
-  if (ms < 60000) return '< 1 min';
-  const minutes = Math.max(1, Math.round(ms / 60000));
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMins = minutes % 60;
-  return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`;
-}
+/** Study time for stat tiles ("< 1 min", "12 min", "1h 5m") — shared/progress/daily.ts. */
+export const formatTime = formatStudyTime;
 
 export function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'Never';

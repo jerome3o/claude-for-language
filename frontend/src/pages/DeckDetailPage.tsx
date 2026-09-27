@@ -16,6 +16,7 @@ import { DEFAULT_DECK_SETTINGS } from '@shared/decks';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import './SharedDeckProgressPage.css';
+import { masteryLevel, type MasteryLevel } from '@shared/progress';
 import './DeckDetailPage.css';
 
 // ============ Deck ⋯ menu ============
@@ -133,15 +134,9 @@ const CARD_TYPE_LABELS: Record<string, string> = {
   audio_to_hanzi: 'Audio → Hanzi',
 };
 
-function getMasteryLevel(
-  queue: CardQueue,
-  stability: number
-): 'new' | 'learning' | 'familiar' | 'mastered' {
-  if (queue === CardQueue.NEW) return 'new';
-  if (queue === CardQueue.LEARNING || queue === CardQueue.RELEARNING) return 'learning';
-  if (stability <= 7) return 'learning';
-  if (stability <= 21) return 'familiar';
-  return 'mastered';
+/** new / learning / familiar / mastered — the one definition is shared/progress/mastery.ts. */
+function getMasteryLevel(queue: CardQueue, stability: number): MasteryLevel {
+  return masteryLevel(queue, stability);
 }
 
 function formatDate(dateStr: string): string {
