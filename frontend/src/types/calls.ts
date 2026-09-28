@@ -77,6 +77,8 @@ export interface CallDetail {
   call: CallInfo;
   participants: CallParticipant[];
   board: BoardItem[];
+  /** What was typed on the shared text board. */
+  board_text?: string;
   chat: CallChatMessage[];
   report: CallReport | null;
   pieces: CallPieceInfo[];

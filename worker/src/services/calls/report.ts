@@ -88,7 +88,8 @@ export async function writeCallReport(env: Env, call: CallRow, participants: Cal
   const chat: CallChatMessage[] = call.chat_json ? JSON.parse(call.chat_json) : [];
   const board: BoardItem[] = call.board_json ? JSON.parse(call.board_json) : [];
   const boardText = board.filter((b) => b.type === 'text').map((b) => (b.type === 'text' ? b.text : '')).filter(Boolean);
-  if (segments.length === 0 && chat.length === 0 && boardText.length === 0) return null;
+  const sharedNotes = (call.board_text ?? '').trim();
+  if (segments.length === 0 && chat.length === 0 && boardText.length === 0 && !sharedNotes) return null;
   if (!env.ANTHROPIC_API_KEY) return null;
 
   const names = await roleNames(env.DB, call, participants);
@@ -114,7 +115,7 @@ Lesson title: ${call.title || '(none)'}
 
 TRANSCRIPT (time from the start of the call; translations in brackets where the recogniser gave one):
 ${transcript || '(no speech was transcribed)'}
-${chatText ? `\nIN-CALL CHAT:\n${chatText}` : ''}${boardText.length ? `\nWRITTEN ON THE WHITEBOARD:\n${boardText.join('\n')}` : ''}`;
+${sharedNotes ? `\nSHARED NOTES (typed together on the board during the lesson):\n${sharedNotes.slice(0, 20_000)}\n` : ''}${chatText ? `\nIN-CALL CHAT:\n${chatText}` : ''}${boardText.length ? `\nWRITTEN ON THE WHITEBOARD:\n${boardText.join('\n')}` : ''}`;
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const response = await client.messages.create({

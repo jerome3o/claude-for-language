@@ -99,6 +99,8 @@ export interface CallNotesInput {
   names: Record<string, string>;
   transcript: readonly Pick<TranscriptSegment, 'id' | 'user_id' | 'start_ms' | 'end_ms' | 'text' | 'translation'>[];
   board: readonly BoardItem[];
+  /** The shared text board, typed together during the call. */
+  boardText?: string | null;
   chat: readonly CallChatMessage[];
   report: Pick<CallReport, 'summary' | 'corrections' | 'follow_ups'> | null;
 }
@@ -121,7 +123,8 @@ export function composeCallNotes(input: CallNotesInput): string {
   const segments = mergeTranscript(input.transcript);
   const boardText = input.board.filter((b): b is Extract<BoardItem, { type: 'text' }> => b.type === 'text').map((b) => b.text.trim()).filter(Boolean);
   const chatLines = input.chat.map((m) => `${input.names[m.user_id] || m.name}: ${m.text}`).filter((l) => l.trim());
-  if (segments.length === 0 && boardText.length === 0 && chatLines.length === 0 && !input.report) return '';
+  const sharedNotes = (input.boardText ?? '').trim();
+  if (segments.length === 0 && boardText.length === 0 && chatLines.length === 0 && !input.report && !sharedNotes) return '';
 
   const startMs = input.startedAt ?? segments[0]?.start_ms ?? 0;
   const parts: string[] = [];
@@ -139,6 +142,11 @@ export function composeCallNotes(input: CallNotesInput): string {
       parts.push('To practise before next time:');
       for (const f of input.report.follow_ups) parts.push(`- ${f}`);
     }
+  }
+  if (sharedNotes) {
+    parts.push('');
+    parts.push('SHARED NOTES (typed together on the board during the lesson — the most deliberate record of what was taught)');
+    parts.push(sharedNotes.slice(0, 20_000));
   }
   if (boardText.length > 0) {
     parts.push('');
@@ -169,6 +177,7 @@ export async function callNotesFor(env: Env, call: CallRow, participants: CallPa
     names,
     transcript: rows.results ?? [],
     board: call.board_json ? (JSON.parse(call.board_json) as BoardItem[]) : [],
+    boardText: call.board_text ?? null,
     chat: call.chat_json ? (JSON.parse(call.chat_json) as CallChatMessage[]) : [],
     report: call.summary_json ? (JSON.parse(call.summary_json) as CallReport) : null,
   });

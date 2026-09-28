@@ -47,6 +47,18 @@ describe('composeCallNotes', () => {
     expect(notes).toContain('[0:12] Jerome (student): 我要点菜。');
   });
 
+  it('puts the shared text board first after the report', () => {
+    const notes = composeCallNotes({
+      title: null, startedAt: null, names, transcript: [], chat: [], report: null,
+      board: [{ type: 'text', id: 'x', by: 't1', color: '#1f2937', x: 0, y: 0, size: 20, text: '太…了' }],
+      boardText: '第五课\n我想要一杯咖啡。',
+    });
+    expect(notes).toContain('SHARED NOTES');
+    expect(notes).toContain('我想要一杯咖啡。');
+    expect(notes.indexOf('SHARED NOTES')).toBeLessThan(notes.indexOf('WRITTEN ON THE WHITEBOARD'));
+    expect(composeCallNotes({ title: null, startedAt: null, names, transcript: [], board: [], chat: [], report: null, boardText: '  ' })).toBe('');
+  });
+
   it('is empty when the call has nothing to work from', () => {
     expect(composeCallNotes({ title: null, startedAt: null, names, transcript: [], board: [], chat: [], report: null })).toBe('');
   });

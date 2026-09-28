@@ -32,6 +32,18 @@ enum class CallPhase { PREJOIN, JOINING, LIVE, ENDED, ERROR }
 
 data class RemoteParticipant(val peer: CallPeer, val video: VideoHandle? = null, val connection: String = "new")
 
+/** The shared text board as the screen draws it (core CallTextBoard, web TextBoard.tsx). */
+data class TextBoardUi(
+    val text: String = "",
+    /** Bumped on every change; a remote edit carries my selection moved along with it. */
+    val version: Int = 0,
+    val remote: List<dev.jeromeswannack.chineselearning.lab.core.calls.RemoteCaret> = emptyList(),
+    /** My selection (UTF-16 offsets) after the last remote change. */
+    val mySelection: Pair<Int, Int> = 0 to 0,
+    /** What changed last: "remote" rewrites the field (keeping my caret), "local" doesn't. */
+    val lastChange: String = "load",
+)
+
 /** Everything the call screen shows (web: the return value of useCall). */
 data class CallState(
     val phase: CallPhase = CallPhase.PREJOIN,
@@ -51,6 +63,7 @@ data class CallState(
     /** Strokes other people are drawing right now, by user id. */
     val liveStrokes: Map<String, LiveStroke> = emptyMap(),
     val chat: List<CallChatMessage> = emptyList(),
+    val textBoard: TextBoardUi = TextBoardUi(),
     val recording: Boolean = false,
     val recordSupported: Boolean = false,
     val pendingUploads: Int = 0,
@@ -130,6 +143,8 @@ class CallDeps(
     /** Outlives the screen: where the last recording piece is closed when the screen goes away. */
     val teardown: CoroutineScope? = null,
     val uploadEveryMs: Long = 5_000,
+    /** My user id: the text board's site prefix, which the room checks. */
+    val userId: () -> String = { "" },
 )
 
 /**
@@ -277,6 +292,8 @@ class CallController(
             is ServerMessage.Welcome -> {
                 selfId = msg.clientId
                 _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap()) }
+                text().load(msg.text, msg.textCursors)
+                publishText("load")
                 room?.send(CallProtocol.state(mediaState))
                 if (msg.peers.isNotEmpty()) openLink(msg.peers.first())
                 else { closeLink(); _state.update { it.copy(remote = null) } }
@@ -284,7 +301,13 @@ class CallController(
                 if (wantRecord && !deps.recorder.recording) startRecording()
             }
             is ServerMessage.PeerJoined -> openLink(msg.peer)
-            is ServerMessage.PeerLeft -> if (remoteId == msg.clientId) { closeLink(); _state.update { it.copy(remote = null) } }
+            is ServerMessage.PeerLeft -> {
+                textBoard?.dropCursor(msg.clientId)
+                publishText("cursor")
+                if (remoteId == msg.clientId) { closeLink(); _state.update { it.copy(remote = null) } }
+            }
+            is ServerMessage.Text -> { text().applyRemote(msg.ops); publishText("remote") }
+            is ServerMessage.TextCursorMsg -> { text().setCursor(msg.cursor); publishText("cursor") }
             is ServerMessage.PeerState -> _state.update { s -> if (s.remote?.peer?.clientId == msg.clientId) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
             is ServerMessage.Signal -> if (remoteId == msg.from) CallSignal.parse(msg.data)?.let { link?.handleSignal(it) }
             is ServerMessage.Board -> _state.update { s ->
@@ -374,6 +397,48 @@ class CallController(
 
     fun sendLiveStroke(stroke: LiveStroke?) {
         room?.send(CallProtocol.boardLive(stroke))
+    }
+
+    // ------------------------------------------------------------ shared text board
+
+    private var textBoard: dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard? = null
+
+    private fun text(): dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard =
+        textBoard ?: dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard(deps.userId(), { m -> room?.send(m) ?: false }).also { textBoard = it }
+
+    private fun publishText(change: String) {
+        val b = textBoard ?: return
+        _state.update { it.copy(textBoard = TextBoardUi(b.text, b.version, b.remoteCarets, b.mySelection(), change)) }
+    }
+
+    /**
+     * The field changed: [text] with the selection [start]..[end] (UTF-16); [composing] while an IME
+     * composition is open — then nothing is sent and the other person's edits wait.
+     */
+    fun textChanged(text: String, start: Int, end: Int, composing: Boolean) {
+        val b = text()
+        if (composing) {
+            if (!b.composing) b.setComposing(true)
+            return
+        }
+        if (b.composing) {
+            b.setComposing(false, text, end)
+            b.select(start, end)
+            b.flushHeld()
+            publishText(if (b.text == text) "local" else "remote")
+            return
+        }
+        if (text != b.text) b.localEdit(text, end)
+        b.select(start, end)
+        publishText("local")
+    }
+
+    fun textSelected(start: Int, end: Int) {
+        textBoard?.let { if (!it.composing) it.select(start, end) }
+    }
+
+    fun textBlurred() {
+        textBoard?.clearSelection()
     }
 
     fun sendChat(text: String): Boolean {

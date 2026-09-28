@@ -19,6 +19,13 @@ import {
   applyBoardOp,
   capBoardSize,
   sanitizeBoardOp,
+  sanitizeSelection,
+  sanitizeTextOp,
+  sanitizeTextSnapshot,
+  snapshotText,
+  TextDoc,
+  MAX_TEXT_DOC_CHARS,
+  MAX_TEXT_DOC_NODES,
   MAX_CALL_PEERS,
   MAX_CHAT_LENGTH,
   MAX_CHAT_MESSAGES,
@@ -28,6 +35,10 @@ import {
   type ClientMessage,
   type PeerMediaState,
   type ServerMessage,
+  type TextCursor,
+  type TextDocSnapshot,
+  type TextOp,
+  type TextSelection,
 } from '@shared/calls';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
 import { advanceCallProcessing } from '../services/calls/processing';
@@ -39,6 +50,8 @@ interface Attachment {
   name: string;
   picture: string | null;
   state: PeerMediaState;
+  /** Caret / selection on the shared text board (kept here so it survives hibernation). */
+  sel?: TextSelection | null;
 }
 
 /** An empty room ends the call after this long (everyone closed the tab without pressing End). */
@@ -48,15 +61,24 @@ const DEFAULT_STATE: PeerMediaState = { mic: true, cam: true, screen: false, rec
 export class CallRoom extends DurableObject<Env> {
   private board: BoardItem[] | null = null;
   private chat: CallChatMessage[] | null = null;
+  private text: TextDoc | null = null;
 
   private async load(): Promise<void> {
-    if (this.board && this.chat) return;
-    const [board, chat] = await Promise.all([
+    if (this.board && this.chat && this.text) return;
+    const [board, chat, text] = await Promise.all([
       this.ctx.storage.get<BoardItem[]>('board'),
       this.ctx.storage.get<CallChatMessage[]>('chat'),
+      this.ctx.storage.get<TextDocSnapshot>('text'),
     ]);
     this.board = board ?? [];
     this.chat = chat ?? [];
+    this.text = new TextDoc('room', sanitizeTextSnapshot(text));
+  }
+
+  private cursorsExcept(ws: WebSocket): TextCursor[] {
+    return this.sockets()
+      .filter((x) => x.ws !== ws && x.a.sel)
+      .map(({ a }) => ({ client_id: a.clientId, user_id: a.userId, name: a.name, sel: a.sel ?? null }));
   }
 
   private sockets(): { ws: WebSocket; a: Attachment }[] {
@@ -133,6 +155,8 @@ export class CallRoom extends DurableObject<Env> {
       peers: others.map(({ a }) => this.peerOf(a)),
       board: this.board!,
       chat: this.chat!,
+      text: this.text!.snapshot(),
+      text_cursors: this.cursorsExcept(server),
     });
     this.broadcast({ type: 'peer_joined', peer: this.peerOf(attachment) }, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -160,6 +184,33 @@ export class CallRoom extends DurableObject<Env> {
         this.board = capBoardSize(applyBoardOp(this.board!, op));
         await this.ctx.storage.put('board', this.board);
         this.broadcast({ type: 'board', op }, ws);
+        return;
+      }
+      case 'text': {
+        // The shared text board: validate, apply to the room's copy, keep it, pass it on in this order.
+        if (!Array.isArray(msg.ops) || msg.ops.length === 0 || msg.ops.length > 50) return;
+        await this.load();
+        const doc = this.text!;
+        const accepted: TextOp[] = [];
+        for (const raw of msg.ops) {
+          const site = raw && typeof raw === 'object' && Array.isArray((raw as { id?: unknown }).id) ? String((raw as { id: unknown[] }).id[1]) : '';
+          // Inserts carry the writer's site: "<user id>:<page load>", so nobody can type as someone else.
+          const op = sanitizeTextOp(raw, site.startsWith(`${a.userId}:`) ? site : `${a.userId}:`);
+          if (!op) continue;
+          if (op.t === 'ins' && (doc.length + op.text.length > MAX_TEXT_DOC_CHARS || doc.nodeCount + op.text.length > MAX_TEXT_DOC_NODES)) continue;
+          doc.apply(op);
+          accepted.push(op);
+        }
+        if (accepted.length === 0) return;
+        await this.ctx.storage.put('text', doc.snapshot());
+        this.broadcast({ type: 'text', from: a.clientId, ops: accepted }, ws);
+        return;
+      }
+      case 'text_cursor': {
+        const sel = sanitizeSelection(msg.sel);
+        a.sel = sel;
+        ws.serializeAttachment(a);
+        this.broadcast({ type: 'text_cursor', client_id: a.clientId, user_id: a.userId, name: a.name, sel }, ws);
         return;
       }
       case 'board_live':
@@ -229,6 +280,7 @@ export class CallRoom extends DurableObject<Env> {
       await saveRoomSnapshot(this.env.DB, callId, {
         board: this.board!,
         chat: this.chat!,
+        text: this.text ? this.text.text() : snapshotText(null),
         startedAt: (await this.ctx.storage.get<number>('startedAt')) ?? null,
       });
     } catch (err) {

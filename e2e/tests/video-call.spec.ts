@@ -86,8 +86,30 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   await expect(tp.locator('.call-remote-label')).not.toContainText('connecting', { timeout: 30000 });
   await expect(tp.getByTestId('rec-badge')).toBeVisible();
 
-  // ---- Whiteboard: the tutor types a word, the student sees it arrive
+  // ---- The text board: the tutor types, the student sees it; the student types with a pinyin IME
   await tp.getByTestId('open-board').click();
+  const tBoard = tp.getByTestId('text-board');
+  await tBoard.click();
+  await tp.keyboard.type('一杯咖啡');
+  await sp.getByTestId('open-board').click();
+  const sBoard = sp.getByTestId('text-board');
+  await expect(sBoard).toHaveValue('一杯咖啡', { timeout: 10000 });
+  await sBoard.click();
+  await sp.keyboard.press('End');
+  // A real IME composition (compositionstart → update → end): nothing goes out mid-composition.
+  const cdp = await sp.context().newCDPSession(sp);
+  await cdp.send('Input.imeSetComposition', { selectionStart: 2, selectionEnd: 2, text: 'ni' });
+  await cdp.send('Input.imeSetComposition', { selectionStart: 3, selectionEnd: 3, text: 'nih' });
+  await tp.waitForTimeout(800);
+  await expect(tBoard).toHaveValue('一杯咖啡');
+  await cdp.send('Input.insertText', { text: '你好' });
+  await expect(tBoard).toHaveValue('一杯咖啡你好', { timeout: 10000 });
+  await expect(sBoard).toHaveValue('一杯咖啡你好');
+  // The student's caret shows on the tutor's board.
+  await expect(tp.getByTestId('remote-caret')).toBeVisible({ timeout: 10000 });
+
+  // ---- Drawing (the second board tab): the tutor writes a word and draws a stroke
+  await tp.getByTestId('board-tab-draw').click();
   await tp.locator('.wb-tool', { hasText: 'T' }).click();
   const canvas = tp.getByTestId('whiteboard-canvas');
   await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(200);
@@ -102,7 +124,7 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   await tp.mouse.up();
 
   // ---- Chat both ways
-  await sp.getByRole('button', { name: 'Chat' }).click();
+  await sp.getByRole('tab', { name: /Chat/ }).click();
   await sp.getByTestId('call-chat-input').fill('怎么说 a cup of coffee?');
   await sp.keyboard.press('Enter');
   await tp.getByRole('tab', { name: /Chat/ }).click();
@@ -119,16 +141,17 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
 
   // Server: ended, board + chat saved, one recording piece per person uploaded and assembled.
   await expect.poll(async () => {
-    const d = await api<{ call: { status: string }; board: unknown[]; chat: unknown[]; pieces: Array<{ user_id: string; audio_url: string | null }> }>(
+    const d = await api<{ call: { status: string }; board: unknown[]; board_text: string; chat: unknown[]; pieces: Array<{ user_id: string; audio_url: string | null }> }>(
       request, `/api/calls/${callId}`, { token: student.token },
     );
     const withAudio = new Set(d.pieces.filter((p) => p.audio_url).map((p) => p.user_id));
-    return { status: d.call.status, board: d.board.length, chat: d.chat.length, tutor: withAudio.has(tutor.id), student: withAudio.has(student.id) };
-  }, { timeout: 45_000, intervals: [2000] }).toEqual({ status: 'ended', board: 2, chat: 1, tutor: true, student: true });
+    return { status: d.call.status, board: d.board.length, text: d.board_text, chat: d.chat.length, tutor: withAudio.has(tutor.id), student: withAudio.has(student.id) };
+  }, { timeout: 45_000, intervals: [2000] }).toEqual({ status: 'ended', board: 2, text: '一杯咖啡你好', chat: 1, tutor: true, student: true });
 
   // The review page opens for both and shows the call.
   await sp.getByRole('button', { name: /Transcript/ }).click();
   await expect(sp.getByRole('heading', { name: /Lesson with 王老师/ })).toBeVisible({ timeout: 15000 });
-  await expect(sp.getByRole('heading', { name: 'Whiteboard' })).toBeVisible({ timeout: 15000 });
+  await expect(sp.getByTestId('review-board-text')).toContainText('一杯咖啡你好', { timeout: 15000 });
+  await expect(sp.getByRole('heading', { name: 'Drawing' })).toBeVisible({ timeout: 15000 });
   await expect(sp.getByText('怎么说 a cup of coffee?')).toBeVisible();
 });

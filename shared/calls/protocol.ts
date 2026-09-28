@@ -6,6 +6,7 @@
  */
 
 import type { BoardItem, BoardOp, BoardPoint } from './board';
+import type { TextDocSnapshot, TextOp, TextSelection } from './textDoc';
 
 export interface CallPeer {
   client_id: string;
@@ -30,6 +31,14 @@ export interface CallChatMessage {
   at: number;
 }
 
+/** Someone's caret / selection on the shared text board. */
+export interface TextCursor {
+  client_id: string;
+  user_id: string;
+  name: string;
+  sel: TextSelection | null;
+}
+
 export interface LiveStroke {
   id: string;
   color: string;
@@ -42,6 +51,9 @@ export type ClientMessage =
   | { type: 'signal'; to: string; data: unknown }
   | { type: 'board'; op: BoardOp }
   | { type: 'board_live'; stroke: LiveStroke | null }
+  /** Edits to the shared text (site = "<my user id>:<random>", the same for the whole page load). */
+  | { type: 'text'; ops: TextOp[] }
+  | { type: 'text_cursor'; sel: TextSelection | null }
   | { type: 'chat'; text: string }
   | { type: 'state'; state: PeerMediaState }
   | { type: 'ping'; t: number }
@@ -57,6 +69,9 @@ export type ServerMessage =
       peers: CallPeer[];
       board: BoardItem[];
       chat: CallChatMessage[];
+      /** The shared text board (absent from an older room). */
+      text?: TextDocSnapshot;
+      text_cursors?: TextCursor[];
     }
   | { type: 'peer_joined'; peer: CallPeer }
   | { type: 'peer_left'; client_id: string }
@@ -64,6 +79,8 @@ export type ServerMessage =
   | { type: 'signal'; from: string; data: unknown }
   | { type: 'board'; op: BoardOp }
   | { type: 'board_live'; from: string; stroke: LiveStroke | null }
+  | { type: 'text'; from: string; ops: TextOp[] }
+  | ({ type: 'text_cursor' } & TextCursor)
   | { type: 'chat'; message: CallChatMessage }
   | { type: 'pong'; t: number; server_time: number }
   | { type: 'ended'; by: string }
