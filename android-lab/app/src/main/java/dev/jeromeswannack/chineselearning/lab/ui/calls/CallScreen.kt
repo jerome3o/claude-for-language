@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +62,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -72,6 +75,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.BoardOp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTranscript
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
+import dev.jeromeswannack.chineselearning.lab.core.calls.VideoFit
 import dev.jeromeswannack.chineselearning.lab.data.calls.AudioRoute
 import dev.jeromeswannack.chineselearning.lab.data.calls.RoomStatus
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
@@ -86,8 +90,12 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
-/** Draws a video (an org.webrtc renderer on the phone; a stand-in in screenshots). */
-typealias VideoSlot = @Composable (video: VideoHandle, mirror: Boolean, contain: Boolean, overlay: Boolean, modifier: Modifier) -> Unit
+/**
+ * Draws a video (an org.webrtc renderer on the phone; a stand-in in screenshots). `contain` = show
+ * the whole frame (letterboxed), else fill the modifier's box; `onFrameSize` reports the frame's
+ * real size (rotation applied) whenever it changes. [FittedVideo] decides the fit.
+ */
+typealias VideoSlot = @Composable (video: VideoHandle, mirror: Boolean, contain: Boolean, overlay: Boolean, onFrameSize: (Int, Int) -> Unit, modifier: Modifier) -> Unit
 
 enum class CallPanel { NONE, BOARD, CHAT }
 
@@ -186,17 +194,63 @@ private fun RoundButton(label: String, desc: String, off: Boolean = false, activ
     }
 }
 
+/**
+ * One video fitted by the shared rule (core VideoFit, parity-tested with shared/calls/videoFit.ts):
+ * cropped to fill only when its shape is close to the box's, otherwise shown whole — the renderer
+ * is sized to the picture's rectangle, centred on a dark letterbox (a SurfaceView can't be blurred
+ * like the web's backdrop). [cover] forces filling (the self-view, already shaped like the camera).
+ */
+@Composable
+fun FittedVideo(
+    video: VideoHandle,
+    mirror: Boolean,
+    screen: Boolean,
+    overlay: Boolean,
+    slot: VideoSlot,
+    modifier: Modifier,
+    cover: Boolean = false,
+    onFrameSize: ((VideoFit.Size) -> Unit)? = null,
+) {
+    var frame by remember(video) { mutableStateOf<VideoFit.Size?>(null) }
+    var box by remember { mutableStateOf<VideoFit.Size?>(null) }
+    val fit = if (cover) VideoFit.Fit.COVER else VideoFit.choose(frame, box, screen)
+    val density = LocalDensity.current
+    val report: (Int, Int) -> Unit = { w, h ->
+        val next = VideoFit.Size(w.toDouble(), h.toDouble())
+        if (next != frame) { frame = next; onFrameSize?.invoke(next) }
+    }
+    Box(
+        modifier
+            .onSizeChanged { box = VideoFit.Size(it.width.toDouble(), it.height.toDouble()) }
+            .background(if (screen || fit == VideoFit.Fit.COVER) Brush.linearGradient(listOf(Color.Black, Color.Black)) else Letterbox),
+        contentAlignment = Alignment.Center,
+    ) {
+        val b = box
+        val f = frame
+        if (fit == VideoFit.Fit.CONTAIN && b != null && f != null) {
+            val r = VideoFit.containRect(f, b)
+            val size = with(density) { Modifier.requiredSize(r.width.toFloat().toDp(), r.height.toFloat().toDp()) }
+            slot(video, mirror, false, overlay, report, size)
+        } else {
+            slot(video, mirror, fit == VideoFit.Fit.CONTAIN, overlay, report, Modifier.fillMaxSize())
+        }
+    }
+}
+
+private val Letterbox = Brush.radialGradient(listOf(Color(0xFF26303C), Color(0xFF0B0F14)))
+
 // ---------------------------------------------------------------- pre-join
 
 @Composable
 private fun PreJoin(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot) {
     var record by rememberSaveable { mutableStateOf(s.recordSupported) }
+    var localFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
     BoxWithConstraints(Modifier.fillMaxSize().background(Dark).windowInsetsPadding(WindowInsets.safeDrawing)) {
         val wide = maxWidth >= 640.dp
         val preview: @Composable (Modifier) -> Unit = { m ->
             Box(m.clip(RoundedCornerShape(24.dp)).background(DarkCard), contentAlignment = Alignment.Center) {
                 val local = s.localVideo
-                if (local != null && s.hasCamera && s.camOn) video(local, s.frontCamera, false, false, Modifier.fillMaxSize())
+                if (local != null && s.hasCamera && s.camOn) FittedVideo(local, s.frontCamera, screen = false, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { localFrame = it })
                 else Initials(info.myName)
                 Row(Modifier.align(Alignment.BottomCenter).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     RoundButton(if (s.micOn) "🎙️" else "🔇", if (s.micOn) "Mute microphone" else "Unmute microphone", off = !s.micOn, onClick = actions.onToggleMic)
@@ -239,7 +293,7 @@ private fun PreJoin(s: CallState, info: CallScreenInfo, actions: CallActions, vi
                 BetaBadge()
             }
             if (wide) Row(Modifier.fillMaxSize().padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                preview(Modifier.weight(1.2f).aspectRatio(4f / 3))
+                preview(Modifier.weight(1.2f).aspectRatio(localFrame?.let { (it.width / it.height).toFloat().coerceIn(0.5f, 2f) } ?: (4f / 3)))
                 body(Modifier.weight(1f))
             } else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 preview(Modifier.fillMaxWidth().weight(1f))
@@ -266,6 +320,9 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     val someoneRecording = s.recording || rs?.recording == true
     val remoteVideoOn = remote?.video != null && (rs?.cam == true || rs?.screen == true)
     val unread = maxOf(0, s.chat.size - seenChat)
+    val density = LocalDensity.current
+    var stageDp by remember { mutableStateOf<VideoFit.Size?>(null) }
+    var selfFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Dark).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         val wide = maxWidth >= 640.dp
@@ -278,9 +335,13 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
             }
             val stage: @Composable (Modifier) -> Unit = { m ->
-                Box(m.clip(RoundedCornerShape(20.dp)).background(DarkCard), contentAlignment = Alignment.Center) {
+                Box(
+                    m.clip(RoundedCornerShape(20.dp)).background(DarkCard)
+                        .onSizeChanged { stageDp = with(density) { VideoFit.Size(it.width.toDp().value.toDouble(), it.height.toDp().value.toDouble()) } },
+                    contentAlignment = Alignment.Center,
+                ) {
                     if (remote != null) {
-                        if (remoteVideoOn) video(remote.video!!, false, rs?.screen == true, false, Modifier.fillMaxSize())
+                        if (remoteVideoOn) FittedVideo(remote.video!!, false, screen = rs?.screen == true, overlay = false, slot = video, modifier = Modifier.fillMaxSize())
                         else Initials(otherName)
                         Text(
                             (if (rs != null && !rs.mic) "🔇 " else "") + otherName + if (remote.connection != "connected") " · connecting…" else "",
@@ -295,17 +356,19 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                             Text(if (info.relationshipId != null) "They got a Join link in your chat." else "A test call — try the whiteboard and the chat.", color = MutedDark, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    // self view
+                    // self view: shaped like my camera, sized from the stage (VideoFit.pipSize, like the web)
+                    val pip = stageDp?.let { VideoFit.pipSize(selfFrame, it) }
                     Box(
-                        Modifier.align(Alignment.TopEnd).padding(10.dp).width(if (wide) 160.dp else 96.dp).aspectRatio(3f / 4)
+                        Modifier.align(if (wide) Alignment.BottomEnd else Alignment.TopEnd).padding(10.dp)
+                            .then(if (pip != null) Modifier.size(pip.width.dp, pip.height.dp) else Modifier.width(if (wide) 160.dp else 96.dp).aspectRatio(3f / 4))
                             .clip(RoundedCornerShape(14.dp)).background(Color(0xFF2B313A)).border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(14.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
                         val screen = s.screenVideo
                         val local = s.localVideo
                         when {
-                            screen != null -> video(screen, false, true, true, Modifier.fillMaxSize())
-                            local != null && s.hasCamera && s.camOn -> video(local, s.frontCamera, false, true, Modifier.fillMaxSize())
+                            screen != null -> FittedVideo(screen, false, screen = true, overlay = true, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { selfFrame = it })
+                            local != null && s.hasCamera && s.camOn -> FittedVideo(local, s.frontCamera, screen = false, overlay = true, slot = video, modifier = Modifier.fillMaxSize(), cover = true, onFrameSize = { selfFrame = it })
                             else -> Text(if (s.micOn) "You" else "🔇 You", color = OnDark, fontSize = 13.sp)
                         }
                     }
