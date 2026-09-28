@@ -301,4 +301,34 @@ class StudyCardScreenshots : LabScreenshotTest() {
         val v = view(CardTypes.HANZI_TO_MEANING, note = Samples.note.copy(sentenceClue = null)).copy(sentences = emptyList())
         study(ui(v), CardStartState(flipped = true))
     }
+
+    // ---------------- answer marks: wrong = red + solid underline, missing = "?" + dashed underline ----------------
+
+    private val sentenceNote = Samples.note.copy(hanzi = "我打算明年去中国", pinyin = "wǒ dǎsuàn míngnián qù Zhōngguó", english = "I plan to go to China next year")
+
+    /** A typed sentence: two wrong characters, and one character short at the end. */
+    @Test fun typedWrongMarks() = shoot("study-c01-typed-wrong-underlined") {
+        study(ui(view(CardTypes.MEANING_TO_HANZI, note = sentenceNote)), CardStartState(flipped = true, answer = "我大算明天去中"))
+    }
+
+    @Test fun typedWrongMarksDark() = shoot("study-c02-typed-wrong-underlined-dark", dark = true) {
+        study(ui(view(CardTypes.MEANING_TO_HANZI, note = sentenceNote)), CardStartState(flipped = true, answer = "我大算明天去中"))
+    }
+
+    /** One character too many: the extra one is wrong (red + underlined). */
+    @Test fun typedExtra() = shoot("study-c03-typed-extra") {
+        study(ui(view(CardTypes.AUDIO_TO_HANZI)), CardStartState(flipped = true, answer = "打蒜了"))
+    }
+
+    /** Multiple choice, both rows picked wrong. */
+    @Test fun mcBackWrong() = shoot("study-c04-mc-back-wrong") {
+        val picks = listOf("找", "蒜")
+        study(ui(view(CardTypes.MEANING_TO_HANZI)), CardStartState(flipped = true, answer = MultipleChoice.submittedAnswer(mcRows, picks), mcSlots = MultipleChoice.answerSlots(mcRows, picks)))
+    }
+
+    /** Multiple choice, partial (one wrong, one blank), in dark mode. */
+    @Test fun mcBackPartialDark() = shoot("study-c05-mc-back-partial-dark", dark = true) {
+        val picks = listOf("找", null)
+        study(ui(view(CardTypes.MEANING_TO_HANZI)), CardStartState(flipped = true, answer = MultipleChoice.submittedAnswer(mcRows, picks), mcSlots = MultipleChoice.answerSlots(mcRows, picks)))
+    }
 }
