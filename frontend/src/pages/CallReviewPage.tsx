@@ -386,9 +386,17 @@ export function CallReviewPage() {
           )}
         </section>
 
+        {!!detail.board_text?.trim() && (
+          <section className="detail-section cr-section" data-testid="review-board-text">
+            <h2>Board</h2>
+            <p className="cr-muted">What you typed together during the call.</p>
+            <div className="cr-board-text" lang="zh">{detail.board_text.trim()}</div>
+          </section>
+        )}
+
         {detail.board.length > 0 && (
           <section className="detail-section cr-section">
-            <h2>Whiteboard</h2>
+            <h2>Drawing</h2>
             <BoardSnapshot items={detail.board} />
           </section>
         )}

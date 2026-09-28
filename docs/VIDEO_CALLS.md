@@ -24,6 +24,24 @@ test call), and the **Join the call** button that appears in the relationship's 
           then 1 message: Claude lesson report → calls.summary_json
 ```
 
+- **Board (text first)** — the 📝 button opens **Board**: one plain-text document both people
+  type into at once, each person's caret and selection shown to the other in their colour with
+  their name (`components/calls/TextBoard.tsx`: a real `<textarea>` over a "mirror" with identical
+  layout that paints the other person's selection / caret). The model is a small sequence CRDT,
+  RGA, in `shared/calls/textDoc.ts` (unit-tested for convergence with three random typists and
+  random delays; the Lab app's `CallTextDoc.kt` replays 5,000 recorded steps identically): every
+  character has an id `[counter, site]` and the id of the character it was typed after; concurrent
+  inserts after one character are ordered by id; deletes leave tombstones. The site is
+  `<user id>:<random per page load>` and the room refuses inserts whose site isn't the sender's.
+  The room applies ops in arrival order, keeps the document in its storage, sends it in `welcome`
+  and relays `text` / `text_cursor` messages; edits made while the socket was down are replayed on
+  the rejoin (idempotent). **IME**: nothing is sent between `compositionstart` and
+  `compositionend`, and the other person's edits wait until the composition ends, so pinyin input
+  is never disturbed (E2E drives a real composition over CDP). Selecting Chinese shows its pinyin
+  (`pinyin-pro`, on the device) and, online, a word-by-word **Meaning**
+  (`/api/sentences/explain-text`). **Draw** is the second tab (the old whiteboard). The text is
+  saved with the call (`calls.board_text`, migration 0081), shown on the review page under
+  "Board", and goes into the lesson report and the session-notes homework agent ("SHARED NOTES").
 - **Room** — `worker/src/durable/call-room.ts`, one SQLite-backed Durable Object per call
   (`idFromName(callId)`), WebSocket Hibernation API. Relays SDP / ICE between the two
   peers, keeps the board (`shared/calls/board.ts` ops) and chat, broadcasts media state

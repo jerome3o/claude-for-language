@@ -94,11 +94,13 @@ calls.get('/calls/:id', async (c) => {
         .bind(call.id)
         .all(),
     ]);
-    const { board_json, chat_json, summary_json, ...rest } = call;
+    const { board_json, chat_json, summary_json, board_text, ...rest } = call;
     return c.json({
       call: rest,
       participants,
       board: board_json ? (JSON.parse(board_json) as BoardItem[]) : [],
+      /** What was typed on the shared text board. */
+      board_text: board_text ?? '',
       chat: chat_json ? (JSON.parse(chat_json) as CallChatMessage[]) : [],
       report: summary_json ? (JSON.parse(summary_json) as CallReport) : null,
       pieces: pieces.map((p) => ({

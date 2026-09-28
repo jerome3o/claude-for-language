@@ -13,6 +13,7 @@ import { getCall } from '../api/calls';
 import { useCall, canShareScreen } from '../hooks/useCall';
 import { CallRecorder } from '../services/calls/recorder';
 import { Whiteboard } from '../components/calls/Whiteboard';
+import { TextBoard } from '../components/calls/TextBoard';
 import { formatOffset, pipSize, type CallChatMessage, type VideoSize } from '@shared/calls';
 import { CallVideo, useElementSize } from '../components/calls/CallVideo';
 import './CallPage.css';
@@ -61,7 +62,8 @@ function ChatPanel({ messages, myUserId, onSend }: { messages: CallChatMessage[]
   );
 }
 
-type Panel = 'none' | 'board' | 'chat';
+/** 'text' = the shared text board (the main board), 'board' = drawing. */
+type Panel = 'none' | 'text' | 'board' | 'chat';
 
 export function CallPage() {
   const { id } = useParams<{ id: string }>();
@@ -225,12 +227,15 @@ export function CallPage() {
           <div className="call-panel" data-testid={`call-panel-${panel}`}>
             <div className="call-panel-head">
               <div className="call-panel-tabs" role="tablist">
-                <button type="button" role="tab" aria-selected={panel === 'board'} className={panel === 'board' ? 'active' : ''} onClick={() => setPanel('board')}>Whiteboard</button>
+                <button type="button" role="tab" aria-selected={panel === 'text'} className={panel === 'text' ? 'active' : ''} onClick={() => setPanel('text')} data-testid="board-tab-text">Board</button>
+                <button type="button" role="tab" aria-selected={panel === 'board'} className={panel === 'board' ? 'active' : ''} onClick={() => setPanel('board')} data-testid="board-tab-draw">Draw</button>
                 <button type="button" role="tab" aria-selected={panel === 'chat'} className={panel === 'chat' ? 'active' : ''} onClick={() => setPanel('chat')}>Chat{unread > 0 && panel !== 'chat' ? ` (${unread})` : ''}</button>
               </div>
               <button type="button" className="call-panel-close" onClick={() => setPanel('none')} aria-label="Close panel">✕</button>
             </div>
-            {panel === 'board' ? (
+            {panel === 'text' ? (
+              <TextBoard session={call.textBoard} />
+            ) : panel === 'board' ? (
               <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
             ) : (
               <ChatPanel messages={call.chat} myUserId={call.myUserId} onSend={call.sendChat} />
@@ -244,7 +249,7 @@ export function CallPage() {
         {call.hasCamera && (
           <button type="button" className={`call-btn${call.camOn ? '' : ' off'}`} onClick={call.toggleCam} aria-label={call.camOn ? 'Camera off' : 'Camera on'} title="Camera">{call.camOn ? '📷' : '🚫'}</button>
         )}
-        <button type="button" className={`call-btn${panel === 'board' ? ' active' : ''}`} onClick={() => setPanel(panel === 'board' ? 'none' : 'board')} aria-label="Whiteboard" title="Whiteboard" data-testid="open-board">🖍️</button>
+        <button type="button" className={`call-btn${panel === 'text' || panel === 'board' ? ' active' : ''}`} onClick={() => setPanel(panel === 'text' || panel === 'board' ? 'none' : 'text')} aria-label="Board" title="Board — type together, or draw" data-testid="open-board">📝</button>
         <button type="button" className={`call-btn${panel === 'chat' ? ' active' : ''}`} onClick={() => setPanel(panel === 'chat' ? 'none' : 'chat')} aria-label="Chat" title="Chat">
           💬{unread > 0 && panel !== 'chat' && <span className="call-badge">{unread}</span>}
         </button>

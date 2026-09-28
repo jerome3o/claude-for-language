@@ -104,6 +104,8 @@ data class CallDetailDto(
     val participants: List<CallParticipantDto> = emptyList(),
     /** Whiteboard items (shared/calls/board.ts) — parsed with core CallBoard.parseItems. */
     val board: JsonArray = JsonArray(emptyList()),
+    /** What was typed on the shared text board (shared/calls/textDoc.ts). */
+    val board_text: String = "",
     val chat: List<CallChatDto> = emptyList(),
     val report: CallReportDto? = null,
     val pieces: List<CallPieceDto> = emptyList(),

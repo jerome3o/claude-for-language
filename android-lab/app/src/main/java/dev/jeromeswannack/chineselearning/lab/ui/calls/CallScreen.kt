@@ -97,7 +97,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
  */
 typealias VideoSlot = @Composable (video: VideoHandle, mirror: Boolean, contain: Boolean, overlay: Boolean, onFrameSize: (Int, Int) -> Unit, modifier: Modifier) -> Unit
 
-enum class CallPanel { NONE, BOARD, CHAT }
+/** TEXT = the shared text board (the main board), BOARD = drawing. */
+enum class CallPanel { NONE, TEXT, BOARD, CHAT }
 
 /** What the call page knows beyond the live state. */
 data class CallScreenInfo(
@@ -130,6 +131,11 @@ data class CallActions(
     val onCommitBoard: (BoardOp) -> Unit = {},
     val onLive: (LiveStroke?) -> Unit = {},
     val onSendChat: (String) -> Boolean = { false },
+    val onTextChanged: (text: String, start: Int, end: Int, composing: Boolean) -> Unit = { _, _, _, _ -> },
+    val onTextSelected: (Int, Int) -> Unit = { _, _ -> },
+    val onTextBlurred: () -> Unit = {},
+    /** Word-by-word meaning of a selection on the board (online). */
+    val explain: (suspend (String) -> String?)? = null,
     val onReview: () -> Unit = {},
     val onAllCalls: () -> Unit = {},
 )
@@ -377,12 +383,14 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             val panelView: @Composable (Modifier) -> Unit = { m ->
                 Column(m.clip(RoundedCornerShape(20.dp)).background(Lab.colors.background)) {
                     Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Tab("Whiteboard", panel == CallPanel.BOARD) { panel = CallPanel.BOARD }
+                        Tab("Board", panel == CallPanel.TEXT) { panel = CallPanel.TEXT }
+                        Tab("Draw", panel == CallPanel.BOARD) { panel = CallPanel.BOARD }
                         Tab(if (unread > 0 && panel != CallPanel.CHAT) "Chat ($unread)" else "Chat", panel == CallPanel.CHAT) { panel = CallPanel.CHAT }
                         Spacer(Modifier.weight(1f))
                         Text("✕", color = Lab.colors.muted, fontSize = 18.sp, modifier = Modifier.size(44.dp).bouncyClickable { panel = CallPanel.NONE }.padding(top = 10.dp), textAlign = TextAlign.Center)
                     }
-                    if (panel == CallPanel.BOARD) Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
+                    if (panel == CallPanel.TEXT) TextBoardPanel(s.textBoard, actions.onTextChanged, actions.onTextSelected, actions.onTextBlurred, Modifier.fillMaxWidth().weight(1f), explain = actions.explain)
+                    else if (panel == CallPanel.BOARD) Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
                     else ChatPanel(s.chat, s.myUserId, actions.onSendChat, Modifier.fillMaxWidth().weight(1f))
                 }
             }
@@ -404,7 +412,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             ) {
                 RoundButton(if (s.micOn) "🎙️" else "🔇", if (s.micOn) "Mute" else "Unmute", off = !s.micOn, onClick = actions.onToggleMic)
                 if (s.hasCamera) RoundButton(if (s.camOn) "📷" else "🚫", if (s.camOn) "Camera off" else "Camera on", off = !s.camOn, onClick = actions.onToggleCam)
-                RoundButton("🖍️", "Whiteboard", active = panel == CallPanel.BOARD) { panel = if (panel == CallPanel.BOARD) CallPanel.NONE else CallPanel.BOARD }
+                RoundButton("📝", "Board", active = panel == CallPanel.TEXT || panel == CallPanel.BOARD) { panel = if (panel == CallPanel.TEXT || panel == CallPanel.BOARD) CallPanel.NONE else CallPanel.TEXT }
                 RoundButton("💬", "Chat", active = panel == CallPanel.CHAT, badge = if (panel != CallPanel.CHAT) unread else 0) { panel = if (panel == CallPanel.CHAT) CallPanel.NONE else CallPanel.CHAT }
                 RoundButton("⋯", "More") { more = true }
                 RoundButton("📞", "End call", danger = true) { confirmEnd = true }

@@ -11,6 +11,7 @@ import { PeerLink, type SignalData } from '../services/calls/peer';
 import { CallRecorder } from '../services/calls/recorder';
 import { closeOrphanPieces, drainCallUploads, pendingCallUploads } from '../services/calls/uploads';
 import { endCall as endCallApi } from '../api/calls';
+import { TextBoardSession } from '../services/calls/textBoard';
 
 export type CallPhase = 'prejoin' | 'joining' | 'live' | 'ended' | 'error';
 
@@ -61,6 +62,9 @@ export function useCall(callId: string, myUserId: string) {
   const wantRecordRef = useRef(true);
   const finishedRef = useRef(false);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
+  // The shared text board: this page's replica, alive for the whole page (reconnects replay into it).
+  const textRef = useRef<TextBoardSession | null>(null);
+  if (!textRef.current) textRef.current = new TextBoardSession(myUserId, (m) => roomRef.current?.send(m) ?? false);
 
   // ---------------------------------------------------------------- media
 
@@ -180,6 +184,7 @@ export function useCall(callId: string, myUserId: string) {
         setBoard(msg.board);
         setChat(msg.chat);
         setLiveStrokes({});
+        textRef.current?.load(msg.text, msg.text_cursors);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
         if (msg.peers.length > 0) openLink(msg.peers[0]);
         else {
@@ -193,6 +198,7 @@ export function useCall(callId: string, myUserId: string) {
         openLink(msg.peer);
         return;
       case 'peer_left':
+        textRef.current?.dropCursor(msg.client_id);
         if (remoteIdRef.current === msg.client_id) {
           closeLink();
           setRemote(null);
@@ -216,6 +222,12 @@ export function useCall(callId: string, myUserId: string) {
           }
           return { ...cur, [msg.from]: msg.stroke };
         });
+        return;
+      case 'text':
+        textRef.current?.applyRemote(msg.ops);
+        return;
+      case 'text_cursor':
+        textRef.current?.setCursor({ client_id: msg.client_id, user_id: msg.user_id, name: msg.name, sel: msg.sel });
         return;
       case 'chat':
         setChat((c) => (c.some((m) => m.id === msg.message.id) ? c : [...c, msg.message]));
@@ -382,6 +394,7 @@ export function useCall(callId: string, myUserId: string) {
     startPreview, join, endForEveryone, toggleMic, toggleCam, flipCamera,
     startScreenShare, stopScreenShare, startRecording, stopRecording,
     commitBoard, sendLiveStroke, sendChat,
+    textBoard: textRef.current,
     hasCamera: !!localStream?.getVideoTracks().length,
     myUserId,
   };

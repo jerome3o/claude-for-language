@@ -31,6 +31,8 @@ export interface CallRow {
   started_at: number | null;
   ended_at: number | null;
   board_json: string | null;
+  /** The shared text board's plain text (migration 0081). */
+  board_text?: string | null;
   chat_json: string | null;
   summary_json: string | null;
   created_at: string;
@@ -173,13 +175,13 @@ export async function listCalls(
 export async function saveRoomSnapshot(
   db: D1Database,
   callId: string,
-  snapshot: { board: BoardItem[]; chat: CallChatMessage[]; startedAt: number | null },
+  snapshot: { board: BoardItem[]; chat: CallChatMessage[]; startedAt: number | null; text?: string },
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE calls SET board_json = ?, chat_json = ?, started_at = COALESCE(started_at, ?) WHERE id = ?`,
+      `UPDATE calls SET board_json = ?, chat_json = ?, board_text = ?, started_at = COALESCE(started_at, ?) WHERE id = ?`,
     )
-    .bind(JSON.stringify(snapshot.board), JSON.stringify(snapshot.chat), snapshot.startedAt, callId)
+    .bind(JSON.stringify(snapshot.board), JSON.stringify(snapshot.chat), snapshot.text ?? null, snapshot.startedAt, callId)
     .run();
 }
 

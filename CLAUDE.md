@@ -116,7 +116,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")
 │   │   ├── export.ts      # Markdown / JSON / CSV exporters (pure; used by worker and offline frontend)
 │   │   └── index.ts       # Re-exports
-│   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge, video fit / PiP (videoFit.ts) (see docs/VIDEO_CALLS.md)
+│   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge, video fit / PiP (videoFit.ts), the shared text board CRDT (textDoc.ts), call alerts (alerts.ts) (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
@@ -1046,6 +1046,7 @@ summary, corrections, card-standard vocabulary). Processing is readiness-driven
 - `POST /api/calls/:id/end` · `POST /api/calls/:id/process` (force-close stale pieces, retry failures, redo the report)
 - `POST /api/calls/:id/pieces` · `PUT /api/calls/:id/pieces/:pieceId/chunks/:idx` · `POST /api/calls/:id/pieces/:pieceId/close`
 - `POST /api/calls/:id/flashcards` `{ deck_id? | deck_name?, words }` → notes via the content service
+- **Board**: the 📝 panel is a shared text document first (`shared/calls/textDoc.ts`, an RGA CRDT kept and relayed by the CallRoom; `text` / `text_cursor` messages; carets + selections of the other person; IME-safe), Draw second; the text is saved as `calls.board_text` (migration 0081) → review page, lesson report, session-notes agent
 - **Finding the call** (docs/VIDEO_CALLS.md): `shared/calls/alerts.ts` decides the "📹 <name> is calling — Join" banner (Home card, a bar on every normal page — `components/calls/CallAlerts.tsx` in App.tsx —, the student / tutor page, the chat) and the in-app ring; `POST /api/calls` also sends Web Push (`services/push/`, WebCrypto VAPID + aes128gcm; `public/push-sw.js` in the service worker), "Missed video call" when they never joined. `GET /api/push/config`, `POST|DELETE /api/push/subscriptions`, `POST /api/push/test`, `PUT /api/profile/call-alerts { call_alerts: ring|silent }` (Settings → Video call alerts)
 
 ### Debug reports: web app vs Lab app (`worker/src/routes/debug-reports.ts`, `services/debug-reports.ts`, `shared/debug/`)

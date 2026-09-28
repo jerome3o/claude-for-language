@@ -36,7 +36,11 @@ object CallProtocol {
             peers = (o["peers"] as? JsonArray)?.mapNotNull { parsePeer(it) }.orEmpty(),
             board = CallBoard.parseItems(o["board"]),
             chat = (o["chat"] as? JsonArray)?.mapNotNull { parseChat(it) }.orEmpty(),
+            text = CallTextDoc.parseSnapshot(o["text"]),
+            textCursors = (o["text_cursors"] as? JsonArray)?.mapNotNull { parseCursor(it) }.orEmpty(),
         )
+        "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty()) }
+        "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it) }
         "peer_joined" -> parsePeer(o["peer"])?.let { ServerMessage.PeerJoined(it) }
         "peer_left" -> o.str("client_id")?.let { ServerMessage.PeerLeft(it) }
         "peer_state" -> o.str("client_id")?.let { ServerMessage.PeerState(it, parseState(o["state"])) }
@@ -66,6 +70,11 @@ object CallProtocol {
         val o = el as? JsonObject ?: return PeerMediaState()
         fun b(k: String) = (o[k] as? JsonPrimitive)?.booleanOrNull ?: false
         return PeerMediaState(mic = b("mic"), cam = b("cam"), screen = b("screen"), recording = b("recording"))
+    }
+
+    fun parseCursor(el: JsonElement?): TextCursor? {
+        val o = el as? JsonObject ?: return null
+        return TextCursor(o.str("client_id") ?: return null, o.str("user_id").orEmpty(), o.str("name").orEmpty(), CallTextDoc.parseSelection(o["sel"]))
     }
 
     fun parseChat(el: JsonElement?): CallChatMessage? {
@@ -104,7 +113,19 @@ data class CallChatMessage(val id: String, val userId: String, val name: String,
 
 /** Room → client. */
 sealed interface ServerMessage {
-    data class Welcome(val clientId: String, val serverTime: Long, val startedAt: Long, val peers: List<CallPeer>, val board: List<BoardItem>, val chat: List<CallChatMessage>) : ServerMessage
+    data class Welcome(
+        val clientId: String,
+        val serverTime: Long,
+        val startedAt: Long,
+        val peers: List<CallPeer>,
+        val board: List<BoardItem>,
+        val chat: List<CallChatMessage>,
+        /** The shared text board (null from an older room). */
+        val text: List<TextRun>? = null,
+        val textCursors: List<TextCursor> = emptyList(),
+    ) : ServerMessage
+    data class Text(val from: String, val ops: List<TextOp>) : ServerMessage
+    data class TextCursorMsg(val cursor: TextCursor) : ServerMessage
     data class PeerJoined(val peer: CallPeer) : ServerMessage
     data class PeerLeft(val clientId: String) : ServerMessage
     data class PeerState(val clientId: String, val state: PeerMediaState) : ServerMessage

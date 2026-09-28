@@ -32,6 +32,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CallDetailDto
 import dev.jeromeswannack.chineselearning.lab.data.api.endCall
 import dev.jeromeswannack.chineselearning.lab.data.api.getCall
 import dev.jeromeswannack.chineselearning.lab.data.api.joinCall
+import dev.jeromeswannack.chineselearning.lab.data.api.explainSentenceText
 import dev.jeromeswannack.chineselearning.lab.data.calls.AudioRoute
 import dev.jeromeswannack.chineselearning.lab.data.calls.CallAudio
 import dev.jeromeswannack.chineselearning.lab.data.calls.CallRoomSocket
@@ -79,12 +80,15 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             },
             prepareScreenShare = { CallService.prepareScreenShare(app, callId) },
             teardown = app.scope,
+            userId = { _myId.value },
         ),
         viewModelScope,
     )
 
     init {
-        viewModelScope.launch { _myId.value = Connections.myId(app.cache).orEmpty() }
+        viewModelScope.launch {
+            _myId.value = Connections.myId(app.cache) ?: runCatching { app.repo.api.me().id }.getOrNull().orEmpty()
+        }
         viewModelScope.launch { uploads.pending(callId).collect { controller.setPendingUploads(it) } }
     }
 
@@ -185,6 +189,13 @@ fun CallRoute(nav: LabNav, id: String) {
             onCommitBoard = vm.controller::commitBoard,
             onLive = vm.controller::sendLiveStroke,
             onSendChat = vm.controller::sendChat,
+            onTextChanged = vm.controller::textChanged,
+            onTextSelected = vm.controller::textSelected,
+            onTextBlurred = vm.controller::textBlurred,
+            explain = { hanzi ->
+                nav.app.repo.api.explainSentenceText(dev.jeromeswannack.chineselearning.lab.data.api.ExplainTextBody(hanzi)).words
+                    .joinToString(" · ") { "${it.hanzi} ${it.gloss}" }.ifBlank { null }
+            },
             onReview = { nav.back(); nav.open(Routes.callReview(id)) },
             onAllCalls = { nav.back(); nav.open(Routes.calls()) },
         ),

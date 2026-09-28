@@ -117,4 +117,22 @@ class CallScreenshots : LabScreenshotTest() {
     @Test fun unfoldedLandscapeRemote() = shoot("calls-23-fit-unfolded-landscape-remote") {
         CallScreen(live.copy(remote = live.remote!!.copy(video = "them@1280x720"), localVideo = "me@1280x720"), info, CallActions(), fakeVideo, now)
     }
+
+    // ---- the shared text board (shared/calls/textDoc.ts): typed together, the other caret in colour
+
+    private val notes = "第五课 · 点菜\n\n我想要一杯咖啡。\n微辣 wēi là = a little spicy\n服务员，买单！\n\n不要放香菜。"
+    private val board = TextBoardUi(
+        text = notes,
+        version = 3,
+        remote = listOf(dev.jeromeswannack.chineselearning.lab.core.calls.RemoteCaret("c-a", CallsSamples.TUTOR, "王老师", "#e11d48", 13, 15, 15)),
+    )
+
+    @Test fun textBoard() = shoot("calls-24-live-text-board") {
+        CallScreen(live.copy(textBoard = board), info, CallActions(), fakeVideo, now, initialPanel = CallPanel.TEXT)
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun textBoardUnfolded() = shoot("calls-25-live-text-board-unfolded") {
+        CallScreen(live.copy(textBoard = board), info, CallActions(), fakeVideo, now, initialPanel = CallPanel.TEXT)
+    }
 }

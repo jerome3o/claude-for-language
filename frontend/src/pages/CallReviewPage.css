@@ -147,3 +147,15 @@
 .calls-row-meta { font-size: 0.85rem; color: var(--color-text-light); }
 .calls-live-pill { background: #dc2626; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 999px; }
 .calls-intro { color: var(--color-text-light); font-size: 0.95rem; line-height: 1.5; }
+
+.cr-board-text {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-size: 1.1rem;
+  line-height: 1.7;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+}
+.cr-muted { color: #6b7280; font-size: 0.9rem; margin: 0 0 0.5rem; }

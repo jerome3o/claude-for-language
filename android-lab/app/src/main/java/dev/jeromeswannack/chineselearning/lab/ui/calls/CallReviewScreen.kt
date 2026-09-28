@@ -269,9 +269,18 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
             )
         }
 
+        if (d.board_text.isNotBlank()) {
+            item { SectionHeader("Board") }
+            item {
+                androidx.compose.material3.Text(
+                    d.board_text.trim(), color = Lab.colors.ink, fontSize = 18.sp, lineHeight = 28.sp,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).padding(16.dp),
+                )
+            }
+        }
         val board: List<BoardItem> = CallBoard.parseItems(d.board)
         if (board.isNotEmpty()) {
-            item { SectionHeader("Whiteboard") }
+            item { SectionHeader("Drawing") }
             item { BoardSnapshot(board) }
         }
         if (d.chat.isNotEmpty()) {
