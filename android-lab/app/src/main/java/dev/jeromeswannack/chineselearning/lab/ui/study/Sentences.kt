@@ -113,12 +113,17 @@ class SentenceActions(
  * + Add as card — and the header ⋯ regenerates / extends / clears the set.
  */
 @Composable
-fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false) =
-    SentenceList(view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll)
+fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier) =
+    SentenceList(view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier)
 
 /**
  * The same list for any note (the card editor's "Sentence Set" section): [presentation]
  * resets the reveal state when it changes; [onPlay] plays a clip key with the text as fallback.
+ *
+ * It is ONE node — a Column holding the header, the rows and the "+ 5 more sentences" line — so a
+ * caller may wrap it in anything (the card back wraps it in a tap-keeping block): emitted as loose
+ * siblings, a Box parent drew them all on top of each other (the header under the rows, the
+ * "+ 5 more" line over the first row).
  */
 @Composable
 fun SentenceList(
@@ -131,7 +136,8 @@ fun SentenceList(
     onPlay: (key: String?, text: String) -> Unit,
     startExplained: Map<String, SentenceExplanation> = emptyMap(),
     startShowAll: Boolean = false,
-) {
+    modifier: Modifier = Modifier,
+) = Column(modifier.fillMaxWidth()) {
     val rows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
     val steps = remember(presentation) { mutableStateMapOf<String, Int>() }
     val english = remember(presentation) { mutableStateMapOf<String, Boolean>() }
@@ -161,153 +167,151 @@ fun SentenceList(
     LaunchedEffect(rows) { for (r in rows) if (explanations[r.key] == null) s.cachedExplanation(r)?.let { explanations[r.key] = it } }
 
     if (rows.isEmpty()) {
-        Column(Modifier.fillMaxWidth()) {
-            SecondaryPill(
-                if (generating) "Generating sentences…" else "✨ Generate example sentences",
-                Modifier.fillMaxWidth().height(48.dp),
-                enabled = !generating && online,
-            ) { generate(6) }
-            error?.let { Spacer(Modifier.height(8.dp)); InlineNotice(it, kind = NoticeKind.Error) }
-            Spacer(Modifier.height(12.dp))
-        }
-        return
-    }
+        SecondaryPill(
+            if (generating) "Generating sentences…" else "✨ Generate example sentences",
+            Modifier.fillMaxWidth().height(48.dp),
+            enabled = !generating && online,
+        ) { generate(6) }
+        error?.let { Spacer(Modifier.height(8.dp)); InlineNotice(it, kind = NoticeKind.Error) }
+        Spacer(Modifier.height(12.dp))
+    } else {
 
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text("Example sentences", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink, modifier = Modifier.weight(1f))
-        TextButton(onClick = { showAll = !showAll; if (!showAll) steps.clear() }) {
-            Text(if (showAll) "Hide all" else "Show all", color = Lab.colors.accent)
-        }
-        Box {
-            TextButton(onClick = { menu = true }, enabled = online && !generating) {
-                Text(if (generating) "…" else "⋯", color = if (online) Lab.colors.ink else Lab.colors.muted, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Example sentences", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+            TextButton(onClick = { showAll = !showAll; if (!showAll) steps.clear() }) {
+                Text(if (showAll) "Hide all" else "Show all", color = Lab.colors.accent)
             }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Lab.colors.card) {
-                for (count in listOf(5, 10)) DropdownMenuItem(text = { Text(if (hasSet) "New set of $count" else "Generate $count") }, onClick = { generate(count) })
-                if (hasSet) DropdownMenuItem(text = { Text("Add 5 more") }, onClick = { generate(5, keep = true) })
-                DropdownMenuItem(text = { Text("Custom…") }, onClick = { menu = false; custom = true })
-                if (hasSet) DropdownMenuItem(text = { Text("Clear set", color = Palette.Again) }, onClick = {
-                    menu = false
-                    scope.launch { runCatching { s.clear() } }
-                })
-            }
-        }
-    }
-    error?.let { InlineNotice(it, kind = NoticeKind.Error); Spacer(Modifier.height(8.dp)) }
-    AnimatedVisibility(custom) {
-        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = prompt,
-                onValueChange = { prompt = it },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-                placeholder = { Text("Describe the sentences you want…") },
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
-            )
-            Spacer(Modifier.width(6.dp))
-            TextButton(enabled = prompt.isNotBlank(), onClick = { generate(6, customPrompt = prompt.trim()); prompt = ""; custom = false }) { Text("Go", color = Lab.colors.accent) }
-            TextButton(onClick = { custom = false; prompt = "" }) { Text("Cancel", color = Lab.colors.muted) }
-        }
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (row in rows) {
-            val en = english[row.key] == true && row.translation != null
-            val chain = buildList {
-                add("hanzi")
-                if (!row.pinyin.isNullOrBlank()) add("pinyin")
-                if (!en && !row.translation.isNullOrBlank()) add("translation")
-            }
-            val step = if (showAll) chain.size else (steps[row.key] ?: 0)
-            val open = step >= chain.size
-            val playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}")
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).animateContentSize(),
-            ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val cur = steps[row.key] ?: 0
-                            steps[row.key] = if (cur >= chain.size) 0 else cur + 1
-                        }
-                        .padding(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        Modifier.size(34.dp).clip(CircleShape)
-                            .background(if (en) Lab.colors.accentSoft else Lab.colors.card)
-                            .clickable(enabled = row.translation != null) { english[row.key] = !en; steps[row.key] = 0; if (!en) showAll = false },
-                        contentAlignment = Alignment.Center,
-                    ) { Text("EN", style = MaterialTheme.typography.labelSmall, color = if (en) Lab.colors.accent else Lab.colors.muted) }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
-                        if (en) Text(row.translation!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
-                        if (step == 0 && !en) Text("Tap to reveal", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted.copy(alpha = 0.6f))
-                        if (step >= 1) Text(row.hanzi, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
-                        if (step >= 2 && chain.getOrNull(1) == "pinyin") Text(row.pinyin!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.accent)
-                        val translationStep = chain.indexOf("translation") + 1
-                        if (translationStep > 0 && step >= translationStep) Text(row.translation!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
-                        if (open && (row.badge != null || row.focusNote != null)) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(listOfNotNull(row.badge, row.focusNote).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
-                        }
-                    }
-                    Box(
-                        Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).clickable { onPlay(row.audioUrl, row.hanzi) },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.accent) }
+            Box {
+                TextButton(onClick = { menu = true }, enabled = online && !generating) {
+                    Text(if (generating) "…" else "⋯", color = if (online) Lab.colors.ink else Lab.colors.muted, fontWeight = FontWeight.Bold)
                 }
-                if (open) {
-                    val ex = explanations[row.key]
-                    Row(Modifier.padding(start = 50.dp, end = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (ex == null) {
-                            val busy = explaining[row.key] == true
-                            ToolLink(
-                                when { busy -> "Explaining…"; failed[row.key] == true -> "Explain failed — retry"; else -> "What’s going on here?" },
-                                enabled = !busy && online,
-                            ) {
-                                explaining[row.key] = true
-                                failed[row.key] = false
-                                scope.launch {
-                                    try { explanations[row.key] = s.explain(row) } catch (e: Exception) { failed[row.key] = true } finally { explaining[row.key] = false }
-                                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Lab.colors.card) {
+                    for (count in listOf(5, 10)) DropdownMenuItem(text = { Text(if (hasSet) "New set of $count" else "Generate $count") }, onClick = { generate(count) })
+                    if (hasSet) DropdownMenuItem(text = { Text("Add 5 more") }, onClick = { generate(5, keep = true) })
+                    DropdownMenuItem(text = { Text("Custom…") }, onClick = { menu = false; custom = true })
+                    if (hasSet) DropdownMenuItem(text = { Text("Clear set", color = Palette.Again) }, onClick = {
+                        menu = false
+                        scope.launch { runCatching { s.clear() } }
+                    })
+                }
+            }
+        }
+        error?.let { InlineNotice(it, kind = NoticeKind.Error); Spacer(Modifier.height(8.dp)) }
+        AnimatedVisibility(custom) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    placeholder = { Text("Describe the sentences you want…") },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+                )
+                Spacer(Modifier.width(6.dp))
+                TextButton(enabled = prompt.isNotBlank(), onClick = { generate(6, customPrompt = prompt.trim()); prompt = ""; custom = false }) { Text("Go", color = Lab.colors.accent) }
+                TextButton(onClick = { custom = false; prompt = "" }) { Text("Cancel", color = Lab.colors.muted) }
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (row in rows) {
+                val en = english[row.key] == true && row.translation != null
+                val chain = buildList {
+                    add("hanzi")
+                    if (!row.pinyin.isNullOrBlank()) add("pinyin")
+                    if (!en && !row.translation.isNullOrBlank()) add("translation")
+                }
+                val step = if (showAll) chain.size else (steps[row.key] ?: 0)
+                val open = step >= chain.size
+                val playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}")
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).animateContentSize(),
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val cur = steps[row.key] ?: 0
+                                steps[row.key] = if (cur >= chain.size) 0 else cur + 1
+                            }
+                            .padding(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier.size(34.dp).clip(CircleShape)
+                                .background(if (en) Lab.colors.accentSoft else Lab.colors.card)
+                                .clickable(enabled = row.translation != null) { english[row.key] = !en; steps[row.key] = 0; if (!en) showAll = false },
+                            contentAlignment = Alignment.Center,
+                        ) { Text("EN", style = MaterialTheme.typography.labelSmall, color = if (en) Lab.colors.accent else Lab.colors.muted) }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                            if (en) Text(row.translation!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
+                            if (step == 0 && !en) Text("Tap to reveal", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted.copy(alpha = 0.6f))
+                            if (step >= 1) Text(row.hanzi, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
+                            if (step >= 2 && chain.getOrNull(1) == "pinyin") Text(row.pinyin!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.accent)
+                            val translationStep = chain.indexOf("translation") + 1
+                            if (translationStep > 0 && step >= translationStep) Text(row.translation!!, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
+                            if (open && (row.badge != null || row.focusNote != null)) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(listOfNotNull(row.badge, row.focusNote).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
                             }
                         }
-                        if (!row.pinyin.isNullOrBlank() && !row.translation.isNullOrBlank()) {
-                            ToolLink("+ Add as card", enabled = online) { adding = Chunk(row.hanzi, row.pinyin, row.translation) }
-                        }
+                        Box(
+                            Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).clickable { onPlay(row.audioUrl, row.hanzi) },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.accent) }
                     }
-                    explanations[row.key]?.let { ex ->
-                        Column(Modifier.padding(start = 50.dp, end = 10.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            ChipRow {
-                                for (w in ex.words) {
-                                    Column(
-                                        Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
-                                            .clickable(enabled = online) { adding = Chunk(w.hanzi, w.pinyin, w.gloss) }
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    ) {
-                                        Text(w.hanzi, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
-                                        Text(w.pinyin, color = Lab.colors.accent, style = MaterialTheme.typography.labelSmall)
-                                        Text(w.gloss, color = Lab.colors.muted, style = MaterialTheme.typography.labelSmall)
+                    if (open) {
+                        val ex = explanations[row.key]
+                        Row(Modifier.padding(start = 50.dp, end = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (ex == null) {
+                                val busy = explaining[row.key] == true
+                                ToolLink(
+                                    when { busy -> "Explaining…"; failed[row.key] == true -> "Explain failed — retry"; else -> "What’s going on here?" },
+                                    enabled = !busy && online,
+                                ) {
+                                    explaining[row.key] = true
+                                    failed[row.key] = false
+                                    scope.launch {
+                                        try { explanations[row.key] = s.explain(row) } catch (e: Exception) { failed[row.key] = true } finally { explaining[row.key] = false }
                                     }
                                 }
                             }
-                            ex.construction?.takeIf { it.isNotBlank() }?.let { MarkdownText(it, style = MaterialTheme.typography.bodySmall) }
+                            if (!row.pinyin.isNullOrBlank() && !row.translation.isNullOrBlank()) {
+                                ToolLink("+ Add as card", enabled = online) { adding = Chunk(row.hanzi, row.pinyin, row.translation) }
+                            }
+                        }
+                        explanations[row.key]?.let { ex ->
+                            Column(Modifier.padding(start = 50.dp, end = 10.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ChipRow {
+                                    for (w in ex.words) {
+                                        Column(
+                                            Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
+                                                .clickable(enabled = online) { adding = Chunk(w.hanzi, w.pinyin, w.gloss) }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        ) {
+                                            Text(w.hanzi, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
+                                            Text(w.pinyin, color = Lab.colors.accent, style = MaterialTheme.typography.labelSmall)
+                                            Text(w.gloss, color = Lab.colors.muted, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                                ex.construction?.takeIf { it.isNotBlank() }?.let { MarkdownText(it, style = MaterialTheme.typography.bodySmall) }
+                            }
                         }
                     }
                 }
             }
         }
-    }
-    Spacer(Modifier.height(8.dp))
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        TextButton(onClick = { if (hasSet) generate(5, keep = true) else generate(6) }, enabled = online && !generating) {
-            Text(if (generating) "Generating…" else if (hasSet) "+ 5 more sentences" else "✨ Generate example sentences", color = if (online) Lab.colors.accent else Lab.colors.muted)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextButton(onClick = { if (hasSet) generate(5, keep = true) else generate(6) }, enabled = online && !generating) {
+                Text(if (generating) "Generating…" else if (hasSet) "+ 5 more sentences" else "✨ Generate example sentences", color = if (online) Lab.colors.accent else Lab.colors.muted)
+            }
         }
+        Spacer(Modifier.height(12.dp))
+        adding?.let { chunk -> AddChunkSheet(chunk, note.deckId, s, onDismiss = { adding = null }) }
     }
-    Spacer(Modifier.height(12.dp))
-    adding?.let { chunk -> AddChunkSheet(chunk, note.deckId, s, onDismiss = { adding = null }) }
 }
 
 @Composable
