@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -187,7 +188,7 @@ fun CallRoute(nav: LabNav, id: String) {
             onReview = { nav.back(); nav.open(Routes.callReview(id)) },
             onAllCalls = { nav.back(); nav.open(Routes.calls()) },
         ),
-        video = { handle, mirror, contain, overlay, modifier -> RtcVideo(handle as? VideoTrack, eglContext, mirror, contain, overlay, modifier) },
+        video = { handle, mirror, contain, overlay, onFrameSize, modifier -> RtcVideo(handle as? VideoTrack, eglContext, mirror, contain, overlay, onFrameSize, modifier) },
     )
     if (confirmLeave) dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog(
         "Leave the call?", "The call goes on for the other person — rejoin it from the calls page. To end it for both of you, use the red button.", "Leave",
@@ -195,15 +196,26 @@ fun CallRoute(nav: LabNav, id: String) {
     )
 }
 
-/** One WebRTC video in a SurfaceViewRenderer; rebuilt with the composition, the track outlives it. */
+/**
+ * One WebRTC video in a SurfaceViewRenderer; rebuilt with the composition, the track outlives it.
+ * Reports each new frame size (rotation applied) so [FittedVideo] can pick cover / contain.
+ */
 @Composable
-fun RtcVideo(track: VideoTrack?, egl: org.webrtc.EglBase.Context, mirror: Boolean, contain: Boolean, overlay: Boolean, modifier: Modifier = Modifier) {
+fun RtcVideo(track: VideoTrack?, egl: org.webrtc.EglBase.Context, mirror: Boolean, contain: Boolean, overlay: Boolean, onFrameSize: (Int, Int) -> Unit, modifier: Modifier = Modifier) {
     if (track == null) return
+    val sizeCallback = rememberUpdatedState(onFrameSize)
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             SurfaceViewRenderer(ctx).apply {
-                init(egl, null)
+                val main = android.os.Handler(android.os.Looper.getMainLooper())
+                init(egl, object : RendererCommon.RendererEvents {
+                    override fun onFirstFrameRendered() {}
+                    override fun onFrameResolutionChanged(width: Int, height: Int, rotation: Int) {
+                        val turned = rotation % 180 != 0
+                        main.post { sizeCallback.value(if (turned) height else width, if (turned) width else height) }
+                    }
+                })
                 setEnableHardwareScaler(true)
                 if (overlay) setZOrderMediaOverlay(true)
             }

@@ -3,11 +3,14 @@ package dev.jeromeswannack.chineselearning.lab.ui.calls
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPoint
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
@@ -23,13 +26,19 @@ import kotlin.math.sin
 
 /** The live call with stand-in video (real WebRTC can't render under Robolectric). */
 class CallScreenshots : LabScreenshotTest() {
-    private val fakeVideo: VideoSlot = { handle, _, _, _, modifier -> FakeVideo(handle as String, modifier) }
+    /** A handle is "who" or "who@WxH" — the stand-in reports that frame size, like the real renderer. */
+    private val fakeVideo: VideoSlot = { handle, _, _, _, onFrameSize, modifier -> FakeVideo(handle as String, onFrameSize, modifier) }
 
     @Composable
-    private fun FakeVideo(who: String, modifier: Modifier) {
+    private fun FakeVideo(handle: String, onFrameSize: (Int, Int) -> Unit, modifier: Modifier) {
+        val who = handle.substringBefore('@')
+        val size = handle.substringAfter('@', "").split('x').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 }
+            ?: when (who) { "them" -> listOf(1280, 720); "screen" -> listOf(1080, 2400); else -> listOf(720, 1280) }
+        LaunchedEffect(handle) { onFrameSize(size[0], size[1]) }
         val colors = if (who == "them") listOf(Color(0xFF7C9A92), Color(0xFF34495E)) else listOf(Color(0xFFE0B089), Color(0xFF8E5A3C))
         Box(modifier.background(Brush.verticalGradient(colors)), contentAlignment = Alignment.Center) {
             Text(if (who == "them") "👩‍🏫" else if (who == "screen") "🖥️" else "🧑", fontSize = if (who == "them") 120.sp else 48.sp)
+            Text("${size[0]}×${size[1]}", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         }
     }
 
@@ -91,5 +100,21 @@ class CallScreenshots : LabScreenshotTest() {
     @Config(qualifiers = UNFOLDED)
     @Test fun preJoinUnfolded() = shoot("calls-20-prejoin-unfolded") {
         CallScreen(CallState(mediaReady = true, hasCamera = true, localVideo = "me", recordSupported = true), info, CallActions(), fakeVideo)
+    }
+
+    // ---- video fit (shared/calls/videoFit.ts): cropped only when the shapes nearly match
+
+    @Test fun phonePortraitRemote() = shoot("calls-21-fit-phone-portrait-remote") {
+        CallScreen(live.copy(remote = live.remote!!.copy(video = "them@720x1280")), info, CallActions(), fakeVideo, now)
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun unfoldedPortraitRemote() = shoot("calls-22-fit-unfolded-portrait-remote") {
+        CallScreen(live.copy(remote = live.remote!!.copy(video = "them@720x1280")), info, CallActions(), fakeVideo, now)
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun unfoldedLandscapeRemote() = shoot("calls-23-fit-unfolded-landscape-remote") {
+        CallScreen(live.copy(remote = live.remote!!.copy(video = "them@1280x720"), localVideo = "me@1280x720"), info, CallActions(), fakeVideo, now)
     }
 }

@@ -13,29 +13,9 @@ import { getCall } from '../api/calls';
 import { useCall, canShareScreen } from '../hooks/useCall';
 import { CallRecorder } from '../services/calls/recorder';
 import { Whiteboard } from '../components/calls/Whiteboard';
-import { formatOffset, type CallChatMessage } from '@shared/calls';
+import { formatOffset, pipSize, type CallChatMessage, type VideoSize } from '@shared/calls';
+import { CallVideo, useElementSize } from '../components/calls/CallVideo';
 import './CallPage.css';
-
-function VideoEl({ stream, muted, mirrored, fit, className, testId }: { stream: MediaStream | null; muted?: boolean; mirrored?: boolean; fit: 'cover' | 'contain'; className?: string; testId?: string }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (el.srcObject !== stream) el.srcObject = stream;
-    if (stream) void el.play().catch(() => {});
-  }, [stream]);
-  return (
-    <video
-      ref={ref}
-      className={className}
-      data-testid={testId}
-      autoPlay
-      playsInline
-      muted={muted}
-      style={{ objectFit: fit, transform: mirrored ? 'scaleX(-1)' : undefined }}
-    />
-  );
-}
 
 function Initials({ name }: { name: string }) {
   const letters = name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || '?';
@@ -95,6 +75,10 @@ export function CallPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [seenChat, setSeenChat] = useState(0);
   const elapsed = useElapsed(call.startedAt, call.phase === 'live');
+  // The camera's real shape (a phone's is portrait, a webcam's landscape) sizes the preview and the self-view.
+  const [localSize, setLocalSize] = useState<VideoSize | null>(null);
+  const [selfSize, setSelfSize] = useState<VideoSize | null>(null);
+  const [stageSize, stageRef] = useElementSize<HTMLDivElement>();
 
   const detail = callQuery.data;
   const other = detail?.participants.find((p) => p.id !== user!.id);
@@ -151,9 +135,9 @@ export function CallPage() {
           <Link to={detail.call.relationship_id ? `/connections/${detail.call.relationship_id}` : '/calls'} className="call-back">‹ Back</Link>
           <span className="call-beta">Beta</span>
         </div>
-        <div className="call-prejoin-preview">
+        <div className="call-prejoin-preview" style={localSize ? { aspectRatio: `${localSize.width} / ${localSize.height}` } : undefined}>
           {call.localStream && call.hasCamera && call.camOn ? (
-            <VideoEl stream={call.localStream} muted mirrored fit="cover" className="call-prejoin-video" testId="local-preview" />
+            <CallVideo stream={call.localStream} muted mirrored className="call-prejoin-video" testId="local-preview" onVideoSize={setLocalSize} />
           ) : (
             <Initials name={user!.name || user!.email || 'You'} />
           )}
@@ -196,6 +180,7 @@ export function CallPage() {
   const remoteVideoOn = !!remote?.stream && (remoteState?.cam || remoteState?.screen);
   const unread = Math.max(0, call.chat.length - seenChat);
   const connecting = remote && remote.connection !== 'connected';
+  const pip = stageSize && stageSize.width > 200 ? pipSize(selfSize ?? localSize, stageSize) : null;
 
   return (
     <div className={`call-page call-live panel-${panel}`} data-testid="call-live">
@@ -207,11 +192,11 @@ export function CallPage() {
       </div>
 
       <div className="call-main">
-        <div className="call-stage">
+        <div className="call-stage" ref={stageRef}>
           {remote ? (
             <>
               {remote.stream && (
-                <VideoEl stream={remote.stream} fit={remoteState?.screen ? 'contain' : 'cover'} className={`call-remote-video${remoteVideoOn ? '' : ' hidden'}`} testId="remote-video" />
+                <CallVideo stream={remote.stream} screen={!!remoteState?.screen} className={`call-remote-video${remoteVideoOn ? '' : ' hidden'}`} testId="remote-video" />
               )}
               {!remoteVideoOn && <Initials name={otherName} />}
               <div className="call-remote-label">
@@ -225,11 +210,11 @@ export function CallPage() {
               <p className="call-muted">They got a Join link in your chat.</p>
             </div>
           )}
-          <div className="call-self">
+          <div className="call-self" style={pip ? { width: pip.width, height: pip.height } : undefined} data-testid="self-view">
             {call.screenStream ? (
-              <VideoEl stream={call.screenStream} muted fit="contain" className="call-self-video" />
+              <CallVideo stream={call.screenStream} muted screen className="call-self-video" onVideoSize={setSelfSize} />
             ) : call.hasCamera && call.camOn ? (
-              <VideoEl stream={call.localStream} muted mirrored={call.facing === 'user'} fit="cover" className="call-self-video" />
+              <CallVideo stream={call.localStream} muted mirrored={call.facing === 'user'} fit="cover" className="call-self-video" onVideoSize={setSelfSize} />
             ) : (
               <div className="call-self-off">{call.micOn ? 'You' : '🔇 You'}</div>
             )}

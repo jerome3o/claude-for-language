@@ -49,6 +49,17 @@ test call), and the **Join the call** button that appears in the relationship's 
   with all chunks uploaded is queued once; when the call has ended and nothing is in flight,
   the report is queued once. Pieces that will never close (crashed tab) are force-closed by
   **Process now** on the review page.
+- **Video layout** — `shared/calls/videoFit.ts` (pure, unit-tested; the Lab app's `VideoFit.kt`
+  is parity-tested against it): a feed is cropped to fill its box (`cover`) only when the two
+  aspect ratios are within 15 %; otherwise it is shown whole (`contain`) — on the web over a
+  small, dimmed, blurred copy of itself (`components/calls/CallVideo.tsx`, cheap: the copy is
+  drawn at 1/8 size and scaled up), in the Lab app on a dark letterbox (the renderer is sized to
+  the picture's rectangle). A shared screen is always shown whole. The choice follows the
+  track's real size (the video's `resize` event / WebRTC's `onFrameResolutionChanged`, so a
+  phone rotating mid-call re-fits) and the box's size (ResizeObserver / `onSizeChanged`). The
+  self-view PiP takes my camera's shape (portrait phone, landscape webcam) and ~⅓ of the
+  stage's shorter side (`pipSize`, 88–260 px): top-right on phones, bottom-right on wide windows.
+  The pre-join preview takes the camera's shape too.
 - **Review page** — `/calls/:id/review`: summary, corrections, vocabulary with checkboxes →
   "Add N cards" (`POST /api/calls/:id/flashcards`, through the content service so TTS and
   sentence sets happen as usual), the merged transcript grouped into turns with ▶ per line

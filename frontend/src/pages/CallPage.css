@@ -106,7 +106,7 @@
   width: calc(100% - 2rem);
   max-width: 520px;
 }
-.call-prejoin-video { width: 100%; height: 100%; }
+.call-prejoin-preview .cv { border-radius: inherit; }
 .call-prejoin-toggles {
   position: absolute;
   bottom: 0.75rem;
@@ -180,8 +180,37 @@
   align-items: center;
   justify-content: center;
 }
-.call-remote-video { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }
 .call-remote-video.hidden { opacity: 0; }
+
+/* ---------- one video, fitted by shared/calls/videoFit.ts (components/calls/CallVideo.tsx) */
+.cv {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #05070a;
+}
+.cv-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+/* A letterboxed feed sits on a soft, dimmed copy of itself. The copy is drawn
+   small and scaled up, so the blur stays cheap on phones. */
+.cv-backdrop {
+  position: absolute;
+  left: -1%;
+  top: -1%;
+  width: 12.75%;
+  height: 12.75%;
+  object-fit: cover;
+  transform: scale(8.2);
+  transform-origin: 0 0;
+  filter: blur(3px) brightness(0.45) saturate(1.3);
+  pointer-events: none;
+}
+.cv-screen { background: #000; }
 .call-remote-label {
   position: absolute;
   left: 0.6rem;
@@ -195,17 +224,19 @@
 .call-waiting p { margin: 0.25rem 0; }
 .call-self {
   position: absolute;
+  z-index: 2;
   top: 0.6rem;
   right: 0.6rem;
   width: 96px;
   height: 128px;
+  transition: width 0.2s ease, height 0.2s ease;
   border-radius: 12px;
   overflow: hidden;
   background: #1f2937;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   border: 2px solid rgba(255, 255, 255, 0.15);
 }
-.call-self-video { width: 100%; height: 100%; }
+
 .call-self-off { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; color: #d1d5db; }
 
 /* Phones: the whiteboard / chat covers the stage; the other person stays visible as a thumbnail. */
@@ -383,7 +414,9 @@
 
 /* ---------- wider screens (unfolded Fold, tablets, desktop) */
 @media (min-width: 640px) {
-  .call-self { width: 180px; height: 135px; }
+  /* Wide windows: the other person fills the stage, I'm a small picture in the corner. */
+  .call-self { width: 180px; height: 135px; top: auto; bottom: 0.75rem; right: 0.75rem; }
+  .call-remote-label { bottom: 0.75rem; left: 0.75rem; }
   .call-btn { width: 52px; height: 52px; }
   .call-controls { gap: 0.75rem; }
 }
