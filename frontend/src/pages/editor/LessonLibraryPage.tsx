@@ -29,6 +29,9 @@ import { Loading, ErrorMessage } from '../../components/Loading';
 import { downloadText } from '../../components/editor/download';
 import { AnkiExportModal, type AnkiExportTarget } from '../../components/export/AnkiExportModal';
 import { useToast } from './LessonEditorPage';
+import { DEFAULT_SEND_MODE, defaultHomeworkDueDate, hasOneOff, localDate, shortDay, type HomeworkMode } from '@shared/homework';
+import { assignHomework } from '../../api/homework';
+import { HomeworkModePicker } from '../../components/tutor/HomeworkModePicker';
 import './LessonLibraryPage.css';
 
 function formatDate(iso: string): string {
@@ -148,6 +151,10 @@ export function AssignSheet({ itemId, itemTitle, onClose, onDone }: {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Like the Send homework sheet: Both (a one-off pass by a date, then long-term review) by default.
+  // Several students → no single "next lesson", so the fallback date (docs/HOMEWORK.md "Defaults").
+  const [mode, setMode] = useState<HomeworkMode>(DEFAULT_SEND_MODE);
+  const [dueDate, setDueDate] = useState<string>(() => defaultHomeworkDueDate(localDate()));
   // Students who already have this lesson are ticked-and-disabled.
   const assignments = useQuery({
     queryKey: ['library-assignments', itemId],
@@ -163,12 +170,30 @@ export function AssignSheet({ itemId, itemTitle, onClose, onDone }: {
     setBusy(true);
     setError(null);
     try {
-      const result = await assignLibraryItem(itemId, Array.from(selected));
-      const parts: string[] = [];
-      if (result.assigned.length) parts.push(`assigned to ${result.assigned.length} student${result.assigned.length === 1 ? '' : 's'}`);
-      if (result.already_had.length) parts.push(`${result.already_had.length} already had it`);
-      if (result.errors.length) parts.push(`${result.errors.length} failed`);
-      onDone(`“${itemTitle}” ${parts.join(', ') || 'nothing to do'}`);
+      if (!hasOneOff(mode)) {
+        const result = await assignLibraryItem(itemId, Array.from(selected));
+        const parts: string[] = [];
+        if (result.assigned.length) parts.push(`assigned to ${result.assigned.length} student${result.assigned.length === 1 ? '' : 's'}`);
+        if (result.already_had.length) parts.push(`${result.already_had.length} already had it`);
+        if (result.errors.length) parts.push(`${result.errors.length} failed`);
+        onDone(`“${itemTitle}” ${parts.join(', ') || 'nothing to do'}`);
+        return;
+      }
+      // One-off / both: the homework model, one POST per student (the Send homework sheet's call).
+      let ok = 0;
+      const failures: string[] = [];
+      for (const relId of selected) {
+        try {
+          const r = await assignHomework(relId, [{ kind: 'lesson', source_id: itemId, mode, due_date: dueDate }]);
+          if (r.assignments.length === 0) failures.push(r.errors[0]?.error || 'Could not assign');
+          else ok++;
+        } catch (err) {
+          failures.push(err instanceof Error ? err.message : 'Could not assign');
+        }
+      }
+      if (ok === 0) throw new Error(failures[0] ?? 'Could not assign');
+      const base = `Assigned “${itemTitle}” to ${ok} student${ok === 1 ? '' : 's'} — due ${shortDay(dueDate)}`;
+      onDone(failures.length ? `${base} · ${failures.length} failed: ${failures[0]}` : base);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not assign');
       setBusy(false);
@@ -207,6 +232,9 @@ export function AssignSheet({ itemId, itemTitle, onClose, onDone }: {
               </label>
             );
           })}
+          {students.length > 0 && (
+            <HomeworkModePicker name="lib-assign" mode={mode} onMode={setMode} dueDate={dueDate} onDueDate={setDueDate} />
+          )}
           {error && <ErrorMessage message={error} />}
         </div>
         <div className="ed-modal-foot">

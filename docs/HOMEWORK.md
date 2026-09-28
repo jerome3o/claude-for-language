@@ -112,7 +112,32 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
    - **Assign** → assignments are created (dedupe re-checked server-side), the job is marked assigned.
 4. **Homework section**: the one-off assignments with due labels and progress (overdue in red), plus the
    long-term decks / lessons as before. *Send homework* (deck or library lesson) gets the same mode + due
-   date choice.
+   date choice — defaulting to *Both* (see §4a).
+
+## 4a. Defaults when a tutor sends something
+
+Everywhere a tutor sends a deck, lesson or reader outside a draft, it starts as **`both`** — a one-off pass by
+a due date, then long-term review (`DEFAULT_SEND_MODE`, `shared/homework/plan.ts`) — and the tutor can switch
+to One-off or Long-term before sending:
+
+- the **Send homework sheet** (web `SendHomeworkSheet.tsx` + `sendHomework.ts`, Lab `ui/teaching/SendHomeworkSheet.kt`
+  `sendDefaults`) — decks and library lessons; split over days and "leave out words they already have" as before;
+- the **library Assign sheet** (web `LessonLibraryPage.tsx` `AssignSheet`, Lab `ui/library/AssignSheet.kt`);
+- the MCP tools **`share_deck_with_student`, `create_deck_for_student`, `assign_lesson_to_students`,
+  `share_reader_with_student`** and the MCP Apps' send buttons (`app_share_deck`, `app_assign_lesson`,
+  `app_share_reader`): all go through `POST /api/relationships/:relId/homework`
+  (`mcp-server/src/tools/homework-send.ts`) with optional `mode` / `due_date`, so they create real
+  assignments. `priority` still decides where the long-term copy lands; `skip_known` (default true) leaves
+  out words the student has. The API returns `copies` (the student's copy + share id per item) so
+  `shared_deck_id` keeps working for `add_words_to_student_deck`. `assign_lesson_to_students` still leaves
+  a student who already has a copy alone (`already_had`).
+
+**Default due date** (`defaultHomeworkDueDate`, ported to Kotlin as `HomeworkPlan.defaultHomeworkDueDate`
+and parity-tested): the student's **next logged lesson** — the earliest lesson-log day after today, at most
+`NEXT_LESSON_WINDOW_DAYS` (14) ahead (a lesson notes entry dated in the future counts) — else **in two days**
+(`DEFAULT_DUE_IN_DAYS`, the same as drafts and the API's own fallback). The sheet offers it as a
+"Next lesson · Thu 1 Oct" chip; the library Assign sheet, which sends to several students at once, uses the
+two-day fallback. Existing assignments and the draft plan defaults (§7.3) are unchanged.
 
 ## 5. API
 
@@ -125,7 +150,8 @@ Student:
 Tutor (relationship's tutor only):
 - `GET /api/relationships/:relId/homework?today=YYYY-MM-DD` → `{ assignments, load }`.
 - `POST /api/relationships/:relId/homework` `{ items: [{ kind, source_id, mode, due_date?, split_days?,
-  priority?, exclude_hanzi? }] }` → `{ assignments }` (copies to the student + rows).
+  priority?, skip_known?, include_known? }], today? }` → `{ assignments, skipped, errors, copies }` (copies to
+  the student + rows; `copies[]` = `{ kind, source_id, target_id, target_name, share_id }`).
 - `PATCH /api/relationships/:relId/homework/:id` `{ due_date?, status?: 'cancelled' }`.
 - `GET|POST /api/relationships/:relId/lesson-notes` — entries with their draft job; POST `{ notes, title?,
   lesson_at?, draft?: true }`. `POST …/lesson-notes/:logId/draft` — draft homework from an entry.
@@ -135,13 +161,13 @@ Tutor (relationship's tutor only):
 
 MCP (tutor, `mcp-server/src/tools/homework.ts`): `get_student_homework`, `assign_homework`,
 `update_homework_assignment`, `add_student_lesson_notes`, `get_homework_draft`, `revise_homework_draft`,
-`update_homework_draft_plan`, `assign_homework_draft`.
+`update_homework_draft_plan`, `assign_homework_draft`; and the send tools of §4a, which create assignments too.
 
 ## 6. Migration of existing homework
 
 Nothing to convert: every deck / lesson / reader already sent IS long-term (`fsrs`) homework and keeps
 working unchanged; `shared_decks`, the library assign and `share-reader` stay as they are. Assignments are
-created only from now on (new API, Send homework, drafts). Old session-notes jobs (`review = 0`) keep
+created only from now on (new API, Send homework, drafts, the MCP send tools). Old session-notes jobs (`review = 0`) keep
 auto-sending; `submit_session_notes` is unchanged. Migration `0073_homework.sql` only adds the two tables (named `assignments` / `assignment_events` because the
 unused legacy reader-homework table `homework_assignments` of migration 0024 still exists; it is left alone),
 `tutor_lesson_log.title` and `tutor_note_jobs.review / plan / chat / assigned_at`.

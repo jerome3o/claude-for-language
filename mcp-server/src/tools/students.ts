@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import type { ToolContext } from './context.js';
 import { errorResult, guard, jsonResult, textResult } from './context.js';
+import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignmentSummary, describeSend, sendAsHomework } from './homework-send.js';
 import type {
   CardFlagRow,
   ClaudeChatQuestionRow,
@@ -615,21 +616,31 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'share_deck_with_student',
-    `Send one of the tutor's own decks to the student as homework: the app copies the deck (with audio) into the student's account as "<name> (from tutor)" and it joins their homework QUEUE — the student introduces a fixed number of new words a day (their daily budget, 3 by default) from the top of the queue down, so sending more packets never adds to their daily load. \`priority\` decides where the packet lands: "core" (default) goes to the top and is studied next; "non_urgent" goes to the bottom. Deck ids come from list_decks. To add words to a deck already shared, edit the tutor's deck and call update_student_deck_copy instead of sharing again (sharing twice makes a second copy).`,
+    `Send one of the tutor's own decks to the student as homework — a real homework assignment, like the app's Send homework sheet. The app copies the deck (with audio) into the student's account as "<name> (from tutor)", leaving out words they already have (skip_known, default true). By default (\`mode: "both"\`) it is a one-off pass due by \`due_date\` (default: the student's next logged lesson, else in two days) — it shows on their Homework list with the date — AND it joins their long-term review queue, where the student introduces a fixed number of new words a day (their daily budget, 3 by default) from the top of the queue down, so sending more never adds to their daily load. \`mode: "one_off"\` = the pass only (never enters daily review); \`"fsrs"\` = long-term only, no date. \`priority\` decides where the long-term copy lands: "core" (default) top, studied next; "non_urgent" bottom. Deck ids come from list_decks. To add words to a deck already shared, edit the tutor's deck and call update_student_deck_copy instead (sending twice makes a second copy). Returns shared_deck_id and the assignments created.`,
     {
       relationship_id: RELATIONSHIP_ID,
       deck_id: z.string().describe("One of the tutor's deck ids (list_decks)."),
-      priority: z.enum(['core', 'non_urgent']).optional().describe('"core" (default): top of the student\'s queue, studied next. "non_urgent": bottom of the queue, after everything else.'),
+      mode: SEND_MODE,
+      due_date: SEND_DUE_DATE,
+      priority: z.enum(['core', 'non_urgent']).optional().describe('Long-term part (mode both / fsrs): "core" (default) = top of the student\'s queue, studied next; "non_urgent" = bottom, after everything else.'),
+      skip_known: z.boolean().optional().describe('Leave out words the student already has (default true; `skipped` lists them).'),
+      today: SEND_TODAY,
     },
-    async ({ relationship_id, deck_id, priority }) =>
+    async ({ relationship_id, deck_id, mode, due_date, priority, skip_known, today }) =>
       guard(async () => {
-        const r = await api.post<SharedDeckRow>(`${rel(relationship_id)}/share-deck`, { deck_id, priority: priority ?? 'core' });
+        const sent = await sendAsHomework(api, relationship_id, 'deck', deck_id, { mode, due_date, priority: priority ?? 'core', skip_known, today });
+        const first = sent.result.assignments[0];
         return jsonResult({
-          shared_deck_id: r.id,
-          tutor_deck_id: r.source_deck_id,
-          student_deck_id: r.target_deck_id,
-          student_deck_name: r.target_deck_name,
-          shared_at: r.shared_at,
+          shared_deck_id: sent.copy?.share_id ?? null,
+          tutor_deck_id: deck_id,
+          student_deck_id: sent.copy?.target_id ?? first.target_id,
+          student_deck_name: sent.copy?.target_name ?? first.title,
+          shared_at: first.created_at,
+          mode: sent.mode,
+          due_date: sent.due_date,
+          assignments: assignmentSummary(sent.result.assignments),
+          skipped_known: sent.result.skipped.flatMap((s) => s.hanzi),
+          message: `Sent ${describeSend(sent.mode, sent.due_date)}.`,
         });
       })
   );

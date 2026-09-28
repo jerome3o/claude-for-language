@@ -98,7 +98,8 @@ data class AssignUi(
     val students: List<StudentOption>? = null,
     val loadError: String? = null,
     val selected: Set<String> = emptySet(),
-    val mode: HomeworkMode = HomeworkMode.FSRS,
+    /** Both by default, like the Send homework sheet (docs/HOMEWORK.md "Defaults"). */
+    val mode: HomeworkMode = HomeworkMode.BOTH,
     val today: LocalDate,
     val due: LocalDate = today.plusDays(2),
     val busy: Boolean = false,

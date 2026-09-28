@@ -9,6 +9,7 @@ import type { ToolContext } from '../context.js';
 import { registerApp } from '../apps.js';
 import { appResult, appTool, loadStudents, mediaBase, toStudentPick, withProblems } from './shared.js';
 import type { DeckNote, DeckPayload, DeckStudent, NoteSaveResult, ShareDeckResult } from './types.js';
+import { describeSend, sendAsHomework } from '../homework-send.js';
 
 interface ApiNote {
   id: string;
@@ -206,15 +207,17 @@ export function registerDeckApp(ctx: ToolContext): void {
     'app_share_deck',
     {
       title: 'Send deck to a student',
-      description: "Copy this deck into a student's account as homework (called by the deck UI).",
+      description: "Send this deck to a student as homework — both a one-off pass due by their next lesson (else in two days) and long-term review (called by the deck UI).",
       inputSchema: { relationship_id: z.string(), deck_id: z.string() },
       resourceUri,
       appOnly: true,
     },
     async ({ relationship_id, deck_id }) => {
-      const res = await ctx.api.post<{ id: string }>(`/api/relationships/${encodeURIComponent(relationship_id)}/share-deck`, { deck_id });
-      const result: ShareDeckResult = { ok: true, shared_deck_id: res.id, message: 'Sent — the deck is now in their app.' };
-      return appResult(`Deck ${deck_id} sent to relationship ${relationship_id} (shared deck ${res.id}).`, result as unknown as Record<string, unknown>);
+      const sent = await sendAsHomework(ctx.api, relationship_id, 'deck', deck_id);
+      const how = describeSend(sent.mode, sent.due_date);
+      const shareId = sent.copy?.share_id ?? undefined;
+      const result: ShareDeckResult = { ok: true, shared_deck_id: shareId, message: `Sent ${how}.` };
+      return appResult(`Deck ${deck_id} sent to relationship ${relationship_id} ${how} (shared deck ${shareId ?? '?'}).`, result as unknown as Record<string, unknown>);
     },
   );
 

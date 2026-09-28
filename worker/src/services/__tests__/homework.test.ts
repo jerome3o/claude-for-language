@@ -44,7 +44,7 @@ vi.mock('../../db/homework-queries', () => ({
 
 const shareDeck = vi.fn(async (_db: unknown, _rel: string, _tutor: string, _deck: string, _prio: string, opts: { excludeNoteIds?: Set<string> }) => {
   const kept = ['s1', 's2', 's3', 's4'].filter((id) => !opts.excludeNoteIds?.has(id));
-  return { target_deck_id: 'student-deck', note_ids: kept.map((id) => `copy-${id}`) };
+  return { id: 'share-1', target_deck_id: 'student-deck', target_deck_name: 'Restaurant (from tutor)', note_ids: kept.map((id) => `copy-${id}`) };
 });
 vi.mock('../conversations', () => ({ shareDeck: (...a: unknown[]) => shareDeck(...(a as Parameters<typeof shareDeck>)) }));
 
@@ -58,7 +58,7 @@ vi.mock('../../db/lesson-library-queries', () => ({
 }));
 vi.mock('../custom-lesson', () => ({ queueLessonImages: vi.fn(async () => undefined) }));
 vi.mock('../shared-readers', () => ({
-  shareReader: vi.fn(async () => ({ reader: { id: 'student-reader', title_english: 'At the restaurant', title_chinese: '在饭馆' } })),
+  shareReader: vi.fn(async () => ({ share: { id: 'reader-share-1' }, reader: { id: 'student-reader', title_english: 'At the restaurant', title_chinese: '在饭馆' } })),
 }));
 
 import { assignHomework, parseAssignItems, recordEvents, studentLoad, HomeworkError } from '../homework';
@@ -112,6 +112,7 @@ describe('assignHomework', () => {
     expect(updateDeckSettings).not.toHaveBeenCalled();
     expect(res.assignments[0]).toMatchObject({ mode: 'fsrs', due_date: null, item_count: 4 });
     expect(res.assignments[1]).toMatchObject({ mode: 'both', due_date: '2026-09-29', item_count: 4 });
+    expect(res.copies[1]).toEqual({ kind: 'deck', source_id: 'deck-1', target_id: 'student-deck', target_name: 'Restaurant (from tutor)', share_id: 'share-1' });
   });
 
   it('assigns a library lesson and shares a reader, and reports a missing source without failing the rest', async () => {
@@ -128,6 +129,10 @@ describe('assignHomework', () => {
       ['reader', 'student-reader', 'At the restaurant', 1],
     ]);
     expect(res.errors).toEqual([{ source_id: 'nope', error: 'Lesson not found in your library' }]);
+    expect(res.copies).toEqual([
+      { kind: 'lesson', source_id: 'lib-1', target_id: 'student-lesson', target_name: '把 sentences', share_id: null },
+      { kind: 'reader', source_id: 'reader-1', target_id: 'student-reader', target_name: 'At the restaurant', share_id: 'reader-share-1' },
+    ]);
   });
 });
 

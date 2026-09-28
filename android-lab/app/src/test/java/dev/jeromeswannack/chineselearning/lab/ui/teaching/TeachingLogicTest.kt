@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.teaching
 
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkPlan
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PillsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyStatusDto
@@ -76,8 +77,21 @@ class TeachingLogicTest {
         val o = SendOptions(HomeworkMode.FSRS, "2026-09-29", 1, "core", true)
         assertEquals("at the top of their queue, so their new words come from it next", sendHow("deck", o))
         assertEquals("at the bottom of their queue, after everything they already have", sendHow("deck", o.copy(priority = "non_urgent")))
-        assertEquals("as one-off homework over 3 days from Tue 29 Sep, then in long-term review", sendHow("deck", o.copy(mode = HomeworkMode.BOTH, splitDays = 3)))
+        assertEquals("as one-off homework over 3 days from Tue 29 Sep, then in long-term review (the top of their queue)", sendHow("deck", o.copy(mode = HomeworkMode.BOTH, splitDays = 3)))
+        assertEquals("as one-off homework by Tue 29 Sep, then in long-term review (the bottom of their queue)", sendHow("deck", o.copy(mode = HomeworkMode.BOTH, priority = "non_urgent")))
+        assertEquals("as one-off homework by Tue 29 Sep, then in long-term review", sendHow("lesson", o.copy(mode = HomeworkMode.BOTH)))
         assertEquals("as one-off homework by Tue 29 Sep", sendHow("lesson", o.copy(mode = HomeworkMode.ONE_OFF, splitDays = 3)))
+        assertEquals(" in their homework list, then in their study sessions", lessonWhere(HomeworkMode.BOTH))
+    }
+
+    @Test fun sendSheetOpensOnBothDueAtTheNextLesson() {
+        // web: sendDefaults() — Both, due in two days without a lesson coming up…
+        assertEquals(SendDefaults(HomeworkMode.BOTH, "2026-09-30", null), sendDefaults("2026-09-28"))
+        assertEquals(SendDefaults(HomeworkMode.BOTH, "2026-09-30", null), sendDefaults("2026-09-28", listOf("2026-09-22", "2026-10-20")))
+        // …else at the earliest logged lesson after today.
+        assertEquals(SendDefaults(HomeworkMode.BOTH, "2026-10-01", "2026-10-01"), sendDefaults("2026-09-28", listOf("2026-10-06", "2026-10-01", "2026-09-28", null)))
+        assertEquals("2026-10-01", HomeworkPlan.lessonDay("2026-10-01T12:00:00.000Z", java.time.ZoneOffset.UTC))
+        assertEquals(null, HomeworkPlan.lessonDay("soon"))
     }
 
     @Test fun historyGroupsByWordLikeTheWeb() {

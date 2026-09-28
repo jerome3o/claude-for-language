@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getDeck, getDecks } from '../../api/client';
 import { assignHomework } from '../../api/homework';
-import { addDays, localDate, hasFsrs, hasOneOff, shortDay, type HomeworkMode } from '@shared/homework';
+import { localDate, hasFsrs, hasOneOff, type HomeworkMode } from '@shared/homework';
+import { getLessonLog } from '../../api/insights';
+import { lessonWhere, sendDefaults, sendHow } from './sendHomework';
 import { HomeworkModePicker } from './HomeworkModePicker';
 import { listLibrary } from '../../api/lessonEditor';
 import { updateSharedDeckCopy } from '../../api/tutorDashboard';
@@ -45,9 +47,13 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
   const [pendingLesson, setPendingLesson] = useState<LibraryItemSummary | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // How they do it (docs/HOMEWORK.md): long-term review (the old behaviour), a one-off pass by a date, or both.
-  const [mode, setMode] = useState<HomeworkMode>('fsrs');
-  const [dueDate, setDueDate] = useState<string>(() => addDays(localDate(), 2));
+  // How they do it (docs/HOMEWORK.md "Defaults"): Both — a one-off pass by a date, then long-term review —
+  // due at the student's next logged lesson, else in two days, until the tutor picks otherwise.
+  const lessonLogQuery = useQuery({ queryKey: ['lessonLog', relId], queryFn: () => getLessonLog(relId), retry: 1 });
+  const defaults = useMemo(() => sendDefaults(localDate(), lessonLogQuery.data ?? []), [lessonLogQuery.data]);
+  const [mode, setMode] = useState<HomeworkMode>(defaults.mode);
+  const [chosenDue, setDueDate] = useState<string | null>(null);
+  const dueDate = chosenDue ?? defaults.dueDate;
   const [splitDays, setSplitDays] = useState(1);
   const [skipKnown, setSkipKnown] = useState(true);
 
@@ -78,11 +84,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
     onChanged?.();
   };
 
-  const how = (kind: 'deck' | 'lesson') => {
-    if (!hasOneOff(mode)) return kind === 'deck' ? (priority === 'core' ? 'at the top of their queue, so their new words come from it next' : 'at the bottom of their queue, after everything they already have') : 'in their long-term review';
-    const due = splitDays > 1 && kind === 'deck' ? `over ${splitDays} days from ${shortDay(dueDate)}` : `by ${shortDay(dueDate)}`;
-    return `as one-off homework ${due}${mode === 'both' ? ', then in long-term review' : ''}`;
-  };
+  const how = (kind: 'deck' | 'lesson') => sendHow(kind, { mode, dueDate, splitDays, priority });
 
   const shareMutation = useMutation({
     mutationFn: async (deck: Deck) => {
@@ -165,7 +167,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                 <p>
                   {existing
                     ? `${studentName} got this deck on ${shortDate(existing.shared_at)}${existing.notes_missing > 0 ? ` and is missing ${plural(existing.notes_missing, 'newer word')}` : ' and has every word in it'}. Updating their copy adds the new words and keeps their progress; sending again would create a second copy.`
-                    : `They get their own copy with all ${pendingDeck.name ? 'its' : ''} words and audio. It shows up on their home screen after their next sync.`}
+                    : `They get their own copy with all its words and audio. It shows up on their home screen after their next sync.`}
                 </p>
                 {!existing && (
                   <HomeworkModePicker
@@ -174,6 +176,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                     onMode={setMode}
                     dueDate={dueDate}
                     onDueDate={setDueDate}
+                    nextLesson={defaults.nextLesson}
                     wordCount={wordCount}
                     splitDays={splitDays}
                     onSplitDays={setSplitDays}
@@ -224,10 +227,10 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
             <div className="td-confirm">
               <h3>Assign {pendingLesson.title} to {studentName}?</h3>
               <p>
-                {plural(pendingLesson.exercise_count, 'exercise')} · they get their own copy{hasOneOff(mode) ? ' in their homework list' : ', mixed into their next study session'}.
+                {plural(pendingLesson.exercise_count, 'exercise')} · they get their own copy{lessonWhere(mode)}.
                 {alreadyAssigned(pendingLesson) ? ' They already have a lesson with this title.' : ''}
               </p>
-              <HomeworkModePicker name="send-lesson" mode={mode} onMode={setMode} dueDate={dueDate} onDueDate={setDueDate} />
+              <HomeworkModePicker name="send-lesson" mode={mode} onMode={setMode} dueDate={dueDate} onDueDate={setDueDate} nextLesson={defaults.nextLesson} />
               <div className="td-confirm-actions">
                 <button type="button" className="btn btn-primary" disabled={busy || !isOnline} onClick={() => assignMutation.mutate(pendingLesson)}>
                   {assignMutation.isPending ? 'Assigning…' : 'Assign lesson'}

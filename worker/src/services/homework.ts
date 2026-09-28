@@ -71,6 +71,8 @@ export interface AssignResult {
   /** Per item: words left out because the student has them. */
   skipped: Array<{ source_id: string; hanzi: string[] }>;
   errors: Array<{ source_id: string; error: string }>;
+  /** Per item that went out: the student's copy (and the share record for decks / readers). */
+  copies: Array<{ kind: string; source_id: string; target_id: string; target_name: string; share_id: string | null }>;
 }
 
 /** Validate the request body's items; throws HomeworkError(400). */
@@ -109,6 +111,7 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
   const rows: hw.NewAssignment[] = [];
   const skipped: AssignResult['skipped'] = [];
   const errors: AssignResult['errors'] = [];
+  const copies: AssignResult['copies'] = [];
   let studentHanzi: string[] | null = null;
 
   for (const item of input.items) {
@@ -142,6 +145,7 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
         for (const r of assignmentRowsFor({ kind: 'deck', mode: item.mode, title: item.title ?? deck.name, due_date: item.due_date ?? null, split_days: item.split_days }, share.note_ids, input.today)) {
           rows.push({ ...base, target_id: share.target_deck_id, ...r });
         }
+        copies.push({ kind: 'deck', source_id: item.source_id, target_id: share.target_deck_id, target_name: share.target_deck_name, share_id: share.id });
       } else if (item.kind === 'lesson') {
         const libItem = await lib.getLibraryItem(db, item.source_id, input.tutorId);
         if (!libItem) throw new HomeworkError(404, 'Lesson not found in your library');
@@ -164,12 +168,14 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
         for (const r of assignmentRowsFor({ kind: 'lesson', mode: item.mode, title: item.title ?? spec.title, due_date: item.due_date ?? null }, null, input.today)) {
           rows.push({ ...base, target_id: targetId, ...r });
         }
+        copies.push({ kind: 'lesson', source_id: item.source_id, target_id: targetId, target_name: spec.title, share_id: null });
       } else if (item.kind === 'reader') {
-        const { reader } = await shareReader(db, input.relationshipId, input.tutorId, item.source_id);
+        const { share, reader } = await shareReader(db, input.relationshipId, input.tutorId, item.source_id);
         const title = item.title ?? reader.title_english ?? reader.title_chinese ?? 'Reader';
         for (const r of assignmentRowsFor({ kind: 'reader', mode: item.mode, title, due_date: item.due_date ?? null }, null, input.today)) {
           rows.push({ ...base, target_id: reader.id, ...r });
         }
+        copies.push({ kind: 'reader', source_id: item.source_id, target_id: reader.id, target_name: title, share_id: share.id });
       }
     } catch (error) {
       errors.push({ source_id: item.source_id, error: error instanceof Error ? error.message : String(error) });
@@ -177,7 +183,7 @@ export async function assignHomework(env: Env, input: AssignInput): Promise<Assi
   }
 
   const assignments = await hw.insertAssignments(db, rows);
-  return { assignments, skipped, errors };
+  return { assignments, skipped, errors, copies };
 }
 
 /** Upload of the student's pass events: store (idempotent), then recompute each touched assignment. */

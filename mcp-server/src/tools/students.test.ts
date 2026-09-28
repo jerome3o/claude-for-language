@@ -855,6 +855,45 @@ describe('card flags & Ask-Claude history tools', () => {
     expect(out).toMatchObject({ job_id: 'job-2', status: 'queued' });
   });
 
+  it('share_deck_with_student sends a homework assignment: both, due at the next logged lesson, priority kept', async () => {
+    const homework = (call: Call) => {
+      const [item] = (call.body as { items: Array<{ kind: string; source_id: string; mode: string; due_date: string | null }> }).items;
+      return {
+        assignments: [{ id: 'a1', kind: 'deck', source_id: item.source_id, target_id: 'copy-1', title: 'Food', mode: item.mode, due_date: item.due_date, item_count: 8, student_id: 's', created_at: '2026-09-28T09:00:00Z' }],
+        skipped: [{ source_id: item.source_id, hanzi: ['米饭'] }],
+        errors: [],
+        copies: [{ kind: 'deck', source_id: item.source_id, target_id: 'copy-1', target_name: 'Food (from tutor)', share_id: 'sd-9' }],
+      };
+    };
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-1/lesson-log': { entries: [{ id: 'l1', lesson_at: '2026-10-02T12:00:00.000Z' }, { id: 'l0', lesson_at: '2026-09-25T12:00:00.000Z' }] },
+      'POST /api/relationships/rel-1/homework': homework,
+    });
+    const out = parse(await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', priority: 'non_urgent', today: '2026-09-28' }));
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET /api/relationships/rel-1/lesson-log', 'POST /api/relationships/rel-1/homework']);
+    expect(calls[1].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'both', due_date: '2026-10-02', priority: 'non_urgent' }], today: '2026-09-28' });
+    expect(out).toMatchObject({ shared_deck_id: 'sd-9', student_deck_id: 'copy-1', student_deck_name: 'Food (from tutor)', mode: 'both', due_date: '2026-10-02', skipped_known: ['米饭'] });
+    expect(out.message).toBe('Sent as one-off homework due Fri 2 Oct, then in long-term review.');
+
+    // An explicit mode / date is passed through; long-term only has no date and needs no lesson log.
+    calls.length = 0;
+    await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', mode: 'one_off', due_date: '2026-10-05', skip_known: false, today: '2026-09-28' });
+    expect(calls.map((c) => c.path)).toEqual(['/api/relationships/rel-1/homework']);
+    expect(calls[0].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'one_off', due_date: '2026-10-05', priority: 'core', skip_known: false }], today: '2026-09-28' });
+    calls.length = 0;
+    await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', mode: 'fsrs', today: '2026-09-28' });
+    expect(calls[0].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'fsrs', due_date: null, priority: 'core' }], today: '2026-09-28' });
+  });
+
+  it('share_deck_with_student falls back to two days when the lesson log cannot be read', async () => {
+    const { tools, calls } = fakeContext({
+      'POST /api/relationships/rel-1/homework': () => ({ assignments: [{ id: 'a1', target_id: 'c', title: 'Food', mode: 'both', due_date: '2026-09-30', created_at: 't' }], skipped: [], errors: [] }),
+    });
+    const out = parse(await tools.get('share_deck_with_student')!.handler({ relationship_id: 'rel-1', deck_id: 'deck-1', today: '2026-09-28' }));
+    expect((calls[1].body as { items: Array<{ due_date: string }> }).items[0].due_date).toBe('2026-09-30');
+    expect(out.due_date).toBe('2026-09-30');
+  });
+
   it('submit_session_notes without notes or call_id is refused', async () => {
     const { tools, calls } = fakeContext({});
     const res = await tools.get('submit_session_notes')!.handler({ relationship_id: 'rel-1' });
