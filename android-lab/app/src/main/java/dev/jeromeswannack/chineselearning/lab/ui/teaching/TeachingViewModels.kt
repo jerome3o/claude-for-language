@@ -45,6 +45,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkPlan
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -161,6 +162,16 @@ class SendHomeworkController(private val app: LabApp, private val scope: Corouti
     private val _library = MutableStateFlow(Loadable<List<LibraryItemSummaryDto>>())
     /** The lesson library, fetched the first time the Lessons tab opens (cached for 5 min). */
     val library: StateFlow<Loadable<List<LibraryItemSummaryDto>>> = _library.asStateFlow()
+
+    private val _lessonDays = MutableStateFlow<List<String?>>(emptyList())
+    /** The student's logged lesson days (web: the sheet's getLessonLog query) — the default due date reads them. */
+    val lessonDays: StateFlow<List<String?>> = _lessonDays.asStateFlow()
+
+    fun loadLessonLog(relId: String) = scope.launch {
+        _lessonDays.value = emptyList()
+        val days = withContext(Dispatchers.IO) { attempt { app.repo.api.lessonLog(relId) } }.getOrNull()?.map { HomeworkPlan.lessonDay(it.lesson_at) }
+        if (days != null) _lessonDays.value = days
+    }
 
     fun loadDecks() = scope.launch {
         _decks.value = withContext(Dispatchers.IO) {

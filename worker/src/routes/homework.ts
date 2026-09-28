@@ -8,7 +8,7 @@
  *
  * Tutor (the relationship's tutor only):
  *   GET   /relationships/:relId/homework       ?today=YYYY-MM-DD → { assignments, load }
- *   POST  /relationships/:relId/homework       { items, today? } → 201 { assignments, skipped, errors }
+ *   POST  /relationships/:relId/homework       { items, today? } → 201 { assignments, skipped, errors, copies }
  *   PATCH /relationships/:relId/homework/:id   { due_date?, status?: 'cancelled' | 'active' }
  */
 

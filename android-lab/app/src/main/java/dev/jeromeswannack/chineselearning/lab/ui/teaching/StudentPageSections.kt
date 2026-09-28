@@ -432,9 +432,11 @@ fun AssignedHomeworkCard(
  * the Material date picker for any other day (never before today).
  */
 @Composable
-fun DueDateChooser(value: String?, today: String, label: String = "Due", onChange: (String) -> Unit) {
+fun DueDateChooser(value: String?, today: String, label: String = "Due", nextLesson: String? = null, onChange: (String) -> Unit) {
     var picking by remember { mutableStateOf(false) }
-    val quick = listOf("Tomorrow" to HomeworkPlan.addDays(today, 1), "In 2 days" to HomeworkPlan.addDays(today, 2), "In a week" to HomeworkPlan.addDays(today, 7))
+    // web: HomeworkModePicker's quick chips — "Next lesson · Thu 1 Oct" first when one is logged.
+    val lesson = if (nextLesson != null && nextLesson > today) listOf("Next lesson · ${HomeworkPlan.shortDay(nextLesson)}" to nextLesson) else emptyList()
+    val quick = lesson + listOf("Tomorrow" to HomeworkPlan.addDays(today, 1), "In 2 days" to HomeworkPlan.addDays(today, 2), "In a week" to HomeworkPlan.addDays(today, 7)).filter { it.second != nextLesson }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)

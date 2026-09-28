@@ -1249,7 +1249,7 @@ Lesson types and future kinds plug into this model — never a second queue (con
 - `GET /api/me/homework` - The student's assignments + events of active ones (offline sync)
 - `POST /api/me/homework/events` - `{ events: [{ id, assignment_id, item_id, result, created_at }] }` → `{ accepted, assignments }` (idempotent; progress recomputed)
 - `GET /api/relationships/:relId/homework?today=` - tutor: `{ assignments, load }`
-- `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors }`
+- `POST /api/relationships/:relId/homework` - tutor: `{ items: [{ kind, source_id, mode, due_date?, split_days?, priority?, skip_known?, include_known? }], today? }` → 201 `{ assignments, skipped, errors, copies }` (`copies`: the student's copy + share id per item). Every tutor send path defaults to `both`, due at the next logged lesson else in two days (`DEFAULT_SEND_MODE`, `defaultHomeworkDueDate`; docs/HOMEWORK.md §4a): the Send homework sheet, the library Assign sheet, the MCP send tools (`mcp-server/src/tools/homework-send.ts`)
 - `PATCH /api/relationships/:relId/homework/:id` - tutor: `{ due_date?, status?: 'cancelled' | 'active' }`
 
 **Lesson notes → draft → review → assign** (`routes/homework-drafts.ts`, `services/homework-drafts.ts`): the student
@@ -1507,7 +1507,7 @@ shaping helpers are in `tools/students/shape.ts` and unit-tested in `tools/stude
 | `send_install_howto` | Posts the install instructions (Obtainium / Add to Home screen) into the chat |
 | `list_student_homework` | Shared decks with completion + activity, and the student's mini lessons with completions |
 | `get_shared_deck_progress` | Per-word mastery and recent ratings for one shared deck |
-| `share_deck_with_student` / `update_student_deck_copy` | Copy a tutor deck to the student (`priority: core` = top of their study queue, `non_urgent` = bottom) / add the tutor's newer words to an existing copy (progress kept) |
+| `share_deck_with_student` / `update_student_deck_copy` | Send a tutor deck to the student as a homework assignment (`POST …/homework`; `mode` default `both` = one-off pass by `due_date` — default the next logged lesson, else in two days — then long-term; `priority: core` = top of their study queue, `non_urgent` = bottom; `skip_known`) / add the tutor's newer words to an existing copy (progress kept) |
 | `move_student_deck` | Move a packet within the student's study queue (`to: top | up | down | bottom`); returns `queue_position` of `queue_total` |
 | `list_card_flags` / `reply_to_card_flag` | Cards the student flagged with their note (open by default) / answer one — resolves it, posts the reply into the chat, shown to the student once on that card |
 | `list_student_claude_chats` | What the student has asked Claude about their cards, grouped into per-card conversations (answers trimmed to `answer_chars`) |
@@ -1533,19 +1533,19 @@ pasted into the descriptions plus the pure helpers (trimming, note normalisation
 | `update_reader` | Whole-reader replace (`PUT /api/readers/:id/spec`); keeping page `id`s keeps illustrations whose prompt is unchanged |
 | `generate_reader` | Queue a Claude-written story from learned vocabulary of given decks (`POST /api/readers/generate`); returns id + `generating` |
 | `retry_reader` / `delete_reader` | Re-queue a failed reader / delete one (images kept if a shared copy uses them) |
-| `share_reader_with_student` | Copy one of the tutor's readers into the student's account (`POST /api/relationships/:relId/share-reader`) |
+| `share_reader_with_student` | Send one of the tutor's readers to the student as homework (`POST …/homework`, kind reader; `mode` default `both`, `due_date` default next logged lesson else +2 days) |
 | `list_student_readers` | Shares in a relationship with the student's read status (`GET …/shared-readers`) |
 | `export_reader` | Markdown / re-importable JSON / Quizlet CSV as text |
 | `list_lesson_library` / `get_library_lesson` | The tutor's library items / one with its full spec |
 | `create_library_lesson` | From a `spec` or a `generate_prompt` (Claude drafts it server-side), optional `tags` |
 | `update_library_lesson` | Full-spec replace (+ tags); version bumps; reminds to push when copies exist |
 | `duplicate_library_lesson` / `archive_library_lesson` | Copy as "Copy of …" / archive |
-| `assign_lesson_to_students` | One `custom_lessons` copy per relationship (tutor only); `assigned` / `already_had` / `errors` |
+| `assign_lesson_to_students` | A library lesson as homework per relationship (`POST …/homework`, `mode` default `both`, `due_date` default each student's next logged lesson else +2 days); `assigned` / `already_had` (left as is) / `errors` |
 | `get_lesson_assignments` | Per student: completions, last rating/score, `up_to_date` |
 | `push_lesson_update` | Overwrite assigned copies in place (history + FSRS kept), optionally only some relationships |
 | `export_library_lesson` | Markdown with answer key / JSON / CSV |
 | `list_student_lessons` | Tutor's view of a student's lessons (`GET /api/relationships/:relId/student-lessons`) |
-| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (a few at a time), then share the deck at once (`priority` core / non_urgent decides where it lands in the student's queue) — it never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`, called from the note-create TTS callback and `generate-audio`); per-note failures are reported, not fatal |
+| `create_deck_for_student` | Create deck + notes in the tutor's account via the API (a few at a time), then send it at once as a homework assignment (`POST …/homework`: `mode` default `both`, `due_date` default next logged lesson else +2 days, `priority` core / non_urgent decides where it lands in the student's queue, `skip_known`) — it never waits for TTS: the worker copies each clip onto the student's copy when it is generated (`propagateNoteAudioToSharedCopies`, called from the note-create TTS callback and `generate-audio`); per-note failures are reported, not fatal |
 | `add_words_to_student_deck` | Add notes to the tutor's source deck, then `POST …/shared-decks/:id/update` so the student's copy gets them (empty list = just re-sync) |
 | `get_starter_deck` | `POST /api/decks/starter` — the idempotent built-in "Starter Chinese" deck |
 #### Tutor apps (`mcp-server/src/tools/apps.ts`, UIs in `src/ui/apps/`)

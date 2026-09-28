@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { ToolContext } from '../context.js';
 import { jsonResult, textResult, errorResult, guard } from '../context.js';
 import { LESSON_SPEC_DOC, lessonSpecProblems, formatProblems } from './specs.js';
+import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignLessonAsHomework, describeSend } from '../homework-send.js';
 
 const LIBRARY_ID = z.string().describe('The library item id (from list_lesson_library)');
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
@@ -142,19 +143,21 @@ ${LESSON_SPEC_DOC}`,
 
   server.tool(
     'assign_lesson_to_students',
-    `Give a library lesson to one or more students: creates a real lesson for each student (it appears in their study session, works offline, and is scheduled with FSRS like their cards) that remembers this library item. You must be the tutor in every relationship. A student who already has a copy is reported under already_had, not duplicated; per-relationship failures come back under errors. describe_image illustrations are generated in the background.`,
+    `Give a library lesson to one or more students AS HOMEWORK (a real homework assignment per student, like the app's Send homework sheet): each gets their own copy (works offline) that remembers this library item. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: that student's next logged lesson, else in two days) AND mixed into their study sessions, scheduled with FSRS like their cards; "one_off" = the homework pass only (never in the session mix), "fsrs" = study sessions only, no date. You must be the tutor in every relationship. A student who already has a copy is reported under already_had and left as is (use assign_homework to give them a new dated assignment on it); per-relationship failures come back under errors. describe_image illustrations are generated in the background.`,
     {
       library_id: LIBRARY_ID,
       relationship_ids: z.array(z.string()).min(1).describe('Relationship ids of the students to assign to'),
+      mode: SEND_MODE,
+      due_date: SEND_DUE_DATE,
+      today: SEND_TODAY,
     },
-    async ({ library_id, relationship_ids }) => guard(async () => {
-      const res = await api.post<{ assigned: unknown[]; already_had: unknown[]; errors: unknown[] }>(
-        `/api/lesson-library/${encodeURIComponent(library_id)}/assign`,
-        { relationship_ids },
-      );
+    async ({ library_id, relationship_ids, mode, due_date, today }) => guard(async () => {
+      const res = await assignLessonAsHomework(api, library_id, relationship_ids, { mode, due_date, today });
+      const dates = [...new Set(res.assigned.map((a) => a.due_date))];
+      const how = res.assigned.length === 0 ? '' : dates.length > 1 ? ' as one-off homework (each due by their own next lesson)' : ` ${describeSend(res.mode, dates[0] ?? null)}`;
       return jsonResult({
         ...res,
-        message: `Assigned to ${res.assigned.length} student(s); ${res.already_had.length} already had it; ${res.errors.length} error(s).`,
+        message: `Assigned to ${res.assigned.length} student(s)${how}; ${res.already_had.length} already had it; ${res.errors.length} error(s).`,
       });
     }),
   );

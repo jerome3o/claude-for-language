@@ -16,6 +16,7 @@ import {
   filterReaders,
   type ReaderListRow,
 } from './specs.js';
+import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignmentSummary, describeSend, sendAsHomework } from '../homework-send.js';
 
 const READER_ID = z.string().describe('The reader id (from list_readers / generate_reader)');
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
@@ -165,25 +166,25 @@ ${READER_SPEC_DOC}`,
 
   server.tool(
     'share_reader_with_student',
-    `Send one of your readers to a student: copies the reader (title, pages, pinyin, English, illustrations) into the student's account as a new reader that appears in their Readers list on their next sync and is scheduled like their other readers. You must be the TUTOR in the relationship and own the reader, and the reader must be "ready" (not generating/failed). The copy is independent — later edits to your reader do not reach it (share again for a second copy); the student's reading history lives on their copy. Returns the share record and the student's copy (its id is target_reader_id).`,
+    `Send one of your readers to a student AS HOMEWORK (a real homework assignment, like the app's Send homework sheet): copies the reader (title, pages, pinyin, English, illustrations) into the student's account as a new reader that appears on their next sync. By default (\`mode: "both"\`) it is on their Homework list due by \`due_date\` (default: the student's next logged lesson, else in two days) AND scheduled like their other readers; "one_off" = read once for the homework only (left out of their daily-reader rotation), "fsrs" = the rotation only, no date. You must be the TUTOR in the relationship and own the reader, and the reader must be "ready" (not generating/failed). The copy is independent — later edits to your reader do not reach it (share again for a second copy); the student's reading history lives on their copy. Returns the share id, the student's copy (target_reader_id) and the assignment.`,
     {
       relationship_id: RELATIONSHIP_ID,
       reader_id: READER_ID,
+      mode: SEND_MODE,
+      due_date: SEND_DUE_DATE,
+      today: SEND_TODAY,
     },
-    async ({ relationship_id, reader_id }) => guard(async () => {
-      const res = await api.post<{
-        share: { id: string; relationship_id: string; source_reader_id: string; target_reader_id: string; shared_at: string };
-        reader: { id: string; title_chinese: string; title_english: string; pages?: unknown[] };
-      }>(`/api/relationships/${encodeURIComponent(relationship_id)}/share-reader`, { reader_id });
+    async ({ relationship_id, reader_id, mode, due_date, today }) => guard(async () => {
+      const sent = await sendAsHomework(api, relationship_id, 'reader', reader_id, { mode, due_date, today });
+      const first = sent.result.assignments[0];
+      const title = sent.copy?.target_name ?? first.title;
       return jsonResult({
-        share: res.share,
-        student_reader: {
-          id: res.reader.id,
-          title_chinese: res.reader.title_chinese,
-          title_english: res.reader.title_english,
-          page_count: Array.isArray(res.reader.pages) ? res.reader.pages.length : undefined,
-        },
-        message: `Shared "${res.reader.title_english}" — the student's copy (id=${res.reader.id}) shows up on their device at the next sync.`,
+        share: { id: sent.copy?.share_id ?? null, relationship_id, source_reader_id: reader_id, target_reader_id: sent.copy?.target_id ?? first.target_id, shared_at: first.created_at },
+        student_reader: { id: sent.copy?.target_id ?? first.target_id, title },
+        mode: sent.mode,
+        due_date: sent.due_date,
+        assignments: assignmentSummary(sent.result.assignments),
+        message: `Shared "${title}" ${describeSend(sent.mode, sent.due_date)} — the student's copy (id=${sent.copy?.target_id ?? first.target_id}) shows up on their device at the next sync.`,
       });
     }),
   );

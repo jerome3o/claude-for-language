@@ -11,6 +11,7 @@ import type { ToolContext } from '../context.js';
 import { registerApp } from '../apps.js';
 import { appResult, appTool, loadStudents, mediaBase, toStudentPick, withProblems } from './shared.js';
 import type { AssignResult, CustomLessonSpec, LessonAssignment, LessonPayload, LessonSaveResult } from './types.js';
+import { assignLessonAsHomework } from '../homework-send.js';
 
 interface LibraryItemResponse {
   id: string;
@@ -192,7 +193,7 @@ export function registerLessonApp(ctx: ToolContext): void {
     'app_assign_lesson',
     {
       title: 'Assign lesson',
-      description: 'Assign a library lesson to students (called by the lesson UI). Creates a copy for each student who does not have it yet.',
+      description: 'Assign a library lesson to students as homework (called by the lesson UI): both a one-off pass due by each student\'s next lesson (else in two days) and their study sessions. Creates a copy for each student who does not have it yet.',
       inputSchema: {
         library_item_id: z.string(),
         relationship_ids: z.array(z.string()).min(1),
@@ -201,14 +202,11 @@ export function registerLessonApp(ctx: ToolContext): void {
       appOnly: true,
     },
     async ({ library_item_id, relationship_ids }) => {
-      const res = await ctx.api.post<Omit<AssignResult, 'assignments'>>(
-        `/api/lesson-library/${encodeURIComponent(library_item_id)}/assign`,
-        { relationship_ids },
-      );
+      const res = await assignLessonAsHomework(ctx.api, library_item_id, relationship_ids);
       const result: AssignResult = {
-        assigned: res.assigned ?? [],
-        already_had: res.already_had ?? [],
-        errors: res.errors ?? [],
+        assigned: res.assigned.map(({ relationship_id, lesson_id, student_id }) => ({ relationship_id, lesson_id, student_id })),
+        already_had: res.already_had,
+        errors: res.errors,
         assignments: await loadAssignments(ctx, library_item_id),
       };
       return appResult(

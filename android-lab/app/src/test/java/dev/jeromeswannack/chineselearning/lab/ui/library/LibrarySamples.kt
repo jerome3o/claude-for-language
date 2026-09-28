@@ -75,7 +75,7 @@ object LibrarySamples {
 
     val today: LocalDate = LocalDate.of(2026, 9, 27)
 
-    fun assign(mode: HomeworkMode = HomeworkMode.FSRS, selected: Set<String> = setOf("rel-tom"), due: LocalDate = today.plusDays(2)) = AssignUi(
+    fun assign(mode: HomeworkMode = HomeworkMode.BOTH, selected: Set<String> = setOf("rel-tom"), due: LocalDate = today.plusDays(2)) = AssignUi(
         itemId = "lib1",
         title = "把 sentences in the kitchen",
         students = studentOptions(relationships, assignments),

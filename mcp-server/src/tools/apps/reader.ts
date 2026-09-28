@@ -1,8 +1,8 @@
 /**
  * `review_reader` app: a graded reader page by page (Chinese large, pinyin,
  * English, illustration), editable in place, saved whole through
- * `PUT /api/readers/:id/spec`, and sent to a student with the share-reader
- * endpoint.
+ * `PUT /api/readers/:id/spec`, and sent to a student as homework
+ * (`sendAsHomework`, tools/homework-send.ts).
  */
 import { z } from 'zod';
 import { normalizeReaderSpec, validateReaderSpec } from '../../../../shared/reader/validate';
@@ -10,6 +10,7 @@ import type { ToolContext } from '../context.js';
 import { registerApp } from '../apps.js';
 import { appResult, appTool, loadStudents, mediaBase, toStudentPick, withProblems } from './shared.js';
 import type { ReaderPayload, ReaderSaveResult, ReaderSpec, StudentPick } from './types.js';
+import { describeSend, sendAsHomework } from '../homework-send.js';
 
 interface ReaderSpecResponse {
   id: string;
@@ -127,7 +128,7 @@ export function registerReaderApp(ctx: ToolContext): void {
     'app_share_reader',
     {
       title: 'Send reader to a student',
-      description: "Copy this reader to a student's account (called by the reader UI).",
+      description: "Send this reader to a student as homework — due by their next lesson (else in two days), then in their reader rotation (called by the reader UI).",
       inputSchema: {
         relationship_id: z.string(),
         reader_id: z.string(),
@@ -136,11 +137,8 @@ export function registerReaderApp(ctx: ToolContext): void {
       appOnly: true,
     },
     async ({ relationship_id, reader_id }) => {
-      const res = await ctx.api.post<Record<string, unknown>>(
-        `/api/relationships/${encodeURIComponent(relationship_id)}/share-reader`,
-        { reader_id },
-      );
-      return appResult(`Reader ${reader_id} sent to relationship ${relationship_id}.`, { ok: true, result: res });
+      const sent = await sendAsHomework(ctx.api, relationship_id, 'reader', reader_id);
+      return appResult(`Reader ${reader_id} sent to relationship ${relationship_id} ${describeSend(sent.mode, sent.due_date)}.`, { ok: true, result: { copy: sent.copy, assignments: sent.result.assignments } });
     },
   );
 }

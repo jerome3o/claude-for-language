@@ -3,13 +3,43 @@
  * tutor (or the draft agent) edits before assigning a lesson's homework.
  */
 
-import { addDays, isDateString } from './due';
+import { addDays, daysBetween, isDateString, localDate } from './due';
 import { clampSplitDays, splitIntoDays } from './split';
 import { hasOneOff, isHomeworkMode, type HomeworkKind, type HomeworkMode } from './types';
 import type { LoadAssignmentInput } from './load';
 
 /** Days from today a draft's items are due by default. */
 export const DEFAULT_DUE_IN_DAYS = 2;
+
+/** How a tutor sends homework unless they choose otherwise (Send homework sheet, MCP share tools). */
+export const DEFAULT_SEND_MODE: HomeworkMode = 'both';
+
+/** A logged lesson further ahead than this is not used as the default due date. */
+export const NEXT_LESSON_WINDOW_DAYS = 14;
+
+/** A lesson-log `lesson_at` (ISO timestamp or 'YYYY-MM-DD') as the viewer's calendar day. */
+export function lessonDay(lessonAt: string): string | null {
+  if (isDateString(lessonAt)) return lessonAt;
+  const t = new Date(lessonAt);
+  return isNaN(t.getTime()) ? null : localDate(t);
+}
+
+/**
+ * The due date a new send starts with: the student's next logged lesson (the
+ * earliest lesson day after today, within NEXT_LESSON_WINDOW_DAYS) — homework is
+ * checked there — else DEFAULT_DUE_IN_DAYS from today (the draft default).
+ * `lessonDays` are calendar days (see `lessonDay`), in any order.
+ */
+export function defaultHomeworkDueDate(today: string, lessonDays: ReadonlyArray<string | null | undefined> = []): string {
+  let next: string | null = null;
+  for (const d of lessonDays) {
+    if (!d || !isDateString(d)) continue;
+    const ahead = daysBetween(today, d);
+    if (ahead < 1 || ahead > NEXT_LESSON_WINDOW_DAYS) continue;
+    if (!next || d < next) next = d;
+  }
+  return next ?? addDays(today, DEFAULT_DUE_IN_DAYS);
+}
 
 // ============ Rows for one assigned item ============
 

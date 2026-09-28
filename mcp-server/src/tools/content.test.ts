@@ -142,6 +142,25 @@ function text(result: CallToolResult): string {
   return result.content.map(c => (c.type === 'text' ? c.text : '')).join('');
 }
 
+/** A fake `POST …/homework` answering like the API: one assignment per item + its copy. */
+function homeworkRoute(copy: { target_id: string; target_name: string; share_id: string | null }) {
+  return (body?: unknown) => {
+    const items = (body as { items: Array<{ kind: string; source_id: string; mode: string; due_date: string | null }> }).items;
+    return {
+      assignments: items.map((it, i) => ({
+        id: `a${i + 1}`, kind: it.kind, source_id: it.source_id, target_id: copy.target_id, title: copy.target_name,
+        mode: it.mode, due_date: it.due_date, item_count: 1, student_id: 'student-1', created_at: '2026-09-28T09:00:00Z',
+      })),
+      skipped: [],
+      errors: [],
+      copies: items.map(it => ({ kind: it.kind, source_id: it.source_id, ...copy })),
+    };
+  };
+}
+
+/** The lesson log: last lesson a week ago, the next one on Thu 1 Oct. */
+const LESSON_LOG = () => ({ entries: [{ id: 'l2', lesson_at: '2026-10-01T12:00:00.000Z' }, { id: 'l1', lesson_at: '2026-09-21T12:00:00.000Z' }] });
+
 describe('registerContentTools', () => {
   it('registers every content tool once', () => {
     const { ctx, tools } = fakeContext({});
@@ -185,10 +204,8 @@ describe('reader tools', () => {
     const { ctx, tools, calls } = fakeContext({
       'POST /api/readers/import': () => ({ id: 'new-1', status: 'ready', image_jobs: 1, spec: validReader }),
       'PUT /api/readers/new-1/spec': (body) => ({ id: 'new-1', status: 'ready', image_jobs: 0, spec: (body as { spec: unknown }).spec }),
-      'POST /api/relationships/rel-1/share-reader': () => ({
-        share: { id: 's1', relationship_id: 'rel-1', source_reader_id: 'new-1', target_reader_id: 'copy-1', shared_at: 't' },
-        reader: { id: 'copy-1', title_chinese: '小猫找家', title_english: 'The Kitten Finds a Home', pages: [{}, {}] },
-      }),
+      'GET /api/relationships/rel-1/lesson-log': LESSON_LOG,
+      'POST /api/relationships/rel-1/homework': homeworkRoute({ target_id: 'copy-1', target_name: 'The Kitten Finds a Home', share_id: 's1' }),
     });
     registerReaderTools(ctx);
 
@@ -198,16 +215,20 @@ describe('reader tools', () => {
     const updated = JSON.parse(text(await tools.get('update_reader')!({ reader_id: 'new-1', spec: validReader })));
     expect(updated).toMatchObject({ id: 'new-1', page_count: 2 });
 
-    const shared = JSON.parse(text(await tools.get('share_reader_with_student')!({ relationship_id: 'rel-1', reader_id: 'new-1' })));
-    expect(shared.student_reader).toEqual({ id: 'copy-1', title_chinese: '小猫找家', title_english: 'The Kitten Finds a Home', page_count: 2 });
+    const shared = JSON.parse(text(await tools.get('share_reader_with_student')!({ relationship_id: 'rel-1', reader_id: 'new-1', today: '2026-09-28' })));
+    expect(shared.student_reader).toEqual({ id: 'copy-1', title: 'The Kitten Finds a Home' });
+    expect(shared).toMatchObject({ share: { id: 's1', target_reader_id: 'copy-1' }, mode: 'both', due_date: '2026-10-01' });
+    expect(shared.message).toContain('due Thu 1 Oct, then in long-term review');
 
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
       'POST /api/readers/import',
       'PUT /api/readers/new-1/spec',
-      'POST /api/relationships/rel-1/share-reader',
+      'GET /api/relationships/rel-1/lesson-log',
+      'POST /api/relationships/rel-1/homework',
     ]);
     expect(calls[0].body).toEqual({ spec: validReader });
-    expect(calls[2].body).toEqual({ reader_id: 'new-1' });
+    // Sent as homework: both, due at the next logged lesson.
+    expect(calls[3].body).toEqual({ items: [{ kind: 'reader', source_id: 'new-1', mode: 'both', due_date: '2026-10-01' }], today: '2026-09-28' });
   });
 
   it('generate_reader posts the decks source and tells the model to poll', async () => {
@@ -257,16 +278,19 @@ describe('lesson library tools', () => {
 
   it('assign / assignments / push-update / student-lessons hit the right paths', async () => {
     const { ctx, tools, calls } = fakeContext({
-      'POST /api/lesson-library/lib-1/assign': () => ({ assigned: [{ relationship_id: 'rel-1' }], already_had: [], errors: [] }),
-      'GET /api/lesson-library/lib-1/assignments': () => ({ assignments: [{ lesson_id: 'l1', up_to_date: false }] }),
+      'GET /api/lesson-library/lib-1/assignments': () => ({ assignments: [{ lesson_id: 'l0', relationship_id: 'rel-2', student: { id: 'student-2' }, up_to_date: false }] }),
+      'GET /api/relationships/rel-1/lesson-log': () => ({ entries: [] }),
+      'POST /api/relationships/rel-1/homework': homeworkRoute({ target_id: 'l1', target_name: 'Tones', share_id: null }),
       'POST /api/lesson-library/lib-1/push-update': () => ({ updated: 1, skipped: 0, image_jobs: 0 }),
       'GET /api/relationships/rel-1/student-lessons': () => ({ lessons: [{ id: 'l1' }] }),
       'PUT /api/lesson-library/lib-1': (body) => ({ id: 'lib-1', title: 'Tones', version: 2, tags: ['t'], assignment_count: 1, spec: (body as { spec: unknown }).spec }),
     });
     registerLessonLibraryTools(ctx);
 
-    const assigned = JSON.parse(text(await tools.get('assign_lesson_to_students')!({ library_id: 'lib-1', relationship_ids: ['rel-1'] })));
-    expect(assigned.message).toContain('Assigned to 1 student(s)');
+    const assigned = JSON.parse(text(await tools.get('assign_lesson_to_students')!({ library_id: 'lib-1', relationship_ids: ['rel-1', 'rel-2'], today: '2026-09-28' })));
+    expect(assigned.message).toContain('Assigned to 1 student(s) as one-off homework due Wed 30 Sep, then in long-term review; 1 already had it');
+    expect(assigned.assigned).toEqual([{ relationship_id: 'rel-1', lesson_id: 'l1', student_id: 'student-1', assignment_ids: ['a1'], due_date: '2026-09-30' }]);
+    expect(assigned.already_had).toEqual([{ relationship_id: 'rel-2', lesson_id: 'l0', student_id: 'student-2' }]);
     const assignments = JSON.parse(text(await tools.get('get_lesson_assignments')!({ library_id: 'lib-1' })));
     expect(assignments.count).toBe(1);
     const updated = JSON.parse(text(await tools.get('update_library_lesson')!({ library_id: 'lib-1', spec: lesson })));
@@ -277,15 +301,19 @@ describe('lesson library tools', () => {
     expect(studentLessons.count).toBe(1);
 
     expect(calls.map(c => `${c.method} ${c.path}`)).toEqual([
-      'POST /api/lesson-library/lib-1/assign',
+      'GET /api/lesson-library/lib-1/assignments',
+      'GET /api/relationships/rel-1/lesson-log',
+      'POST /api/relationships/rel-1/homework',
       'GET /api/lesson-library/lib-1/assignments',
       'PUT /api/lesson-library/lib-1',
       'POST /api/lesson-library/lib-1/push-update',
       'GET /api/relationships/rel-1/student-lessons',
     ]);
+    // No lesson coming up → due in two days; mode both.
+    expect(calls[2].body).toEqual({ items: [{ kind: 'lesson', source_id: 'lib-1', mode: 'both', due_date: '2026-09-30' }], today: '2026-09-28' });
     // tags omitted → not sent, so the API keeps the current ones
-    expect(calls[2].body).toEqual({ spec: lesson });
-    expect(calls[3].body).toEqual({ relationship_ids: ['rel-1'] });
+    expect(calls[4].body).toEqual({ spec: lesson });
+    expect(calls[5].body).toEqual({ relationship_ids: ['rel-1'] });
   });
 });
 
@@ -306,12 +334,14 @@ describe('student deck tools', () => {
         return { created, failed };
       },
       'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }, { id: 'n2', audio_url: null }] }),
-      'POST /api/relationships/rel-1/share-deck': () => ({ id: 'share-1', target_deck_id: 'deck-s', target_deck_name: 'Weather (from tutor)' }),
+      'GET /api/relationships/rel-1/lesson-log': LESSON_LOG,
+      'POST /api/relationships/rel-1/homework': homeworkRoute({ target_id: 'deck-s', target_name: 'Weather (from tutor)', share_id: 'share-1' }),
     });
     registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
 
     const result = JSON.parse(text(await tools.get('create_deck_for_student')!({
       relationship_id: 'rel-1',
+      today: '2026-09-28',
       name: 'Weather',
       notes: [
         { hanzi: '刮风', pinyin: 'guā fēng', english: 'windy', sentence_clue: '今天刮风。' },
@@ -324,6 +354,7 @@ describe('student deck tools', () => {
     expect(result).toMatchObject({
       tutor_deck_id: 'deck-1', student_deck_id: 'deck-s', shared_deck_id: 'share-1', created: 2, audio_generating: 1,
       failed: [{ hanzi: '下雨', error: 'TTS exploded' }],
+      mode: 'both', due_date: '2026-10-01',
     });
     expect(result.rejected).toEqual([{ hanzi: '雪', reason: expect.stringContaining('tone numbers') }]);
     // One batch POST carries the sentence_clue in the row (no follow-up PUT);
@@ -333,7 +364,8 @@ describe('student deck tools', () => {
       'POST /api/decks',
       'POST /api/decks/deck-1/notes/batch',
       'GET /api/decks/deck-1',
-      'POST /api/relationships/rel-1/share-deck',
+      'GET /api/relationships/rel-1/lesson-log',
+      'POST /api/relationships/rel-1/homework',
     ]);
     expect(calls[2].body).toEqual({
       notes: [
@@ -342,7 +374,9 @@ describe('student deck tools', () => {
         { hanzi: '晴天', pinyin: 'qíng tiān', english: 'sunny', fun_facts: undefined, sentence_clue: undefined },
       ],
     });
-    expect(calls[4].body).toEqual({ deck_id: 'deck-1', priority: 'core' });
+    // A real homework assignment: both (one-off pass + long-term), due at the next logged lesson, top of the queue.
+    expect(calls[5].body).toEqual({ items: [{ kind: 'deck', source_id: 'deck-1', mode: 'both', due_date: '2026-10-01', priority: 'core' }], today: '2026-09-28' });
+    expect(result.message).toContain('as one-off homework due Thu 1 Oct, then in long-term review');
     expect(result.message).toContain('still generating in the background');
   });
 
@@ -371,7 +405,8 @@ describe('student deck tools', () => {
       'POST /api/decks': () => ({ id: 'deck-1', name: 'Weather' }),
       'POST /api/decks/deck-1/notes/batch': (body) => ({ created: (body as { notes: Array<{ hanzi: string }> }).notes.map(n => ({ id: 'n1', hanzi: n.hanzi, audio_url: 'a.mp3' })), failed: [] }),
       'GET /api/decks/deck-1': () => ({ id: 'deck-1', notes: [{ id: 'n1', audio_url: 'a.mp3' }] }),
-      'POST /api/relationships/rel-1/share-deck': () => { throw new ApiError(400, 'The student no longer has an account', null); },
+      'GET /api/relationships/rel-1/lesson-log': () => ({ entries: [] }),
+      'POST /api/relationships/rel-1/homework': () => { throw new ApiError(400, 'The student no longer has an account', null); },
       'DELETE /api/decks/deck-1': () => ({ success: true }),
     });
     registerStudentDeckTools(ctx, { audioWait: { attempts: 1, delayMs: 0 } });
@@ -381,7 +416,7 @@ describe('student deck tools', () => {
     expect(result.isError).toBe(true);
     expect(text(result)).toContain('could not be shared');
     expect(text(result)).toContain('removed again');
-    expect(calls.map(c => `${c.method} ${c.path}`).slice(-2)).toEqual(['POST /api/relationships/rel-1/share-deck', 'DELETE /api/decks/deck-1']);
+    expect(calls.map(c => `${c.method} ${c.path}`).slice(-2)).toEqual(['POST /api/relationships/rel-1/homework', 'DELETE /api/decks/deck-1']);
   });
 
   it('add_words_to_student_deck resolves the source deck from the share and updates the copy', async () => {

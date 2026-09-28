@@ -18,18 +18,24 @@ interface Props {
   onSplitDays?: (days: number) => void;
   /** Radio-group name, unique per picker on a page. */
   name: string;
+  /** The student's next logged lesson ('YYYY-MM-DD'), offered as a quick "Next lesson" date. */
+  nextLesson?: string | null;
 }
 
 /**
  * How the student does this: a one-off pass by a date, long-term (FSRS)
  * review, or both — plus the due date and, for words, "spread over N days".
  */
-export function HomeworkModePicker({ mode, onMode, dueDate, onDueDate, wordCount, splitDays = 1, onSplitDays, name }: Props) {
+export function HomeworkModePicker({ mode, onMode, dueDate, onDueDate, wordCount, splitDays = 1, onSplitDays, name, nextLesson }: Props) {
   const today = localDate();
+  const lesson = nextLesson && nextLesson > today ? [{ label: `Next lesson · ${shortDay(nextLesson)}`, date: nextLesson }] : [];
   const quick = [
-    { label: 'Tomorrow', date: addDays(today, 1) },
-    { label: 'In 2 days', date: addDays(today, 2) },
-    { label: 'In a week', date: addDays(today, 7) },
+    ...lesson,
+    ...[
+      { label: 'Tomorrow', date: addDays(today, 1) },
+      { label: 'In 2 days', date: addDays(today, 2) },
+      { label: 'In a week', date: addDays(today, 7) },
+    ].filter((q) => q.date !== nextLesson),
   ];
   const oneOff = hasOneOff(mode);
   const canSplit = oneOff && !!onSplitDays && (wordCount ?? 0) > 1;

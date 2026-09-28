@@ -14,6 +14,7 @@ import type { ApiClient } from '../../api.js';
 import { jsonResult, errorResult, guard } from '../context.js';
 import { normalizeNotes, notesMissingAudio, type NoteInput } from './specs.js';
 import { CARD_STANDARD_SHORT } from '../../../../shared/cards/standard';
+import { SEND_DUE_DATE, SEND_MODE, SEND_TODAY, assignmentSummary, describeSend, sendAsHomework, type Sent } from '../homework-send.js';
 
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
 
@@ -139,15 +140,19 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
 
   server.tool(
     'create_deck_for_student',
-    `Build a vocabulary deck for a student and send it as homework in one go: creates the deck and its notes in YOUR (the tutor's) account — every note gets three cards, and TTS audio is generated in the background (it reaches the student's copy automatically, so the call returns in seconds) — then shares a copy with the student (it lands in their app as "<name> (from tutor)" on their next sync and counts towards their Homework %). You must be the tutor in the relationship. Keep the words the student does not already have (batch_search_notes checks your own decks, list_student_lessons / the students tools show what they received). Notes with a missing field, tone-number pinyin or a duplicate hanzi in the batch are rejected up front and listed; a note the API refuses is skipped and listed under failed while the rest continue. Later additions go through add_words_to_student_deck (the returned shared_deck_id is what it needs).`,
+    `Build a vocabulary deck for a student and send it as homework in one go: creates the deck and its notes in YOUR (the tutor's) account — every note gets three cards, and TTS audio is generated in the background (it reaches the student's copy automatically, so the call returns in seconds) — then sends a copy to the student AS HOMEWORK (a real assignment, like the app's Send homework sheet: it lands in their app as "<name> (from tutor)" on their next sync and counts towards their Homework %). By default (\`mode: "both"\`) that is a one-off pass due by \`due_date\` (default: the student's next logged lesson, else in two days) AND long-term review from their queue (\`priority\`); "one_off" = the pass only, "fsrs" = long-term only. Words the student already has are left out of their copy (skip_known, default true). You must be the tutor in the relationship. Keep the words the student does not already have (batch_search_notes checks your own decks, list_student_lessons / the students tools show what they received). Notes with a missing field, tone-number pinyin or a duplicate hanzi in the batch are rejected up front and listed; a note the API refuses is skipped and listed under failed while the rest continue. Later additions go through add_words_to_student_deck (the returned shared_deck_id is what it needs).`,
     {
       relationship_id: RELATIONSHIP_ID,
       name: z.string().min(1).describe('Deck name as the student will see it (the app appends "(from tutor)")'),
       description: z.string().optional().describe('One line on what the deck covers'),
       notes: z.array(noteShape).min(1).describe('The words to put in the deck'),
-      priority: z.enum(['core', 'non_urgent']).optional().describe('Where the packet lands in the student\'s homework queue: "core" (default) = top, studied next; "non_urgent" = bottom. The student introduces a fixed number of new words a day from the top of the queue, so sending more never overloads them.'),
+      mode: SEND_MODE,
+      due_date: SEND_DUE_DATE,
+      priority: z.enum(['core', 'non_urgent']).optional().describe('Long-term part (mode both / fsrs): where the packet lands in the student\'s queue: "core" (default) = top, studied next; "non_urgent" = bottom. The student introduces a fixed number of new words a day from the top of the queue, so sending more never overloads them.'),
+      skip_known: z.boolean().optional().describe('Leave the words the student already has out of their copy (default true; `skipped_known` lists them).'),
+      today: SEND_TODAY,
     },
-    async ({ relationship_id, name, description, notes, priority }) => guard(async () => {
+    async ({ relationship_id, name, description, notes, mode, due_date, priority, skip_known, today }) => guard(async () => {
       const { notes: clean, rejected } = normalizeNotes(notes);
       if (clean.length === 0) {
         return errorResult(`No usable notes:\n- ${rejected.map(r => `${r.hanzi}: ${r.reason}`).join('\n- ')}`);
@@ -163,27 +168,30 @@ export function registerStudentDeckTools(ctx: ToolContext, options: { audioWait?
         return errorResult(`No note could be added, so the deck was not kept:\n- ${outcome.failed.map(f => `${f.hanzi}: ${f.error}`).join('\n- ')}`);
       }
       const audioMissing = await countNotesMissingAudio(api, deck.id, outcome.created.map(n => n.id), wait);
-      let shared: { id: string; target_deck_id: string; target_deck_name: string };
+      let sent: Sent;
       try {
-        shared = await api.post<{ id: string; target_deck_id: string; target_deck_name: string }>(
-          `/api/relationships/${encodeURIComponent(relationship_id)}/share-deck`,
-          { deck_id: deck.id, priority: priority ?? 'core' },
-        );
+        sent = await sendAsHomework(api, relationship_id, 'deck', deck.id, { mode, due_date, priority: priority ?? 'core', skip_known, today });
       } catch (err) {
         // Don't leave the half-finished deck behind.
         await api.delete(`/api/decks/${encodeURIComponent(deck.id)}`).catch(() => {});
         return errorResult(`The deck was built but could not be shared (${err instanceof Error ? err.message : String(err)}), so it was removed again. Check the relationship_id with list_students.`);
       }
+      const studentDeckName = sent.copy?.target_name ?? `${deck.name} (from tutor)`;
+      const skippedKnown = sent.result.skipped.flatMap(s => s.hanzi);
       return jsonResult({
         tutor_deck_id: deck.id,
-        student_deck_id: shared.target_deck_id,
-        student_deck_name: shared.target_deck_name,
-        shared_deck_id: shared.id,
+        student_deck_id: sent.copy?.target_id ?? sent.result.assignments[0].target_id,
+        student_deck_name: studentDeckName,
+        shared_deck_id: sent.copy?.share_id ?? null,
+        mode: sent.mode,
+        due_date: sent.due_date,
+        assignments: assignmentSummary(sent.result.assignments),
+        skipped_known: skippedKnown,
         created: outcome.created.length,
         failed: outcome.failed,
         rejected,
         audio_generating: audioMissing,
-        message: `Deck "${deck.name}" with ${outcome.created.length} word(s) is on its way to the student as "${shared.target_deck_name}".${audioMissing ? ` Audio for ${audioMissing} word(s) is still generating in the background and reaches the student's copy automatically — nothing more to do.` : ''}`,
+        message: `Deck "${deck.name}" with ${outcome.created.length} word(s) is on its way to the student as "${studentDeckName}", ${describeSend(sent.mode, sent.due_date)}.${skippedKnown.length ? ` Left out ${skippedKnown.length} word(s) they already have.` : ''}${audioMissing ? ` Audio for ${audioMissing} word(s) is still generating in the background and reaches the student's copy automatically — nothing more to do.` : ''}`,
       });
     }),
   );

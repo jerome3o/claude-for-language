@@ -21,6 +21,9 @@ import {
   passItemIds,
   hasOneOff,
   hasFsrs,
+  defaultHomeworkDueDate,
+  lessonDay,
+  DEFAULT_SEND_MODE,
   type LoadAssignmentInput,
 } from './index';
 
@@ -278,5 +281,28 @@ describe('the draft plan', () => {
       ['lesson', 1, '2026-09-29'],
       ['reader', 1, '2026-09-29'],
     ]);
+  });
+});
+
+describe('sending homework: defaults', () => {
+  it('sends as both (one-off pass by a date, then long-term review)', () => {
+    expect(DEFAULT_SEND_MODE).toBe('both');
+  });
+
+  it('is due at the next logged lesson, else in two days', () => {
+    const today = '2026-09-28';
+    expect(defaultHomeworkDueDate(today)).toBe('2026-09-30');
+    expect(defaultHomeworkDueDate(today, [])).toBe('2026-09-30');
+    // Past and same-day lessons don't count; the earliest future one wins.
+    expect(defaultHomeworkDueDate(today, ['2026-09-21', '2026-09-28', '2026-10-06', '2026-10-01'])).toBe('2026-10-01');
+    // A lesson more than two weeks out is too far to be "by the next lesson".
+    expect(defaultHomeworkDueDate(today, ['2026-10-20'])).toBe('2026-09-30');
+    expect(defaultHomeworkDueDate(today, [null, 'nope', undefined])).toBe('2026-09-30');
+  });
+
+  it('reads lesson-log timestamps as calendar days', () => {
+    expect(lessonDay('2026-10-01')).toBe('2026-10-01');
+    expect(lessonDay('garbage')).toBeNull();
+    expect(lessonDay('2026-10-01T12:00:00.000Z')).toMatch(/^2026-10-0[12]$/);
   });
 });

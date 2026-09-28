@@ -228,7 +228,9 @@ internal fun SendHomeworkFor(nav: LabNav, send: SendHomeworkController, relId: S
     val decks by send.decks.collectAsStateWithLifecycle()
     val online by nav.app.online.collectAsStateWithLifecycle()
     val library by send.library.collectAsStateWithLifecycle()
+    val lessonDays by send.lessonDays.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { send.loadDecks() }
+    LaunchedEffect(relId) { send.loadLessonLog(relId) }
     SendHomeworkSheet(
         studentName = name,
         decks = decks,
@@ -237,6 +239,7 @@ internal fun SendHomeworkFor(nav: LabNav, send: SendHomeworkController, relId: S
         assignedLessons = overview?.homework?.lessons.orEmpty(),
         online = online,
         today = localToday(),
+        lessonDays = lessonDays,
         actions = SendHomeworkActions(
             sendDeck = { d, o, done -> send.sendDeck(relId, name, d, o, done) },
             updateCopy = { d, share, done -> send.updateCopy(relId, name, d, share, done) },

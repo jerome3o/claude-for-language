@@ -67,6 +67,38 @@ object HomeworkPlan {
 
     const val MAX_SPLIT_DAYS = 14
 
+    /** DEFAULT_DUE_IN_DAYS in shared/homework/plan.ts. */
+    const val DEFAULT_DUE_IN_DAYS = 2
+
+    /** NEXT_LESSON_WINDOW_DAYS in shared/homework/plan.ts. */
+    const val NEXT_LESSON_WINDOW_DAYS = 14
+
+    /**
+     * Port of defaultHomeworkDueDate(): the student's next logged lesson (the earliest lesson day
+     * after today, within NEXT_LESSON_WINDOW_DAYS), else DEFAULT_DUE_IN_DAYS from today.
+     * [lessonDays] are calendar days (see [lessonDay]) in any order.
+     */
+    fun defaultHomeworkDueDate(today: String, lessonDays: List<String?> = emptyList()): String {
+        var next: String? = null
+        for (d in lessonDays) {
+            if (d == null || !isDateString(d)) continue
+            val ahead = daysBetween(today, d)
+            if (ahead < 1 || ahead > NEXT_LESSON_WINDOW_DAYS) continue
+            if (next == null || d < next) next = d
+        }
+        return next ?: addDays(today, DEFAULT_DUE_IN_DAYS)
+    }
+
+    /** Port of lessonDay(): a lesson-log `lesson_at` (ISO timestamp or 'YYYY-MM-DD') as a calendar day in [zone]. */
+    fun lessonDay(lessonAt: String, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String? {
+        if (isDateString(lessonAt)) return lessonAt
+        return try {
+            java.time.OffsetDateTime.parse(lessonAt).atZoneSameInstant(zone).toLocalDate().toString()
+        } catch (_: DateTimeParseException) {
+            null
+        }
+    }
+
     /** Port of clampSplitDays() (a non-finite / missing value counts as 1). */
     fun clampSplitDays(days: Double?, itemCount: Int): Int {
         val n = if (days != null && days.isFinite()) Js.round(days).toInt() else 1

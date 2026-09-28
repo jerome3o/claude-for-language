@@ -79,6 +79,11 @@ class TeachingScreenshots : LabScreenshotTest() {
         Sheet { SendHomeworkContent("Jerome", S.deckOptions, Loadable(), S.homeworkDecks, emptyList(), online = true, today = S.TODAY, actions = SendHomeworkActions(), initialDeck = S.deckOptions[2]) }
     }
 
+    // Opens on Both, due at the next logged lesson (Thu 1 Oct), offered as the first chip.
+    @Test fun sendHomeworkNextLesson() = shoot("teaching-38-send-next-lesson") {
+        Sheet { SendHomeworkContent("Jerome", S.deckOptions, Loadable(), S.homeworkDecks, emptyList(), online = true, today = S.TODAY, actions = SendHomeworkActions(), initialDeck = S.deckOptions[2], lessonDays = listOf("2026-09-22", "2026-10-01")) }
+    }
+
     @Test fun sendHomeworkOneOffSplit() = shoot("teaching-16-send-one-off-split") {
         Sheet { SendHomeworkContent("Jerome", S.deckOptions, Loadable(), S.homeworkDecks, emptyList(), online = true, today = S.TODAY, actions = SendHomeworkActions(), initialDeck = S.deckOptions[2], initialMode = HomeworkMode.BOTH, initialSplit = 3) }
     }

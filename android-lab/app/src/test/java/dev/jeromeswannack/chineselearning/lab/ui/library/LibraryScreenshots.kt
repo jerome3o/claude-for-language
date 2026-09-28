@@ -57,7 +57,7 @@ class LibraryScreenshots : LabScreenshotTest() {
         LibraryScreen(LibrarySamples.listUi({ it.copy(menuFor = LibrarySamples.items[0]) }), LibraryActions())
     }
 
-    @Test fun assignLongTerm() = shootScreen("library-08-assign") {
+    @Test fun assignDefault() = shootScreen("library-08-assign") {
         LibraryScreen(LibrarySamples.listUi({ it.copy(assign = LibrarySamples.assign()) }), LibraryActions())
     }
 

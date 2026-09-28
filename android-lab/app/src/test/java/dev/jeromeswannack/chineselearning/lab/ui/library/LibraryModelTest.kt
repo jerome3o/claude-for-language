@@ -99,7 +99,8 @@ class LibraryModelTest {
         model.assign(LibrarySamples.items[0])
         val open = await(model.ui) { it.assign?.students?.any { s -> s.name == "Jerome" && s.hasIt } == true }.assign!!
         assertEquals(listOf(true, false, false), open.students!!.map { it.hasIt })
-        assertEquals(HomeworkMode.FSRS, open.mode)
+        assertEquals(HomeworkMode.BOTH, open.mode) // the default, like the Send homework sheet
+        model.assign.setMode(HomeworkMode.FSRS)
         model.assign.toggle("rel-tom")
         model.assign.toggle("rel-mei")
         model.assign.submit()
@@ -133,12 +134,12 @@ class LibraryModelTest {
 
     @Test fun assignFailureStaysInTheSheet() = runBlocking {
         deps.cache.put(NavKeys.RELATIONSHIPS, NavKeys.KIND, LibrarySamples.relationships, MyRelationshipsDto.serializer())
-        routes["POST /api/lesson-library/lib1/assign"] = ok("""{"error":"Only the tutor can assign"}""", 403)
+        routes["POST /api/relationships/rel-tom/homework"] = ok("""{"error":"Only the tutor can assign"}""", 403)
         val model = LibraryModel(scope, deps)
         model.assign(LibrarySamples.items[0])
         await(model.ui) { it.assign?.students != null }
         model.assign.toggle("rel-tom")
-        model.assign.submit()
+        model.assign.submit() // Both by default → the homework model's call
         val ui = await(model.ui) { it.assign?.error != null }
         assertEquals("Only the tutor can assign", ui.assign!!.error)
         assertEquals(false, ui.assign!!.busy)

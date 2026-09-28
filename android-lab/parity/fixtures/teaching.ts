@@ -8,6 +8,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { addDays, daysBetween, dueLabel, compareDue, shortDay, isDateString } from '../../../shared/homework/due';
 import { splitIntoDays, clampSplitDays, suggestSplitDays } from '../../../shared/homework/split';
+import { defaultHomeworkDueDate } from '../../../shared/homework/plan';
 
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
@@ -65,4 +66,12 @@ const clamps = clampInputs.map(([days, count]) => ({ days: days === null || !Num
 
 const suggest = Array.from({ length: 200 }, (_, n) => ({ n, per: n % 3 === 0 ? 10 : 7, r: suggestSplitDays(n, n % 3 === 0 ? 10 : 7) }));
 
-writeFileSync(join(OUT, 'teaching.json'), JSON.stringify({ dates, validity, nullLabel, compares, splits, clamps, suggest }));
+// The Send homework sheet's default due date: next logged lesson (1–14 days ahead), else in two days.
+const dueDefaults: Array<{ today: string; lessons: Array<string | null>; r: string }> = [];
+for (let i = 0; i < 120; i++) {
+  const today = anchors[i % anchors.length];
+  const lessons: Array<string | null> = Array.from({ length: int(0, 4) }, () => (rand() < 0.1 ? (rand() < 0.5 ? null : 'soon') : addDays(today, int(-20, 20))));
+  dueDefaults.push({ today, lessons, r: defaultHomeworkDueDate(today, lessons) });
+}
+
+writeFileSync(join(OUT, 'teaching.json'), JSON.stringify({ dates, validity, nullLabel, compares, splits, clamps, suggest, dueDefaults }));

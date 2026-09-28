@@ -75,13 +75,34 @@ data class SendHomeworkActions(
     val open: (String) -> Unit = {},
 )
 
-/** The sentence after a deck went out (web: SendHomeworkSheet `how`). */
+/** What the sheet opens on (web: sendDefaults() in components/tutor/sendHomework.ts). */
+data class SendDefaults(val mode: HomeworkMode, val dueDate: String, val nextLesson: String?)
+
+/**
+ * The sheet opens on Both (a one-off pass by a date, then long-term review), due at the student's
+ * next logged lesson, else in two days ([HomeworkPlan.defaultHomeworkDueDate]).
+ */
+fun sendDefaults(today: String, lessonDays: List<String?> = emptyList()): SendDefaults {
+    val due = HomeworkPlan.defaultHomeworkDueDate(today, lessonDays)
+    return SendDefaults(HomeworkMode.BOTH, due, if (due in lessonDays) due else null)
+}
+
+/** The sentence after a deck went out (web: sendHow() in components/tutor/sendHomework.ts). */
 fun sendHow(kind: String, o: SendOptions): String {
     if (!o.mode.hasOneOff) return if (kind == "deck") {
         if (o.priority == "core") "at the top of their queue, so their new words come from it next" else "at the bottom of their queue, after everything they already have"
     } else "in their long-term review"
     val due = if (o.splitDays > 1 && kind == "deck") "over ${o.splitDays} days from ${HomeworkPlan.shortDay(o.dueDate)}" else "by ${HomeworkPlan.shortDay(o.dueDate)}"
-    return "as one-off homework $due${if (o.mode == HomeworkMode.BOTH) ", then in long-term review" else ""}"
+    if (o.mode == HomeworkMode.ONE_OFF) return "as one-off homework $due"
+    val queue = if (o.priority == "core") "the top of their queue" else "the bottom of their queue"
+    return "as one-off homework $due, then in long-term review${if (kind == "deck") " ($queue)" else ""}"
+}
+
+/** Where an assigned lesson shows up (web: lessonWhere()). */
+fun lessonWhere(mode: HomeworkMode): String = when (mode) {
+    HomeworkMode.ONE_OFF -> " in their homework list"
+    HomeworkMode.BOTH -> " in their homework list, then in their study sessions"
+    HomeworkMode.FSRS -> ", mixed into their next study session"
 }
 
 /** "Send homework" as a bottom sheet (web: SendHomeworkSheet.tsx). */
@@ -96,9 +117,10 @@ fun SendHomeworkSheet(
     today: String,
     actions: SendHomeworkActions,
     onDismiss: () -> Unit,
+    lessonDays: List<String?> = emptyList(),
 ) {
     LabBottomSheet(onDismiss = onDismiss, title = "Send homework to $studentName") {
-        SendHomeworkContent(studentName, decks, library, sharedDecks, assignedLessons, online, today, actions)
+        SendHomeworkContent(studentName, decks, library, sharedDecks, assignedLessons, online, today, actions, lessonDays = lessonDays)
     }
 }
 
@@ -115,14 +137,18 @@ fun SendHomeworkContent(
     actions: SendHomeworkActions,
     initialDeck: DeckOption? = null,
     initialTab: Int = 0,
-    initialMode: HomeworkMode = HomeworkMode.FSRS,
+    initialMode: HomeworkMode? = null,
     initialSplit: Int = 1,
+    lessonDays: List<String?> = emptyList(),
 ) {
+    // docs/HOMEWORK.md "Defaults": Both, due at the next logged lesson, else in two days — until the tutor picks.
+    val defaults = sendDefaults(today, lessonDays)
     var tab by remember { mutableIntStateOf(initialTab) }
     var pendingDeck by remember { mutableStateOf(initialDeck) }
     var pendingLesson by remember { mutableStateOf<LibraryItemSummaryDto?>(null) }
-    var mode by remember { mutableStateOf(initialMode) }
-    var dueDate by remember { mutableStateOf(HomeworkPlan.addDays(today, 2)) }
+    var mode by remember { mutableStateOf(initialMode ?: defaults.mode) }
+    var chosenDue by remember { mutableStateOf<String?>(null) }
+    val dueDate = chosenDue ?: defaults.dueDate
     var splitDays by remember { mutableIntStateOf(initialSplit) }
     var skipKnown by remember { mutableStateOf(true) }
     var priority by remember { mutableStateOf("core") }
@@ -173,7 +199,7 @@ fun SendHomeworkContent(
                             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
                         )
                         if (existing == null) {
-                            ModePicker(mode, { mode = it }, dueDate, { dueDate = it }, today, d.wordCount, splitDays) { splitDays = it }
+                            ModePicker(mode, { mode = it }, dueDate, { chosenDue = it }, today, d.wordCount, splitDays, nextLesson = defaults.nextLesson) { splitDays = it }
                             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable { skipKnown = !skipKnown }, verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(skipKnown, { skipKnown = it }, colors = CheckboxDefaults.colors(checkedColor = Lab.colors.accent))
                                 Text("Leave out words $studentName already has", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
@@ -202,11 +228,11 @@ fun SendHomeworkContent(
                     l != null -> {
                         Text("Assign ${l.title} to $studentName?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
                         Text(
-                            "${TeachingFormat.plural(l.exercise_count, "exercise")} · they get their own copy${if (mode.hasOneOff) " in their homework list" else ", mixed into their next study session"}." +
+                            "${TeachingFormat.plural(l.exercise_count, "exercise")} · they get their own copy${lessonWhere(mode)}." +
                                 if (assignedLessons.any { it.title == l.title }) " They already have a lesson with this title." else "",
                             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
                         )
-                        ModePicker(mode, { mode = it }, dueDate, { dueDate = it }, today, null, 1) {}
+                        ModePicker(mode, { mode = it }, dueDate, { chosenDue = it }, today, null, 1, nextLesson = defaults.nextLesson) {}
                         PrimaryPill(if (busy) "Assigning…" else "Assign lesson", Modifier.fillMaxWidth().height(52.dp), enabled = !busy && online) {
                             busy = true; error = null; actions.assignLesson(l, opts, done)
                         }
@@ -301,6 +327,7 @@ fun ModePicker(
     today: String,
     wordCount: Int?,
     splitDays: Int,
+    nextLesson: String? = null,
     onSplitDays: (Int) -> Unit,
 ) {
     val canSplit = mode.hasOneOff && (wordCount ?: 0) > 1
@@ -310,7 +337,7 @@ fun ModePicker(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             HomeworkMode.entries.forEach { m -> OptionTile(m.title, m.sub, mode == m, Modifier.weight(1f)) { onMode(m) } }
         }
-        if (mode.hasOneOff) DueDateChooser(dueDate, today, label = if (parts.size > 1) "First day due" else "Due", onChange = onDueDate)
+        if (mode.hasOneOff) DueDateChooser(dueDate, today, label = if (parts.size > 1) "First day due" else "Due", nextLesson = nextLesson, onChange = onDueDate)
         if (canSplit) {
             Text("Spread the $wordCount words over", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
             ChipRow {

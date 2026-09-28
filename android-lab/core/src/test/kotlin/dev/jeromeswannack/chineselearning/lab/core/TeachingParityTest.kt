@@ -15,7 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/** HomeworkPlan (LoadPlan.kt) must match shared/homework/due.ts + split.ts exactly (parity/fixtures/teaching.ts). */
+/** HomeworkPlan (LoadPlan.kt) must match shared/homework/due.ts + split.ts + plan.ts defaultHomeworkDueDate exactly (parity/fixtures/teaching.ts). */
 class TeachingParityTest {
     private fun fixture(name: String): JsonObject {
         val dir = System.getProperty("parity.dir") ?: fail("parity.dir not set — run through Gradle")
@@ -75,6 +75,11 @@ class TeachingParityTest {
             val o = c.jsonObject
             val days = o["days"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.double }
             assertEquals(o["r"]!!.jsonPrimitive.int, HomeworkPlan.clampSplitDays(days, o["count"]!!.jsonPrimitive.int), "clamp $o")
+        }
+        for (c in f["dueDefaults"]!!.jsonArray) {
+            val o = c.jsonObject
+            val lessons = o["lessons"]!!.jsonArray.map { it.str }
+            assertEquals(o["r"]!!.str, HomeworkPlan.defaultHomeworkDueDate(o["today"]!!.str!!, lessons), "defaultHomeworkDueDate $o")
         }
         for (c in f["suggest"]!!.jsonArray) {
             val o = c.jsonObject
