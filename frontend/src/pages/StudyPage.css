@@ -444,3 +444,118 @@
     animation: none;
   }
 }
+
+/* ---------- Multiple choice grid ---------- */
+/* A long answer (a whole sentence: a dozen rows of characters) must never push the
+   prompt off the top or the submit button off the bottom. While the grid is up the card
+   stops scrolling as a whole: the prompt keeps its natural height (and scrolls itself if it
+   has to), the rows scroll in the space left, and the Submit / Show answer row stays
+   pinned under them. */
+.study-card-content--mc {
+  overflow: hidden;
+}
+
+.study-card-content--mc > .study-card-main {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.study-card-content--mc > .study-card-main--typing {
+  padding-top: 0.5rem;
+}
+
+.study-card-content--mc > .mt-3.mb-3 {
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.study-card-content--mc > .study-card-actions {
+  flex: 1 1 0;
+  min-height: 13rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.study-card-content--mc > .study-card-actions > .study-card-actions {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-grid {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-rows {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mc-footer {
+  flex-shrink: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mc-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+.mc-option {
+  min-width: 3rem;
+  min-height: 3rem;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  padding: 0.375rem 0.5rem;
+  border: 2px solid var(--border-color, #444);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mc-option--selected {
+  border-color: var(--primary-color, #4a9eff);
+  background: rgba(74, 158, 255, 0.15);
+}
+
+/* Punctuation rows are given: a slim line, not a full-height row */
+.mc-given {
+  display: flex;
+  justify-content: center;
+  font-size: 1.125rem;
+  line-height: 1.2;
+  color: var(--color-text-light);
+  margin-bottom: 0.375rem;
+}
+
+.mc-given--text {
+  font-size: 1.25rem;
+  color: inherit;
+  padding: 0.25rem;
+}
+
+/* Many rows (> MC_COMPACT_AFTER_ROWS): smaller tiles and gaps, still 44px targets */
+.mc-grid--compact .mc-row {
+  gap: 0.375rem;
+  margin-bottom: 0.375rem;
+}
+
+.mc-grid--compact .mc-option {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.25rem;
+  padding: 0.25rem 0.375rem;
+}

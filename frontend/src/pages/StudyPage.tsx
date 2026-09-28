@@ -78,6 +78,8 @@ import {
   mcSubmitLabel,
   mcSubmittedAnswer,
   mcAnswerSlots,
+  isMcCompact,
+  nextUnansweredRow,
   McOptionRow,
   McAnswerSlot,
 } from '../services/multipleChoice';
@@ -470,6 +472,7 @@ function StudyCard({
   // The answer on the back came from the grid (render it row by row).
   const [mcAnswered, setMcAnswered] = useState(false);
   const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(null);
+  const mcRowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   // Ask Claude: inline error (never alert())
   const [askError, setAskError] = useState<string | null>(null);
@@ -2119,54 +2122,43 @@ function StudyCard({
       handleFlip();
     };
 
+    // A long answer (a whole sentence: a dozen rows) scrolls inside the grid while the
+    // prompt above and the submit button below stay on screen; a pick brings the next
+    // unanswered row into view, and past MC_COMPACT_AFTER_ROWS the tiles shrink (≥ 44px).
+    const compact = isMcCompact(options);
+    const pick = (rowIdx: number, opt: string) => {
+      const next = [...mcSelections];
+      next[rowIdx] = opt;
+      setMcSelections(next);
+      const upcoming = nextUnansweredRow(options, next, rowIdx);
+      if (upcoming != null) {
+        mcRowRefs.current[upcoming]?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+      }
+    };
+
     return (
-      <div style={{ width: '100%' }} data-testid="mc-grid">
+      <div className={`mc-grid${compact ? ' mc-grid--compact' : ''}`} data-testid="mc-grid">
+        <div className="mc-rows" data-testid="mc-rows">
         {options.map((charData, rowIdx) => (
           charData.options.length === 1 || isEnglishEntry(charData.correct) ? (
-            // Punctuation or English text: render as plain text, no interactive button
-            <div key={rowIdx} style={{
-              display: 'flex',
-              justifyContent: 'center',
-              marginBottom: '0.5rem',
-              fontSize: '1.5rem',
-              padding: '0.5rem',
-            }}>
+            // Punctuation or English text: given, so a slim line — no buttons
+            <div
+              key={rowIdx}
+              ref={el => { mcRowRefs.current[rowIdx] = el; }}
+              className={`mc-given${isEnglishEntry(charData.correct) ? ' mc-given--text' : ''}`}
+            >
               {charData.correct}
             </div>
           ) : (
-          <div key={rowIdx} style={{
-            display: 'flex',
-            gap: '0.5rem',
-            justifyContent: 'center',
-            marginBottom: '0.5rem',
-          }}>
+          <div key={rowIdx} ref={el => { mcRowRefs.current[rowIdx] = el; }} className="mc-row">
             {charData.options.map((opt, colIdx) => {
               const isSelected = mcSelections[rowIdx] === opt;
-              let btnStyle: React.CSSProperties = {
-                minWidth: '3rem',
-                fontSize: '1.5rem',
-                padding: '0.5rem',
-                border: '2px solid var(--border-color, #444)',
-                borderRadius: '8px',
-                background: 'transparent',
-                color: 'inherit',
-                cursor: 'pointer',
-              };
-              if (isSelected) {
-                btnStyle = { ...btnStyle, borderColor: 'var(--primary-color, #4a9eff)', background: 'rgba(74, 158, 255, 0.15)' };
-              }
               return (
                 <button
                   key={colIdx}
-                  style={btnStyle}
+                  className={`mc-option${isSelected ? ' mc-option--selected' : ''}`}
                   aria-pressed={isSelected}
-                  onClick={() => {
-                    setMcSelections(prev => {
-                      const next = [...prev];
-                      next[rowIdx] = opt;
-                      return next;
-                    });
-                  }}
+                  onClick={() => pick(rowIdx, opt)}
                 >
                   {opt}
                 </button>
@@ -2175,6 +2167,8 @@ function StudyCard({
           </div>
           )
         ))}
+        </div>
+        <div className="mc-footer">
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.75rem' }}>
           <button
             className="btn btn-primary btn-block"
@@ -2203,6 +2197,7 @@ function StudyCard({
           >
             {isGeneratingMC ? 'Regenerating...' : 'Regenerate'}
           </button>
+        </div>
         </div>
       </div>
     );
@@ -2334,7 +2329,7 @@ function StudyCard({
 
         {/* Card content */}
         <div
-          className="study-card-content"
+          className={`study-card-content${!flipped && showMultipleChoice && isTypingCard && shuffledMcOptions ? ' study-card-content--mc' : ''}`}
           ref={cardContentRef}
           onPointerDown={handleCardPointerDown}
           onClick={handleCardClick}

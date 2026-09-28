@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.core.McOptions
 import dev.jeromeswannack.chineselearning.lab.data.api.get
 import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSync
 import kotlinx.coroutines.TimeoutCancellationException
@@ -39,7 +40,10 @@ object MultipleChoice {
         data class Fallen(val reason: Fallback) : Load
     }
 
-    /** `parseMcOptions`: the JSON stored on the note; null when missing or malformed. */
+    /**
+     * `parseMcOptions`: the JSON stored on the note; null when missing or malformed. Every row
+     * goes through [McOptions.sanitize] (characters only — never a pinyin "xi" as an option).
+     */
     fun parse(raw: String?): List<Row>? {
         if (raw.isNullOrBlank()) return null
         val arr = runCatching { Json.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return null
@@ -47,7 +51,7 @@ object MultipleChoice {
             val o = el as? JsonObject ?: return@mapNotNull null
             val correct = (o["correct"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@mapNotNull null
             val options = runCatching { o["options"]!!.jsonArray.map { (it as JsonPrimitive).content } }.getOrNull() ?: return@mapNotNull null
-            Row(correct, options)
+            McOptions.sanitize(McOptions.Row(correct, options)).let { Row(it.correct, it.options) }
         }
         return rows.ifEmpty { null }
     }
@@ -108,6 +112,14 @@ object MultipleChoice {
             else -> Slot(row.correct, chosen, SlotStatus.WRONG)
         }
     }
+
+    private fun core(rows: List<Row>) = rows.map { McOptions.Row(it.correct, it.options) }
+
+    /** `isMcCompact`: many rows to pick → smaller tiles and gaps so a sentence fits. */
+    fun isCompact(rows: List<Row>): Boolean = McOptions.isCompact(core(rows))
+
+    /** `nextUnansweredRow`: after a pick in [picked], the row to scroll into view (or null). */
+    fun nextUnansweredRow(rows: List<Row>, selections: List<String?>, picked: Int): Int? = McOptions.nextUnansweredRow(core(rows), selections, picked)
 
     /** Every row right (or given): the back shows the ordinary green answer. */
     fun allRight(slots: List<Slot>): Boolean = slots.all { it.status == SlotStatus.RIGHT || it.status == SlotStatus.GIVEN }

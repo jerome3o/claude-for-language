@@ -1,6 +1,19 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.testTag
+import dev.jeromeswannack.chineselearning.lab.core.McOptions
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +50,10 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
+/** Test tags: the grid's scrolling rows and the always-visible submit button. */
+const val MC_ROWS_TAG = "mc-rows"
+const val MC_SUBMIT_TAG = "mc-submit"
+
 /**
  * The multiple-choice grid (StudyPage.tsx `renderMultipleChoiceGrid`): one row of options
  * per character (punctuation / English rows shown as text, pre-selected). ONE tap flips the
@@ -44,7 +61,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
  * something is; there is no check / continue step. [onSubmit] gets the review's answer
  * ([MultipleChoice.submittedAnswer]: picks in row order, "" for none) and the per-row result
  * the back shows ([MultipleChoice.answerSlots]).
+ *
+ * A long answer (a whole sentence: a dozen rows) never pushes the button off screen: the rows
+ * scroll in whatever height [modifier] leaves them, the button and "Type instead" stay pinned
+ * under them, a pick scrolls the next unanswered row into view, and past
+ * [McOptions.COMPACT_AFTER_ROWS] rows the tiles shrink (48dp, still ≥ 44dp touch targets).
  */
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun McGrid(
     rows: List<MultipleChoice.Row>,
@@ -55,36 +78,71 @@ fun McGrid(
     onRegenerate: () -> Unit,
     onPick: () -> Unit = {},
     startSelections: List<String?>? = null,
+    modifier: Modifier = Modifier,
+    scroll: ScrollState = rememberScrollState(),
 ) {
     var selections by remember(rows) { mutableStateOf(startSelections ?: MultipleChoice.initialSelections(rows)) }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        rows.forEachIndexed { r, row ->
-            if (!MultipleChoice.isChoiceRow(row)) {
-                Text(row.correct, fontSize = 22.sp, color = Lab.colors.ink, modifier = Modifier.padding(4.dp))
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (opt in row.options) {
-                        val selected = selections.getOrNull(r) == opt
-                        val border by animateColorAsState(if (selected) Lab.colors.accent else Lab.colors.cardBorder, label = "mc")
-                        val fill = if (selected) Lab.colors.accentSoft else Lab.colors.card
-                        Box(
-                            Modifier
-                                .widthIn(min = 56.dp)
-                                .heightIn(min = 56.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(fill)
-                                .border(2.dp, border, RoundedCornerShape(14.dp))
-                                .bouncyClickable(pressedScale = 0.9f) {
-                                    selections = selections.toMutableList().also { it[r] = opt }
-                                    onPick()
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) { Text(opt, fontSize = 26.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium) }
+    val compact = remember(rows) { MultipleChoice.isCompact(rows) }
+    val tile = if (compact) 48.dp else 56.dp
+    val gap = if (compact) 6.dp else 8.dp
+    val glyph = if (compact) 22.sp else 26.sp
+    val requesters = remember(rows) { List(rows.size) { BringIntoViewRequester() } }
+    val scope = rememberCoroutineScope()
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier
+                .weight(1f, fill = false)
+                .fillMaxWidth()
+                .testTag(MC_ROWS_TAG)
+                .verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(gap),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            rows.forEachIndexed { r, row ->
+                if (!MultipleChoice.isChoiceRow(row)) {
+                    // Punctuation / English text: given, so a slim line — not a full-height row.
+                    val punct = !MultipleChoice.isEnglishEntry(row.correct)
+                    Text(
+                        row.correct,
+                        fontSize = if (punct) 18.sp else 20.sp,
+                        lineHeight = if (punct) 18.sp else 24.sp,
+                        color = if (punct) Lab.colors.muted else Lab.colors.ink,
+                        modifier = Modifier.bringIntoViewRequester(requesters[r]),
+                    )
+                } else {
+                    FlowRow(
+                        Modifier.fillMaxWidth().bringIntoViewRequester(requesters[r]),
+                        horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(gap),
+                    ) {
+                        for (opt in row.options) {
+                            val selected = selections.getOrNull(r) == opt
+                            val border by animateColorAsState(if (selected) Lab.colors.accent else Lab.colors.cardBorder, label = "mc")
+                            val fill = if (selected) Lab.colors.accentSoft else Lab.colors.card
+                            Box(
+                                Modifier
+                                    .widthIn(min = tile)
+                                    .heightIn(min = tile)
+                                    .clip(RoundedCornerShape(if (compact) 12.dp else 14.dp))
+                                    .background(fill)
+                                    .border(2.dp, border, RoundedCornerShape(if (compact) 12.dp else 14.dp))
+                                    .bouncyClickable(pressedScale = 0.9f) {
+                                        val next = selections.toMutableList().also { it[r] = opt }
+                                        selections = next
+                                        onPick()
+                                        MultipleChoice.nextUnansweredRow(rows, next, r)?.let { n ->
+                                            scope.launch { requesters[n].bringIntoView() }
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(opt, fontSize = glyph, lineHeight = glyph, color = Lab.colors.ink, fontWeight = FontWeight.Medium) }
+                        }
                     }
                 }
             }
         }
-        PrimaryPill(MultipleChoice.submitLabel(rows, selections), Modifier.fillMaxWidth().height(54.dp)) {
+        Spacer(Modifier.height(if (compact) 8.dp else 10.dp))
+        PrimaryPill(MultipleChoice.submitLabel(rows, selections), Modifier.fillMaxWidth().height(54.dp).testTag(MC_SUBMIT_TAG)) {
             onSubmit(MultipleChoice.submittedAnswer(rows, selections), MultipleChoice.answerSlots(rows, selections))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
