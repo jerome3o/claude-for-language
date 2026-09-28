@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -477,18 +478,18 @@ private fun CardBack(
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             if (typed != null && verdict != null && mcSlots != null && !MultipleChoice.allRight(mcSlots)) {
                 // A multiple-choice answer (possibly partial): row by row
-                Box(Modifier.keepTaps()) { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar) }
+                KeepTaps { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar) }
             } else if (typed != null && verdict != null) {
-                Box(Modifier.keepTaps()) { AnswerDiff(typed, note.hanzi, verdict, onChar) }
+                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar) }
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
-            Box(Modifier.keepTaps()) { TranscriptionLine(ui.extras.take.transcription) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription) }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Box(Modifier.keepTaps()) { TutorNoteLine(ui.extras.tutorNotes) }
+                KeepTaps { TutorNoteLine(ui.extras.tutorNotes) }
             }
             Spacer(Modifier.height(4.dp))
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
@@ -509,7 +510,7 @@ private fun CardBack(
             OfflineAudioNote(view, ui)
             ui.extras.notice?.let {
                 Spacer(Modifier.height(10.dp))
-                Box(Modifier.keepTaps()) { InlineNotice(it, kind = NoticeKind.Error, actionLabel = "OK", onAction = actions.onDismissNotice) }
+                KeepTaps { InlineNotice(it, kind = NoticeKind.Error, actionLabel = "OK", onAction = actions.onDismissNotice) }
             }
         }
     }
@@ -523,7 +524,7 @@ private fun CardBack(
                 )
                 Spacer(Modifier.height(16.dp))
             }
-            Box(Modifier.keepTaps()) { SentenceList(view, ui, playingKey, actions) }
+            SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps())
         }
     }
     if (wide) {
@@ -557,6 +558,14 @@ private fun Modifier.face(visible: Boolean): Modifier =
  * a tap on it — even between its controls — never peeks back at the question. Drags pass through.
  */
 private fun Modifier.keepTaps(): Modifier = pointerInput(Unit) { detectTapGestures { } }
+
+/**
+ * [keepTaps] around a block that may emit several nodes (TranscriptionLine is a spacer + a line):
+ * a Column stacks them, where a Box would draw them on top of each other.
+ */
+@Composable
+private fun KeepTaps(content: @Composable ColumnScope.() -> Unit) =
+    Column(Modifier.keepTaps(), horizontalAlignment = Alignment.CenterHorizontally, content = content)
 
 /** Hanzi where each character can be tapped for its definition (`hanzi-char-clickable`). */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
