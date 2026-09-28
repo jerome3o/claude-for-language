@@ -184,6 +184,19 @@ every row for the current card only; the next card starts blank again.
 
 On the unfolded Fold (≥ 700px) the whole card column is capped at 640px and centred.
 
+**Peek at the question.** On a revealed card, a tap on the card's empty space turns it back
+to the question side (with a quiet "Tap to see the answer"), and a tap on the question turns
+it to the answer again. It is view only: nothing is re-checked, re-played, re-transcribed or
+recorded, the typed / multiple-choice answer and the recording are kept, the timer keeps
+running, and the action row and ratings stay up (you can rate from either side). Anything
+with its own tap never peeks — buttons, links, tappable characters, the answer diff, the
+explanation, tutor notes, sentence rows, popups — and neither does a drag / scroll, a long
+press or finishing a text selection. The answer side keeps its scroll position and opened
+sentence rows through the round trip. An unrevealed card's front is unchanged (the web card
+has no front tap; the Lab app's read card reveals on a front tap as before). Web:
+`components/study/peekFlip.ts` (`isPeekTap`, unit-tested) + `peeking` in `StudyPage.tsx`;
+Lab: `peek` / `keepTaps` in `ui/study/CardStage.kt` (`PeekFlipTest`).
+
 ## Offline mode
 
 Study is offline whenever **NetworkContext** says the browser is offline (automatic) or the

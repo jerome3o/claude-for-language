@@ -10,6 +10,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +51,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.zIndex
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,7 +95,10 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 
 /** Card-local state that tests / screenshots can start from. */
 data class CardStartState(
+    /** Start revealed, showing the answer side. */
     val flipped: Boolean = false,
+    /** Start revealed but peeking back at the question side (tap empty space on the answer). */
+    val peeking: Boolean = false,
     val answer: String = "",
     val showClue: Boolean = false,
     /** The answer came from the multiple-choice grid: its per-row result (shown row by row on the back). */
@@ -117,11 +126,15 @@ fun CardStage(
 ) {
     val note = view.note
     val typing = view.card.cardType != CardTypes.HANZI_TO_MEANING
-    var flipped by remember(view.presentation) { mutableStateOf(start.flipped) }
+    // [revealed]: the answer has been shown (checked once — the ratings are up). [flipped]: which
+    // face is showing. They only differ while peeking back at the question (tap empty space on the
+    // answer side; tap the question to come back): a view-only flip — no re-check, nothing recorded.
+    var revealed by remember(view.presentation) { mutableStateOf(start.flipped || start.peeking) }
+    var flipped by remember(view.presentation) { mutableStateOf(start.flipped && !start.peeking) }
     var answer by remember(view.presentation) { mutableStateOf(start.answer) }
     var mcSlots by remember(view.presentation) { mutableStateOf(start.mcSlots) }
     var verdict by remember(view.presentation) {
-        mutableStateOf(if (start.flipped && typing && start.answer.isNotBlank()) AnswerKey.check(start.answer, note.hanzi, view.alternatives) else null)
+        mutableStateOf(if ((start.flipped || start.peeking) && typing && start.answer.isNotBlank()) AnswerKey.check(start.answer, note.hanzi, view.alternatives) else null)
     }
     var rated by remember(view.presentation) { mutableStateOf(false) }
     var sheet by remember(view.presentation) { mutableStateOf<CardSheet?>(null) }
@@ -147,18 +160,19 @@ fun CardStage(
 
     LaunchedEffect(view.presentation) {
         if (!autoplay) return@LaunchedEffect
-        if (view.card.cardType == CardTypes.AUDIO_TO_HANZI && !start.flipped) {
+        if (view.card.cardType == CardTypes.AUDIO_TO_HANZI && !revealed) {
             delay(250)
             actions.onPlayWord(false)
-        } else if (typing && !start.flipped) {
+        } else if (typing && !revealed) {
             runCatching { focus.requestFocus() }
         }
     }
 
     fun reveal() {
-        if (flipped) return
+        if (revealed) return
         val v = if (typing && answer.isNotBlank()) AnswerKey.check(answer, note.hanzi, view.alternatives) else null
         verdict = v
+        revealed = true
         flipped = true
         actions.onReveal(v)
         if (v != null && AnswerKey.isAccepted(v)) burst++
@@ -168,6 +182,14 @@ fun CardStage(
             if (autoplay) actions.onPlayWord(false)
         }
     }
+
+    /** Peek: turn a revealed card to [toBack] (the same flip + haptic) — nothing checked, played or recorded. */
+    fun peek(toBack: Boolean) {
+        if (!revealed || flipped == toBack) return
+        flipped = toBack
+        actions.onPeek()
+    }
+    val peekToFront by rememberUpdatedState { peek(false) }
 
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     Column(Modifier.fillMaxSize().imePadding()) {
@@ -187,10 +209,27 @@ fun CardStage(
                     .background(Lab.colors.card)
                     .border(if (verdict != null) 2.dp else 1.dp, glow, RoundedCornerShape(28.dp)),
             ) {
-                if (rotation <= 90f) {
-                    CardFront(view, ui, playingKey, actions, start.showClue, onTapToReveal = { if (!typing) reveal() })
-                } else {
-                    Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) {
+                // Once revealed both faces stay composed (the answer side keeps its scroll
+                // position and opened sentence rows through a peek); the one turned away is
+                // invisible, silent to accessibility and under the other, which takes every touch.
+                val backShowing = rotation > 90f
+                Box(Modifier.fillMaxSize().face(visible = !backShowing)) {
+                    CardFront(
+                        view, ui, playingKey, actions, start.showClue, revealed,
+                        onTapToReveal = { if (revealed) peek(true) else if (!typing) reveal() },
+                    )
+                }
+                if (revealed) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .face(visible = backShowing)
+                            .graphicsLayer { rotationY = 180f }
+                            .testTag(CARD_BACK_TAG)
+                            // A tap on empty space peeks at the question. Buttons, links, rows and
+                            // the answer consume their own taps; a drag (scroll) or a long press never flips.
+                            .pointerInput(Unit) { detectTapGestures(onLongPress = {}) { peekToFront() } },
+                    ) {
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, onCharacter = { sheet = CardSheet.Define(it) })
                     }
                 }
@@ -201,7 +240,7 @@ fun CardStage(
         // Bottom controls
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
             val mc = ui.extras.mc
-            if (!flipped) {
+            if (!revealed) {
                 if (typing && mc.showing && mc.rows != null) {
                     McGrid(
                         rows = mc.rows,
@@ -278,7 +317,7 @@ fun CardStage(
 }
 
 @Composable
-private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startShowClue: Boolean, onTapToReveal: () -> Unit) {
+private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startShowClue: Boolean, revealed: Boolean, onTapToReveal: () -> Unit) {
     val note = view.note
     var showClue by remember(view.presentation) { mutableStateOf(startShowClue) }
     val generating = CardBusy.SENTENCE_CLUE in ui.extras.busy
@@ -326,55 +365,60 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
             }
         }
         Spacer(Modifier.weight(1f))
-        val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
-        val reading = view.card.cardType == CardTypes.HANZI_TO_MEANING
-        // On the front only what doesn't give the answer away: the sentence text on a read
-        // card, its audio on the typing cards (the text would show the hanzi).
-        AnimatedVisibility(showClue && clue != null && reading, enter = fadeIn() + expandVertically()) {
-            Text(clue.orEmpty(), style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 4.dp))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val clueEnabled = !generating && (clue != null || ui.aiAvailable)
-            TextButton(
-                enabled = clueEnabled,
-                onClick = {
-                    when {
-                        clue == null -> actions.onGenerateSentenceClue()
-                        reading -> showClue = !showClue
-                        else -> actions.onPlay(note.sentenceClueAudioUrl, clue)
-                    }
-                },
-            ) {
-                val tint = if (clueEnabled) Lab.colors.accent else Lab.colors.muted
-                Icon(Icons.Filled.Lightbulb, null, Modifier.size(18.dp), tint = tint)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    when {
-                        generating -> "Generating…"
-                        clue == null && !ui.aiAvailable -> "Use in sentence · $NEEDS_INTERNET"
-                        reading && showClue -> "Hide sentence"
-                        reading || clue == null -> "Use in a sentence"
-                        else -> "Play a sentence"
+        if (revealed) {
+            // Peeking back at the question: the hints are spent, the answer is one tap away.
+            Text("Tap to see the answer", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+        } else {
+            val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
+            val reading = view.card.cardType == CardTypes.HANZI_TO_MEANING
+            // On the front only what doesn't give the answer away: the sentence text on a read
+            // card, its audio on the typing cards (the text would show the hanzi).
+            AnimatedVisibility(showClue && clue != null && reading, enter = fadeIn() + expandVertically()) {
+                Text(clue.orEmpty(), style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 4.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val clueEnabled = !generating && (clue != null || ui.aiAvailable)
+                TextButton(
+                    enabled = clueEnabled,
+                    onClick = {
+                        when {
+                            clue == null -> actions.onGenerateSentenceClue()
+                            reading -> showClue = !showClue
+                            else -> actions.onPlay(note.sentenceClueAudioUrl, clue)
+                        }
                     },
-                    color = tint,
-                )
+                ) {
+                    val tint = if (clueEnabled) Lab.colors.accent else Lab.colors.muted
+                    Icon(Icons.Filled.Lightbulb, null, Modifier.size(18.dp), tint = tint)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        when {
+                            generating -> "Generating…"
+                            clue == null && !ui.aiAvailable -> "Use in sentence · $NEEDS_INTERNET"
+                            reading && showClue -> "Hide sentence"
+                            reading || clue == null -> "Use in a sentence"
+                            else -> "Play a sentence"
+                        },
+                        color = tint,
+                    )
+                }
+                if (clue != null && (showClue || !reading) && ui.aiAvailable) {
+                    TextButton(enabled = !generating, onClick = actions.onGenerateSentenceClue) { Text("↻", color = Lab.colors.muted, fontSize = 18.sp) }
+                }
             }
-            if (clue != null && (showClue || !reading) && ui.aiAvailable) {
-                TextButton(enabled = !generating, onClick = actions.onGenerateSentenceClue) { Text("↻", color = Lab.colors.muted, fontSize = 18.sp) }
+            val mc = ui.extras.mc
+            if (!reading && !mc.showing && !mc.ready) {
+                val mcEnabled = !mc.loading && (mc.cached || ui.aiAvailable)
+                TextButton(enabled = mcEnabled, onClick = actions.onShowMc) {
+                    Text(
+                        when { mc.loading -> "Building options…"; !mcEnabled -> "Multiple choice · $NEEDS_INTERNET"; else -> "Multiple choice" },
+                        color = if (mcEnabled) Lab.colors.accent else Lab.colors.muted,
+                    )
+                }
             }
-        }
-        val mc = ui.extras.mc
-        if (!reading && !mc.showing && !mc.ready) {
-            val mcEnabled = !mc.loading && (mc.cached || ui.aiAvailable)
-            TextButton(enabled = mcEnabled, onClick = actions.onShowMc) {
-                Text(
-                    when { mc.loading -> "Building options…"; !mcEnabled -> "Multiple choice · $NEEDS_INTERNET"; else -> "Multiple choice" },
-                    color = if (mcEnabled) Lab.colors.accent else Lab.colors.muted,
-                )
+            if (reading) {
+                Text("Say it aloud, then tap to check", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
             }
-        }
-        if (reading) {
-            Text("Say it aloud, then tap to check", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
         }
     }
 }
@@ -408,18 +452,18 @@ private fun CardBack(
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             if (typed != null && verdict != null && mcSlots != null && !MultipleChoice.allRight(mcSlots)) {
                 // A multiple-choice answer (possibly partial): row by row
-                McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar)
+                Box(Modifier.keepTaps()) { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar) }
             } else if (typed != null && verdict != null) {
-                AnswerDiff(typed, note.hanzi, verdict, onChar)
+                Box(Modifier.keepTaps()) { AnswerDiff(typed, note.hanzi, verdict, onChar) }
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
-            TranscriptionLine(ui.extras.take.transcription)
+            Box(Modifier.keepTaps()) { TranscriptionLine(ui.extras.take.transcription) }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                TutorNoteLine(ui.extras.tutorNotes)
+                Box(Modifier.keepTaps()) { TutorNoteLine(ui.extras.tutorNotes) }
             }
             Spacer(Modifier.height(4.dp))
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
@@ -440,7 +484,7 @@ private fun CardBack(
             OfflineAudioNote(view, ui)
             ui.extras.notice?.let {
                 Spacer(Modifier.height(10.dp))
-                InlineNotice(it, kind = NoticeKind.Error, actionLabel = "OK", onAction = actions.onDismissNotice)
+                Box(Modifier.keepTaps()) { InlineNotice(it, kind = NoticeKind.Error, actionLabel = "OK", onAction = actions.onDismissNotice) }
             }
         }
     }
@@ -449,12 +493,12 @@ private fun CardBack(
             note.funFacts?.takeIf { it.isNotBlank() }?.let {
                 MarkdownText(
                     it,
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).padding(14.dp),
+                    Modifier.fillMaxWidth().keepTaps().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).padding(14.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(16.dp))
             }
-            SentenceList(view, ui, playingKey, actions)
+            Box(Modifier.keepTaps()) { SentenceList(view, ui, playingKey, actions) }
         }
     }
     if (wide) {
@@ -472,6 +516,19 @@ private fun CardBack(
         }
     }
 }
+
+/** Test tag of the answer side (its empty space peeks back at the question). */
+const val CARD_BACK_TAG = "card-back"
+
+/** One face of the card: the one turned away is see-through, has no semantics and sits under the other. */
+private fun Modifier.face(visible: Boolean): Modifier =
+    zIndex(if (visible) 1f else 0f).then(if (visible) Modifier else Modifier.graphicsLayer { alpha = 0f }.clearAndSetSemantics { })
+
+/**
+ * A block on the answer side whose taps are its own (the answer diff, notes, the sentences):
+ * a tap on it — even between its controls — never peeks back at the question. Drags pass through.
+ */
+private fun Modifier.keepTaps(): Modifier = pointerInput(Unit) { detectTapGestures { } }
 
 /** Hanzi where each character can be tapped for its definition (`hanzi-char-clickable`). */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)

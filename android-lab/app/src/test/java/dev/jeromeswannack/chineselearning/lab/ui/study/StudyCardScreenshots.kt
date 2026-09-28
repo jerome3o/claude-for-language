@@ -331,4 +331,16 @@ class StudyCardScreenshots : LabScreenshotTest() {
         val picks = listOf("找", null)
         study(ui(view(CardTypes.MEANING_TO_HANZI)), CardStartState(flipped = true, answer = MultipleChoice.submittedAnswer(mcRows, picks), mcSlots = MultipleChoice.answerSlots(mcRows, picks)))
     }
+
+    // ---------------- peek: tap empty space on the answer → the question, ratings still up ----------------
+
+    /** A typed card peeked back at its question after the check: the prompt, a quiet hint, the ratings. */
+    @Test fun peekTyped() = shoot("study-d01-peek-question") {
+        study(ui(view(CardTypes.MEANING_TO_HANZI)), CardStartState(peeking = true, answer = "打蒜"))
+    }
+
+    /** A read card peeked back at its hanzi, in dark mode. */
+    @Test fun peekReadDark() = shoot("study-d02-peek-question-read-dark", dark = true) {
+        study(ui(view(CardTypes.HANZI_TO_MEANING)), CardStartState(peeking = true))
+    }
 }
