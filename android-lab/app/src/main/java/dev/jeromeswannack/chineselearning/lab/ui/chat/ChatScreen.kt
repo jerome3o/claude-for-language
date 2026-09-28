@@ -99,10 +99,12 @@ class ChatActions(
  * Per message: Reply and Play inline, everything else under ⋯ / long-press (MessageTools).
  */
 @Composable
-fun ChatScreen(ui: ChatUi, actions: ChatActions, sheets: @Composable () -> Unit = {}) {
+fun ChatScreen(ui: ChatUi, actions: ChatActions, callBanner: (@Composable () -> Unit)? = null, sheets: @Composable () -> Unit = {}) {
     LabScreenFrame { Column(Modifier.fillMaxSize()) {
         ChatHeader(ui, actions)
         if (ui.isAi && !ui.conversation?.scenario.isNullOrBlank()) ScenarioBanner(ui)
+        // Package J: "📹 王老师 is calling — Join" while a call is live in this relationship.
+        if (callBanner != null) Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) { callBanner() }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 ui.loading && ui.messages.isEmpty() -> LoadingState()

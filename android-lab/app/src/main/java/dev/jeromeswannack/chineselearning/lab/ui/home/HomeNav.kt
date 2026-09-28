@@ -10,6 +10,8 @@ import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.ui.homework.HomeHomeworkSlot
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
+import dev.jeromeswannack.chineselearning.lab.ui.calls.CallBannerVariant
+import dev.jeromeswannack.chineselearning.lab.ui.calls.LiveCallBanner
 import dev.jeromeswannack.chineselearning.lab.ui.onboarding.OnboardingGate
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
@@ -35,6 +37,7 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
                     decks = decks,
                 ),
                 onOpen = nav::open,
+                callBanner = { LiveCallBanner(nav, CallBannerVariant.CARD, Routes.HOME) },
             )
         } else {
             val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory(app))
@@ -47,6 +50,7 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
                 sync = sync,
                 online = online,
                 homework = { HomeHomeworkSlot(nav) },
+                callBanner = { LiveCallBanner(nav, CallBannerVariant.CARD, Routes.HOME) },
                 actions = HomeActions(
                     onStudyAll = { nav.open(Routes.study()) },
                     onStudyDeck = { nav.open(Routes.study(it)) },

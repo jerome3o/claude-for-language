@@ -92,6 +92,8 @@ export default defineConfig({
       workbox: {
         // .wasm is sql.js (SQLite) for the Anki export — precached so it works offline
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,wasm}'],
+        // Web Push (call alerts): the push / notificationclick handlers — public/push-sw.js.
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
             // API calls - network first with 10s timeout, fallback to cache

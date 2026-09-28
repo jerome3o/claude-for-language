@@ -65,6 +65,13 @@ fun LabShell(
     val tabRoots = remember(state.tabs) { state.tabs.map { Routes.routeForPath(it.to) }.toSet() }
     val badges by remember(app) { TabBadges.observe(app) }.collectAsStateWithLifecycle(emptyMap())
 
+    // Package J: incoming video calls — poll + ring while in front, background checks when not.
+    androidx.lifecycle.compose.LifecycleStartEffect(app) {
+        app.callAlerts.setForeground(true)
+        onStopOrDispose { app.callAlerts.setForeground(false) }
+    }
+    LaunchedEffect(path) { app.callAlerts.path = path }
+
     LaunchedEffect(pendingPath) {
         if (pendingPath != null) {
             nav.open(pendingPath)
@@ -89,6 +96,7 @@ fun LabShell(
         ) {
             featureGraphs(nav)
         }
+        dev.jeromeswannack.chineselearning.lab.ui.calls.CallTopBar(nav, path)
     }
 }
 

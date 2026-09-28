@@ -1,0 +1,118 @@
+/* "📹 <name> is calling — Join" (components/calls/CallBanner.tsx). */
+
+.call-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: 14px;
+  background: #0f5132;
+  color: #fff;
+  padding: 0.5rem 0.5rem 0.5rem 0.85rem;
+  min-height: 52px;
+  box-sizing: border-box;
+}
+.call-banner.incoming { background: linear-gradient(135deg, #15803d, #0f766e); }
+.call-banner-icon { font-size: 1.35rem; flex: 0 0 auto; }
+.call-banner.incoming .call-banner-icon { animation: call-banner-wiggle 1.6s ease-in-out infinite; }
+.call-banner-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.call-banner-text strong { font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-banner-sub { font-size: 0.85rem; opacity: 0.85; }
+.call-banner-join {
+  flex: 0 0 auto;
+  min-height: 44px;
+  min-width: 76px;
+  padding: 0 1.1rem;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #166534;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.call-banner-join:hover { background: #dcfce7; }
+.call-banner-close {
+  flex: 0 0 auto;
+  width: 40px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+/* Across the top of every normal page. */
+.call-banner-top {
+  position: fixed;
+  z-index: 1000;
+  top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+  left: 0.5rem;
+  right: 0.5rem;
+  margin: 0 auto;
+  max-width: 560px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: call-banner-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.call-banner-top.incoming::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 17px;
+  border: 2px solid rgba(74, 222, 128, 0.9);
+  animation: call-banner-pulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+/* Home: the first thing on the page. */
+.call-banner-card {
+  position: relative;
+  padding: 1rem 0.75rem 1rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 18px;
+  min-height: 72px;
+  box-shadow: 0 6px 18px rgba(21, 128, 61, 0.3);
+}
+.call-banner-card .call-banner-icon { font-size: 1.9rem; }
+.call-banner-card .call-banner-text strong { font-size: 1.15rem; white-space: normal; }
+.call-banner-card .call-banner-join { min-height: 48px; font-size: 1.05rem; }
+
+.call-banner-inline { margin: 0.75rem 0; }
+
+@keyframes call-banner-in {
+  from { transform: translateY(-120%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes call-banner-pulse {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.04, 1.25); }
+}
+@keyframes call-banner-wiggle {
+  0%, 60%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(-12deg); }
+  20%, 40% { transform: rotate(12deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-banner-top, .call-banner.incoming .call-banner-icon, .call-banner-top.incoming::after { animation: none; }
+}
+
+/* "🔔 Get a notification when <name> calls" (CallAlertsSettings.tsx). */
+.call-alerts-nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  background: #ecfdf5;
+  color: #065f46;
+  font-size: 0.95rem;
+}
+.call-alerts-nudge-text { flex: 1 1 calc(100% - 2rem); }
+.call-alerts-nudge .btn { min-height: 44px; }
+.call-alerts-nudge .btn-primary { margin-left: auto; }
+@media (min-width: 640px) {
+  .call-alerts-nudge { flex-wrap: nowrap; }
+  .call-alerts-nudge-text { flex: 1 1 auto; }
+}

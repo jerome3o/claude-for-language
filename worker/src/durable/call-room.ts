@@ -31,6 +31,7 @@ import {
 } from '@shared/calls';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
 import { advanceCallProcessing } from '../services/calls/processing';
+import { alertCallMissed } from '../services/calls/alerts';
 
 interface Attachment {
   clientId: string;
@@ -113,6 +114,9 @@ export class CallRoom extends DurableObject<Env> {
     };
     this.ctx.acceptWebSocket(server, [userId]);
     server.serializeAttachment(attachment);
+    // Who ever joined: a member who never did gets a "missed call" notification at the end.
+    const joined = (await this.ctx.storage.get<string[]>('joined')) ?? [];
+    if (!joined.includes(userId)) await this.ctx.storage.put('joined', [...joined, userId]);
 
     let startedAt = await this.ctx.storage.get<number>('startedAt');
     if (!startedAt) {
@@ -239,7 +243,8 @@ export class CallRoom extends DurableObject<Env> {
     this.broadcast({ type: 'ended', by: by ?? '' });
     await this.snapshot();
     if (callId) {
-      await markCallEnded(this.env.DB, callId);
+      const newlyEnded = await markCallEnded(this.env.DB, callId);
+      if (newlyEnded) await alertCallMissed(this.env, callId, (await this.ctx.storage.get<string[]>('joined')) ?? []);
       try {
         await advanceCallProcessing(this.env, callId);
       } catch (err) {

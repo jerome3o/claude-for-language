@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { LiveCallBanner } from '../components/calls/CallBanner';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { base64ToBlob } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
@@ -927,6 +928,12 @@ export function ChatPage() {
           </button>
         </div>
       </div>
+
+      {relId && (
+        <div className="chat-call-banner">
+          <LiveCallBanner variant="inline" relationshipId={relId} />
+        </div>
+      )}
 
       {showHeaderMenu && (
         <div className="chat-header-menu-overlay" onClick={() => setShowHeaderMenu(false)}>

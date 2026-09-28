@@ -69,6 +69,7 @@ object Shell {
     /** The hourly check (DueCheckWorker): sync if online, redraw, then notify per ShellRules. */
     suspend fun check(app: LabApp, syncFirst: Boolean = true) {
         if (syncFirst && app.repo.isSignedIn && app.online.value) runCatching { app.repo.sync() }
+        if (app.online.value) runCatching { app.callAlerts.checkInBackground() } // package J: a call still ringing
         val now = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
         val s = snapshot(app, now, zone)

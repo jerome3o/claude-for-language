@@ -36,6 +36,7 @@ import { closePiece, forceClosePieces, listPieces, registerPiece, storeChunk } f
 import { advanceCallProcessing, reprocessCall } from '../services/calls/processing';
 import { createJoinTicket, verifyJoinTicket } from '../services/calls/ticket';
 import { getIceServers } from '../services/calls/ice';
+import { alertCallStarted } from '../services/calls/alerts';
 import { pickTranscriber } from '../services/calls/transcribe';
 import type { CallReport, CallReportWord } from '../services/calls/report';
 
@@ -74,6 +75,8 @@ calls.post('/calls', async (c) => {
     const body = await c.req.json<{ relationship_id?: string | null; title?: string | null }>().catch(() => ({}));
     const origin = frontendOrigin(c.req.raw);
     const call = await createCall(c.env.DB, c.get('user').id, body, { joinUrl: (id) => `${origin}/calls/${id}` });
+    // Ring the other person's devices (Web Push) — never holds up the call.
+    c.executionCtx.waitUntil(alertCallStarted(c.env, call, c.get('user').id));
     return c.json({ call }, 201);
   } catch (error) {
     return errorResponse(c, error, 'Failed to start the call');

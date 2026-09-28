@@ -314,6 +314,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `messages` - Individual chat messages
 - `shared_decks` - Record of decks shared from tutor to student
 - `shared_readers` - Record of graded readers copied from tutor to student (source/target reader ids; the copies share R2 image keys)
+- `push_subscriptions` - Web Push subscriptions (endpoint, p256dh, auth, the VAPID key used; migration 0080) for call alerts; `users.call_alerts` ('silent' or NULL = ring); `app_keys` holds the generated VAPID pair when no `VAPID_*` secrets are set
 - `calls` / `call_recording_pieces` / `call_recording_chunks` / `call_transcript_segments` - Video calls (experimental, migration 0071): the call (relationship, status live/ended, processing status, board/chat snapshot, Claude report JSON), each person's recorded mic pieces and their uploaded chunks, and the transcript segments (epoch-ms times on the server clock, text, language, pinyin, translation)
 
 ### Audio Storage
@@ -1045,6 +1046,7 @@ summary, corrections, card-standard vocabulary). Processing is readiness-driven
 - `POST /api/calls/:id/end` · `POST /api/calls/:id/process` (force-close stale pieces, retry failures, redo the report)
 - `POST /api/calls/:id/pieces` · `PUT /api/calls/:id/pieces/:pieceId/chunks/:idx` · `POST /api/calls/:id/pieces/:pieceId/close`
 - `POST /api/calls/:id/flashcards` `{ deck_id? | deck_name?, words }` → notes via the content service
+- **Finding the call** (docs/VIDEO_CALLS.md): `shared/calls/alerts.ts` decides the "📹 <name> is calling — Join" banner (Home card, a bar on every normal page — `components/calls/CallAlerts.tsx` in App.tsx —, the student / tutor page, the chat) and the in-app ring; `POST /api/calls` also sends Web Push (`services/push/`, WebCrypto VAPID + aes128gcm; `public/push-sw.js` in the service worker), "Missed video call" when they never joined. `GET /api/push/config`, `POST|DELETE /api/push/subscriptions`, `POST /api/push/test`, `PUT /api/profile/call-alerts { call_alerts: ring|silent }` (Settings → Video call alerts)
 
 ### Debug reports: web app vs Lab app (`worker/src/routes/debug-reports.ts`, `services/debug-reports.ts`, `shared/debug/`)
 When the two apps disagree about what is due, each uploads a **study-state report** built from its

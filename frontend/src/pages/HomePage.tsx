@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { LiveCallBanner } from '../components/calls/CallBanner';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -122,6 +123,7 @@ function StudyHome() {
     return (
       <div className="page">
         <div className="container">
+          <LiveCallBanner variant="card" />
           <FirstOpenScreen
             state={onboarding.state}
             userName={user?.name}
@@ -138,6 +140,7 @@ function StudyHome() {
   return (
     <div className="page">
       <div className="container">
+        <LiveCallBanner variant="card" />
         <StudyStreak />
 
         <StudyTodayCard

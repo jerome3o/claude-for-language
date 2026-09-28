@@ -71,6 +71,44 @@ Tables (migration `0071_video_calls.sql`): `calls`, `call_recording_pieces`,
 under `calls/<callId>/…` and is served by the public `/api/audio/*` route (unguessable
 keys, same model as study recordings).
 
+## Finding the call (banners, ring, notifications)
+
+The person being called must notice. Every signal comes from ONE list, `GET /api/calls?live=1`,
+and ONE pure rule set, `shared/calls/alerts.ts` (the Lab app's `CallAlerts.kt` is parity-tested):
+
+- **Banners** — `pickCallBanner`: an incoming call (someone else started it) wins over my own call
+  to rejoin; newest first; not the call already on screen, not one I hid, not one older than 4 h
+  (a room nobody entered never ends by itself). "📹 王老师 is calling — Join" appears as a big card
+  on **Home** (study and tutor home), a bar across the **top of every normal page** (not full-screen
+  pages like a study session, not where the page shows its own), **inline** on the student / tutor
+  page and in the **chat** (`components/calls/CallBanner.tsx`, `CallAlerts.tsx`). The web polls every
+  20 s while visible (`hooks/useLiveCalls.ts`) and refreshes at once when a push arrives.
+- **Ring** — `callToRing`: a new incoming call started in the last 2 minutes rings once per device
+  (a Web Audio chime every 2 s + vibration, 30 s at most; `services/calls/ringtone.ts`), unless the
+  account is **Silent** (Settings → Video call alerts; `users.call_alerts`, `PUT /api/profile/call-alerts`).
+  Browsers only play sound on a page that has been used; the banner shows regardless.
+- **Web Push** (PWA / desktop browser) — `POST /api/calls` sends "📹 <name> is calling" to the other
+  member's subscriptions (`services/calls/alerts.ts` → `services/push/`). The service worker
+  (`public/push-sw.js`, imported by Workbox) shows it unless a normal page of the app is in front
+  (that page rings instead), tap → the call. When the call ends and they never joined (the room
+  records who joined), a "Missed video call" notice replaces it. VAPID + RFC 8291 encryption are done
+  with WebCrypto in `services/push/webpush.ts` (unit-tested by decrypting like a browser). Keys: the
+  `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` secrets when set, otherwise a pair generated once and kept
+  in `app_keys`; a device re-subscribes when the key changes. Subscriptions: `push_subscriptions`
+  (migration 0080), dropped on 404/410 or after 5 failures. The user turns notifications on from a
+  tap (Settings, or the "🔔 Get a notification when <name> calls" nudge on the tutor / student page).
+  The hybrid Android app (Capacitor WebView) has no Web Push — it gets the banners and the ring.
+- **Lab app** — polls every 20 s while in front and rings with the phone's ringtone; there is **no
+  FCM project**, so in the background `CallWatchWorker` checks about once a minute for 2 hours after
+  the app is left (WorkManager may stretch that in Doze) and the hourly shell check looks too, each
+  posting a high-priority "📹 <name> is calling" notification (tap → the call). True instant push
+  would need Firebase Cloud Messaging (a `google-services.json`, the FCM server key as a worker secret,
+  and the worker sending to FCM tokens next to Web Push).
+
+API: `GET /api/push/config` (`public_key`, `call_alerts`, `subscriptions`), `POST|DELETE
+/api/push/subscriptions`, `POST /api/push/test`, `PUT /api/profile/call-alerts`; `call_alerts` is on
+`/api/auth/me`.
+
 ## The native Lab app (android-lab/)
 
 The Lab app is a second client of the same API, room protocol and upload routes

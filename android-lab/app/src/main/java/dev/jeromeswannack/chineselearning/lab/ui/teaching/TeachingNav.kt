@@ -272,6 +272,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
     val student = rel.studentUser()
     val name = overview.data?.let { studentName(it) } ?: student?.name ?: student?.email ?: "Student"
 
+    val call = dev.jeromeswannack.chineselearning.lab.ui.calls.relationshipCallBanner(nav, relId, Routes.connection(relId))
     StudentPageScreen(
         StudentPageUi(
             relId = relId,
@@ -287,7 +288,9 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             lessons = lessons,
             lastLessonAt = lessonLog.data?.firstOrNull()?.lesson_at,
             studentDecks = t.studentDecks,
-            liveCallId = t.liveCallId,
+            liveCallId = call?.callId ?: t.liveCallId,
+            liveCallTitle = call?.title,
+            liveCallIncoming = call == null || call.kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallAlerts.Kind.INCOMING,
             notice = t.notice,
             noticeIsError = t.noticeIsError,
             updatingShare = t.updatingShare,

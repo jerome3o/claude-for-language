@@ -23,6 +23,8 @@ import {
 } from '../types';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { createCall, listCalls } from '../api/calls';
+import { LiveCallBanner } from '../components/calls/CallBanner';
+import { CallAlertsNudge } from '../components/calls/CallAlertsSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { StudentLessonsSection } from '../components/editor/StudentLessonsSection';
 import { OverflowMenu } from '../components/tutor/OverflowMenu';
@@ -184,12 +186,8 @@ export function ConnectionDetailPage() {
     }
   };
 
-  const liveCallBanner = liveCall ? (
-    <div className="td-live-call" data-testid="live-call-banner">
-      <span>🔴 Video call in progress</span>
-      <button type="button" className="btn btn-primary" onClick={() => navigate(`/calls/${liveCall.id}`)}>Join</button>
-    </div>
-  ) : null;
+  // "📹 <name> is calling — Join" for this relationship's live call (shared with Home / the top bar).
+  const liveCallBanner = <LiveCallBanner variant="inline" relationshipId={relId} />;
 
   const createConvMutation = useMutation({
     mutationFn: (options: { title?: string; scenario?: string; user_role?: string; ai_role?: string }) =>
@@ -356,6 +354,7 @@ export function ConnectionDetailPage() {
             <button type="button" className="btn btn-secondary" onClick={() => setShowHomeworkSheet(true)}>📤 Send homework</button>
             <button type="button" className="btn btn-secondary" onClick={() => void handleVideoCall()} disabled={callBusy} data-testid="start-video-call">📹 Video call <span className="td-beta">beta</span></button>
           </div>
+          <CallAlertsNudge name={otherUser.name?.split(' ')[0] || otherName} />
           {pageError && <div className="td-error">{pageError}</div>}
 
           {overviewQuery.isLoading && <Loading message="Loading activity…" />}
@@ -567,6 +566,7 @@ export function ConnectionDetailPage() {
             </button>
           )}
         </div>
+        {!isClaudeRelationship && <CallAlertsNudge name={otherUser.name?.split(' ')[0] || otherName} />}
         {pageError && <div className="td-error">{pageError}</div>}
 
         <section className="detail-section">
