@@ -212,8 +212,15 @@ exactly like an empty typed card); once anything is picked it reads **Submit** a
 `user_answer` is the picks in row order, unselected rows skipped (`mcSubmittedAnswer`).
 Pre-selected rows (punctuation, English text) are not a pick on their own. A fully right answer
 shows as one green row like a typed one; anything else is shown row by row (`mcAnswerSlots`):
-each pick green or red, a skipped row as a dashed "?", "N of M left blank", and the answer below
+each pick green or red, a skipped row as a "?", "N of M left blank", and the answer below
 with the missed rows marked. The Lab app follows the same rule (`MultipleChoice.kt`, `McGrid.kt`).
+
+**Marks that read without colour.** On the answer side of a typed or multiple-choice answer,
+every wrong character (or extra one past the end) is red AND has a solid underline; a character
+not typed / a row left blank is a muted "?" with a dashed underline; correct characters stay green
+with no underline (`utils/answerDiff.ts` `typedAnswerDiff`, `DiffCellView` in StudyPage; Lab:
+`ui/study/AnswerMarks.kt`). The underline sits in the character's own bottom padding, so it never
+touches the glyph or the pinyin line below.
 
 ## Ending a session
 
