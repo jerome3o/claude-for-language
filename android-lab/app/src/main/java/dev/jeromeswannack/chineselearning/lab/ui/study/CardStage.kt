@@ -71,6 +71,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -192,7 +193,15 @@ fun CardStage(
     val peekToFront by rememberUpdatedState { peek(false) }
 
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
-    Column(Modifier.fillMaxSize().imePadding()) {
+    val mc = ui.extras.mc
+    val mcGridUp = !revealed && typing && mc.showing && mc.rows != null
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+    // A long multiple-choice answer (a sentence: a dozen rows) must never push the question off
+    // the top or the submit button off the bottom: the card keeps [cardMin] for the prompt and
+    // the grid gets the rest, scrolling its rows above a pinned button.
+    val cardMin = (maxHeight * 0.26f).coerceIn(160.dp, 240.dp)
+    val controlsMax = (maxHeight - cardMin).coerceAtLeast(0.dp)
+    Column(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             val wide = maxWidth >= 640.dp
             val density = LocalDensity.current
@@ -238,18 +247,24 @@ fun CardStage(
         }
 
         // Bottom controls
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
-            val mc = ui.extras.mc
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .then(if (mcGridUp) Modifier.heightIn(max = controlsMax) else Modifier)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 12.dp),
+        ) {
             if (!revealed) {
-                if (typing && mc.showing && mc.rows != null) {
+                if (mcGridUp) {
                     McGrid(
-                        rows = mc.rows,
+                        rows = mc.rows!!,
                         aiAvailable = ui.aiAvailable,
                         regenerating = mc.loading,
                         onSubmit = { chosen, slots -> answer = chosen; mcSlots = slots; reveal() },
                         onTypeInstead = actions.onTypeInstead,
                         onRegenerate = actions.onRegenerateMc,
                         onPick = actions.onTick,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                 } else if (typing && mc.ready && view.card.cardType == CardTypes.AUDIO_TO_HANZI) {
                     PrimaryPill("Show options", Modifier.fillMaxWidth().height(60.dp), onClick = actions.onRevealMc)
@@ -293,6 +308,7 @@ fun CardStage(
             }
         }
     }
+    }
 
     when (val s = sheet) {
         null -> Unit
@@ -321,9 +337,17 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
     val note = view.note
     var showClue by remember(view.presentation) { mutableStateOf(startShowClue) }
     val generating = CardBusy.SENTENCE_CLUE in ui.extras.busy
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    // Short card (a long multiple-choice grid below takes most of the screen): a tighter front
+    // that scrolls rather than clipping — the prompt stays readable above the grid.
+    val short = maxHeight < SHORT_FRONT
+    val frontScroll = rememberScrollState()
     Column(
-        Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTapToReveal).padding(24.dp),
+        (if (short) Modifier.fillMaxSize().verticalScroll(frontScroll).heightIn(min = maxHeight) else Modifier.fillMaxSize())
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTapToReveal)
+            .padding(if (short) 14.dp else 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = if (short) Arrangement.spacedBy(6.dp, Alignment.CenterVertically) else Arrangement.Top,
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             TypeChip(view.card.cardType)
@@ -338,7 +362,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).padding(10.dp).heightIn(max = 80.dp),
             )
         }
-        Spacer(Modifier.weight(1f))
+        if (!short) Spacer(Modifier.weight(1f))
         when (view.card.cardType) {
             CardTypes.HANZI_TO_MEANING -> Text(
                 note.hanzi,
@@ -350,12 +374,12 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
             )
             CardTypes.MEANING_TO_HANZI -> Text(
                 note.english,
-                style = MaterialTheme.typography.headlineMedium,
+                style = if (short) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
                 color = Lab.colors.ink,
                 textAlign = TextAlign.Center,
             )
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                BigPlayButton(playing = isWordPlaying(playingKey, view, ui)) { actions.onPlayWord(true) }
+                BigPlayButton(playing = isWordPlaying(playingKey, view, ui), size = if (short) 76.dp else 132.dp) { actions.onPlayWord(true) }
                 val voices = ui.extras.voices
                 if (voices.size > 1) {
                     Spacer(Modifier.height(8.dp))
@@ -364,7 +388,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                 OfflineAudioNote(view, ui)
             }
         }
-        Spacer(Modifier.weight(1f))
+        if (!short) Spacer(Modifier.weight(1f))
         if (revealed) {
             // Peeking back at the question: the hints are spent, the answer is one tap away.
             Text("Tap to see the answer", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
@@ -420,6 +444,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                 Text("Say it aloud, then tap to check", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
             }
         }
+    }
     }
 }
 
@@ -516,6 +541,9 @@ private fun CardBack(
         }
     }
 }
+
+/** Below this the question side goes compact (a long multiple-choice grid is under it). */
+private val SHORT_FRONT = 330.dp
 
 /** Test tag of the answer side (its empty space peeks back at the question). */
 const val CARD_BACK_TAG = "card-back"
@@ -629,13 +657,13 @@ private fun TypeChip(cardType: String) {
 }
 
 @Composable
-private fun BigPlayButton(playing: Boolean, onClick: () -> Unit) {
+private fun BigPlayButton(playing: Boolean, size: Dp = 132.dp, onClick: () -> Unit) {
     val pulse by animateFloatAsState(if (playing) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow), label = "pulse")
     Box(
-        Modifier.size(132.dp).scale(pulse).clip(CircleShape).background(Lab.colors.accentSoft).clickable(onClick = onClick),
+        Modifier.size(size).scale(pulse).clip(CircleShape).background(Lab.colors.accentSoft).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.AutoMirrored.Filled.VolumeUp, "Play", Modifier.size(56.dp), tint = Lab.colors.accent)
+        Icon(Icons.AutoMirrored.Filled.VolumeUp, "Play", Modifier.size(size * 0.42f), tint = Lab.colors.accent)
     }
 }
 

@@ -176,3 +176,17 @@ describe('loadMultipleChoice', () => {
     expect(result).toEqual({ status: 'fallback', reason: 'empty', message: MC_FALLBACK_MESSAGES.empty });
   });
 });
+
+describe('parseMcOptions keeps characters only', () => {
+  it('cleans options cached before the worker filtered them (a pinyin "xi" among the characters)', () => {
+    const raw = JSON.stringify([
+      { correct: '练', options: ['连', '链', '练', '炼'] },
+      { correct: '习', options: ['学', '刁', '习', 'xi', '羽'] },
+      { correct: '，', options: ['，'] },
+    ]);
+    const rows = parseMcOptions(raw)!;
+    expect(rows[1].options).toEqual(['学', '刁', '习', '羽']);
+    expect(rows.flatMap(r => r.options).some(o => /[a-z]/i.test(o))).toBe(false);
+    expect(rows[2]).toEqual({ correct: '，', options: ['，'] });
+  });
+});

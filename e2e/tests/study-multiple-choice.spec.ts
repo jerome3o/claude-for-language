@@ -129,3 +129,46 @@ test('multiple choice: one tap, partial answer, and "Show answer" with nothing p
   expect(typingReviews[0]).toMatchObject({ user_answer: '图节', rating: 1 });
   expect(typingReviews[1]).toMatchObject({ user_answer: null, rating: 0 });
 });
+
+/** A whole sentence (Jerome, 2026-09-28): 14 rows to pick, one with a pinyin "xi" the model once offered. */
+const LONG_OPTIONS = [
+  ['我', '或', '找', '成', '战'], ['们', '间', '闷', '问', '门'], ['一', '二', '七', '十', '丁'], ['边', '连', '过', '远', '进'],
+  ['吃', '吓', '叫', '吹', '喝'], ['晚', '晓', '晨', '晴', '免'], ['饭', '馆', '饮', '饿', '饱'], ['，'],
+  ['一', '二', '丁', '七', '十'], ['边', '连', '过', '进', '远'], ['练', '连', '链', '炼'], ['习', '学', '刁', 'xi', '羽'],
+  ['说', '诉', '读', '话', '讲'], ['中', '申', '种', '钟', '仲'], ['文', '闻', '纹', '交', '又'], ['。'],
+].map(([correct, ...rest]) => ({ correct, options: [correct, ...rest] }));
+
+test('multiple choice: a long sentence scrolls with the button on screen, characters only', async ({ page, request }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  const email = `mc-long-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'MC learner' } });
+  const token = auth.session_token;
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: '长句练习' } });
+  const note = await api<{ id: string }>(request, `/api/decks/${deck.id}/notes`, {
+    method: 'POST', token,
+    data: { hanzi: '我们一边吃晚饭，一边练习说中文。', pinyin: 'Wǒmen yībiān chī wǎnfàn, yībiān liànxí shuō Zhōngwén.', english: 'We practise speaking Chinese while we eat dinner.' },
+  });
+  await page.route('**/api/notes/*/generate-multiple-choice', async (route) => {
+    const fresh = await api<Record<string, unknown>>(request, `/api/notes/${note.id}`, { token });
+    await route.fulfill({ json: { ...fresh, multiple_choice_options: JSON.stringify(LONG_OPTIONS) } });
+  });
+
+  await page.goto(`/decks?session_token=${token}`);
+  await expect(page.getByText('长句练习').first()).toBeVisible({ timeout: 30000 });
+  await page.goto(`/study?deck=${deck.id}&autostart=true`);
+  await openNextMultipleChoice(page);
+
+  // Never a pinyin syllable among the characters
+  await expect(page.getByRole('button', { name: 'xi', exact: true })).toHaveCount(0);
+
+  // The button is on screen without scrolling the page, and stays there
+  const submit = page.getByTestId('mc-submit');
+  await expect(submit).toBeInViewport();
+  const rows = page.getByTestId('mc-rows');
+  await rows.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(submit).toBeInViewport();
+  await rows.locator('.mc-row').last().getByRole('button', { name: '文', exact: true }).click();
+  await expect(submit).toHaveText('Submit');
+  await submit.click();
+  await expect(page.getByTestId('mc-answer-diff')).toContainText('13 of 14 left blank');
+});

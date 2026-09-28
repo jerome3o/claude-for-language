@@ -11,10 +11,10 @@
  * - The mode is per card: nothing here persists between cards.
  */
 
-export interface McOptionRow {
-  correct: string;
-  options: string[];
-}
+import { sanitizeMcRow, type McRow } from '@shared/cards/multipleChoice';
+
+export type McOptionRow = McRow;
+export { isMcCompact, nextUnansweredRow, mcChoiceRowCount, MC_COMPACT_AFTER_ROWS } from '@shared/cards/multipleChoice';
 
 export const MC_TIMEOUT_MS = 8000;
 
@@ -31,7 +31,11 @@ export const MC_FALLBACK_MESSAGES: Record<McFallbackReason, string> = {
   empty: 'No options for this word — type your answer instead.',
 };
 
-/** Parse the JSON stored on the note; null when missing or malformed. */
+/**
+ * Parse the JSON stored on the note; null when missing or malformed. Every row
+ * goes through `sanitizeMcRow`, so options cached before the worker filtered
+ * them (a pinyin "xi" among the characters) are cleaned on the device too.
+ */
 export function parseMcOptions(raw: string | null | undefined): McOptionRow[] | null {
   if (!raw) return null;
   try {
@@ -40,7 +44,7 @@ export function parseMcOptions(raw: string | null | undefined): McOptionRow[] | 
     const rows = parsed.filter(
       (r): r is McOptionRow =>
         !!r && typeof r === 'object' && typeof (r as McOptionRow).correct === 'string' && Array.isArray((r as McOptionRow).options)
-    );
+    ).map(r => sanitizeMcRow({ correct: r.correct, options: r.options.filter((o): o is string => typeof o === 'string') }));
     return rows.length > 0 ? rows : null;
   } catch {
     return null;

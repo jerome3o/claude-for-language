@@ -19,6 +19,7 @@ import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { StructuredCallError } from './services/structured-call';
 import { LESSON_VOICE_IDS } from '@shared/lesson';
+import { isHanziOption } from '@shared/cards';
 import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet, sentenceAudioRetryDelay } from './services/sentence-set';
@@ -1863,6 +1864,8 @@ app.post('/api/notes/:id/generate-multiple-choice', async (c) => {
 
 IMPORTANT: Only use characters from modern everyday simplified Chinese. Do NOT use classical, archaic, traditional-only, or rare characters that a modern Mandarin learner would not encounter in daily life or standard courses (HSK 1-6 vocabulary is a good reference). Every alternative must be a character a learner would plausibly see in modern contexts.
 
+Each alternative is ONE Chinese character — never pinyin, a romanised syllable, a latin letter, a number or punctuation. A homophone means another CHARACTER with the same sound (习 → 席, not "xi").
+
 Characters to generate alternatives for:
 ${characters.map((char, i) => `${i + 1}. ${char}`).join('\n')}
 
@@ -1887,7 +1890,7 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
                   alternatives: {
                     type: 'array',
                     items: { type: 'string' },
-                    description: '4 tricky alternative characters that could be mistaken for the correct one',
+                    description: '4 tricky alternative characters (one Chinese character each, never pinyin) that could be mistaken for the correct one',
                   },
                 },
                 required: ['correct', 'alternatives'],
@@ -1931,11 +1934,16 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
         // Fallback: just show the correct character
         return { correct: originalChar, options: [originalChar] };
       }
-      // Filter out duplicates and the correct character from alternatives
-      const seen = new Set<string>([charData.correct]);
+      // The row is for THIS character of the answer, whatever the model echoed back.
+      const correct = originalChar;
+      // Alternatives: Chinese characters only — the model sometimes offers a
+      // pinyin syllable ("xi" for 习) as a "sound-alike". Drop those, the
+      // correct character itself and duplicates.
+      const seen = new Set<string>([correct]);
       const uniqueAlts: string[] = [];
-      for (const alt of (charData.alternatives ?? [])) {
-        if (!seen.has(alt)) {
+      for (const raw of (charData.alternatives ?? [])) {
+        const alt = typeof raw === 'string' ? raw.trim() : '';
+        if (!seen.has(alt) && isHanziOption(alt, correct)) {
           seen.add(alt);
           uniqueAlts.push(alt);
         }
@@ -1944,11 +1952,8 @@ The word is "${note.hanzi}" (${note.pinyin}, meaning: ${note.english}).`;
       const options = [...uniqueAlts];
       // Insert correct character at a random position
       const insertPos = Math.floor(Math.random() * (options.length + 1));
-      options.splice(insertPos, 0, charData.correct);
-      return {
-        correct: charData.correct,
-        options,
-      };
+      options.splice(insertPos, 0, correct);
+      return { correct, options };
     });
 
     const optionsJson = JSON.stringify(multipleChoiceOptions);

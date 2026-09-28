@@ -228,6 +228,27 @@ shows as one green row like a typed one; anything else is shown row by row (`mcA
 each pick green or red, a skipped row as a "?", "N of M left blank", and the answer below
 with the missed rows marked. The Lab app follows the same rule (`MultipleChoice.kt`, `McGrid.kt`).
 
+**Long answers always fit.** A whole sentence can be a dozen rows (one per character). The
+prompt (English / ▶) stays on screen, the rows scroll in the space left, and the **Submit / Show
+answer** row (with Type instead / Regenerate) is pinned under them, so a card can always be
+finished whatever its length (web: `.study-card-content--mc` / `.mc-rows` / `.mc-footer` in
+`StudyPage.css`; Lab: `CardStage` keeps ~26% of the height for the question — a compact,
+scrollable front — and `McGrid` scrolls its rows above the pinned button). A pick scrolls the
+next unanswered row into view (`nextUnansweredRow`). Past `MC_COMPACT_AFTER_ROWS` (6) rows to
+pick the grid goes compact — smaller tiles and gaps, still ≥ 44 px / 48 dp touch targets — and
+punctuation rows are a slim given line. **When MC is offered doesn't depend on length**: the
+rules stay "listen cards and pinyin-only meaning cards auto, any typing card on request",
+because a pinyin-only note has no other way to be answered; long answers are made usable
+instead of taken away.
+
+**Options are characters only.** `shared/cards/multipleChoice.ts` (`isHanziOption`,
+`sanitizeMcRow`): a distractor is Chinese characters only, as many as the answer character —
+never a pinyin syllable ("xi" for 习, which the model once offered as a "sound-alike"), a latin
+letter, digit or punctuation. The worker filters what it stores (and its prompt says so), and
+both apps clean every row when they read cached options (`parseMcOptions`, Lab
+`MultipleChoice.parse` → `core/McOptions.kt`, parity-tested by `parity/fixtures/multiple-choice.ts`),
+so notes generated before the fix are clean on the device too.
+
 **Marks that read without colour.** On the answer side of a typed or multiple-choice answer,
 every wrong character (or extra one past the end) is red AND has a solid underline; a character
 not typed / a row left blank is a muted "?" with a dashed underline; correct characters stay green
