@@ -53,6 +53,7 @@ private fun NewConversation(nav: LabNav, relId: String) {
 private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
     val vm: ChatViewModel = viewModel(key = "chat-$convId", factory = factory { ChatViewModel(nav.app, relId, convId) })
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val call = dev.jeromeswannack.chineselearning.lab.ui.calls.relationshipCallBanner(nav, relId, Routes.chat(relId, convId))
     ChatScreen(
         ui,
         ChatActions(
@@ -70,6 +71,13 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onJoinCall = { nav.open(Routes.call(it)) },
             onRetry = { nav.back(); nav.open(Routes.chat(relId, convId)) },
         ),
+        callBanner = call?.let { b ->
+            {
+                dev.jeromeswannack.chineselearning.lab.ui.calls.InlineCallBanner(b.callId, b.title, b.kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallAlerts.Kind.INCOMING) {
+                    nav.app.callAlerts.stopRinging(); nav.open(b.url)
+                }
+            }
+        },
     ) {
         ChatSheetHost(
             ui,

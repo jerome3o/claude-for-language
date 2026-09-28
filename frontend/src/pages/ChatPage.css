@@ -1491,3 +1491,8 @@ body:has(.chat-page) #root {
   font-weight: 600;
   text-decoration: none;
 }
+
+/* A live call in this relationship: "📹 <name> is calling — Join" under the header. */
+.chat-call-banner { padding: 0 0.75rem; }
+.chat-call-banner:empty { display: none; }
+.chat-call-banner .call-banner-inline { margin: 0.5rem 0; }

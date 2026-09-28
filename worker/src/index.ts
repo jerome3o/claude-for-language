@@ -73,6 +73,7 @@ import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
 import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
+import pushRoutes from './routes/push';
 import profileRoutes from './routes/profile';
 import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
@@ -433,6 +434,8 @@ app.get('/api/auth/me', async (c) => {
     time_zone: user.time_zone || null,
     picture_source: user.picture_source || 'google',
     landing_page: user.landing_page || null,
+    // Video-call alerts: 'ring' (ring in the app + push) or 'silent' (banner only).
+    call_alerts: (user as { call_alerts?: string | null }).call_alerts === 'silent' ? 'silent' : 'ring',
     // The learner's daily new-card budget across all decks (NULL = default).
     new_cards_per_day: user.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day,
     secondary_cards_per_day: user.secondary_cards_per_day ?? DEFAULT_STUDY_BUDGET.secondary_cards_per_day,
@@ -481,6 +484,8 @@ app.route('/api', wordImportRoutes);
 
 // Video calls (experimental): rooms, recording uploads, transcripts, lesson report
 app.route('/api', callsRoutes);
+// Web Push subscriptions + the call-alerts setting (routes/push.ts).
+app.route('/api', pushRoutes);
 
 // Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
 app.route('/api', noteSearchRoutes);

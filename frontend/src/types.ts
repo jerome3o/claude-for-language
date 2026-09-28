@@ -44,6 +44,8 @@ export interface AuthUser {
   can_invite?: boolean;
   /** Which tab the app opens on; null/undefined = automatic (see components/nav/landing.ts). */
   landing_page?: LandingPage | null;
+  /** Video-call alerts: 'ring' (ring in the app + push) or 'silent' (banner only). */
+  call_alerts?: 'ring' | 'silent';
   /** Daily new-card budget across all decks (shared/decks/budget.ts). */
   new_cards_per_day?: number;
   secondary_cards_per_day?: number;

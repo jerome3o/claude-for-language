@@ -93,6 +93,9 @@ jobs:
           echo "${{ secrets.TURN_KEY_ID }}" | npx wrangler secret put TURN_KEY_ID
           echo "${{ secrets.TURN_KEY_API_TOKEN }}" | npx wrangler secret put TURN_KEY_API_TOKEN
           echo "${{ secrets.SONIOX_API_KEY }}" | npx wrangler secret put SONIOX_API_KEY
+          # Web Push (call alerts). Optional: without them the worker generates a key pair once (app_keys).
+          echo "${{ secrets.VAPID_PUBLIC_KEY }}" | npx wrangler secret put VAPID_PUBLIC_KEY
+          echo "${{ secrets.VAPID_PRIVATE_KEY }}" | npx wrangler secret put VAPID_PRIVATE_KEY
           echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_URL }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_URL
           echo "${{ secrets.CCR_FEATURE_REQUEST_ROUTINE_KEY }}" | npx wrangler secret put CCR_FEATURE_REQUEST_ROUTINE_KEY
         env:

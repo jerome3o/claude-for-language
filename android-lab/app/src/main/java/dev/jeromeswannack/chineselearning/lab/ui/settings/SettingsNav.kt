@@ -44,8 +44,9 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
         val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> vm.finishExport(uri) }
 
         SettingsScreen(
-            ui,
-            SettingsEnv(
+            callAlerts = { dev.jeromeswannack.chineselearning.lab.ui.calls.CallAlertsSettings(app) },
+            ui = ui,
+            env = SettingsEnv(
                 role = shell?.role ?: NavRole(),
                 sync = sync,
                 online = online,
@@ -54,7 +55,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 hapticsOn = haptics,
                 pendingWrites = pending.count { it.state == Outbox.PENDING },
             ),
-            SettingsActions(
+            actions = SettingsActions(
                 onBack = if (nav.controller.previousBackStackEntry != null) nav::back else null,
                 downloadAudio = { app.repo.prefetchAudioInBackground() },
                 setForcedOffline = { store.setForcedOffline(it); app.haptics.tick() },

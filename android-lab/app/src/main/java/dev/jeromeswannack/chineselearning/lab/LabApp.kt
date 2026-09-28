@@ -102,6 +102,9 @@ class LabApp : Application() {
         )
     }
 
+    /** Incoming video calls: the banner's live list, the ring, background checks (data/calls/CallAlertsWatcher.kt). */
+    val callAlerts by lazy { dev.jeromeswannack.chineselearning.lab.data.calls.CallAlertsWatcher(this) }
+
     /** Reviews made offline still reach the server after the app is closed. */
     fun scheduleBackgroundUpload() = SyncWorker.enqueue(this)
 }

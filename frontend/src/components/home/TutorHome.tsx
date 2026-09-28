@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { LiveCallBanner } from '../calls/CallBanner';
 import { useQuery } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getMyRelationships } from '../../api/client';
@@ -31,6 +32,7 @@ export function TutorHome() {
   return (
     <div className="page">
       <div className="container tutor-home">
+        <LiveCallBanner variant="card" />
         <h1>{firstName ? `Hi ${firstName}` : 'Teaching'}</h1>
         <p className="tutor-home-lead">Your students, and everything you make for them.</p>
 

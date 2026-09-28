@@ -173,6 +173,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'invite_redemptions', sql: `DELETE FROM invite_redemptions WHERE user_id = ?1 OR invite_id IN (SELECT id FROM invites WHERE created_by = ?1)` },
   { label: 'invites', sql: `DELETE FROM invites WHERE created_by = ?1` },
   { label: 'pending_invitations', sql: `DELETE FROM pending_invitations WHERE inviter_id = ?1` },
+  { label: 'push_subscriptions', sql: `DELETE FROM push_subscriptions WHERE user_id = ?1` },
   { label: 'oauth_codes', sql: `DELETE FROM oauth_codes WHERE user_id = ?1` },
   { label: 'oauth_tokens', sql: `DELETE FROM oauth_tokens WHERE user_id = ?1` },
   { label: 'auth_sessions', sql: `DELETE FROM auth_sessions WHERE user_id = ?1` },

@@ -17,6 +17,10 @@ export interface Env {
   GEMINI_API_KEY: string;
   /** Cloudflare Realtime TURN key for video calls (optional — STUN-only without it). */
   TURN_KEY_ID?: string;
+  /** Web Push (call alerts). Optional: without them a key pair is generated once and kept in app_keys. */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
   TURN_KEY_API_TOKEN?: string;
   /** Call transcription: 'gemini' | 'whisper' | … (default: the best one with a key). */
   CALL_TRANSCRIBE_PROVIDER?: string;

@@ -83,6 +83,9 @@ data class StudentPageUi(
     val lastLessonAt: String? = null,
     val studentDecks: List<StudentSharedDeckDto>? = null,
     val liveCallId: String? = null,
+    /** "Jerome is calling" (CallAlerts.pickCallBanner) and whether they started it. */
+    val liveCallTitle: String? = null,
+    val liveCallIncoming: Boolean = true,
     /** One line about the last action ("Moved … to #1"), success or failure. */
     val notice: String? = null,
     val noticeIsError: Boolean = false,
@@ -216,13 +219,7 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
         }
     }
     if (ui.liveCallId != null) item(key = "live") {
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Again.copy(alpha = 0.1f)).padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("🔴 Video call in progress", color = Lab.colors.ink, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            PrimaryPill("Join", Modifier.height(44.dp)) { actions.open(Routes.call(ui.liveCallId)) }
-        }
+        dev.jeromeswannack.chineselearning.lab.ui.calls.InlineCallBanner(ui.liveCallId, ui.liveCallTitle, ui.liveCallIncoming) { actions.open(Routes.call(ui.liveCallId)) }
     }
     item(key = "actions") {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

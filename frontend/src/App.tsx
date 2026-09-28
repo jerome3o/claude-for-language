@@ -7,6 +7,7 @@ import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
 import { FeedbackFAB } from './components/FeedbackFAB';
+import { CallAlerts } from './components/calls/CallAlerts';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/Loading';
 import { LandingResolver } from './components/nav/LandingResolver';
@@ -552,6 +553,7 @@ function App() {
             <AppRoutes />
             <OfflineBanner />
             <FeedbackFAB />
+            <CallAlerts />
           </BrowserRouter>
         </NetworkProvider>
       </AuthProvider>

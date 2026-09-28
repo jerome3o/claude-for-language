@@ -98,6 +98,7 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO auth_sessions (id, user_id, expires_at) VALUES ('sess-1', ?, '2999-01-01')", TUTOR);
   exec(db, "INSERT INTO invites (id, created_by) VALUES ('inv-1', ?)", TUTOR);
   exec(db, "INSERT INTO invite_redemptions (invite_id, user_id) VALUES ('inv-1', ?)", STUDENT);
+  exec(db, "INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, vapid_key) VALUES ('ps-1', ?, 'https://push.example/1', 'k', 'a', 'v')", STUDENT);
   exec(db, "INSERT INTO deleted_items (id, user_id, kind, item_id) VALUES ('del-1', ?, 'deck', 'gone-deck')", TUTOR);
   exec(db, "INSERT INTO feature_requests (id, user_id, content, screenshot_url) VALUES ('fr-1', ?, 'bug', '/api/feature-requests/screenshot/screenshots/tutor-1/x.png')", TUTOR);
   exec(db, "INSERT INTO quests (id, user_id, title, status, world) VALUES ('q-1', ?, 'Q', 'ready', '{}')", TUTOR);

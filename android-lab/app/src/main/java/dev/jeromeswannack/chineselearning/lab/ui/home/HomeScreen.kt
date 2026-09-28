@@ -78,6 +78,8 @@ fun HomeScreen(
     nowMs: Long = System.currentTimeMillis(),
     /** Package E: the Homework card + "From <tutor>" card, under the Study button (web HomePage order). */
     homework: (@Composable () -> Unit)? = null,
+    /** Package J: "📹 王老师 is calling — Join" at the very top while a call is live. */
+    callBanner: (@Composable () -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize().background(Lab.colors.background).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
@@ -85,6 +87,7 @@ fun HomeScreen(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (callBanner != null) item(key = "call") { callBanner() }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {

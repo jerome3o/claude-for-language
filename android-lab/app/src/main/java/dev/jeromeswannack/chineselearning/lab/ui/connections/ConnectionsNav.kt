@@ -84,8 +84,9 @@ fun TutorPageRoute(nav: LabNav, relId: String) {
         PlaceholderScreen(Routes.connection(relId), onBack = nav::back) { nav.openInMainApp(Routes.connection(relId)) }
     } else {
         val openChat = { convId: String -> nav.open(Routes.chat(relId, convId)) }
+        val call = dev.jeromeswannack.chineselearning.lab.ui.calls.relationshipCallBanner(nav, relId, Routes.connection(relId))
         TutorPageScreen(
-            ui,
+            if (call == null) ui else ui.copy(liveCallId = call.callId, liveCallTitle = call.title, liveCallIncoming = call.kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallAlerts.Kind.INCOMING),
             TutorPageActions(
                 onBack = nav::back,
                 onMessage = { vm.message(openChat) },

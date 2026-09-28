@@ -37,8 +37,9 @@ data class TutorHomeUi(
  * button — students, the things they make, and "Try it as your student".
  */
 @Composable
-fun TutorHomeScreen(ui: TutorHomeUi, onOpen: (String) -> Unit) {
+fun TutorHomeScreen(ui: TutorHomeUi, onOpen: (String) -> Unit, callBanner: (@Composable () -> Unit)? = null) {
     LabScreen(title = ui.firstName?.let { "Hi $it" } ?: "Teaching", subtitle = "Your students, and everything you make for them.") {
+        if (callBanner != null) item { callBanner() }
         item {
             Row(
                 Modifier.fillMaxWidth().bouncyClickable { onOpen(Routes.CONNECTIONS) }.clip(RoundedCornerShape(22.dp)).background(Lab.colors.accentSoft).padding(20.dp),

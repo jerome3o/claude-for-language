@@ -102,6 +102,8 @@ fun SettingsScreen(
     actions: SettingsActions,
     startAdvanced: Boolean = false,
     debugRow: @Composable () -> Unit = {},
+    /** Package J: Video call alerts (ui/calls/CallAlertsSettings.kt). */
+    callAlerts: @Composable () -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     var advanced by rememberSaveable { mutableStateOf(startAdvanced) }
@@ -123,6 +125,7 @@ fun SettingsScreen(
         item { BackupSection(ui, actions, env) }
         if (!role.isTutorOnly) item { BudgetSection(ui, env, actions) }
         item { StartOnSection(ui, role, actions) }
+        item { callAlerts() }
         item {
             LabCard {
                 ToggleRow("🔔", "Sounds", env.soundOn, desc = "Flip, rating and celebration sounds", onChange = actions.toggleSound)
