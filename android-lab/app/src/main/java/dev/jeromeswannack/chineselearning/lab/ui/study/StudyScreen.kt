@@ -82,6 +82,8 @@ class StudyActions(
     val onClose: () -> Unit = {},
     val onUndo: () -> Unit = {},
     val onReveal: (AnswerKey.Verdict?) -> Unit = {},
+    /** A revealed card turned to its other face (peek at the question / back to the answer): haptic only. */
+    val onPeek: () -> Unit = {},
     val onRate: (rating: Int, timeSpentMs: Long, userAnswer: String?) -> Unit = { _, _, _ -> },
     val onPlay: (key: String?, text: String) -> Unit = { _, _ -> },
     /** The word itself: its recordings in turn ([advance] = next voice), else its own clip. */
@@ -145,6 +147,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onClose = requestExit,
             onUndo = vm::undoLast,
             onReveal = vm::onRevealed,
+            onPeek = { app.haptics.flip() },
             onRate = vm::rate,
             onPlay = vm::play,
             onPlayWord = vm::playWord,

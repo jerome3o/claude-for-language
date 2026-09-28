@@ -410,3 +410,37 @@
   padding: 0.5rem 0.75rem;
   margin-bottom: 0.5rem;
 }
+
+/* Peek: a revealed card turned back to its question (tap empty space), and back again.
+   A quick quarter turn so it reads as the same card flipping, not a new screen. */
+.study-card-main--peek {
+  text-align: center;
+}
+
+.study-peek-hint {
+  margin: 1.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  text-align: center;
+}
+
+.study-face-flip {
+  animation: study-face-flip 200ms ease-out;
+}
+
+@keyframes study-face-flip {
+  from {
+    opacity: 0.2;
+    transform: perspective(900px) rotateY(80deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .study-face-flip {
+    animation: none;
+  }
+}

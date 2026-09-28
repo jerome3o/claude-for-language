@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import {
   askAboutNote,
   startSession,
@@ -61,6 +61,7 @@ import { SessionRecap } from '../components/study/SessionRecap';
 import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
 import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
+import { isPeekTap, type PressPoint } from '../components/study/peekFlip';
 import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import { getUnseenRecordingNotesForCard, markRecordingNoteSeen } from '../services/recording-notes';
 import { getRememberedTutors, humanTutors, rememberTutors, type RememberedTutor } from '../services/cardFlags';
@@ -350,6 +351,13 @@ function StudyCard({
   const { isOnline } = useNetwork();
 
   const [flipped, setFlipped] = useState(false);
+  // Peek: once revealed, a tap on the card's empty space shows the question again and a
+  // tap on the question returns to the answer — view only (components/study/peekFlip.ts).
+  const [peeking, setPeeking] = useState(false);
+  const [peekFlips, setPeekFlips] = useState(0);
+  const pressRef = useRef<PressPoint | null>(null);
+  const cardContentRef = useRef<HTMLDivElement>(null);
+  const backScrollRef = useRef(0);
   const [userAnswer, setUserAnswer] = useState('');
   const [startTime] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
@@ -700,6 +708,34 @@ function StudyCard({
       setFlipped(true);
     }
   };
+
+  const handleCardPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    pressRef.current = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+  };
+
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!flipped) return; // unrevealed: the card's own buttons do the revealing
+    const down = pressRef.current;
+    pressRef.current = null;
+    const tap = isPeekTap({
+      target: e.target,
+      container: e.currentTarget,
+      down,
+      up: { x: e.clientX, y: e.clientY, t: e.timeStamp },
+      selection: window.getSelection?.()?.toString() ?? '',
+    });
+    if (!tap) return;
+    if (!peeking) backScrollRef.current = e.currentTarget.scrollTop;
+    setPeeking(!peeking);
+    setPeekFlips((n) => n + 1);
+  };
+
+  // The answer side comes back where it was scrolled to; the question starts at the top.
+  useLayoutEffect(() => {
+    const el = cardContentRef.current;
+    if (!el || !flipped) return;
+    el.scrollTop = peeking ? 0 : backScrollRef.current;
+  }, [peeking, flipped]);
 
 
   const handleGenerateSentenceClue = async (
@@ -2297,7 +2333,12 @@ function StudyCard({
         )}
 
         {/* Card content */}
-        <div className="study-card-content">
+        <div
+          className="study-card-content"
+          ref={cardContentRef}
+          onPointerDown={handleCardPointerDown}
+          onClick={handleCardClick}
+        >
           {!flipped ? (
             <>
               <div className={`study-card-main ${isTypingCard ? 'study-card-main--typing' : ''}`}>
@@ -2408,7 +2449,19 @@ function StudyCard({
             </>
           ) : (
             <>
-              <div className="study-card-main study-card-main--back">
+              {peeking && (
+                <div className="study-card-main study-card-main--peek study-face-flip" data-testid="study-peek-front">
+                  {renderFront()}
+                  <p className="study-peek-hint">Tap to see the answer</p>
+                </div>
+              )}
+              {/* Hidden, not unmounted, while peeking: opened sentence rows and the
+                  answer diff survive the round trip. */}
+              <div
+                className={`study-card-main study-card-main--back${peekFlips > 0 ? ' study-face-flip' : ''}`}
+                data-testid="study-card-back"
+                style={peeking ? { display: 'none' } : undefined}
+              >
                 {renderBackMain()}
 
                 {/* One list of sentences for this word, always there under
