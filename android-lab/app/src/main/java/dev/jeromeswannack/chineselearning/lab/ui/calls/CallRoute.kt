@@ -152,6 +152,15 @@ fun CallRoute(nav: LabNav, id: String) {
         view.keepScreenOn = s.phase == CallPhase.LIVE || s.phase == CallPhase.JOINING
         onDispose { view.keepScreenOn = false }
     }
+    // While I share my screen, the other person's drawings over every app (needs "Display over other apps").
+    val overlay = remember { dev.jeromeswannack.chineselearning.lab.data.calls.ScreenAnnotationOverlay(context.applicationContext) }
+    var overlayWanted by remember { mutableStateOf(true) }
+    var resumes by remember { mutableStateOf(0) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { resumes++; onPauseOrDispose { } } // back from the permission page
+    val overlayOn = remember(resumes, overlayWanted, s.sharingScreen) { overlayWanted && s.sharingScreen && overlay.permitted() }
+    LaunchedEffect(overlayOn) { if (overlayOn) overlay.show() else overlay.hide() }
+    LaunchedEffect(s.annotations, overlayOn) { if (overlayOn) overlay.update(s.annotations) }
+    DisposableEffect(Unit) { onDispose { overlay.hide() } }
     var confirmLeave by remember { mutableStateOf(false) }
     BackHandler(enabled = s.phase == CallPhase.LIVE) { confirmLeave = true }
 
@@ -169,6 +178,7 @@ fun CallRoute(nav: LabNav, id: String) {
             needsPermission = denied,
             audioRoute = route,
             audioRoutes = if (s.phase == CallPhase.LIVE) vm.audio.routes() else listOf(route),
+            screenOverlayOn = overlayOn,
         ),
         CallActions(
             onBack = nav::back,
@@ -190,6 +200,13 @@ fun CallRoute(nav: LabNav, id: String) {
             onLive = vm.controller::sendLiveStroke,
             onSendChat = vm.controller::sendChat,
             onTextChanged = vm.controller::textChanged,
+            onAnnotate = vm.controller::sendAnnotation,
+            onPing = vm.controller::sendPing,
+            onClearAnnotations = vm.controller::clearAnnotations,
+            onToggleScreenOverlay = {
+                if (!overlay.permitted()) { overlayWanted = true; context.startActivity(overlay.permissionIntent()) }
+                else overlayWanted = !overlayOn
+            },
             onTextSelected = vm.controller::textSelected,
             onTextBlurred = vm.controller::textBlurred,
             explain = { hanzi ->

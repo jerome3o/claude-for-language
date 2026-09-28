@@ -7,6 +7,7 @@
 
 import type { BoardItem, BoardOp, BoardPoint } from './board';
 import type { TextDocSnapshot, TextOp, TextSelection } from './textDoc';
+import type { AnnotStroke } from './annotate';
 
 export interface CallPeer {
   client_id: string;
@@ -54,6 +55,10 @@ export type ClientMessage =
   /** Edits to the shared text (site = "<my user id>:<random>", the same for the whole page load). */
   | { type: 'text'; ops: TextOp[] }
   | { type: 'text_cursor'; sel: TextSelection | null }
+  /** Drawing on the other person's shared screen (relayed, never stored). */
+  | { type: 'annot'; stroke: AnnotStroke }
+  | { type: 'annot_clear' }
+  | { type: 'annot_ping'; x: number; y: number }
   | { type: 'chat'; text: string }
   | { type: 'state'; state: PeerMediaState }
   | { type: 'ping'; t: number }
@@ -81,6 +86,9 @@ export type ServerMessage =
   | { type: 'board_live'; from: string; stroke: LiveStroke | null }
   | { type: 'text'; from: string; ops: TextOp[] }
   | ({ type: 'text_cursor' } & TextCursor)
+  | { type: 'annot'; from: string; name: string; stroke: AnnotStroke }
+  | { type: 'annot_clear'; from: string }
+  | { type: 'annot_ping'; from: string; name: string; x: number; y: number }
   | { type: 'chat'; message: CallChatMessage }
   | { type: 'pong'; t: number; server_time: number }
   | { type: 'ended'; by: string }

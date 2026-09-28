@@ -41,6 +41,9 @@ object CallProtocol {
         )
         "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty()) }
         "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it) }
+        "annot" -> o.str("from")?.let { from -> CallAnnotate.sanitizeStroke(o["stroke"])?.let { ServerMessage.Annot(from, o.str("name").orEmpty(), it) } }
+        "annot_clear" -> ServerMessage.AnnotClear(o.str("from").orEmpty())
+        "annot_ping" -> o.str("from")?.let { from -> CallAnnotate.sanitizePing(o)?.let { (x, y) -> ServerMessage.AnnotPingMsg(from, o.str("name").orEmpty(), x, y) } }
         "peer_joined" -> parsePeer(o["peer"])?.let { ServerMessage.PeerJoined(it) }
         "peer_left" -> o.str("client_id")?.let { ServerMessage.PeerLeft(it) }
         "peer_state" -> o.str("client_id")?.let { ServerMessage.PeerState(it, parseState(o["state"])) }
@@ -98,6 +101,9 @@ object CallProtocol {
         put("type", "state")
         put("state", buildJsonObject { put("mic", s.mic); put("cam", s.cam); put("screen", s.screen); put("recording", s.recording) })
     }.toString()
+    fun annot(stroke: AnnotStroke): String = buildJsonObject { put("type", "annot"); put("stroke", stroke.toJson()) }.toString()
+    fun annotClear(): String = buildJsonObject { put("type", "annot_clear") }.toString()
+    fun annotPing(x: Double, y: Double): String = buildJsonObject { put("type", "annot_ping"); put("x", x); put("y", y) }.toString()
     fun ping(t: Long): String = buildJsonObject { put("type", "ping"); put("t", t) }.toString()
     fun end(): String = buildJsonObject { put("type", "end") }.toString()
 
@@ -126,6 +132,9 @@ sealed interface ServerMessage {
     ) : ServerMessage
     data class Text(val from: String, val ops: List<TextOp>) : ServerMessage
     data class TextCursorMsg(val cursor: TextCursor) : ServerMessage
+    data class Annot(val from: String, val name: String, val stroke: AnnotStroke) : ServerMessage
+    data class AnnotClear(val from: String) : ServerMessage
+    data class AnnotPingMsg(val from: String, val name: String, val x: Double, val y: Double) : ServerMessage
     data class PeerJoined(val peer: CallPeer) : ServerMessage
     data class PeerLeft(val clientId: String) : ServerMessage
     data class PeerState(val clientId: String, val state: PeerMediaState) : ServerMessage
