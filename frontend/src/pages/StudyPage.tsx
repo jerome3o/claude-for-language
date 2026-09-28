@@ -99,6 +99,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
 import { hanziAnswerKey, stripAnswerPunctuation } from '../utils/numberHanzi';
+import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 
 // Friendly labels for read-only tool names
 const TOOL_LABELS: Record<string, string> = {
@@ -188,24 +189,7 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
       ? correctAnswer
       : alternatives?.find(alt => normalizeHanzi(alt) === normalizedUser || hanziAnswerKey(alt) === userKey) ?? null;
 
-  // Compare character by character (against correct or matched alternative)
-  const compareTarget = matchedAlternative ?? correctAnswer;
-  const maxLen = Math.max(userAnswer.length, compareTarget.length);
-  const userChars: { char: string; correct: boolean }[] = [];
-  const correctChars: { char: string; matched: boolean }[] = [];
-
-  for (let i = 0; i < maxLen; i++) {
-    const userChar = userAnswer[i] || '';
-    const correctChar = compareTarget[i] || '';
-    const isMatch = userChar === correctChar;
-
-    if (i < userAnswer.length) {
-      userChars.push({ char: userChar, correct: isMatch });
-    }
-    if (i < compareTarget.length) {
-      correctChars.push({ char: correctChar, matched: isMatch });
-    }
-  }
+  const userChars = [...userAnswer];
 
   // Generate pinyin for user's answer
   const userPinyin = pinyin(userAnswer, { toneType: 'symbol', type: 'string' });
@@ -216,7 +200,7 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
   if (isFullyCorrect || isPunctuationOnlyMatch) {
     // Single green row. For a punctuation-only difference, show the canonical
     // answer (with its proper punctuation) rather than the user's variant.
-    const greenChars = isFullyCorrect ? userChars.map(c => c.char) : [...correctAnswer];
+    const greenChars = isFullyCorrect ? userChars : [...correctAnswer];
     const greenPinyin = isFullyCorrect ? userPinyin : canonicalPinyin;
     return (
       <div className="answer-diff">
@@ -237,7 +221,7 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
       <div className="answer-diff">
         <div className="answer-diff-row">
           {userChars.map((c, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
+            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{c}</span>
           ))}
         </div>
         <div className="answer-diff-pinyin">{userPinyin}</div>
@@ -252,21 +236,43 @@ function AnswerDiff({ userAnswer, correctAnswer, alternatives, onCharacterClick 
     );
   }
 
+  // A wrong answer: character by character against the canonical answer
+  const diff = typedAnswerDiff(userAnswer, correctAnswer);
   return (
-    <div className="answer-diff">
+    <div className="answer-diff" data-testid="typed-answer-diff">
       <div className="answer-diff-row">
-        {userChars.map((c, i) => (
-          <span key={i} className={`diff-char ${c.correct ? 'diff-correct' : 'diff-wrong'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
-        ))}
+        {diff.typed.map((c, i) => <DiffCellView key={i} cell={c} clickable={clickable} onCharacterClick={onCharacterClick} />)}
       </div>
       <div className="answer-diff-pinyin">{userPinyin}</div>
       <div className="answer-diff-arrow">↓</div>
       <div className="answer-diff-row">
-        {correctChars.map((c, i) => (
+        {diff.expected.map((c, i) => (
           <span key={i} className={`diff-char ${c.matched ? 'diff-correct' : 'diff-expected'}${clickable}`} onClick={() => onCharacterClick?.(c.char)}>{c.char}</span>
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * One character of the answer as typed / picked: green when right; red with a solid
+ * underline when wrong (or extra); a muted "?" with a dashed underline when missing —
+ * so the marks read without relying on colour (see utils/answerDiff.ts).
+ */
+function DiffCellView({ cell, status, clickable, onCharacterClick }: { cell: DiffCell; status?: string; clickable: string; onCharacterClick?: (char: string) => void }) {
+  if (cell.mark === 'missing') {
+    return <span className="diff-char diff-skipped" data-status="skipped" aria-label="missing">?</span>;
+  }
+  const wrong = cell.mark === 'wrong';
+  return (
+    <span
+      className={`diff-char ${wrong ? 'diff-wrong' : 'diff-correct'}${clickable}`}
+      data-status={status ?? (wrong ? 'wrong' : 'right')}
+      aria-label={wrong ? `${cell.char}, wrong` : undefined}
+      onClick={() => onCharacterClick?.(cell.char)}
+    >
+      {cell.char}
+    </span>
   );
 }
 
@@ -284,17 +290,14 @@ function McAnswerDiff({ slots, onCharacterClick }: { slots: McAnswerSlot[]; onCh
   return (
     <div className="answer-diff" data-testid="mc-answer-diff">
       <div className="answer-diff-row">
-        {slots.map((s, i) => s.chosen == null ? (
-          <span key={i} className="diff-char diff-skipped" data-status="skipped" aria-label="left blank">?</span>
-        ) : (
-          <span
+        {slots.map((s, i) => (
+          <DiffCellView
             key={i}
-            className={`diff-char ${s.status === 'wrong' ? 'diff-wrong' : 'diff-correct'}${clickable}`}
-            data-status={s.status}
-            onClick={() => onCharacterClick?.(s.chosen as string)}
-          >
-            {s.chosen}
-          </span>
+            cell={s.chosen == null ? { char: '', mark: 'missing' } : { char: s.chosen, mark: s.status === 'wrong' ? 'wrong' : 'correct' }}
+            status={s.status}
+            clickable={clickable}
+            onCharacterClick={onCharacterClick}
+          />
         ))}
       </div>
       {picked && <div className="answer-diff-pinyin">{pinyin(picked, { toneType: 'symbol', type: 'string' })}</div>}

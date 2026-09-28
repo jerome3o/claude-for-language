@@ -68,7 +68,7 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | Next-card pick | ✅ unit-tested | `useStudySession.ts` `selectNextItem` | `core/…/StudyQueue.kt` |
 | Events the server refuses (`orphan_event_ids` from `POST /api/reviews`) marked rejected, not synced | ✅ `synced = -1` (the web's `_synced = -1`), never re-uploaded; contract-tested against a real worker | `services/review-events.ts` | `data/Repository.kt` `uploadPending`, `LabDao.markRejected` |
 | Three card types (read / write / listen), flip, rating bar | ✅ | `StudyPage.tsx` | `ui/study/CardStage.kt` |
-| Typed-answer check (punctuation, numbers, 两/二, alternatives) + diff | ✅ parity-tested | `utils/numberHanzi.ts`, `AnswerDiff` | `core/…/AnswerKey.kt` |
+| Typed-answer check (punctuation, numbers, 两/二, alternatives) + diff (wrong = red + solid underline, missing = "?" + dashed underline, typed and multiple choice) | ✅ parity-tested | `utils/numberHanzi.ts`, `utils/answerDiff.ts`, `AnswerDiff` / `McAnswerDiff` | `core/…/AnswerKey.kt`, `ui/study/AnswerMarks.kt` |
 | Example sentences (clue row + set, tap-to-reveal, EN mode, show all) | ✅ | `components/SentenceSet.tsx` | `ui/study/Sentences.kt` |
 | "Use in sentence" hint on the front | ✅ stored clue shown / played; generated when the note has none, ↻ regenerates (online) | `StudyPage.tsx` | `CardStage.kt` |
 | Undo last review (incl. server DELETE) | ✅ | `useStudySession.ts` undo | `StudyViewModel.undoLast` |

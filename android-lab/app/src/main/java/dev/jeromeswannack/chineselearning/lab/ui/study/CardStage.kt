@@ -497,7 +497,8 @@ private fun TappableHanzi(text: String, size: TextUnit, color: Color, onChar: (S
 
 /**
  * The web's AnswerDiff: accepted answers in green with their pinyin; otherwise a
- * character-by-character diff with the pinyin of what was typed. Characters are tappable.
+ * character-by-character diff with the pinyin of what was typed — wrong characters red and
+ * underlined, missing ones a "?" with a dashed underline ([AnswerMarks]). Characters are tappable.
  */
 @Composable
 private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit) {
@@ -518,12 +519,12 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
             Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val user = typed.codePoints().toArray().map { String(Character.toChars(it)) }
-            val target = correct.codePoints().toArray().map { String(Character.toChars(it)) }
-            Row { user.forEachIndexed { i, ch -> Text(ch, fontSize = size * 0.8f, color = if (target.getOrNull(i) == ch) Palette.Good else Palette.Again, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(ch) }) } }
+            // Wrong characters red + underlined, missing ones a "?" with a dashed underline (AnswerMarks).
+            val diff = AnswerMarks.typedDiff(typed, correct)
+            MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("↓", color = Lab.colors.muted)
-            Row { target.forEachIndexed { i, ch -> Text(ch, fontSize = size, color = if (user.getOrNull(i) == ch) Palette.Good else Lab.colors.ink, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(ch) }) } }
+            Row { diff.expected.forEach { e -> Text(e.char, fontSize = size, color = if (e.matched) Palette.Good else Lab.colors.ink, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(e.char) }) } }
         }
     }
 }

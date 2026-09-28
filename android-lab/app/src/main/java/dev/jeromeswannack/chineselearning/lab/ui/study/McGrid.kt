@@ -27,10 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
@@ -102,7 +98,8 @@ fun McGrid(
 
 /**
  * The answer side for a multiple-choice answer that isn't fully right (StudyPage.tsx
- * `McAnswerDiff`): each row's pick in green / red, a skipped row as a dashed "?",
+ * `McAnswerDiff`): each row's pick in green / red + underlined, a skipped row as a "?" with a
+ * dashed underline ([AnswerMarks]),
  * "N of M left blank", then the answer with the missed rows marked. Characters are tappable.
  */
 @Composable
@@ -112,29 +109,8 @@ fun McAnswerDiff(slots: List<MultipleChoice.Slot>, size: TextUnit, onChar: (Stri
     val skipped = slots.count { it.status == MultipleChoice.SlotStatus.SKIPPED }
     val muted = Lab.colors.muted
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-            for (s in slots) {
-                val chosen = s.chosen
-                if (chosen == null) {
-                    Box(
-                        Modifier
-                            .padding(horizontal = 2.dp)
-                            .drawBehind {
-                                drawRoundRect(
-                                    color = muted,
-                                    cornerRadius = CornerRadius(6.dp.toPx()),
-                                    style = Stroke(width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))),
-                                )
-                            }
-                            .padding(horizontal = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("?", fontSize = size * 0.8f, color = muted) }
-                } else {
-                    val color = if (s.status == MultipleChoice.SlotStatus.WRONG) Palette.Again else Palette.Good
-                    Text(chosen, fontSize = size * 0.8f, color = color, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(chosen) })
-                }
-            }
-        }
+        // Each row's pick: green when right, red + underlined when wrong, a "?" with a dashed underline when blank.
+        MarkedAnswerRow(slots.map(AnswerMarks::forSlot), size * 0.8f, onChar)
         if (picked.isNotEmpty()) Text(Pinyin.of(picked), style = MaterialTheme.typography.bodyMedium, color = muted, textAlign = TextAlign.Center)
         if (skipped > 0) Text("$skipped of $choiceRows left blank", style = MaterialTheme.typography.labelMedium, color = muted)
         Text("↓", color = muted)

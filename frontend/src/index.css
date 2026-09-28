@@ -707,12 +707,47 @@ html:has(.study-page-fullscreen) .header {
   color: var(--color-text);
 }
 
-/* A multiple-choice row left blank (partial answers are allowed) */
+/* A character not typed / a multiple-choice row left blank (partial answers are allowed) */
 .diff-skipped {
   background-color: transparent;
   color: var(--color-text-light);
-  outline: 2px dashed var(--color-text-light);
-  outline-offset: -2px;
+}
+
+/*
+ * Marks that read without colour (utils/answerDiff.ts): a wrong or extra
+ * character is red AND underlined (solid), a missing one is a "?" with a
+ * dashed underline. The underline is a bar drawn under the glyph inside the
+ * cell's own bottom padding, so it never touches the character or the pinyin
+ * line below; correct characters stay green with no underline.
+ */
+.diff-char {
+  position: relative;
+}
+
+.diff-wrong,
+.diff-skipped {
+  padding-bottom: 0.5rem;
+}
+
+.diff-wrong::after,
+.diff-skipped::after {
+  content: '';
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: 0.2rem;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.diff-wrong::after {
+  height: 3px;
+  background-color: currentColor;
+}
+
+.diff-skipped::after {
+  height: 0;
+  border-bottom: 3px dashed currentColor;
 }
 
 .answer-diff-alternative-label {
