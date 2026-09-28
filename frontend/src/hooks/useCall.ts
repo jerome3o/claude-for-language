@@ -12,6 +12,8 @@ import { CallRecorder } from '../services/calls/recorder';
 import { closeOrphanPieces, drainCallUploads, pendingCallUploads } from '../services/calls/uploads';
 import { endCall as endCallApi } from '../api/calls';
 import { TextBoardSession } from '../services/calls/textBoard';
+import { AnnotationStore } from '../services/calls/annotations';
+import type { AnnotStroke } from '@shared/calls';
 
 export type CallPhase = 'prejoin' | 'joining' | 'live' | 'ended' | 'error';
 
@@ -65,6 +67,9 @@ export function useCall(callId: string, myUserId: string) {
   // The shared text board: this page's replica, alive for the whole page (reconnects replay into it).
   const textRef = useRef<TextBoardSession | null>(null);
   if (!textRef.current) textRef.current = new TextBoardSession(myUserId, (m) => roomRef.current?.send(m) ?? false);
+  // Drawings on a shared screen (mine and theirs), outside React so the mini window can redraw from it.
+  const annotRef = useRef<AnnotationStore | null>(null);
+  if (!annotRef.current) annotRef.current = new AnnotationStore();
 
   // ---------------------------------------------------------------- media
 
@@ -226,6 +231,15 @@ export function useCall(callId: string, myUserId: string) {
       case 'text':
         textRef.current?.applyRemote(msg.ops);
         return;
+      case 'annot':
+        annotRef.current?.upsert(msg.stroke, msg.from, Date.now(), msg.name);
+        return;
+      case 'annot_clear':
+        annotRef.current?.clear();
+        return;
+      case 'annot_ping':
+        annotRef.current?.ping(msg.from, msg.x, msg.y, Date.now(), msg.name);
+        return;
       case 'text_cursor':
         textRef.current?.setCursor({ client_id: msg.client_id, user_id: msg.user_id, name: msg.name, sel: msg.sel });
         return;
@@ -352,6 +366,21 @@ export function useCall(callId: string, myUserId: string) {
     roomRef.current?.send({ type: 'board_live', stroke });
   }, []);
 
+  const sendAnnotation = useCallback((stroke: AnnotStroke) => {
+    annotRef.current?.upsert(stroke, 'me');
+    roomRef.current?.send({ type: 'annot', stroke });
+  }, []);
+
+  const sendPing = useCallback((x: number, y: number) => {
+    annotRef.current?.ping('me', x, y);
+    roomRef.current?.send({ type: 'annot_ping', x, y });
+  }, []);
+
+  const clearAnnotations = useCallback(() => {
+    annotRef.current?.clear();
+    roomRef.current?.send({ type: 'annot_clear' });
+  }, []);
+
   const sendChat = useCallback((text: string) => {
     const t = text.trim();
     if (!t) return false;
@@ -395,6 +424,8 @@ export function useCall(callId: string, myUserId: string) {
     startScreenShare, stopScreenShare, startRecording, stopRecording,
     commitBoard, sendLiveStroke, sendChat,
     textBoard: textRef.current,
+    annotations: annotRef.current,
+    sendAnnotation, sendPing, clearAnnotations,
     hasCamera: !!localStream?.getVideoTracks().length,
     myUserId,
   };

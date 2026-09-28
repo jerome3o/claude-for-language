@@ -135,4 +135,32 @@ class CallScreenshots : LabScreenshotTest() {
     @Test fun textBoardUnfolded() = shoot("calls-25-live-text-board-unfolded") {
         CallScreen(live.copy(textBoard = board), info, CallActions(), fakeVideo, now, initialPanel = CallPanel.TEXT)
     }
+
+    // ---- drawing on a shared screen (shared/calls/annotate.ts)
+
+    private fun circle(cx: Double, cy: Double, rx: Double, ry: Double) = (0..36).map { i ->
+        val a = i * Math.PI * 2 / 36
+        (cx + rx * Math.cos(a)) to (cy + ry * Math.sin(a))
+    }
+    private val drawings = Annotations(
+        strokes = mapOf(
+            "me:a1" to dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke(
+                dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke("a1", "#f43f5e", 0.006, circle(0.5, 0.45, 0.18, 0.12), true), "me", t0 + 12 * 60_000 + 33_000,
+            ),
+        ),
+        pings = listOf(dev.jeromeswannack.chineselearning.lab.core.calls.AnnotPing("p", "me", 0.3, 0.7, t0 + 12 * 60_000 + 33_800)),
+    )
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun drawOnTheirScreen() = shoot("calls-26-draw-on-shared-screen") {
+        CallScreen(
+            live.copy(remote = live.remote!!.copy(video = "screen@1920x1080", peer = tutor.copy(state = tutor.state.copy(screen = true))), annotations = drawings),
+            info, CallActions(), fakeVideo, now,
+        )
+    }
+
+    @Test fun sharingWhileTheyDraw() = shoot("calls-27-sharing-they-draw") {
+        val theirs = drawings.copy(strokes = drawings.strokes.mapValues { it.value.copy(from = "c-a") }, lastRemoteAt = t0 + 12 * 60_000 + 33_000, lastRemoteName = "王老师")
+        CallScreen(live.copy(screenVideo = "screen@1080x2400", annotations = theirs), info.copy(screenOverlayOn = true), CallActions(), fakeVideo, now)
+    }
 }

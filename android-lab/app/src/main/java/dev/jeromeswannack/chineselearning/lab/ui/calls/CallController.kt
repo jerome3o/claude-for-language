@@ -44,6 +44,15 @@ data class TextBoardUi(
     val lastChange: String = "load",
 )
 
+/** Drawings on a shared screen (shared/calls/annotate.ts): mine ("me") and theirs, fading after the pen lifts. */
+data class Annotations(
+    val strokes: Map<String, dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke> = emptyMap(),
+    val pings: List<dev.jeromeswannack.chineselearning.lab.core.calls.AnnotPing> = emptyList(),
+    /** When the other person last drew or pinged, and their name ("… is drawing on your screen"). */
+    val lastRemoteAt: Long = 0,
+    val lastRemoteName: String = "",
+)
+
 /** Everything the call screen shows (web: the return value of useCall). */
 data class CallState(
     val phase: CallPhase = CallPhase.PREJOIN,
@@ -64,6 +73,7 @@ data class CallState(
     val liveStrokes: Map<String, LiveStroke> = emptyMap(),
     val chat: List<CallChatMessage> = emptyList(),
     val textBoard: TextBoardUi = TextBoardUi(),
+    val annotations: Annotations = Annotations(),
     val recording: Boolean = false,
     val recordSupported: Boolean = false,
     val pendingUploads: Int = 0,
@@ -308,6 +318,9 @@ class CallController(
             }
             is ServerMessage.Text -> { text().applyRemote(msg.ops); publishText("remote") }
             is ServerMessage.TextCursorMsg -> { text().setCursor(msg.cursor); publishText("cursor") }
+            is ServerMessage.Annot -> upsertAnnot(msg.stroke, msg.from, msg.name)
+            is ServerMessage.AnnotClear -> _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
+            is ServerMessage.AnnotPingMsg -> addPing(msg.from, msg.x, msg.y, msg.name)
             is ServerMessage.PeerState -> _state.update { s -> if (s.remote?.peer?.clientId == msg.clientId) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
             is ServerMessage.Signal -> if (remoteId == msg.from) CallSignal.parse(msg.data)?.let { link?.handleSignal(it) }
             is ServerMessage.Board -> _state.update { s ->
@@ -397,6 +410,49 @@ class CallController(
 
     fun sendLiveStroke(stroke: LiveStroke?) {
         room?.send(CallProtocol.boardLive(stroke))
+    }
+
+    // ------------------------------------------------------------ drawing on a shared screen
+
+    private fun upsertAnnot(stroke: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke, from: String, name: String? = null) {
+        val now = System.currentTimeMillis()
+        _state.update { s ->
+            val a = s.annotations
+            val key = "$from:${stroke.id}"
+            val prev = a.strokes[key]
+            val live = a.strokes.filterValues { dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.strokeAlpha(it.doneAt, now) > 0 }
+            val shown = dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke(stroke, from, if (stroke.done) prev?.doneAt ?: now else null)
+            s.copy(annotations = a.copy(
+                strokes = live + (key to shown),
+                lastRemoteAt = if (from != "me") now else a.lastRemoteAt,
+                lastRemoteName = if (from != "me" && name != null) name else a.lastRemoteName,
+            ))
+        }
+    }
+
+    private fun addPing(from: String, x: Double, y: Double, name: String? = null) {
+        val now = System.currentTimeMillis()
+        _state.update { s ->
+            val a = s.annotations
+            val pings = a.pings.filter { dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.pingProgress(it.at, now) != null } +
+                dev.jeromeswannack.chineselearning.lab.core.calls.AnnotPing("$from:$now", from, x, y, now)
+            s.copy(annotations = a.copy(pings = pings, lastRemoteAt = if (from != "me") now else a.lastRemoteAt, lastRemoteName = if (from != "me" && name != null) name else a.lastRemoteName))
+        }
+    }
+
+    fun sendAnnotation(stroke: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke) {
+        upsertAnnot(stroke, "me")
+        room?.send(CallProtocol.annot(stroke))
+    }
+
+    fun sendPing(x: Double, y: Double) {
+        addPing("me", x, y)
+        room?.send(CallProtocol.annotPing(x, y))
+    }
+
+    fun clearAnnotations() {
+        _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
+        room?.send(CallProtocol.annotClear())
     }
 
     // ------------------------------------------------------------ shared text board

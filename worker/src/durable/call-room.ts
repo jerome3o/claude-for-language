@@ -19,6 +19,8 @@ import {
   applyBoardOp,
   capBoardSize,
   sanitizeBoardOp,
+  sanitizeAnnotStroke,
+  sanitizePing,
   sanitizeSelection,
   sanitizeTextOp,
   sanitizeTextSnapshot,
@@ -211,6 +213,19 @@ export class CallRoom extends DurableObject<Env> {
         a.sel = sel;
         ws.serializeAttachment(a);
         this.broadcast({ type: 'text_cursor', client_id: a.clientId, user_id: a.userId, name: a.name, sel }, ws);
+        return;
+      }
+      case 'annot': {
+        const stroke = sanitizeAnnotStroke(msg.stroke);
+        if (stroke) this.broadcast({ type: 'annot', from: a.clientId, name: a.name, stroke }, ws);
+        return;
+      }
+      case 'annot_clear':
+        this.broadcast({ type: 'annot_clear', from: a.clientId }, ws);
+        return;
+      case 'annot_ping': {
+        const p = sanitizePing(msg);
+        if (p) this.broadcast({ type: 'annot_ping', from: a.clientId, name: a.name, x: p.x, y: p.y }, ws);
         return;
       }
       case 'board_live':

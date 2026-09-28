@@ -42,6 +42,21 @@ test call), and the **Join the call** button that appears in the relationship's 
   (`/api/sentences/explain-text`). **Draw** is the second tab (the old whiteboard). The text is
   saved with the call (`calls.board_text`, migration 0081), shown on the review page under
   "Board", and goes into the lesson report and the session-notes homework agent ("SHARED NOTES").
+- **Drawing on a shared screen** — when one person shares their screen, the other taps
+  **✏️ Draw on …'s screen** over it: a drag is a stroke (circle a character), a quick tap a "look
+  here" ping; strokes fade ~3 s after the pen lifts, **Clear** clears. Points are normalised to the
+  shared picture (`shared/calls/annotate.ts`, unit-tested; Lab `CallAnnotate.kt` parity-tested), so
+  they land on the same spot in any window size. They travel as `annot` / `annot_ping` /
+  `annot_clear` room messages (relayed, never stored). The sharer sees them over **their own
+  preview of the share** in the call and, on Chrome / Edge desktop, in an **always-on-top mini
+  window** (Document Picture-in-Picture, "See drawings over your other windows" on the share bar;
+  `services/calls/annotationPip.ts`) showing their shared stream with the drawings and pings —
+  so they see what's being circled while looking at their other window. **Limitation: a browser
+  cannot draw on the sharer's real screen**; without Document PiP (Firefox, Safari, phones) the
+  drawings show only in the call's own preview. The share bar says "<name> is drawing on your
+  screen" either way. The **Lab app can**: while it shares (MediaProjection), the drawings are
+  painted over every app in a see-through, untouchable overlay window ("Display over other apps"
+  permission, asked for from the share bar; `data/calls/ScreenAnnotationOverlay.kt`).
 - **Room** — `worker/src/durable/call-room.ts`, one SQLite-backed Durable Object per call
   (`idFromName(callId)`), WebSocket Hibernation API. Relays SDP / ICE between the two
   peers, keeps the board (`shared/calls/board.ts` ops) and chat, broadcasts media state

@@ -14,6 +14,9 @@ import { useCall, canShareScreen } from '../hooks/useCall';
 import { CallRecorder } from '../services/calls/recorder';
 import { Whiteboard } from '../components/calls/Whiteboard';
 import { TextBoard } from '../components/calls/TextBoard';
+import { AnnotationLayer } from '../components/calls/AnnotationLayer';
+import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
+import { ANNOT_COLORS } from '@shared/calls';
 import { formatOffset, pipSize, type CallChatMessage, type VideoSize } from '@shared/calls';
 import { CallVideo, useElementSize } from '../components/calls/CallVideo';
 import './CallPage.css';
@@ -81,6 +84,31 @@ export function CallPage() {
   const [localSize, setLocalSize] = useState<VideoSize | null>(null);
   const [selfSize, setSelfSize] = useState<VideoSize | null>(null);
   const [stageSize, stageRef] = useElementSize<HTMLDivElement>();
+  // Drawing on the other person's shared screen / seeing drawings on mine.
+  const [remoteSize, setRemoteSize] = useState<VideoSize | null>(null);
+  const [annotating, setAnnotating] = useState(false);
+  const [annotColor, setAnnotColor] = useState<string>(ANNOT_COLORS[0]);
+  const [annotPip, setAnnotPip] = useState<AnnotationPip | null>(null);
+  const [theyDrawAt, setTheyDrawAt] = useState(0);
+  const remoteSharing = !!call.remote?.peer.state.screen;
+  useEffect(() => {
+    if (!remoteSharing) setAnnotating(false);
+  }, [remoteSharing]);
+  // "… is drawing on your screen" while I share.
+  useEffect(() => call.annotations.subscribe(() => setTheyDrawAt(call.annotations.lastRemoteAt)), [call.annotations]);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!theyDrawAt) return;
+    const t = setTimeout(() => setTick((n) => n + 1), 6100); // the "is drawing" note goes away
+    return () => clearTimeout(t);
+  }, [theyDrawAt]);
+  useEffect(() => {
+    if (!call.screenStream && annotPip) {
+      annotPip.close();
+      setAnnotPip(null);
+    }
+  }, [call.screenStream, annotPip]);
+  useEffect(() => () => annotPip?.close(), [annotPip]);
 
   const detail = callQuery.data;
   const other = detail?.participants.find((p) => p.id !== user!.id);
@@ -198,7 +226,35 @@ export function CallPage() {
           {remote ? (
             <>
               {remote.stream && (
-                <CallVideo stream={remote.stream} screen={!!remoteState?.screen} className={`call-remote-video${remoteVideoOn ? '' : ' hidden'}`} testId="remote-video" />
+                <CallVideo stream={remote.stream} screen={!!remoteState?.screen} className={`call-remote-video${remoteVideoOn ? '' : ' hidden'}`} testId="remote-video" onVideoSize={setRemoteSize} />
+              )}
+              {remoteSharing && remote.stream && (
+                <>
+                  <AnnotationLayer
+                    store={call.annotations}
+                    video={remoteSize}
+                    interactive={annotating}
+                    color={annotColor}
+                    onStroke={call.sendAnnotation}
+                    onPing={call.sendPing}
+                    className="annot-over-remote"
+                    testId="annot-remote"
+                  />
+                  <div className="annot-tools" data-testid="annot-tools">
+                    <button type="button" className={`annot-toggle${annotating ? ' on' : ''}`} onClick={() => setAnnotating((v) => !v)} data-testid="annot-toggle">
+                      {annotating ? '✓ Done' : `✏️ Draw on ${otherName.split(' ')[0]}’s screen`}
+                    </button>
+                    {annotating && (
+                      <>
+                        {ANNOT_COLORS.map((c) => (
+                          <button key={c} type="button" className={`annot-swatch${c === annotColor ? ' active' : ''}`} style={{ background: c }} onClick={() => setAnnotColor(c)} aria-label={`Colour ${c}`} />
+                        ))}
+                        <button type="button" className="annot-clear" onClick={call.clearAnnotations}>Clear</button>
+                        <span className="annot-hint">Drag to circle · tap to point</span>
+                      </>
+                    )}
+                  </div>
+                </>
               )}
               {!remoteVideoOn && <Initials name={otherName} />}
               <div className="call-remote-label">
@@ -214,7 +270,10 @@ export function CallPage() {
           )}
           <div className="call-self" style={pip ? { width: pip.width, height: pip.height } : undefined} data-testid="self-view">
             {call.screenStream ? (
-              <CallVideo stream={call.screenStream} muted screen className="call-self-video" onVideoSize={setSelfSize} />
+              <>
+                <CallVideo stream={call.screenStream} muted screen className="call-self-video" onVideoSize={setSelfSize} />
+                <AnnotationLayer store={call.annotations} video={selfSize} testId="annot-self" />
+              </>
             ) : call.hasCamera && call.camOn ? (
               <CallVideo stream={call.localStream} muted mirrored={call.facing === 'user'} fit="cover" className="call-self-video" onVideoSize={setSelfSize} />
             ) : (
@@ -243,6 +302,34 @@ export function CallPage() {
           </div>
         )}
       </div>
+
+      {call.screenStream && (
+        <div className={`call-share-bar${Date.now() - theyDrawAt < 6000 ? ' drawing' : ''}`} data-testid="share-bar">
+          <span>
+            {Date.now() - theyDrawAt < 6000
+              ? `✏️ ${call.annotations.lastRemoteName || otherName} is drawing on your screen`
+              : '🖥️ You’re sharing your screen.'}
+            {!annotationPipSupported() && ' Their drawings show in your preview in the corner.'}
+          </span>
+          {annotationPipSupported() && (
+            annotPip ? (
+              <button type="button" className="call-share-btn" onClick={() => { annotPip.close(); setAnnotPip(null); }}>Close mini window</button>
+            ) : (
+              <button
+                type="button"
+                className="call-share-btn"
+                data-testid="annot-pip"
+                onClick={async () => {
+                  const p = await openAnnotationPip(call.screenStream!, call.annotations, () => setAnnotPip(null));
+                  if (p) setAnnotPip(p);
+                }}
+              >
+                See drawings over your other windows
+              </button>
+            )
+          )}
+        </div>
+      )}
 
       <div className="call-controls" role="toolbar" aria-label="Call controls">
         <button type="button" className={`call-btn${call.micOn ? '' : ' off'}`} onClick={call.toggleMic} aria-label={call.micOn ? 'Mute' : 'Unmute'} title={call.micOn ? 'Mute' : 'Unmute'}>{call.micOn ? '🎙️' : '🔇'}</button>
