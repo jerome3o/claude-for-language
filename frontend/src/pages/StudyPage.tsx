@@ -2060,7 +2060,7 @@ function StudyCard({
       {
         // To the coach and back: this card stays as it is (resume point) and the coach's
         // "Back to your card" returns here. Prefilled with the card's sentence, not sent.
-        key: 'coach', label: 'Sentence coach', icon: '🧑‍🏫', hint: needsInternet, onSelect: () => {
+        key: 'coach', label: 'Sentence coach', icon: '✏️', hint: needsInternet, onSelect: () => {
           savePointRef.current();
           setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
           navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
@@ -2811,7 +2811,9 @@ export function StudyPage() {
     };
 
     const accuracy = today && today.reviews > 0 ? Math.round((today.correct / today.reviews) * 100) : null;
-    const quiet = !!today && !today.celebrate;
+    // 🎉 + confetti only for the finish being celebrated now (shared/study/celebration.ts).
+    const quiet = !today?.celebrate;
+    const title = today && today.reviews === 0 ? 'Nothing due right now' : quiet ? 'All done for now' : 'All Done!';
 
     return (
       <div className="page">
@@ -2819,13 +2821,13 @@ export function StudyPage() {
         <div className="container">
           <div className="card text-center study-done" style={{ padding: '1rem' }} data-testid="study-done">
             <div style={{ fontSize: '3rem' }}>{quiet ? '✅' : '🎉'}</div>
-            <h1 className="mt-1">{quiet ? 'All done for now' : 'All Done!'}</h1>
+            <h1 className="mt-1">{title}</h1>
             <p className="text-light mt-1" style={{ fontSize: '0.875rem' }}>
               {hasMoreNewCards
                 ? `You've finished your daily limit${bonusNewCards > 0 ? ` (+${bonusNewCards} bonus)` : ''}. Want to study more?`
                 : 'Nothing else is due today. 明天见！'}
             </p>
-            {today && (
+            {today && today.reviews > 0 && (
               <div className="study-today" data-testid="study-today">
                 <div className="study-today-line">{todayStudyLine(today.activeMs, today.reviews)}</div>
                 {accuracy != null && <div className="study-today-sub text-light">{accuracy}% right today</div>}

@@ -65,6 +65,23 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     )
     private var undo: UndoSnapshot? = null
 
+    // ---- Today is the session (docs/STUDY_SESSION.md) ----
+    // This view model belongs to the activity: leaving Study (✕, back, the coach, Home) ends
+    // nothing — the queue, the card on screen with its take, and the undo stay here.
+    private val dayStore = dev.jeromeswannack.chineselearning.lab.data.study.StudyDayStore.get(app)
+    private val scope = dev.jeromeswannack.chineselearning.lab.core.StudyResume.scope(deckId)
+    /** The local date the queue was built for: a new day rebuilds it on return. */
+    private var loadedDay = ""
+    /** The saved resume point is looked at once per day (the first load). */
+    private var resumeChecked = false
+    /** When the card on screen came up (moved forward on return by the time spent away). */
+    private var shownAt = 0L
+    /** Set while Study is left (the time away doesn't count on the card). */
+    private var leftAt: Long? = null
+    /** The card on screen as it stands — what a return shows again. */
+    private var progress: CardStartState? = null
+    private var progressPresentation = -1
+
     val tools = CardTools(app)
     private val studyPrefs = StudyPrefs.get(app)
     /** Notes whose missing fun fact / sentence / clip were already requested this session. */
@@ -113,7 +130,6 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             if (next == null) next = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }
             presentNext(next)
             busy = false
-            if (next == null) celebrate()
         }
     }
     /** The last page of today's reader was rated: record it, count it, move on. */
@@ -137,7 +153,6 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             if (next == null) next = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }
             presentNext(next)
             busy = false
-            if (next == null) celebrate()
         }
     }
 
@@ -177,14 +192,133 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         if (resetRecent) recentNoteIds = emptyList()
-        _ui.update { it.copy(hasMoreNew = built.hasMoreNew, bonus = bonus, deckName = deckId?.let { id -> deckNames[id] }) }
+        loadedDay = today()
+        _ui.update { it.copy(hasMoreNew = built.hasMoreNew, bonus = bonus, deckName = deckId?.let { id -> deckNames[id] }, today = null) }
         extras.load(cutoff, queue.map { it.noteId }.distinct(), viewModelScope, ::onReaderArrived) // Package B
+        // The card left on screen (even by a process that's gone) comes back first, as it was.
+        if (!resumeChecked) {
+            resumeChecked = true
+            val point = dayStore.resumePoint()
+            val id = dev.jeromeswannack.chineselearning.lab.core.StudyResume.cardId(point, today(), scope, queue.map { it.id })
+            val card = id?.let { i -> queue.firstOrNull { it.id == i } }
+            if (point != null && card != null) {
+                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point)))
+                return
+            }
+        }
         presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
     }
 
-    private suspend fun present(card: QueueCard?) {
+    // ---------------- leaving and coming back ----------------
+
+    /** A touch / key on the study screen: active study time. */
+    fun onInteraction() {
+        if (leftAt == null) dayStore.interact()
+    }
+
+    fun onForeground() = onInteraction()
+
+    /** Backgrounded / screen off: the clock stops at once. */
+    fun onBackground() {
+        dayStore.pause()
+        saveResumePoint()
+    }
+
+    /**
+     * Study left (✕, back, the coach, Home): stop the clock and the sound, keep a take that was
+     * being recorded, save where the card stands (a process death keeps that too), send the reviews.
+     */
+    fun onLeave() {
+        if (leftAt != null) return
+        leftAt = System.currentTimeMillis()
+        dayStore.pause()
+        saveResumePoint()
+        app.audio.stop()
+        extras.stopAudio() // Package B
+        if (recorder.recording) currentView()?.let { stopRecording(flipped = false) }
+        app.scope.launch {
+            if (app.online.value) {
+                repo.pushEvents()
+                dayStore.report(repo.api, force = true)
+            }
+        }
+        if (_ui.value.stats.reviews > 0) app.scheduleBackgroundUpload()
+    }
+
+    /** Back in Study: same card, same state — unless the day rolled over or the card was answered elsewhere. */
+    fun onReturn() {
+        dayStore.interact()
+        val left = leftAt ?: return
+        leftAt = null
+        val now = System.currentTimeMillis()
+        shownAt += now - left // time away doesn't count on the card
+        viewModelScope.launch {
+            if (busy) return@launch
+            when {
+                today() != loadedDay -> { resumeChecked = false; _ui.update { it.copy(phase = StudyPhase.Loading) }; load(resetRecent = true) }
+                _ui.value.phase is StudyPhase.Done -> load(resetRecent = true)
+                else -> refreshKeepingCard()
+            }
+        }
+    }
+
+    /** Rebuilds today's queue (a sync may have changed it) and keeps the card on screen while it's still due. */
+    private suspend fun refreshKeepingCard() {
+        val showing = currentView()
+        val now = System.currentTimeMillis()
+        cutoff = StudyQueue.cutoff(now, zone)
+        val bonus = app.prefs.bonus(scopeKey, today())
+        val built = withContext(Dispatchers.IO) {
+            val decks = repo.dao.decks()
+            deckNames = decks.associate { it.id to it.name }
+            val cards = repo.dao.cards().map { it.toQueueCard() }
+            val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
+            val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
+            StudyQueue.build(decks.map { it.toQueueDeck() }, cards, app.prefs.budget, bonus, introduced, cutoff, deckId)
+        }
+        queue = built.dueCards.toMutableList()
+        reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
+        _ui.update { it.copy(hasMoreNew = built.hasMoreNew, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+        if (showing == null) return // a lesson / reader stays as it is
+        if (queue.none { it.id == showing.card.id }) {
+            dayStore.clearResumePoint(showing.card.id)
+            presentNext(nextItem(null))
+            return
+        }
+        // Same presentation, so the card isn't re-dealt; it starts from how it was left.
+        val start = (if (progressPresentation == showing.presentation) progress else null) ?: showing.start
+        _ui.update { u ->
+            val v = (u.phase as? StudyPhase.Showing)?.view
+            if (v?.presentation != showing.presentation) u
+            else u.copy(phase = StudyPhase.Showing(v.copy(start = start.copy(elapsedMs = System.currentTimeMillis() - shownAt))))
+        }
+    }
+
+    /** CardStage reports how the card stands (revealed, typed answer, grid result). */
+    fun onCardProgress(presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) {
+        val v = currentView() ?: return
+        if (v.presentation != presentation) return
+        progress = CardStartState(flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue)
+        progressPresentation = presentation
+        if (answer.isNotEmpty()) onInteraction() // typing is activity too
+        saveResumePoint()
+    }
+
+    private fun saveResumePoint() {
+        val v = currentView() ?: return
+        val p = (if (progressPresentation == v.presentation) progress else null) ?: v.start
+        val end = leftAt ?: System.currentTimeMillis()
+        dayStore.saveResumePoint(
+            dev.jeromeswannack.chineselearning.lab.core.StudyResume.Point(today(), scope, v.card.id, p.flipped, p.answer, (end - shownAt).coerceAtLeast(0)),
+        )
+    }
+
+    private suspend fun present(card: QueueCard?, start: CardStartState = CardStartState()) {
         if (card == null) {
+            val wasDone = _ui.value.phase is StudyPhase.Done
             _ui.update { it.copy(phase = StudyPhase.Done, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+            dayStore.clearResumePoint()
+            if (!wasDone || _ui.value.today == null) celebrate()
             return
         }
         val view = withContext(Dispatchers.IO) {
@@ -204,6 +338,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
                     deckName = deckNames[card.deckId],
                     audioCached = it.audioUrl.isNullOrBlank() || repo.cachedAudio(it.audioUrl) != null,
                     isSecondaryNew = card.queue == 0 && card.noteId in reviewedNoteIds,
+                    start = start,
                 )
             }
         }
@@ -218,6 +353,10 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         take = null
         dropLive()
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras()) }
+        shownAt = System.currentTimeMillis() - start.elapsedMs
+        progress = null
+        progressPresentation = -1
+        saveResumePoint()
         loadExtras(view)
     }
 
@@ -658,6 +797,9 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         busy = true
         val card = showing.card
         val before = _ui.value.stats
+        // Answered: nothing to resume on this card any more.
+        dayStore.clearResumePoint(card.id)
+        progress = null
         // The tutor's note was on screen for this review — show it once only.
         val seenNotes = _ui.value.extras.tutorNotes.map { it.id }
         if (seenNotes.isNotEmpty()) app.scope.launch { TutorNotes.markSeen(app.cache, app.outbox, seenNotes) }
@@ -700,7 +842,6 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             if (chosen == null) chosen = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }
             presentNext(chosen)
             busy = false
-            if (chosen == null) celebrate()
             schedulePush()
         }
     }
@@ -715,10 +856,25 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             .minByOrNull { it.state.dueTimestamp ?: 0L }
     }
 
+    /**
+     * Today's queue ran dry: today's numbers for the All done screen, and the celebration —
+     * once a day, again only when more cards became due and were cleared (core Celebration).
+     */
     private fun celebrate() {
-        if (_ui.value.stats.reviews == 0) return
-        app.sounds.play(Sounds.Sfx.FANFARE, 0.8f)
-        app.haptics.celebrate()
+        viewModelScope.launch {
+            val dayStart = StudyQueue.startOfDay(System.currentTimeMillis(), zone)
+            val summary = withContext(Dispatchers.IO) { repo.dao.reviewSummarySince(Js.toIsoString(dayStart)) }
+            val celebrate = dayStore.claimCelebration(summary.reviews, queueEmpty = true)
+            if (celebrate) {
+                app.sounds.play(Sounds.Sfx.FANFARE, 0.8f)
+                app.haptics.celebrate()
+            }
+            _ui.update { it.copy(today = TodaySummary(dayStore.activeToday(), summary.reviews, summary.correct, celebrate)) }
+            if (app.online.value) {
+                dayStore.report(repo.api, force = true)
+                _ui.update { u -> u.copy(today = u.today?.copy(activeMs = dayStore.activeToday())) }
+            }
+        }
     }
 
     /** Push reviews shortly after rating; a WorkManager job covers the offline case. */
@@ -735,6 +891,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         val snap = undo ?: return
         if (busy) return
         undo = null
+        dayStore.clearResumePoint()
         viewModelScope.launch {
             // The recording tied to that review goes too (the web deletes its pendingRecording).
             app.repo.platform.dao.deleteOutbox("rec-${snap.eventId}")
@@ -743,7 +900,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             if (queue.none { it.id == restored.id }) queue.add(restored)
             reviewedNoteIds = snap.reviewed.toMutableSet()
             recentNoteIds = snap.recent
-            _ui.update { it.copy(stats = snap.stats, canUndo = false, lastRating = null) }
+            _ui.update { it.copy(stats = snap.stats, canUndo = false, lastRating = null, today = null) }
             app.haptics.tick()
             present(restored)
         }
@@ -752,7 +909,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     fun studyMore() {
         val bonus = app.prefs.bonus(scopeKey, today()) + StudyQueue.BONUS_INCREMENT
         app.prefs.setBonus(scopeKey, today(), bonus)
-        _ui.update { it.copy(phase = StudyPhase.Loading) }
+        _ui.update { it.copy(phase = StudyPhase.Loading, today = null) }
         viewModelScope.launch { load(resetRecent = true) }
     }
 

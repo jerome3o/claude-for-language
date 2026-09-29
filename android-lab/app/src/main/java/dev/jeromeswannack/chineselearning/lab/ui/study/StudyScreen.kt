@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -112,6 +113,10 @@ class StudyActions(
     val onTypeInstead: () -> Unit = {},
     /** A light tick (choosing an option). */
     val onTick: () -> Unit = {},
+    /** The card's state changed (revealed, typed answer, grid result): kept so leaving Study never loses it. */
+    val onCardProgress: (presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) -> Unit = { _, _, _, _ -> },
+    /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
+    val onOpenCoach: (text: String) -> Unit = {},
     val sendFlag: suspend (FlagTutor, String) -> Boolean = { _, _ -> false },
     val edit: EditCardActions = EditCardActions(),
     val ask: AskActions = AskActions(),
@@ -129,13 +134,34 @@ class StudyActions(
 
 @Composable
 fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit) {
-    val vm: StudyViewModel = viewModel(key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
+    // Today is the session (docs/STUDY_SESSION.md): the view model belongs to the activity, not to
+    // this screen, so leaving Study — ✕, back, the coach, Home — ends nothing. The card on screen
+    // (revealed, typed answer, recording), the undo and the queue are all still here on return.
+    val owner = androidx.compose.ui.platform.LocalContext.current.findViewModelStoreOwner()
+    val vm: StudyViewModel = if (owner != null) viewModel(viewModelStoreOwner = owner, key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
+        else viewModel(key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
     val ui by vm.ui.collectAsStateWithLifecycle()
     val playing by app.audio.playingKey.collectAsState()
     val sync by app.repo.status.collectAsState()
-    var confirmExit by remember { mutableStateOf(false) }
-    val requestExit = { if (ui.stats.reviews == 0 || ui.phase is StudyPhase.Done) onExit() else confirmExit = true }
-    BackHandler(onBack = requestExit)
+    // Active study time: in front + being used; paused in the background / screen off, and when leaving.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle, vm) {
+        vm.onReturn()
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> vm.onForeground()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> vm.onBackground()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            vm.onLeave()
+        }
+    }
+    // ✕ / back just leave: nothing to confirm, nothing ends.
+    BackHandler(onBack = onExit)
     val tools = vm.tools
     val currentNote = { (vm.ui.value.phase as? StudyPhase.Showing)?.view?.note }
     val newNote = { d: VocabularyDefinition -> NewNoteBody(d.hanzi, d.pinyin, d.english, d.fun_facts) }
@@ -143,8 +169,17 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
         ui = ui,
         playingKey = playing,
         pendingReviews = sync.unsynced,
+        modifier = Modifier.pointerInput(Unit) {
+            // Every touch on the study screen is activity (observed, never consumed).
+            awaitPointerEventScope {
+                while (true) {
+                    val e = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                    if (e.type == androidx.compose.ui.input.pointer.PointerEventType.Press) vm.onInteraction()
+                }
+            }
+        },
         actions = StudyActions(
-            onClose = requestExit,
+            onClose = onExit,
             onUndo = vm::undoLast,
             onReveal = vm::onRevealed,
             onPeek = { app.haptics.flip() },
@@ -165,6 +200,8 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onRevealMc = vm::revealMc,
             onTypeInstead = vm::typeInstead,
             onTick = { app.haptics.tick() },
+            onCardProgress = vm::onCardProgress,
+            onOpenCoach = { text -> onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
             onPlayMyRecording = vm::playMyRecording,
             onStartRecording = vm::startRecording,
             onStopRecording = vm::stopRecording,
@@ -207,25 +244,25 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onReaderRated = vm::rateReader, // Package B
         ),
     )
-    if (confirmExit) {
-        val n = ui.stats.reviews
-        AlertDialog(
-            onDismissRequest = { confirmExit = false },
-            title = { Text("End session?") },
-            text = { Text((if (n == 1) "Your review is saved." else "Your $n reviews are saved.") + " ${ui.stats.accuracy}% right.") },
-            confirmButton = { TextButton(onClick = { confirmExit = false }) { Text("Keep studying") } },
-            dismissButton = { TextButton(onClick = { confirmExit = false; onExit() }) { Text("End session") } },
-        )
+}
+
+/** The activity behind [this] context (Compose may hand out a ContextWrapper), which owns the study view model. */
+private fun android.content.Context.findViewModelStoreOwner(): androidx.lifecycle.ViewModelStoreOwner? {
+    var c: android.content.Context? = this
+    while (c != null) {
+        if (c is androidx.lifecycle.ViewModelStoreOwner) return c
+        c = (c as? android.content.ContextWrapper)?.baseContext
     }
+    return null
 }
 
 @Composable
-fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState = CardStartState(), autoplay: Boolean = true, pendingReviews: Int = 0, initialCountsCopy: CountsCopy? = null) {
+fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState? = null, autoplay: Boolean = true, pendingReviews: Int = 0, initialCountsCopy: CountsCopy? = null, modifier: Modifier = Modifier) {
     var countsCopy by remember { mutableStateOf(initialCountsCopy) }
     var copyTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(copyTick) { if (copyTick > 0) { kotlinx.coroutines.delay(2500); countsCopy = null } }
     val context = androidx.compose.ui.platform.LocalContext.current
-    Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
+    Box(modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
             StudyTopBar(ui, actions, pendingReviews, onCountsCopied = { countsCopy = it; copyTick++ })
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -237,7 +274,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                 ) { phase ->
                     when (phase) {
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
-                        is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart, autoplay)
+                        is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay)
                         is StudyPhase.Lesson -> dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLessonView(phase.lesson, ui.counts, actions.lessonEnv, actions.onLessonComplete) // Package B
                         is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderRated) // Package B
                         StudyPhase.Done -> DoneView(ui, actions)
@@ -271,7 +308,7 @@ private fun cardTransition(lastRating: Int?): ContentTransform {
 private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int, onCountsCopied: (CountsCopy) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "End session", tint = Lab.colors.muted) }
+            IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "Leave study (you can come back to this card)", tint = Lab.colors.muted) }
             QueueCountsBar(ui.counts, ui.activeBucket, Modifier.weight(1f), onCountsCopied)
             OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
             IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
@@ -290,7 +327,10 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
 
 @Composable
 private fun DoneView(ui: StudyUi, actions: StudyActions) {
-    val stats = ui.stats
+    val today = ui.today
+    // 🎉 + confetti only for the finish being celebrated now; quiet when today's finish was
+    // already celebrated (back to Study later with nothing due).
+    val quiet = today?.celebrate != true
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -300,30 +340,41 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
             var shown by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) { shown = true }
             val scale by animateFloatAsState(if (shown) 1f else 0.3f, spring(dampingRatio = 0.45f, stiffness = 200f), label = "trophy")
-            Text("🎉", fontSize = 84.sp, modifier = Modifier.scale(scale))
-            Text(if (stats.reviews > 0) "All done!" else "Nothing due right now", style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink)
+            Text(if (quiet) "✅" else "🎉", fontSize = 84.sp, modifier = Modifier.scale(scale))
+            Text(
+                when {
+                    today != null && today.reviews == 0 -> "Nothing due right now"
+                    quiet -> "All done for now"
+                    else -> "All done!"
+                },
+                style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink,
+            )
             Spacer(Modifier.height(6.dp))
             Text(
                 when {
                     ui.hasMoreNew -> "You've finished today's new words" + (if (ui.bonus > 0) " (+${ui.bonus} bonus)" else "") + ". Want more?"
-                    else -> "No more cards due today. 明天见！"
+                    else -> "Nothing else is due today. 明天见！"
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = Lab.colors.muted,
                 textAlign = TextAlign.Center,
             )
-            if (stats.reviews > 0) {
+            if (today != null && today.reviews > 0) {
                 Spacer(Modifier.height(24.dp))
+                // Where the session recap was: today's active time and reviews (every device).
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatTile("Reviews", stats.reviews, "", Modifier.weight(1f))
-                    StatTile("Right", stats.accuracy, "%", Modifier.weight(1f))
+                    StatTile("Minutes today", (today.activeMs / 60_000).toInt(), "", Modifier.weight(1f))
+                    StatTile("Reviews today", today.reviews, "", Modifier.weight(1f))
+                    today.accuracy?.let { StatTile("Right", it, "%", Modifier.weight(1f)) }
                 }
                 Spacer(Modifier.height(10.dp))
-                val minutes = ((System.currentTimeMillis() - stats.startedAt) / 60000).toInt()
-                Text("$minutes min this session", style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted)
-                if (stats.leeches.isNotEmpty()) {
+                Text(
+                    dev.jeromeswannack.chineselearning.lab.core.ActiveTime.todayLine(today.activeMs, today.reviews),
+                    style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted,
+                )
+                if (ui.stats.leeches.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))
-                    Text("${stats.leeches.size} word${if (stats.leeches.size == 1) "" else "s"} needed several tries — they'll be back soon.", style = MaterialTheme.typography.bodyMedium, color = Palette.Again, textAlign = TextAlign.Center)
+                    Text("${ui.stats.leeches.size} word${if (ui.stats.leeches.size == 1) "" else "s"} needed several tries — they'll be back soon.", style = MaterialTheme.typography.bodyMedium, color = Palette.Again, textAlign = TextAlign.Center)
                 }
             }
             Spacer(Modifier.height(28.dp))
@@ -334,7 +385,7 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
             if (ui.canUndo) TextButton(onClick = actions.onUndo) { Text("↺ Undo last review", color = Lab.colors.muted) }
             TextButton(onClick = actions.onClose) { Text("Done", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold) }
         }
-        if (stats.reviews > 0) ConfettiRain(key = stats.reviews, colors = Palette.Confetti)
+        if (today?.celebrate == true) ConfettiRain(key = today.reviews, colors = Palette.Confetti)
     }
 }
 

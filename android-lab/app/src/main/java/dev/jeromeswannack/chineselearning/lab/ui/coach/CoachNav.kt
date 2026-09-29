@@ -37,20 +37,23 @@ import kotlinx.coroutines.withContext
 /**
  * `/coach?text=&c=&focus=` (package H): the home (new sentence + conversations) or, with `c`, one
  * conversation. `?text=` ("select text → Sentence Coach") starts a conversation at once, like
- * the web; `?focus=1` (the widget's ✏️) opens the home with the sentence box focused, keyboard up.
+ * the web; `?focus=1` (the widget's ✏️) opens the home with the sentence box focused, keyboard up;
+ * `?draft=` (study card ⋯ → Sentence coach) fills the box without sending — back returns to the card.
  */
 fun NavGraphBuilder.coachGraph(nav: LabNav) {
     composable(
-        Routes.route("/coach?text={text}&c={c}&focus={focus}"),
+        Routes.route("/coach?text={text}&c={c}&focus={focus}&draft={draft}"),
         arguments = listOf(
             navArgument("text") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("c") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("focus") { type = NavType.StringType; nullable = true; defaultValue = null },
+            navArgument("draft") { type = NavType.StringType; nullable = true; defaultValue = null },
         ),
     ) { entry ->
         val conversationId = entry.arguments?.getString("c")
         val text = entry.arguments?.getString("text")
         val focus = entry.arguments?.getString("focus") == "1"
+        val draft = entry.arguments?.getString("draft")
         if (conversationId != null) {
             val vm: CoachChatViewModel = viewModel(key = "coach-$conversationId", factory = CoachChatViewModel.Factory(nav.app, conversationId))
             val ui by vm.ui.collectAsStateWithLifecycle()
@@ -68,6 +71,8 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
         } else {
             val vm: CoachHomeViewModel = viewModel(factory = CoachHomeViewModel.Factory(nav.app))
             val ui by vm.ui.collectAsStateWithLifecycle()
+            // ?draft= (a study card's sentence): in the box, not sent; back returns to the card.
+            LaunchedEffect(draft) { if (!draft.isNullOrBlank() && vm.claimDraft(draft)) vm.setDraft(draft) }
             LaunchedEffect(text) { if (!text.isNullOrBlank() && vm.claimDeepLink(text)) vm.start(text.trim()) { id -> nav.open(Routes.coachConversation(id)) } }
             CoachHomeScreen(
                 ui,
@@ -102,6 +107,15 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
     fun claimFocus(): Boolean {
         if (focusClaimed) return false
         focusClaimed = true
+        return true
+    }
+
+    private var handledDraft: String? = null
+
+    /** `?draft=` fills the box once — not again over what was typed since. */
+    fun claimDraft(draft: String): Boolean {
+        if (handledDraft == draft) return false
+        handledDraft = draft
         return true
     }
 

@@ -27,17 +27,78 @@ During a study session, cards are selected in this order:
 
 3. **Learning cards on cooldown (due today)** - When no other cards are available AND learning cards exist with cooldowns that haven't expired BUT are due today, show them immediately. This allows completing all study in one sitting.
 
-## Session Completion
+## Today is the session
 
-A session ends (shows "All Done!" screen) when:
+There are no study "sessions" any more — **today is the session**. The queue is always today's
+(rebuilt from today's review events, see *What "due today" means* below), so leaving Study never
+needs to end anything and there is no "End session?" confirm or recap:
+
+- **✕ (and back) just leaves.** Nothing is lost: the card on screen — even revealed but not yet
+  rated, with its typed answer, multiple-choice result or pronunciation recording — the undo, and
+  the queue are all kept. Opening Study again (from Home, the widget, anywhere) **shows that same
+  card first**, exactly as it was, while it is still due today (`resumeCardId` in
+  `shared/study/resume.ts`: same local date, same deck scope, the card still in today's queue — a
+  sync may have brought in its review from another device, or the day may have rolled over). The
+  review's `time_spent_ms` carries on from the time already spent on the card; time away doesn't
+  count.
+- **Study ⇄ Sentence coach.** Card back → **⋯ → Sentence coach** opens the coach with the card's
+  sentence (else its hanzi) in the box, not sent, cursor in it (`/coach?draft=…&focus=1`). The
+  coach's back (web: **← Back to your card**) returns to the card as it was.
+- Web: `services/studyResume.ts` keeps the resume point in localStorage (so a reload keeps the card,
+  revealed state and answer) and the recording / multiple-choice grid / undo in memory (they survive
+  in-app navigation, not a reload); `StudyCard` saves the point as it changes and when it unmounts;
+  `useStudySession` shows the point's card first on its first load (`resume`). Lab: the study view
+  model belongs to the activity (not the screen), so in-process everything survives — the take
+  file, the undo, the queue — and `onReturn` rebuilds today's queue while keeping the card on
+  screen; the point is also saved in SharedPreferences (`data/study/StudyDayStore.kt`) so a process
+  death keeps the card, revealed state and answer.
+- The server's session endpoints (`POST /api/study/sessions`…) are unchanged; the web still creates
+  one best-effort so older app versions keep working, but nothing reads them for time.
+
+### Today's queue runs dry
+
+The "All done" screen appears when every queue is empty (the same rule as before):
 
 - **All learning cards have graduated** - Their next review is tomorrow or later (moved to REVIEW queue with 1+ day interval)
 - **AND no new/review cards remain** - Daily new card limit reached, all review cards done
 
-The session does NOT end when:
-- Learning cards are on cooldown but due today - these are shown immediately to continue drilling
-- There are still new cards within the daily limit
-- There are review cards due today
+It does NOT appear while learning cards are on cooldown but due today (they are shown at once),
+while new cards remain within the daily limit, or while review cards are due today.
+
+Where the session recap used to be, it shows **today's** numbers: *Today: 23 min · 142 reviews*
+(active time over every device, `todayStudyLine`) and how many of today's reviews were Good/Easy.
+**Study more** (+10 new cards) works as before.
+
+**Celebration once a day.** Emptying today's queue is still celebrated — confetti, a fanfare,
+haptics in the Lab app — but once per day: going back to Study later with nothing due shows a
+quiet "All done for now". If more cards become due later that day (learning steps, homework, Study
+more) and those are cleared too, that is a new finish and it is celebrated again. The rule is
+`shouldCelebrate` in `shared/study/celebration.ts`: celebrate when the queue is empty, something was
+reviewed today, and today's review count has grown since the last celebration (so Undo + the same
+rating doesn't count twice). The mark lives in localStorage / SharedPreferences.
+
+### Time: active study time, per day
+
+Study time is how long you were actually studying — not how long a "session" was open.
+`shared/study/activeTime.ts` (the Lab port `core/StudyDay.kt` is parity-tested):
+
+- every interaction on the study screen — a tap, a key, a scroll, typing an answer, the screen
+  coming back to the front — credits the time since the previous one, **but never more than 75 s**
+  of it (`ACTIVE_IDLE_MS`): leave the phone on a card and the clock stops after 75 s;
+- the study screen going to the background, the screen turning off, or leaving Study pauses it at
+  once (web: `visibilitychange` / `pagehide` / blur and unmount in `hooks/useActiveStudyTime.ts`;
+  Lab: `ON_PAUSE` and leaving the screen, touches observed on the whole screen);
+- totals are kept per **local date** on each device (the interval after an interaction counts on
+  the day it started) — web localStorage (`services/studyTime.ts`), Lab SharedPreferences;
+- each device reports its own running per-day totals with `PUT /api/me/study-time`
+  `{ device_id, days: [{ date, active_ms }] }` (migration 0083 `study_time_days`, one row per user,
+  day and device, only ever raised — `MAX` — so re-sends are harmless), during sync (throttled to
+  10 min) and when leaving Study; the answer is every device's total per day plus this device's
+  share, so "Today: N min" = the other devices' time + this device's own, fresher, local number.
+
+The tutor's "studied today" / streak, Insights and progress pages still read the review events
+(`review_events.reviewed_at` / `time_spent_ms`), which are unchanged — the new daily totals are
+additive, nothing that fed those was removed.
 
 ## Rating Effects
 
@@ -150,7 +211,7 @@ Start session with:
 
 4. Continue until all new/review done, learning cards graduated
 
-5. "All Done!" screen appears
+5. "All done" screen appears (celebrated the first time today's queue is emptied)
 ```
 
 ## Edge Cases
@@ -255,11 +316,6 @@ not typed / a row left blank is a muted "?" with a dashed underline; correct cha
 with no underline (`utils/answerDiff.ts` `typedAnswerDiff`, `DiffCellView` in StudyPage; Lab:
 `ui/study/AnswerMarks.kt`). The underline sits in the character's own bottom padding, so it never
 touches the glyph or the pinyin line below.
-
-## Ending a session
-
-✕ ends the session immediately when nothing has been reviewed yet. After at least one review
-it shows the session recap and asks "End session?" (`components/study/ExitSessionModal.tsx`).
 
 ## Tutor notes on recordings
 

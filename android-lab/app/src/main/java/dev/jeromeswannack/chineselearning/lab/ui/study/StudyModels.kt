@@ -19,7 +19,14 @@ data class CardView(
     val audioCached: Boolean = true,
     /** NEW, and its note already has a reviewed card this session: counts as purple. */
     val isSecondaryNew: Boolean = false,
+    /** Where the card starts: fresh, or as it was left (resumed after leaving Study — docs/STUDY_SESSION.md). */
+    val start: CardStartState = CardStartState(),
 )
+
+/** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */
+data class TodaySummary(val activeMs: Long, val reviews: Int, val correct: Int, val celebrate: Boolean) {
+    val accuracy: Int? get() = if (reviews == 0) null else Math.round(correct * 100f / reviews)
+}
 
 data class SessionStats(
     val reviews: Int = 0,
@@ -58,6 +65,8 @@ data class StudyUi(
     val extras: CardExtras = CardExtras(),
     /** The one-time "Before your first card" explainer (no review events anywhere yet). */
     val showExplainer: Boolean = false,
+    /** Today's numbers + whether this finish is celebrated (set when the queue runs dry). */
+    val today: TodaySummary? = null,
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }

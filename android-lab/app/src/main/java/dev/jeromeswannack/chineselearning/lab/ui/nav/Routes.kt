@@ -75,7 +75,9 @@ object Routes {
 
     // ---- practice (package H) ----
     /** [focus] (`?focus=1`): open with the sentence box focused and the keyboard up (the widget's ✏️). */
-    fun coach(text: String? = null, focus: Boolean = false) = "/coach" + query("text" to text, "focus" to (if (focus) "1" else null))
+    /** [draft] (`?draft=`): fill the sentence box without sending it (study card ⋯ → Sentence coach). */
+    fun coach(text: String? = null, focus: Boolean = false, draft: String? = null) =
+        "/coach" + query("text" to text, "draft" to draft, "focus" to (if (focus) "1" else null))
     fun analyze() = "/analyze"
     fun quests() = "/quests"
     fun quest(id: String) = "/quests/${seg(id)}"
