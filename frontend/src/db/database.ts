@@ -1,4 +1,5 @@
 import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
+import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
 import { selectStudyQueue, isDueByCutoff, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards } from '@shared/decks';
@@ -487,6 +488,23 @@ export type LocalHomeworkAssignment = HomeworkAssignment & { _synced_at: number 
 export type LocalHomeworkEvent = HomeworkEvent & { _synced: number };
 
 // Dexie database class
+/** A picture hunt as cached on the device (summary, plus objects once ready). */
+export interface LocalPictureHunt extends PictureHuntSummary {
+  objects?: HuntObject[];
+}
+
+/** A hunt's picture, cached for offline play. */
+export interface LocalPictureHuntImage {
+  id: string;
+  blob: Blob;
+  cached_at: number;
+}
+
+/** A finished play-through; _synced 0 = to upload, 1 = uploaded, -1 = refused (hunt gone). */
+export interface LocalPictureHuntPlay extends PictureHuntPlay {
+  _synced: 0 | 1 | -1;
+}
+
 export class ChineseLearningDB extends Dexie {
   // Core tables
   decks!: Table<LocalDeck, string>;
@@ -516,6 +534,10 @@ export class ChineseLearningDB extends Dexie {
   customLessons!: Table<LocalCustomLesson, string>;
   customLessonCompletionEvents!: Table<LocalCustomLessonCompletionEvent, string>;
   lessonAttemptMedia!: Table<LocalLessonAttemptMedia, string>;
+  // Picture hunts (services/pictureHunts.ts): finished hunts cached whole, their pictures, and plays to upload
+  pictureHunts!: Table<LocalPictureHunt, string>;
+  pictureHuntImages!: Table<LocalPictureHuntImage, string>;
+  pictureHuntPlays!: Table<LocalPictureHuntPlay, string>;
 
   // Sentence sets: graded example sentences per note (offline, with audio)
   noteSentences!: Table<LocalNoteSentence, string>;
@@ -931,6 +953,14 @@ export class ChineseLearningDB extends Dexie {
     // expression), queued offline and uploaded by the next sync.
     this.version(20).stores({
       lessonAttemptMedia: 'id, attempt_id, _synced',
+    });
+
+    // Version 21: picture hunts — hunts cached whole (objects + picture) so a
+    // finished hunt plays offline, and plays queued for upload by the sync.
+    this.version(21).stores({
+      pictureHunts: 'id, status, created_at',
+      pictureHuntImages: 'id',
+      pictureHuntPlays: 'id, hunt_id, _synced',
     });
   }
 }

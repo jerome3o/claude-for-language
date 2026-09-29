@@ -130,6 +130,14 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     protectedReason: PERSON_MADE,
   },
   {
+    prefix: 'picture-hunts/',
+    what: 'Picture-hunt pictures: uploaded photos and generated scenes (`picture-hunts/<huntId>.<ext>`)',
+    writtenBy: 'routes/picture-hunts.ts (upload), services/picture-hunt.ts runPictureHuntJob (generated)',
+    referencedBy: ['picture_hunts.image_key'],
+    collectable: false,
+    protectedReason: PERSON_MADE + ' (uploads are personal photos; the hunt delete path removes its picture)',
+  },
+  {
     prefix: 'screenshots/',
     what: 'Feature-request screenshots (uploaded before the request row exists)',
     writtenBy: 'index.ts POST /api/feature-requests/screenshot',
@@ -186,6 +194,7 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'call_recording_chunks.r2_key', sql: 'SELECT r2_key AS v FROM call_recording_chunks WHERE r2_key IS NOT NULL' },
   { source: 'lesson_note_files.r2_key', sql: 'SELECT r2_key AS v FROM lesson_note_files WHERE r2_key IS NOT NULL' },
   { source: 'debug_reports.r2_key', sql: 'SELECT r2_key AS v FROM debug_reports WHERE r2_key IS NOT NULL' },
+  { source: 'picture_hunts.image_key', sql: 'SELECT image_key AS v FROM picture_hunts WHERE image_key IS NOT NULL' },
   { source: 'users.picture_key', sql: 'SELECT picture_key AS v FROM users WHERE picture_key IS NOT NULL' },
   { source: 'feature_requests.screenshot_url', sql: 'SELECT screenshot_url AS v FROM feature_requests WHERE screenshot_url IS NOT NULL' },
   { source: 'homework_recordings.audio_url', sql: 'SELECT audio_url AS v FROM homework_recordings WHERE audio_url IS NOT NULL' },

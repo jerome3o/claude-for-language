@@ -153,6 +153,22 @@ and on invite links), a **time zone** (the other side sees your local time), and
 learners — the private bio that personalises example sentences. Edited names and photos show
 everywhere people are shown and are not overwritten by the next Google sign-in.
 
+### 12. Picture hunt (看图找词)
+
+A vocabulary mini-game at **/picture-hunt** (More → Practice). The learner picks a picture —
+**makes one** from a scene description ("a busy kitchen", optionally leaning toward words they
+are learning) or **uploads a photo** (resized to 1600px and re-encoded on the device, so no
+EXIF / GPS leaves it; the server strips JPEG metadata again). In the background the picture's
+objects are found (Gemini 2.5 Flash detection, with segmentation outlines when it returns
+them, else boxes) and named (Claude: one clean hanzi, tone-marked pinyin, English, accepted
+alternatives, a card explanation and example sentence). The learner then **types what they
+see**: each right answer (hanzi, an alternative, or pinyin with tones) lights that object up on
+the picture; a shared character is a gentle "so close", toneless pinyin asks for the tones.
+Hints show the first character, then the pinyin. **Give up** or the 5-minute soft timer
+reveals everything: tap any object for its name, ▶ audio and **+ Add as card**. Score "7 / 15
+found" with a personal best per picture. Finished hunts are cached whole on the device and
+play offline; plays upload idempotently on the next sync. Same in the Lab app.
+
 ## Future Features (Tutor System)
 
 ### Tutor Capabilities

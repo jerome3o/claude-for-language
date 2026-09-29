@@ -31,7 +31,8 @@ export interface StructuredCallOptions<T> {
   /** Used for the final attempt; defaults to Haiku 4.5. Pass null to disable. */
   fallbackModel?: string | null;
   system: string;
-  user: string;
+  /** The user turn: text, or content blocks (e.g. an image and text). */
+  user: string | Anthropic.ContentBlockParam[];
   tool: { name: string; description: string; input_schema: Anthropic.Tool.InputSchema };
   maxTokens: number;
   /** Throw to reject the shape (it is retried); return the cleaned value. */

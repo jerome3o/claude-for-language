@@ -61,6 +61,7 @@ export function activeTab(tabs: TabSpec[], pathname: string): TabId | null {
 const IMMERSIVE = [
   /^\/study\/?$/,
   /^\/quests\/[^/]+\/?$/,
+  /^\/picture-hunt\/[^/]+\/?$/,
   /^\/readers\/(?!generate$)[^/]+(\/(edit|print))?\/?$/,
   /^\/library\/[^/]+\/(edit|print|try)\/?$/,
   /^\/library\/catalogue\/[^/]+\/?$/,
