@@ -14,6 +14,7 @@ import {
 } from '../api/client';
 import {
   CoachAnalysis,
+  CoachBreakdown,
   CoachMessage,
   CoachToolResult,
   Deck,
@@ -21,7 +22,18 @@ import {
   SentenceExplanation,
   SentenceTranslation,
 } from '../types';
-import { containsChinese } from '../utils/textLanguage';
+import {
+  COACH_ACTION_ICONS,
+  COACH_ACTION_LABELS,
+  COACH_ACTION_BUSY,
+  breakdownSentenceCard,
+  coachButtons,
+  conversationAction,
+  type CoachAction,
+} from '@shared/coach';
+import { SentenceWordBreakdown } from '../components/SentenceWordBreakdown';
+import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
+import { cacheTextExplanation, getCachedTextExplanation } from '../services/sentence-sets';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import { coachReturnPath, setCoachReturn } from '../services/studyResume';
 import './SentenceCoachPage.css';
@@ -74,10 +86,23 @@ const QUICK_ACTIONS: QuickAction[] = [
   },
 ];
 
-/** The Chinese sentence the latest analysis settled on (corrected or translated). */
+/** The Chinese sentence the latest analysis settled on (corrected, explained or translated). */
 function analysisSentence(analysis: CoachAnalysis): string {
-  return analysis.kind === 'chinese' ? analysis.coach.corrected.hanzi : analysis.translation.primary.hanzi;
+  if (analysis.kind === 'chinese') return analysis.coach.corrected.hanzi;
+  if (analysis.kind === 'explain') return analysis.breakdown.hanzi;
+  return analysis.translation.primary.hanzi;
 }
+
+/** A button's label: "✏️ Check my sentence", "🔍 Explain", "Translate". */
+function actionLabel(action: CoachAction): string {
+  return action === 'translate' ? COACH_ACTION_LABELS[action] : `${COACH_ACTION_ICONS[action]} ${COACH_ACTION_LABELS[action]}`;
+}
+
+const ACTION_LOADING: Record<CoachAction, string> = {
+  check: 'Checking your sentence…',
+  explain: 'Explaining your sentence…',
+  translate: 'Translating your sentence…',
+};
 
 function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disabled }: {
   hanzi: string;
@@ -230,6 +255,52 @@ function ExplanationBlock({ explanation, showHeader = true }: {
   );
 }
 
+/**
+ * Explain: the translation (instead of Google Translate), then the SAME
+ * word-by-word breakdown as the example sentences' "What's going on here?" —
+ * every word row adds that word as a card — and the whole sentence as a card.
+ */
+function ExplainResultBlock({ breakdown, onAdd, offlineNote, disabled = false }: {
+  breakdown: CoachBreakdown;
+  onAdd: (chunk: Chunk) => void;
+  /** Shown when this is the device's saved copy (offline). */
+  offlineNote?: string;
+  disabled?: boolean;
+}) {
+  const sentenceCard = breakdownSentenceCard(breakdown);
+  return (
+    <div className="coach-explain" data-testid="coach-explain-result">
+      <div className="card">
+        <span className="coach-badge coach-badge-explain">🔍 Explained</span>
+        {offlineNote && <div className="coach-explain-offline">{offlineNote}</div>}
+        <div className="coach-corrected-hanzi" lang="zh">{breakdown.hanzi}</div>
+        {breakdown.pinyin && <div className="coach-corrected-pinyin">{breakdown.pinyin}</div>}
+        {breakdown.translation && <div className="coach-corrected-english coach-explain-translation">{breakdown.translation}</div>}
+      </div>
+      <div className="card mt-3">
+        <div className="coach-explain-head">
+          <h3>Word by word</h3>
+          {!disabled && <span className="coach-explain-tip">Tap a word to add it as a card</span>}
+        </div>
+        <SentenceWordBreakdown
+          explanation={breakdown}
+          disabled={disabled}
+          onWord={(w) => onAdd({ hanzi: w.hanzi, pinyin: w.pinyin, english: w.gloss })}
+        />
+        <button
+          type="button"
+          className="btn btn-secondary btn-block coach-explain-add-sentence"
+          disabled={disabled || !sentenceCard.english}
+          onClick={() => onAdd(sentenceCard)}
+          data-testid="coach-add-sentence"
+        >
+          + Add whole sentence as card
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TranslationBlock({ translation }: { translation: SentenceTranslation }) {
   return (
     <>
@@ -270,6 +341,7 @@ function parseAnalysis(content: string): CoachAnalysis | null {
   try {
     const parsed = JSON.parse(content) as CoachAnalysis;
     if (parsed && (parsed.kind === 'chinese' || parsed.kind === 'english')) return parsed;
+    if (parsed && parsed.kind === 'explain' && Array.isArray(parsed.breakdown?.words)) return parsed;
     return null;
   } catch {
     return null;
@@ -319,7 +391,7 @@ function ToolResultChips({ results }: { results: CoachToolResult[] }) {
   );
 }
 
-function CoachMessageView({ message }: { message: CoachMessage }) {
+function CoachMessageView({ message, onAdd }: { message: CoachMessage; onAdd: (chunk: Chunk) => void }) {
   if (message.role === 'user') {
     return <div className="coach-bubble coach-bubble-user">{message.content}</div>;
   }
@@ -328,6 +400,13 @@ function CoachMessageView({ message }: { message: CoachMessage }) {
     const analysis = parseAnalysis(message.content);
     if (!analysis) {
       return <div className="coach-bubble coach-bubble-assistant">{message.content}</div>;
+    }
+    if (analysis.kind === 'explain') {
+      return (
+        <div className="coach-analysis">
+          <ExplainResultBlock breakdown={analysis.breakdown} onAdd={onAdd} />
+        </div>
+      );
     }
     if (analysis.kind === 'chinese') {
       return (
@@ -381,8 +460,10 @@ export function SentenceCoachPage() {
   const queryClient = useQueryClient();
   const conversationId = searchParams.get('c');
 
-  // ?text= starts a conversation at once (widget / text selection); ?draft= only fills the box
-  // (study card ⋯ → Sentence coach), and ?focus=1 puts the cursor in it with the keyboard up.
+  // ?text= (text selection) translates English at once; Chinese lands in the box with the
+  // Check / Explain buttons, since only the learner knows which one they want. ?draft= only fills
+  // the box (study card ⋯ → Sentence coach), and ?focus=1 (the widget's ✏️) puts the cursor in it
+  // with the keyboard up — both land on the two-button state without sending.
   const [sentence, setSentence] = useState(() => searchParams.get('text') ?? searchParams.get('draft') ?? '');
   const navigate = useNavigate();
   // Opened from a study card: "← Back to your card" returns to it (it is kept as it was).
@@ -416,8 +497,26 @@ export function SentenceCoachPage() {
     enabled: !!conversationId,
   });
 
+  // Explain's result the device already had, shown when the coach can't be reached.
+  const [savedBreakdown, setSavedBreakdown] = useState<CoachBreakdown | null>(null);
+  const [adding, setAdding] = useState<Chunk | null>(null);
+
   const startMutation = useMutation({
-    mutationFn: (text: string) => startCoachConversation(text),
+    mutationFn: async ({ text, action }: { text: string; action: CoachAction }) => {
+      if (action !== 'explain') return startCoachConversation(text, action);
+      // Explain is the same brief breakdown as the example sentences' "What's going on here?",
+      // cached by its text on this device: send the saved one (the server stores it, no Claude
+      // call) and keep what comes back, so a second look works offline.
+      const cached = await getCachedTextExplanation(text);
+      const res = await startCoachConversation(text, action, cached?.translation ? cached : null);
+      const analysis = res.messages.find((m) => m.content_type === 'analysis');
+      const parsed = analysis ? parseAnalysis(analysis.content) : null;
+      if (parsed?.kind === 'explain') {
+        const { hanzi: _h, pinyin: _p, ...explanation } = parsed.breakdown;
+        void cacheTextExplanation(text, explanation);
+      }
+      return res;
+    },
     // Starting only analyses and saves, so a retry is safe: once more on a
     // dropped connection or a busy-server 5xx (the server already retried Claude).
     retry: (failures, err) => failures < 1 && isRetryableCoachError(err),
@@ -426,9 +525,30 @@ export function SentenceCoachPage() {
       queryClient.setQueryData(['coach-conversation', res.conversation.id], res);
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
       setSentence('');
+      setSavedBreakdown(null);
       setSearchParams({ c: res.conversation.id });
     },
+    onError: (_err, { text, action }) => {
+      if (action === 'explain') void showSavedBreakdown(text);
+    },
   });
+
+  /** Offline (or the coach unreachable): the breakdown this device already has for the text. */
+  const showSavedBreakdown = async (text: string): Promise<boolean> => {
+    const cached = await getCachedTextExplanation(text);
+    if (!cached) return false;
+    const pinyin = cached.words.map((w) => w.pinyin).filter(Boolean).join(' ');
+    setSavedBreakdown({ hanzi: text, pinyin, ...cached });
+    return true;
+  };
+
+  const runAction = async (action: CoachAction, text = sentence.trim()) => {
+    if (!text || startMutation.isPending) return;
+    setSavedBreakdown(null);
+    // Offline, Explain answers from the device when it can; everything else needs the coach.
+    if (action === 'explain' && typeof navigator !== 'undefined' && navigator.onLine === false && (await showSavedBreakdown(text))) return;
+    startMutation.mutate({ text, action });
+  };
 
   const replyMutation = useMutation({
     mutationFn: ({ id, message }: { id: string; message: string }) => sendCoachMessage(id, message),
@@ -455,14 +575,15 @@ export function SentenceCoachPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['coach-conversations'] }),
   });
 
-  // Deep links (widget / text selection) arrive as /coach?text=...
-  // Language auto-detection decides what happens; start a conversation immediately.
+  // Deep links (text selection) arrive as /coach?text=... English is translated at once;
+  // Chinese (or mixed) waits in the box on the Check / Explain buttons.
   useEffect(() => {
     const text = searchParams.get('text');
     if (text && text.trim() && !autoSubmittedRef.current) {
       autoSubmittedRef.current = true;
       setSentence(text);
-      startMutation.mutate(text.trim());
+      const buttons = coachButtons(text);
+      if (buttons.actions.length === 1) startMutation.mutate({ text: text.trim(), action: buttons.actions[0] });
       setSearchParams({}, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -511,12 +632,12 @@ export function SentenceCoachPage() {
   };
 
   const trimmed = sentence.trim();
-  const inputIsChinese = trimmed ? containsChinese(trimmed) : null;
+  const buttons = coachButtons(sentence);
+  const pendingAction = startMutation.isPending ? startMutation.variables?.action ?? null : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trimmed || startMutation.isPending) return;
-    startMutation.mutate(trimmed);
+    void runAction(buttons.actions[0]);
   };
 
   const handleFollowUp = (e: React.FormEvent) => {
@@ -574,7 +695,7 @@ export function SentenceCoachPage() {
           {data && (
             <div className="coach-messages mt-3">
               {data.messages.map((m) => (
-                <CoachMessageView key={m.id} message={m} />
+                <CoachMessageView key={m.id} message={m} onAdd={setAdding} />
               ))}
 
               {replyMutation.isPending && (
@@ -625,6 +746,7 @@ export function SentenceCoachPage() {
               </button>
             </form>
           )}
+          {adding && <AddChunkModal chunk={adding} onClose={() => setAdding(null)} />}
         </div>
       </div>
     );
@@ -643,8 +765,8 @@ export function SentenceCoachPage() {
         )}
         <h1 className="mb-2">Sentence Coach</h1>
         <p className="text-light mb-4">
-          Type Chinese to get it checked and explained, or English to see how to say it in Chinese.
-          Then keep chatting about it.
+          Wrote something in Chinese? Check it. Reading something? Explain it word by word. Or type
+          English to see how to say it in Chinese. Then keep chatting about it.
         </p>
 
         <div className="card">
@@ -659,57 +781,66 @@ export function SentenceCoachPage() {
                 required
                 rows={3}
               />
-              {inputIsChinese !== null && (
-                <div className="coach-detect-hint">
-                  {inputIsChinese
-                    ? '🇨🇳 Chinese detected — I\'ll check it and explain it'
-                    : '🇬🇧 English detected — I\'ll translate it and explain the translation'}
-                </div>
+              {buttons.hint && (
+                <div className="coach-detect-hint" data-testid="coach-detect-hint">{buttons.hint}</div>
               )}
             </div>
 
             {startMutation.error && (
               <div className="coach-error mb-3" role="alert" data-testid="coach-start-error">
                 {coachErrorText(startMutation.error, "Couldn't reach the coach")}
-                {trimmed && (
-                  <button type="button" className="coach-error-retry" onClick={() => startMutation.mutate(trimmed)}>
+                {trimmed && startMutation.variables && (
+                  <button type="button" className="coach-error-retry" onClick={() => runAction(startMutation.variables!.action, trimmed)}>
                     Try again
                   </button>
                 )}
               </div>
             )}
 
-            <div className="sentence-input-actions">
-              <button
-                type="submit"
-                className="btn btn-primary flex-1"
-                disabled={!trimmed || startMutation.isPending}
-              >
-                {startMutation.isPending ? (
-                  <>
-                    <span className="spinner" style={{ width: '20px', height: '20px' }} />
-                    {inputIsChinese === false ? 'Translating...' : 'Analyzing...'}
-                  </>
-                ) : (
-                  'Send'
-                )}
-              </button>
+            <div className="sentence-input-actions coach-action-buttons" role="group" aria-label="What to do with it">
+              {buttons.actions.map((action) => (
+                <button
+                  key={action}
+                  type="button"
+                  className={`btn flex-1 coach-action-btn coach-action-${action} ${action === 'explain' ? 'btn-secondary' : 'btn-primary'}`}
+                  disabled={!buttons.enabled || startMutation.isPending}
+                  onClick={() => runAction(action)}
+                  data-testid={`coach-action-${action}`}
+                >
+                  {pendingAction === action ? (
+                    <>
+                      <span className="spinner" style={{ width: '20px', height: '20px' }} />
+                      {COACH_ACTION_BUSY[action]}
+                    </>
+                  ) : (
+                    actionLabel(action)
+                  )}
+                </button>
+              ))}
             </div>
           </form>
         </div>
 
-        {startMutation.isPending && (
+        {pendingAction && (
           <div className="card mt-4">
             <div className="sentence-loading">
               <div className="sentence-loading-spinner" />
-              <p>
-                {inputIsChinese === false
-                  ? 'Translating your sentence...'
-                  : 'Checking your sentence...'}
-              </p>
+              <p>{ACTION_LOADING[pendingAction]}</p>
             </div>
           </div>
         )}
+
+        {savedBreakdown && !startMutation.isPending && (
+          <div className="mt-4">
+            <ExplainResultBlock
+              breakdown={savedBreakdown}
+              onAdd={setAdding}
+              disabled={typeof navigator !== 'undefined' && navigator.onLine === false}
+              offlineNote="Saved on this device — the follow-up chat needs a connection."
+            />
+          </div>
+        )}
+        {adding && <AddChunkModal chunk={adding} onClose={() => setAdding(null)} />}
 
         {conversations.length > 0 && (
           <div className="card mt-4">
@@ -722,7 +853,7 @@ export function SentenceCoachPage() {
                   onClick={() => openConversation(conv.id)}
                 >
                   <div className="coach-conv-title">
-                    {conv.input_language === 'zh' ? '🇨🇳' : '🇬🇧'} {conv.title}
+                    {COACH_ACTION_ICONS[conversationAction(conv)]} {conv.title}
                   </div>
                   <div className="coach-conv-meta">
                     {conv.message_count} message{conv.message_count === 1 ? '' : 's'} ·{' '}
@@ -747,7 +878,9 @@ export function SentenceCoachPage() {
         <div className="card mt-4">
           <h3 className="mb-2">How it works</h3>
           <ul style={{ paddingLeft: '1.25rem', color: 'var(--color-text-light)' }}>
-            <li>Chinese input → corrected with a short explanation; English input → translated, with alternatives</li>
+            <li>✏️ Check my sentence → corrected, with a short explanation of what changed</li>
+            <li>🔍 Explain → the translation and every word with pinyin and meaning — tap a word to add it as a card</li>
+            <li>English → translated, with alternatives</li>
             <li>Then one tap: make a card (to the card standard), more examples, other ways to say it, the grammar</li>
             <li>Or ask anything — the coach can also add cards and build a mini lesson</li>
             <li>Conversations are saved, so you can come back and continue</li>

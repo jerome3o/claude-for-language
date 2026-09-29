@@ -51,10 +51,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.CoachAction
+import dev.jeromeswannack.chineselearning.lab.core.CoachActions
+import dev.jeromeswannack.chineselearning.lab.core.CoachBreakdownWord
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto
+import dev.jeromeswannack.chineselearning.lab.data.api.CoachBreakdownDto
+import dev.jeromeswannack.chineselearning.lab.ui.study.AddChunkSheet
+import dev.jeromeswannack.chineselearning.lab.ui.study.Chunk
+import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
+import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceBreakdown
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachExplanationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachLine
@@ -82,17 +91,38 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 data class CoachHomeUi(
     val draft: String = "",
     val starting: Boolean = false,
+    /** The button that is running (its label says Checking… / Explaining… / Translating…). */
+    val pendingAction: CoachAction? = null,
+    /** The button that failed, for Try again. */
+    val lastAction: CoachAction? = null,
     val startError: String? = null,
+    /** Explain's breakdown saved on this device, shown when the coach can't be reached. */
+    val savedBreakdown: CoachBreakdownDto? = null,
+    val online: Boolean = true,
     val conversations: Loadable<List<CoachConversationDto>> = Loadable(),
 )
 
 data class CoachHomeActions(
     val onBack: (() -> Unit)? = null,
     val onDraft: (String) -> Unit = {},
-    val onSend: () -> Unit = {},
+    val onAction: (CoachAction) -> Unit = {},
     val onOpen: (String) -> Unit = {},
     val onDelete: (String) -> Unit = {},
+    /** Add a word / the sentence from a saved Explain result (the study card's AddChunkSheet). */
+    val cards: SentenceActions = SentenceActions(),
 )
+
+private val ACTION_LOADING = mapOf(
+    CoachAction.CHECK to "Checking your sentence…",
+    CoachAction.EXPLAIN to "Explaining your sentence…",
+    CoachAction.TRANSLATE to "Translating your sentence…",
+)
+
+/** "✏️ Check my sentence", "🔍 Explain", "Translate" — the web's button labels. */
+internal fun CoachAction.buttonLabel() = if (this == CoachAction.TRANSLATE) label else "$icon $label"
+
+/** Test tags on the home buttons. */
+fun coachActionTag(a: CoachAction) = "coach-action-" + a.id
 
 /** `/coach` — the web's SentenceCoachPage home view. [autoFocus]: focus the sentence box and raise the keyboard. */
 @Composable
@@ -112,11 +142,12 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
         }
     }
     val trimmed = ui.draft.trim()
-    val isChinese = if (trimmed.isEmpty()) null else CoachRules.containsChinese(trimmed)
+    val buttons = CoachActions.buttons(ui.draft)
+    var adding by remember { mutableStateOf<Chunk?>(null) }
     LabScreen("Sentence Coach", onBack = actions.onBack) {
         item {
             Text(
-                "Type Chinese to get it checked and explained, or English to see how to say it in Chinese. Then keep chatting about it.",
+                "Wrote something in Chinese? Check it. Reading something? Explain it word by word. Or type English to see how to say it in Chinese. Then keep chatting about it.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Lab.colors.muted,
             )
@@ -133,27 +164,29 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Lab.colors.background, unfocusedContainerColor = Lab.colors.background),
                     modifier = Modifier.fillMaxWidth().focusRequester(inputFocus),
                 )
-                if (isChinese != null) {
-                    Text(
-                        if (isChinese) "🇨🇳 Chinese detected — I'll check it and explain it" else "🇬🇧 English detected — I'll translate it and explain the translation",
-                        fontSize = 13.sp,
-                        color = Lab.colors.muted,
-                    )
+                buttons.hint?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
+                ui.startError?.let {
+                    val retry = ui.lastAction?.takeIf { a -> a in buttons.actions } ?: buttons.actions.first()
+                    InlineNotice(it, kind = NoticeKind.Error, actionLabel = if (trimmed.isNotEmpty()) "Try again" else null, onAction = { actions.onAction(retry) })
                 }
-                ui.startError?.let { InlineNotice(it, kind = NoticeKind.Error, actionLabel = if (trimmed.isNotEmpty()) "Try again" else null, onAction = actions.onSend) }
-                PrimaryPill(
-                    when {
-                        !ui.starting -> "Send"
-                        isChinese == false -> "Translating…"
-                        else -> "Analyzing…"
-                    },
-                    Modifier.fillMaxWidth().height(56.dp),
-                    enabled = trimmed.isNotEmpty() && !ui.starting,
-                    onClick = actions.onSend,
-                )
+                // Chinese / mixed: Check my sentence + Explain; English: Translate (shared/coach).
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    for (a in buttons.actions) {
+                        val label = if (ui.pendingAction == a) a.busy else a.buttonLabel()
+                        val enabled = buttons.enabled && !ui.starting
+                        // "Check my sentence" is the longer label: it gets the wider share so it stays on one line.
+                        val share = if (buttons.actions.size > 1 && a == CoachAction.CHECK) 1.5f else 1f
+                        CoachActionPill(label, primary = a != CoachAction.EXPLAIN, enabled = enabled, modifier = Modifier.weight(share).heightIn(min = 56.dp).testTag(coachActionTag(a))) { actions.onAction(a) }
+                    }
+                }
             }
         }
-        if (ui.starting) item { ThinkingCard(if (isChinese == false) "Translating your sentence…" else "Checking your sentence…") }
+        ui.pendingAction?.let { a -> item { ThinkingCard(ACTION_LOADING.getValue(a)) } }
+        ui.savedBreakdown?.let { b ->
+            if (!ui.starting) item(key = "saved-breakdown") {
+                ExplainResult(b, enabled = ui.online, offlineNote = "Saved on this device — the follow-up chat needs a connection.", onAdd = { adding = it })
+            }
+        }
         val list = ui.conversations.data.orEmpty()
         if (ui.conversations.offline && ui.conversations.hasData) item { OfflineNotice(updatedAt = ui.conversations.updatedAt) }
         if (list.isNotEmpty()) {
@@ -166,7 +199,7 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("${if (conv.input_language == "zh") "🇨🇳" else "🇬🇧"} ${conv.title}", color = Lab.colors.ink, fontSize = 16.sp, maxLines = 2)
+                        Text("${CoachActions.conversationAction(conv.action, conv.input_language).icon} ${conv.title}", color = Lab.colors.ink, fontSize = 16.sp, maxLines = 2)
                         Text("${conv.message_count} message${if (conv.message_count == 1) "" else "s"} · ${shortDate(conv.updated_at)}", color = Lab.colors.muted, fontSize = 13.sp)
                     }
                     Box(Modifier.size(44.dp).clip(CircleShape).clickable { confirmDelete = conv }, contentAlignment = Alignment.Center) { Text("🗑", fontSize = 18.sp) }
@@ -177,7 +210,9 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
             Card {
                 Text("How it works", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
                 listOf(
-                    "Chinese input → corrected with a short explanation; English input → translated, with alternatives",
+                    "✏️ Check my sentence → corrected, with a short explanation of what changed",
+                    "🔍 Explain → the translation and every word with pinyin and meaning — tap a word to add it as a card",
+                    "English → translated, with alternatives",
                     "Then one tap: make a card (to the card standard), more examples, other ways to say it, the grammar",
                     "Or ask anything — the coach can also add cards and build a mini lesson",
                     "Conversations are saved, so you can come back and continue",
@@ -189,6 +224,7 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
     confirmDelete?.let { c ->
         ConfirmDialog("Delete this conversation?", c.title, "Delete", onConfirm = { confirmDelete = null; actions.onDelete(c.id) }, onDismiss = { confirmDelete = null }, danger = true)
     }
+    adding?.let { chunk -> AddChunkSheet(chunk, preferredDeck = "", actions.cards, onDismiss = { adding = null }) }
 }
 
 internal fun shortDate(ts: String): String = runCatching {
@@ -218,6 +254,8 @@ data class CoachChatActions(
     val onSend: (String) -> Unit = {},
     val onDeck: (String) -> Unit = {},
     val onRetryLoad: () -> Unit = {},
+    /** Explain's word rows / whole sentence → a card (the study card's AddChunkSheet). */
+    val cards: SentenceActions = SentenceActions(),
 )
 
 /** `/coach?c=<id>` — the conversation: the analysis, the chat, quick actions, the follow-up box. */
@@ -227,6 +265,7 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
     val messages = thread?.messages.orEmpty()
     val sentence = messages.firstOrNull { it.content_type == "analysis" }?.let { CoachAnalysisDto.parse(it.content)?.sentence }
     val listState = rememberLazyListState()
+    var adding by remember { mutableStateOf<Chunk?>(null) }
     val count = messages.size + (if (ui.pendingMessage != null) 2 else 0) + (if (ui.sendError != null) 1 else 0)
     LaunchedEffect(count) { if (count > 2) listState.animateScrollToItem(maxOf(0, count - 1)) }
 
@@ -243,7 +282,7 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
                     else InlineNotice(ui.thread.error ?: "Couldn't load this conversation.", kind = if (ui.thread.offline) NoticeKind.Offline else NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRetryLoad)
                 }
             }
-            items(messages, key = { it.id }) { m -> MessageView(m) }
+            items(messages, key = { it.id }) { m -> MessageView(m, ui.online) { adding = it } }
             ui.pendingMessage?.let { p ->
                 item(key = "pending-user") { UserBubble(p) }
                 item(key = "pending") { ThinkingBubble() }
@@ -274,6 +313,7 @@ fun CoachChatScreen(ui: CoachChatUi, actions: CoachChatActions) {
         }
     }
     }
+    adding?.let { chunk -> AddChunkSheet(chunk, preferredDeck = ui.deckId.orEmpty(), actions.cards, onDismiss = { adding = null }) }
 }
 
 @Composable
@@ -308,11 +348,11 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
 }
 
 @Composable
-private fun MessageView(m: CoachMessageDto) {
+private fun MessageView(m: CoachMessageDto, online: Boolean, onAdd: (Chunk) -> Unit) {
     if (m.role == "user") return UserBubble(m.content)
     if (m.content_type == "analysis") {
         val a = CoachAnalysisDto.parse(m.content)
-        if (a != null) return AnalysisView(a)
+        if (a != null) return AnalysisView(a, online, onAdd)
     }
     Column(Modifier.fillMaxWidth(0.94f).clip(RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)).padding(14.dp)) {
         MarkdownText(m.content)
@@ -358,7 +398,8 @@ private fun ToolChip(r: CoachToolResultDto) {
 }
 
 @Composable
-private fun AnalysisView(a: CoachAnalysisDto) {
+private fun AnalysisView(a: CoachAnalysisDto, online: Boolean, onAdd: (Chunk) -> Unit) {
+    if (a.kind == "explain" && a.breakdown != null) return ExplainResult(a.breakdown, enabled = online, onAdd = onAdd)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (a.kind == "chinese" && a.coach != null) {
             val r = a.coach
@@ -378,6 +419,58 @@ private fun AnalysisView(a: CoachAnalysisDto) {
                 t.usage_note?.let { MarkdownText(it, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)) }
             }
             Alternatives(t.alternatives)
+        }
+    }
+}
+
+/** A home button: the kit's pill look (filled accent / outlined) with tighter padding, so two fit side by side. */
+@Composable
+private fun CoachActionPill(label: String, primary: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(20.dp)
+    val fg = if (primary) Color.White else Lab.colors.accent
+    Box(
+        modifier
+            .bouncyClickable(enabled, 0.95f, onClick = onClick)
+            .clip(shape)
+            .then(if (primary) Modifier.background(Lab.colors.accent) else Modifier.border(1.5.dp, Lab.colors.accent.copy(alpha = 0.5f), shape))
+            .alpha(if (enabled) 1f else 0.5f)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+/** Test tag on Explain's "+ Add whole sentence as card". */
+const val COACH_ADD_SENTENCE_TAG = "coach-add-sentence"
+
+/**
+ * Explain (the web's ExplainResultBlock): the translation — used instead of Google Translate — then
+ * the SAME one-word-per-row breakdown as the study card's "What's going on here?" (every row adds
+ * that word as a card) and the whole sentence as a card, its fun_facts glossing every word.
+ */
+@Composable
+internal fun ExplainResult(b: CoachBreakdownDto, enabled: Boolean, onAdd: (Chunk) -> Unit, offlineNote: String? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card {
+            Badge("🔍 Explained", Palette.Secondary)
+            offlineNote?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
+            Text(b.hanzi, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+            if (b.pinyin.isNotBlank()) Text(b.pinyin, fontSize = 16.sp, color = Lab.colors.accent)
+            b.translation?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 17.sp, color = Lab.colors.ink.copy(alpha = 0.85f)) }
+        }
+        Card {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Word by word", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+                if (enabled) Text("Tap a word to add it as a card", fontSize = 12.sp, color = Lab.colors.muted)
+            }
+            SentenceBreakdown(b.asExplanation().copy(translation = null), enabled = enabled, onWord = { w -> onAdd(Chunk(w.hanzi, w.pinyin, w.gloss)) })
+            val card = CoachActions.sentenceCard(b.hanzi, b.pinyin, b.translation, b.words.map { CoachBreakdownWord(it.hanzi, it.pinyin, it.gloss) }, b.construction)
+            SecondaryPill(
+                "+ Add whole sentence as card",
+                Modifier.fillMaxWidth().padding(top = 6.dp).height(48.dp).testTag(COACH_ADD_SENTENCE_TAG),
+                enabled = enabled && card.english.isNotEmpty(),
+            ) { onAdd(Chunk(card.hanzi, card.pinyin, card.english, card.funFacts)) }
         }
     }
 }

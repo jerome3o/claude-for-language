@@ -15,6 +15,7 @@ import { fetchNoteSentences, deleteNoteSentenceSet, API_BASE } from '../api/clie
 import { useNoteAudio } from '../hooks/useAudio';
 import { useNetwork } from '../contexts/NetworkContext';
 import { AddChunkModal, Chunk } from './AddChunkModal';
+import { SentenceWordBreakdown } from './SentenceWordBreakdown';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
@@ -281,30 +282,10 @@ export function SentenceSet({
     const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
     if (!state || state === 'error') return null;
     return (
-      <div className="sentence-set-explanation">
-        {/* Each word is tappable: the breakdown doubles as the old
-            tap-a-word-to-make-a-card affordance. */}
-        <ul className="sentence-set-words">
-          {state.words.map((word, i) => (
-            <li key={i}>
-              <button
-                className="sentence-set-word"
-                onClick={() =>
-                  setAddingChunk({ hanzi: word.hanzi, pinyin: word.pinyin, english: word.gloss })
-                }
-                title="Add this word as a card"
-              >
-                <span className="hanzi">{word.hanzi}</span>
-                <span className="sentence-set-word-pinyin">{word.pinyin}</span>
-                <span className="sentence-set-word-gloss">{word.gloss}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {state.construction && (
-          <p className="sentence-set-construction">{state.construction}</p>
-        )}
-      </div>
+      <SentenceWordBreakdown
+        explanation={state}
+        onWord={(word) => setAddingChunk({ hanzi: word.hanzi, pinyin: word.pinyin, english: word.gloss })}
+      />
     );
   };
 

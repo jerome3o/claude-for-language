@@ -747,7 +747,7 @@ later.
 - `GET /api/sentences/changes?since=` - Offline sync: every sentence changed since a timestamp
 - `POST /api/sentences/prefetch` - Queue background generation (`{ note_ids?, limit? }`, default 20/call)
 - `POST /api/sentences/:id/explain` - Brief breakdown of one sentence (cached on the row)
-- `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the card's own clue)
+- `POST /api/sentences/explain-text` - Same breakdown for a sentence with no row (the card's own clue); breakdowns carry a one-line `translation` (Haiku via `structuredCall`; 503 retryable / 502 declined)
 - `GET /api/sentences/stats` - Coverage + background-job state, for the settings overview
 - `POST /api/sentences/clue-audio` - Backfill TTS for card sentences that have none (`{ limit? }`, default 50, max 250; queued one per message)
 
@@ -801,10 +801,20 @@ WAV). **Fallback**: no key, the mint fails, the socket errors, empty text or a 4
 - `POST /api/sentence/explain` - Thoroughly explain a Chinese sentence
 
 ### Sentence Coach conversations (page at `/coach`, supports `?text=` deep link)
-The Coach page auto-detects input language: Chinese → `coachSentence` (correction + 1–3 sentence critique + up to 2
-alternatives), English → `translateSentence` (recommended translation + up to 2 alternatives + usage note). Both first
-replies are deliberately LEAN (Sonnet, ~900 output tokens) so the answer comes back fast; nothing is added to a deck from
-the analysis itself. Everything deeper is one tap away: **quick-action chips** under the conversation
+The Coach page offers buttons by what is in the box (`coachButtons` in `shared/coach/actions.ts`, Lab port
+`core/…/CoachActions.kt`, parity-tested): Chinese or mixed → **✏️ Check my sentence** (`coachSentence`: correction + 1–3
+sentence critique + up to 2 alternatives) and **🔍 Explain** (instead of Google Translate: `explainSentenceBriefly`, the
+SAME Haiku breakdown as the example sentences' "What's going on here?" — now with a one-line `translation` — rendered by
+the same component, `components/SentenceWordBreakdown.tsx` / Lab `SentenceBreakdown`: one word per row, each row adds that
+word as a card through `AddChunkModal`, plus "+ Add whole sentence as card" whose fun_facts gloss every word,
+`breakdownSentenceCard`); English → **Translate** (`translateSentence`: recommended translation + up to 2 alternatives +
+usage note); empty → the two Chinese buttons disabled. The widget's `?focus=1`, the study card's `?draft=` and a Chinese
+`?text=` land on the buttons without sending; an English `?text=` translates at once. `POST /api/coach/conversations`
+takes `action` (check | explain | translate; none = the old auto-detect, `resolveCoachAction`) and, for explain, the
+breakdown the device has cached (stored as is, no Claude call); the action is recorded in `coach_conversations.action`
+(migration 0084) and the analysis is `{ kind: 'explain', breakdown }`. Explain results are cached by text with the card
+clue's breakdowns (`sentenceTextExplanations` / Lab `study/explain-text/<hanzi>`) and shown from there offline. The
+first replies are deliberately LEAN so the answer comes back fast; nothing is added to a deck from the analysis itself. Everything deeper is one tap away: **quick-action chips** under the conversation
 (`QUICK_ACTIONS` in `pages/SentenceCoachPage.tsx`: Make a card · Card for the whole sentence · More examples · Other
 ways to say it · Explain the grammar, plus a "Cards go to" deck picker) send a prepared message into the follow-up chat,
 where `coachChatWithTools` has `CARD_STANDARD` in its prompt and the tools. Every `create_flashcards` tool (Ask Claude,
@@ -813,7 +823,7 @@ hanzi / pinyin / english / fun_facts (required) + sentence_clue (+ pinyin, trans
 fields the content service validates, so a coach-made card is a full standard card, never the critique as fun_facts.
 Conversations persist (`coach_conversations` / `coach_messages` tables); the chat's tools are create_flashcards,
 create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overall_stats.
-- `POST /api/coach/conversations` - Start a conversation from a sentence (auto-detects language, runs analysis)
+- `POST /api/coach/conversations` - Start a conversation from a sentence: `{ text, action?: check|explain|translate, explanation? }` (no action = auto-detect; 400 for check / explain without Chinese)
 - `GET /api/coach/conversations` - List conversations
 - `GET /api/coach/conversations/:id` - Get conversation with messages
 - `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools)

@@ -417,3 +417,106 @@
   margin-bottom: 0.75rem;
   min-height: 44px;
 }
+
+/* ============ Check my sentence / Explain (Chinese) · Translate (English) ============ */
+.coach-action-buttons {
+  flex-wrap: wrap;
+}
+
+.coach-action-btn {
+  min-height: 48px;
+  min-width: 9rem;
+  font-weight: 600;
+}
+
+/* ============ Explain: translation + the "What's going on here?" breakdown ============ */
+.coach-badge-explain {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.coach-explain-offline {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin-bottom: 0.5rem;
+}
+
+.coach-explain-translation {
+  font-size: 1.0625rem;
+  margin-top: 0.25rem;
+}
+
+.coach-explain-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.25rem;
+}
+
+.coach-explain-head h3 {
+  margin: 0;
+}
+
+.coach-explain-tip {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+/* Same component as the study card's breakdown; here it is the main content, so it reads larger
+   and each word row is a full 44px touch target. */
+.coach-explain .sentence-set-explanation {
+  padding: 0.25rem 0.375rem;
+}
+
+.coach-explain .sentence-set-words {
+  gap: 0.25rem;
+}
+
+.coach-explain .sentence-set-word {
+  min-height: 44px;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  font-size: 1rem;
+  padding: 0.5rem 0.5rem;
+  border-radius: 8px;
+}
+
+/* Hanzi in its own column; a long meaning wraps inside its column, not under the hanzi. */
+.coach-explain .sentence-set-word-pinyin {
+  flex: 0 0 auto;
+}
+
+.coach-explain .sentence-set-word-gloss {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.coach-explain .sentence-set-words li {
+  font-size: 1rem;
+}
+
+.coach-explain .sentence-set-words .hanzi {
+  font-size: 1.3rem;
+  min-width: 4rem;
+}
+
+.coach-explain .sentence-set-word:active:not(:disabled) {
+  background-color: var(--color-border);
+}
+
+.coach-explain .sentence-set-word:disabled {
+  cursor: default;
+}
+
+.coach-explain .sentence-set-construction {
+  font-size: 0.9375rem;
+  padding: 0 0.5rem;
+}
+
+.coach-explain-add-sentence {
+  margin-top: 0.75rem;
+  min-height: 44px;
+}

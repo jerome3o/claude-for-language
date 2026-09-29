@@ -262,6 +262,12 @@
   z-index: 50;
 }
 
+/* "Add as card" can open on a page with the tab bar and the feedback button (the Sentence
+   Coach): the sheet sits above both so its deck list and buttons are reachable. */
+.rp-modal-backdrop.add-chunk-backdrop {
+  z-index: 600;
+}
+
 .rp-modal {
   background: #fff;
   border-radius: 16px 16px 0 0;

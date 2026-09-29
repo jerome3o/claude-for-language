@@ -41,4 +41,21 @@ object CoachSamples {
     )
 
     val decks = listOf(CoachDeck("d1", "HSK 3 · Plans & time"), CoachDeck("d2", "Food & ordering"))
+
+    /** Explain: the translation + the brief breakdown, as the worker stores it (kind "explain"). */
+    const val ANALYSIS_EXPLAIN = """{"kind":"explain","breakdown":{"hanzi":"这场比赛我们不能输。","pinyin":"zhè chǎng bǐsài wǒmen bù néng shū",
+"translation":"We can't lose this match.",
+"words":[{"hanzi":"这","pinyin":"zhè","gloss":"this"},{"hanzi":"场","pinyin":"chǎng","gloss":"measure word for games and matches"},
+{"hanzi":"比赛","pinyin":"bǐsài","gloss":"match, competition"},{"hanzi":"我们","pinyin":"wǒmen","gloss":"we"},
+{"hanzi":"不能","pinyin":"bù néng","gloss":"cannot"},{"hanzi":"输","pinyin":"shū","gloss":"lose"}],
+"construction":"Topic-comment: the object 这场比赛 is fronted as the topic, then subject + 不能 + verb. 不能 (can't / mustn't), not 没有."}}"""
+
+    val explainConversation = CoachConversationDto("c4", "这场比赛我们不能输。", "zh", action = "explain", updated_at = "2026-09-29 09:00:00", message_count = 2)
+
+    val explainThread = CoachThreadDto(
+        explainConversation,
+        listOf(CoachMessageDto("x1", "c4", "user", "text", "这场比赛我们不能输。"), CoachMessageDto("x2", "c4", "assistant", "analysis", ANALYSIS_EXPLAIN)),
+    )
+
+    val conversationsWithExplain = listOf(explainConversation) + conversations
 }
