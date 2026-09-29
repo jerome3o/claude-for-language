@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.readers
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -38,6 +39,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -65,14 +68,16 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onRate: (rating: Int
     var rated by remember(session.key) { mutableStateOf(false) }
     val pages = reader.pages
     val last = page == pages.size - 1
+    val scroll = rememberScrollState()
     Column(Modifier.fillMaxSize()) {
+        // The blue progress bar stays pinned under the study top bar; the page scrolls beneath it.
+        PinnedReaderProgress((page + 1f) / pages.size, scrolled = scroll.value > 0)
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
-                Modifier.fillMaxSize().widthIn(max = 720.dp).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+                Modifier.fillMaxSize().widthIn(max = 720.dp).testTag(READER_SCROLL_TAG).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}")
-                ReaderProgress((page + 1f) / pages.size)
                 PagesContent(reader, page, env, scrubber = true)
                 Spacer(Modifier.height(16.dp))
             }
@@ -144,9 +149,10 @@ fun ReaderScreen(reader: GradedReaderDto?, error: String?, env: ReaderEnv, onBac
                 reader == null -> CenterMessage(error ?: "Loading…", spinner = error == null)
                 reader.status == "generating" || reader.pages.isEmpty() -> CenterMessage("Generating your reader…\n${reader.titleEnglish}", spinner = reader.status == "generating")
                 else -> {
-                    Box(Modifier.padding(horizontal = 20.dp)) { ReaderProgress((page + 1f) / reader.pages.size) }
+                    val scroll = rememberScrollState()
+                    PinnedReaderProgress((page + 1f) / reader.pages.size, scrolled = scroll.value > 0)
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                        Column(Modifier.fillMaxSize().widthIn(max = 720.dp).verticalScroll(rememberScrollState()).padding(20.dp)) {
+                        Column(Modifier.fillMaxSize().widthIn(max = 720.dp).testTag(READER_SCROLL_TAG).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 12.dp)) {
                             PagesContent(reader, page, env)
                         }
                     }
@@ -154,6 +160,25 @@ fun ReaderScreen(reader: GradedReaderDto?, error: String?, env: ReaderEnv, onBac
                 }
             }
         }
+    }
+}
+
+/** The reading area's scrolling column (screenshot tests scroll it). */
+const val READER_SCROLL_TAG = "reader-scroll"
+
+/**
+ * The page-progress bar held at the top of a reader, above its scrolling page: the page
+ * (illustration, Chinese, pinyin, translation, audio) scrolls beneath it, never under it.
+ * Once the page has scrolled, a hairline separates the bar from the text passing below.
+ */
+@Composable
+private fun PinnedReaderProgress(fraction: Float, scrolled: Boolean) {
+    val line by animateFloatAsState(if (scrolled) 1f else 0f, tween(160), label = "pinnedLine")
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.fillMaxWidth().widthIn(max = 720.dp).padding(horizontal = 20.dp, vertical = 8.dp)) { ReaderProgress(fraction) }
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).alpha(line).background(Lab.colors.cardBorder))
     }
 }
 

@@ -155,6 +155,7 @@ export function StudyReader({
 }) {
   const [currentPage, setCurrentPage] = useState(0);
   const [startTime] = useState(Date.now());
+  const [scrolled, setScrolled] = useState(false);
 
   const page = reader.pages[currentPage];
   const isLastPage = currentPage === reader.pages.length - 1;
@@ -174,7 +175,24 @@ export function StudyReader({
         </div>
       </div>
 
-      <div className="study-card-content study-reader-content">
+      {/* The blue progress bar is held at the top, under the top bar: the page
+          (illustration, Chinese, audio, pinyin, translation) scrolls beneath it. */}
+      <div
+        className={`study-reader-progress${scrolled ? ' study-reader-progress--scrolled' : ''}`}
+        data-testid="study-reader-progress"
+      >
+        <div className="reader-progress-bar">
+          <div
+            className="reader-progress-fill"
+            style={{ width: `${((currentPage + 1) / reader.pages.length) * 100}%` }}
+          />
+        </div>
+      </div>
+
+      <div
+        className="study-card-content study-reader-content"
+        onScroll={e => setScrolled(e.currentTarget.scrollTop > 0)}
+      >
         <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
           <div style={{ fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             📖 Graded Reader
@@ -183,13 +201,6 @@ export function StudyReader({
           <div className="text-light" style={{ fontSize: '0.8125rem' }}>
             {reader.title_english} · Page {currentPage + 1} of {reader.pages.length}
           </div>
-        </div>
-
-        <div className="reader-progress-bar" style={{ marginBottom: '0.75rem' }}>
-          <div
-            className="reader-progress-fill"
-            style={{ width: `${((currentPage + 1) / reader.pages.length) * 100}%` }}
-          />
         </div>
 
         <StudyReaderPage key={page.id} readerId={reader.id} page={page} />
