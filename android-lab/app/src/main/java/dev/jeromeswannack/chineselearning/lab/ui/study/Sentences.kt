@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,8 +39,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ChipRow
@@ -282,22 +290,12 @@ fun SentenceList(
                             }
                         }
                         explanations[row.key]?.let { ex ->
-                            Column(Modifier.padding(start = 50.dp, end = 10.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                ChipRow {
-                                    for (w in ex.words) {
-                                        Column(
-                                            Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
-                                                .clickable(enabled = online) { adding = Chunk(w.hanzi, w.pinyin, w.gloss) }
-                                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        ) {
-                                            Text(w.hanzi, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
-                                            Text(w.pinyin, color = Lab.colors.accent, style = MaterialTheme.typography.labelSmall)
-                                            Text(w.gloss, color = Lab.colors.muted, style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
-                                }
-                                ex.construction?.takeIf { it.isNotBlank() }?.let { MarkdownText(it, style = MaterialTheme.typography.bodySmall) }
-                            }
+                            SentenceBreakdown(
+                                ex,
+                                enabled = online,
+                                onWord = { w -> adding = Chunk(w.hanzi, w.pinyin, w.gloss) },
+                                modifier = Modifier.padding(start = 50.dp, end = 10.dp, bottom = 10.dp),
+                            )
                         }
                     }
                 }
@@ -311,6 +309,73 @@ fun SentenceList(
         }
         Spacer(Modifier.height(12.dp))
         adding?.let { chunk -> AddChunkSheet(chunk, note.deckId, s, onDismiss = { adding = null }) }
+    }
+}
+
+/** Test tags on a breakdown word's two cells (the row merges them, so tests read the unmerged tree). */
+const val BREAKDOWN_HANZI_TAG = "breakdown-hanzi"
+const val BREAKDOWN_MEANING_TAG = "breakdown-meaning"
+
+/**
+ * "What's going on here?" — port of `renderExplanation` in SentenceSet.tsx (`.sentence-set-words`):
+ * one word per full-width row, stacked top to bottom — the hanzi in its own column (as wide as the
+ * longest word, so every row lines up), then pinyin + meaning, wrapping inside their column — and
+ * the construction paragraph under the list. Each row adds that word as a card; inside the card
+ * back's tap-keeping block it is interactive, so it never flips the card.
+ */
+@Composable
+fun SentenceBreakdown(
+    ex: SentenceExplanation,
+    enabled: Boolean,
+    onWord: (ExplainedWord) -> Unit,
+    modifier: Modifier = Modifier,
+) = Column(
+    modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.card).padding(horizontal = 4.dp, vertical = 6.dp),
+) {
+    val hanziStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium)
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // The hanzi column is as wide as the widest word (web: min-width 3.25rem), capped so a long
+    // phrase can't squeeze the meanings out; a word wider than the cap wraps inside its column.
+    val widest = remember(ex.words, hanziStyle, density) {
+        with(density) { (ex.words.maxOfOrNull { measurer.measure(it.hanzi, hanziStyle, maxLines = 1).size.width } ?: 0).toDp() }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val column = widest.coerceIn(52.dp, maxOf(52.dp, maxWidth * 0.4f))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            for (w in ex.words) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = enabled, onClickLabel = "Add ${w.hanzi} as a card") { onWord(w) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(Modifier.weight(1f)) {
+                        Text(
+                            w.hanzi, style = hanziStyle, color = Lab.colors.ink,
+                            modifier = Modifier.width(column).alignByBaseline().testTag(BREAKDOWN_HANZI_TAG),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(color = Lab.colors.accent)) { append(w.pinyin) }
+                                if (w.pinyin.isNotBlank() && w.gloss.isNotBlank()) append("  ")
+                                withStyle(SpanStyle(color = Lab.colors.ink.copy(alpha = 0.85f))) { append(w.gloss) }
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f).alignByBaseline().testTag(BREAKDOWN_MEANING_TAG),
+                        )
+                    }
+                }
+            }
+        }
+    }
+    ex.construction?.takeIf { it.isNotBlank() }?.let {
+        Spacer(Modifier.height(6.dp))
+        MarkdownText(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
     }
 }
 
