@@ -38,6 +38,7 @@ export function hasEditorBottomBar(pathname: string, viewportWidth: number): boo
 /** Screens where a lesson / card fills the page: the button is kept faint there. */
 export function isStudyLikePath(pathname: string): boolean {
   return pathname === '/study'
+    || pathname === '/tutor-notes/practice'
     || /^\/(decks|library)\/[^/]+\/try\/?$/.test(pathname)
     || /^\/library\/catalogue\/[^/]+\/?$/.test(pathname);
 }

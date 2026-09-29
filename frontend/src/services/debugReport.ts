@@ -79,7 +79,7 @@ export async function buildDebugReport(): Promise<DebugReport> {
       introducedTodayFromEvents(),
       getDueReaders(),
     ]);
-  // The Home screen's Homework card (HomeworkDueCard → useHomeworkItems): same functions.
+  // The Home screen's homework card (HomeworkHomeCard → useHomeworkItems): same functions.
   const homeworkItems = await loadHomeworkItems().then(sortHomeworkItems).catch(() => null);
 
   const bonusAll = readBonus(undefined);

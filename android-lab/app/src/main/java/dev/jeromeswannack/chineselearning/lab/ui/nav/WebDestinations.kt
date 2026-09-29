@@ -23,6 +23,8 @@ object WebDestinations {
         WebDestination("/study", "Study", "🃏", "Today's cards, lessons and story.", 'A'),
         WebDestination("/homework/:id", "Homework pass", "✅", "Go through one piece of homework once, by its due date.", 'E'),
         WebDestination("/homework", "Homework", "✅", "One-off practice from your tutor, with due dates.", 'E'),
+        WebDestination("/tutor-notes/practice", "Practise noted cards", "🗒", "The cards your tutor left notes on, in the study card.", 'A'),
+        WebDestination("/tutor-notes", "Tutor notes", "🗒", "Comments on your recordings and answers to cards you flagged.", 'A'),
         // C — decks
         WebDestination("/decks/:id/try", "Try it as a student", "▶️", "Go through a deck as a student sees it — nothing is recorded.", 'C'),
         WebDestination("/decks/:id", "Deck", "🗂️", "Words, history, settings, paste a list, send to a student.", 'C'),

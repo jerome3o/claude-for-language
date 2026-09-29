@@ -17,6 +17,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.progress.progressGraph
 import dev.jeromeswannack.chineselearning.lab.ui.readers.readersGraph
 import dev.jeromeswannack.chineselearning.lab.ui.settings.settingsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.study.studyGraph
+import dev.jeromeswannack.chineselearning.lab.ui.study.tutorNotesGraph
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.teachingGraph
 import dev.jeromeswannack.chineselearning.lab.ui.strokes.strokesGraph
 import dev.jeromeswannack.chineselearning.lab.ui.quests.questsGraph
@@ -34,6 +35,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.profile.profileGraph
 fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     homeGraph(nav)          // "/"            A study home · F tutor home
     studyGraph(nav)         // "/study"       A
+    tutorNotesGraph(nav)    // "/tutor-notes", "/tutor-notes/practice"  A
     decksGraph(nav)         // "/decks"       C
     progressGraph(nav)      // "/progress"    D
     connectionsGraph(nav)   // "/connections" E (+ F dashboard)

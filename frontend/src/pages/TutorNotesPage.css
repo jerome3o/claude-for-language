@@ -1,0 +1,178 @@
+/* Notes from your tutor (/tutor-notes) + the practice banner. Mobile first. */
+
+.tn-page h1 {
+  margin-bottom: 0.25rem;
+}
+
+.tn-muted {
+  color: var(--color-text-light);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  margin: 0 0 0.75rem;
+}
+
+.tn-hint {
+  color: var(--color-text-light);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  margin: 0.375rem 0 0.25rem;
+  text-align: center;
+}
+
+.tn-practice-all {
+  min-height: 48px;
+}
+
+.tn-section {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.tn-note {
+  margin-bottom: 0.625rem;
+  padding: 0.75rem;
+  border-left: 4px solid var(--color-border);
+}
+
+.tn-note-new {
+  border-left-color: #f59e0b;
+}
+
+.tn-note-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.tn-new-dot {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.tn-word {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  margin: 0.375rem 0;
+  flex-wrap: wrap;
+}
+
+.tn-hanzi {
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.tn-word-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tn-pinyin {
+  color: #c2410c;
+  font-size: 1rem;
+}
+
+.tn-english {
+  font-size: 0.9375rem;
+}
+
+.tn-asked {
+  margin: 0 0 0.375rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.tn-comment {
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-md);
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.tn-from {
+  font-weight: 700;
+  color: #c2410c;
+}
+
+.tn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+}
+
+.tn-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.tn-rec.playing {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.tn-practice {
+  min-height: 44px;
+}
+
+.tn-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.25rem;
+  margin-left: auto;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.tn-empty {
+  text-align: center;
+  color: var(--color-text-light);
+  font-size: 0.9375rem;
+}
+
+.tn-empty div {
+  font-size: 2rem;
+}
+
+/* Practice view: the quiet line under the study top bar */
+.tn-practice-banner {
+  margin: 0 1rem 0.25rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--color-text-light);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.tn-practice-banner.counts {
+  color: #15803d;
+  background: #f0fdf4;
+}
+
+.tn-practice-done {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.tn-practice-done h1 {
+  margin: 0.5rem 0;
+}

@@ -25,6 +25,10 @@ object Routes {
     fun study(deckId: String? = null) = "/study" + query("deck" to deckId)
     fun homework() = "/homework"
     fun homeworkPass(id: String) = "/homework/${seg(id)}"
+    fun tutorNotes() = "/tutor-notes"
+    /** Practise the cards a tutor left notes on (a focused mini session; ids comma-separated). */
+    fun tutorNotesPractice(cardIds: List<String>, noteIds: List<String>) =
+        "/tutor-notes/practice" + query("cards" to cardIds.joinToString(","), "notes" to noteIds.joinToString(","))
 
     // ---- decks (package C) ----
     fun decks(q: String? = null) = DECKS + query("q" to q)

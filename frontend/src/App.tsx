@@ -20,6 +20,8 @@ const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ 
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
 const HomeworkDraftPage = lazy(() => import('./pages/tutor/HomeworkDraftPage').then(m => ({ default: m.HomeworkDraftPage })));
 const HomeworkPage = lazy(() => import('./pages/HomeworkPage').then(m => ({ default: m.HomeworkPage })));
+const TutorNotesPage = lazy(() => import('./pages/TutorNotesPage').then(m => ({ default: m.TutorNotesPage })));
+const TutorNotesPracticePage = lazy(() => import('./pages/TutorNotesPracticePage').then(m => ({ default: m.TutorNotesPracticePage })));
 const HomeworkPassPage = lazy(() => import('./pages/HomeworkPassPage').then(m => ({ default: m.HomeworkPassPage })));
 const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
 const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
@@ -441,6 +443,18 @@ function AppRoutes() {
         }
       />
       <Route path="/homework" element={<ProtectedRoute><Header /><HomeworkPage /></ProtectedRoute>} />
+      <Route path="/tutor-notes" element={<ProtectedRoute><Header /><TutorNotesPage /></ProtectedRoute>} />
+      <Route
+        path="/tutor-notes/practice"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <ErrorBoundary fallbackTitle="Practice interrupted">
+              <TutorNotesPracticePage />
+            </ErrorBoundary>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/homework/:id"
         element={

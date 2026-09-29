@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -105,12 +106,20 @@ fun HomeScreen(
             if (homework != null) item { homework() }
             if (ui.decks.isNotEmpty()) {
                 item {
-                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Your deck queue", style = MaterialTheme.typography.titleSmall, color = Lab.colors.muted, modifier = Modifier.weight(1f))
-                        TextButton(onClick = actions.onAllDecks) { Text("All decks", color = Lab.colors.accent) }
+                        TextButton(onClick = actions.onAllDecks) { Text(if (ui.decks.size > HOME_DECK_LIMIT) "All ${ui.decks.size} decks" else "All decks", color = Lab.colors.accent) }
                     }
                 }
-                items(ui.decks, key = { it.id }) { deck -> DeckRow(deck) { actions.onStudyDeck(deck.id) } }
+                // One compact card of slim rows (web DeckList: the top 5 of the queue).
+                item(key = "deck-queue") {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)) {
+                        ui.decks.take(HOME_DECK_LIMIT).forEachIndexed { i, deck ->
+                            if (i > 0) androidx.compose.material3.HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Lab.colors.faint)
+                            DeckRow(deck) { actions.onStudyDeck(deck.id) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -202,17 +211,21 @@ private fun HeroChip(n: Int, label: String, color: Color) {
     }
 }
 
-/** One deck of the queue with its due counts (Home and the interim Decks tab). */
+/** How many decks Home lists (web HOME_DECK_LIMIT); the rest are one tap away in Decks. */
+const val HOME_DECK_LIMIT = 5
+
+/** One slim row of the deck queue on Home: name, word count, due counts (web DeckList). */
 @Composable
 internal fun DeckRow(deck: DeckSummary, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).clickable(onClick = onClick).padding(16.dp),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(deck.name, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, maxLines = 1)
-            Text("${deck.noteCount} words", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(deck.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            Text("  ${deck.noteCount} words", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1)
         }
+        Spacer(Modifier.width(8.dp))
         val d = deck.due
         if (d.total == 0) {
             Text("✓", color = Palette.Good, fontSize = 18.sp, fontWeight = FontWeight.Bold)

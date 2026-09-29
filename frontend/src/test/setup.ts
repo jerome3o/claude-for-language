@@ -27,6 +27,7 @@ beforeEach(async () => {
   await db.customLessons.clear();
   await db.customLessonCompletionEvents.clear();
   await db.recordingNotes.clear();
+  await db.tutorNotes.clear();
   await db.homeworkAssignments.clear();
   await db.homeworkEvents.clear();
 });

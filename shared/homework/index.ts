@@ -6,3 +6,4 @@ export * from './dedupe';
 export * from './load';
 export * from './plan';
 export * from './items';
+export * from './home';
