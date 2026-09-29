@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
-import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
+import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
@@ -24,6 +24,8 @@ import { explainSentence } from './services/sentence-explain';
 import { translateSentence } from './services/sentence-translate';
 import { generateSentenceSet, sentenceAudioRetryDelay } from './services/sentence-set';
 import { generateQuestWorld } from './services/quest';
+import pictureHuntRoutes from './routes/picture-hunts';
+import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
 import { explainSentenceBriefly } from './services/sentence-explain-brief';
@@ -514,6 +516,8 @@ app.route('/api', studentProfileRoutes);
 
 // Conversation voices: the catalogue, this account's selection, cached voice samples (routes/conversation-voices.ts)
 app.route('/api', conversationVoicesRoutes);
+// Picture hunts: type what you see in a picture (routes/picture-hunts.ts, built on picture-hunt-queue)
+app.route('/api', pictureHuntRoutes);
 
 // ============ Admin Routes ============
 
@@ -6679,7 +6683,7 @@ export default {
   fetch: app.fetch,
 
   // Queue handler for background processing (story, image, and audio lesson generation)
-  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<StoryGenerationMessage | ImageGenerationMessage | CustomLessonImageMessage | LessonImageMessage | SentenceSetMessage | QuestGenerationMessage | PictureHuntJobMessage | CallProcessingMessage | TutorNotesJobMessage>, env: Env): Promise<void> {
     const queueName = batch.queue;
     console.log('[Queue] Processing batch from queue:', queueName, 'with', batch.messages.length, 'messages');
 
@@ -6955,6 +6959,20 @@ export default {
           );
           message.ack(); // The error is recorded; retrying is the learner's call
         }
+      }
+    } else if (queueName === 'picture-hunt-queue') {
+      // Picture hunt: draw / read the picture, find the objects, name them.
+      // runPictureHuntJob records failures on the row itself (retry is the
+      // learner's call, like quests), so every message is acked.
+      for (const message of batch.messages) {
+        const { huntId } = message.body as PictureHuntJobMessage;
+        try {
+          const outcome = await runPictureHuntJob(env, huntId);
+          console.log('[Queue] picture hunt', huntId, outcome);
+        } catch (err) {
+          console.error('[Queue] picture hunt crashed:', huntId, err);
+        }
+        message.ack();
       }
     } else if (queueName === 'tutor-notes-queue') {
       // Session-notes agent: a multi-round tool loop checkpointed in D1. The

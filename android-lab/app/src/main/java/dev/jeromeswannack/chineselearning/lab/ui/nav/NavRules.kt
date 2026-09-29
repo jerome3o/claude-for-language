@@ -62,7 +62,7 @@ object NavRules {
         TabId.MORE, "More", "/more",
         listOf(
             "/more", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
-            "/quests", "/library", "/duplicate-finder", "/admin",
+            "/quests", "/picture-hunt", "/library", "/duplicate-finder", "/admin",
         ),
     )
 
@@ -94,6 +94,7 @@ object NavRules {
     private val IMMERSIVE = listOf(
         Regex("^/study/?$"),
         Regex("^/quests/[^/]+/?$"),
+        Regex("^/picture-hunt/[^/]+/?$"),
         Regex("^/readers/(?!generate$)[^/]+(/(edit|print))?/?$"),
         Regex("^/library/[^/]+/(edit|print|try)/?$"),
         Regex("^/library/catalogue/[^/]+/?$"),

@@ -84,6 +84,19 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
 
+# Queue for picture hunts: draw the picture (or read the upload), find the
+# objects with Gemini, name them with Claude. Several model calls — minutes of
+# wall clock, like quests. Create with: `wrangler queues create picture-hunt-queue`
+[[queues.producers]]
+queue = "picture-hunt-queue"
+binding = "PICTURE_HUNT_QUEUE"
+
+[[queues.consumers]]
+queue = "picture-hunt-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
 # Queue for after-call processing of video calls (experimental): one message
 # per recording piece (assemble chunks + transcribe) and one for the lesson
 # report. Transcription of a few minutes of audio outlives a waitUntil().

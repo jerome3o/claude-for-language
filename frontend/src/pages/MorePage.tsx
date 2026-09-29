@@ -133,6 +133,7 @@ export function MorePage() {
           )}
           <NavRow icon="✍️" label="Write characters (preview)" desc="Stroke order, checked stroke by stroke" to="/practice/strokes" />
           <NavRow icon="🎮" label="Quests" desc="Carry out instructions in a tiny world" to="/quests" />
+          <NavRow icon="🔎" label="Picture hunt" desc="看图找词 · Name what you see in a picture" to="/picture-hunt" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
         </NavSection>
 

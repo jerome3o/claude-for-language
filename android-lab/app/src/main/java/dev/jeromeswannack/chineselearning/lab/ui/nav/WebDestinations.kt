@@ -83,6 +83,8 @@ object WebDestinations {
         WebDestination("/analyze", "Sentence Breakdown", "🔍", "Split any sentence into words.", 'H'),
         WebDestination("/quests/:id", "Quest", "🎮", "Carry out Chinese instructions in a tiny world.", 'H'),
         WebDestination("/quests", "Quests", "🎮", "Carry out instructions in a tiny world.", 'H'),
+        WebDestination("/picture-hunt/:id", "Picture hunt", "🔎", "Type what you see in the picture, in Chinese.", 'H'),
+        WebDestination("/picture-hunt", "Picture hunt", "🔎", "Find and name the things in a picture.", 'H'),
         WebDestination("/practice/strokes", "Write characters", "✍️", "Stroke order, checked stroke by stroke.", 'H'),
         // J — calls
         WebDestination("/calls/:id/review", "Call review", "📹", "Transcript, lesson report and flashcards.", 'J'),

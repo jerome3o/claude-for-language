@@ -3,6 +3,8 @@ import { Env, User } from '../types';
 import { createSession } from '../services/auth';
 import * as tutorJobs from '../db/tutor-notes-queries';
 import * as insightsQ from '../db/insights-queries';
+import * as huntDb from '../db/picture-hunt-queries';
+import type { HuntObject } from '@shared/picture-hunt';
 
 /**
  * Test authentication routes - ONLY enabled when E2E_TEST_MODE=true.
@@ -133,6 +135,27 @@ testAuth.post('/homework-draft', async (c) => {
     steps: [{ at, kind: 'done', text: 'Draft ready for review' }],
   });
   return c.json({ job_id: job.id, lesson_log_id: entry.id });
+});
+
+/**
+ * POST /api/test/picture-hunt — a picture hunt without running the pipeline
+ * (E2E + screenshots). Body: { user_id, title?, status?: ready|generating|error,
+ * progress?, error?, objects?: HuntObject[], image_base64?, mime? }.
+ */
+testAuth.post('/picture-hunt', async (c) => {
+  const b = await c.req.json<{ user_id: string; title?: string; prompt?: string; status?: 'ready' | 'generating' | 'error'; progress?: string; error?: string; objects?: HuntObject[]; image_base64?: string; mime?: string; width?: number; height?: number }>();
+  const id = await huntDb.createPictureHunt(c.env.DB, { userId: b.user_id, title: b.title ?? 'Test hunt', source: 'generated', prompt: b.prompt ?? 'a busy kitchen', deckIds: null });
+  if (b.image_base64) {
+    const ext = b.mime === 'image/jpeg' ? 'jpg' : 'png';
+    const key = huntDb.pictureHuntImageKey(id, ext);
+    await c.env.AUDIO_BUCKET.put(key, Uint8Array.from(atob(b.image_base64), (ch) => ch.charCodeAt(0)), { httpMetadata: { contentType: b.mime ?? 'image/png' } });
+    await huntDb.setPictureHuntImage(c.env.DB, id, key, b.width ?? 800, b.height ?? 600);
+  }
+  const status = b.status ?? 'ready';
+  if (status === 'ready') await huntDb.setPictureHuntReady(c.env.DB, id, b.title ?? 'Test hunt', b.objects ?? []);
+  else if (status === 'error') await huntDb.setPictureHuntError(c.env.DB, id, b.error ?? 'Finding the objects failed (Gemini 503)');
+  if (b.progress) await huntDb.setPictureHuntProgress(c.env.DB, id, b.progress);
+  return c.json({ id });
 });
 
 testAuth.post('/cleanup', async (c) => {

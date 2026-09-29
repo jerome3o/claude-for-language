@@ -8,6 +8,11 @@ export interface Chunk {
   hanzi: string;
   pinyin: string;
   english: string;
+  /** Optional card-standard fields, sent as they are (picture hunt objects carry them). */
+  fun_facts?: string;
+  sentence_clue?: string;
+  sentence_clue_pinyin?: string;
+  sentence_clue_translation?: string;
 }
 
 export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
@@ -53,6 +58,12 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
         hanzi: chunk.hanzi,
         pinyin: chunk.pinyin,
         english: chunk.english,
+        ...(chunk.fun_facts ? { fun_facts: chunk.fun_facts } : {}),
+        ...(chunk.sentence_clue ? {
+          sentence_clue: chunk.sentence_clue,
+          sentence_clue_pinyin: chunk.sentence_clue_pinyin,
+          sentence_clue_translation: chunk.sentence_clue_translation,
+        } : {}),
       });
       setDone(true);
       setTimeout(onClose, 800);

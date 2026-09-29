@@ -82,6 +82,8 @@ object Routes {
     fun analyze() = "/analyze"
     fun quests() = "/quests"
     fun quest(id: String) = "/quests/${seg(id)}"
+    fun pictureHunts() = "/picture-hunt"
+    fun pictureHunt(id: String) = "/picture-hunt/${seg(id)}"
     fun strokes(text: String? = null) = "/practice/strokes" + query("text" to text)
 
     // ---- calls (package J) ----

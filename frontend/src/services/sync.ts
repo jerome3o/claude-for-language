@@ -28,6 +28,7 @@ import { syncRecordingNotes } from './recording-notes';
 import { syncTutorNotes } from './tutorNotes';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
+import { syncPictureHunts } from './pictureHunts';
 import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
 import { syncSentenceSets, topUpSentenceSets } from './sentence-sets';
 import { findGhostDecks } from './deckReconcile';
@@ -771,6 +772,13 @@ class SyncService {
       await uploadLessonAttemptMedia();
     } catch (err) {
       console.error('[Sync] Custom lesson completion upload failed:', err);
+    }
+
+    // Picture hunts: plays up (idempotent by id), finished hunts cached for offline play
+    try {
+      await syncPictureHunts();
+    } catch (err) {
+      console.error('[Sync] Picture hunt sync failed:', err);
     }
 
     // Upload pending recordings
