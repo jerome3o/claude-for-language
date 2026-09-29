@@ -26,8 +26,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-/** The app's singletons (no DI framework — the graph is small). */
-class LabApp : Application() {
+/**
+ * The app's singletons (no DI framework — the graph is small). A WorkManager
+ * [androidx.work.Configuration.Provider], so WorkManager can also start on demand (Robolectric
+ * tests of the study session run the real app, which schedules its upload / hourly workers).
+ */
+class LabApp : Application(), androidx.work.Configuration.Provider {
+    override val workManagerConfiguration: androidx.work.Configuration
+        get() = androidx.work.Configuration.Builder().build()
+
     lateinit var prefs: Prefs
     lateinit var repo: Repository
     lateinit var sounds: Sounds

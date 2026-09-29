@@ -1766,6 +1766,22 @@ export async function markDailyActivity(activity: 'reader', refId?: string): Pro
   });
 }
 
+/** Per-day active study time over every device (`device_ms` = this device's share). */
+export interface StudyTimeDayTotal {
+  date: string;
+  active_ms: number;
+  device_ms: number;
+}
+
+/** Reports this device's running per-day active study time (rows only ever go up). */
+export async function putStudyTime(deviceId: string, days: { date: string; active_ms: number }[]): Promise<StudyTimeDayTotal[]> {
+  const res = await fetchJSON<{ days: StudyTimeDayTotal[] }>('/me/study-time', {
+    method: 'PUT',
+    body: JSON.stringify({ device_id: deviceId, days }),
+  });
+  return res.days;
+}
+
 export async function generatePracticeTTS(
   text: string,
   speed?: number,

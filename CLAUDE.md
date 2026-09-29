@@ -119,6 +119,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   └── index.ts       # Re-exports
 │   ├── calls/             # Video calls: whiteboard ops, WebSocket protocol, transcript merge, video fit / PiP (videoFit.ts), the shared text board CRDT (textDoc.ts), call alerts (alerts.ts), drawing on a shared screen (annotate.ts) (see docs/VIDEO_CALLS.md)
 │   ├── chats/             # groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP)
+│   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts) — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
@@ -311,6 +312,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `assignments` / `assignment_events` - Homework (migration 0073, docs/HOMEWORK.md): what (`kind` deck|lesson|reader + the student's copy `target_id`), `mode` one_off|fsrs|both, `due_date` (student's calendar day), `item_ids` (a deck part's notes), split `part_index/part_count`, `status`/`done_count` recomputed from the student's pass events (right|wrong|done, idempotent by id). NOT the legacy reader-only `homework_assignments` (0024, unused)
 - `student_profiles` - The tutor's PRIVATE profile of a student, one per `tutor_relationships` row (tutor_id, student_id, markdown `body` ≤ 8000, optional `level` / `handwriting` / `words_per_lesson`). Migration 0077. Only the tutor-only route, the dashboard's `has_profile` flag and the tutor-side content agents read it — never a student-facing path. See "Student profile" below
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
+- `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
 - `debug_reports` - Index of study-state debug reports (migration 0075): user, client lab|web, app_version, install_kind, `r2_key` (the JSON is in R2 `debug/<userId>/<id>.json`), size, `summary` JSON; pruned to the newest 20 per user + client. See "Debug reports" below
 - `tutor_relationships` - Tutor-student pairings (requester, recipient, role, status)
 - `conversations` - Chat threads within a tutor-student relationship
@@ -466,7 +468,9 @@ For detailed behavior, see [docs/STUDY_SESSION.md](./docs/STUDY_SESSION.md) — 
 card-back layout (always-visible example sentences, one footer action row **Ask Claude · Edit card · ⋯**, everything else under ⋯ in
 `frontend/src/components/study/`), offline mode (automatic from NetworkContext + a forced
 override, `services/offlineMode.ts`), the 8s multiple-choice fallback (`services/multipleChoice.ts`),
-the exit confirm with recap, and tutor notes on recordings. Study-only styles live in
+"today is the session" (no exit confirm: ✕ just leaves and the same card — revealed, answer,
+recording — comes back; ⋯ → Sentence coach and back; celebrate emptying today's queue once a
+day; active study time per day, `shared/study/`, `PUT /api/me/study-time`), and tutor notes on recordings. Study-only styles live in
 `frontend/src/pages/StudyPage.css`.
 
 **Card Priority:**
@@ -493,7 +497,10 @@ the exit confirm with recap, and tutor notes on recordings. Study-only styles li
    - **Ask Claude** about the word (requires internet, fails gracefully)
    - Rate difficulty (Again/Hard/Good/Easy)
 4. Reviews are saved locally and synced to server in background
-5. Session ends when all learning cards graduate (due tomorrow+) and no new/review cards remain
+5. Today is the session: leaving Study ends nothing and the card on screen comes back as it was
+   (`shared/study/resume.ts`); "All done" appears when all learning cards graduate (due tomorrow+)
+   and no new/review cards remain, celebrated once a day (`shared/study/celebration.ts`) with
+   "Today: 23 min · 142 reviews" (active time, `shared/study/activeTime.ts`)
 6. "Study More" button appears to add 10 bonus new cards beyond daily limit
 
 ### Deck Management
@@ -758,7 +765,8 @@ minutes so a wedged job can't poll forever).
 
 ### Cards & Study
 - `GET /api/cards/due` - Get due cards (optional `?deck_id=`)
-- `POST /api/study/sessions` - Start study session
+- `PUT /api/me/study-time` - `{ device_id, days: [{ date, active_ms }] }` this device's running active study time per local day (rows only go up) → `{ days: [{ date, active_ms, device_ms }] }` over every device; `GET /api/me/study-time?from=&device_id=` the same totals
+- `POST /api/study/sessions` - Start study session (kept for older clients; best-effort, nothing reads it for time)
 - `POST /api/study/sessions/:id/reviews` - Record a review
 - `PUT /api/study/sessions/:id/complete` - Complete session
 

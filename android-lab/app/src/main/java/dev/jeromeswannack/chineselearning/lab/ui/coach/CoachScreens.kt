@@ -99,6 +99,9 @@ data class CoachHomeActions(
 fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boolean = false) {
     var confirmDelete by remember { mutableStateOf<CoachConversationDto?>(null) }
     val inputFocus = remember { FocusRequester() }
+    // The box keeps its own cursor; a draft put in from outside (?draft=, a failed send) lands with the cursor at its end.
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(ui.draft, androidx.compose.ui.text.TextRange(ui.draft.length))) }
+    if (field.text != ui.draft) field = androidx.compose.ui.text.input.TextFieldValue(ui.draft, androidx.compose.ui.text.TextRange(ui.draft.length))
     val keyboard = LocalSoftwareKeyboardController.current
     if (autoFocus) {
         LaunchedEffect(Unit) {
@@ -121,8 +124,8 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boole
         item {
             Card {
                 OutlinedTextField(
-                    value = ui.draft,
-                    onValueChange = actions.onDraft,
+                    value = field,
+                    onValueChange = { field = it; if (it.text != ui.draft) actions.onDraft(it.text) },
                     placeholder = { Text("我昨天去了商店买苹果 — or — How do I say I'm running late?") },
                     minLines = 3,
                     shape = RoundedCornerShape(14.dp),
