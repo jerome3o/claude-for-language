@@ -399,6 +399,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // shown first again — revealed, with its answer — while it is still due today. Checked
   // once per queue load; `resume` is handed to that card's first render only.
   const resumeTriedRef = useRef(false);
+  // The card to resume, decided once: the first-item effect can fire twice while the first
+  // pick is still loading its note, and both picks must land on this card.
+  const resumeTargetRef = useRef<{ point: StudyResumePoint; cardId: string } | null>(null);
   const [resume, setResume] = useState<StudyResumePoint | null>(null);
 
   // Re-entrancy guard for the async reader rating flow
@@ -675,11 +678,15 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       resumeTriedRef.current = true;
       const point = loadResumePoint();
       const id = resumeCardId(point, getLocalDateString(), scope, queue.map(c => c.id));
-      const card = id ? queue.find(c => c.id === id) : undefined;
-      if (point && card && await presentCard(card)) {
-        setResume(point);
-        return;
-      }
+      if (point && id) resumeTargetRef.current = { point, cardId: id };
+    }
+    const target = resumeTargetRef.current;
+    const resumeCard = target ? queue.find(c => c.id === target.cardId) : undefined;
+    if (target && resumeCard) {
+      setResume(target.point); // before the card renders: it reads the point on mount
+      if (await presentCard(resumeCard)) return;
+      resumeTargetRef.current = null;
+      setResume(null);
     }
     const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
 
@@ -812,6 +819,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     // The card is answered: nothing to resume on it any more.
     clearResumePoint(cardId);
+    resumeTargetRef.current = null;
     setResume(null);
 
     // Snapshot everything the review is about to change, so Undo can restore it
@@ -1133,6 +1141,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       againCountByNoteRef.current.delete(noteId);
     }
     clearResumePoint();
+    resumeTargetRef.current = null;
     setResume(null);
     if (snap.mountId === mountIdRef.current) {
       setSessionStats(snap.sessionStats);
