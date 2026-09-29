@@ -8,6 +8,11 @@ import android.graphics.Shader
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -133,6 +138,28 @@ class ReaderScreenshots : LabScreenshotTest() {
         tap("Tap to reveal Chinese"); tap("Tap to reveal pinyin"); tap("Tap to reveal translation")
     }
     @Test fun lastPage() = shootAfter("readers-03-session-rate", session()) { tap("Next"); tap("Next") }
+
+    /** Everything revealed, then scrolled to the bottom of the page: the blue progress bar stays pinned at the top. */
+    private fun revealAndScroll() {
+        tap("Tap to reveal Chinese"); tap("Tap to reveal pinyin"); tap("Tap to reveal translation")
+        compose.onNodeWithTag(READER_SCROLL_TAG).performTouchInput { swipeUp() }
+        compose.mainClock.advanceTimeBy(800)
+        compose.onNodeWithText(pages[0].contentEnglish).performScrollTo()
+    }
+    @Test fun pinnedTop() = shootAfter("readers-17-session-pinned-top", session()) {
+        tap("Tap to reveal Chinese"); tap("Tap to reveal pinyin"); tap("Tap to reveal translation")
+        compose.onNodeWithTag(READER_SCROLL_TAG).performTouchInput { swipeDown() }
+    }
+    @Test fun pinnedScrolled() = shootAfter("readers-18-session-pinned-scrolled", session()) { revealAndScroll() }
+    @Config(fontScale = 1.3f)
+    @Test fun pinnedScrolledLargeText() = shootAfter("readers-19-session-pinned-font-1_3", session()) { revealAndScroll() }
+    @Config(qualifiers = "w915dp-h412dp-land-xxhdpi")
+    @Test fun pinnedScrolledLandscape() = shootAfter("readers-20-session-pinned-landscape", session()) { revealAndScroll() }
+    @Config(qualifiers = UNFOLDED)
+    @Test fun pinnedScrolledUnfolded() = shootAfter("readers-21-session-pinned-unfolded", session()) { revealAndScroll() }
+    @Test fun readingViewScrolled() = shootAfter("readers-22-reader-page-pinned-scrolled", {
+        ReaderScreen(reader, null, env(), onBack = {}, onEdit = {}, onFinish = {})
+    }) { tap("Tap to reveal Chinese"); tap("Tap to reveal pinyin"); tap("Tap to reveal translation"); compose.onNodeWithText(pages[0].contentEnglish).performScrollTo() }
 
     @Test fun readingView() = shoot("readers-04-reader-page") {
         ReaderScreen(reader, null, env(playing = "p1"), onBack = {}, onEdit = {}, onFinish = {})

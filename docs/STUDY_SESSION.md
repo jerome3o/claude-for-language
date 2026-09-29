@@ -193,6 +193,12 @@ there is **one reader a day** (`READERS_PER_DAY` in `frontend/src/services/reade
   nothing is due today** — no unread story, no review or learning repeat due, none read yet.
   A due review *is* the day's reader, so no new story is written that day.
 
+The reader's blue **page-progress bar** is held at the top, right under the study top bar
+(web `.study-reader-progress` in `StudyReader.tsx`, Lab `PinnedReaderProgress` in
+`ui/readers/ReaderScreens.kt`): it sits outside the scrolling page, so the illustration, Chinese,
+audio, pinyin and translation scroll beneath it and never under it; a hairline appears once the
+page has scrolled. The standalone reading view (`/readers/:id`) already kept it above its scroll area.
+
 ### Page audio: phrase blocks and a restart point that follows the audio
 
 Each reader page's narration is a waveform scrubber (web `components/ReaderAudioScrubber.tsx`,

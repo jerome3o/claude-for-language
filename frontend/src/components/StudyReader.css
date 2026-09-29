@@ -12,6 +12,35 @@
   padding: 0.5rem 0;
 }
 
+/* The page-progress bar is held at the top of the reader, outside the
+ * scrolling page, so it never scrolls away and never covers the text.
+ * A hairline appears once the page has scrolled beneath it. Horizontal
+ * padding matches .study-card-content so the bar lines up with the page. */
+.study-reader-progress {
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem 0.5rem;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.study-reader-progress--scrolled {
+  border-bottom-color: var(--color-border, #e5e7eb);
+}
+
+@media (min-width: 400px) {
+  .study-reader-progress {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .study-reader-progress {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
 /* Fixed bottom navigation so Next/Previous are always thumb-reachable */
 .study-reader-nav {
   display: flex;
