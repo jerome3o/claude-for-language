@@ -7,8 +7,7 @@ import { getDecks } from '../api/client';
 import { Loading } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
 import { StudyTodayCard } from '../components/home/StudyTodayCard';
-import { HomeworkCard } from '../components/home/HomeworkCard';
-import { HomeworkDueCard } from '../components/homework/HomeworkDueCard';
+import { HomeworkHomeCard, TutorNotesHomeRow } from '../components/home/HomeworkHomeCard';
 import { DeckList, HOME_DECK_LIMIT } from '../components/home/DeckList';
 import { NextUpLine } from '../components/home/NextUpLine';
 import { moveDeckInQueue } from '../services/deckOrder';
@@ -156,9 +155,9 @@ function StudyHome() {
           onMoreNew={bumpBonus}
         />
 
-        <HomeworkDueCard />
+        <TutorNotesHomeRow />
 
-        <HomeworkCard view={homework} />
+        <HomeworkHomeCard view={homework} />
 
         <section className="card" aria-label="Your decks">
           <div className="home-decks-head">

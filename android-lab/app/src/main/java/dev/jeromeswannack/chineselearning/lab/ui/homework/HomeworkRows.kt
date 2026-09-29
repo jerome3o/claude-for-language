@@ -86,10 +86,10 @@ fun HomeworkRow(item: HomeworkItemView, showTutor: Boolean = false, onOpen: (Str
 
 /** A thin springy progress bar (pass progress, homework rows). */
 @Composable
-fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, color: Color = Palette.Good) {
+fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, color: Color = Palette.Good, height: androidx.compose.ui.unit.Dp = 6.dp) {
     val f by animateFloatAsState(fraction.coerceIn(0f, 1f), spring(dampingRatio = 0.8f, stiffness = 300f), label = "progress")
-    Box(modifier.height(6.dp).clip(RoundedCornerShape(3.dp)).background(Lab.colors.faint)) {
-        Box(Modifier.fillMaxWidth(f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(color))
+    Box(modifier.height(height).clip(RoundedCornerShape(height / 2)).background(Lab.colors.faint)) {
+        Box(Modifier.fillMaxWidth(f).height(height).clip(RoundedCornerShape(height / 2)).background(color))
     }
 }
 
@@ -103,31 +103,3 @@ fun HomeworkList(items: List<HomeworkItemView>, showTutor: Boolean, onOpen: (Str
         }
     }
 }
-
-/**
- * Home: the one-off homework still to do, overdue first, each with its due label (web:
- * HomeworkDueCard). Hidden when nothing is pending. Reads the offline mirror only.
- */
-@Composable
-fun HomeworkDueCard(todo: List<HomeworkItemView>, onOpen: (String) -> Unit, onAll: () -> Unit) {
-    if (todo.isEmpty()) return
-    val overdue = todo.count { it.due.tone == "overdue" }
-    val tutors = todo.mapNotNull { it.assignment.tutor_name?.takeIf { n -> n.isNotEmpty() } }.distinct()
-    Column(Modifier.fillMaxWidth().testTag("homework-due-card"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text("Homework", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Lab.colors.ink)
-            Spacer(Modifier.width(8.dp))
-            if (tutors.size == 1) Text("from ${tutors[0]}", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-            if (overdue > 0) Text(" · $overdue overdue", style = MaterialTheme.typography.bodySmall, color = Palette.Again, fontWeight = FontWeight.SemiBold)
-        }
-        HomeworkList(todo.take(HOME_LIMIT), showTutor = false, onOpen = onOpen)
-        Text(
-            if (todo.size > HOME_LIMIT) "All homework (${todo.size}) →" else "All homework →",
-            color = Lab.colors.accent,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).bouncyClickable(onClick = onAll).padding(vertical = 10.dp, horizontal = 4.dp),
-        )
-    }
-}
-
-private const val HOME_LIMIT = 4

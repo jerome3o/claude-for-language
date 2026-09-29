@@ -86,11 +86,11 @@ test('tutor sends a one-off deck with a due date; the student does the pass; the
 
   // ---- Student: Home shows it with its due label; the pass
   await page.goto(`/?session_token=${student.token}`);
-  const card = page.getByTestId('homework-due-card');
+  const card = page.getByTestId('homework-home-card');
   await expect(card).toBeVisible({ timeout: 60_000 });
   await expect(card).toContainText('Restaurant 点菜');
-  await expect(card.getByTestId('hw-due')).toHaveText('due in 1 day');
-  await card.getByTestId('hw-row').first().click();
+  await expect(card.getByTestId('hw-due')).toHaveText('due tomorrow');
+  await card.getByTestId('home-hw-row').first().click();
 
   await expect(page.getByTestId('hw-pass-card')).toBeVisible();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('0/2');

@@ -104,6 +104,7 @@ object NavRules {
         Regex("^/join/"),
         Regex("^/calls/[^/]+/?$"),
         Regex("^/homework/[^/]+/?$"),
+        Regex("^/tutor-notes/practice/?$"),
     )
 
     fun isImmersiveRoute(path: String): Boolean {

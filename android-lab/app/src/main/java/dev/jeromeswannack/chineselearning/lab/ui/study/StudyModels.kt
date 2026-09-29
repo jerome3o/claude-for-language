@@ -41,6 +41,15 @@ sealed interface StudyPhase {
     data object Done : StudyPhase
 }
 
+/** Practising the cards a tutor left notes on (/tutor-notes/practice): which cards, which notes to pin. */
+data class PracticeSpec(val cardIds: List<String>, val noteIds: List<String>)
+
+/**
+ * The practice mini session's state. [counts] = rating the card on screen writes a review (it is
+ * due today); otherwise it is practice only (core TutorNotesRules.practiceRatingCounts).
+ */
+data class PracticeUi(val counts: Boolean = false, val counted: Int = 0, val practiceOnly: Int = 0)
+
 data class StudyUi(
     val phase: StudyPhase = StudyPhase.Loading,
     val counts: QueueCounts = QueueCounts(0, 0, 0, 0),
@@ -58,6 +67,8 @@ data class StudyUi(
     val extras: CardExtras = CardExtras(),
     /** The one-time "Before your first card" explainer (no review events anywhere yet). */
     val showExplainer: Boolean = false,
+    /** Non-null in the tutor-notes practice (a focused mini session). */
+    val practice: PracticeUi? = null,
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }

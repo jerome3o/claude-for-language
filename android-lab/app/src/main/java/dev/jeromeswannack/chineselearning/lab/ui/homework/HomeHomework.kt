@@ -2,14 +2,22 @@ package dev.jeromeswannack.chineselearning.lab.ui.homework
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,29 +25,35 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.DeckProgressSummary
+import dev.jeromeswannack.chineselearning.lab.core.HomeHomework
+import dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkCard
+import dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkRow
 import dev.jeromeswannack.chineselearning.lab.core.Homework
-import dev.jeromeswannack.chineselearning.lab.core.HomeworkItemView
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.HwDeckSource
 import dev.jeromeswannack.chineselearning.lab.core.HwItem
 import dev.jeromeswannack.chineselearning.lab.core.HwLessonSource
 import dev.jeromeswannack.chineselearning.lab.core.HwMessage
 import dev.jeromeswannack.chineselearning.lab.core.HwPick
 import dev.jeromeswannack.chineselearning.lab.core.HwTutor
+import dev.jeromeswannack.chineselearning.lab.core.LongTermHomework
 import dev.jeromeswannack.chineselearning.lab.core.TutorHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NotificationDto
-import dev.jeromeswannack.chineselearning.lab.data.api.chatConversations
+import dev.jeromeswannack.chineselearning.lab.data.api.RecordingNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.displayName
 import dev.jeromeswannack.chineselearning.lab.data.api.tutor
 import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkKeys
@@ -48,149 +62,217 @@ import dev.jeromeswannack.chineselearning.lab.data.homework.TutorCardSources
 import dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionsKeys
 import dev.jeromeswannack.chineselearning.lab.ui.connections.isUnreadChat
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
-import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
+import dev.jeromeswannack.chineselearning.lab.ui.study.TutorNotes
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Home's "From <tutor>" card (web: HomeworkCard / useHomework). */
-data class TutorCardUi(val pick: HwPick, val progress: DeckProgressSummary?, val wordCount: Int?)
-
-data class HomeHomeworkUi(val todo: List<HomeworkItemView> = emptyList(), val tutorCard: TutorCardUi? = null)
-
-class TutorCardActions(
-    val onReply: (HwPick) -> Unit = {},
-    val onOpenDeck: (String) -> Unit = {},
-    val onOpenLessons: () -> Unit = {},
+/**
+ * What Home shows about the tutor, under the Study button (web HomePage: TutorNotesHomeRow +
+ * HomeworkHomeCard): the "🗒 3 new notes from 明慧老师" row, and ONE compact homework card —
+ * one slim row per active item from the shared rules (core `HomeHomework`, parity-tested).
+ */
+data class HomeHomeworkUi(
+    val card: HomeHomeworkCard = HomeHomeworkCard(emptyList(), 0, "Homework"),
+    /** The newest unread tutor message (a small line in the card). */
+    val unread: HwMessage? = null,
+    val unreadRelId: String? = null,
+    val unreadFrom: String? = null,
+    /** "3 new notes from 明慧老师" while a tutor note is unseen. */
+    val notesLine: String? = null,
 )
 
-/**
- * Everything the study home shows about homework, below the Study button (web HomePage order):
- * the one-off Homework card, then the "From <tutor>" card. Works offline from the mirror.
- */
+class HomeHomeworkActions(
+    /** A row's web path (the pass, the deck, /lessons). */
+    val onOpen: (String) -> Unit = {},
+    val onAll: () -> Unit = {},
+    val onMessage: (HomeHomeworkUi) -> Unit = {},
+    val onNotes: () -> Unit = {},
+)
+
 @Composable
-fun HomeHomeworkSection(ui: HomeHomeworkUi, onOpen: (String) -> Unit, onAll: () -> Unit, cardActions: TutorCardActions) {
+fun HomeHomeworkSection(ui: HomeHomeworkUi, actions: HomeHomeworkActions) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeworkDueCard(ui.todo, onOpen, onAll)
-        ui.tutorCard?.let { TutorHomeworkCard(it, cardActions) }
+        ui.notesLine?.let { TutorNotesRow(it, actions.onNotes) }
+        if (ui.card.rows.isNotEmpty() || ui.unread != null) CompactHomeworkCard(ui, actions)
     }
 }
+
+/** "🗒 3 new notes from 明慧老师 ›" (web TutorNotesHomeRow). */
+@Composable
+fun TutorNotesRow(line: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).clip(RoundedCornerShape(16.dp)).background(Lab.colors.card)
+            .bouncyClickable(onClick = onClick).testTag("home-tutor-notes"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(4.dp).fillMaxHeight().background(NOTES_AMBER))
+        Row(Modifier.weight(1f).heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("🗒", fontSize = 17.sp)
+            Spacer(Modifier.width(10.dp))
+            Text(line, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+            Text("›", fontSize = 22.sp, color = Lab.colors.muted)
+        }
+    }
+}
+
+/** The compact homework card (web HomeworkHomeCard): heading, slim rows, a small unread line. */
+@Composable
+fun CompactHomeworkCard(ui: HomeHomeworkUi, actions: HomeHomeworkActions) {
+    LabCard(Modifier.testTag("homework-home-card")) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(ui.card.heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(
+                if (ui.card.more > 0) "+${ui.card.more} more ›" else "All ›",
+                color = Lab.colors.accent,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).bouncyClickable(onClick = actions.onAll).padding(horizontal = 10.dp, vertical = 10.dp),
+            )
+        }
+        ui.card.rows.forEachIndexed { i, row ->
+            if (i > 0) HorizontalDivider(Modifier.padding(start = 46.dp, end = 16.dp), color = Lab.colors.faint)
+            SlimRow(row) { actions.onOpen(row.route) }
+        }
+        ui.unread?.let { msg ->
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Lab.colors.faint)
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 44.dp).bouncyClickable { actions.onMessage(ui) }.padding(horizontal = 16.dp, vertical = 8.dp).testTag("home-hw-message"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("💬", fontSize = 15.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    msg.text?.let { "“${truncate(it, 48)}”" } ?: "New message from ${ui.unreadFrom ?: "your tutor"}",
+                    style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.size(8.dp).clip(CircleShape).background(Lab.colors.accent))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun SlimRow(row: HomeHomeworkRow, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp).testTag("home-hw-row"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(row.icon, fontSize = 16.sp, modifier = Modifier.width(22.dp), textAlign = TextAlign.Center)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(row.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                if (row.progress.isNotEmpty()) Text(row.progress, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+            }
+            row.fraction?.let { ProgressBar(it.toFloat(), Modifier.fillMaxWidth(), color = HOMEWORK_PURPLE, height = 3.dp) }
+        }
+        if (row.due.isNotEmpty()) {
+            Spacer(Modifier.width(10.dp))
+            Text(
+                row.due,
+                color = if (row.tone == "none") Lab.colors.muted else dueColor(row.tone),
+                fontWeight = if (row.tone == "none") FontWeight.Normal else FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.End,
+                modifier = Modifier.widthIn(min = 76.dp).testTag("hw-due"),
+            )
+        }
+    }
+}
+
+private val NOTES_AMBER = Color(0xFFF59E0B)
+private val HOMEWORK_PURPLE = Color(0xFF8B5CF6)
 
 private fun truncate(text: String, max: Int): String {
     val clean = text.replace(Regex("\\s+"), " ").trim()
     return if (clean.length > max) clean.take(max - 1) + "…" else clean
 }
 
-/** "From <tutor>": the newest deck or lesson a tutor sent, progress in words, Reply and Open. */
-@Composable
-fun TutorHomeworkCard(ui: TutorCardUi, actions: TutorCardActions) {
-    val pick = ui.pick
-    LabCard(Modifier.testTag("tutor-homework-card")) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("From ${pick.tutorName}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Lab.colors.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    "Homework",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Lab.colors.accent,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Lab.colors.accentSoft).padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
-            when (val item = pick.item) {
-                is HwItem.Deck -> {
-                    Text(
-                        item.name + (ui.wordCount?.let { " · $it ${if (it == 1) "word" else "words"}" } ?: ""),
-                        style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, fontWeight = FontWeight.Medium,
-                    )
-                    ui.progress?.let { p ->
-                        ProgressBar(if (p.total > 0) p.started.toFloat() / p.total else 0f, Modifier.fillMaxWidth(), color = Lab.colors.accent)
-                        Text(TutorHomework.describe(p), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-                    }
-                }
-                is HwItem.Lesson -> {
-                    Text("${item.title} · mini lesson", style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, fontWeight = FontWeight.Medium)
-                    Text("Comes up in your next study session.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-                }
-                null -> Text("No deck or lesson from ${pick.tutorName} yet.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-            }
-            pick.unreadMessage?.text?.let { Text("💬 “${truncate(it, 60)}”", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink) }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SecondaryPill(if (pick.unreadMessage != null) "Reply" else "Message", Modifier.weight(1f)) { actions.onReply(pick) }
-                when (val item = pick.item) {
-                    is HwItem.Deck -> SecondaryPill("Open deck", Modifier.weight(1f)) { actions.onOpenDeck(item.deckId) }
-                    is HwItem.Lesson -> SecondaryPill("Open lesson", Modifier.weight(1f)) { actions.onOpenLessons() }
-                    null -> {}
-                }
-            }
-            Text("Decks and lessons your tutor sends you show up here.", style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
-        }
-    }
-}
-
 class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
-    private val todo = HomeworkStore.observe(app.cache).map { data ->
-        data?.let { Homework.sortHomeworkItems(Homework.toHomeworkItems(it.first, it.second, Homework.localDate())).todo } ?: emptyList()
-    }
+    private val notesLine = combine(
+        app.cache.observe<List<RecordingNoteDto>>(TutorNotes.NOTES_KEY),
+        app.cache.observe<Set<String>>(TutorNotes.SEEN_KEY),
+    ) { _, _ -> TutorNotes.homeLine(app.cache) }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val tutorCard = combine(
+    private val card = combine(
+        HomeworkStore.observe(app.cache),
         app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS),
         app.cache.observe<TutorCardSources>(HomeworkKeys.TUTOR_CARD),
         app.cache.observe<List<NotificationDto>>(ConnectionsKeys.NOTIFICATIONS),
         app.repo.dataVersion,
-    ) { rel, sources, notes, _ -> Triple(rel, sources, notes) }.mapLatest { (rel, sources, notes) ->
-        withContext(Dispatchers.IO) { buildCard(rel, sources, notes) }
-    }
+    ) { hw, rel, sources, notes, _ -> Inputs(hw, rel, sources, notes) }.mapLatest { withContext(Dispatchers.IO) { build(it) } }
 
-    val ui: StateFlow<HomeHomeworkUi> = combine(todo, tutorCard) { t, c -> HomeHomeworkUi(t, c) }
+    private data class Inputs(
+        val homework: Pair<List<HomeworkAssignment>, List<dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent>>?,
+        val rel: MyRelationshipsDto?,
+        val sources: TutorCardSources?,
+        val notifications: List<NotificationDto>?,
+    )
+
+    val ui: StateFlow<HomeHomeworkUi> = combine(card, notesLine) { c, line -> c.copy(notesLine = line) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, HomeHomeworkUi())
 
-    private suspend fun buildCard(rel: MyRelationshipsDto?, sources: TutorCardSources?, notes: List<NotificationDto>?): TutorCardUi? {
-        if (rel == null || sources == null) return null
+    /** The legacy "From <tutor>" pick (newest shared deck / lesson + unread message), web useHomework. */
+    private suspend fun pick(rel: MyRelationshipsDto?, sources: TutorCardSources?, notes: List<NotificationDto>?): HwPick? {
+        if (rel == null) return null
         val tutors = rel.tutors.mapNotNull { r ->
             val t = r.tutor() ?: return@mapNotNull null
             HwTutor(r.id, t.id, t.displayName("Your tutor"))
         }
-        val dao = app.repo.dao
-        val decks = dao.decks()
-        val pick = TutorHomework.pick(
+        return TutorHomework.pick(
             tutors = tutors,
-            sharedDecks = sources.sharedDecks.map { HwDeckSource(it.relationship_id, it.target_deck_id, it.shared_at) },
-            lessons = sources.lessons.map { HwLessonSource(it.id, it.title, it.assigned_by, it.assigned_relationship_id, it.created_at, it.status) },
+            sharedDecks = sources?.sharedDecks.orEmpty().map { HwDeckSource(it.relationship_id, it.target_deck_id, it.shared_at) },
+            lessons = sources?.lessons.orEmpty().map { HwLessonSource(it.id, it.title, it.assigned_by, it.assigned_relationship_id, it.created_at, it.status) },
             unreadMessages = notes.orEmpty().filter { it.isUnreadChat() }.map { HwMessage(it.conversation_id!!, it.relationship_id, it.message, it.created_at) },
-            localDecks = decks.associate { it.id to it.name },
-        ) ?: return null
-        if (pick.item == null && pick.unreadMessage == null) return null
-        val deckId = (pick.item as? HwItem.Deck)?.deckId ?: return TutorCardUi(pick, null, null)
-        val cards = dao.cards().filter { it.deckId == deckId }
-        val deckNotes = dao.allNotes().filter { it.deckId == deckId }
-        val events = cards.map { it.id }.chunked(500).flatMap { dao.replayEventsForCards(it) }
-        val summary = TutorHomework.summarizeDeck(
-            cards.map { TutorHomework.CardRow(it.id, it.noteId, it.queue) },
-            deckNotes.map { TutorHomework.NoteRow(it.id, it.hanzi) },
-            events.map { TutorHomework.EventRow(it.cardId, it.rating) },
+            localDecks = app.repo.dao.decks().associate { it.id to it.name },
         )
-        return TutorCardUi(pick, summary, deckNotes.size)
     }
 
-    /** Reply: the unread message's chat, else the latest (human) conversation, else the tutor page. */
-    fun reply(nav: LabNav, pick: HwPick) {
-        pick.unreadMessage?.let { nav.open(Routes.chat(pick.relationshipId, it.conversationId)); return }
-        viewModelScope.launch {
-            val latest = runCatching { app.repo.api.chatConversations(pick.relationshipId) }.getOrNull()
-                ?.let { list -> list.firstOrNull { !it.is_ai_conversation } ?: list.firstOrNull() }
-            nav.open(if (latest != null) Routes.chat(pick.relationshipId, latest.id) else Routes.connection(pick.relationshipId))
+    private suspend fun build(input: Inputs): HomeHomeworkUi {
+        val (assignments, events) = input.homework ?: (emptyList<HomeworkAssignment>() to emptyList())
+        val todo = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, Homework.localDate())).todo
+        val p = pick(input.rel, input.sources, input.notifications)
+        val longTerm = ArrayList<LongTermHomework>()
+        assignments.filter { it.mode == "fsrs" && it.status == "active" && (it.kind == "deck" || it.kind == "lesson") }
+            .forEach { longTerm += LongTermHomework(it.kind, it.target_id, it.title, it.tutor_name, it.created_at, null, null) }
+        when (val item = p?.item) {
+            is HwItem.Deck -> if (assignments.none { it.target_id == item.deckId }) longTerm += LongTermHomework("deck", item.deckId, item.name, p.tutorName, item.sentAt, null, null)
+            is HwItem.Lesson -> if (assignments.none { it.target_id == item.lessonId }) longTerm += LongTermHomework("lesson", item.lessonId, item.title, p.tutorName, item.sentAt, null, null)
+            null -> {}
         }
+        val deckIds = longTerm.filter { it.kind == "deck" }.mapTo(HashSet()) { it.targetId }
+        val withMet = if (deckIds.isEmpty()) longTerm else {
+            val dao = app.repo.dao
+            val cards = dao.cards().filter { it.deckId in deckIds }
+            val notes = dao.allNotes().filter { it.deckId in deckIds }
+            longTerm.map { lt ->
+                if (lt.kind != "deck") return@map lt
+                val noteIds = notes.filter { it.deckId == lt.targetId }.map { it.id }
+                if (noteIds.isEmpty()) return@map lt // not on this phone yet
+                val (met, total) = HomeHomework.wordsMet(cards.filter { it.deckId == lt.targetId }.map { it.noteId to it.queue }, noteIds)
+                lt.copy(met = met, total = total)
+            }
+        }
+        val unread = p?.unreadMessage
+        return HomeHomeworkUi(
+            card = HomeHomework.build(todo, withMet, unreadFrom = if (unread != null) p.tutorName else null),
+            unread = unread,
+            unreadRelId = p?.relationshipId,
+            unreadFrom = p?.tutorName,
+        )
     }
 
     class Factory(private val app: LabApp) : ViewModelProvider.Factory {
@@ -206,12 +288,11 @@ fun HomeHomeworkSlot(nav: LabNav) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     HomeHomeworkSection(
         ui,
-        onOpen = { nav.open(Routes.homeworkPass(it)) },
-        onAll = { nav.open(Routes.homework()) },
-        cardActions = TutorCardActions(
-            onReply = { vm.reply(nav, it) },
-            onOpenDeck = { nav.open(Routes.deck(it)) },
-            onOpenLessons = { nav.open(Routes.lessons()) },
+        HomeHomeworkActions(
+            onOpen = { nav.open(it) },
+            onAll = { nav.open(Routes.homework()) },
+            onMessage = { u -> val m = u.unread; val rel = u.unreadRelId; if (m != null && rel != null) nav.open(Routes.chat(rel, m.conversationId)) },
+            onNotes = { nav.open(Routes.tutorNotes()) },
         ),
     )
 }

@@ -25,6 +25,7 @@ import { syncReadersFromServer, prefetchReaderMedia, ensureDailyReader } from '.
 import { syncGrammarLessons, uploadGrammarCompletions, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from './grammar-study';
 import { syncCustomLessons, uploadCustomLessonCompletions, uploadLessonAttemptMedia, prefetchCustomLessonMedia } from './custom-lesson-study';
 import { syncRecordingNotes } from './recording-notes';
+import { syncTutorNotes } from './tutorNotes';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
 import { syncPictureHunts } from './pictureHunts';
@@ -499,6 +500,8 @@ class SyncService {
       // to my flagged cards: pulled down so the line on the card back shows
       // offline; local "seen" marks go up.
       await syncRecordingNotes();
+      // Every note, seen ones too, for the Tutor notes page offline.
+      await syncTutorNotes();
     } catch (err) {
       console.error('[Sync] Recording notes sync failed:', err);
     }

@@ -114,11 +114,11 @@ describe('activeTab', () => {
 
 describe('isImmersiveRoute', () => {
   it.each(['/study', '/study/', '/quests/abc', '/picture-hunt/h1', '/readers/r1', '/readers/r1/edit', '/readers/r1/print',
-    '/library/l1/edit', '/lessons/l1/print', '/library/catalogue/conversation', '/connections/1/chat/2', '/join/token', '/calls/c1', '/homework/a1'])(
+    '/library/l1/edit', '/lessons/l1/print', '/library/catalogue/conversation', '/connections/1/chat/2', '/join/token', '/calls/c1', '/homework/a1', '/tutor-notes/practice'])(
     '%s hides the bar', (p) => expect(isImmersiveRoute(p)).toBe(true),
   );
   it.each(['/', '/study/review/abc', '/quests', '/picture-hunt', '/readers', '/readers/generate', '/library', '/library/l1', '/library/catalogue',
-    '/lessons', '/connections/1', '/decks', '/more', '/settings', '/calls', '/calls/c1/review', '/homework'])(
+    '/lessons', '/connections/1', '/decks', '/more', '/settings', '/calls', '/calls/c1/review', '/homework', '/tutor-notes'])(
     '%s keeps the bar', (p) => expect(isImmersiveRoute(p)).toBe(false),
   );
 });

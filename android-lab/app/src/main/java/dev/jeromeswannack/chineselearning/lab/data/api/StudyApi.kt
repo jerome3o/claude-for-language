@@ -318,6 +318,10 @@ suspend fun Api.recordingNotes(): List<RecordingNoteDto> = get<RecordingNotesAns
 
 fun recordingNoteSeenPath(eventId: String) = "/api/me/recording-notes/${enc(eventId)}/seen"
 
+/** GET /api/me/tutor-notes?include_seen=1 — every note (seen ones too) for the Tutor notes page. */
+suspend fun Api.tutorNotes(limit: Int = 200): dev.jeromeswannack.chineselearning.lab.core.TutorNotesPageDto =
+    get("/api/me/tutor-notes?include_seen=1&limit=$limit")
+
 // ---------------- flag for tutor ----------------
 
 @Serializable

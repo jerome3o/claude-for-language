@@ -105,7 +105,7 @@ test('tutor reviews a homework draft (skips known words, splits over days) and a
 
   // ---- The student sees it
   await page.goto(`/?session_token=${student.token}`);
-  const card = page.getByTestId('homework-due-card');
+  const card = page.getByTestId('homework-home-card');
   await expect(card).toBeVisible({ timeout: 60_000 });
-  await expect(card.getByTestId('hw-row')).toHaveCount(3);
+  await expect(card.getByTestId('home-hw-row')).toHaveCount(3);
 });

@@ -79,8 +79,14 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
 - Sync (`services/homework.ts`, called from the normal sync): upload unsynced `homeworkEvents`
   (`POST /api/me/homework/events`, idempotent), then `GET /api/me/homework` → IndexedDB
   `homeworkAssignments` (+ server events from other devices). Everything below works offline.
-- **Home**: a *Homework* card lists the one-off items not yet done — overdue first, then by due date — each
-  with its label, "12 words · 5 left" and **Start**. Nothing due → the card is not shown.
+- **Home**: ONE compact card (web `components/home/HomeworkHomeCard.tsx`, Lab `ui/homework/HomeHomework.kt`;
+  rows from the shared `homeHomework`, `shared/homework/home.ts`, parity-tested) headed "From <tutor>" — one slim
+  row per active item: title, "5 / 12" words (thin bar) and a due label (overdue · due today · **due tomorrow** ·
+  due in N days). One-off / both items come first, overdue first; then long-term (fsrs-only) decks with words not
+  met yet ("daily review") and a lesson the tutor sent outside an assignment ("next session"). A tap opens the pass
+  `/homework/:id` for one-off / both items (for a lesson / reader that IS its player), the deck for a long-term-only
+  deck, `/lessons` for a legacy lesson. At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one
+  small line. Nothing active → the card is not shown.
 - **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: the word (tap ▶ for
   audio), *Show* reveals pinyin / meaning / sentence, then *Not yet* / *Got it*; a progress line; a
   celebration at the end, and for a one-off-only deck *Add these words to my daily review*. Lesson: the

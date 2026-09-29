@@ -440,6 +440,13 @@ export interface LocalRecordingNote {
 }
 
 /**
+ * Every tutor note (new AND seen) for the Tutor notes page — a mirror of the first page of
+ * GET /api/me/tutor-notes?include_seen=1, replaced wholesale by each sync (services/tutorNotes.ts).
+ * What is NEW is still decided by `recordingNotes` (the card back's feed).
+ */
+export type LocalTutorNote = import('@shared/tutor-notes').TutorNote;
+
+/**
  * One step of uploading a video call's recording (services/calls/uploads.ts):
  * register a piece, one ~10 s audio chunk, or close the piece. Drained in
  * `seq` order, during the call and by every sync afterwards, so a recording
@@ -545,6 +552,8 @@ export class ChineseLearningDB extends Dexie {
 
   // Tutor notes on my recordings + replies to my flagged cards (shown once on the card back)
   recordingNotes!: Table<LocalRecordingNote, string>;
+  // Every tutor note, seen ones too (the Tutor notes page, offline)
+  tutorNotes!: Table<LocalTutorNote, string>;
 
   // Cards flagged for the tutor while offline, waiting to be posted
   pendingCardFlags!: Table<LocalPendingCardFlag, string>;
@@ -961,6 +970,12 @@ export class ChineseLearningDB extends Dexie {
       pictureHunts: 'id, status, created_at',
       pictureHuntImages: 'id',
       pictureHuntPlays: 'id, hunt_id, _synced',
+    });
+
+    // Version 22: every tutor note, seen ones included, for the Tutor notes
+    // page offline (the card back keeps reading `recordingNotes`).
+    this.version(22).stores({
+      tutorNotes: 'id, updated_at, note_id',
     });
   }
 }
@@ -1529,7 +1544,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1545,6 +1560,7 @@ export async function clearAllData(): Promise<void> {
     await db.noteSentences.clear();
     await db.sentenceTextExplanations.clear();
     await db.recordingNotes.clear();
+    await db.tutorNotes.clear();
   });
 }
 

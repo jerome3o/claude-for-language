@@ -1,12 +1,9 @@
 package dev.jeromeswannack.chineselearning.lab.ui.homework
 
-import dev.jeromeswannack.chineselearning.lab.core.DeckProgressSummary
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
-import dev.jeromeswannack.chineselearning.lab.core.HwItem
 import dev.jeromeswannack.chineselearning.lab.core.HwMessage
-import dev.jeromeswannack.chineselearning.lab.core.HwPick
 import dev.jeromeswannack.chineselearning.lab.data.api.OnboardingDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.OnboardingDto
 import dev.jeromeswannack.chineselearning.lab.data.api.UserSummaryDto
@@ -61,10 +58,15 @@ class HomeworkScreenshots : LabScreenshotTest() {
         val progress = Homework.passProgress(Homework.passItemIds(deckAssignment), events)
         fun deckPass(revealed: Boolean) = PassUi.Deck("餐厅点菜", "day 1 of 2", Homework.dueLabel("2026-09-25", TODAY), progress, note, revealed, "d1", oneOffOnly = true)
 
-        val tutorCard = TutorCardUi(
-            HwPick("王老师", "rel1", HwItem.Deck("d1", "第三周作业：天气", "2026-09-26T10:00:00Z"), HwMessage("c1", "rel1", "明天上课前把这些词复习一下，好吗？", "2026-09-27T08:00:00Z")),
-            DeckProgressSummary(18, 7, listOf("刮风", "晴天")),
-            18,
+        val homeUi = HomeHomeworkUi(
+            card = dev.jeromeswannack.chineselearning.lab.core.HomeHomework.build(
+                sorted.todo,
+                listOf(dev.jeromeswannack.chineselearning.lab.core.LongTermHomework("deck", "d-hsk3", "第三周作业：天气", "王老师", "2026-09-26T10:00:00Z", 7, 18)),
+            ),
+            unread = HwMessage("c1", "rel1", "明天上课前把这些词复习一下，好吗？", "2026-09-27T08:00:00Z"),
+            unreadRelId = "rel1",
+            unreadFrom = "王老师",
+            notesLine = "3 new notes from 王老师",
         )
 
         val onboarding = OnboardingDto(
@@ -139,7 +141,7 @@ class HomeworkScreenshots : LabScreenshotTest() {
 
     @Test fun homeCards() = shootInShell("homework-09-home-cards", active = TabId.STUDY) {
         dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen("Home") {
-            item { HomeHomeworkSection(HomeHomeworkUi(sorted.todo, tutorCard), onOpen = {}, onAll = {}, cardActions = TutorCardActions()) }
+            item { HomeHomeworkSection(homeUi, HomeHomeworkActions()) }
         }
     }
 

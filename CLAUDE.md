@@ -123,7 +123,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── decks/             # DEFAULT_DECK_SETTINGS (3 new + 6 secondary a day) + pickDeckSettings validation — the one definition of a new deck; the study queue ("due today", introduced today, Home counts: study-queue.ts); queue moves + drag hit-test (queue.ts), card search noteMatches (search.ts) — all parity-tested by the Lab app
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
-│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan — pure, unit-tested
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, dedupe, load gauge, draft plan, Home's compact card rows (home.ts) — pure, unit-tested
+│   ├── tutor-notes/       # "Notes from your tutor": new / earlier merge, Home line, the practice rule (a rating counts only when the card is due) — parity-tested by the Lab app
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
@@ -1134,6 +1135,7 @@ on the back of that card ("From <tutor>: …"), cached in IndexedDB (`recordingN
 `services/recording-notes.ts` during sync so it works offline. See docs/STUDY_SESSION.md.
 - `GET /api/me/recording-notes` - Unseen needs-work notes on my recordings (event, card, note, hanzi, comment, tutor name) **plus** unseen tutor replies to my flagged cards (`kind: 'flag'`, `event_id` = the flag id, `card_id` may be null → matched on note_id)
 - `POST /api/me/recording-notes/:eventId/seen` - I have seen this note (idempotent, scoped to my own events; a flag id marks that reply seen)
+- `GET /api/me/tutor-notes?include_seen=1&limit=&before=` - The **Tutor notes page** (`/tutor-notes`): every note, new AND seen, newest first, keyset paged (`next_cursor`), with the card's pinyin / meaning / card type, `seen_at`, my `recording_url` and, for a flag, my `student_message`. Cached by each sync (IndexedDB `tutorNotes`, Dexie v22; Lab JSON cache) so the page works offline; the unseen feed still decides what is NEW (`mergeTutorNotes`, `shared/tutor-notes`). Viewing marks the new ones seen. Home shows "🗒 N new notes from <tutor>" while any is unseen. **Practice this card / Practice all** → `/tutor-notes/practice?cards=&notes=` (immersive): the study card, the note pinned on the back; **a rating is a review only when the card is due today** (`practiceRatingCounts` = `isDueByCutoff`), otherwise practice only — no review event (docs/STUDY_SESSION.md)
 
 ### Card flags & card hub (`worker/src/routes/card-flags.ts`, `routes/claude-chats.ts`, `services/card-flags.ts`)
 A student flags a card for their tutor from the study screen (⋯ → **Flag for tutor**,
@@ -1328,8 +1330,10 @@ first `GET /invites/:id/public`, i.e. the /join page loading — the tutor's lis
   preselects it and requires at least one deck when inviting a student.
 - The student home (`pages/HomePage.tsx`, `components/home/`) is one **Study today's cards** button
   with a plain subtitle ("24 cards due · about 8 min", ~20 s/card; four-colour breakdown behind ⓘ),
-  a **From <tutor>** homework card (newest shared deck / assigned lesson + unread tutor message;
-  `homework.ts` is pure and unit-tested), a compact top-5 deck list linking to `/decks`, and one
+  the "🗒 N new notes from <tutor>" row, ONE compact **From <tutor>** homework card
+  (`HomeworkHomeCard.tsx`: a slim row per active item — title, "5 / 12", due label — from the shared
+  `homeHomework`, `shared/homework/home.ts`; a tap opens the pass / the deck; an unread tutor message is
+  one small line), a slim one-line top-5 deck list linking to `/decks`, and one
   **+ Add a deck** link (modal with "Generate with Claude" inside). It never says "Flashcards done"
   until a full sync has completed once (`hooks/useSyncStatus.ts`).
 
@@ -1851,6 +1855,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
 - `/connections/:relId/homework/:jobId` - Review a homework draft made from lesson notes (tutor): load gauge, words / skipped, modes, split, Claude chat, Assign
 - `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
+- `/tutor-notes`, `/tutor-notes/practice?cards=&notes=` - Notes from your tutor (More → From your tutor, Home row) / practising those cards in the study card (immersive; a rating counts only when due)
 - `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards
