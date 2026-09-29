@@ -7,6 +7,8 @@ export interface Env {
   STORY_QUEUE: Queue<StoryGenerationMessage>;
   SENTENCE_SET_QUEUE: Queue<SentenceSetMessage>;
   QUEST_QUEUE: Queue<QuestGenerationMessage>;
+  /** Picture hunts: picture → objects found → named (services/picture-hunt.ts). */
+  PICTURE_HUNT_QUEUE: Queue<PictureHuntJobMessage>;
   /** Video calls (experimental): one CallRoom Durable Object per call + the after-call queue. */
   CALL_ROOM: DurableObjectNamespace<import('./durable/call-room').CallRoom>;
   CALL_QUEUE: Queue<CallProcessingMessage>;
@@ -87,6 +89,10 @@ export type CallProcessingMessage =
   | { kind: 'report'; callId: string };
 
 /** Background generation of a quest world (one Claude call + repair rounds). */
+export interface PictureHuntJobMessage {
+  huntId: string;
+}
+
 export interface QuestGenerationMessage {
   questId: string;
   goalCount?: number;

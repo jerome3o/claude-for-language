@@ -22,7 +22,7 @@ const MORE: TabSpec = {
   to: '/more',
   match: [
     '/more', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
-    '/quests', '/library', '/duplicate-finder', '/admin',
+    '/quests', '/picture-hunt', '/library', '/duplicate-finder', '/admin',
   ],
 };
 
@@ -61,6 +61,7 @@ export function activeTab(tabs: TabSpec[], pathname: string): TabId | null {
 const IMMERSIVE = [
   /^\/study\/?$/,
   /^\/quests\/[^/]+\/?$/,
+  /^\/picture-hunt\/[^/]+\/?$/,
   /^\/readers\/(?!generate$)[^/]+(\/(edit|print))?\/?$/,
   /^\/library\/[^/]+\/(edit|print|try)\/?$/,
   /^\/library\/catalogue\/[^/]+\/?$/,

@@ -63,6 +63,8 @@ const MorePage = lazy(() => import('./pages/MorePage').then(m => ({ default: m.M
 const DuplicateFinderPage = lazy(() => import('./pages/DuplicateFinderPage').then(m => ({ default: m.DuplicateFinderPage })));
 const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default: m.QuestsPage })));
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
+const PictureHuntsPage = lazy(() => import('./pages/PictureHuntsPage').then(m => ({ default: m.PictureHuntsPage })));
+const PictureHuntPlayPage = lazy(() => import('./pages/PictureHuntPlayPage').then(m => ({ default: m.PictureHuntPlayPage })));
 const LessonEditorPage = lazy(() => import('./pages/editor/LessonEditorPage').then(m => ({ default: m.LessonEditorPage })));
 const LessonLibraryPage = lazy(() => import('./pages/editor/LessonLibraryPage').then(m => ({ default: m.LessonLibraryPage })));
 const LibraryItemPage = lazy(() => import('./pages/editor/LibraryItemPage').then(m => ({ default: m.LibraryItemPage })));
@@ -504,6 +506,26 @@ function AppRoutes() {
           <ProtectedRoute>
             <Header />
             <QuestsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/picture-hunt"
+        element={
+          <ProtectedRoute>
+            <Header />
+            <PictureHuntsPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* No <Header /> — a picture hunt takes over the whole screen while it is open. */}
+      <Route
+        path="/picture-hunt/:id"
+        element={
+          <ProtectedRoute>
+            <ErrorBoundary fallbackTitle="Couldn't load this picture hunt">
+              <PictureHuntPlayPage />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />

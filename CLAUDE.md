@@ -99,6 +99,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── compute-state.ts    # Core FSRS logic, state computation from events
 │   │   ├── compute-state.test.ts # Tests for scheduler
 │   │   └── index.ts       # Re-exports
+│   ├── picture-hunt/      # Picture hunt (看图找词): types (normalised boxes / outlines), answer matching (match.ts), hit-testing (geometry.ts), feedback copy, validation — parity-tested by the Lab app
 │   ├── quest/             # Quests: the tile-map mini-game framework
 │   │   ├── types.ts       # World schema (terrain, objects, verbs, goal conditions)
 │   │   ├── engine.ts      # Pure game engine — movement, verbs, goal checking
@@ -295,6 +296,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `quests` - Generated tile-map mini-games (title, difficulty, status, `world` JSON, best_moves)
+- `picture_hunts` / `picture_hunt_plays` - Picture hunts (migration 0082): source upload|generated, prompt, deck_ids, `image_key` (R2 `picture-hunts/<id>.<ext>`, protected — personal photos), size, status generating/ready/error + `progress`, `objects` JSON (`shared/picture-hunt`), best_found / play_count (recomputed from plays); plays are client-id rows (found_ids, hints_used, gave_up, duration)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons
 - `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0079. See "Lesson pictures" below
@@ -831,7 +833,7 @@ Generation runs on `quest-generation-queue`, **not** `waitUntil` — a world is 
 Claude call plus up to two repair rounds, which outlives a waitUntil context (the isolate is
 torn down mid-call and the row is left stuck in `generating`). Clients poll; the `progress`
 column carries a breadcrumb of the stage reached, and a swept-stale row reports it.
-Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`.
+Any new queue must also be added to the "Ensure Queues Exist" step in `deploy.yml`. Queues: `story-generation-queue`, `image-generation-queue`, `sentence-set-queue`, `quest-generation-queue`, `tutor-notes-queue`, `picture-hunt-queue`.
 
 Endpoints (rows live in `quests`):
 - `GET /api/quests` - List quests (status, progress, goal/object counts, best moves)
@@ -840,6 +842,30 @@ Endpoints (rows live in `quests`):
 - `POST /api/quests/:id/retry` - Rebuild a failed quest in place, keeping its topic
 - `POST /api/quests/:id/complete` - Record a finished play-through (`{ moves }`)
 - `DELETE /api/quests/:id` - Delete a quest
+
+### Picture hunt (看图找词; `worker/src/services/picture-hunt.ts`, `routes/picture-hunts.ts`, page at `/picture-hunt`, play at `/picture-hunt/:id`)
+Type the Chinese names of things in a picture; each right answer lights up that object. Built like quests on
+**`picture-hunt-queue`** (`runPictureHuntJob`, `progress` breadcrumb, stale builds marked failed after 20 min, Retry):
+1. picture — generated with `gemini-2.5-flash-image` from the prompt (`buildScenePrompt`, leaning toward the learner's
+   words), or the upload already in R2 (the client resizes to 1600px JPEG; `stripJpegMetadata` drops EXIF/GPS again);
+2. detection — `gemini-2.5-flash` with `box_2d` (0–1000, [ymin,xmin,ymax,xmax]) + segmentation `mask` (base64 PNG over
+   the box), thinking off; an unusable mask answer (cut off / not JSON) → a boxes-only call. `cleanDetections` drops
+   junk labels, specks, the whole scene and duplicate boxes (≤25). `services/picture-hunt-mask.ts` decodes each mask
+   (PNG via DecompressionStream) and traces its largest blob into ONE simplified polygon in normalised image
+   coordinates — no PNGs stored, SVG on the web / Canvas in the Lab; failure = box;
+3. naming — Claude (`structuredCall`, `claude-sonnet-5`, forced `name_objects` tool, thinking off) sees the picture +
+   the numbered boxes and returns hanzi / pinyin / english / alternatives / difficulty / fun_facts / sentence_clue per
+   box or skips it (CARD_STANDARD in the prompt); rule-breakers (`huntObjectProblems`) get ONE repair round, then are
+   dropped; same hanzi merges into one object with several regions.
+Answer matching is `matchHuntAnswer` (`shared/picture-hunt/match.ts`): hanzi or alternatives after NFKC / punctuation
+strip / trad→simp table / leading numeral+measure word; **pinyin counts only with tones** (marks or numbers), toneless
+= "close"; a shared non-trivial character = "close" (never a find). Web: `services/pictureHunts.ts` caches hunts whole
+in IndexedDB (Dexie v21 `pictureHunts`, `pictureHuntImages`, `pictureHuntPlays`) and uploads plays in sync;
+add-as-card goes through `POST /api/decks/:id/notes` (content service). E2E seeds with `POST /api/test/picture-hunt`.
+- `GET /api/picture-hunts` · `GET /api/picture-hunts/:id` (with objects) · `GET /api/picture-hunts/:id/image` (owner only)
+- `POST /api/picture-hunts` `{ prompt, deck_ids?, use_learning_words? }` → 202 · `POST /api/picture-hunts/upload?caption=` (raw JPEG/PNG/WebP or multipart `picture`, ≤ 6 MB) → 202 — both 503 without `GEMINI_API_KEY` / `ANTHROPIC_API_KEY`
+- `POST /api/picture-hunts/:id/retry` · `DELETE /api/picture-hunts/:id` (plays + picture)
+- `POST /api/picture-hunts/plays` `{ plays }` → `{ accepted, stored, rejected, hunts }` (idempotent by play id)
 
 ### Custom mini lessons (agent-authored, in the study session)
 The generalized successor to the fixed-phase grammar lesson: a **schema-driven lesson**
@@ -1480,6 +1506,7 @@ https://chinese-learning-mcp.jeromeswannack.workers.dev/callback
 | `get_due_cards` | Get cards due for review |
 | `get_overall_stats` | Get overall study statistics |
 | `study` | **MCP App** - Opens an interactive flashcard study session in the UI |
+| `list_picture_hunts` / `create_picture_hunt` | The user's picture hunts (status, objects, best score) / start one from a scene description (`tools/picture-hunts.ts`) |
 
 #### Tutor tools — students (`mcp-server/src/tools/students.ts`)
 
@@ -1824,5 +1851,6 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/cards/:noteId`, `/claude-chats` - The student's own card hub / Claude conversations (More → Claude conversations)
 - `/connections/:relId/homework/:jobId` - Review a homework draft made from lesson notes (tutor): load gauge, words / skipped, modes, split, Claude chat, Assign
 - `/homework`, `/homework/:id` - The student's one-off homework (to do / done) and the pass (immersive)
+- `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards

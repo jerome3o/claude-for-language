@@ -147,6 +147,8 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'lesson_note_files', sql: `DELETE FROM lesson_note_files WHERE lesson_note_id IN (SELECT id FROM lesson_notes WHERE user_id = ?1)` },
   { label: 'lesson_notes', sql: `DELETE FROM lesson_notes WHERE user_id = ?1` },
   { label: 'quests', sql: `DELETE FROM quests WHERE user_id = ?1` },
+  { label: 'picture_hunt_plays', sql: `DELETE FROM picture_hunt_plays WHERE user_id = ?1 OR hunt_id IN (SELECT id FROM picture_hunts WHERE user_id = ?1)` },
+  { label: 'picture_hunts', sql: `DELETE FROM picture_hunts WHERE user_id = ?1` },
   { label: 'coach_messages', sql: `DELETE FROM coach_messages WHERE conversation_id IN (SELECT id FROM coach_conversations WHERE user_id = ?1)` },
   { label: 'coach_conversations', sql: `DELETE FROM coach_conversations WHERE user_id = ?1` },
   { label: 'roleplay_messages', sql: `DELETE FROM roleplay_messages WHERE session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?1)` },
@@ -197,6 +199,7 @@ const PREVIEW_COUNTS: Array<{ key: string; sql: string }> = [
   { key: 'calls', sql: `SELECT COUNT(*) AS n FROM calls WHERE id IN ${CALLS}` },
   { key: 'coach_conversations', sql: `SELECT COUNT(*) AS n FROM coach_conversations WHERE user_id = ?1` },
   { key: 'quests', sql: `SELECT COUNT(*) AS n FROM quests WHERE user_id = ?1` },
+  { key: 'picture_hunts', sql: `SELECT COUNT(*) AS n FROM picture_hunts WHERE user_id = ?1` },
   { key: 'feature_requests', sql: `SELECT COUNT(*) AS n FROM feature_requests WHERE user_id = ?1` },
   { key: 'invites', sql: `SELECT COUNT(*) AS n FROM invites WHERE created_by = ?1` },
   { key: 'sessions', sql: `SELECT (SELECT COUNT(*) FROM auth_sessions WHERE user_id = ?1) + (SELECT COUNT(*) FROM oauth_tokens WHERE user_id = ?1) AS n` },
@@ -294,6 +297,7 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
     `SELECT audio_feedback_url AS k FROM homework_feedback WHERE tutor_id = ?1 OR homework_id IN ${HOMEWORK}`,
     `SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') AS k FROM feature_requests WHERE user_id = ?1`,
     `SELECT picture_key AS k FROM users WHERE id = ?1`,
+    `SELECT image_key AS k FROM picture_hunts WHERE user_id = ?1`,
   ]);
 
   const keys = new Set<string>(unique);
