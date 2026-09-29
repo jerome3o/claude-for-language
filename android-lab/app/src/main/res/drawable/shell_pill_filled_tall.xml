@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A 48dp-tall widget tap target drawn as a 42dp pill, so it lines up with the 42dp circles. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/shell_pill_filled"
+    android:insetTop="3dp"
+    android:insetBottom="3dp" />

@@ -117,8 +117,11 @@ shortcut ids and labels are the Lab's own, so both apps install side by side.
   rating from a notification, by the hourly check and by an inexact alarm just after midnight.
   More → Lab app → *Add the home-screen widget* pins it. **Resizable** from 2×1 up; it lands as
   a compact 3×1 row. One layout per size (`ShellRules.WidgetSize`, anchors in `WIDGET_ANCHORS`):
-  2×1 count + 学, one row count + caption + 学 (4×1 adds the 学 Study pill + ✏️), 2×2 count +
-  homework + 学 Study, 3×2 and up both buttons. Android 12+ gets a size map
+  2×1 学 (the count as a badge on it) + ✏️, 3×1 count + caption + 学 + ✏️, 4×1 the 学 Study
+  pill + ✏️, 2×2 count + homework + 学 Study + ✏️, 3×2 and up 学 Study + the labelled ✏️ Coach.
+  **The coach is at every size**: ✏️ opens `/coach?focus=1` (`ShellLinks.COACH_TYPE`) — the
+  coach's sentence box focused with the keyboard up. Every widget button is a 48dp tap target
+  (drawn as a 42dp circle / pill, `shell_icon_*`, `shell_pill_*_tall`). Android 12+ gets a size map
   (`RemoteViews(Map<SizeF, RemoteViews>)`); older launchers get the layout for the size in the
   widget's options, redrawn on resize. A widget placed before this change keeps its old size —
   remove it and add it again to get the compact default.

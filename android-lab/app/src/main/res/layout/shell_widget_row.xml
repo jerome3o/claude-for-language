@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home-screen widget, one row (3×1 = the default, 4×1): count + caption + 学 (ROW),
-     or + 学 Study pill + ✏️ (ROW_WIDE). ShellRules.WidgetSize; also the picker preview. -->
+<!-- Home-screen widget, one row (3×1 = the default, 4×1): count + caption + 学 + ✏️ (ROW),
+     or + 学 Study pill + ✏️ (ROW_WIDE). ✏️ opens the coach with the keyboard up at every size;
+     both icons are 48dp tap targets drawn as 42dp circles. ShellRules.WidgetSize; also the picker preview. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/shell_widget_root"
     android:layout_width="match_parent"
@@ -10,7 +11,7 @@
     android:orientation="horizontal"
     android:paddingStart="16dp"
     android:paddingTop="6dp"
-    android:paddingEnd="8dp"
+    android:paddingEnd="6dp"
     android:paddingBottom="6dp">
 
     <TextView
@@ -55,10 +56,10 @@
 
     <TextView
         android:id="@+id/shell_widget_study_circle"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:layout_marginStart="8dp"
-        android:background="@drawable/shell_pill_filled"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="4dp"
+        android:background="@drawable/shell_icon_filled"
         android:contentDescription="Study"
         android:gravity="center"
         android:text="学"
@@ -68,9 +69,9 @@
     <TextView
         android:id="@+id/shell_widget_study"
         android:layout_width="wrap_content"
-        android:layout_height="44dp"
+        android:layout_height="48dp"
         android:layout_marginStart="8dp"
-        android:background="@drawable/shell_pill_filled"
+        android:background="@drawable/shell_pill_filled_tall"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
         android:maxLines="1"
@@ -83,13 +84,12 @@
 
     <TextView
         android:id="@+id/shell_widget_coach"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:layout_marginStart="6dp"
-        android:background="@drawable/shell_pill_soft"
-        android:contentDescription="Coach"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="2dp"
+        android:background="@drawable/shell_icon_soft"
+        android:contentDescription="Sentence coach"
         android:gravity="center"
         android:text="✏️"
-        android:textSize="16sp"
-        android:visibility="gone" />
+        android:textSize="16sp" />
 </LinearLayout>

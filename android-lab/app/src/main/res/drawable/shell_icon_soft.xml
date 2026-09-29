@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A 48dp widget tap target drawn as a 42dp soft circle (✏️ Coach). -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/shell_pill_soft"
+    android:inset="3dp" />

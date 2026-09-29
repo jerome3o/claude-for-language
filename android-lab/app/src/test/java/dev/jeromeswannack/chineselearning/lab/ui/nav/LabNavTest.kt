@@ -98,6 +98,9 @@ class LabNavTest {
         assertEquals("/decks/a%20b", Routes.deck("a b"))
         assertEquals("/study", Routes.study())
         assertEquals("/coach?text=%E4%BD%A0%E5%A5%BD", Routes.coach("你好"))
+        // The widget's ✏️: straight into the coach's sentence box, keyboard up.
+        assertEquals("/coach?focus=1", dev.jeromeswannack.chineselearning.lab.shell.ShellLinks.COACH_TYPE)
+        assertEquals("/coach", dev.jeromeswannack.chineselearning.lab.shell.ShellLinks.coach("  "))
         assertEquals("home", Routes.routeForPath("/"))
         assertEquals("decks/abc", Routes.routeForPath("/decks/abc"))
     }
