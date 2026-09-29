@@ -294,8 +294,11 @@ class StudyViewModel(
      */
     fun onLeave() {
         if (leftAt != null) return
-        leftAt = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        leftAt = now
         dayStore.pause()
+        // The time spent on the card so far travels with it; time away won't count.
+        currentView()?.let { v -> setViewStart(v.presentation, ((if (progressPresentation == v.presentation) progress else null) ?: v.start).copy(elapsedMs = (now - shownAt).coerceAtLeast(0))) }
         saveResumePoint()
         app.audio.stop()
         extras.stopAudio() // Package B
@@ -362,10 +365,21 @@ class StudyViewModel(
     fun onCardProgress(presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) {
         val v = currentView() ?: return
         if (v.presentation != presentation) return
-        progress = CardStartState(flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue)
+        val p = CardStartState(flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue, elapsedMs = v.start.elapsedMs)
+        progress = p
         progressPresentation = presentation
         if (answer.isNotEmpty()) onInteraction() // typing is activity too
+        // The card carries how it stands, so when Study is composed again (back from the coach,
+        // Home) the card starts from it at once — its own state isn't kept while it's away.
+        setViewStart(presentation, p)
         saveResumePoint()
+    }
+
+    private fun setViewStart(presentation: Int, start: CardStartState) {
+        _ui.update { u ->
+            val v = (u.phase as? StudyPhase.Showing)?.view
+            if (v?.presentation != presentation || v.start == start) u else u.copy(phase = StudyPhase.Showing(v.copy(start = start)))
+        }
     }
 
     private fun saveResumePoint() {

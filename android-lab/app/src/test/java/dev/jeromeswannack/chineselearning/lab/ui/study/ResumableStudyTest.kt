@@ -90,6 +90,11 @@ class ResumableStudyTest {
         val first = showing(vm)
         vm.onCardProgress(first.presentation, revealed = true, answer = "二", mcSlots = null)
         vm.onLeave() // ✕ or the coach: nothing ends
+        // The card already carries its state: the screen composed again on return starts from it.
+        val carried = (vm.ui.value.phase as StudyPhase.Showing).view
+        assertEquals(first.presentation, carried.presentation)
+        assertTrue(carried.start.flipped)
+        assertEquals("二", carried.start.answer)
         val point = assertNotNull(StudyDayStore.get(app).resumePoint())
         assertEquals(first.card.id, point.cardId)
         assertTrue(point.revealed)
