@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home-screen widget, two rows or more (2×2 = SQUARE, no Coach; 3×2 and up = FULL):
-     today's due count, homework, Study / Coach. Centred, nothing stretches — extra height
+<!-- Home-screen widget, two rows or more (2×2 = SQUARE: 学 Study + ✏️; 3×2 and up = FULL:
+     学 Study + ✏️ Coach): today's due count, homework, Study / Coach. Centred, nothing stretches — extra height
      is shared above and below instead of opening a gap. ShellRules.WidgetSize -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/shell_widget_root"
@@ -75,15 +75,16 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="7dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <TextView
             android:id="@+id/shell_widget_study"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:layout_weight="1"
-            android:background="@drawable/shell_pill_filled"
+            android:background="@drawable/shell_pill_filled_tall"
             android:fontFamily="sans-serif-medium"
             android:gravity="center"
             android:maxLines="1"
@@ -94,15 +95,28 @@
         <TextView
             android:id="@+id/shell_widget_coach"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:background="@drawable/shell_pill_soft"
+            android:background="@drawable/shell_pill_soft_tall"
             android:fontFamily="sans-serif-medium"
             android:gravity="center"
             android:maxLines="1"
             android:text="@string/shell_coach"
             android:textColor="@color/shell_accent"
             android:textSize="15sp" />
+
+        <!-- 2×2 (SQUARE): no room for a labelled Coach next to Study, so the compact ✏️. -->
+        <TextView
+            android:id="@+id/shell_widget_coach_icon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="2dp"
+            android:background="@drawable/shell_icon_soft"
+            android:contentDescription="Sentence coach"
+            android:gravity="center"
+            android:text="✏️"
+            android:textSize="16sp"
+            android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

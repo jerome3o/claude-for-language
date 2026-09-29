@@ -21,7 +21,8 @@ import java.time.ZoneId
 
 /**
  * Home-screen widget: today's due count (the Study button's number, from Room — offline),
- * "about N min", the homework due now, and 学 Study / ✏️ Coach (the hybrid's two buttons).
+ * "about N min", the homework due now, and 学 Study / ✏️ Coach (the hybrid's two buttons) — the
+ * coach at every size: a compact ✏️ next to 学 on the small ones, the labelled button from 3×2.
  * Redrawn by the app after every sync, after a rating from a notification, hourly
  * (DueCheckWorker) and just after midnight — never by the launcher's own timer.
  *
@@ -95,7 +96,8 @@ class DueWidgetProvider : AppWidgetProvider() {
         fun views(context: Context, model: ShellRules.WidgetModel, size: ShellRules.WidgetSize = ShellRules.WidgetSize.FULL): RemoteViews {
             val t = ShellRules.widgetText(model)
             val study = ShellLinks.pending(context, 40, if (model.signedIn) ShellLinks.STUDY else "/")
-            val coach = ShellLinks.pending(context, 41, ShellLinks.coach(null))
+            // Straight into the coach's sentence box with the keyboard up, at every size.
+            val coach = ShellLinks.pending(context, 41, ShellLinks.COACH_TYPE)
             val homework = if (t.homework == null) null else {
                 val path = if (model.homework.size == 1) dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.homeworkPass(model.homework[0].item.id)
                 else dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.homework()
@@ -106,8 +108,11 @@ class DueWidgetProvider : AppWidgetProvider() {
                 setOnClickPendingIntent(R.id.shell_widget_root, study)
                 when (size) {
                     ShellRules.WidgetSize.TINY -> {
-                        setTextViewText(R.id.shell_widget_caption, t.short)
+                        // The count rides on 学 as a badge (nothing to count while signed out).
+                        setViewVisibility(R.id.shell_widget_count, if (model.signedIn) View.VISIBLE else View.GONE)
+                        setContentDescription(R.id.shell_widget_study_circle, "Study, ${t.count} ${t.short}")
                         setOnClickPendingIntent(R.id.shell_widget_study_circle, study)
+                        setOnClickPendingIntent(R.id.shell_widget_coach, coach)
                     }
                     ShellRules.WidgetSize.ROW, ShellRules.WidgetSize.ROW_WIDE -> {
                         val wide = size == ShellRules.WidgetSize.ROW_WIDE
@@ -117,7 +122,6 @@ class DueWidgetProvider : AppWidgetProvider() {
                         if (homework != null) setOnClickPendingIntent(R.id.shell_widget_detail, homework)
                         setViewVisibility(R.id.shell_widget_study_circle, if (wide) View.GONE else View.VISIBLE)
                         setViewVisibility(R.id.shell_widget_study, if (wide) View.VISIBLE else View.GONE)
-                        setViewVisibility(R.id.shell_widget_coach, if (wide) View.VISIBLE else View.GONE)
                         setOnClickPendingIntent(R.id.shell_widget_study_circle, study)
                         setOnClickPendingIntent(R.id.shell_widget_study, study)
                         setOnClickPendingIntent(R.id.shell_widget_coach, coach)
@@ -132,9 +136,13 @@ class DueWidgetProvider : AppWidgetProvider() {
                         } else {
                             setViewVisibility(R.id.shell_widget_homework, View.GONE)
                         }
-                        setViewVisibility(R.id.shell_widget_coach, if (size == ShellRules.WidgetSize.FULL) View.VISIBLE else View.GONE)
+                        // 2×2 has room for 学 Study plus the compact ✏️; 3×2 and up keep the labelled Coach.
+                        val full = size == ShellRules.WidgetSize.FULL
+                        setViewVisibility(R.id.shell_widget_coach, if (full) View.VISIBLE else View.GONE)
+                        setViewVisibility(R.id.shell_widget_coach_icon, if (full) View.GONE else View.VISIBLE)
                         setOnClickPendingIntent(R.id.shell_widget_study, study)
                         setOnClickPendingIntent(R.id.shell_widget_coach, coach)
+                        setOnClickPendingIntent(R.id.shell_widget_coach_icon, coach)
                     }
                 }
             }

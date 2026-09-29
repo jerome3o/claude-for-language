@@ -98,6 +98,38 @@ class NativeShellScreenshots : LabScreenshotTest() {
     @Test
     fun widgetDarkDue() = sizesBoard("nativeshell-05-widget-dark-due", Color.parseColor("#FF1B2433"), ShellRules.WidgetModel(true, QueueCounts(1, 0, 2, 9), homework))
 
+    /**
+     * The Sentence Coach is on the widget at every size, as a real ≥ 48dp tap target that fits
+     * inside the widget (not squeezed off the edge), next to 学 / 学 Study.
+     */
+    @Config(qualifiers = "w412dp-h1400dp-xxhdpi")
+    @Test
+    fun widgetOffersCoachAtEverySize() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val model = ShellRules.WidgetModel(true, QueueCounts(20, 8, 40, 60), homework)
+        val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val cells = (sizes + Triple("2×1 narrow", 110, 80)).map { (what, w, h) ->
+            val cell = widget(activity, model, w, h)
+            column.addView(cell, LinearLayout.LayoutParams(dp(w), dp(h)))
+            Triple(what, cell, ShellRules.widgetSize(w.toFloat(), h.toFloat()))
+        }
+        activity.setContentView(column)
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        for ((what, cell, size) in cells) {
+            val coach = listOf(R.id.shell_widget_coach, R.id.shell_widget_coach_icon)
+                .mapNotNull { cell.findViewById<View>(it) }
+                .filter { it.visibility == View.VISIBLE }
+            kotlin.test.assertEquals(1, coach.size, "$what ($size): one coach button")
+            val b = coach.single()
+            kotlin.test.assertTrue(b.width >= dp(48) && b.height >= dp(48), "$what ($size): coach is ${b.width}×${b.height}px, want ≥ 48dp")
+            val at = IntArray(2).also { b.getLocationInWindow(it) }
+            val box = IntArray(2).also { cell.getLocationInWindow(it) }
+            kotlin.test.assertTrue(at[0] + b.width <= box[0] + cell.width && at[1] + b.height <= box[1] + cell.height, "$what ($size): coach fits inside the widget")
+            val labelled = (b as TextView).text.toString().contains("Coach")
+            kotlin.test.assertEquals(size == ShellRules.WidgetSize.FULL, labelled, "$what ($size): labelled Coach only at 3×2 and up")
+        }
+    }
+
     @Test
     fun widgetStates() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
@@ -110,7 +142,7 @@ class NativeShellScreenshots : LabScreenshotTest() {
             label(activity, "Signed out (3×1, 2×2)", white) to 0,
             at(ShellRules.WidgetModel(false, QueueCounts(0, 0, 0, 0)), 230, 100) to 100,
             at(ShellRules.WidgetModel(false, QueueCounts(0, 0, 0, 0)), 150, 210) to 210,
-            label(activity, "128 due at 2×1 (count shrinks to fit)", white) to 0,
+            label(activity, "128 due at 2×1 (the count rides on 学)", white) to 0,
             at(ShellRules.WidgetModel(true, QueueCounts(20, 8, 40, 60)), 110, 90) to 90,
             label(activity, "One card due (3×1)", white) to 0,
             at(ShellRules.WidgetModel(true, QueueCounts(0, 0, 0, 1)), 230, 100) to 100,

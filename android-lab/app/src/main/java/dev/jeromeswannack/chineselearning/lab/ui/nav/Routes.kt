@@ -74,7 +74,8 @@ object Routes {
     fun readerEdit(id: String) = "/readers/${seg(id)}/edit"
 
     // ---- practice (package H) ----
-    fun coach(text: String? = null) = "/coach" + query("text" to text)
+    /** [focus] (`?focus=1`): open with the sentence box focused and the keyboard up (the widget's ✏️). */
+    fun coach(text: String? = null, focus: Boolean = false) = "/coach" + query("text" to text, "focus" to (if (focus) "1" else null))
     fun analyze() = "/analyze"
     fun quests() = "/quests"
     fun quest(id: String) = "/quests/${seg(id)}"
