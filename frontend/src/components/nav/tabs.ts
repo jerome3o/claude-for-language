@@ -22,7 +22,7 @@ const MORE: TabSpec = {
   to: '/more',
   match: [
     '/more', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
-    '/quests', '/library', '/duplicate-finder', '/admin',
+    '/quests', '/picture-hunt', '/library', '/duplicate-finder', '/admin',
   ],
 };
 
