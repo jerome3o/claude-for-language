@@ -149,7 +149,7 @@ object ShellRules {
         val total get() = due.total
     }
 
-    /** [short] is the one-word caption of the tiny 2×1 widget ("due", "done"). */
+    /** [short] is the one-word caption of the tiny 2×1 widget ("due", "done"), read out with the count on 学. */
     data class WidgetText(val count: String, val caption: String, val detail: String, val homework: String?, val short: String)
 
     fun widgetText(m: WidgetModel): WidgetText {
@@ -172,8 +172,9 @@ object ShellRules {
 
     /**
      * The widget's layout for its size on the home screen (it is resizable from 2×1 up):
-     * one row — [TINY] count + 学, [ROW] count + caption + 学, [ROW_WIDE] + 学 Study pill + ✏️;
-     * two rows or more — [SQUARE] count + caption + 学 Study, [FULL] + ✏️ Coach.
+     * one row — [TINY] count + 学 + ✏️, [ROW] count + caption + 学 + ✏️, [ROW_WIDE] + 学 Study pill + ✏️;
+     * two rows or more — [SQUARE] count + caption + 学 Study + ✏️, [FULL] + 学 Study + ✏️ Coach.
+     * The coach is at every size (✏️ opens it with the keyboard up).
      */
     enum class WidgetSize { TINY, ROW, ROW_WIDE, SQUARE, FULL }
 

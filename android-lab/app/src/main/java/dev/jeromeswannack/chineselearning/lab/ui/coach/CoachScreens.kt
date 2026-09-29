@@ -38,6 +38,10 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,10 +94,20 @@ data class CoachHomeActions(
     val onDelete: (String) -> Unit = {},
 )
 
-/** `/coach` — the web's SentenceCoachPage home view. */
+/** `/coach` — the web's SentenceCoachPage home view. [autoFocus]: focus the sentence box and raise the keyboard. */
 @Composable
-fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions) {
+fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions, autoFocus: Boolean = false) {
     var confirmDelete by remember { mutableStateOf<CoachConversationDto?>(null) }
+    val inputFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    if (autoFocus) {
+        LaunchedEffect(Unit) {
+            // After the first frame, so the field is attached when focus is requested.
+            withFrameNanos { }
+            runCatching { inputFocus.requestFocus() }
+            keyboard?.show()
+        }
+    }
     val trimmed = ui.draft.trim()
     val isChinese = if (trimmed.isEmpty()) null else CoachRules.containsChinese(trimmed)
     LabScreen("Sentence Coach", onBack = actions.onBack) {
@@ -114,7 +128,7 @@ fun CoachHomeScreen(ui: CoachHomeUi, actions: CoachHomeActions) {
                     shape = RoundedCornerShape(14.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Lab.colors.background, unfocusedContainerColor = Lab.colors.background),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocus),
                 )
                 if (isChinese != null) {
                     Text(

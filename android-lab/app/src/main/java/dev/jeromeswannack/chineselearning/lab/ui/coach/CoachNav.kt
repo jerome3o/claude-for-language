@@ -35,20 +35,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * `/coach?text=&c=` (package H): the home (new sentence + conversations) or, with `c`, one
- * conversation. `?text=` (the widget / "select text → Sentence Coach") starts a conversation
- * at once, like the web.
+ * `/coach?text=&c=&focus=` (package H): the home (new sentence + conversations) or, with `c`, one
+ * conversation. `?text=` ("select text → Sentence Coach") starts a conversation at once, like
+ * the web; `?focus=1` (the widget's ✏️) opens the home with the sentence box focused, keyboard up.
  */
 fun NavGraphBuilder.coachGraph(nav: LabNav) {
     composable(
-        Routes.route("/coach?text={text}&c={c}"),
+        Routes.route("/coach?text={text}&c={c}&focus={focus}"),
         arguments = listOf(
             navArgument("text") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("c") { type = NavType.StringType; nullable = true; defaultValue = null },
+            navArgument("focus") { type = NavType.StringType; nullable = true; defaultValue = null },
         ),
     ) { entry ->
         val conversationId = entry.arguments?.getString("c")
         val text = entry.arguments?.getString("text")
+        val focus = entry.arguments?.getString("focus") == "1"
         if (conversationId != null) {
             val vm: CoachChatViewModel = viewModel(key = "coach-$conversationId", factory = CoachChatViewModel.Factory(nav.app, conversationId))
             val ui by vm.ui.collectAsStateWithLifecycle()
@@ -69,7 +71,8 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
             LaunchedEffect(text) { if (!text.isNullOrBlank() && vm.claimDeepLink(text)) vm.start(text.trim()) { id -> nav.open(Routes.coachConversation(id)) } }
             CoachHomeScreen(
                 ui,
-                CoachHomeActions(
+                autoFocus = focus && text.isNullOrBlank() && vm.claimFocus(),
+                actions = CoachHomeActions(
                     onBack = nav::back,
                     onDraft = vm::setDraft,
                     onSend = { vm.start(ui.draft.trim()) { id -> nav.open(Routes.coachConversation(id)) } },
@@ -93,6 +96,14 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
     val ui: StateFlow<CoachHomeUi> = combine(list.state, local) { l, u -> u.copy(conversations = l) }.stateIn(viewModelScope, SharingStarted.Eagerly, CoachHomeUi())
 
     private var handledDeepLink: String? = null
+    private var focusClaimed = false
+
+    /** `?focus=1` (the widget's ✏️) raises the keyboard once — not again when coming back from a conversation. */
+    fun claimFocus(): Boolean {
+        if (focusClaimed) return false
+        focusClaimed = true
+        return true
+    }
 
     /** `?text=` starts a conversation once — not again when coming back to this screen. */
     fun claimDeepLink(text: String): Boolean {

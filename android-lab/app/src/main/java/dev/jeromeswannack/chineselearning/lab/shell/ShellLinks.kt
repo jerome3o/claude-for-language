@@ -31,4 +31,6 @@ object ShellLinks {
 
     val STUDY: String get() = Routes.study()
     fun coach(text: String?): String = Routes.coach(text?.trim()?.takeIf { it.isNotEmpty() })
+    /** The widget's ✏️: the coach's sentence box focused, keyboard up. */
+    val COACH_TYPE: String get() = Routes.coach(focus = true)
 }
