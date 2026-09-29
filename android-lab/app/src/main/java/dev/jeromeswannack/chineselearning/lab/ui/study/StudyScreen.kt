@@ -133,13 +133,15 @@ class StudyActions(
 )
 
 @Composable
-fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit) {
+fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String) -> Unit, practice: PracticeSpec? = null) {
     // Today is the session (docs/STUDY_SESSION.md): the view model belongs to the activity, not to
     // this screen, so leaving Study — ✕, back, the coach, Home — ends nothing. The card on screen
     // (revealed, typed answer, recording), the undo and the queue are all still here on return.
-    val owner = androidx.compose.ui.platform.LocalContext.current.findViewModelStoreOwner()
-    val vm: StudyViewModel = if (owner != null) viewModel(viewModelStoreOwner = owner, key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
-        else viewModel(key = "study-${deckId ?: "all"}", factory = StudyViewModel.Factory(app, deckId))
+    // (The tutor-notes practice is a focused mini session of its own: scoped to its screen.)
+    val vmKey = if (practice != null) "practice-${practice.cardIds.joinToString(",")}" else "study-${deckId ?: "all"}"
+    val owner = if (practice == null) androidx.compose.ui.platform.LocalContext.current.findViewModelStoreOwner() else null
+    val vm: StudyViewModel = if (owner != null) viewModel(viewModelStoreOwner = owner, key = vmKey, factory = StudyViewModel.Factory(app, deckId, practice))
+        else viewModel(key = vmKey, factory = StudyViewModel.Factory(app, deckId, practice))
     val ui by vm.ui.collectAsStateWithLifecycle()
     val playing by app.audio.playingKey.collectAsState()
     val sync by app.repo.status.collectAsState()
@@ -265,6 +267,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
     Box(modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
             StudyTopBar(ui, actions, pendingReviews, onCountsCopied = { countsCopy = it; copyTick++ })
+            ui.practice?.let { p -> if (ui.phase is StudyPhase.Showing) PracticeBanner(p.counts) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
                     targetState = ui.phase,
@@ -325,12 +328,29 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
     }
 }
 
+/** The quiet line under the top bar in the tutor-notes practice: does this rating count? */
+@Composable
+private fun PracticeBanner(counts: Boolean) {
+    Text(
+        dev.jeromeswannack.chineselearning.lab.core.TutorNotesRules.practiceHint(counts),
+        style = MaterialTheme.typography.labelMedium,
+        color = if (counts) Palette.Good else Lab.colors.muted,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp).clip(CircleShape)
+            .background(if (counts) Palette.Good.copy(alpha = 0.12f) else Lab.colors.faint.copy(alpha = 0.6f))
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+            .then(Modifier),
+    )
+}
+
 @Composable
 private fun DoneView(ui: StudyUi, actions: StudyActions) {
     val today = ui.today
+    val stats = ui.stats
+    val practice = ui.practice
     // 🎉 + confetti only for the finish being celebrated now; quiet when today's finish was
-    // already celebrated (back to Study later with nothing due).
-    val quiet = today?.celebrate != true
+    // already celebrated (back to Study later with nothing due). The practice keeps its own finish.
+    val quiet = practice == null && today?.celebrate != true
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -343,6 +363,7 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
             Text(if (quiet) "✅" else "🎉", fontSize = 84.sp, modifier = Modifier.scale(scale))
             Text(
                 when {
+                    practice != null -> if (stats.reviews > 0) "Practised!" else "Nothing to practise"
                     today != null && today.reviews == 0 -> "Nothing due right now"
                     quiet -> "All done for now"
                     else -> "All done!"
@@ -352,6 +373,8 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
             Spacer(Modifier.height(6.dp))
             Text(
                 when {
+                    practice != null -> if (stats.reviews == 0) "These cards are not on this phone yet — sync and try again."
+                    else "${practice.counted} counted as ${if (practice.counted == 1) "a review" else "reviews"} (due today) · ${practice.practiceOnly} practice only"
                     ui.hasMoreNew -> "You've finished today's new words" + (if (ui.bonus > 0) " (+${ui.bonus} bonus)" else "") + ". Want more?"
                     else -> "Nothing else is due today. 明天见！"
                 },
@@ -359,7 +382,13 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
                 color = Lab.colors.muted,
                 textAlign = TextAlign.Center,
             )
-            if (today != null && today.reviews > 0) {
+            if (practice != null && stats.reviews > 0) {
+                Spacer(Modifier.height(24.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatTile("Cards rated", stats.reviews, "", Modifier.weight(1f))
+                    StatTile("Right", stats.accuracy, "%", Modifier.weight(1f))
+                }
+            } else if (today != null && today.reviews > 0) {
                 Spacer(Modifier.height(24.dp))
                 // Where the session recap was: today's active time and reviews (every device).
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -378,14 +407,15 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
                 }
             }
             Spacer(Modifier.height(28.dp))
-            if (ui.hasMoreNew) {
+            if (ui.hasMoreNew && practice == null) {
                 PrimaryPill("Study 10 more new words", Modifier.fillMaxWidth().height(58.dp), onClick = actions.onStudyMore)
                 Spacer(Modifier.height(10.dp))
             }
             if (ui.canUndo) TextButton(onClick = actions.onUndo) { Text("↺ Undo last review", color = Lab.colors.muted) }
-            TextButton(onClick = actions.onClose) { Text("Done", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = actions.onClose) { Text(if (practice != null) "Back to notes" else "Done", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold) }
         }
-        if (today?.celebrate == true) ConfettiRain(key = today.reviews, colors = Palette.Confetti)
+        if (practice != null && stats.reviews > 0) ConfettiRain(key = stats.reviews, colors = Palette.Confetti)
+        else if (today?.celebrate == true) ConfettiRain(key = today.reviews, colors = Palette.Confetti)
     }
 }
 

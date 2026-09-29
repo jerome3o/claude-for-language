@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import {
   askAboutNote,
   startSession,
@@ -333,7 +333,8 @@ function McAnswerDiff({ slots, onCharacterClick }: { slots: McAnswerSlot[]; onCh
   );
 }
 
-function StudyCard({
+/** The study card (front, reveal, back, rating). Also used by the tutor-notes practice (pages/TutorNotesPracticePage.tsx). */
+export function StudyCard({
   card,
   cardIsSecondaryNew,
   intervalPreviews,
@@ -348,6 +349,8 @@ function StudyCard({
   onDeleteCurrentCard,
   resume,
   scope,
+  pinnedTutorNotes,
+  banner,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -363,7 +366,12 @@ function StudyCard({
   onDeleteCurrentCard: () => void;
   /** Coming back to this card after leaving Study: start where it was (docs/STUDY_SESSION.md). */
   resume?: StudyResumePoint | null;
-  scope: string;
+  /** The Study screen's deck scope; unset (e.g. practising from the Tutor notes page) = nothing to resume. */
+  scope?: string;
+  /** Tutor notes to show on the back even though already seen (practising from the Tutor notes page). */
+  pinnedTutorNotes?: LocalRecordingNote[];
+  /** A quiet line under the top bar (the practice view says whether the rating counts). */
+  banner?: ReactNode;
 }) {
   const { isOnline } = useNetwork();
 
@@ -422,10 +430,15 @@ function StudyCard({
 
   // Tutor notes on my recordings of this card ("second tone, not fourth"),
   // shown once under the pinyin; marked seen when the card is rated.
-  const tutorNotes: LocalRecordingNote[] = useLiveQuery(
+  const unseenTutorNotes: LocalRecordingNote[] = useLiveQuery(
     () => getUnseenRecordingNotesForCard(card.id, card.note.id),
     [card.id, card.note.id]
   ) ?? EMPTY_TUTOR_NOTES;
+  const tutorNotes = useMemo(() => {
+    if (!pinnedTutorNotes?.length) return unseenTutorNotes;
+    const ids = new Set(unseenTutorNotes.map(n => n.id));
+    return [...unseenTutorNotes, ...pinnedTutorNotes.filter(n => !ids.has(n.id))];
+  }, [unseenTutorNotes, pinnedTutorNotes]);
 
   // Flag for tutor: the sheet under ⋯. Human tutors only; the list is
   // mirrored to localStorage so the item is still there offline.
@@ -510,7 +523,7 @@ function StudyCard({
   // time so far — saved as it changes and when leaving, so coming back to Study (from the coach,
   // Home, a reload) shows this card again as it was. Cleared once it is rated.
   const savePoint = useCallback(() => {
-    if (doneWithCardRef.current) return;
+    if (doneWithCardRef.current || !scope) return;
     saveResumePoint({
       day: getLocalDateString(),
       scope,
@@ -524,13 +537,13 @@ function StudyCard({
   savePointRef.current = savePoint;
   useEffect(() => { savePoint(); }, [savePoint]);
   useEffect(() => {
-    if (doneWithCardRef.current) return;
+    if (doneWithCardRef.current || !scope) return;
     saveResumeExtras({
       cardId: card.id,
       recording: audioBlob,
       mc: shuffledMcOptions ? { rows: shuffledMcOptions, selections: mcSelections, answered: mcAnswered, showing: showMultipleChoice } as ResumeMcState : null,
     });
-  }, [card.id, audioBlob, shuffledMcOptions, mcSelections, mcAnswered, showMultipleChoice]);
+  }, [scope, card.id, audioBlob, shuffledMcOptions, mcSelections, mcAnswered, showMultipleChoice]);
   useEffect(() => () => savePointRef.current(), []);
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
   // Separate player for the user's own recording so it never fights with the
@@ -2062,7 +2075,7 @@ function StudyCard({
         // "Back to your card" returns here. Prefilled with the card's sentence, not sent.
         key: 'coach', label: 'Sentence coach', icon: '✏️', hint: needsInternet, onSelect: () => {
           savePointRef.current();
-          setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
+          if (scope) setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
           navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
         },
       },
@@ -2363,6 +2376,7 @@ function StudyCard({
             </button>
           </div>
         </div>
+        {banner}
 
         {/* Data error banner */}
         {dataError && (

@@ -37,7 +37,12 @@ import kotlin.random.Random
  * Queue rules live in core/StudyQueue (pure, unit-tested); this class owns the
  * in-memory queue, the local writes and the feedback effects.
  */
-class StudyViewModel(private val app: LabApp, private val deckId: String?) : ViewModel() {
+class StudyViewModel(
+    private val app: LabApp,
+    private val deckId: String?,
+    /** The tutor-notes practice: just these cards, a rating counts only when the card is due. */
+    private val practice: PracticeSpec? = null,
+) : ViewModel() {
     private val repo = app.repo
     private val zone = ZoneId.systemDefault()
     private val random = Random.Default
@@ -177,7 +182,66 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     private fun today() = LocalDate.now(zone).toString()
     private val scopeKey get() = deckId ?: "all"
 
+    // ---- the tutor-notes practice (/tutor-notes/practice; web TutorNotesPracticePage) ----
+    private var practiceQueue: List<String> = emptyList()
+    private val practiceCards = HashMap<String, QueueCard>()
+    private var pinnedNotes: List<TutorNote> = emptyList()
+
+    private suspend fun loadPractice(spec: PracticeSpec) {
+        cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
+        val (cards, pinned) = withContext(Dispatchers.IO) {
+            deckNames = repo.dao.decks().associate { it.id to it.name }
+            val wanted = spec.cardIds.toHashSet()
+            val cards = repo.dao.cards().filter { it.id in wanted }.map { it.toQueueCard() }
+            val ids = spec.noteIds.toHashSet()
+            val list = TutorNotes.list(app.cache) { null }
+            cards to (list.fresh + list.earlier).filter { it.id in ids }.map(TutorNotes::asCardNote)
+        }
+        cards.forEach { practiceCards[it.id] = it }
+        practiceQueue = spec.cardIds.filter { it in practiceCards }
+        pinnedNotes = pinned
+        queue = practiceQueue.mapNotNull { practiceCards[it] }.toMutableList()
+        reviewedNoteIds = HashSet()
+        _ui.update { it.copy(practice = PracticeUi()) }
+        present(practiceQueue.firstOrNull()?.let { practiceCards[it] })
+    }
+
+    /** Does rating [card] now write a review? Only when it is due today (core TutorNotesRules). */
+    private fun practiceCounts(card: QueueCard): Boolean =
+        dev.jeromeswannack.chineselearning.lab.core.TutorNotesRules.practiceRatingCounts(card.queue, card.state.dueTimestamp, StudyQueue.cutoff(System.currentTimeMillis(), zone).ts)
+
+    private fun ratePractice(card: QueueCard, rating: Int, timeSpentMs: Long, userAnswer: String?, stats: SessionStats) {
+        val counts = practiceCounts(card)
+        _ui.update { u -> u.copy(stats = stats, lastRating = rating, practice = u.practice?.let { p -> if (counts) p.copy(counted = p.counted + 1) else p.copy(practiceOnly = p.practiceOnly + 1) }) }
+        viewModelScope.launch {
+            if (recorder.recording) { takeJob?.cancel(); take = recorder.stop() }
+            if (counts) {
+                val (eventId, updated) = repo.recordReview(card.id, rating, timeSpentMs, userAnswer)
+                queueTake(eventId)
+                updated?.toQueueCard()?.let { practiceCards[it.id] = it }
+            } else {
+                // Practice only: nothing is written — no review event, no recording kept.
+                take?.delete()
+                take = null
+            }
+            practiceQueue = dev.jeromeswannack.chineselearning.lab.core.TutorNotesRules.practiceAfterRating(practiceQueue, card.id, rating)
+            queue = practiceQueue.mapNotNull { practiceCards[it] }.toMutableList()
+            val next = practiceQueue.firstOrNull()?.let { practiceCards[it] }
+            present(next) // the end of the practice celebrates in present(null)
+            busy = false
+            if (counts) schedulePush()
+        }
+    }
+    /** A card left the queue (orphaned / its note deleted): the next practice card, or the session's next item. */
+    private suspend fun presentAfterRemoval() {
+        if (practice == null) return presentNext(nextItem(null))
+        practiceQueue = practiceQueue.filter { id -> queue.any { it.id == id } }
+        present(practiceQueue.firstOrNull()?.let { practiceCards[it] })
+    }
+    // ---- end practice ----
+
     private suspend fun load(resetRecent: Boolean) {
+        practice?.let { loadPractice(it); return }
         val now = System.currentTimeMillis()
         cutoff = StudyQueue.cutoff(now, zone)
         val bonus = app.prefs.bonus(scopeKey, today())
@@ -196,7 +260,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         _ui.update { it.copy(hasMoreNew = built.hasMoreNew, bonus = bonus, deckName = deckId?.let { id -> deckNames[id] }, today = null) }
         extras.load(cutoff, queue.map { it.noteId }.distinct(), viewModelScope, ::onReaderArrived) // Package B
         // The card left on screen (even by a process that's gone) comes back first, as it was.
-        if (!resumeChecked) {
+        if (!resumeChecked && practice == null) {
             resumeChecked = true
             val point = dayStore.resumePoint()
             val id = dev.jeromeswannack.chineselearning.lab.core.StudyResume.cardId(point, today(), scope, queue.map { it.id })
@@ -305,6 +369,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
     }
 
     private fun saveResumePoint() {
+        if (practice != null) return // the practice isn't today's queue: nothing to resume
         val v = currentView() ?: return
         val p = (if (progressPresentation == v.presentation) progress else null) ?: v.start
         val end = leftAt ?: System.currentTimeMillis()
@@ -317,7 +382,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         if (card == null) {
             val wasDone = _ui.value.phase is StudyPhase.Done
             _ui.update { it.copy(phase = StudyPhase.Done, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
-            dayStore.clearResumePoint()
+            if (practice == null) dayStore.clearResumePoint()
             if (!wasDone || _ui.value.today == null) celebrate()
             return
         }
@@ -345,14 +410,14 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         if (view == null) {
             // Orphaned card (note deleted on another device): drop it and move on.
             queue.removeAll { it.id == card.id }
-            presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
+            presentAfterRemoval()
             return
         }
         if (recorder.recording) recorder.stop()?.delete()
         take?.delete()
         take = null
         dropLive()
-        _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras()) }
+        _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras(), practice = it.practice?.copy(counts = practiceCounts(card))) }
         shownAt = System.currentTimeMillis() - start.elapsedMs
         progress = null
         progressPresentation = -1
@@ -367,7 +432,10 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         extrasJob?.cancel()
         extrasJob = viewModelScope.launch {
             val rel = app.cache.get<dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto>(dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys.RELATIONSHIPS)
-            val notes = TutorNotes.forCard(app.cache, view.card.id, view.note.id)
+            val unseen = TutorNotes.forCard(app.cache, view.card.id, view.note.id)
+            // Practising from the notes page: the tutor's note stays on the back even though it was seen.
+            val pinned = pinnedNotes.filter { n -> (if (n.kind == "recording") n.cardId == view.card.id else n.noteId == view.note.id) && unseen.none { it.id == n.id } }
+            val notes = unseen + pinned
             updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel)) }
             setUpMc(view)
             if (!aiAvailable) return@launch
@@ -506,7 +574,7 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
             queue.removeAll { it.noteId == noteId }
             undo = null
             _ui.update { it.copy(canUndo = false, lastRating = null) }
-            presentNext(nextItem(null)) // Package B (was StudyQueue.selectNext)
+            presentAfterRemoval()
         }
     }
 
@@ -820,6 +888,8 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         app.haptics.rated(rating)
         app.sounds.ratingPop()
 
+        if (practice != null) return ratePractice(card, rating, timeSpentMs, userAnswer, stats)
+
         val snapshotQueue = queue.toList()
         val snapshotReviewed = reviewedNoteIds.toSet()
         val snapshotRecent = recentNoteIds
@@ -861,6 +931,11 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
      * once a day, again only when more cards became due and were cleared (core Celebration).
      */
     private fun celebrate() {
+        if (practice != null) {
+            // The tutor-notes practice is its own little finish: celebrated whenever something was rated.
+            if (_ui.value.stats.reviews > 0) { app.sounds.play(Sounds.Sfx.FANFARE, 0.8f); app.haptics.celebrate() }
+            return
+        }
         viewModelScope.launch {
             val dayStart = StudyQueue.startOfDay(System.currentTimeMillis(), zone)
             val summary = withContext(Dispatchers.IO) { repo.dao.reviewSummarySince(Js.toIsoString(dayStart)) }
@@ -925,8 +1000,8 @@ class StudyViewModel(private val app: LabApp, private val deckId: String?) : Vie
         if (_ui.value.stats.reviews > 0) app.scheduleBackgroundUpload()
     }
 
-    class Factory(private val app: LabApp, private val deckId: String?) : ViewModelProvider.Factory {
+    class Factory(private val app: LabApp, private val deckId: String?, private val practice: PracticeSpec? = null) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = StudyViewModel(app, deckId) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = StudyViewModel(app, deckId, practice) as T
     }
 }

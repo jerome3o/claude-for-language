@@ -140,6 +140,7 @@ export function MorePage() {
         {!role.isTutorOnly && (
           <NavSection title="From your tutor">
             <NavRow icon="✅" label="Homework" desc="One-off practice with a due date" to="/homework" />
+            <NavRow icon="🗒" label="Tutor notes" desc="Comments on your recordings and flagged cards" to="/tutor-notes" />
             <NavRow
               icon="📝"
               label="Lesson Notes"

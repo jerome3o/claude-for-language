@@ -62,7 +62,7 @@ class NavRulesTest {
     @Test fun immersiveRoutes() {
         listOf(
             "/study", "/study/", "/quests/abc", "/picture-hunt/h1", "/readers/r1", "/readers/r1/edit", "/readers/r1/print", "/library/l1/edit", "/lessons/l1/print",
-            "/library/catalogue/conversation", "/connections/1/chat/2", "/join/token", "/calls/c1", "/homework/a1", "/study?deck=d1",
+            "/library/catalogue/conversation", "/connections/1/chat/2", "/join/token", "/calls/c1", "/homework/a1", "/study?deck=d1", "/tutor-notes/practice?cards=c1",
         ).forEach { assertTrue(it, NavRules.isImmersiveRoute(it)) }
         listOf(
             "/", "/study/review/abc", "/quests", "/readers", "/readers/generate", "/library", "/library/l1", "/library/catalogue",

@@ -120,8 +120,8 @@ function getCardLastReviewTime(card: LocalCard): string | null {
   return null;
 }
 
-// Get interval preview locally
-function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: DeckSettings): IntervalPreview {
+// Get interval preview locally (also used by the tutor-notes practice)
+export function getIntervalPreviewLocal(rating: Rating, card: LocalCard, settings: DeckSettings): IntervalPreview {
   return getIntervalPreview(
     rating,
     card.queue,

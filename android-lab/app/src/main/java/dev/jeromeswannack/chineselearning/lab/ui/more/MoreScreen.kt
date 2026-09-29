@@ -136,6 +136,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                     "From your tutor",
                     rows = listOf(
                         row("✅", "Homework", "One-off practice with a due date", Routes.homework()),
+                        row("🗒", "Tutor notes", "Comments on your recordings and flagged cards", Routes.tutorNotes()),
                         row("📝", "Lesson Notes", if (role.hasTutor) "Paste what your tutor sent you" else "Notes from lessons, for readers and sentences", Routes.lessonNotes()),
                     ),
                 )

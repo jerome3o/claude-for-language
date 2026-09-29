@@ -326,6 +326,25 @@ unseen notes are pulled into IndexedDB (`recordingNotes`) during sync
 seen locally first and `POST /api/me/recording-notes/:eventId/seen` follows, immediately or on
 the next sync.
 
+**Notes from your tutor** (`/tutor-notes`, web `pages/TutorNotesPage.tsx`, Lab
+`ui/study/TutorNotesScreen.kt`; Home shows "🗒 3 new notes from <tutor>" while any is unseen, and
+More → From your tutor → Tutor notes): every note — recording comments and flag replies — new
+first, then earlier ones, each with the card (hanzi, pinyin, meaning), the comment, the date,
+▶ the student's recording and "You asked: …" for a flag. Offline from the device: the unseen feed
+decides what is NEW and `GET /api/me/tutor-notes?include_seen=1` (cached by each sync, IndexedDB
+`tutorNotes` / the Lab JSON cache) supplies the earlier ones (`mergeTutorNotes`,
+`shared/tutor-notes/notes.ts`). Opening the page marks the new ones seen with the same `/seen`
+endpoint, so the card back won't repeat them (they stay under "New" while the page is open).
+**Practice this card / Practice all** opens `/tutor-notes/practice?cards=…&notes=…`: those cards in
+the normal study card UI as a focused mini session, the tutor's note pinned on the back. The FSRS
+rule (`practiceRatingCounts`, `shared/tutor-notes/practice.ts`, the Lab's `TutorNotesRules`,
+parity-tested): **a rating is a real review only when the card is due today** (the session's own
+`isDueByCutoff`); a card not due, or still NEW, is **practice only — no review event is written**
+and its schedule and the new-card budget are untouched (same principle as the homework pass,
+docs/HOMEWORK.md decision 1). A quiet line under the top bar says which. Again sends the card round
+again; the end screen counts "N counted as reviews · M practice only". **Open card ›** goes to the
+card hub.
+
 ## Flag a card for the tutor
 
 **⋯ → Flag for tutor** (`components/study/FlagCardSheet.tsx`; the item only appears when the
