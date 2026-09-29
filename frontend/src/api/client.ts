@@ -1,3 +1,4 @@
+import type { CoachAction } from '@shared/coach';
 import {
   Deck,
   LandingPage,
@@ -1364,13 +1365,22 @@ export async function explainSentence(sentence: string): Promise<SentenceExplana
 
 // ============ Sentence Coach Conversations ============
 
-export async function startCoachConversation(text: string): Promise<{
+/**
+ * Start a coach conversation with the button the learner pressed (shared/coach):
+ * check / explain / translate. Explain may send the breakdown this device already
+ * has cached, which the server stores instead of asking Claude again.
+ */
+export async function startCoachConversation(
+  text: string,
+  action?: CoachAction,
+  explanation?: SentenceBriefExplanation | null,
+): Promise<{
   conversation: CoachConversation;
   messages: CoachMessage[];
 }> {
   return fetchJSON('/coach/conversations', {
     method: 'POST',
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, action, explanation: explanation ?? undefined }),
   });
 }
 

@@ -215,9 +215,9 @@ suspend fun Api.deleteSentenceSet(noteId: String) {
     if (!res.ok) throw dev.jeromeswannack.chineselearning.lab.data.HttpException(res.code, res.body.take(200), res.body)
 }
 
-/** `SentenceBriefExplanation`: word glosses + one line on the construction. */
+/** `SentenceBriefExplanation`: word glosses + one line on the construction (+ a one-line translation; older ones have none). */
 @Serializable
-data class SentenceExplanation(val words: List<ExplainedWord> = emptyList(), val construction: String? = null)
+data class SentenceExplanation(val words: List<ExplainedWord> = emptyList(), val construction: String? = null, val translation: String? = null)
 
 @Serializable
 data class ExplainedWord(val hanzi: String, val pinyin: String = "", val gloss: String = "")

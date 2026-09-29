@@ -303,6 +303,16 @@ export interface SentenceBriefExplanation {
   words: Array<{ hanzi: string; pinyin: string; gloss: string }>;
   /** One or two sentences on how the sentence is put together */
   construction: string;
+  /** One-line English translation of the whole sentence (breakdowns made before it was added have none) */
+  translation?: string;
+}
+
+/** The Sentence Coach's Explain result: the brief breakdown of the learner's sentence. */
+export interface CoachBreakdown extends SentenceBriefExplanation {
+  /** The sentence as the learner gave it */
+  hanzi: string;
+  /** Sentence pinyin, joined from the word rows */
+  pinyin: string;
 }
 
 export interface Card {
@@ -815,13 +825,17 @@ export type CoachAnalysis =
   // breakdown alongside the coach result. New conversations omit it to keep the
   // initial analysis short and fast.
   | { kind: 'chinese'; coach: SentenceCoachResult; explanation?: SentenceExplanation }
-  | { kind: 'english'; translation: SentenceTranslation };
+  | { kind: 'english'; translation: SentenceTranslation }
+  // Explain (Chinese input): translation + the word-by-word breakdown, each word addable as a card.
+  | { kind: 'explain'; breakdown: CoachBreakdown };
 
 export interface CoachConversation {
   id: string;
   user_id: string;
   title: string;
   input_language: CoachInputLanguage;
+  /** Which button started it: check | explain | translate (NULL on rows from before 0084) */
+  action?: 'check' | 'explain' | 'translate' | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,3 +1,4 @@
+import type { CoachAction } from '@shared/coach';
 // Card types
 export type CardType = 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
 
@@ -156,6 +157,14 @@ export interface NoteSentence {
 export interface SentenceBriefExplanation {
   words: Array<{ hanzi: string; pinyin: string; gloss: string }>;
   construction: string;
+  /** One-line English translation of the whole sentence (older cached breakdowns have none) */
+  translation?: string;
+}
+
+/** The Sentence Coach's Explain result: the brief breakdown of the learner's sentence. */
+export interface CoachBreakdown extends SentenceBriefExplanation {
+  hanzi: string;
+  pinyin: string;
 }
 
 export interface Card {
@@ -744,13 +753,17 @@ export type CoachAnalysis =
   // breakdown alongside the coach result. New conversations omit it to keep the
   // initial analysis short and fast.
   | { kind: 'chinese'; coach: SentenceCoachResult; explanation?: SentenceExplanation }
-  | { kind: 'english'; translation: SentenceTranslation };
+  | { kind: 'english'; translation: SentenceTranslation }
+  // Explain (Chinese input): translation + the word-by-word breakdown, each word addable as a card.
+  | { kind: 'explain'; breakdown: CoachBreakdown };
 
 export interface CoachConversation {
   id: string;
   user_id: string;
   title: string;
   input_language: CoachInputLanguage;
+  /** Which button started it (null on conversations from before it was recorded) */
+  action?: CoachAction | null;
   created_at: string;
   updated_at: string;
 }

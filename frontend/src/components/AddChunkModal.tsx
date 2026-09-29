@@ -75,7 +75,7 @@ export function AddChunkModal(props: { chunk: Chunk; onClose: () => void }) {
   }
 
   return (
-    <div className="rp-modal-backdrop" onClick={onClose}>
+    <div className="rp-modal-backdrop add-chunk-backdrop" onClick={onClose}>
       <div className="rp-modal" onClick={(e) => e.stopPropagation()}>
         <div className="rp-modal-hanzi">{chunk.hanzi}</div>
         <div className="rp-pinyin">{chunk.pinyin}</div>

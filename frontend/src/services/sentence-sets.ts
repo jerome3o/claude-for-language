@@ -291,22 +291,35 @@ export async function getTextExplanation(sentence: {
   pinyin?: string | null;
   translation?: string | null;
 }): Promise<SentenceBriefExplanation> {
-  const cached = await db.sentenceTextExplanations.get(sentence.hanzi);
-  if (cached) {
-    try {
-      return JSON.parse(cached.explanation) as SentenceBriefExplanation;
-    } catch {
-      // Corrupt cache — fall through and refetch
-    }
-  }
+  const cached = await getCachedTextExplanation(sentence.hanzi);
+  if (cached) return cached;
 
   const explanation = await explainSentenceText(sentence);
-  await db.sentenceTextExplanations.put({
-    key: sentence.hanzi,
-    explanation: JSON.stringify(explanation),
-    cached_at: Date.now(),
-  });
+  await cacheTextExplanation(sentence.hanzi, explanation);
   return explanation;
+}
+
+/** The breakdown this device holds for a sentence's text, or null (corrupt cache = none). */
+export async function getCachedTextExplanation(hanzi: string): Promise<SentenceBriefExplanation | null> {
+  try {
+    const cached = await db.sentenceTextExplanations.get(hanzi);
+    return cached ? (JSON.parse(cached.explanation) as SentenceBriefExplanation) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep a breakdown by its sentence text (shared by the card's clue and the Coach's Explain). */
+export async function cacheTextExplanation(hanzi: string, explanation: SentenceBriefExplanation): Promise<void> {
+  try {
+    await db.sentenceTextExplanations.put({
+      key: hanzi,
+      explanation: JSON.stringify(explanation),
+      cached_at: Date.now(),
+    });
+  } catch (err) {
+    console.warn('[sentence-sets] Could not cache the breakdown:', err);
+  }
 }
 
 /**

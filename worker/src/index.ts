@@ -28,7 +28,8 @@ import pictureHuntRoutes from './routes/picture-hunts';
 import { runPictureHuntJob } from './services/picture-hunt';
 import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
-import { explainSentenceBriefly } from './services/sentence-explain-brief';
+import { explainSentenceBriefly, parseClientBriefExplanation, toCoachBreakdown } from './services/sentence-explain-brief';
+import { resolveCoachAction } from '@shared/coach';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
 import { generateStory, generatePageImage, getDailyStoryLens } from './services/graded-reader';
@@ -1743,7 +1744,9 @@ app.post('/api/sentences/explain-text', async (c) => {
     return c.json({ explanation });
   } catch (error) {
     console.error('Sentence text explanation error:', error);
-    return c.json({ error: 'Failed to explain sentence' }, 500);
+    // 503 = worth another try; 502 = Claude declined this one.
+    const retryable = !(error instanceof StructuredCallError) || error.retryable;
+    return c.json({ error: 'Failed to explain sentence', retryable }, retryable ? 503 : 502);
   }
 });
 
@@ -2910,25 +2913,37 @@ function containsChinese(text: string): boolean {
   return /[㐀-䶿一-鿿豈-﫿]/.test(text);
 }
 
-// Start a conversation from a sentence: detect the language, run the right
-// analysis, persist the thread. Chinese → coach + explain; English → translate.
+// Start a conversation from a sentence with the button the learner pressed
+// (shared/coach): check → coachSentence (grade / correct what I wrote);
+// explain → the brief Haiku breakdown (translation + word rows + construction,
+// the same generator as "What's going on here?"); translate → translateSentence.
+// No `action` (older clients) auto-detects: Chinese → check, English → translate.
+// Explain may carry the breakdown the client already has cached, which is stored
+// as is (validated) instead of asking Claude again.
 app.post('/api/coach/conversations', async (c) => {
   const userId = c.get('user').id;
-  const { text } = await c.req.json<{ text: string }>();
+  const { text, action: requested, explanation: clientExplanation } =
+    await c.req.json<{ text: string; action?: unknown; explanation?: unknown }>();
 
   if (!text || typeof text !== 'string' || !text.trim()) {
     return c.json({ error: 'text is required' }, 400);
   }
-  if (!c.env.ANTHROPIC_API_KEY) {
+  const input = text.trim();
+  const resolved = resolveCoachAction(input, requested);
+  if (!resolved.ok) {
+    return c.json({ error: resolved.error }, 400);
+  }
+  const action = resolved.action;
+  const cached = action === 'explain' ? parseClientBriefExplanation(clientExplanation) : null;
+  if (!c.env.ANTHROPIC_API_KEY && !cached) {
     return c.json({ error: 'AI coaching is not configured' }, 500);
   }
 
-  const input = text.trim();
   const isChinese = containsChinese(input);
 
   try {
     let analysis: import('./types').CoachAnalysis;
-    if (isChinese) {
+    if (action === 'check') {
       // Keep the initial analysis short and fast: just the correction, a brief
       // critique, and a couple of example phrasings. The heavy word-by-word /
       // grammar breakdown (explainSentence) is available on demand via
@@ -2936,13 +2951,16 @@ app.post('/api/coach/conversations', async (c) => {
       // the first response on it.
       const coach = await coachSentence(c.env.ANTHROPIC_API_KEY, input);
       analysis = { kind: 'chinese', coach };
+    } else if (action === 'explain') {
+      const explanation = cached ?? await explainSentenceBriefly(c.env.ANTHROPIC_API_KEY, { hanzi: input });
+      analysis = { kind: 'explain', breakdown: toCoachBreakdown(input, explanation) };
     } else {
       const translation = await translateSentence(c.env.ANTHROPIC_API_KEY, input);
       analysis = { kind: 'english', translation };
     }
 
     const conversation = await db.createCoachConversation(
-      c.env.DB, userId, input.slice(0, 120), isChinese ? 'zh' : 'en'
+      c.env.DB, userId, input.slice(0, 120), isChinese ? 'zh' : 'en', action
     );
     const userMsg = await db.addCoachMessage(c.env.DB, conversation.id, 'user', 'text', input);
     const assistantMsg = await db.addCoachMessage(

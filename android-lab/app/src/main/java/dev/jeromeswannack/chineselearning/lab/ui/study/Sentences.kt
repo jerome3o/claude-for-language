@@ -97,8 +97,8 @@ fun sentenceRows(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity, s
     return rows
 }
 
-/** A word or sentence the learner is turning into a card (AddChunkModal's `Chunk`). */
-data class Chunk(val hanzi: String, val pinyin: String, val english: String)
+/** A word or sentence the learner is turning into a card (AddChunkModal's `Chunk`; fun_facts optional, sent as is). */
+data class Chunk(val hanzi: String, val pinyin: String, val english: String, val funFacts: String? = null)
 
 /** The sentence list's network side (all online; the list itself is offline). */
 class SentenceActions(

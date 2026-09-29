@@ -13,7 +13,14 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.core.CoachAction
+import dev.jeromeswannack.chineselearning.lab.core.CoachActions
+import dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto
+import dev.jeromeswannack.chineselearning.lab.data.api.CoachBreakdownDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachConversationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
+import dev.jeromeswannack.chineselearning.lab.ui.study.CardTools
+import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.api.coachConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.coachConversations
@@ -36,8 +43,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * `/coach?text=&c=&focus=` (package H): the home (new sentence + conversations) or, with `c`, one
- * conversation. `?text=` ("select text → Sentence Coach") starts a conversation at once, like
- * the web; `?focus=1` (the widget's ✏️) opens the home with the sentence box focused, keyboard up;
+ * conversation. The home offers the web's buttons (`CoachActions.buttons`, shared/coach): Chinese →
+ * Check my sentence + Explain, English → Translate. `?text=` ("select text → Sentence Coach")
+ * translates English at once and puts Chinese in the box on the two buttons, like the web;
+ * `?focus=1` (the widget's ✏️) opens the home with the sentence box focused, keyboard up;
  * `?draft=` (study card ⋯ → Sentence coach) fills the box without sending — back returns to the card.
  */
 fun NavGraphBuilder.coachGraph(nav: LabNav) {
@@ -66,6 +75,7 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                     onSend = vm::send,
                     onDeck = vm::selectDeck,
                     onRetryLoad = vm::reload,
+                    cards = coachCardActions(nav.app),
                 ),
             )
         } else {
@@ -73,20 +83,45 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
             val ui by vm.ui.collectAsStateWithLifecycle()
             // ?draft= (a study card's sentence): in the box, not sent; back returns to the card.
             LaunchedEffect(draft) { if (!draft.isNullOrBlank() && vm.claimDraft(draft)) vm.setDraft(draft) }
-            LaunchedEffect(text) { if (!text.isNullOrBlank() && vm.claimDeepLink(text)) vm.start(text.trim()) { id -> nav.open(Routes.coachConversation(id)) } }
+            // ?text=: English is translated at once; Chinese waits in the box on Check / Explain.
+            LaunchedEffect(text) {
+                if (!text.isNullOrBlank() && vm.claimDeepLink(text)) {
+                    val only = CoachActions.buttons(text).actions.singleOrNull()
+                    if (only != null) vm.start(text.trim(), only) { id -> nav.open(Routes.coachConversation(id)) } else vm.setDraft(text)
+                }
+            }
             CoachHomeScreen(
                 ui,
                 autoFocus = focus && text.isNullOrBlank() && vm.claimFocus(),
                 actions = CoachHomeActions(
                     onBack = nav::back,
                     onDraft = vm::setDraft,
-                    onSend = { vm.start(ui.draft.trim()) { id -> nav.open(Routes.coachConversation(id)) } },
+                    onAction = { action -> vm.start(ui.draft.trim(), action) { id -> nav.open(Routes.coachConversation(id)) } },
                     onOpen = { nav.open(Routes.coachConversation(it)) },
                     onDelete = vm::delete,
+                    cards = coachCardActions(nav.app),
                 ),
             )
         }
     }
+}
+
+/**
+ * Adding a word / the whole sentence from an Explain result: the same AddChunkSheet (deck chips,
+ * duplicate warning) as the study card's "What's going on here?" breakdown, through the same calls.
+ */
+private fun coachCardActions(app: LabApp): SentenceActions {
+    val tools = CardTools(app)
+    return SentenceActions(
+        decks = {
+            withContext(Dispatchers.IO) {
+                app.repo.dao.decks().sortedWith(compareByDescending<dev.jeromeswannack.chineselearning.lab.data.DeckEntity> { it.studyPriority }.thenByDescending { it.createdAt })
+                    .map { it.id to it.name }
+            }
+        },
+        deckHas = tools::deckHas,
+        addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },
+    )
 }
 
 /** The conversation route (web: `/coach?c=<id>`). */
@@ -98,7 +133,8 @@ private fun threadKey(id: String) = "coach/c/$id"
 class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
     private val list = app.cachedResource<List<CoachConversationDto>>(viewModelScope, LIST_KEY, "coach") { coachConversations() }
     private val local = MutableStateFlow(CoachHomeUi())
-    val ui: StateFlow<CoachHomeUi> = combine(list.state, local) { l, u -> u.copy(conversations = l) }.stateIn(viewModelScope, SharingStarted.Eagerly, CoachHomeUi())
+    val ui: StateFlow<CoachHomeUi> = combine(list.state, local, app.online) { l, u, online -> u.copy(conversations = l, online = online) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, CoachHomeUi())
 
     private var handledDeepLink: String? = null
     private var focusClaimed = false
@@ -126,22 +162,47 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
         return true
     }
 
-    fun setDraft(s: String) = local.update { it.copy(draft = s, startError = null) }
+    fun setDraft(s: String) = local.update { it.copy(draft = s, startError = null, savedBreakdown = null) }
 
-    fun start(text: String, onStarted: (String) -> Unit) {
+    private val tools = CardTools(app)
+
+    /**
+     * Run a button (the web's startMutation). Explain is the same brief breakdown as the study card's
+     * "What's going on here?", kept by its text: the cached one is sent (the server stores it, no
+     * Claude call) and the answer kept, so the sentence is explained offline next time — offline or
+     * unreachable, the saved breakdown shows on this screen instead.
+     */
+    fun start(text: String, action: CoachAction, onStarted: (String) -> Unit) {
         if (text.isEmpty() || local.value.starting) return
-        local.update { it.copy(draft = text, starting = true, startError = null) }
+        local.update { it.copy(draft = text, starting = true, pendingAction = action, startError = null, savedBreakdown = null) }
         viewModelScope.launch {
+            val cached = if (action == CoachAction.EXPLAIN) runCatching { tools.cachedTextExplanation(text) }.getOrNull() else null
+            if (cached != null && !app.online.value) {
+                local.update { it.copy(starting = false, pendingAction = null, savedBreakdown = CoachBreakdownDto.of(text, cached)) }
+                return@launch
+            }
             try {
-                val res = CoachRules.retryOnce { app.repo.api.startCoachConversation(text) }
+                val res = CoachRules.retryOnce { app.repo.api.startCoachConversation(text, action.id, cached?.takeIf { !it.translation.isNullOrBlank() }) }
                 app.cache.put(threadKey(res.conversation.id), "coach-thread", res)
+                if (action == CoachAction.EXPLAIN) {
+                    res.messages.firstOrNull { it.content_type == "analysis" }?.let { CoachAnalysisDto.parse(it.content)?.breakdown }
+                        ?.let { runCatching { tools.cacheTextExplanation(text, it.asExplanation()) } }
+                }
                 app.haptics.tick()
-                local.update { it.copy(draft = "", starting = false) }
+                local.update { it.copy(draft = "", starting = false, pendingAction = null) }
                 list.refresh()
                 onStarted(res.conversation.id)
             } catch (e: Exception) {
                 // The text stays in the box for Try again.
-                local.update { it.copy(starting = false, startError = CoachRules.errorText(e, "Couldn't reach the coach", app.online.value)) }
+                local.update {
+                    it.copy(
+                        starting = false,
+                        pendingAction = null,
+                        lastAction = action,
+                        startError = CoachRules.errorText(e, "Couldn't reach the coach", app.online.value),
+                        savedBreakdown = cached?.let { c -> CoachBreakdownDto.of(text, c) },
+                    )
+                }
             }
         }
     }

@@ -157,7 +157,11 @@ class CardTools(private val app: LabApp) {
     }
 
     fun explainKey(sentenceId: String) = "study/explain/$sentenceId"
-    private fun explainTextKey(hanzi: String) = "study/explain-text/$hanzi"
+
+    /** The Coach's Explain keeps its breakdown under the same key, so a sentence explained in either place is there offline in both. */
+    suspend fun cachedTextExplanation(hanzi: String): SentenceExplanation? = cache.get(explainTextKey(hanzi))
+
+    suspend fun cacheTextExplanation(hanzi: String, e: SentenceExplanation) = cache.put(explainTextKey(hanzi), TutorNotes.KIND, e)
 
     /** A cached breakdown (set row or the card's own clue), or null. */
     suspend fun cachedExplanation(sentenceId: String?, hanzi: String): SentenceExplanation? =
@@ -276,5 +280,8 @@ class CardTools(private val app: LabApp) {
 
     companion object {
         fun message(e: Throwable) = e.userMessage()
+
+        /** A breakdown kept by its sentence text (the card's own clue, the Coach's Explain). */
+        fun explainTextKey(hanzi: String) = "study/explain-text/$hanzi"
     }
 }

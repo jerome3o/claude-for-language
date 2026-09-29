@@ -12,6 +12,8 @@ data class CoachConversationDto(
     val id: String,
     val title: String = "",
     val input_language: String = "zh",
+    /** Which button started it: check | explain | translate (null on older conversations). */
+    val action: String? = null,
     val created_at: String = "",
     val updated_at: String = "",
     val message_count: Int = 0,
@@ -32,7 +34,8 @@ data class CoachMessageDto(
 @Serializable data class CoachThreadDto(val conversation: CoachConversationDto, val messages: List<CoachMessageDto> = emptyList())
 @Serializable data class CoachReplyDto(val messages: List<CoachMessageDto> = emptyList(), val toolResults: List<CoachToolResultDto> = emptyList())
 @Serializable data class CoachToolResultDto(val tool: String, val success: Boolean = false, val data: JsonObject? = null, val error: String? = null)
-@Serializable data class CoachStartBody(val text: String)
+/** `action`: check | explain | translate; `explanation`: Explain's breakdown already cached on the device (stored as is). */
+@Serializable data class CoachStartBody(val text: String, val action: String? = null, val explanation: SentenceExplanation? = null)
 @Serializable data class CoachMessageBody(val message: String)
 
 // ---- the structured first reply (content_type = "analysis") ----
@@ -68,23 +71,46 @@ data class CoachTranslationDto(
     val usage_note: String? = null,
 )
 
-/** Port of `CoachAnalysis`: `kind` chinese → coach (+ legacy explanation), english → translation. */
+/** Explain's result (`CoachBreakdown`): the learner's sentence + the brief "What's going on here?" breakdown. */
+@Serializable
+data class CoachBreakdownDto(
+    val hanzi: String = "",
+    val pinyin: String = "",
+    val translation: String? = null,
+    val words: List<ExplainedWord> = emptyList(),
+    val construction: String? = null,
+) {
+    fun asExplanation() = SentenceExplanation(words, construction, translation)
+
+    companion object {
+        /** A breakdown cached by the sentence's text → the Explain result (pinyin joined from the word rows, like the worker). */
+        fun of(hanzi: String, e: SentenceExplanation) =
+            CoachBreakdownDto(hanzi, e.words.map { it.pinyin }.filter { it.isNotEmpty() }.joinToString(" "), e.translation, e.words, e.construction)
+    }
+}
+
+/** Port of `CoachAnalysis`: `kind` chinese → coach (+ legacy explanation), explain → breakdown, english → translation. */
 @Serializable
 data class CoachAnalysisDto(
     val kind: String,
     val coach: CoachResultDto? = null,
     val explanation: CoachExplanationDto? = null,
     val translation: CoachTranslationDto? = null,
+    val breakdown: CoachBreakdownDto? = null,
 ) {
     /** The Chinese sentence the analysis settled on (the web's `analysisSentence`). */
-    val sentence: String? get() = if (kind == "chinese") coach?.corrected?.hanzi else translation?.primary?.hanzi
+    val sentence: String? get() = when (kind) {
+        "chinese" -> coach?.corrected?.hanzi
+        "explain" -> breakdown?.hanzi
+        else -> translation?.primary?.hanzi
+    }
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; explicitNulls = false }
 
-        /** The web's `parseAnalysis`: null unless it is a chinese / english analysis. */
+        /** The web's `parseAnalysis`: null unless it is a chinese / explain / english analysis. */
         fun parse(content: String): CoachAnalysisDto? = runCatching { json.decodeFromString(serializer(), content) }.getOrNull()
-            ?.takeIf { (it.kind == "chinese" && it.coach != null) || (it.kind == "english" && it.translation != null) }
+            ?.takeIf { (it.kind == "chinese" && it.coach != null) || (it.kind == "explain" && it.breakdown != null) || (it.kind == "english" && it.translation != null) }
 
         /** The web's `parseToolResults`. */
         fun toolResults(raw: String?): List<CoachToolResultDto> =
@@ -94,7 +120,8 @@ data class CoachAnalysisDto(
 
 suspend fun Api.coachConversations(): List<CoachConversationDto> = get("/api/coach/conversations")
 suspend fun Api.coachConversation(id: String): CoachThreadDto = get("/api/coach/conversations/${enc(id)}")
-suspend fun Api.startCoachConversation(text: String): CoachThreadDto = post("/api/coach/conversations", CoachStartBody(text))
+suspend fun Api.startCoachConversation(text: String, action: String? = null, explanation: SentenceExplanation? = null): CoachThreadDto =
+    post("/api/coach/conversations", CoachStartBody(text, action, explanation))
 suspend fun Api.sendCoachMessage(id: String, message: String): CoachReplyDto = post("/api/coach/conversations/${enc(id)}/messages", CoachMessageBody(message))
 suspend fun Api.deleteCoachConversation(id: String) {
     val r = send("DELETE", "/api/coach/conversations/${enc(id)}")
