@@ -126,8 +126,14 @@ class ScreenshotTest {
 
     @Test fun listenFront() = shoot("08-listen-front") { study(view(CardTypes.AUDIO_TO_HANZI, CardQueue.NEW)) }
 
+    /** Today's queue emptied: celebrated (the first finish today), with today's numbers where the recap was. */
     @Test fun done() = shoot("09-done") {
-        study(view(CardTypes.HANZI_TO_MEANING), ui = StudyUi(StudyPhase.Done, QueueCounts(0, 0, 0, 0), stats.copy(reviews = 24, correct = 21, leeches = listOf("n9")), canUndo = true, hasMoreNew = true))
+        study(view(CardTypes.HANZI_TO_MEANING), ui = StudyUi(StudyPhase.Done, QueueCounts(0, 0, 0, 0), stats.copy(reviews = 24, correct = 21, leeches = listOf("n9")), canUndo = true, hasMoreNew = true, today = dev.jeromeswannack.chineselearning.lab.ui.study.TodaySummary(23 * 60_000 + 20_000, 142, 121, celebrate = true)))
+    }
+
+    /** Back in Study later the same day with nothing new due: the quiet "All done for now". */
+    @Test fun doneQuiet() = shoot("09b-done-quiet") {
+        study(view(CardTypes.HANZI_TO_MEANING), ui = StudyUi(StudyPhase.Done, QueueCounts(0, 0, 0, 0), stats.copy(reviews = 0, correct = 0), canUndo = false, hasMoreNew = false, today = dev.jeromeswannack.chineselearning.lab.ui.study.TodaySummary(31 * 60_000, 168, 140, celebrate = false)))
     }
 
     @Config(qualifiers = "w841dp-h701dp-xxhdpi")

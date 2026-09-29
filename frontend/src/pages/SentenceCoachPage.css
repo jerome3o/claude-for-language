@@ -411,3 +411,9 @@
   flex: 1;
   margin: 0;
 }
+
+/* Opened from a study card (⋯ → Sentence coach): the way back to that card, kept as it was */
+.coach-back-to-card {
+  margin-bottom: 0.75rem;
+  min-height: 44px;
+}

@@ -105,6 +105,8 @@ data class CardStartState(
     val showClue: Boolean = false,
     /** The answer came from the multiple-choice grid: its per-row result (shown row by row on the back). */
     val mcSlots: List<MultipleChoice.Slot>? = null,
+    /** Time already spent on the card (resumed): the review's time_spent_ms carries on from it. */
+    val elapsedMs: Long = 0,
 )
 
 /** The sheets a card can open over itself. */
@@ -141,7 +143,10 @@ fun CardStage(
     var rated by remember(view.presentation) { mutableStateOf(false) }
     var sheet by remember(view.presentation) { mutableStateOf<CardSheet?>(null) }
     var burst by remember { mutableIntStateOf(0) }
-    val startedAt = remember(view.presentation) { System.currentTimeMillis() }
+    val startedAt = remember(view.presentation) { System.currentTimeMillis() - start.elapsedMs }
+    // Tell the session how the card stands, so leaving Study (the coach, Home, the app going
+    // away) and coming back shows it exactly like this (StudyViewModel.onCardProgress).
+    LaunchedEffect(view.presentation, revealed, answer, mcSlots) { actions.onCardProgress(view.presentation, revealed, answer, mcSlots) }
     val shake = remember { ShakeState() }
     val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }

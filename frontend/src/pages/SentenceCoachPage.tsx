@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -23,6 +23,7 @@ import {
 } from '../types';
 import { containsChinese } from '../utils/textLanguage';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
+import { coachReturnPath, setCoachReturn } from '../services/studyResume';
 import './SentenceCoachPage.css';
 
 const LAST_DECK_KEY = 'coach-last-deck-id';
@@ -380,7 +381,20 @@ export function SentenceCoachPage() {
   const queryClient = useQueryClient();
   const conversationId = searchParams.get('c');
 
-  const [sentence, setSentence] = useState(() => searchParams.get('text') ?? '');
+  // ?text= starts a conversation at once (widget / text selection); ?draft= only fills the box
+  // (study card ⋯ → Sentence coach), and ?focus=1 puts the cursor in it with the keyboard up.
+  const [sentence, setSentence] = useState(() => searchParams.get('text') ?? searchParams.get('draft') ?? '');
+  const navigate = useNavigate();
+  // Opened from a study card: "← Back to your card" returns to it (it is kept as it was).
+  const [returnTo] = useState(() => coachReturnPath());
+  const backToCard = () => {
+    setCoachReturn(null);
+    navigate(returnTo!, { replace: true });
+  };
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Leaving the coach any other way forgets the way back (the card itself stays resumable).
+  useEffect(() => () => setCoachReturn(null), []);
+  const focusRequestedRef = useRef(searchParams.get('focus') === '1');
   const [followUp, setFollowUp] = useState('');
   const [selectedDeckId, setSelectedDeckId] = useState<string>(
     () => localStorage.getItem(LAST_DECK_KEY) ?? ''
@@ -454,6 +468,16 @@ export function SentenceCoachPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // ?focus=1: the sentence box focused, cursor at the end (once).
+  useEffect(() => {
+    if (!focusRequestedRef.current || conversationId) return;
+    focusRequestedRef.current = false;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [conversationId]);
+
   // Default the deck picker to the remembered deck, else the first deck
   useEffect(() => {
     if (!decks || decks.length === 0) return;
@@ -516,6 +540,11 @@ export function SentenceCoachPage() {
     return (
       <div className="page">
         <div className="container">
+          {returnTo && (
+            <button className="btn btn-secondary btn-block coach-back-to-card" onClick={backToCard} data-testid="coach-back-to-card">
+              ← Back to your card
+            </button>
+          )}
           <div className="coach-conv-header">
             <button className="btn btn-secondary" onClick={backToList}>← Coach</button>
             <button
@@ -607,6 +636,11 @@ export function SentenceCoachPage() {
   return (
     <div className="page">
       <div className="container">
+        {returnTo && (
+          <button className="btn btn-secondary btn-block coach-back-to-card" onClick={backToCard} data-testid="coach-back-to-card">
+            ← Back to your card
+          </button>
+        )}
         <h1 className="mb-2">Sentence Coach</h1>
         <p className="text-light mb-4">
           Type Chinese to get it checked and explained, or English to see how to say it in Chinese.
@@ -617,6 +651,7 @@ export function SentenceCoachPage() {
           <form onSubmit={handleSubmit} className="sentence-input-form">
             <div className="form-group">
               <textarea
+                ref={inputRef}
                 className="form-textarea"
                 value={sentence}
                 onChange={(e) => setSentence(e.target.value)}
