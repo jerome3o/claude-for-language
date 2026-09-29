@@ -8,9 +8,10 @@ import { DEFAULT_TTS_SPEED } from '../types';
  * Hook for recording audio using MediaRecorder
  * Supports device selection and real-time audio level monitoring.
  */
-export function useAudioRecorder() {
+/** [initialBlob]: a take kept from before (a study card resumed after leaving Study). */
+export function useAudioRecorder(initialBlob: Blob | null = null) {
   const [isRecording, setIsRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(initialBlob);
   const [error, setError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
 

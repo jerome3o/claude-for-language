@@ -48,7 +48,9 @@ import {
 } from '../services/custom-lesson-study';
 import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '../services/readerSync';
 import { ensureSentenceSetForNote } from '../services/sentence-sets';
-import { markDailyActivity } from '../api/client';
+import { markDailyActivity, getLocalDateString } from '../api/client';
+import { resumeCardId, studyScope, type StudyResumePoint } from '@shared/study';
+import { clearResumePoint, loadResumePoint, loadUndoSnapshot, saveUndoSnapshot } from '../services/studyResume';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
 import type { LessonAttemptData } from '@shared/lesson';
@@ -325,6 +327,8 @@ interface UndoSnapshot {
   sessionStats: SessionStats;
   noteWasReviewed: boolean; // reviewedNoteIds membership before the review
   prevAgainCount: number; // againCountByNote value before the review
+  /** The hook mount that took it: a snapshot kept from an earlier visit to Study restores into today's rebuilt queue. */
+  mountId: string;
 }
 
 export function useStudySession(options: UseStudySessionOptions = {}) {
@@ -380,9 +384,22 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // Note IDs with at least one reviewed card — used to prioritize unreviewed notes in new card selection
   const reviewedNoteIdsRef = useRef<Set<string>>(new Set());
 
-  // Single-level undo (like Anki): snapshot of the state before the last rating
-  const undoSnapshotRef = useRef<UndoSnapshot | null>(null);
-  const [canUndo, setCanUndo] = useState(false);
+  // Single-level undo (like Anki): snapshot of the state before the last rating. Kept for
+  // the day across visits to Study (services/studyResume.ts) — leaving doesn't end anything.
+  const scope = studyScope(deckId);
+  const mountIdRef = useRef(crypto.randomUUID());
+  const undoSnapshotRef = useRef<UndoSnapshot | null>(loadUndoSnapshot<UndoSnapshot>(scope));
+  const [canUndo, setCanUndoState] = useState(() => undoSnapshotRef.current != null);
+  const setCanUndo = useCallback((v: boolean) => {
+    setCanUndoState(v);
+    saveUndoSnapshot(scope, v ? undoSnapshotRef.current : null);
+  }, [scope]);
+
+  // Resume (shared/study/resume.ts): the card that was on screen when Study was left is
+  // shown first again — revealed, with its answer — while it is still due today. Checked
+  // once per queue load; `resume` is handed to that card's first render only.
+  const resumeTriedRef = useRef(false);
+  const [resume, setResume] = useState<StudyResumePoint | null>(null);
 
   // Re-entrancy guard for the async reader rating flow
   const ratingReaderRef = useRef(false);
@@ -597,6 +614,9 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     pendingWritesRef.current.push(tracked);
   }, []);
 
+  /** Resolves once every review written so far is in IndexedDB (today's counts read them). */
+  const flushWrites = useCallback(() => Promise.all(pendingWritesRef.current).then(() => undefined), []);
+
   // Persist a review event (+ optional recording) and kick off a background
   // sync. Shared by every card-rating path. The recording shares the event
   // id — recording upload looks its event up by id.
@@ -651,6 +671,16 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
   // Select the next item from the queues (async version for fallback cases)
   const selectNextCard = useCallback(async () => {
+    if (!resumeTriedRef.current) {
+      resumeTriedRef.current = true;
+      const point = loadResumePoint();
+      const id = resumeCardId(point, getLocalDateString(), scope, queue.map(c => c.id));
+      const card = id ? queue.find(c => c.id === id) : undefined;
+      if (point && card && await presentCard(card)) {
+        setResume(point);
+        return;
+      }
+    }
     const selection = selectNextItem(queue, readerQueue, customLessonQueue, lessonBreakReady(), grammarLesson, recentNoteIds, reviewedNoteIdsRef.current);
 
     if (selection && await presentSelection(selection)) return;
@@ -661,7 +691,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
 
     console.log('[useStudySession] No cards available');
     presentNothing();
-  }, [queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
+  }, [queue, readerQueue, customLessonQueue, lessonBreakReady, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard, scope]);
 
   // Select first item when queue loads
   useEffect(() => {
@@ -780,8 +810,13 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       void ensureSentenceSetForNote(noteId);
     }
 
+    // The card is answered: nothing to resume on it any more.
+    clearResumePoint(cardId);
+    setResume(null);
+
     // Snapshot everything the review is about to change, so Undo can restore it
     undoSnapshotRef.current = {
+      mountId: mountIdRef.current,
       eventId: reviewId,
       card: { ...currentCard },
       note: currentNote,
@@ -1097,12 +1132,20 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     } else {
       againCountByNoteRef.current.delete(noteId);
     }
-    setSessionStats(snap.sessionStats);
-    setQueue(snap.queue);
-    setRecentNoteIds(snap.recentNoteIds);
+    clearResumePoint();
+    setResume(null);
+    if (snap.mountId === mountIdRef.current) {
+      setSessionStats(snap.sessionStats);
+      setQueue(snap.queue);
+      setRecentNoteIds(snap.recentNoteIds);
+    } else {
+      // Taken on an earlier visit to Study: today's queue was rebuilt since — put the card
+      // back into it rather than restoring the old queue.
+      setQueue(prev => [...prev.filter(c => c.id !== cardId), snap.card]);
+    }
     setCardVersion(v => v + 1);
     setCurrentCardState({ card: snap.card, note: snap.note, deck: snap.deck });
-  }, []);
+  }, [setCanUndo]);
 
   // Derive counts directly from the in-memory queues so the header updates in
   // the same render as the card transition (no DB round-trip). Due readers
@@ -1246,8 +1289,12 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     isRating: reviewMutation.isPending,
     sessionStats,
     canUndo,
+    /** The resume point of the card on screen, for its first render only (null otherwise). */
+    resume,
 
     // Actions
+    /** Resolves once every review written so far is in IndexedDB (today's counts read them). */
+    flushWrites,
     rateCard,
     rateReader,
     completeGrammar,

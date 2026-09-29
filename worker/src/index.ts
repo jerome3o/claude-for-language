@@ -94,6 +94,7 @@ import { sanitizeAttemptData } from '@shared/lesson';
 import { homeworkRoutes } from './routes/homework';
 import { homeworkDraftRoutes } from './routes/homework-drafts';
 import adminRoutes from './routes/admin';
+import studyTimeRoutes from './routes/study-time';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { unreferencedImageKeys } from './services/shared-readers';
 import {
@@ -518,6 +519,8 @@ app.route('/api', studentProfileRoutes);
 app.route('/api', conversationVoicesRoutes);
 // Picture hunts: type what you see in a picture (routes/picture-hunts.ts, built on picture-hunt-queue)
 app.route('/api', pictureHuntRoutes);
+// Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
+app.route('/api', studyTimeRoutes);
 
 // ============ Admin Routes ============
 

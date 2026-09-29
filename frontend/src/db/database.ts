@@ -1101,6 +1101,27 @@ function computeNewCardsStudiedTodayByDeckShared(): Promise<Map<string, NewCards
 }
 
 /**
+ * Today's card reviews on this device's copy of the history (every device's, once synced):
+ * the "142 reviews" of "Today: 23 min · 142 reviews" and the celebration rule's count.
+ * Local midnight onwards, like introduced-today.
+ */
+export async function getTodayReviewSummary(): Promise<{ reviews: number; correct: number }> {
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  let reviews = 0;
+  let correct = 0;
+  await db.reviewEvents
+    .where('reviewed_at')
+    .aboveOrEqual(dayStart.toISOString())
+    .each((e) => {
+      if ((e as { _synced?: number })._synced === -1) return; // refused by the server
+      reviews++;
+      if (e.rating >= 2) correct++;
+    });
+  return { reviews, correct };
+}
+
+/**
  * "Introduced today" per deck recomputed from review events (NOT the dailyStats
  * counter the queue reads). For debug reports: a difference between the two
  * means the counter drifted.

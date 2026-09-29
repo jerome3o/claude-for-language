@@ -19,8 +19,7 @@ import {
   generateMultipleChoice,
   generateFunFact,
   createNote,
-  getOverviewStats,
-  getMyDailyProgress,
+  getLocalDateString,
   textToFlashcard,
   analyzeSentence,
 } from '../api/client';
@@ -43,7 +42,6 @@ import {
   MINIMAX_VOICES,
   DEFAULT_MINIMAX_VOICE,
   Note,
-  OverviewStats,
 } from '../types';
 import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
@@ -56,8 +54,6 @@ import { SyncBadge } from '../components/OfflineBanner';
 import './StudyPage.css';
 import { StudyActionRow, NEEDS_INTERNET } from '../components/study/StudyActionRow';
 import { StudyMenuItem } from '../components/study/StudyMoreMenu';
-import { ExitSessionModal } from '../components/study/ExitSessionModal';
-import { SessionRecap } from '../components/study/SessionRecap';
 import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
 import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
@@ -96,6 +92,20 @@ import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom
 import { useStudySession } from '../hooks/useStudySession';
 import { getCardReviewEvents, LocalReviewEvent, LocalRecordingNote, db, removeNotesLocally } from '../db/database';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
+import { resumeElapsedMs, studyScope, todayStudyLine, type StudyResumePoint } from '@shared/study';
+import {
+  claimCelebration,
+  clearResumePoint,
+  resumeExtras,
+  saveResumeExtras,
+  saveResumePoint,
+  setCoachReturn,
+  type ResumeMcState,
+} from '../services/studyResume';
+import { activeMsToday, reportStudyTimeIfDue } from '../services/studyTime';
+import { useActiveStudyTime } from '../hooks/useActiveStudyTime';
+import { playFanfare } from '../utils/fanfare';
+import { getTodayReviewSummary } from '../db/database';
 import { DEFAULT_TTS_SPEED } from '../types';
 import { useLiveQuery } from 'dexie-react-hooks';
 import ReactMarkdown from 'react-markdown';
@@ -336,6 +346,8 @@ function StudyCard({
   onEnd,
   onUpdateNote,
   onDeleteCurrentCard,
+  resume,
+  scope,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -349,10 +361,22 @@ function StudyCard({
   onEnd: () => void;
   onUpdateNote: (updatedNote: Partial<Note>) => void;
   onDeleteCurrentCard: () => void;
+  /** Coming back to this card after leaving Study: start where it was (docs/STUDY_SESSION.md). */
+  resume?: StudyResumePoint | null;
+  scope: string;
 }) {
   const { isOnline } = useNetwork();
 
-  const [flipped, setFlipped] = useState(false);
+  // What this card was left with (resume point + in-memory extras), read once at mount.
+  const [restored] = useState(() => {
+    const point = resume && resume.card_id === card.id ? resume : null;
+    const extras = point ? resumeExtras(card.id) : null;
+    return { point, recording: extras?.recording ?? null, mc: (extras?.mc ?? null) as (ResumeMcState<McOptionRow> & { showing?: boolean }) | null };
+  });
+  // Set once the card is rated / removed, so leaving doesn't save it back as "to resume".
+  const doneWithCardRef = useRef(false);
+
+  const [flipped, setFlipped] = useState(() => !!restored.point?.revealed);
   // Peek: once revealed, a tap on the card's empty space shows the question again and a
   // tap on the question returns to the answer — view only (components/study/peekFlip.ts).
   const [peeking, setPeeking] = useState(false);
@@ -360,8 +384,8 @@ function StudyCard({
   const pressRef = useRef<PressPoint | null>(null);
   const cardContentRef = useRef<HTMLDivElement>(null);
   const backScrollRef = useRef(0);
-  const [userAnswer, setUserAnswer] = useState('');
-  const [startTime] = useState(Date.now());
+  const [userAnswer, setUserAnswer] = useState(() => restored.point?.answer ?? '');
+  const [startTime] = useState(() => Date.now() - resumeElapsedMs(restored.point));
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Error handling for orphaned cards (cards with missing notes)
@@ -432,11 +456,13 @@ function StudyCard({
   useEffect(() => {
     stopAudio();
     setRecordingIndex(0);
+    if (restored.mc) return; // a resumed card keeps its grid as it was left
     setMcReady(false);
     setShowMultipleChoice(false);
     setSkipMcForCard(false);
     setMcFallbackNote(null);
   }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // Debug modal state
   const [showDebug, setShowDebug] = useState(false);
@@ -460,7 +486,7 @@ function StudyCard({
   const [sentenceChunkCache, setSentenceChunkCache] = useState<Record<string, SentenceChunk[]>>({});
 
   // Multiple choice state (per card — see the reset effect above)
-  const [showMultipleChoice, setShowMultipleChoice] = useState(false);
+  const [showMultipleChoice, setShowMultipleChoice] = useState(() => !!restored.mc?.showing && !restored.point?.revealed);
   const [mcReady, setMcReady] = useState(false); // MC loaded but hidden (for audio cards)
   const [isGeneratingMC, setIsGeneratingMC] = useState(false);
   // One-line note above the typing input when options could not be had
@@ -468,17 +494,44 @@ function StudyCard({
   const [mcFallbackNote, setMcFallbackNote] = useState<string | null>(null);
   const [skipMcForCard, setSkipMcForCard] = useState(false);
   const [isGeneratingFunFact, setIsGeneratingFunFact] = useState(false);
-  const [mcSelections, setMcSelections] = useState<(string | null)[]>([]);
+  const [mcSelections, setMcSelections] = useState<(string | null)[]>(() => restored.mc?.selections ?? []);
   // The answer on the back came from the grid (render it row by row).
-  const [mcAnswered, setMcAnswered] = useState(false);
-  const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(null);
+  const [mcAnswered, setMcAnswered] = useState(() => !!restored.mc?.answered);
+  const [shuffledMcOptions, setShuffledMcOptions] = useState<McOptionRow[] | null>(() => restored.mc?.rows ?? null);
   const mcRowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   // Ask Claude: inline error (never alert())
   const [askError, setAskError] = useState<string | null>(null);
 
   const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
-    useAudioRecorder();
+    useAudioRecorder(restored.recording);
+
+  // Resume point (shared/study/resume.ts): the card on screen, revealed or not, its answer and
+  // time so far — saved as it changes and when leaving, so coming back to Study (from the coach,
+  // Home, a reload) shows this card again as it was. Cleared once it is rated.
+  const savePoint = useCallback(() => {
+    if (doneWithCardRef.current) return;
+    saveResumePoint({
+      day: getLocalDateString(),
+      scope,
+      card_id: card.id,
+      revealed: flipped,
+      answer: userAnswer,
+      elapsed_ms: Date.now() - startTime,
+    });
+  }, [scope, card.id, flipped, userAnswer, startTime]);
+  const savePointRef = useRef(savePoint);
+  savePointRef.current = savePoint;
+  useEffect(() => { savePoint(); }, [savePoint]);
+  useEffect(() => {
+    if (doneWithCardRef.current) return;
+    saveResumeExtras({
+      cardId: card.id,
+      recording: audioBlob,
+      mc: shuffledMcOptions ? { rows: shuffledMcOptions, selections: mcSelections, answered: mcAnswered, showing: showMultipleChoice } as ResumeMcState : null,
+    });
+  }, [card.id, audioBlob, shuffledMcOptions, mcSelections, mcAnswered, showMultipleChoice]);
+  useEffect(() => () => savePointRef.current(), []);
   const { isPlaying, play: playAudio, stop: stopAudio } = useNoteAudio();
   // Separate player for the user's own recording so it never fights with the
   // note audio for the single reusable element.
@@ -901,7 +954,7 @@ function StudyCard({
 
   // Auto-show multiple choice for pinyin-only cards or audio_to_hanzi cards.
   // Offline with nothing cached: straight to typing, no pre-load, no spinner.
-  const autoMcTriggeredRef = useRef<string | null>(null);
+  const autoMcTriggeredRef = useRef<string | null>(restored.mc || restored.point?.revealed ? card.id : null);
   const isAudioCard = card.card_type === 'audio_to_hanzi';
   const hasCachedMc = parseMcOptions(card.note.multiple_choice_options) !== null;
   const shouldAutoMC = (card.note.pinyin_only && card.card_type === 'meaning_to_hanzi') || isAudioCard;
@@ -927,6 +980,7 @@ function StudyCard({
   };
 
   const handleRate = (rating: Rating) => {
+    doneWithCardRef.current = true;
     const timeSpent = Date.now() - startTime;
     // The tutor's note was on screen for this review — show it once only.
     for (const note of tutorNotes) {
@@ -974,6 +1028,8 @@ function StudyCard({
           // Remove from IndexedDB (note, cards, checkpoints, sentences)
           removeNotesLocally([card.note.id]).catch(err => console.error('[Study] local removal failed', err));
           // Advance after a short delay so user can see the confirmation
+          doneWithCardRef.current = true;
+          clearResumePoint(card.id);
           setTimeout(() => onDeleteCurrentCard(), 2000);
           break;
         }
@@ -2001,6 +2057,15 @@ function StudyCard({
       ...(claudeRelationship
         ? [{ key: 'roleplay', label: 'Roleplay this word', icon: '🎭', hint: needsInternet, disabled: !aiAvailable, busy: isInitiatingConversation, onSelect: handleUseInConversation }]
         : []),
+      {
+        // To the coach and back: this card stays as it is (resume point) and the coach's
+        // "Back to your card" returns here. Prefilled with the card's sentence, not sent.
+        key: 'coach', label: 'Sentence coach', icon: '🧑‍🏫', hint: needsInternet, onSelect: () => {
+          savePointRef.current();
+          setCoachReturn(`/study?autostart=true${scope !== 'all' ? `&deck=${encodeURIComponent(scope)}` : ''}`);
+          navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
+        },
+      },
       ...(canWriteHanzi(card.note.hanzi)
         ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => setShowWriting(true) }]
         : []),
@@ -2291,7 +2356,7 @@ function StudyCard({
             <button
               className="study-close-btn"
               onClick={onEnd}
-              aria-label="End session"
+              aria-label="Leave study (you can come back to this card)"
               data-testid="study-close"
             >
               ✕
@@ -2313,7 +2378,7 @@ function StudyCard({
             <div style={{ marginBottom: '0.75rem' }}>{dataError}</div>
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => onRate(0, Date.now() - startTime)}
+              onClick={() => { doneWithCardRef.current = true; onRate(0, Date.now() - startTime); }}
               style={{ marginRight: '0.5rem' }}
             >
               Skip Card (Rate as "Again")
@@ -2573,6 +2638,8 @@ function StudyCard({
           }}
           onDeleteCard={() => {
             // CardEditModal already removed the note locally; just move on.
+            doneWithCardRef.current = true;
+            clearResumePoint(card.id);
             onDeleteCurrentCard();
           }}
         />
@@ -2650,7 +2717,8 @@ export function StudyPage() {
     customLessonIntervalPreviews,
     hasMoreNewCards,
     isRating,
-    sessionStats,
+    resume,
+    flushWrites,
     canUndo,
     rateCard,
     rateReader,
@@ -2666,27 +2734,37 @@ export function StudyPage() {
     enabled: studyStarted,
   });
 
-  // Pre-fetch day stats when queue is nearly empty (3 or fewer cards) for instant "All Done" display
-  const isAllDone = !isLoading && !currentCard && !currentReader && !currentGrammar && !currentCustomLesson && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
-  const isNearlyDone = counts.new + counts.secondaryNew + counts.learning + counts.review <= 3;
-  const [dayStats, setDayStats] = useState<OverviewStats | null>(null);
-  const [todayTotalTimeMs, setTodayTotalTimeMs] = useState<number>(0);
-  const dayStatsFetchedRef = useRef(false);
-  // ✕ mid-session: confirm (with the recap) once at least one review is in (D7)
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
-  useEffect(() => {
-    if ((isAllDone || isNearlyDone || showExitConfirm) && isOnline && !dayStatsFetchedRef.current) {
-      dayStatsFetchedRef.current = true;
-      getOverviewStats().then(setDayStats).catch(() => {});
-      getMyDailyProgress().then(progress => {
-        const today = new Date().toISOString().split('T')[0];
-        const todayEntry = progress.days.find(d => d.date === today);
-        setTodayTotalTimeMs(todayEntry?.time_spent_ms || 0);
-      }).catch(() => {});
-    }
-  }, [isAllDone, isNearlyDone, showExitConfirm, isOnline]);
+  // Active study time: counted while this screen is in front and used (docs/STUDY_SESSION.md "Time").
+  useActiveStudyTime(studyStarted);
 
-  // Auto-start session creation when autostart param is present
+  // Today is the session: the queue is always today's, so there is nothing to "end".
+  const isAllDone = !isLoading && !currentCard && !currentReader && !currentGrammar && !currentCustomLesson && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
+
+  // Today's numbers for the All done screen, and the celebration: once a day, again only
+  // when more cards became due and were cleared too (shared/study/celebration.ts).
+  const [today, setToday] = useState<{ reviews: number; correct: number; activeMs: number; celebrate: boolean } | null>(null);
+  useEffect(() => {
+    if (!isAllDone) {
+      setToday(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      await flushWrites();
+      const { reviews, correct } = await getTodayReviewSummary().catch(() => ({ reviews: 0, correct: 0 }));
+      if (cancelled) return;
+      const celebrate = claimCelebration(reviews, true);
+      if (celebrate) playFanfare();
+      setToday({ reviews, correct, activeMs: activeMsToday(), celebrate });
+      // Other devices' time for today (and this device's reported), when online.
+      await reportStudyTimeIfDue(true);
+      if (!cancelled) setToday(t => (t ? { ...t, activeMs: activeMsToday() } : t));
+    })();
+    return () => { cancelled = true; };
+  }, [isAllDone, flushWrites]);
+
+  // Auto-start session creation when autostart param is present. Best-effort and kept only for
+  // older servers / clients (POST /api/study/sessions); nothing reads it for time any more.
   useEffect(() => {
     if (autostart && studyStarted && !sessionId && isOnline) {
       startSession(deckId)
@@ -2700,23 +2778,12 @@ export function StudyPage() {
     rateCard(rating, timeSpentMs, userAnswer, recordingBlob);
   }, [rateCard]);
 
-  const handleEndSession = useCallback(() => {
-    setShowExitConfirm(false);
-    setStudyStarted(false);
-    setSessionId(null);
-    // Navigate back to home
+  // The close button just leaves: nothing ends. The card on screen (revealed or not, its answer,
+  // a recording) and the undo are kept, and Study picks up right there next time
+  // (services/studyResume.ts).
+  const leaveStudy = useCallback(() => {
     navigate('/');
   }, [navigate]);
-
-  // The ✕ in the study top bar: straight out when nothing was reviewed yet,
-  // otherwise the recap + "End session?" so a stray tap can't end the sitting.
-  const requestEndSession = useCallback(() => {
-    if (sessionStats.totalReviews >= 1) {
-      setShowExitConfirm(true);
-    } else {
-      handleEndSession();
-    }
-  }, [sessionStats.totalReviews, handleEndSession]);
 
   // If study hasn't started (no autostart), redirect to home
   // The home page now handles deck selection and study initiation
@@ -2731,34 +2798,39 @@ export function StudyPage() {
     return <Loading />;
   }
 
-  // Study complete - check that ALL queues are empty, not just that currentCard is null
+  // Today's queue is empty - check that ALL queues are empty, not just that currentCard is null
   if (isAllDone) {
     // Number of bonus cards to add each time the user clicks "Study More"
     const BONUS_NEW_CARDS_INCREMENT = 10;
 
-    console.log('[StudyPage] All Done screen - hasMoreNewCards:', hasMoreNewCards, 'bonusNewCards:', bonusNewCards, 'counts:', counts);
-
     const handleStudyMoreNewCards = () => {
-      console.log('[StudyPage] Study More button clicked - adding', BONUS_NEW_CARDS_INCREMENT, 'bonus new cards');
       // Add more new cards to today's limit and reload the queue
       setBonusNewCards(prev => prev + BONUS_NEW_CARDS_INCREMENT);
       // Note: reloadQueue will be called when bonusNewCards changes via useEffect in the hook
       reloadQueue();
     };
 
+    const accuracy = today && today.reviews > 0 ? Math.round((today.correct / today.reviews) * 100) : null;
+    const quiet = !!today && !today.celebrate;
+
     return (
       <div className="page">
-        <Confetti />
+        {today?.celebrate && <Confetti />}
         <div className="container">
-          <div className="card text-center" style={{ padding: '1rem' }}>
-            <div style={{ fontSize: '3rem' }}>🎉</div>
-            <h1 className="mt-1">All Done!</h1>
+          <div className="card text-center study-done" style={{ padding: '1rem' }} data-testid="study-done">
+            <div style={{ fontSize: '3rem' }}>{quiet ? '✅' : '🎉'}</div>
+            <h1 className="mt-1">{quiet ? 'All done for now' : 'All Done!'}</h1>
             <p className="text-light mt-1" style={{ fontSize: '0.875rem' }}>
               {hasMoreNewCards
                 ? `You've finished your daily limit${bonusNewCards > 0 ? ` (+${bonusNewCards} bonus)` : ''}. Want to study more?`
-                : "No more cards due right now."}
+                : 'Nothing else is due today. 明天见！'}
             </p>
-            <SessionRecap stats={sessionStats} dayStats={dayStats} todayTotalTimeMs={todayTotalTimeMs} />
+            {today && (
+              <div className="study-today" data-testid="study-today">
+                <div className="study-today-line">{todayStudyLine(today.activeMs, today.reviews)}</div>
+                {accuracy != null && <div className="study-today-sub text-light">{accuracy}% right today</div>}
+              </div>
+            )}
             <div className="flex flex-col gap-3 items-center mt-4">
               {canUndo && (
                 <button
@@ -2782,7 +2854,7 @@ export function StudyPage() {
               )}
               <button
                 className={hasMoreNewCards ? "btn btn-secondary btn-block" : "btn btn-primary btn-block"}
-                onClick={handleEndSession}
+                onClick={leaveStudy}
               >
                 Done
               </button>
@@ -2806,7 +2878,7 @@ export function StudyPage() {
           intervalPreviews={customLessonIntervalPreviews}
           counts={counts}
           onComplete={completeCustomLesson}
-          onEnd={requestEndSession}
+          onEnd={leaveStudy}
         />
       ) : currentGrammar ? (
         <StudyGrammar
@@ -2814,7 +2886,7 @@ export function StudyPage() {
           lesson={currentGrammar}
           counts={counts}
           onComplete={completeGrammar}
-          onEnd={requestEndSession}
+          onEnd={leaveStudy}
         />
       ) : currentReader && readerIntervalPreviews ? (
         <StudyReader
@@ -2824,7 +2896,7 @@ export function StudyPage() {
           counts={counts}
           isRating={false}
           onRate={rateReader}
-          onEnd={requestEndSession}
+          onEnd={leaveStudy}
         />
       ) : currentCard && intervalPreviews ? (
         <StudyCard
@@ -2838,9 +2910,11 @@ export function StudyPage() {
           canUndo={canUndo}
           onRate={handleRateCard}
           onUndo={undoLastReview}
-          onEnd={requestEndSession}
+          onEnd={leaveStudy}
           onUpdateNote={updateCurrentNote}
           onDeleteCurrentCard={() => removeNoteFromSession(currentCard.note.id)}
+          resume={resume}
+          scope={studyScope(deckId)}
         />
       ) : dailyReaderPending || grammarPending ? (
         // Cards are done but today's story/lesson is still being generated —
@@ -2855,23 +2929,13 @@ export function StudyPage() {
           </p>
           <span className="spinner" style={{ width: '28px', height: '28px', marginTop: '1rem' }} />
           <div className="mt-4">
-            <button className="btn btn-secondary" onClick={handleEndSession}>
+            <button className="btn btn-secondary" onClick={leaveStudy}>
               Finish for today
             </button>
           </div>
         </div>
       ) : null}
 
-      {/* Exit confirm — page level so it survives card transitions (D7) */}
-      {showExitConfirm && (
-        <ExitSessionModal
-          stats={sessionStats}
-          dayStats={dayStats}
-          todayTotalTimeMs={todayTotalTimeMs}
-          onKeepStudying={() => setShowExitConfirm(false)}
-          onEndSession={handleEndSession}
-        />
-      )}
     </div>
   );
 }
