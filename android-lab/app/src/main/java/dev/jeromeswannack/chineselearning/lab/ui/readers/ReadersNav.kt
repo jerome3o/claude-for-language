@@ -109,6 +109,7 @@ private inline fun <reified V : ViewModel> factory(crossinline make: () -> V) = 
 fun rememberReaderEnv(app: LabApp, readerId: String, words: Boolean = false): ReaderEnv {
     val runtime = remember(app) { LessonRuntime.of(app) }
     val playing by runtime.audio.playing.collectAsState()
+    val clips = remember(app) { dev.jeromeswannack.chineselearning.lab.data.readers.ReaderClipAnalyzer(app.cache) }
     DisposableEffect(readerId) { onDispose { runtime.audio.stop() } }
     var word by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto?>(null) }
     word?.let { chunk ->
@@ -127,6 +128,7 @@ fun rememberReaderEnv(app: LabApp, readerId: String, words: Boolean = false): Re
     return ReaderEnv(
         segments = if (words) { page -> runtime.readers.segments(page, app.online.value) } else null,
         pageAudio = { page, regenerate -> runtime.audio.stop(); runtime.readers.pageAudio(page, app.online.value, regenerate) },
+        analyze = { page, file -> clips.analyze(runtime.readers.pageTtsKey(page).removePrefix("reader-tts/"), file) },
         onWord = { word = it; app.haptics.tick() },
         image = { page -> runtime.readers.pageImage(readerId, page, app.online.value) },
         cachedImage = { page -> runtime.media.cachedImage(page.imageUrl) },

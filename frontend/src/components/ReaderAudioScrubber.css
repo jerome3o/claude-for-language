@@ -1,0 +1,56 @@
+/* ---- Reader page audio: phrase blocks ----
+ * The scrubber row (waveform + play) keeps its styles in StudyReader.css;
+ * this adds the wrapper and the ⏮ Phrase n of N ⏭ row under it, shown only
+ * when the clip has more than one block. */
+
+.reader-audio-scrubber-wrap {
+  width: 100%;
+  max-width: 500px;
+  margin-bottom: 1rem;
+}
+
+div.reader-audio-scrubber-wrap > div.reader-audio-scrubber {
+  margin-bottom: 0;
+  max-width: none;
+}
+
+.study-reader-content .reader-audio-scrubber-wrap {
+  margin-bottom: 0.5rem;
+}
+
+/* Right-aligned so ⏭ sits under the play button (the thumb side) */
+.reader-audio-blocks-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+}
+
+.reader-audio-block-label {
+  font-size: 0.8125rem;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+  min-width: 6.5rem;
+  text-align: center;
+}
+
+.reader-audio-step-btn {
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 1.125rem;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.08s ease, background 0.15s ease;
+}
+
+.reader-audio-step-btn:active {
+  transform: scale(0.94);
+  background: #dbeafe;
+}

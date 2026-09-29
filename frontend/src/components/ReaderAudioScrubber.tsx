@@ -1,63 +1,48 @@
 /**
  * Reader page audio with a scrubbable waveform — built for listening drills.
  *
- * The clip's amplitude is drawn as a waveform, with a draggable anchor
- * circle. Play always starts FROM THE ANCHOR: tap or drag anywhere on the
- * waveform to place it (spotting words by their amplitude bumps), press play,
- * press stop, press play again — it restarts from that same spot until the
- * anchor is moved. Dragging while playing seeks live.
+ * The clip is split into phrase-sized BLOCKS at its pauses
+ * (services/readerAudioBlocks.ts → shared/reader/audioBlocks.ts), drawn as
+ * subtle ticks on the waveform with the current block highlighted. The
+ * restart point (the anchor circle) moves with the audio, block by block
+ * (shared/reader/blockPlayback.ts):
+ * - play starts from the anchor; as each block finishes, the anchor advances
+ *   to the start of the block now playing;
+ * - stop, play again = the block he was in — unless he stopped within the first
+ *   second of a new block, then the PREVIOUS one (he missed it);
+ * - tap a block to jump there, ⏮ / ⏭ step between blocks, drag anywhere for a
+ *   free anchor (it wins until playback moves past its block).
+ * With no pauses found (or an undecodable clip) there is one block and it
+ * behaves like the old scrubber: play from the anchor, stop returns to it.
  *
  * Fully offline once the TTS blob is cached (it usually is — reader media is
- * prefetched); waveform decoding happens locally with WebAudio.
+ * prefetched); blocks are computed once per clip and cached in IndexedDB.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LocalReaderPage } from '../db/database';
-import { getReaderPageTTS } from '../services/readerSync';
+import { getReaderPageTTS, readerTtsKey } from '../services/readerSync';
+import { analyzeReaderClip, WAVE_BUCKETS, type ClipAnalysis } from '../services/readerAudioBlocks';
+import { blockIndexAt, type AudioBlock } from '@shared/reader/audioBlocks';
+import {
+  activeBlockIndex,
+  blockPlayback,
+  INITIAL_BLOCK_PLAY_STATE,
+  type BlockPlayEvent,
+  type BlockPlayState,
+} from '@shared/reader/blockPlayback';
+import './ReaderAudioScrubber.css';
 
-const WAVE_BUCKETS = 96;
-
-/** Per-bucket peak amplitudes (0..1), for drawing the waveform. */
-async function computePeaks(blob: Blob): Promise<number[] | null> {
-  try {
-    const AudioCtx = window.AudioContext
-      ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return null;
-    const ctx = new AudioCtx();
-    try {
-      const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
-      const data = decoded.getChannelData(0);
-      const bucketSize = Math.max(1, Math.floor(data.length / WAVE_BUCKETS));
-      const peaks: number[] = [];
-      for (let b = 0; b < WAVE_BUCKETS; b++) {
-        let peak = 0;
-        const start = b * bucketSize;
-        const end = Math.min(data.length, start + bucketSize);
-        // Sample within the bucket (every 4th value is plenty for a peak)
-        for (let i = start; i < end; i += 4) {
-          const v = Math.abs(data[i]);
-          if (v > peak) peak = v;
-        }
-        peaks.push(peak);
-      }
-      const max = Math.max(0.01, ...peaks);
-      return peaks.map(p => p / max);
-    } finally {
-      void ctx.close().catch(() => {});
-    }
-  } catch {
-    return null;
-  }
-}
+/** Pointer travel (px) that turns a tap on the waveform into a drag. */
+const DRAG_SLOP = 6;
 
 export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id' | 'content_chinese'> }) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
-  const [isPlaying, setIsPlaying] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  // Where play (re)starts from, as a fraction of the clip. Set by tapping or
-  // dragging the waveform; deliberately NOT advanced by playback.
-  const [anchor, setAnchor] = useState(0);
-  const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [analysis, setAnalysis] = useState<ClipAnalysis | null>(null);
+  const [mediaDurationMs, setMediaDurationMs] = useState(0);
+  const [play, setPlay] = useState<BlockPlayState>(INITIAL_BLOCK_PLAY_STATE);
+  const [activeIdx, setActiveIdx] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -65,32 +50,72 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
   const playheadRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(0);
-  const anchorRef = useRef(0);
-  anchorRef.current = anchor;
+  const playRef = useRef(play);
+  playRef.current = play;
+  const dragRef = useRef<{ x: number; dragging: boolean } | null>(null);
 
-  const movePlayhead = useCallback((fraction: number) => {
-    if (playheadRef.current) {
-      playheadRef.current.style.left = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+  const durationMs = analysis?.durationMs || mediaDurationMs;
+  // Until the clip is analysed (or when it can't be), the whole clip is one block
+  const blocks: AudioBlock[] = useMemo(
+    () => (analysis && analysis.blocks.length > 0 ? analysis.blocks : [{ startMs: 0, endMs: Math.max(1, durationMs) }]),
+    [analysis, durationMs],
+  );
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+  const durationRef = useRef(durationMs);
+  durationRef.current = durationMs;
+  const multi = blocks.length > 1;
+
+  const fractionOf = useCallback((ms: number) => {
+    const d = durationRef.current;
+    return d > 0 ? Math.min(1, Math.max(0, ms / d)) : 0;
+  }, []);
+
+  const movePlayhead = useCallback((ms: number) => {
+    if (playheadRef.current) playheadRef.current.style.left = `${fractionOf(ms) * 100}%`;
+  }, [fractionOf]);
+
+  const positionMs = useCallback(() => Math.round((audioRef.current?.currentTime ?? 0) * 1000), []);
+
+  /** Feed the state machine one event and carry out what it says. */
+  const dispatch = useCallback((event: BlockPlayEvent) => {
+    const { state, seekToMs } = blockPlayback(playRef.current, event, blocksRef.current);
+    const audio = audioRef.current;
+    if (seekToMs !== null && audio) audio.currentTime = seekToMs / 1000;
+    const prev = playRef.current;
+    playRef.current = state;
+    if (state.anchorMs !== prev.anchorMs || state.manual !== prev.manual || state.playing !== prev.playing || state.crossedFromMs !== prev.crossedFromMs) {
+      setPlay(state);
     }
-  }, []);
+    const pos = seekToMs ?? positionMs();
+    setActiveIdx(activeBlockIndex(state, blocksRef.current, pos));
+    if (!state.playing) movePlayhead(state.anchorMs);
+    else if (seekToMs !== null) movePlayhead(seekToMs);
+    return seekToMs;
+  }, [movePlayhead, positionMs]);
 
-  const stopRaf = useCallback(() => {
-    cancelAnimationFrame(rafRef.current);
-  }, []);
+  const stopRaf = useCallback(() => cancelAnimationFrame(rafRef.current), []);
 
   const startRaf = useCallback(() => {
     stopRaf();
+    let lastIdx = -1;
     const tick = () => {
       const audio = audioRef.current;
-      if (audio && audio.duration > 0) {
-        movePlayhead(audio.currentTime / audio.duration);
+      if (audio && !audio.paused) {
+        const pos = Math.round(audio.currentTime * 1000);
+        movePlayhead(pos);
+        const idx = blockIndexAt(blocksRef.current, pos);
+        if (idx !== lastIdx) {
+          lastIdx = idx;
+          dispatch({ type: 'tick', posMs: pos });
+        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, [movePlayhead, stopRaf]);
+  }, [dispatch, movePlayhead, stopRaf]);
 
-  // Swap in a (new) clip: rebuild the audio element and the waveform
+  // Swap in a (new) clip: rebuild the audio element, then analyse it (cache-first)
   const adoptBlob = useCallback((blob: Blob) => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     audioRef.current?.pause();
@@ -99,20 +124,21 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     objectUrlRef.current = url;
     const audio = new Audio(url);
     audio.preload = 'auto';
+    audio.onloadedmetadata = () => {
+      if (isFinite(audio.duration)) setMediaDurationMs(Math.round(audio.duration * 1000));
+    };
     audio.onended = () => {
-      // Back to the anchor, ready to replay the same stretch
-      setIsPlaying(false);
       stopRaf();
-      movePlayhead(anchorRef.current);
+      dispatch({ type: 'ended' });
     };
     audio.onerror = () => {
-      setIsPlaying(false);
       stopRaf();
+      if (playRef.current.playing) dispatch({ type: 'pause', posMs: 0 });
     };
     audioRef.current = audio;
     setStatus('ready');
-    void computePeaks(blob).then(setPeaks);
-  }, [movePlayhead, stopRaf]);
+    void analyzeReaderClip(readerTtsKey(page), blob).then(setAnalysis);
+  }, [dispatch, page, stopRaf]);
 
   // Load the clip on mount (cache-first; generates when online and uncached)
   useEffect(() => {
@@ -134,7 +160,12 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Draw the waveform whenever peaks land; redraw on resize (fold/unfold)
+  // Park the playhead on the anchor whenever the clip's length becomes known
+  useEffect(() => {
+    if (!playRef.current.playing) movePlayhead(playRef.current.anchorMs);
+  }, [durationMs, movePlayhead]);
+
+  // Draw the waveform (blocks: highlight + ticks); redraw on resize (fold/unfold)
   useEffect(() => {
     const draw = () => {
       const canvas = canvasRef.current;
@@ -150,70 +181,109 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, height);
 
+      const peaks = analysis?.peaks ?? null;
+      const d = durationMs;
+      const active = multi && d > 0 ? blocks[activeIdx] : null;
+      if (active) {
+        // The current block: a soft band behind its bars
+        const x0 = (active.startMs / d) * width;
+        const x1 = (active.endMs / d) * width;
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.10)';
+        ctx.beginPath();
+        ctx.roundRect?.(x0, 0, Math.max(2, x1 - x0), height, 6);
+        if (!ctx.roundRect) ctx.rect(x0, 0, Math.max(2, x1 - x0), height);
+        ctx.fill();
+      }
+
       const bars = peaks ?? Array.from({ length: WAVE_BUCKETS }, () => 0.35);
       const gap = 1;
       const barWidth = width / bars.length - gap;
-      ctx.fillStyle = peaks ? '#94a3b8' : '#e2e8f0';
       for (let i = 0; i < bars.length; i++) {
         const h = Math.max(2, bars[i] * (height - 6));
         const x = i * (barWidth + gap);
+        const mid = ((i + 0.5) / bars.length) * d;
+        const inActive = active && mid >= active.startMs && mid < active.endMs;
+        ctx.fillStyle = !peaks ? '#e2e8f0' : inActive ? '#60a5fa' : '#94a3b8';
         ctx.fillRect(x, (height - h) / 2, barWidth, h);
+      }
+
+      if (multi && d > 0) {
+        // Block boundaries: short ticks at the top and bottom edges
+        ctx.fillStyle = '#64748b';
+        for (let i = 1; i < blocks.length; i++) {
+          const x = Math.round((blocks[i].startMs / d) * width);
+          ctx.fillRect(x - 0.75, 0, 1.5, 7);
+          ctx.fillRect(x - 0.75, height - 7, 1.5, 7);
+        }
       }
     };
     draw();
     window.addEventListener('resize', draw);
     return () => window.removeEventListener('resize', draw);
-  }, [peaks, status]);
+  }, [analysis, blocks, activeIdx, durationMs, multi, status]);
 
-  const seekToFraction = useCallback((clientX: number) => {
+  const msAt = useCallback((clientX: number) => {
     const track = trackRef.current;
-    if (!track) return;
+    if (!track) return 0;
     const rect = track.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    setAnchor(fraction);
-    movePlayhead(fraction);
-    const audio = audioRef.current;
-    if (audio && isFinite(audio.duration) && !audio.paused) {
-      audio.currentTime = fraction * audio.duration;
-    }
-  }, [movePlayhead]);
+    return Math.round(fraction * durationRef.current);
+  }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (status !== 'ready') return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    seekToFraction(e.clientX);
-  }, [status, seekToFraction]);
+    dragRef.current = { x: e.clientX, dragging: false };
+  }, [status]);
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (status !== 'ready' || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
-    seekToFraction(e.clientX);
-  }, [status, seekToFraction]);
+    const drag = dragRef.current;
+    if (status !== 'ready' || !drag || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    if (!drag.dragging && Math.abs(e.clientX - drag.x) < DRAG_SLOP) return;
+    drag.dragging = true;
+    // Dragging places a free anchor (seeks live while playing)
+    dispatch({ type: 'place', ms: msAt(e.clientX) });
+  }, [status, dispatch, msAt]);
 
-  const play = useCallback(async () => {
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (status !== 'ready' || !drag || drag.dragging) return;
+    const ms = msAt(e.clientX);
+    // A tap: jump to the tapped block (one block = a free anchor, as before)
+    if (blocksRef.current.length > 1) dispatch({ type: 'jump', index: blockIndexAt(blocksRef.current, ms) });
+    else dispatch({ type: 'place', ms });
+  }, [status, dispatch, msAt]);
+
+  const start = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (isFinite(audio.duration)) {
-      audio.currentTime = anchorRef.current * audio.duration;
-    }
+    const from = playRef.current.anchorMs;
+    audio.currentTime = from / 1000;
     try {
       await audio.play();
-      setIsPlaying(true);
+      dispatch({ type: 'play' });
       startRaf();
     } catch {
-      setIsPlaying(false);
+      // Autoplay refused / decode error: stay stopped
     }
-  }, [startRaf]);
+  }, [dispatch, startRaf]);
 
   const stop = useCallback(() => {
-    audioRef.current?.pause();
-    setIsPlaying(false);
+    const audio = audioRef.current;
+    const pos = positionMs();
+    audio?.pause();
     stopRaf();
-    // Play restarts from the anchor, so park the playhead back there
-    movePlayhead(anchorRef.current);
-  }, [movePlayhead, stopRaf]);
+    if (playRef.current.playing) dispatch({ type: 'pause', posMs: pos });
+  }, [dispatch, stopRaf, positionMs]);
+
+  const step = useCallback((dir: -1 | 1) => {
+    if (status !== 'ready') return;
+    dispatch({ type: 'step', dir, posMs: positionMs() });
+  }, [status, dispatch, positionMs]);
 
   // Escape hatch for a bad cached clip (glitchy audio, or the Google fallback
-  // voice from a MiniMax outage): regenerate, overwrite the cache, replay.
+  // voice from a MiniMax outage): regenerate, overwrite the cache, re-analyse.
   const regenerate = useCallback(async () => {
     if (isRegenerating || !navigator.onLine) return;
     setIsRegenerating(true);
@@ -221,49 +291,73 @@ export function ReaderAudioScrubber({ page }: { page: Pick<LocalReaderPage, 'id'
     const blob = await getReaderPageTTS(page, { regenerate: true }).catch(() => null);
     setIsRegenerating(false);
     if (!blob) return;
-    setAnchor(0);
+    playRef.current = INITIAL_BLOCK_PLAY_STATE;
+    setPlay(INITIAL_BLOCK_PLAY_STATE);
+    setActiveIdx(0);
+    setAnalysis(null);
     movePlayhead(0);
     adoptBlob(blob);
   }, [isRegenerating, page, stop, adoptBlob, movePlayhead]);
 
+  const ready = status === 'ready';
+  const current = Math.min(activeIdx, blocks.length - 1);
+
   return (
-    // Play sits on the RIGHT — that's the thumb side (Jerome's preference,
-    // same as the pre-scrubber layout); the rarely-used regen goes left.
-    <div className="reader-audio-scrubber">
-      <button
-        className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
-        onClick={regenerate}
-        disabled={isRegenerating}
-        aria-label="Regenerate audio"
-        title="Regenerate audio"
-      >
-        ↻
-      </button>
-      <div
-        className={`reader-audio-track ${status !== 'ready' ? 'disabled' : ''}`}
-        ref={trackRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-      >
-        <canvas ref={canvasRef} className="reader-audio-wave" />
-        {status === 'ready' && (
-          <>
-            <div className="reader-audio-playhead" ref={playheadRef} />
-            <div className="reader-audio-anchor" style={{ left: `${anchor * 100}%` }} />
-          </>
-        )}
-        {status === 'unavailable' && (
-          <div className="reader-audio-track-note">audio unavailable offline</div>
-        )}
+    <div className="reader-audio-scrubber-wrap">
+      {/* Play sits on the RIGHT — that's the thumb side (Jerome's preference,
+          same as the pre-scrubber layout); the rarely-used regen goes left. */}
+      <div className="reader-audio-scrubber">
+        <button
+          className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
+          onClick={regenerate}
+          disabled={isRegenerating}
+          aria-label="Regenerate audio"
+          title="Regenerate audio"
+        >
+          ↻
+        </button>
+        <div
+          className={`reader-audio-track ${ready ? '' : 'disabled'}`}
+          ref={trackRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={() => { dragRef.current = null; }}
+          data-blocks={blocks.length}
+        >
+          <canvas ref={canvasRef} className="reader-audio-wave" />
+          {ready && (
+            <>
+              <div className="reader-audio-playhead" ref={playheadRef} />
+              <div className="reader-audio-anchor" style={{ left: `${fractionOf(play.anchorMs) * 100}%` }} />
+            </>
+          )}
+          {status === 'unavailable' && (
+            <div className="reader-audio-track-note">audio unavailable offline</div>
+          )}
+        </div>
+        <button
+          className="reader-audio-btn"
+          onClick={play.playing ? stop : start}
+          disabled={!ready}
+          aria-label={play.playing ? 'Stop audio' : 'Play audio from the selected point'}
+        >
+          {play.playing ? '⏹' : '🔊'}
+        </button>
       </div>
-      <button
-        className="reader-audio-btn"
-        onClick={isPlaying ? stop : play}
-        disabled={status !== 'ready'}
-        aria-label={isPlaying ? 'Stop audio' : 'Play audio from the selected point'}
-      >
-        {isPlaying ? '⏹' : '🔊'}
-      </button>
+      {ready && multi && (
+        <div className="reader-audio-blocks-row">
+          <button className="reader-audio-step-btn" onClick={() => step(-1)} aria-label="Previous phrase">
+            ⏮
+          </button>
+          <span className="reader-audio-block-label" aria-live="polite">
+            Phrase {current + 1} of {blocks.length}
+          </span>
+          <button className="reader-audio-step-btn" onClick={() => step(1)} aria-label="Next phrase">
+            ⏭
+          </button>
+        </div>
+      )}
     </div>
   );
 }
