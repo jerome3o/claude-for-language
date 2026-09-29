@@ -26,6 +26,18 @@ import dev.jeromeswannack.chineselearning.lab.ui.study.StudyScreen
 import dev.jeromeswannack.chineselearning.lab.ui.study.StudyUi
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Test
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.AudioBlocks
+import dev.jeromeswannack.chineselearning.lab.core.BlockPlayback
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import org.robolectric.annotation.Config
 import java.io.File
 
@@ -49,9 +61,36 @@ class ReaderScreenshots : LabScreenshotTest() {
     private fun env(playing: String? = null) = ReaderEnv(
         image = { picture }, cachedImage = { picture }, playingPage = playing,
         pageAudio = { _, _ -> picture },
-        // A speech-like envelope for the waveform (the test has no real clip to decode).
-        peaks = { List(96) { i -> (0.25 + 0.75 * Math.abs(Math.sin(i / 5.0)) * (if (i % 23 < 3) 0.15 else 1.0)).toFloat() } },
+        // Three phrases with pauses, like 我喜欢 / 一边跑步 / 一边听音乐 (the test has no real clip to decode).
+        analyze = { p, _ -> if (p.id == "p3") oneBlock else threeBlocks },
     )
+
+    /** Peaks shaped like the real clip: speech bursts separated by long pauses. */
+    private fun speechPeaks(durationMs: Int, speech: List<IntRange>) = List(96) { i ->
+        val ms = ((i + 0.5) / 96 * durationMs).toInt()
+        if (speech.any { ms in it }) (0.3 + 0.7 * Math.abs(Math.sin(i * 1.7)) * Math.abs(Math.cos(i / 3.0))).toFloat() else 0.03f
+    }
+    private val threeBlocks = sampleClipAnalysis(
+        7883,
+        listOf(AudioBlocks.Block(0, 3020), AudioBlocks.Block(3020, 5940), AudioBlocks.Block(5940, 7883)),
+        speechPeaks(7883, listOf(120..1000, 3160..4500, 6080..7700)),
+    )
+    private val oneBlock = sampleClipAnalysis(2345, listOf(AudioBlocks.Block(0, 2345)), speechPeaks(2345, listOf(150..2150)))
+
+    /** The scrubber alone, in the states that matter: a block playing, stopped on a block, a hand-placed anchor, one block. */
+    @Test fun phraseBlocks() = shoot("readers-15-phrase-blocks") {
+        Column(Modifier.fillMaxWidth().background(Lab.colors.background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("Stopped — play restarts phrase 2", fontSize = 13.sp, color = Lab.colors.muted)
+            ReaderScrubber(pages[0], env(), BlockPlayback.State(anchorMs = 3020.0))
+            Text("Hand-placed anchor in phrase 3 (drag)", fontSize = 13.sp, color = Lab.colors.muted)
+            ReaderScrubber(pages[1], env(), BlockPlayback.State(anchorMs = 6600.0, manual = true))
+            Text("No pause found — one block, as before", fontSize = 13.sp, color = Lab.colors.muted)
+            ReaderScrubber(pages[2], env())
+        }
+    }
+    @Test fun phraseBlocksDark() = shoot("readers-16-phrase-blocks-dark", dark = true) {
+        Column(Modifier.fillMaxWidth().background(Lab.colors.background).padding(16.dp)) { ReaderScrubber(pages[0], env(), BlockPlayback.State(anchorMs = 5940.0)) }
+    }
 
     private val pages = listOf(
         ReaderPageDto("p1", 1, "小明今天第一次去巴黎。他很兴奋。", "Xiǎomíng jīntiān dì yī cì qù Bālí. Tā hěn xīngfèn.", "Today Xiaoming is going to Paris for the first time. He is very excited.", "k1", "A boy with a backpack at a Paris train station"),

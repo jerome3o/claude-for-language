@@ -12,3 +12,5 @@ export {
   readerDifficultyLabel,
 } from './export';
 export * from './standard';
+export * from './audioBlocks';
+export * from './blockPlayback';

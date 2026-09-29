@@ -133,7 +133,9 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
 │       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
 │       ├── diff.ts        # Page-level diff (added / removed / moved / changed by id, content or similarity)
-│       └── export.ts      # Markdown / re-importable JSON / Quizlet CSV
+│       ├── export.ts      # Markdown / re-importable JSON / Quizlet CSV
+│       ├── audioBlocks.ts # Page narration → phrase blocks at the pauses (RMS envelope, adaptive threshold) — parity-tested by the Lab app
+│       └── blockPlayback.ts # The scrubber's restart point: advance per block, pause → this block (or the previous within 1 s) — parity-tested
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
@@ -1052,6 +1054,15 @@ and only removes a key no other page references. The student's copy arrives with
 interface. A second share makes a second, independent copy.
 - `POST /api/relationships/:relId/share-reader` - `{ reader_id }` (caller must be the tutor and own a `ready` reader) → 201 `{ share, reader }` (the student's copy)
 - `GET /api/relationships/:relId/shared-readers` - Shares in the relationship (either party) with the student's read status from `reader_review_events`: `page_count`, `read_count`, `last_read_at`, `last_rating`, `target_deleted`
+**Page audio in the session** (web `components/ReaderAudioScrubber.tsx`, Lab `ui/readers/ReaderScrubber.kt`):
+a waveform split into **phrase blocks** at the pauses (`shared/reader/audioBlocks.ts`: 10 ms RMS envelope of the
+clip decoded on the device, adaptive quiet threshold, interior pauses ≥ 350 ms, blocks merged under 0.8 s / split
+over 7 s; peaks + blocks cached per clip — IndexedDB `readerAudioBlocks` (Dexie v23), Lab JsonCache). The restart
+point follows the audio (`shared/reader/blockPlayback.ts`): it advances to each block as it plays; stop → play
+replays the block he was in, or the PREVIOUS one when he stopped within 1 s of crossing into a block; tap a block
+to jump, ⏮ / ⏭ to step, drag for a free anchor. No pause found / undecodable → one block, the old scrubber. Both
+files are ported to `android-lab/core` (`AudioBlocks.kt`, `BlockPlayback.kt`) and parity-tested
+(`android-lab/parity/fixtures/reader-blocks.ts`). Details: docs/STUDY_SESSION.md.
 - `GET /api/readers` (`?include_pages=true` for sync), `GET|DELETE /api/readers/:id`, `POST /api/readers/generate`
 - `POST /api/readers/:id/retry` - Re-queue a FAILED reader in place (same id; status back to `generating`). The Readers list folds every failed reader into one "N failed generations" row with Retry / Delete / Delete all; raw API errors only appear behind "Show details" (`services/readerFailures.ts`). `ensureDailyReader` asks the server at most once per local date (`daily-reader-attempt` in localStorage) and the daily reader's failed row is reused on retry instead of a new one being created every session. **One reader a day** (`READERS_PER_DAY`, `pickTodaysReader` in `frontend/src/services/reader-study.ts`): the session offers at most one story — a due learning repeat, else the most overdue review, else the newest unread — and nothing more once one has been read today; `ensureDailyReader` generates a new story only when nothing is due (see docs/STUDY_SESSION.md)
 - `POST /api/readers` (blank), `PUT /api/readers/:id`, page CRUD + `reorder`, `publish`, `generate-image`, `generate-text` (older per-field routes in index.ts)

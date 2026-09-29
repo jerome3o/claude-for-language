@@ -193,6 +193,36 @@ there is **one reader a day** (`READERS_PER_DAY` in `frontend/src/services/reade
   nothing is due today** — no unread story, no review or learning repeat due, none read yet.
   A due review *is* the day's reader, so no new story is written that day.
 
+### Page audio: phrase blocks and a restart point that follows the audio
+
+Each reader page's narration is a waveform scrubber (web `components/ReaderAudioScrubber.tsx`,
+Lab `ui/readers/ReaderScrubber.kt`) split into **phrase blocks at the pauses**:
+
+- **Finding blocks** (`shared/reader/audioBlocks.ts`, Lab `core/AudioBlocks.kt`, parity-tested):
+  the clip is decoded on the device (WebAudio / MediaCodec) into a 10 ms RMS envelope; the quiet
+  threshold adapts to the clip (noise floor + 10% of the way to the speech level, kept 15–45 dB
+  under speech); an interior quiet run of ≥ 350 ms is a pause (leading / trailing silence never
+  splits; blips of ≤ 2 loud frames are bridged); the boundary sits 150 ms before the next phrase
+  (never before the pause's middle); blocks under 0.8 s merge into the shorter neighbour, blocks
+  over 7 s split at their longest ≥ 150 ms dip. Tuned on real MiniMax clips (pauses at commas /
+  full stops 0.6–1.6 s, gaps between words 0.1–0.3 s; envelopes in
+  `shared/reader/__fixtures__/tts-envelopes.json`). Peaks + blocks are cached per clip
+  (IndexedDB `readerAudioBlocks`, Dexie v23; Lab JsonCache `readers/audio-blocks/…`), so they
+  show instantly and offline; a regenerated clip (different size) or a new `AUDIO_BLOCKS_VERSION`
+  re-analyses.
+- **The restart point** (`shared/reader/blockPlayback.ts`, Lab `core/BlockPlayback.kt`,
+  parity-tested): play starts from the anchor; when a block finishes the anchor advances to the
+  start of the block now playing; stop → play again restarts **the block he was in** — unless he
+  stopped within **1 s** of crossing into a new block, then the **previous** block (he missed it).
+  A drag places a free anchor, which wins until playback moves past its block (and the 1 s grace
+  returns to it). When the clip ends the anchor is the last block.
+- **UI**: boundaries as small ticks on the waveform, the current block highlighted; **tap** a
+  block = jump there (it becomes the restart point); **⏮ / ⏭** (under the play button, the thumb
+  side) step blocks — ⏮ restarts the current block when more than 1 s into it, else goes back one.
+- **Fallback**: undecodable clip or no pause found → one block, exactly the old scrubber (tap or
+  drag places the anchor, stop returns to it, no ⏮ / ⏭ row). Sentence highlighting in the text
+  is not done (the reader shows the Chinese hidden until tapped).
+
 ## Example Session Flow
 
 ```

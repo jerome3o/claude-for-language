@@ -447,6 +447,21 @@ export interface LocalRecordingNote {
 export type LocalTutorNote = import('@shared/tutor-notes').TutorNote;
 
 /**
+ * A reader page clip's waveform peaks and phrase blocks (services/readerAudioBlocks.ts), so the
+ * scrubber draws them instantly and offline. Keyed by the clip's TTS cache key; `size` tells a
+ * regenerated clip (same key, new audio) from the one analysed, `version` a changed segmenter.
+ */
+export interface LocalReaderAudioBlocks {
+  key: string;
+  size: number;
+  version: number;
+  duration_ms: number;
+  peaks: number[] | null;
+  blocks: import('@shared/reader/audioBlocks').AudioBlock[];
+  analyzed_at: number;
+}
+
+/**
  * One step of uploading a video call's recording (services/calls/uploads.ts):
  * register a piece, one ~10 s audio chunk, or close the piece. Drained in
  * `seq` order, during the call and by every sync afterwards, so a recording
@@ -554,6 +569,8 @@ export class ChineseLearningDB extends Dexie {
   recordingNotes!: Table<LocalRecordingNote, string>;
   // Every tutor note, seen ones too (the Tutor notes page, offline)
   tutorNotes!: Table<LocalTutorNote, string>;
+  // Reader narration: waveform peaks + phrase blocks per clip
+  readerAudioBlocks!: Table<LocalReaderAudioBlocks, string>;
 
   // Cards flagged for the tutor while offline, waiting to be posted
   pendingCardFlags!: Table<LocalPendingCardFlag, string>;
@@ -976,6 +993,12 @@ export class ChineseLearningDB extends Dexie {
     // page offline (the card back keeps reading `recordingNotes`).
     this.version(22).stores({
       tutorNotes: 'id, updated_at, note_id',
+    });
+
+    // Version 23: reader page clips split into phrase blocks at the pauses
+    // (waveform peaks + block boundaries), cached per clip for the scrubber.
+    this.version(23).stores({
+      readerAudioBlocks: 'key',
     });
   }
 }

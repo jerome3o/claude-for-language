@@ -64,6 +64,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import dev.jeromeswannack.chineselearning.lab.data.readers.ClipAnalysis
+import dev.jeromeswannack.chineselearning.lab.data.readers.decodeClip
 
 /** What a reader page may do outside itself (a fake in screenshots). */
 class ReaderEnv(
@@ -82,8 +84,8 @@ class ReaderEnv(
     val onWord: (SentenceChunkDto) -> Unit = {},
     /** The page narration as a file (cache-first; `regenerate` replaces a bad clip) — the session's scrubber. */
     val pageAudio: (suspend (page: ReaderPageDto, regenerate: Boolean) -> File?)? = null,
-    /** Waveform peaks of a clip (decoded on the phone). */
-    val peaks: (File) -> List<Float>? = ::computePeaks,
+    /** The clip's waveform peaks + phrase blocks (decoded on the phone; cached per clip in the app). */
+    val analyze: suspend (page: ReaderPageDto, file: File) -> ClipAnalysis? = { _, f -> withContext(Dispatchers.Default) { decodeClip(f) } },
 )
 
 val Violet = Color(0xFF8B5CF6)
