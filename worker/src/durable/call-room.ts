@@ -168,7 +168,7 @@ export class CallRoom extends DurableObject<Env> {
       await this.initPages(callId);
     } catch (err) {
       // D1 unreachable: the board still works for this call on a page kept in the room only
-      // (not written back, no strip history); the next join tries D1 again.
+      // (not written back, no strip history); a fresh room instance tries D1 again.
       console.error('[call-room] loading board pages failed:', err);
       const id = `tmp-${crypto.randomUUID().slice(0, 8)}`;
       const now = Date.now();
@@ -335,7 +335,7 @@ export class CallRoom extends DurableObject<Env> {
       if (text !== null) links.push({ pageId: p.id, text, edited: l.edited, openedAt: l.openedAt });
       if (l.edited && text !== null) texts.push({ label: pageLabel(i, p.title), text });
     }
-    if (callId) await linkCallPages(this.env.DB, callId, links);
+    if (callId && scope) await linkCallPages(this.env.DB, callId, links);
     return combineCallPagesText(texts);
   }
 
