@@ -93,6 +93,8 @@ export type ClientMessage =
   | { type: 'chat'; text: string }
   | { type: 'state'; state: PeerMediaState }
   | { type: 'ping'; t: number }
+  /** I'm leaving (the call goes on for the other person): I stop counting as present at once. */
+  | { type: 'leave' }
   | { type: 'end' };
 
 /** Room → client. */
@@ -116,6 +118,11 @@ export type ServerMessage =
       page?: string;
       /** Which page each other client is looking at. */
       page_views?: Record<string, string>;
+      /**
+       * Secret for `POST /api/calls/:id/leave` { client_id, token } — the page's
+       * sendBeacon on pagehide, which can't carry the session header.
+       */
+      leave_token?: string;
     }
   | { type: 'peer_joined'; peer: CallPeer }
   | { type: 'peer_left'; client_id: string }

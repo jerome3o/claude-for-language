@@ -83,8 +83,8 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             drainUploads = { if (app.online.value) uploads.drain() },
             closeOrphans = { uploads.closeOrphans(callId) },
             keepAlive = { on ->
-                if (on) { CallUploads.activeCallId = callId; CallService.start(app, callId); audio.start() }
-                else { audio.stop(); CallService.stop(app); if (CallUploads.activeCallId == callId) CallUploads.activeCallId = null; app.scheduleBackgroundUpload() }
+                if (on) { CallUploads.activeCallId = callId; CallService.onAppRemoved = { controller.leaveNow() }; CallService.start(app, callId); audio.start() }
+                else { audio.stop(); CallService.onAppRemoved = null; CallService.stop(app); if (CallUploads.activeCallId == callId) CallUploads.activeCallId = null; app.scheduleBackgroundUpload() }
             },
             prepareScreenShare = { CallService.prepareScreenShare(app, callId) },
             teardown = app.scope,

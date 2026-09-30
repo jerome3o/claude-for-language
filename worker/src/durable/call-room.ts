@@ -11,6 +11,17 @@
  * The worker authenticates the socket (a join ticket, see
  * services/calls/ticket.ts) and passes the user in headers; the room trusts
  * those headers because only the worker can reach it.
+ *
+ * Presence (shared/calls/presence.ts): a socket counts as "in the call" while
+ * it is open, hasn't said `leave` and was heard from in the last 45 s (clients
+ * ping every 10 s). An alarm follows the plan `planRoom` makes: while someone
+ * is present it wakes when the oldest socket would time out (a phone that died
+ * without closing its socket is dropped); when nobody is, it wakes at the end
+ * deadline and ends the call exactly like the End button (3 min after the last
+ * person left, 10 min after creation for a call nobody ever entered). The
+ * worker's `GET /api/calls` asks each live room `presence()`, so the banners
+ * only announce a call someone is actually in — and that same question sweeps
+ * up a room whose deadline passed without an alarm (one created before this).
  */
 
 import { DurableObject } from 'cloudflare:workers';
@@ -27,6 +38,11 @@ import {
   sanitizeCompose,
   sanitizeDiagEvents,
   appendDiag,
+  planRoom,
+  isSocketPresent,
+  shouldAlertMissed,
+  PRESENCE_SEEN_WRITE_MS,
+  type RoomSocketLike,
   TextDoc,
   pickOpeningPage,
   pagePreview,
@@ -72,6 +88,12 @@ interface Attachment {
   instance?: string;
   /** The board page this socket looks at (absent = the call's opening page). */
   page?: string;
+  /** Epoch ms the room last heard from this socket (written at most every PRESENCE_SEEN_WRITE_MS). */
+  seen?: number;
+  /** Said `leave`, was replaced or timed out: no longer counts as present even if the socket lingers. */
+  left?: boolean;
+  /** Secret for the pagehide beacon (`POST /api/calls/:id/leave`). */
+  leaveToken?: string;
 }
 
 /** A page this call opened or wrote on (→ call_board_pages). */
@@ -80,8 +102,11 @@ interface PageLink {
   edited: boolean;
 }
 
-/** An empty room ends the call after this long (everyone closed the tab without pressing End). */
-const EMPTY_ROOM_END_MS = 20 * 60_000;
+/** What `presence()` reports to the worker. */
+export interface RoomPresence {
+  present: string[];
+  ended: boolean;
+}
 const DEFAULT_STATE: PeerMediaState = { mic: true, cam: true, screen: false, recording: false };
 /**
  * Board / text / diagnostics are written to storage at most this often. Edits are
@@ -327,6 +352,82 @@ export class CallRoom extends DurableObject<Env> {
       .filter((x): x is { ws: WebSocket; a: Attachment } => Boolean(x.a));
   }
 
+  private presenceOf(ws: WebSocket, a: Attachment, except?: WebSocket): RoomSocketLike {
+    return { userId: a.userId, seen: a.seen ?? 0, open: ws !== except && ws.readyState === WebSocket.OPEN, left: a.left };
+  }
+
+  /** Sockets that count as in the call right now (open, not left, heard from recently). */
+  private presentSockets(now = Date.now()): { ws: WebSocket; a: Attachment }[] {
+    return this.sockets().filter(({ ws, a }) => isSocketPresent(this.presenceOf(ws, a), now));
+  }
+
+  private markLeft(ws: WebSocket, a: Attachment): void {
+    a.left = true;
+    try {
+      ws.serializeAttachment(a);
+    } catch {
+      /* closed under us */
+    }
+  }
+
+  /** Remember which call this room is, and when it was created (for the "nobody ever came" deadline). */
+  private async remember(callId: string, createdAt?: number | null): Promise<void> {
+    const [knownId, knownCreated, firstKnown] = await Promise.all([
+      this.ctx.storage.get<string>('callId'),
+      this.ctx.storage.get<number>('createdAt'),
+      this.ctx.storage.get<number>('firstKnownAt'),
+    ]);
+    const put: Record<string, unknown> = {};
+    if (knownId !== callId) put.callId = callId;
+    if (!knownCreated && typeof createdAt === 'number' && Number.isFinite(createdAt)) put.createdAt = createdAt;
+    if (!firstKnown) put.firstKnownAt = Date.now();
+    if (Object.keys(put).length) await this.ctx.storage.put(put);
+  }
+
+  /**
+   * Apply the presence plan: drop sockets that went silent, end the call when
+   * its deadline has passed, otherwise set the alarm for the next look.
+   * `leaving` is a socket being closed right now (it no longer counts).
+   */
+  private async reconcile(leaving?: WebSocket): Promise<RoomPresence> {
+    if ((await this.ctx.storage.get<boolean>('ended')) === true) return { present: [], ended: true };
+    const now = Date.now();
+    const all = this.sockets();
+    const [createdAt, firstKnownAt, emptySince, joined] = await Promise.all([
+      this.ctx.storage.get<number>('createdAt'),
+      this.ctx.storage.get<number>('firstKnownAt'),
+      this.ctx.storage.get<number | null>('emptySince'),
+      this.ctx.storage.get<string[]>('joined'),
+    ]);
+    const plan = planRoom({
+      now,
+      createdAt: createdAt ?? null,
+      firstKnownAt: firstKnownAt ?? now,
+      everJoined: (joined ?? []).length > 0,
+      emptySince: emptySince ?? null,
+      ended: false,
+      sockets: all.map(({ ws, a }) => this.presenceOf(ws, a, leaving)),
+    });
+    for (const i of plan.stale) {
+      const { ws, a } = all[i];
+      this.markLeft(ws, a);
+      this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
+      try {
+        ws.close(4003, 'No answer for a while');
+      } catch {
+        /* already closed */
+      }
+    }
+    if (plan.stale.length) await this.snapshot();
+    if (plan.end) {
+      await this.endCall(null);
+      return { present: [], ended: true };
+    }
+    await this.ctx.storage.put('emptySince', plan.emptySince);
+    if (plan.wakeAt !== null) await this.ctx.storage.setAlarm(plan.wakeAt);
+    return { present: plan.present, ended: false };
+  }
+
   private send(ws: WebSocket, msg: ServerMessage): void {
     try {
       ws.send(JSON.stringify(msg));
@@ -349,7 +450,7 @@ export class CallRoom extends DurableObject<Env> {
     const userId = request.headers.get('X-User-Id') || '';
     if (!callId || !userId) return new Response('Missing user', { status: 400 });
     if ((await this.ctx.storage.get<boolean>('ended')) === true) return new Response('Call has ended', { status: 410 });
-    await this.ctx.storage.put('callId', callId);
+    await this.remember(callId);
     await this.load();
     await this.loadPages();
 
@@ -360,6 +461,7 @@ export class CallRoom extends DurableObject<Env> {
     const existing = this.sockets();
     for (const { ws, a } of existing) {
       if (a.userId === userId) {
+        this.markLeft(ws, a);
         if (instance && a.instance === instance) ws.close(4001, 'Reconnected');
         else {
           this.send(ws, { type: 'replaced' });
@@ -368,7 +470,8 @@ export class CallRoom extends DurableObject<Env> {
         this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
       }
     }
-    const others = this.sockets().filter(({ ws, a }) => a.userId !== userId && ws.readyState === WebSocket.OPEN);
+    // Only people really here count (a partner's phone that died silently is not in the way).
+    const others = this.presentSockets().filter(({ a }) => a.userId !== userId);
     if (others.length >= MAX_CALL_PEERS) return new Response('The call is full', { status: 409 });
 
     const pair = new WebSocketPair();
@@ -380,6 +483,8 @@ export class CallRoom extends DurableObject<Env> {
       picture: request.headers.get('X-User-Picture') || null,
       state: { ...DEFAULT_STATE },
       ...(instance ? { instance } : {}),
+      seen: Date.now(),
+      leaveToken: crypto.randomUUID(),
     };
     this.ctx.acceptWebSocket(server, [userId]);
     server.serializeAttachment(attachment);
@@ -392,7 +497,7 @@ export class CallRoom extends DurableObject<Env> {
       startedAt = Date.now();
       await this.ctx.storage.put('startedAt', startedAt);
     }
-    await this.ctx.storage.deleteAlarm();
+    await this.reconcile();
 
     this.send(server, {
       type: 'welcome',
@@ -408,6 +513,7 @@ export class CallRoom extends DurableObject<Env> {
       pages: this.pageMetas(),
       page: this.opening,
       page_views: Object.fromEntries(others.map(({ a }) => [a.clientId, this.viewOf(a)])),
+      leave_token: attachment.leaveToken,
     });
     this.broadcast({ type: 'peer_joined', peer: this.peerOf(attachment) }, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -421,6 +527,12 @@ export class CallRoom extends DurableObject<Env> {
       msg = JSON.parse(raw) as ClientMessage;
     } catch {
       return;
+    }
+    // Heartbeat: anything from the socket proves it's alive (written at most every few seconds).
+    const now = Date.now();
+    if (!a.left && now - (a.seen ?? 0) >= PRESENCE_SEEN_WRITE_MS) {
+      a.seen = now;
+      ws.serializeAttachment(a);
     }
     switch (msg.type) {
       case 'signal': {
@@ -619,10 +731,45 @@ export class CallRoom extends DurableObject<Env> {
       case 'ping':
         this.send(ws, { type: 'pong', t: Number(msg.t) || 0, server_time: Date.now() });
         return;
+      case 'leave':
+        await this.leaveSocket(ws, a);
+        return;
       case 'end':
         await this.endCall(a.userId);
         return;
     }
+  }
+
+  /** Someone left on purpose (Leave, closing the tab): not present from now on; the call goes on. */
+  private async leaveSocket(ws: WebSocket, a: Attachment): Promise<void> {
+    if (!a.left) {
+      this.markLeft(ws, a);
+      this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
+    }
+    try {
+      ws.close(1000, 'Left the call');
+    } catch {
+      /* already closed */
+    }
+    await this.afterLeave(ws);
+  }
+
+  /** The pagehide beacon (`POST /api/calls/:id/leave`): the socket's client id + its leave token. */
+  async leave(clientId: string, token: string): Promise<boolean> {
+    const hit = this.sockets().find(({ a }) => a.clientId === clientId && !!a.leaveToken && a.leaveToken === token);
+    if (!hit) return false;
+    await this.leaveSocket(hit.ws, hit.a);
+    return true;
+  }
+
+  /**
+   * Who is in the call right now — asked by the worker for every live call it
+   * lists. Also the sweeper: a room past its deadline ends here, the same way
+   * as its alarm or the End button.
+   */
+  async presence(callId: string, createdAt: number | null): Promise<RoomPresence> {
+    await this.remember(callId, createdAt);
+    return this.reconcile();
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
@@ -633,7 +780,7 @@ export class CallRoom extends DurableObject<Env> {
       /* already closed */
     }
     const a = ws.deserializeAttachment() as Attachment | null;
-    if (a) this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
+    if (a && !a.left) this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
     await this.afterLeave(ws);
   }
 
@@ -642,16 +789,12 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   private async afterLeave(leaving: WebSocket): Promise<void> {
-    const remaining = this.sockets().filter(({ ws }) => ws !== leaving && ws.readyState === WebSocket.OPEN);
     await this.snapshot();
-    if (remaining.length === 0 && !(await this.ctx.storage.get<boolean>('ended'))) {
-      await this.ctx.storage.setAlarm(Date.now() + EMPTY_ROOM_END_MS);
-    }
+    await this.reconcile(leaving);
   }
 
   async alarm(): Promise<void> {
-    const live = this.sockets().filter(({ ws }) => ws.readyState === WebSocket.OPEN);
-    if (live.length === 0) await this.endCall(null);
+    await this.reconcile();
   }
 
   private async snapshot(): Promise<void> {
@@ -661,7 +804,7 @@ export class CallRoom extends DurableObject<Env> {
     await this.load();
     try {
       const text = await this.savePagesToD1(callId);
-      await this.ctx.storage.put('pageState', this.pageState());
+      if (this.pages) await this.ctx.storage.put('pageState', this.pageState());
       await saveRoomSnapshot(this.env.DB, callId, {
         board: this.board!,
         chat: this.chat!,
@@ -681,8 +824,13 @@ export class CallRoom extends DurableObject<Env> {
     this.broadcast({ type: 'ended', by: by ?? '' });
     await this.snapshot();
     if (callId) {
-      const newlyEnded = await markCallEnded(this.env.DB, callId);
-      if (newlyEnded) await alertCallMissed(this.env, callId, (await this.ctx.storage.get<string[]>('joined')) ?? []);
+      const endedAt = Date.now();
+      const newlyEnded = await markCallEnded(this.env.DB, callId, endedAt);
+      // "Missed video call" replaces the ringing notification — not for a room swept up hours later.
+      const createdAt = (await this.ctx.storage.get<number>('createdAt')) ?? (await this.ctx.storage.get<number>('firstKnownAt')) ?? null;
+      if (newlyEnded && shouldAlertMissed(createdAt, endedAt)) {
+        await alertCallMissed(this.env, callId, (await this.ctx.storage.get<string[]>('joined')) ?? []);
+      }
       try {
         await advanceCallProcessing(this.env, callId);
       } catch (err) {
@@ -700,7 +848,7 @@ export class CallRoom extends DurableObject<Env> {
 
   /** RPC from the worker when a call is ended over HTTP (e.g. nobody is in the room). */
   async end(callId: string, by: string): Promise<void> {
-    await this.ctx.storage.put('callId', callId);
+    await this.remember(callId);
     await this.endCall(by);
   }
 }

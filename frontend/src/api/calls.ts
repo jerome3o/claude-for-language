@@ -52,6 +52,23 @@ export function joinCall(callId: string): Promise<CallJoinInfo> {
   return request(`/calls/${callId}/join`, { method: 'POST' });
 }
 
+/**
+ * "I've left" from a page that is going away (pagehide): a beacon, which
+ * survives the page closing but can't carry the session header — so it
+ * carries the socket's client id and the leave token the room gave it.
+ * Text body = a CORS-simple request (no preflight). Returns whether the
+ * browser queued it.
+ */
+export function sendLeaveBeacon(callId: string, clientId: string, token: string): boolean {
+  if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return false;
+  try {
+    const body = new Blob([JSON.stringify({ client_id: clientId, token })], { type: 'text/plain' });
+    return navigator.sendBeacon(`${API_PATH}/calls/${encodeURIComponent(callId)}/leave`, body);
+  } catch {
+    return false;
+  }
+}
+
 export function endCall(callId: string): Promise<{ ok: true }> {
   return request(`/calls/${callId}/end`, { method: 'POST' });
 }

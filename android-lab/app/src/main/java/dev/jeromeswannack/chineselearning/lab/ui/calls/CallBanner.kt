@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
+import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallAlerts
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
@@ -90,12 +92,20 @@ fun relationshipCallBanner(nav: LabNav, relationshipId: String, path: String): C
     return CallAlerts.pickCallBanner(calls, me, path, System.currentTimeMillis(), emptySet(), relationshipId)
 }
 
-/** The inline banner the student / tutor pages draw from their own state. */
+/**
+ * The inline banner the student / tutor pages and the chat draw from their own state. Like every
+ * banner it can be hidden (✕ → the app-wide dismissed set, web: dismissCallBanner).
+ */
 @Composable
 fun InlineCallBanner(callId: String, title: String?, incoming: Boolean, onJoin: () -> Unit) {
+    val alerts = (LocalContext.current.applicationContext as? LabApp)?.callAlerts
+    if (alerts != null) {
+        val dismissed by alerts.dismissed.collectAsStateWithLifecycle()
+        if (callId in dismissed) return
+    }
     CallBannerView(
         CallAlerts.Banner(callId, null, if (incoming) CallAlerts.Kind.INCOMING else CallAlerts.Kind.REJOIN, title ?: "Video call in progress", if (incoming) "Join" else "Rejoin", "/calls/$callId", null),
-        CallBannerVariant.INLINE, onJoin = onJoin, onDismiss = null,
+        CallBannerVariant.INLINE, onJoin = onJoin, onDismiss = alerts?.let { a -> { a.dismiss(callId) } },
     )
 }
 
@@ -107,12 +117,11 @@ fun LiveCallBanner(nav: LabNav, variant: CallBannerVariant, path: String, relati
     val dismissed by alerts.dismissed.collectAsStateWithLifecycle()
     val me by alerts.myId.collectAsStateWithLifecycle()
     if (me.isEmpty()) return
-    val dismissible = variant != CallBannerVariant.INLINE
-    val banner = CallAlerts.pickCallBanner(calls, me, path, System.currentTimeMillis(), if (dismissible) dismissed else emptySet(), relationshipId) ?: return
+    val banner = CallAlerts.pickCallBanner(calls, me, path, System.currentTimeMillis(), dismissed, relationshipId) ?: return
     CallBannerView(
         banner, variant,
         onJoin = { alerts.stopRinging(); nav.app.haptics.tick(); nav.open(banner.url) },
-        onDismiss = if (dismissible) ({ alerts.dismiss(banner.callId) }) else null,
+        onDismiss = { alerts.dismiss(banner.callId) },
         modifier = modifier,
     )
 }

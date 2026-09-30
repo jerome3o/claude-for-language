@@ -14,6 +14,12 @@ export interface LiveCallLike {
   /** SQLite `datetime('now')` ("2026-09-28 10:00:00", UTC) or ISO. */
   created_at: string;
   other_user_name: string | null;
+  /**
+   * Who is connected to the call's room right now (the room's heartbeat, see
+   * shared/calls/presence.ts). Absent from an older server: then the call's
+   * age decides, as before.
+   */
+  present_user_ids?: readonly string[] | null;
 }
 
 export type CallBannerKind = 'incoming' | 'rejoin' | 'test';
@@ -31,7 +37,7 @@ export interface CallBanner {
   name: string | null;
 }
 
-/** A live call older than this is not announced (a room nobody entered is never ended by itself). */
+/** Without presence (an older server), a live call older than this is not announced. */
 export const CALL_BANNER_MAX_AGE_MS = 4 * 60 * 60_000;
 /** Ring only for a call that started this recently (polling may see it up to ~20 s late). */
 export const CALL_RING_WINDOW_MS = 2 * 60_000;
@@ -51,6 +57,18 @@ export function parseCallTime(value: string | null | undefined): number {
 export function callIdFromPath(path: string): string | null {
   const m = /^\/calls\/([^/?#]+)\/?$/.exec(path);
   return m ? decodeURIComponent(m[1]) : null;
+}
+
+/**
+ * Is there anyone to join? Someone OTHER than me is connected to the room right
+ * now and I am not (on any device). A call whose caller left, or that nobody
+ * ever entered, is not "calling" however long its row says live. Null when the
+ * server didn't say (older server): the caller falls back to the call's age.
+ */
+export function someoneElseInCall(call: LiveCallLike, myUserId: string): boolean | null {
+  if (!Array.isArray(call.present_user_ids)) return null;
+  const present = call.present_user_ids;
+  return !present.includes(myUserId) && present.some((id) => id !== myUserId);
 }
 
 function bannerFor(call: LiveCallLike, myUserId: string): CallBanner {
@@ -90,8 +108,10 @@ export interface BannerContext {
 /**
  * The one call to announce, or null. Incoming calls (someone else started
  * them) come first, newest first; then my own call to rejoin; test calls only
- * when asked. Calls older than CALL_BANNER_MAX_AGE_MS, ended ones, dismissed
- * ones and the call already on screen are left out.
+ * when asked. Only a call someone else is in right now and I'm not
+ * (`someoneElseInCall`; without presence data: not older than
+ * CALL_BANNER_MAX_AGE_MS); ended ones, dismissed ones and the call already on
+ * screen are left out.
  */
 export function pickCallBanner(calls: readonly LiveCallLike[], ctx: BannerContext): CallBanner | null {
   const onPage = callIdFromPath(ctx.path);
@@ -101,7 +121,9 @@ export function pickCallBanner(calls: readonly LiveCallLike[], ctx: BannerContex
     if (ctx.relationshipId !== undefined && ctx.relationshipId !== null && c.relationship_id !== ctx.relationshipId) return false;
     if (!c.relationship_id && !ctx.includeTest) return false;
     const t = parseCallTime(c.created_at);
-    return Number.isFinite(t) && ctx.now - t <= CALL_BANNER_MAX_AGE_MS;
+    if (!Number.isFinite(t)) return false;
+    const joinable = someoneElseInCall(c, ctx.myUserId);
+    return joinable === null ? ctx.now - t <= CALL_BANNER_MAX_AGE_MS : joinable;
   });
   const rank = (c: LiveCallLike) => (!c.relationship_id ? 2 : c.created_by !== ctx.myUserId ? 0 : 1);
   candidates.sort((a, b) => rank(a) - rank(b) || parseCallTime(b.created_at) - parseCallTime(a.created_at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -121,8 +143,9 @@ export interface RingContext {
 
 /**
  * The call to ring for, or null: an incoming call (someone else started it, in
- * a relationship) that started within CALL_RING_WINDOW_MS, not rung before on
- * this device, not open on screen, and only when the account rings.
+ * a relationship) that started within CALL_RING_WINDOW_MS, that someone else
+ * is actually in right now (when the server reports presence), not rung
+ * before on this device, not open on screen, and only when the account rings.
  */
 export function callToRing(calls: readonly LiveCallLike[], ctx: RingContext): LiveCallLike | null {
   if (ctx.mode === 'silent') return null;
@@ -131,6 +154,7 @@ export function callToRing(calls: readonly LiveCallLike[], ctx: RingContext): Li
   let best: LiveCallLike | null = null;
   for (const c of calls) {
     if (c.status !== 'live' || !c.relationship_id || c.created_by === ctx.myUserId || rung.has(c.id) || c.id === onPage) continue;
+    if (someoneElseInCall(c, ctx.myUserId) === false) continue;
     const t = parseCallTime(c.created_at);
     if (!Number.isFinite(t) || ctx.now - t > CALL_RING_WINDOW_MS || t - ctx.now > CALL_RING_WINDOW_MS) continue;
     if (!best || t > parseCallTime(best.created_at)) best = c;

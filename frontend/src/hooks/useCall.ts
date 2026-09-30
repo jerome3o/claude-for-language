@@ -673,6 +673,28 @@ export function useCall(callId: string, myUserId: string) {
     };
   }, [requestMedia]);
 
+  // Closing the tab / app (pagehide): tell the room I've left — over the socket and a beacon —
+  // so the other person's "is calling" banner goes at once. (Switching to another app is NOT
+  // leaving: the page stays in the call; if it gets frozen, the room's heartbeat notices.)
+  // A page restored from the back/forward cache reloads, which rejoins cleanly.
+  useEffect(() => {
+    let leftOnHide = false;
+    const onHide = () => {
+      if (!roomRef.current || finishedRef.current) return;
+      leftOnHide = true;
+      roomRef.current.close({ beacon: true });
+    };
+    const onShow = (event: PageTransitionEvent) => {
+      if (event.persisted && leftOnHide) window.location.reload();
+    };
+    window.addEventListener('pagehide', onHide);
+    window.addEventListener('pageshow', onShow);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('pageshow', onShow);
+    };
+  }, []);
+
   // Leaving the page: stop everything (the recording's last piece is closed
   // by the recorder, or by closeOrphanPieces on the next sync if the tab dies first).
   useEffect(() => () => {

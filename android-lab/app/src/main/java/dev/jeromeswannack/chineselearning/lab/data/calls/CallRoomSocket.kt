@@ -200,10 +200,13 @@ class CallRoomSocket(
         retry = scope.launch { connectOnce() }
     }
 
+    /** Leave: tell the room first ("leave" — the other side's "is calling" banner goes at once), then close. */
     override fun close() {
+        val wasClosed = closed
         closed = true
         retry?.cancel()
         ping?.cancel()
+        if (!wasClosed) runCatching { send(CallProtocol.leave()) }
         ws?.close(1000, "Left the call")
         ws = null
         open = false

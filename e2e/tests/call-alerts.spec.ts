@@ -1,10 +1,13 @@
-import { test, expect, APIRequestContext } from '@playwright/test';
+import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test';
 
 /**
- * Finding the call: when the tutor starts a video call, the student sees
- * "📹 <tutor> is calling — Join" on Home, as a bar on other pages, on the
- * tutor page and in the chat; Join opens the call. Also checks the push
- * endpoints (a key is generated when no VAPID secrets are set).
+ * Finding the call: when the tutor starts a video call and is in it, the
+ * student sees "📹 <tutor> is calling — Join" on Home, as a bar on other
+ * pages, on the tutor page and in the chat; Join opens the call. A call
+ * nobody is connected to is never announced, and the banner goes once the
+ * tutor leaves (the room's presence, docs/VIDEO_CALLS.md "Who is in the
+ * call"). Two people pressing "call" at once get ONE call. Also checks the
+ * push endpoints (a key is generated when no VAPID secrets are set).
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -26,10 +29,30 @@ async function seedUser(request: APIRequestContext, tag: string, name: string): 
   return { id: r.body.user.id, email, token: r.body.session_token };
 }
 
-test.use({ viewport: { width: 412, height: 915 } });
+test.use({
+  launchOptions: {
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+    ...(process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {}),
+  },
+  permissions: ['camera', 'microphone'],
+  viewport: { width: 412, height: 915 },
+});
 
-test('the student finds a call the tutor started: Home card, top bar, tutor page, chat, Join', async ({ page, request }) => {
-  test.setTimeout(90_000);
+/** The tutor in their own browser, joined to the call (so the room counts them as present). */
+async function tutorJoins(browser: Browser, token: string, callId: string): Promise<Page> {
+  const ctx = await browser.newContext({ permissions: ['camera', 'microphone'], viewport: { width: 412, height: 915 } });
+  const tp = await ctx.newPage();
+  await tp.goto(`/?session_token=${token}`);
+  await tp.locator('.header').waitFor({ timeout: 30000 });
+  await tp.goto(`/calls/${callId}`);
+  await expect(tp.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
+  await tp.getByTestId('join-call').click();
+  await tp.getByTestId('call-waiting').waitFor({ timeout: 20000 });
+  return tp;
+}
+
+test('the student finds a call the tutor is in: Home card, top bar, tutor page, chat, Join — and it goes when the tutor leaves', async ({ page, request, browser }) => {
+  test.setTimeout(150_000);
   const tutor = await seedUser(request, 'tutor', '王老师');
   const student = await seedUser(request, 'student', 'Student');
   const rel = await api<{ data: { id: string } }>(request, '/api/relationships', { method: 'POST', token: tutor.token, data: { recipient_email: student.email, role: 'tutor' } });
@@ -42,6 +65,23 @@ test('the student finds a call the tutor started: Home card, top bar, tutor page
   const call = await api<{ call: { id: string } }>(request, '/api/calls', { method: 'POST', token: tutor.token, data: { relationship_id: rel.body.data.id } });
   expect(call.status).toBe(201);
   const callId = call.body.call.id;
+
+  // The call exists but nobody is in it yet: no banner, and the list says nobody is present.
+  const listed = await api<{ calls: Array<{ id: string; present_user_ids?: string[] }> }>(request, '/api/calls?live=1', { token: student.token });
+  expect(listed.body.calls.find((c) => c.id === callId)?.present_user_ids).toEqual([]);
+  await page.reload();
+  await page.locator('.header').waitFor();
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId('home-call-banner')).toHaveCount(0);
+
+  // The student presses "call" at the same moment: they get the same call, not a second one.
+  const glare = await api<{ call: { id: string }; reused?: boolean }>(request, '/api/calls', { method: 'POST', token: student.token, data: { relationship_id: rel.body.data.id } });
+  expect(glare.status).toBe(200);
+  expect(glare.body.call.id).toBe(callId);
+  expect(glare.body.reused).toBe(true);
+
+  const tp = await tutorJoins(browser, tutor.token, callId);
+  await expect.poll(async () => (await api<{ calls: Array<{ id: string; present_user_ids?: string[] }> }>(request, '/api/calls?live=1', { token: student.token })).body.calls.find((c) => c.id === callId)?.present_user_ids, { timeout: 15000 }).toEqual([tutor.id]);
 
   // Home: the big card (the poll picks it up; a reload is the quickest way here).
   await page.reload();
@@ -72,9 +112,29 @@ test('the student finds a call the tutor started: Home card, top bar, tutor page
   await page.goto('/more');
   await expect(page.getByTestId('call-alert-banner')).toHaveCount(0);
 
-  // Join from the tutor page opens the call.
+  // The inline banner can be hidden too.
+  await page.evaluate(() => sessionStorage.clear()); // forget the bar hidden above
   await page.goto(`/connections/${rel.body.data.id}`);
-  await page.getByTestId('live-call-banner').getByTestId('call-banner-join').click();
+  await expect(page.getByTestId('live-call-banner')).toBeVisible({ timeout: 30000 });
+  await page.getByTestId('live-call-banner').getByRole('button', { name: 'Hide' }).click();
+  await expect(page.getByTestId('live-call-banner')).toHaveCount(0);
+
+  // The tutor leaves (goes to another page): nobody is in the call, so it is no longer "calling".
+  await tp.goto('/decks');
+  await expect.poll(async () => (await api<{ calls: Array<{ id: string; present_user_ids?: string[] }> }>(request, '/api/calls?live=1', { token: student.token })).body.calls.find((c) => c.id === callId)?.present_user_ids, { timeout: 15000 }).toEqual([]);
+  await page.evaluate(() => sessionStorage.clear()); // forget the hidden banners
+  await page.goto('/');
+  await page.locator('.header').waitFor();
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId('home-call-banner')).toHaveCount(0);
+
+  // The tutor comes back; Join from the tutor page opens the call.
+  await tp.goto(`/calls/${callId}`);
+  await expect(tp.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
+  await tp.getByTestId('join-call').click();
+  await tp.getByTestId('call-waiting').waitFor({ timeout: 20000 });
+  await page.goto(`/connections/${rel.body.data.id}`);
+  await page.getByTestId('live-call-banner').getByTestId('call-banner-join').click({ timeout: 30000 });
   await page.waitForURL(new RegExp(`/calls/${callId}$`));
 
   // Once it ends the banners go away.
@@ -83,6 +143,7 @@ test('the student finds a call the tutor started: Home card, top bar, tutor page
   await page.locator('.header').waitFor();
   await page.waitForTimeout(1500);
   await expect(page.getByTestId('home-call-banner')).toHaveCount(0);
+  await tp.context().close();
 });
 
 test('push endpoints: a VAPID key, subscription validation, the ring setting', async ({ request }) => {

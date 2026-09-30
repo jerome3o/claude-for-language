@@ -691,6 +691,15 @@ class CallController(
     /** Leave without ending the call (the web's page unmount): the other person stays; you can rejoin. */
     fun leave() = scope.launch { finish(CallPhase.ENDED, "You left the call. It goes on for the other person — rejoin it from the calls page.") }
 
+    /**
+     * The app is being removed (swiped away from recents): tell the room at once, before anything
+     * that could suspend, then tidy up like [leave]. Best effort — the process may die right after.
+     */
+    fun leaveNow() {
+        room?.close()
+        leave()
+    }
+
     // ---------------------------------------------------------------- controls
 
     /** Mute / unmute. Without a mic (not allowed yet / failed) it tries to add one (the screen asks for the permission first). */

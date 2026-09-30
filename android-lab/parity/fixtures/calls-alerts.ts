@@ -43,6 +43,8 @@ function randomCall(i: number): LiveCallLike {
     status: pick(['live', 'live', 'live', 'ended']),
     created_at: r() < 0.05 ? 'garbage' : r() < 0.3 ? iso(age) : sql(age),
     other_user_name: pick(['王老师', 'Minghui', null, '  ', ' Jerome ']),
+    // Presence from the room: unknown (older server), nobody, the partner, me, both.
+    ...(r() < 0.3 ? {} : { present_user_ids: pick([[], ['tutor'], ['me'], ['me', 'tutor'], ['student'], ['tutor', 'student']]) }),
   };
 }
 

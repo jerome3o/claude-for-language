@@ -11,7 +11,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { callIdFromPath, callToRing, pickCallBanner } from '@shared/calls';
+import { callIdFromPath, callToRing, pickCallBanner, someoneElseInCall } from '@shared/calls';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLiveCalls } from '../../hooks/useLiveCalls';
 import { isImmersiveRoute } from '../nav/tabs';
@@ -72,12 +72,15 @@ export function CallAlerts() {
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, [navigate]);
 
-  // Ring once per incoming call; stop when it's answered, gone, dismissed or opened.
+  // Ring once per incoming call; stop when it's answered, gone, the caller left, dismissed or opened.
   useEffect(() => {
     if (!user) return;
     const immersive = isImmersiveRoute(path);
     const current = ringingFor.current;
-    if (current && (!calls.some((c) => c.id === current) || callIdFromPath(path) === current || dismissed.includes(current) || immersive)) {
+    // Stop when the call is over, or nobody is in it any more (the caller hung up / left).
+    const ringing = current ? calls.find((c) => c.id === current) : undefined;
+    const stillCalling = !!ringing && someoneElseInCall(ringing, user.id) !== false;
+    if (current && (!stillCalling || callIdFromPath(path) === current || dismissed.includes(current) || immersive)) {
       stopRinging();
       ringingFor.current = null;
     }

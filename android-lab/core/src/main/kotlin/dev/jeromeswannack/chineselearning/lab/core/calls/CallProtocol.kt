@@ -116,6 +116,8 @@ object CallProtocol {
     fun diag(events: List<CallConnection.DiagEvent>): String = CallConnection.diagMessage(events.take(CallConnection.MAX_DIAG_EVENTS_PER_MESSAGE))
     fun ping(t: Long): String = buildJsonObject { put("type", "ping"); put("t", t) }.toString()
     fun end(): String = buildJsonObject { put("type", "end") }.toString()
+    /** I'm leaving (the call goes on for the other person): the room stops counting me as present at once. */
+    fun leave(): String = buildJsonObject { put("type", "leave") }.toString()
 
     private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.content
     private fun JsonObject.long(k: String): Long? = (this[k] as? JsonPrimitive)?.let { it.longOrNull ?: it.content.toDoubleOrNull()?.toLong() }

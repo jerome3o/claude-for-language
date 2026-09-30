@@ -60,12 +60,23 @@ class CallService : Service() {
 
     private fun granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * The app was swiped away from recents during a call: leave the room now (best effort — the
+     * process may be killed right after; if it is, the room's heartbeat drops us within ~45 s).
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        runCatching { onAppRemoved?.invoke() }
+        super.onTaskRemoved(rootIntent)
+    }
+
     companion object {
         private const val CHANNEL = "lab_calls"
         private const val NOTIFICATION_ID = 7301
         private const val EXTRA_CALL_ID = "call_id"
         private const val EXTRA_SCREEN = "screen"
         @Volatile private var screenReady: CompletableDeferred<Unit>? = null
+        /** Set by the call screen while a call is on: leave the room (see [onTaskRemoved]). */
+        @Volatile var onAppRemoved: (() -> Unit)? = null
 
         private fun ensureChannel(ctx: Context) {
             val nm = ctx.getSystemService(NotificationManager::class.java)

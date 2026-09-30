@@ -18,6 +18,8 @@ object CallAlerts {
         val status: String,
         val createdAt: String,
         val otherUserName: String?,
+        /** Who is connected to the room right now; null from an older server (then the call's age decides). */
+        val presentUserIds: List<String>? = null,
     )
 
     enum class Kind(val wire: String) { INCOMING("incoming"), REJOIN("rejoin"), TEST("test") }
@@ -55,6 +57,15 @@ object CallAlerts {
         }
     }
 
+    /**
+     * Port of someoneElseInCall: someone other than me is connected to the call right now and I am
+     * not (on any device). Null when the server didn't say.
+     */
+    fun someoneElseInCall(call: LiveCall, myUserId: String): Boolean? {
+        val present = call.presentUserIds ?: return null
+        return myUserId !in present && present.any { it != myUserId }
+    }
+
     /** Port of callIdFromPath: the id of a live call page (`/calls/<id>`, not its review). */
     fun callIdFromPath(path: String): String? = CALL_PATH.find(path)?.groupValues?.get(1)?.let { java.net.URLDecoder.decode(it, "UTF-8") }
 
@@ -83,7 +94,7 @@ object CallAlerts {
             if (relationshipId != null && c.relationshipId != relationshipId) return@filter false
             if (c.relationshipId == null && !includeTest) return@filter false
             val t = parseCallTime(c.createdAt) ?: return@filter false
-            now - t <= CALL_BANNER_MAX_AGE_MS
+            someoneElseInCall(c, myUserId) ?: (now - t <= CALL_BANNER_MAX_AGE_MS)
         }
         fun rank(c: LiveCall) = if (c.relationshipId == null) 2 else if (c.createdBy != myUserId) 0 else 1
         val best = candidates.sortedWith(
@@ -102,6 +113,7 @@ object CallAlerts {
         var bestT = Long.MIN_VALUE
         for (c in calls) {
             if (c.status != "live" || c.relationshipId == null || c.createdBy == myUserId || c.id in rung || c.id == onPage) continue
+            if (someoneElseInCall(c, myUserId) == false) continue
             val t = parseCallTime(c.createdAt) ?: continue
             if (now - t > CALL_RING_WINDOW_MS || t - now > CALL_RING_WINDOW_MS) continue
             if (best == null || t > bestT) { best = c; bestT = t }
