@@ -98,3 +98,40 @@ export function callSocketUrl(wsPath: string, ticket: string, instance?: string)
   if (instance) url.searchParams.set('instance', instance);
   return url.toString();
 }
+
+/** A board page as the read-only views get it (worker routes/board-pages.ts). */
+export interface BoardPageItem {
+  id: string;
+  /** 1-based, strip order. */
+  number: number;
+  title: string | null;
+  text: string;
+  chars: number;
+  created_at: number;
+  updated_at: number;
+  call_id: string | null;
+  relationship_id: string | null;
+}
+
+export interface CallBoardPage {
+  page_id: string;
+  /** Its number in the strip today (null: deleted since). */
+  number: number | null;
+  title: string | null;
+  /** The page as it stood when the call ended. */
+  text: string;
+  edited: boolean;
+}
+
+export function listRelationshipBoardPages(relationshipId: string): Promise<{ pages: BoardPageItem[] }> {
+  return request(`/relationships/${relationshipId}/board-pages`);
+}
+
+/** Every page I can see (the device's offline copy). */
+export function listMyBoardPages(): Promise<{ pages: BoardPageItem[] }> {
+  return request('/me/board-pages');
+}
+
+export function listCallBoardPages(callId: string): Promise<{ pages: CallBoardPage[] }> {
+  return request(`/calls/${callId}/board-pages`);
+}

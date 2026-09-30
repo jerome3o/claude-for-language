@@ -1,0 +1,54 @@
+.lb-page { padding-bottom: 7rem; }
+.lb-container { max-width: 820px; }
+.lb-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+.lb-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  color: inherit;
+  text-decoration: none;
+  font-size: 1.25rem;
+}
+.lb-titles h1 { margin: 0; font-size: 1.35rem; }
+.lb-sub { margin: 0.1rem 0 0; color: var(--color-text-light, #6b7280); font-size: 0.9rem; }
+.lb-empty { padding: 2rem 1rem; text-align: center; color: var(--color-text-light, #6b7280); }
+/* Paper, like the board in a call (light whatever the theme). */
+.lb-paper {
+  background: #fff;
+  color: #111827;
+  color-scheme: light;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1rem 1rem 0.9rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.lb-paper-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
+.lb-paper-head h2 { margin: 0; font-size: 1.1rem; color: #111827; }
+.lb-date { font-size: 0.82rem; color: #6b7280; }
+.lb-copy { flex: 0 0 auto; min-height: 40px; }
+.lb-text {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-family: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 1.2rem;
+  line-height: 1.7;
+  user-select: text;
+}
+.lb-blank { color: #9ca3af; margin: 1rem 0; }
+.lb-note { margin: 1rem 0 0; font-size: 0.8rem; color: #9ca3af; }
+.lb-strip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+}
+@media (min-width: 640px) {
+  .lb-paper { padding: 1.4rem 1.6rem 1.1rem; }
+  .lb-text { font-size: 1.3rem; }
+}
+html.has-tab-bar .lb-strip { bottom: var(--tab-bar-total); }

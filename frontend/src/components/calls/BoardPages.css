@@ -1,0 +1,189 @@
+/* Board pages: the thumbnail strip, the follow bar and the Lesson board page. Always paper (light). */
+.bp-strip-wrap { position: relative; border-top: 1px solid #e5e7eb; background: #f3f4f6; color: #111827; color-scheme: light; }
+.bp-strip {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem 0.3rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.bp-thumb-wrap { position: relative; flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 0.15rem; }
+.bp-thumb {
+  position: relative;
+  width: 52px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.bp-thumb:hover { border-color: #9ca3af; }
+.bp-thumb:active { transform: scale(0.96); }
+.bp-thumb-wrap.is-current .bp-thumb { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2); }
+.bp-paper {
+  position: absolute;
+  inset: 3px 4px;
+  font-size: 5px;
+  line-height: 1.25;
+  color: #374151;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bp-person {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+.bp-num {
+  max-width: 64px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: #4b5563;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-thumb-wrap.is-current .bp-num { color: #1d4ed8; font-weight: 600; }
+.bp-add { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #6b7280; border-style: dashed; background: #fafafa; }
+.bp-more {
+  position: absolute;
+  left: 50%;
+  top: -0.2rem;
+  transform: translate(-50%, -50%);
+  min-width: 28px;
+  height: 20px;
+  padding: 0 0.3rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.bp-menu, .bp-dialog {
+  position: absolute;
+  left: 0.6rem;
+  bottom: calc(100% + 0.4rem);
+  z-index: 5;
+  min-width: 190px;
+  padding: 0.35rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+.bp-menu { display: flex; flex-direction: column; }
+.bp-menu-title { padding: 0.35rem 0.6rem 0.25rem; font-size: 0.8rem; color: #6b7280; }
+.bp-menu button {
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+.bp-menu button:hover:not(:disabled) { background: #f3f4f6; }
+.bp-menu button:disabled { color: #9ca3af; cursor: default; }
+.bp-menu .bp-danger { color: #b91c1c; }
+.bp-menu .bp-menu-close { color: #6b7280; }
+.bp-dialog { width: min(320px, calc(100% - 1.2rem)); padding: 0.8rem; }
+.bp-dialog p { margin: 0 0 0.7rem; font-size: 0.95rem; }
+.bp-dialog label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; color: #4b5563; }
+.bp-dialog input { min-height: 44px; padding: 0 0.6rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 1rem; color: #111827; background: #fff; }
+.bp-dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.7rem; }
+.bp-dialog-actions button {
+  min-height: 40px;
+  padding: 0 0.9rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.bp-dialog-actions .bp-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.bp-dialog-actions .bp-danger-btn { background: #dc2626; border-color: #dc2626; color: #fff; }
+
+/* The follow bar (above the strip, in a call). */
+.bp-follow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 0.88rem;
+  color: #374151;
+}
+.bp-follow-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.bp-follow-text { flex: 1 1 auto; min-width: 0; }
+.bp-follow button {
+  min-height: 34px;
+  padding: 0 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #111827;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bp-follow button.is-on { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.bp-notice {
+  position: absolute;
+  left: 50%;
+  top: 0.6rem;
+  z-index: 4;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2rem);
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.88);
+  color: #fff;
+  font-size: 0.85rem;
+  pointer-events: none;
+  animation: bp-notice-in 0.2s ease-out;
+}
+@keyframes bp-notice-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+@media (min-width: 640px) {
+  .bp-thumb { width: 64px; height: 48px; }
+  .bp-paper { font-size: 6px; }
+}
+
+/* "📝 Lesson board · N pages" on the student / tutor page. */
+.lb-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 48px;
+  margin: 0.5rem 0;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--color-surface, #fff);
+  color: inherit;
+  text-decoration: none;
+}
+.lb-link-text { flex: 1; font-weight: 600; }
+.lb-link-count { font-weight: 400; color: var(--color-text-light, #6b7280); }
+.lb-link-chevron { color: var(--color-text-light, #6b7280); font-size: 1.3rem; }

@@ -362,7 +362,8 @@ export function useCall(callId: string, myUserId: string) {
         setBoard(msg.board);
         setChat(msg.chat);
         setLiveStrokes({});
-        textRef.current?.load(msg.text, msg.text_cursors);
+        textRef.current?.resetPeers(msg.peers);
+        textRef.current?.welcome(msg);
         annotRef.current?.setPersist(msg.annot_persist === true);
         setAnnotPersist(msg.annot_persist === true);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
@@ -374,10 +375,11 @@ export function useCall(callId: string, myUserId: string) {
         setPhase('live');
         return;
       case 'peer_joined':
+        textRef.current?.setPeer(msg.peer.client_id, msg.peer.name, msg.peer.user_id);
         openLink(msg.peer);
         return;
       case 'peer_left':
-        textRef.current?.dropCursor(msg.client_id);
+        textRef.current?.dropPeer(msg.client_id);
         if (remoteIdRef.current === msg.client_id) markAway();
         return;
       case 'peer_state':
@@ -400,7 +402,28 @@ export function useCall(callId: string, myUserId: string) {
         });
         return;
       case 'text':
-        textRef.current?.applyRemote(msg.ops);
+        textRef.current?.applyRemote(msg.ops, msg.page);
+        return;
+      case 'pages':
+        textRef.current?.setPages(msg.pages);
+        return;
+      case 'page_doc':
+        textRef.current?.pageDoc(msg.page, msg.text, msg.text_cursors);
+        return;
+      case 'page_view':
+        textRef.current?.pageView(msg.client_id, msg.page);
+        return;
+      case 'page_preview':
+        textRef.current?.pagePreview(msg.page, msg.preview, msg.chars, msg.updated_at);
+        return;
+      case 'page_deleted':
+        textRef.current?.pageDeleted(msg.page, msg.fallback, msg.by);
+        return;
+      case 'page_summon':
+        textRef.current?.summoned(msg.name, msg.page);
+        return;
+      case 'error':
+        textRef.current?.notify(msg.message);
         return;
       case 'annot':
         annotRef.current?.upsert(msg.stroke, msg.from, Date.now(), msg.name);
@@ -416,7 +439,7 @@ export function useCall(callId: string, myUserId: string) {
         annotRef.current?.ping(msg.from, msg.x, msg.y, Date.now(), msg.name);
         return;
       case 'text_cursor':
-        textRef.current?.setCursor({ client_id: msg.client_id, user_id: msg.user_id, name: msg.name, sel: msg.sel, compose: msg.compose ?? null });
+        textRef.current?.setCursor({ client_id: msg.client_id, user_id: msg.user_id, name: msg.name, sel: msg.sel, compose: msg.compose ?? null, page: msg.page });
         return;
       case 'chat':
         setChat((c) => (c.some((m) => m.id === msg.message.id) ? c : [...c, msg.message]));
