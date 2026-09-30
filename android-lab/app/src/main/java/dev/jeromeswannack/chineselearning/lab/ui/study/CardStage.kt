@@ -43,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -391,13 +392,17 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                 textAlign = TextAlign.Center,
             )
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                BigPlayButton(playing = isWordPlaying(playingKey, view, ui), size = if (short) 76.dp else 132.dp) { actions.onPlayWord(true) }
+                BigPlayButton(playing = isWordPlaying(playingKey, view, ui), size = if (short) 76.dp else 132.dp, generating = ui.cardAudio.word == ClipState.GENERATING) { actions.onPlayWord(true) }
                 val voices = ui.extras.voices
                 if (voices.size > 1) {
                     Spacer(Modifier.height(8.dp))
                     Text("Voice ${ui.extras.voiceIndex + 1}/${voices.size} · tap for the next", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
                 }
                 OfflineAudioNote(view, ui)
+                if (ui.cardAudio.word != ClipState.READY) {
+                    Spacer(Modifier.height(8.dp))
+                    AudioStatusLine(ui.cardAudio.word, actions.onRetryAudio)
+                }
             }
         }
         if (!short) Spacer(Modifier.weight(1f))
@@ -413,7 +418,8 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                 Text(clue.orEmpty(), style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 4.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val clueEnabled = !generating && (clue != null || ui.aiAvailable)
+                val clueAudioBusy = clue != null && !reading && ui.cardAudio.sentence == ClipState.GENERATING
+                val clueEnabled = !generating && !clueAudioBusy && (clue != null || ui.aiAvailable)
                 TextButton(
                     enabled = clueEnabled,
                     onClick = {
@@ -430,6 +436,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                     Text(
                         when {
                             generating -> "Generating…"
+                            clueAudioBusy -> CardAudioRules.GENERATING
                             clue == null && !ui.aiAvailable -> "Use in sentence · $NEEDS_INTERNET"
                             reading && showClue -> "Hide sentence"
                             reading || clue == null -> "Use in a sentence"
@@ -466,7 +473,8 @@ private fun isWordPlaying(playingKey: String?, view: CardView, ui: StudyUi): Boo
 /** One quiet line: offline and this word's clip was never downloaded (OfflineAudioNote.tsx). */
 @Composable
 private fun OfflineAudioNote(view: CardView, ui: StudyUi) {
-    if (ui.aiAvailable || view.audioCached) return
+    // A clip still to be made says so itself (AudioStatusLine).
+    if (ui.aiAvailable || view.audioCached || ui.cardAudio.word != ClipState.READY) return
     Spacer(Modifier.height(8.dp))
     Text("Audio not downloaded for this word — using the device voice.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
 }
@@ -507,18 +515,32 @@ private fun CardBack(
             Spacer(Modifier.height(12.dp))
             val playing = isWordPlaying(playingKey, view, ui)
             val voices = ui.extras.voices
+            val making = voices.isEmpty() && ui.cardAudio.word == ClipState.GENERATING
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
-                    Modifier.clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    Modifier.testTag(PLAY_WORD_TAG).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.VolumeUp, null, Modifier.size(18.dp), tint = Lab.colors.accent)
+                    if (making) CircularProgressIndicator(Modifier.size(16.dp), color = Lab.colors.accent, strokeWidth = 2.dp)
+                    else Icon(Icons.AutoMirrored.Filled.VolumeUp, null, Modifier.size(18.dp), tint = Lab.colors.accent)
                     Spacer(Modifier.width(6.dp))
-                    Text(if (voices.size > 1) "Play (${ui.extras.voiceIndex + 1}/${voices.size})" else "Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        when {
+                            making -> CardAudioRules.GENERATING
+                            voices.size > 1 -> "Play (${ui.extras.voiceIndex + 1}/${voices.size})"
+                            else -> "Play"
+                        },
+                        color = Lab.colors.ink,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
                 }
                 if (view.card.cardType == CardTypes.HANZI_TO_MEANING) RecordAgainPill(ui.extras.take, actions)
             }
             OfflineAudioNote(view, ui)
+            if (voices.isEmpty() && ui.cardAudio.word != ClipState.READY && !making) {
+                Spacer(Modifier.height(6.dp))
+                KeepTaps { AudioStatusLine(ui.cardAudio.word, actions.onRetryAudio) }
+            }
             ui.extras.notice?.let {
                 Spacer(Modifier.height(10.dp))
                 KeepTaps { InlineNotice(it, kind = NoticeKind.Error, actionLabel = "OK", onAction = actions.onDismissNotice) }
@@ -664,15 +686,20 @@ private fun TypeChip(cardType: String) {
 }
 
 @Composable
-private fun BigPlayButton(playing: Boolean, size: Dp = 132.dp, onClick: () -> Unit) {
+private fun BigPlayButton(playing: Boolean, size: Dp = 132.dp, generating: Boolean = false, onClick: () -> Unit) {
     val pulse by animateFloatAsState(if (playing) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow), label = "pulse")
     Box(
-        Modifier.size(size).scale(pulse).clip(CircleShape).background(Lab.colors.accentSoft).clickable(onClick = onClick),
+        Modifier.size(size).scale(pulse).clip(CircleShape).background(Lab.colors.accentSoft).clickable(onClick = onClick).testTag(PLAY_WORD_TAG),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.AutoMirrored.Filled.VolumeUp, "Play", Modifier.size(size * 0.42f), tint = Lab.colors.accent)
+        // Auto-audio: the clip is being made — a ring round the speaker; it plays when it lands.
+        if (generating) CircularProgressIndicator(Modifier.fillMaxSize().padding(6.dp), color = Lab.colors.accent, strokeWidth = 3.dp)
+        Icon(Icons.AutoMirrored.Filled.VolumeUp, if (generating) CardAudioRules.GENERATING else "Play", Modifier.size(size * 0.42f), tint = Lab.colors.accent.copy(alpha = if (generating) 0.5f else 1f))
     }
 }
+
+/** The word's Play button (front speaker or back pill), for tests. */
+const val PLAY_WORD_TAG = "play-word"
 
 private fun hanziSize(hanzi: String): TextUnit = studyHanziSize(hanzi)
 

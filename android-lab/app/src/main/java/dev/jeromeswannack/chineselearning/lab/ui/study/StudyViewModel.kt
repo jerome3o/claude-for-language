@@ -168,8 +168,10 @@ class StudyViewModel(
     // ---- end Package B ----
 
     init {
-        viewModelScope.launch { app.online.collect { online -> _ui.update { it.copy(online = online) } } }
-        viewModelScope.launch { studyPrefs.forcedOffline.collect { f -> _ui.update { it.copy(forcedOffline = f) } } }
+        viewModelScope.launch { app.online.collect { online -> _ui.update { it.copy(online = online) }; onConnectivity() } }
+        viewModelScope.launch { studyPrefs.forcedOffline.collect { f -> _ui.update { it.copy(forcedOffline = f) }; onConnectivity() } }
+        viewModelScope.launch { app.noteAudio.statuses.collect { onAudioStatus() } }
+        viewModelScope.launch { app.noteAudio.updates.collect(::onAudioMade) }
         viewModelScope.launch {
             val none = withContext(Dispatchers.IO) { repo.dao.reviewsSince("0000") == 0 }
             _ui.update { it.copy(showExplainer = none && !studyPrefs.explainerSeen) }
@@ -432,6 +434,8 @@ class StudyViewModel(
         take = null
         dropLive()
         _ui.update { it.copy(phase = StudyPhase.Showing(view), counts = StudyQueue.counts(queue, reviewedNoteIds), extras = CardExtras(), practice = it.practice?.copy(counts = practiceCounts(card))) }
+        playWhenMade = null
+        onAudioStatus()
         shownAt = System.currentTimeMillis() - start.elapsedMs
         progress = null
         progressPresentation = -1
@@ -452,6 +456,8 @@ class StudyViewModel(
             val notes = unseen + pinned
             updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel)) }
             setUpMc(view)
+            // Auto-audio: a missing or 404ing clip is made now (queued while offline).
+            app.noteAudio.checkCard(view.note)
             if (!aiAvailable) return@launch
             if (view.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING) liveKeys.prefetch(viewModelScope)
             runCatching { tools.voices(view.note.id) }.getOrNull()?.let { v -> updateExtras(view) { it.copy(voices = v) } }
@@ -462,12 +468,11 @@ class StudyViewModel(
     }
 
     /**
-     * The web's StudyCard effects: a note with no clip gets one generated, and a missing fun
-     * fact / example sentence is written in the background — once per note, online only.
+     * The web's StudyCard effects: a missing fun fact / example sentence is written in the
+     * background — once per note, online only. (A missing clip is [NoteAudioFixer]'s: checkCard.)
      */
     private suspend fun backgroundFill(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity) {
         if (!backgroundFilled.add(note.id)) return
-        if (note.audioUrl.isNullOrBlank()) runCatching { tools.generateAudio(note.id) }.getOrNull()?.let(::showNote)
         if (note.funFacts.isNullOrBlank()) runCatching { tools.generateFunFact(note.id) }.getOrNull()?.let(::showNote)
         if (note.sentenceClue.isNullOrBlank()) runCatching { tools.generateSentenceClue(note.id) }.getOrNull()?.let(::showNote)
     }
@@ -488,6 +493,53 @@ class StudyViewModel(
             if (showing == null || showing.note.id != note.id) u
             else u.copy(phase = StudyPhase.Showing(showing.copy(note = note, alternatives = parseAlternatives(note.alternatives))))
         }
+        // A new sentence (or a changed word) may need its clip.
+        if (currentView()?.note?.id == note.id && app.noteAudio.missing(note).isNotEmpty()) app.noteAudio.checkCard(note)
+        onAudioStatus()
+    }
+
+    // ---------------- auto-audio (data/audio/NoteAudioFixer) ----------------
+
+    /** The presentation whose word clip should play as soon as it is made (it would have auto-played / was tapped). */
+    private var playWhenMade: Int? = null
+
+    /** The Play buttons' state for the card on screen. */
+    private fun onAudioStatus() {
+        val v = currentView()
+        val audio = if (v == null) CardAudio() else CardAudioRules.of(app.noteAudio.missing(v.note), app.noteAudio.statuses.value[v.note.id], aiAvailable)
+        val prev = _ui.value.cardAudio
+        if (audio != prev) _ui.update { it.copy(cardAudio = audio) }
+        // Couldn't be made: whatever was waiting to play gets the device voice instead.
+        if (v != null && audio.word == ClipState.FAILED && prev.word != ClipState.FAILED && playWhenMade == v.presentation) {
+            playWhenMade = null
+            play(null, v.note.hanzi)
+        }
+    }
+
+    /** New clips arrived for [note]: show them, and play the word if the card was waiting to. */
+    private fun onAudioMade(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity) {
+        val v = currentView() ?: return
+        if (v.note.id != note.id) return
+        showNote(note)
+        if (playWhenMade == v.presentation && _ui.value.cardAudio.word == ClipState.READY && !note.audioUrl.isNullOrBlank()) {
+            playWhenMade = null
+            if (_ui.value.extras.voices.isEmpty()) play(note.audioUrl, note.hanzi)
+        }
+    }
+
+    /** Back online (or forced offline switched off) with the card waiting for its clips: make them now. */
+    private fun onConnectivity() {
+        onAudioStatus()
+        val v = currentView() ?: return
+        if (aiAvailable && app.noteAudio.missing(v.note).isNotEmpty()) app.noteAudio.checkCard(v.note)
+    }
+
+    /** "Couldn't make audio — retry": no backoff wait; the word plays when it arrives. */
+    fun retryAudio() {
+        val v = currentView() ?: return
+        app.haptics.tick()
+        if (ClipState.FAILED == _ui.value.cardAudio.word) playWhenMade = v.presentation
+        viewModelScope.launch { app.noteAudio.ensure(v.note.id, manual = true) }
     }
 
     private fun showSentences(noteId: String, rows: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>) {
@@ -547,6 +599,12 @@ class StudyViewModel(
     fun playWord(advance: Boolean) {
         val v = currentView() ?: return
         val voices = _ui.value.extras.voices
+        if (voices.isEmpty() && _ui.value.cardAudio.word == ClipState.GENERATING) {
+            // Being made right now: play it the moment it arrives (auto-play, or the tap asked for it).
+            playWhenMade = v.presentation
+            if (advance) app.haptics.tick()
+            return
+        }
         if (voices.isEmpty()) return play(v.note.audioUrl, v.note.hanzi)
         val index = if (advance && voices.size > 1) (_ui.value.extras.voiceIndex + 1) % voices.size else if (advance) 0 else _ui.value.extras.voiceIndex.coerceIn(0, voices.lastIndex)
         updateExtras(v) { it.copy(voiceIndex = index) }

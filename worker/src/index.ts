@@ -1265,6 +1265,27 @@ app.post('/api/notes/:id/generate-audio', async (c) => {
   }
 });
 
+// Make sure a note's word + sentence clips exist (idempotent; the Lab app's auto-audio).
+// Body: { broken?: string[] } — clip keys the client got a 404 for; only really missing ones are remade.
+app.post('/api/notes/:id/ensure-audio', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const note = await db.getNoteById(c.env.DB, id, userId);
+  if (!note) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+  let broken: string[] = [];
+  try {
+    const body = await c.req.json<{ broken?: unknown }>();
+    if (Array.isArray(body?.broken)) broken = body.broken.filter((k): k is string => typeof k === 'string' && k.length > 0);
+  } catch {
+    // No body — nothing reported broken
+  }
+  const result = await content.ensureNoteClips(c.env, id, { broken });
+  const updated = await db.getNoteById(c.env.DB, id, userId);
+  return c.json({ note: updated, word: result.word, sentence: result.sentence });
+});
+
 // Regenerate a single note's audio with MiniMax
 app.post('/api/notes/:id/regenerate-audio', async (c) => {
   const userId = c.get('user').id;

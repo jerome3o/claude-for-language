@@ -719,6 +719,7 @@ cd worker && npx wrangler secret put GOOGLE_TTS_API_KEY
 - `GET /api/notes/:id/questions` - Get Q&A history
 - `GET /api/notes/search?q=&limit=` - Server-side search of my notes (hanzi / pinyin, tone-free too / english / card sentence) with `deck_name` + `total_notes` — the Decks tab search is local-first (`services/noteSearch.ts` `noteMatches`, cards + recent ratings loaded only for the notes on screen) and falls back to this when the device finds nothing, saying how many of the account's cards the device holds (`routes/note-search.ts`)
 - `POST /api/notes/:id/generate-audio` - Generate TTS audio for note
+- `POST /api/notes/:id/ensure-audio` - `{ broken?: string[] }` → `{ note, word, sentence }` (ok | copied | generated | failed | none). Idempotent: makes only the MISSING word / sentence clips (a reported 404 key only if R2 really lacks it; a student's copy first takes the tutor's clip). The Lab app's auto-audio (`data/audio/NoteAudioFixer.kt`: on the card, queued offline, background pass over the upcoming queue after sync); `content.ensureNoteClips`
 
 ### Sentence sets (graded example sentences per note)
 Each note can have a **set** of example sentences (separate from the single `sentence_clue`

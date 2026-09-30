@@ -77,6 +77,117 @@ export async function ensureSentenceClueAudio(env: Env, noteId: string, options:
   }
 }
 
+/** A clip's R2 key: stored urls are keys, but tolerate a `/api/audio/` prefix. */
+export function audioKeyOf(url: string): string {
+  return url.replace(/^\/?api\/audio\//, '').replace(/^\//, '');
+}
+
+/** What `ensureNoteClips` did with one clip. `none` = the note has no sentence to voice. */
+export type ClipOutcome = 'ok' | 'copied' | 'generated' | 'failed' | 'none';
+
+export interface EnsureNoteClipsResult {
+  word: ClipOutcome;
+  sentence: ClipOutcome;
+}
+
+/** At most this many client-reported broken keys are checked per call. */
+export const MAX_BROKEN_KEYS = 4;
+
+/**
+ * Is this clip missing? No url → yes. A url the client reported `broken` (it got a
+ * 404) → only if R2 really has no such object, so a flaky connection on the train
+ * never makes anything regenerate.
+ */
+async function clipMissing(env: Env, url: string | null | undefined, broken: Set<string>): Promise<boolean> {
+  if (!url) return true;
+  const key = audioKeyOf(url);
+  if (!broken.has(key)) return false;
+  try {
+    return (await env.AUDIO_BUCKET.head(key)) === null;
+  } catch {
+    return false;
+  }
+}
+
+async function clipExists(env: Env, url: string): Promise<boolean> {
+  try {
+    return (await env.AUDIO_BUCKET.head(audioKeyOf(url))) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `POST /api/notes/:id/ensure-audio`: make sure a note's word clip and its example
+ * sentence's clip exist — the Lab app calls it when a card shows up silent and, ahead of
+ * time, for the upcoming study queue. Idempotent: a clip that is there is left alone (no
+ * provider upgrade, no regeneration), so repeating the call costs a lookup.
+ * A student's copy of a tutor deck first takes the tutor's clip when the source note has
+ * one (same hanzi / same sentence — copies share R2 keys, as in
+ * `propagateNoteAudioToSharedCopies`) and only generates its own when there is none.
+ */
+export async function ensureNoteClips(
+  env: Env,
+  noteId: string,
+  options: { broken?: string[] } = {},
+  tts: typeof generateTTS = generateTTS,
+): Promise<EnsureNoteClipsResult> {
+  const note = await db.getNoteByIdUnscoped(env.DB, noteId);
+  if (!note) return { word: 'failed', sentence: 'failed' };
+  const broken = new Set((options.broken ?? []).slice(0, MAX_BROKEN_KEYS).map(audioKeyOf));
+  const clue = note.sentence_clue?.trim() || null;
+  const wordMissing = await clipMissing(env, note.audio_url, broken);
+  const clueMissing = !!clue && (await clipMissing(env, note.sentence_clue_audio_url, broken));
+  const result: EnsureNoteClipsResult = { word: 'ok', sentence: clue ? 'ok' : 'none' };
+  if (!wordMissing && !clueMissing) return result;
+
+  const sources = await db.findSharedSourceClips(env.DB, note.deck_id, note.hanzi.trim());
+
+  if (wordMissing) {
+    result.word = 'failed';
+    const theirs = sources.find((s) => s.audio_url && s.audio_url !== note.audio_url);
+    if (theirs?.audio_url && (await clipExists(env, theirs.audio_url))) {
+      await setNoteAudio(env, noteId, theirs.audio_url, theirs.audio_provider === 'gtts' ? 'gtts' : 'minimax');
+      result.word = 'copied';
+    } else if (ttsConfigured(env)) {
+      try {
+        const made = await tts(env, note.hanzi, noteId);
+        if (made) {
+          await setNoteAudio(env, noteId, made.audioKey, made.provider);
+          result.word = 'generated';
+        }
+      } catch (error) {
+        console.error('[ensure-audio] word clip failed for note', noteId, error);
+      }
+    }
+  }
+
+  if (clue && clueMissing) {
+    result.sentence = 'failed';
+    const theirs = sources.find(
+      (s) => s.sentence_clue_audio_url && s.sentence_clue?.trim() === clue && s.sentence_clue_audio_url !== note.sentence_clue_audio_url,
+    );
+    if (theirs?.sentence_clue_audio_url && (await clipExists(env, theirs.sentence_clue_audio_url))) {
+      await db.updateNote(env.DB, noteId, {
+        sentenceClueAudioUrl: theirs.sentence_clue_audio_url,
+        sentenceClueAudioProvider: theirs.sentence_clue_audio_provider === 'gtts' ? 'gtts' : 'minimax',
+      });
+      result.sentence = 'copied';
+    } else if (ttsConfigured(env)) {
+      try {
+        const made = await tts(env, clue, `${noteId}-sentence`);
+        if (made) {
+          await db.updateNote(env.DB, noteId, { sentenceClueAudioUrl: made.audioKey, sentenceClueAudioProvider: made.provider });
+          result.sentence = 'generated';
+        }
+      } catch (error) {
+        console.error('[ensure-audio] sentence clip failed for note', noteId, error);
+      }
+    }
+  }
+  return result;
+}
+
 /** Word clip + sentence clip for one note, in that order. What every create path runs. */
 export async function generateNoteAudioNow(env: Env, noteId: string, options: { force?: boolean } = {}): Promise<void> {
   await ensureNoteAudio(env, noteId, options);

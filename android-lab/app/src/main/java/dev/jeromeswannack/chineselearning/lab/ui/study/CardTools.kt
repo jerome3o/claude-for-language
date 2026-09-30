@@ -78,9 +78,6 @@ class CardTools(private val app: LabApp) {
 
     suspend fun generateSentenceClue(noteId: String, options: SentenceClueOptions? = null) = mirror(api.generateSentenceClue(noteId, options))
 
-    /** Word clip missing: generate it (auto, on the card, like the web's StudyCard effect). */
-    suspend fun generateAudio(noteId: String) = mirror(api.generateNoteAudio(noteId))
-
     /** 🔊 Regenerate audio: the default MiniMax voice at the default speed. */
     suspend fun regenerateAudio(noteId: String) = mirror(
         api.generateNoteAudio(noteId, GenerateAudioOptions(speed = CardExtrasLogic.defaultTtsSpeed, provider = "minimax", voiceId = CardExtrasLogic.defaultVoice)),

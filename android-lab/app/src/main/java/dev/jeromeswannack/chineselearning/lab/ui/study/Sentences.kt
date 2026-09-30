@@ -90,7 +90,7 @@ fun sentenceRows(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity, s
     val rows = ArrayList<SentenceRow>()
     val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
     if (clue != null && sentences.none { it.hanzi == clue }) {
-        rows += SentenceRow("clue:${note.id}", null, clue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl, "From the card")
+        rows += SentenceRow(clueRowKey(note.id), null, clue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl, "From the card")
     }
     sentences.sortedBy { it.position }.forEach { s ->
         rows += SentenceRow(s.id, s.id, s.hanzi, s.pinyin, s.translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote)
@@ -123,7 +123,14 @@ class SentenceActions(
  */
 @Composable
 fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier) =
-    SentenceList(view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier)
+    SentenceList(
+        view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier,
+        // Auto-audio: the card's own sentence clip is being made.
+        audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(clueRowKey(view.note.id)) else emptySet(),
+    )
+
+/** The key of the row that is the card's own sentence (row 1). */
+fun clueRowKey(noteId: String) = "clue:" + noteId
 
 /**
  * The same list for any note (the card editor's "Sentence Set" section): [presentation]
@@ -146,6 +153,8 @@ fun SentenceList(
     startExplained: Map<String, SentenceExplanation> = emptyMap(),
     startShowAll: Boolean = false,
     modifier: Modifier = Modifier,
+    /** Rows whose clip is being made (a spinner instead of the play button). */
+    audioBusy: Set<String> = emptySet(),
 ) = Column(modifier.fillMaxWidth()) {
     val rows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
     val state = rememberSentenceRowsState(presentation, startExplained, startShowAll)
@@ -215,7 +224,7 @@ fun SentenceList(
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (row in rows) SentenceRowView(row, state, online, playingKey, s, onPlay, onAdd = { adding = it })
+            for (row in rows) SentenceRowView(row, state, online, playingKey, s, onPlay, onAdd = { adding = it }, audioBusy = row.key in audioBusy)
         }
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -247,6 +256,7 @@ fun rememberSentenceRowsState(key: Any?, startExplained: Map<String, SentenceExp
     remember(key) { SentenceRowsState(startExplained, startShowAll) }
 
 /** Test tags on a sentence row (the tap-to-reveal body and the tools). */
+const val SENTENCE_AUDIO_BUSY_TAG = "sentence-audio-busy"
 const val SENTENCE_ROW_TAG = "sentence-row"
 const val SENTENCE_EXPLAIN_TAG = "sentence-explain"
 const val SENTENCE_ADD_TAG = "sentence-add"
@@ -273,6 +283,7 @@ fun SentenceRowView(
     onAdd: (Chunk) -> Unit,
     startStep: Int = 0,
     englishToggle: Boolean = true,
+    audioBusy: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(row.key) { if (state.explanations[row.key] == null) s.cachedExplanation(row)?.let { state.explanations[row.key] = it } }
@@ -334,9 +345,12 @@ fun SentenceRowView(
                 }
             }
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).clickable { onPlay(row.audioUrl, row.hanzi) },
+                Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).clickable(enabled = !audioBusy) { onPlay(row.audioUrl, row.hanzi) },
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.accent) }
+            ) {
+                if (audioBusy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp).testTag(SENTENCE_AUDIO_BUSY_TAG), color = Lab.colors.accent, strokeWidth = 2.dp)
+                else Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.accent)
+            }
         }
         if (open) {
             val ex = state.explanations[row.key]

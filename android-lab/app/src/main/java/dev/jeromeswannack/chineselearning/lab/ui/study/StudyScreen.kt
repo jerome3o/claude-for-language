@@ -90,6 +90,8 @@ class StudyActions(
     val onPlay: (key: String?, text: String) -> Unit = { _, _ -> },
     /** The word itself: its recordings in turn ([advance] = next voice), else its own clip. */
     val onPlayWord: (advance: Boolean) -> Unit = {},
+    /** "Couldn't make audio — retry" (auto-audio). */
+    val onRetryAudio: () -> Unit = {},
     val onStudyMore: () -> Unit = {},
     val onToggleOffline: () -> Unit = {},
     val onDismissExplainer: () -> Unit = {},
@@ -191,6 +193,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onRate = vm::rate,
             onPlay = vm::play,
             onPlayWord = vm::playWord,
+            onRetryAudio = vm::retryAudio,
             onStudyMore = vm::studyMore,
             onToggleOffline = vm::toggleForcedOffline,
             onDismissExplainer = vm::dismissExplainer,
