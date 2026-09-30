@@ -498,7 +498,7 @@ export function CallPage() {
         {canShareScreen() && (
           <button type="button" className={`call-btn${call.screenStream ? ' active' : ''}`} onClick={() => void (call.screenStream ? call.stopScreenShare() : call.startScreenShare())} aria-label={call.screenStream ? 'Stop sharing' : 'Share screen'} title="Share screen">🖥️</button>
         )}
-        <div className="call-more">
+        <div className="call-more call-layout-wrap">
           <button type="button" className={`call-btn${layoutOpen ? ' active' : ''}`} onClick={() => setLayoutOpen((v) => !v)} aria-label="Layout" aria-expanded={layoutOpen} title="Layout" data-testid="open-layout">▦</button>
           {layoutOpen && (
             <div className="call-more-menu call-layout-menu" role="menu" data-testid="layout-menu">

@@ -99,6 +99,24 @@ test call), and the **Join the call** button that appears in the relationship's 
   with all chunks uploaded is queued once; when the call has ended and nothing is in flight,
   the report is queued once. Pieces that will never close (crashed tab) are force-closed by
   **Process now** on the review page.
+- **Tiles & layout** — the call is six tiles: their camera, my camera, a shared screen, the text
+  board, the drawing board and the chat. `shared/calls/layout.ts` (pure, unit-tested; the Lab's
+  `CallLayout.kt` is parity-tested) holds the model: `focus` (one tile on the stage, the rest in a
+  side rail ≥ 1024 px or a bottom strip), `split` (two tiles, draggable divider, side by side or
+  stacked) and `grid`; **their camera is never hidden** — off the stage it floats (or sits in the
+  rail if floating is switched off); my camera floats in a corner (drag → snaps to the nearest
+  corner; resize handle). Presets (▦ menu, keys 1–5): Speaker, Board + camera, Screen + camera,
+  Side by side, Grid; B / D / C / V / S focus a tile; double-click a tile or its ⤢ focuses it. When
+  the other person starts sharing, the layout switches to Screen + camera. `layoutRects` turns the
+  layout into pixel rectangles and `CallTiles.tsx` moves ONE element per tile (a transform), so a
+  video never restarts and the board keeps its caret when the layout changes. Phones (< 640 px):
+  focus only — the tile fills the screen, both cameras float small, a sideways swipe moves between
+  tiles (touch events; horizontal overscroll "back" is disabled on the call page), 📝 / 💬 jump to
+  the board / chat. The layout is remembered per user on the device (`call-layout-v1:<user>`).
+- **Screen share has its own channel** — the offerer creates audio, camera and screen transceivers;
+  the second video m-line is the screen, so the viewer sees the screen AND the sharer's camera. An
+  older app that offers one video m-line gets the old behaviour (the screen replaces the camera;
+  `screenChannel` false on the web).
 - **Video layout** — `shared/calls/videoFit.ts` (pure, unit-tested; the Lab app's `VideoFit.kt`
   is parity-tested against it): a feed is cropped to fill its box (`cover`) only when the two
   aspect ratios are within 15 %; otherwise it is shown whole (`contain`) — on the web over a

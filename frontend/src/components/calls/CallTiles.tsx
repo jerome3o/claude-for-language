@@ -187,7 +187,7 @@ export function CallTiles({
     if (!s || !narrow) return;
     const dx = s.lx - s.x;
     const dy = s.ly - s.y;
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - s.at < 700) replace(swipeFocus(layout, available, dx < 0 ? 1 : -1));
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - s.at < 1200) replace(swipeFocus(layout, available, dx < 0 ? 1 : -1));
   };
 
   const order: TileId[] = ['remote', 'screen', 'text', 'draw', 'chat', 'self'];
