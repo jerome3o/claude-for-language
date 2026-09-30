@@ -600,11 +600,11 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     dispatch(CallLayout.Action.Focus(if (chatVisible) CallLayout.TileId.REMOTE else CallLayout.TileId.CHAT))
                     actions.onTick()
                 }
-                // The share button lives in ⋯ on the folded phone (no room); unfolded it's in the bar, like the web.
-                if (wide && s.screenShareSupported) RoundButton("🖥️", if (s.sharingScreen) "Stop sharing" else "Share screen", active = s.sharingScreen, size = btn) {
+                if (s.screenShareSupported) RoundButton("🖥️", if (s.sharingScreen) "Stop sharing" else "Share screen", active = s.sharingScreen, size = btn) {
                     if (s.sharingScreen) actions.onStopShare() else actions.onShareScreen()
                 }
-                RoundButton("▦", "Layout", active = layoutSheet, size = btn) { layoutSheet = true }
+                // Phones are focus-only (a swipe moves between tiles): the layout menu is for the unfolded screen, like the web.
+                if (wide) RoundButton("▦", "Layout", active = layoutSheet, size = btn) { layoutSheet = true }
                 RoundButton("⋯", "More", size = btn) { more = true }
                 RoundButton("📞", "End call", danger = true, size = btn) { confirmEnd = true }
             }
