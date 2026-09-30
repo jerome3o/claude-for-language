@@ -34,3 +34,41 @@ Pixel Fold unfolded (840 px).
 
 ![Phone: empty Lesson board](11-phone-lesson-board-empty.png)
 Nothing written yet.
+
+## Lab app (Roborazzi)
+
+![Lab: strip + follow bar](lab-80-board-pages.png)
+The page strip under the board, their dot on their page, the follow bar.
+
+![Lab unfolded](lab-81-board-pages-unfolded.png)
+The same, unfolded.
+
+![Lab following](lab-82-board-pages-following.png)
+Following the tutor (her caret shows on the shared page).
+
+![Lab summoned](lab-83-board-pages-summoned.png)
+"… brought you to page 2".
+
+![Lab page menu](lab-84-board-page-menu.png)
+Rename / Duplicate / Delete.
+
+![Lab delete confirm](lab-85-board-page-delete.png)
+Delete confirmation.
+
+![Lab only page](lab-86-board-page-menu-only-page.png)
+Delete disabled on the only page.
+
+![Lab lesson board](lab-87-lesson-board.png)
+The Lesson board (phone).
+
+![Lab lesson board unfolded](lab-88-lesson-board-unfolded.png)
+Unfolded.
+
+![Lab lesson board offline](lab-89-lesson-board-offline.png)
+Offline, from the cache.
+
+![Lab lesson board empty](lab-90-lesson-board-empty.png)
+Empty state.
+
+![Lab review](lab-91-review-board-pages.png)
+The call review's board, page by page.
