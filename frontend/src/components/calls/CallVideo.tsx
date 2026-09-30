@@ -57,9 +57,11 @@ export interface CallVideoProps {
   testId?: string;
   /** The video's intrinsic size, whenever it changes (e.g. to shape the self-view). */
   onVideoSize?: (size: VideoSize) => void;
+  /** The speaker to play through (setSinkId; ignored where unsupported). */
+  sinkId?: string | null;
 }
 
-export function CallVideo({ stream, muted, mirrored, screen, fit, backdrop = true, className, style, testId, onVideoSize }: CallVideoProps) {
+export function CallVideo({ stream, muted, mirrored, screen, fit, backdrop = true, className, style, testId, onVideoSize, sinkId }: CallVideoProps) {
   const [box, boxRef] = useElementSize<HTMLDivElement>();
   const videoRef = useRef<HTMLVideoElement>(null);
   const backRef = useRef<HTMLVideoElement>(null);
@@ -67,7 +69,14 @@ export function CallVideo({ stream, muted, mirrored, screen, fit, backdrop = tru
   const sizeCb = useRef(onVideoSize);
   sizeCb.current = onVideoSize;
 
+  // The element and its srcObject stay put through a dropout: the last frame stays on screen.
   useEffect(() => attach(videoRef.current, stream), [stream]);
+
+  useEffect(() => {
+    const el = videoRef.current as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+    if (!el || muted || !el.setSinkId || sinkId === undefined) return;
+    void el.setSinkId(sinkId ?? '').catch(() => {});
+  }, [sinkId, muted]);
 
   useEffect(() => {
     const el = videoRef.current;

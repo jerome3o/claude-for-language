@@ -6,11 +6,31 @@
  * recovery with implicit rollback proved unreliable (the rolled-back side's
  * ICE candidates could go missing). The offerer creates one audio and one
  * video transceiver; the answerer attaches its tracks to the transceivers
- * the offer created. Later renegotiations (rare — camera, flipped camera and
- * screen share are all `replaceTrack`) still use the perfect-negotiation
- * rules, so a collision then is handled too. Signals are applied one at a
- * time, in arrival order.
+ * the offer created. Later renegotiations (ICE restarts — camera, flipped
+ * camera, screen share and turning a device on mid-call are all
+ * `replaceTrack`) still use the perfect-negotiation rules, so a collision then
+ * is handled too. Signals are applied one at a time, in arrival order.
+ *
+ * Staying up (shared/calls/connection.ts): the link watches its own health —
+ * `disconnected` gets a grace period, then an ICE restart; `failed` restarts at
+ * once; later restarts back off — but only while the signalling socket is open
+ * (`signallingOpen()`), re-checked when it comes back (`signallingChanged()`).
+ * The remote stream is never replaced, so the video element keeps its last
+ * frame through a drop. Every ~4 s it reads the stats: the route in use (host /
+ * srflx / relay, udp / tcp / tls) and the outgoing bitrate estimate, which sets
+ * the camera's resolution (`videoEncodingFor`).
  */
+
+import {
+  initialLinkHealth,
+  linkHealthOn,
+  nextIceRestartAt,
+  videoEncodingFor,
+  type CallDiagKind,
+  type LinkHealth,
+  type PcState,
+  type VideoSource,
+} from '@shared/calls';
 
 export type SignalData =
   | { description: RTCSessionDescriptionInit }
@@ -22,10 +42,18 @@ export interface PeerLinkOptions {
   polite: boolean;
   audioTrack: MediaStreamTrack | null;
   videoTrack: MediaStreamTrack | null;
-  sendSignal: (data: SignalData) => void;
+  videoSource?: VideoSource;
+  /** Returns false when the signalling socket is down (the signal is lost). */
+  sendSignal: (data: SignalData) => boolean | void;
   onRemoteStream: (stream: MediaStream) => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
+  onHealth?: (health: LinkHealth) => void;
+  /** Is the room socket open right now (ICE restarts wait for it). */
+  signallingOpen?: () => boolean;
+  onDiag?: (kind: CallDiagKind, detail: string) => void;
 }
+
+const STATS_EVERY_MS = 4000;
 
 export class PeerLink {
   readonly pc: RTCPeerConnection;
@@ -35,19 +63,29 @@ export class PeerLink {
   private video: RTCRtpTransceiver | null = null;
   private audioTrack: MediaStreamTrack | null;
   private videoTrack: MediaStreamTrack | null;
+  private videoSource: VideoSource;
   private readonly remote = new MediaStream();
   private signalChain: Promise<void> = Promise.resolve();
+  private healthValue: LinkHealth = initialLinkHealth(Date.now());
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private statsTimer: ReturnType<typeof setInterval> | null = null;
+  private scale = 1;
+  private route = '';
+  private closed = false;
 
   constructor(private readonly opts: PeerLinkOptions) {
     this.audioTrack = opts.audioTrack;
     this.videoTrack = opts.videoTrack;
-    this.pc = new RTCPeerConnection({ iceServers: opts.iceServers });
+    this.videoSource = opts.videoSource ?? 'camera';
+    this.pc = new RTCPeerConnection({ iceServers: opts.iceServers, bundlePolicy: 'max-bundle' });
 
     this.pc.ontrack = (event) => {
       if (!this.remote.getTracks().includes(event.track)) this.remote.addTrack(event.track);
       opts.onRemoteStream(this.remote);
     };
-    this.pc.onicecandidate = ({ candidate }) => opts.sendSignal({ candidate: candidate ? candidate.toJSON() : null });
+    this.pc.onicecandidate = ({ candidate }) => {
+      opts.sendSignal({ candidate: candidate ? candidate.toJSON() : null });
+    };
     this.pc.onnegotiationneeded = async () => {
       try {
         this.makingOffer = true;
@@ -60,15 +98,62 @@ export class PeerLink {
       }
     };
     this.pc.onconnectionstatechange = () => {
-      opts.onConnectionState(this.pc.connectionState);
-      if (this.pc.connectionState === 'failed') this.pc.restartIce();
+      const state = this.pc.connectionState;
+      opts.onConnectionState(state);
+      opts.onDiag?.('pc', state);
+      this.setHealth(linkHealthOn(this.healthValue, { type: 'pc', state: state as PcState, at: Date.now() }));
+      if (state === 'connected') void this.readStats(true);
     };
+    this.pc.oniceconnectionstatechange = () => opts.onDiag?.('ice', this.pc.iceConnectionState);
 
     if (!opts.polite) {
       // The offerer: adding the transceivers fires negotiationneeded → offer.
       this.audio = this.pc.addTransceiver(this.audioTrack ?? 'audio', { direction: 'sendrecv' });
       this.video = this.pc.addTransceiver(this.videoTrack ?? 'video', { direction: 'sendrecv' });
+      void this.applyEncodings();
     }
+    this.statsTimer = setInterval(() => void this.readStats(false), STATS_EVERY_MS);
+  }
+
+  get health(): LinkHealth {
+    return this.healthValue;
+  }
+
+  get remoteStream(): MediaStream {
+    return this.remote;
+  }
+
+  private setHealth(h: LinkHealth) {
+    this.healthValue = h;
+    this.opts.onHealth?.(h);
+    this.scheduleRestart();
+  }
+
+  /** The room socket opened or closed: a restart that waited for it can go now. */
+  signallingChanged(): void {
+    this.scheduleRestart();
+  }
+
+  private scheduleRestart(): void {
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = null;
+    if (this.closed) return;
+    const at = nextIceRestartAt(this.healthValue, this.opts.signallingOpen ? this.opts.signallingOpen() : true);
+    if (at === null) return;
+    this.restartTimer = setTimeout(() => this.restartIce(), Math.max(0, at - Date.now()));
+  }
+
+  /** Ask for new ICE candidates (a new route) without dropping the connection. */
+  restartIce(): void {
+    if (this.closed) return;
+    this.restartTimer = null;
+    this.opts.onDiag?.('restart', `ICE restart #${this.healthValue.restarts + 1} (${this.pc.connectionState})`);
+    try {
+      this.pc.restartIce();
+    } catch (err) {
+      console.error('[calls] restartIce failed:', err);
+    }
+    this.setHealth(linkHealthOn(this.healthValue, { type: 'restarted', at: Date.now() }));
   }
 
   /** Answerer: adopt the transceivers the offer created and send our tracks on them. */
@@ -84,6 +169,7 @@ export class PeerLink {
       t.direction = 'sendrecv';
       await t.sender.replaceTrack(track);
     }
+    await this.applyEncodings();
   }
 
   handleSignal(data: SignalData): Promise<void> {
@@ -92,6 +178,7 @@ export class PeerLink {
   }
 
   private async applySignal(data: SignalData): Promise<void> {
+    if (this.closed) return;
     try {
       if ('description' in data && data.description) {
         const description = data.description;
@@ -121,16 +208,102 @@ export class PeerLink {
     await this.audio?.sender.replaceTrack(track);
   }
 
-  async setVideoTrack(track: MediaStreamTrack | null): Promise<void> {
+  async setVideoTrack(track: MediaStreamTrack | null, source: VideoSource = 'camera'): Promise<void> {
     this.videoTrack = track;
+    this.videoSource = source;
+    this.scale = 1;
     await this.video?.sender.replaceTrack(track);
+    await this.applyEncodings();
+  }
+
+  /** Camera: keep the frame rate, drop resolution under congestion. Screen: keep it sharp. Audio first. */
+  private async applyEncodings(availableBps: number | null = null): Promise<void> {
+    const video = this.video?.sender;
+    if (video && typeof video.getParameters === 'function') {
+      const want = videoEncodingFor(this.videoSource, availableBps, this.scale);
+      try {
+        const params = video.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
+        if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+        const enc = params.encodings[0];
+        const same =
+          enc.maxBitrate === want.maxBitrate &&
+          enc.maxFramerate === want.maxFramerate &&
+          (enc.scaleResolutionDownBy ?? 1) === want.scaleResolutionDownBy &&
+          params.degradationPreference === want.degradationPreference;
+        if (!same) {
+          enc.maxBitrate = want.maxBitrate;
+          enc.maxFramerate = want.maxFramerate;
+          enc.scaleResolutionDownBy = want.scaleResolutionDownBy;
+          params.degradationPreference = want.degradationPreference;
+          await video.setParameters(params);
+          if (want.scaleResolutionDownBy !== this.scale && availableBps !== null) {
+            this.opts.onDiag?.('media', `camera ${want.scaleResolutionDownBy === 1 ? 'full' : `1/${want.scaleResolutionDownBy}`} resolution (~${Math.round(availableBps / 1000)} kbps up)`);
+          }
+          this.scale = want.scaleResolutionDownBy;
+        }
+      } catch {
+        /* some browsers refuse parameters before negotiation — tried again on the next stats tick */
+      }
+    }
+    const audio = this.audio?.sender;
+    if (audio && typeof audio.getParameters === 'function') {
+      try {
+        const params = audio.getParameters();
+        if (params.encodings?.length && params.encodings[0].networkPriority !== 'high') {
+          params.encodings[0].priority = 'high';
+          params.encodings[0].networkPriority = 'high';
+          await audio.setParameters(params);
+        }
+      } catch {
+        /* not supported */
+      }
+    }
+  }
+
+  /** The route in use (logged when it changes) and the upload estimate (sets the camera's resolution). */
+  private async readStats(force: boolean): Promise<void> {
+    if (this.closed || this.pc.connectionState !== 'connected') return;
+    try {
+      const report = await this.pc.getStats();
+      let pair: RTCIceCandidatePairStats | null = null;
+      report.forEach((s) => {
+        if (s.type === 'transport' && (s as RTCTransportStats).selectedCandidatePairId) {
+          pair = report.get((s as RTCTransportStats).selectedCandidatePairId!) as RTCIceCandidatePairStats;
+        }
+      });
+      if (!pair) {
+        report.forEach((s) => {
+          const p = s as RTCIceCandidatePairStats & { selected?: boolean };
+          if (s.type === 'candidate-pair' && (p.nominated || p.selected) && p.state === 'succeeded' && !pair) pair = p;
+        });
+      }
+      const selected = pair as (RTCIceCandidatePairStats & { availableOutgoingBitrate?: number }) | null;
+      if (selected) {
+        const local = report.get(selected.localCandidateId) as { candidateType?: string; protocol?: string; relayProtocol?: string } | undefined;
+        const remote = report.get(selected.remoteCandidateId) as { candidateType?: string } | undefined;
+        const route = `${local?.candidateType ?? '?'}${local?.candidateType === 'relay' ? ` (TURN over ${local?.relayProtocol ?? '?'})` : ''}/${local?.protocol ?? '?'} → ${remote?.candidateType ?? '?'}`;
+        const rtt = selected.currentRoundTripTime;
+        if (route !== this.route || force) {
+          this.route = route;
+          this.opts.onDiag?.('route', `${route}${typeof rtt === 'number' ? `, rtt ${Math.round(rtt * 1000)} ms` : ''}`);
+        }
+        const bps = typeof selected.availableOutgoingBitrate === 'number' ? selected.availableOutgoingBitrate : null;
+        await this.applyEncodings(bps);
+      }
+    } catch {
+      /* stats are best-effort */
+    }
   }
 
   close(): void {
+    this.closed = true;
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    if (this.statsTimer) clearInterval(this.statsTimer);
     this.pc.ontrack = null;
     this.pc.onicecandidate = null;
     this.pc.onnegotiationneeded = null;
     this.pc.onconnectionstatechange = null;
+    this.pc.oniceconnectionstatechange = null;
     this.pc.close();
   }
 }

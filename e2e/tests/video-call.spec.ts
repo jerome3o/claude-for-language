@@ -100,7 +100,9 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   const cdp = await sp.context().newCDPSession(sp);
   await cdp.send('Input.imeSetComposition', { selectionStart: 2, selectionEnd: 2, text: 'ni' });
   await cdp.send('Input.imeSetComposition', { selectionStart: 3, selectionEnd: 3, text: 'nih' });
-  await tp.waitForTimeout(800);
+  // …but the tutor already sees what's being composed, next to the student's caret.
+  await expect(tp.getByTestId('remote-compose')).toContainText('nih', { timeout: 5000 });
+  await tp.waitForTimeout(500);
   await expect(tBoard).toHaveValue('一杯咖啡');
   await cdp.send('Input.insertText', { text: '你好' });
   await expect(tBoard).toHaveValue('一杯咖啡你好', { timeout: 10000 });

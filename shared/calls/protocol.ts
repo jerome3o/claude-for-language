@@ -8,6 +8,7 @@
 import type { BoardItem, BoardOp, BoardPoint } from './board';
 import type { TextDocSnapshot, TextOp, TextSelection } from './textDoc';
 import type { AnnotStroke } from './annotate';
+import type { CallDiagEvent } from './connection';
 
 export interface CallPeer {
   client_id: string;
@@ -15,6 +16,13 @@ export interface CallPeer {
   name: string;
   picture_url: string | null;
   state: PeerMediaState;
+  /**
+   * One per page load / app session (the socket URL's `instance`). A peer whose
+   * socket dropped and came back with the SAME instance is the same WebRTC
+   * connection — keep it (and its picture) instead of starting over. Absent
+   * from older clients.
+   */
+  instance?: string;
 }
 
 export interface PeerMediaState {
@@ -38,6 +46,11 @@ export interface TextCursor {
   user_id: string;
   name: string;
   sel: TextSelection | null;
+  /**
+   * What they are composing in a pinyin IME right now (not yet in the text) —
+   * shown next to their caret so their typing is visible before they commit.
+   */
+  compose?: string | null;
 }
 
 export interface LiveStroke {
@@ -54,7 +67,9 @@ export type ClientMessage =
   | { type: 'board_live'; stroke: LiveStroke | null }
   /** Edits to the shared text (site = "<my user id>:<random>", the same for the whole page load). */
   | { type: 'text'; ops: TextOp[] }
-  | { type: 'text_cursor'; sel: TextSelection | null }
+  | { type: 'text_cursor'; sel: TextSelection | null; compose?: string | null }
+  /** Connection events for the call's diagnostics log (shared/calls/connection.ts). */
+  | { type: 'diag'; events: CallDiagEvent[] }
   /** Drawing on the other person's shared screen (relayed, never stored). */
   | { type: 'annot'; stroke: AnnotStroke }
   | { type: 'annot_clear' }

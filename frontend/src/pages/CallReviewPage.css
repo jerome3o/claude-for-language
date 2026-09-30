@@ -159,3 +159,12 @@
   padding: 0.9rem 1rem;
 }
 .cr-muted { color: #6b7280; font-size: 0.9rem; margin: 0 0 0.5rem; }
+
+/* Connection log (the call's diagnostics) */
+.cr-inline-h2 { display: inline; }
+.cr-section summary { cursor: pointer; min-height: 44px; }
+.cr-diag { margin-top: 0.5rem; max-height: 420px; overflow-y: auto; font-size: 0.8rem; }
+.cr-diag-row { display: grid; grid-template-columns: 3.2rem 4.5rem 3.8rem 1fr; gap: 0.4rem; padding: 0.2rem 0; border-bottom: 1px solid #f3f4f6; }
+.cr-diag-kind { color: #6b7280; font-family: ui-monospace, monospace; }
+.cr-diag-detail { overflow-wrap: anywhere; }
+.cr-diag-row.kind-restart .cr-diag-detail, .cr-diag-row.kind-peer .cr-diag-detail { color: #b45309; }

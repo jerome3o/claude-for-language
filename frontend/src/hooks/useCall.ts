@@ -2,10 +2,36 @@
  * Everything the call page needs: camera / mic, the room socket, the WebRTC
  * link to the other participant, the whiteboard and chat state, and the
  * recorder + upload queue for the transcript. The page is only layout.
+ *
+ * Joining never depends on the devices: without a camera you join with audio,
+ * without a microphone you join to listen and watch, and either can be turned
+ * on later (services/calls/mediaAccess.ts says what blocked them).
+ *
+ * Staying connected (shared/calls/connection.ts): the room socket and the media
+ * link are independent. A socket that drops and returns from the same page load
+ * keeps the RTCPeerConnection (`instance` + `shouldAdoptPeer`); the other
+ * person's socket going away keeps their picture frozen for PEER_AWAY_GRACE_MS;
+ * the link restarts ICE by itself (peer.ts). Every transition goes to the call's
+ * connection log (`diag` messages → calls.diagnostics_json → the review page).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { applyBoardOp, type BoardItem, type BoardOp, type CallChatMessage, type CallPeer, type LiveStroke, type PeerMediaState, type ServerMessage } from '@shared/calls';
+import {
+  applyBoardOp,
+  newInstanceId,
+  PEER_AWAY_GRACE_MS,
+  shouldAdoptPeer,
+  type BoardItem,
+  type BoardOp,
+  type CallChatMessage,
+  type CallDiagEvent,
+  type CallDiagKind,
+  type CallPeer,
+  type LinkHealth,
+  type LiveStroke,
+  type PeerMediaState,
+  type ServerMessage,
+} from '@shared/calls';
 import { CallRoomSocket, type RoomStatus } from '../services/calls/room';
 import { PeerLink, type SignalData } from '../services/calls/peer';
 import { CallRecorder } from '../services/calls/recorder';
@@ -14,6 +40,15 @@ import { endCall as endCallApi } from '../api/calls';
 import { TextBoardSession } from '../services/calls/textBoard';
 import { AnnotationStore } from '../services/calls/annotations';
 import type { AnnotStroke } from '@shared/calls';
+import {
+  acquireMedia,
+  loadDevicePrefs,
+  saveDevicePrefs,
+  type DevicePrefs,
+  audioConstraints,
+  videoConstraints,
+  type MediaProblem,
+} from '../services/calls/mediaAccess';
 
 export type CallPhase = 'prejoin' | 'joining' | 'live' | 'ended' | 'error';
 
@@ -21,13 +56,19 @@ export interface RemoteParticipant {
   peer: CallPeer;
   stream: MediaStream | null;
   connection: RTCPeerConnectionState | 'new';
+  /** Their socket left the room; the link (and the frozen picture) is kept for a while. */
+  away: boolean;
+  health: LinkHealth | null;
 }
 
-const AUDIO_CONSTRAINTS: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-
-function videoConstraints(facing: 'user' | 'environment'): MediaTrackConstraints {
-  return { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } };
+/** What stopped the microphone / camera (null = fine or not asked yet). */
+export interface MediaProblems {
+  audio: MediaProblem | null;
+  video: MediaProblem | null;
 }
+
+/** After this long with no answer to the permission request, explain where the prompt is. */
+const PROMPT_WAIT_MS = 6000;
 
 export function canShareScreen(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function';
@@ -37,7 +78,10 @@ export function useCall(callId: string, myUserId: string) {
   const [phase, setPhase] = useState<CallPhase>('prejoin');
   const [error, setError] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaProblems, setMediaProblems] = useState<MediaProblems>({ audio: null, video: null });
+  const [mediaAsked, setMediaAsked] = useState(false);
+  const [mediaPending, setMediaPending] = useState(false);
+  const [devicePrefs, setDevicePrefs] = useState<DevicePrefs>(() => loadDevicePrefs());
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
@@ -64,6 +108,18 @@ export function useCall(callId: string, myUserId: string) {
   const wantRecordRef = useRef(true);
   const finishedRef = useRef(false);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
+  // This page load (the room keeps our link through a socket reconnect when it matches).
+  const instanceRef = useRef<string>(newInstanceId());
+  const remotePeerRef = useRef<CallPeer | null>(null);
+  const awayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const diagQueueRef = useRef<CallDiagEvent[]>([]);
+  const prefsRef = useRef<DevicePrefs>(devicePrefs);
+  prefsRef.current = devicePrefs;
+  const facingRef = useRef<'user' | 'environment'>('user');
+  const phaseRef = useRef<CallPhase>('prejoin');
+  phaseRef.current = phase;
+  const mediaPendingRef = useRef(false);
+  const turnRef = useRef<boolean | null>(null);
   // The shared text board: this page's replica, alive for the whole page (reconnects replay into it).
   const textRef = useRef<TextBoardSession | null>(null);
   if (!textRef.current) textRef.current = new TextBoardSession(myUserId, (m) => roomRef.current?.send(m) ?? false);
@@ -73,29 +129,91 @@ export function useCall(callId: string, myUserId: string) {
 
   // ---------------------------------------------------------------- media
 
-  const startPreview = useCallback(async () => {
-    if (localRef.current) return localRef.current;
-    let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS, video: videoConstraints('user') });
-    } catch (err) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
-        setCamOn(false);
-        setMediaError('No camera — joining with audio only.');
-      } catch {
-        setMediaError(
-          err instanceof DOMException && err.name === 'NotAllowedError'
-            ? 'Camera and microphone are blocked. Allow them in the browser’s site settings, then reload.'
-            : 'Could not open the microphone.',
-        );
-        return null;
+  // ---------------------------------------------------------------- diagnostics
+
+  const flushDiag = useCallback(() => {
+    const room = roomRef.current;
+    while (diagQueueRef.current.length && room?.isOpen) {
+      const batch = diagQueueRef.current.slice(0, 50);
+      if (!room.send({ type: 'diag', events: batch })) break;
+      diagQueueRef.current = diagQueueRef.current.slice(batch.length);
+    }
+  }, []);
+
+  const diag = useCallback((kind: CallDiagKind, detail: string) => {
+    diagQueueRef.current.push({ t: Date.now(), kind, detail });
+    if (diagQueueRef.current.length > 300) diagQueueRef.current = diagQueueRef.current.slice(-300);
+    if (import.meta.env.DEV) console.debug(`[calls] ${kind}: ${detail}`);
+    flushDiag();
+  }, [flushDiag]);
+
+  // ---------------------------------------------------------------- media
+
+  /** Put a track into the local stream (replacing one of its kind) and onto the link. */
+  const installTrack = useCallback(async (track: MediaStreamTrack) => {
+    const current = localRef.current;
+    const old = track.kind === 'audio' ? current?.getAudioTracks()[0] : current?.getVideoTracks()[0];
+    if (old && old !== track) old.stop();
+    const tracks = [...(current?.getTracks() ?? []).filter((t) => t.kind !== track.kind), track];
+    const next = new MediaStream(tracks);
+    localRef.current = next;
+    setLocalStream(next);
+    if (track.kind === 'audio') await linkRef.current?.setAudioTrack(track);
+    else if (!screenRef.current) await linkRef.current?.setVideoTrack(track, 'camera');
+  }, []);
+
+  /**
+   * Ask for the camera and / or microphone. Called on page load for the preview
+   * and again from a tap (Try again / turning a device on), which is also what
+   * brings back a prompt the browser suppressed.
+   */
+  const requestMedia = useCallback(async (want: { audio: boolean; video: boolean } = { audio: true, video: true }) => {
+    setMediaAsked(true);
+    setMediaPending(true);
+    const waiting = setTimeout(() => {
+      setMediaProblems((p) => ({ audio: want.audio && !p.audio ? 'waiting' : p.audio, video: want.video && !p.video ? 'waiting' : p.video }));
+    }, PROMPT_WAIT_MS);
+    const prefs = prefsRef.current;
+    const result = await acquireMedia(want, { audioId: prefs.audioId, videoId: prefs.videoId, facing: facingRef.current });
+    clearTimeout(waiting);
+    setMediaPending(false);
+    if (finishedRef.current && phaseRef.current !== 'prejoin') {
+      result.stream?.getTracks().forEach((t) => t.stop());
+      return localRef.current;
+    }
+    for (const track of result.stream?.getTracks() ?? []) {
+      await installTrack(track);
+      if (track.kind === 'audio') {
+        track.enabled = true;
+        setMicOn(true);
+        if (phaseRef.current === 'live') {
+          broadcastStateRef.current({ mic: true });
+          if (wantRecordRef.current && !recorderRef.current?.recording) void startRecordingRef.current();
+        }
+      } else {
+        track.enabled = true;
+        setCamOn(true);
+        if (phaseRef.current === 'live' && !screenRef.current) broadcastStateRef.current({ cam: true });
       }
     }
-    localRef.current = stream;
-    setLocalStream(stream);
-    return stream;
-  }, []);
+    setMediaProblems((p) => ({
+      audio: want.audio ? result.audioProblem : p.audio,
+      video: want.video ? result.videoProblem : p.video,
+    }));
+    if (result.audioProblem) diag('media', `microphone: ${result.audioProblem}`);
+    if (result.videoProblem) diag('media', `camera: ${result.videoProblem}`);
+    return localRef.current;
+  }, [installTrack, diag]);
+
+  const startPreview = useCallback(async () => {
+    if (localRef.current || mediaPendingRef.current) return localRef.current;
+    mediaPendingRef.current = true;
+    try {
+      return await requestMedia({ audio: true, video: true });
+    } finally {
+      mediaPendingRef.current = false;
+    }
+  }, [requestMedia]);
 
   const audioTrack = () => localRef.current?.getAudioTracks()[0] ?? null;
   const cameraTrack = () => localRef.current?.getVideoTracks()[0] ?? null;
@@ -104,30 +222,75 @@ export function useCall(callId: string, myUserId: string) {
     stateRef.current = { ...stateRef.current, ...patch };
     roomRef.current?.send({ type: 'state', state: stateRef.current });
   }, []);
+  const broadcastStateRef = useRef(broadcastState);
+  broadcastStateRef.current = broadcastState;
 
   // ---------------------------------------------------------------- peer link
 
+  const clearAwayTimer = () => {
+    if (awayTimerRef.current) clearTimeout(awayTimerRef.current);
+    awayTimerRef.current = null;
+  };
+
   const closeLink = useCallback(() => {
+    clearAwayTimer();
     linkRef.current?.close();
     linkRef.current = null;
     remoteIdRef.current = null;
+    remotePeerRef.current = null;
   }, []);
 
   const openLink = useCallback((peer: CallPeer) => {
+    // The same page load coming back (their socket or mine reconnected): keep the link and the picture.
+    if (linkRef.current && shouldAdoptPeer(remotePeerRef.current, peer)) {
+      clearAwayTimer();
+      const wasAway = remoteIdRef.current !== peer.client_id;
+      remoteIdRef.current = peer.client_id;
+      remotePeerRef.current = peer;
+      setRemote((r) => (r ? { ...r, peer, away: false } : r));
+      if (wasAway) diag('peer', `${peer.name} back (same session, link kept, ${linkRef.current.pc.connectionState})`);
+      linkRef.current.signallingChanged();
+      return;
+    }
     closeLink();
     remoteIdRef.current = peer.client_id;
-    setRemote({ peer, stream: null, connection: 'new' });
-    const room = roomRef.current;
-    linkRef.current = new PeerLink({
+    remotePeerRef.current = peer;
+    diag('peer', `${peer.name} joined — new link`);
+    setRemote({ peer, stream: null, connection: 'new', away: false, health: null });
+    // Updates from this link only (a newer link may have replaced it).
+    let link: PeerLink | null = null;
+    const mine = (r: RemoteParticipant | null): r is RemoteParticipant => !!r && !!link && linkRef.current === link;
+    link = new PeerLink({
       iceServers: iceRef.current,
       polite: (selfIdRef.current ?? '') < peer.client_id,
       audioTrack: audioTrack(),
       videoTrack: screenRef.current?.getVideoTracks()[0] ?? cameraTrack(),
-      sendSignal: (data: SignalData) => room?.send({ type: 'signal', to: peer.client_id, data }),
-      onRemoteStream: (stream) => setRemote((r) => (r && r.peer.client_id === peer.client_id ? { ...r, stream } : r)),
-      onConnectionState: (connection) => setRemote((r) => (r && r.peer.client_id === peer.client_id ? { ...r, connection } : r)),
+      videoSource: screenRef.current ? 'screen' : 'camera',
+      // Signals go to wherever the other person's socket is now (it may have reconnected).
+      sendSignal: (data: SignalData) => (remoteIdRef.current ? roomRef.current?.send({ type: 'signal', to: remoteIdRef.current, data }) ?? false : false),
+      signallingOpen: () => !!roomRef.current?.isOpen && !!remoteIdRef.current,
+      onRemoteStream: (stream) => setRemote((r) => (mine(r) ? { ...r, stream } : r)),
+      onConnectionState: (connection) => setRemote((r) => (mine(r) ? { ...r, connection } : r)),
+      onHealth: (health) => setRemote((r) => (mine(r) ? { ...r, health } : r)),
+      onDiag: diag,
     });
-  }, [closeLink]);
+    linkRef.current = link;
+  }, [closeLink, diag]);
+
+  /** Their socket left: keep the link and the frozen picture for a while — they are probably reconnecting. */
+  const markAway = useCallback(() => {
+    if (!linkRef.current) return;
+    remoteIdRef.current = null;
+    setRemote((r) => (r ? { ...r, away: true } : r));
+    diag('peer', `${remotePeerRef.current?.name ?? 'They'} left the room — keeping the link ${PEER_AWAY_GRACE_MS / 1000}s`);
+    clearAwayTimer();
+    awayTimerRef.current = setTimeout(() => {
+      awayTimerRef.current = null;
+      diag('peer', 'gave up waiting — link closed');
+      closeLink();
+      setRemote(null);
+    }, PEER_AWAY_GRACE_MS);
+  }, [closeLink, diag]);
 
   // ---------------------------------------------------------------- recording
 
@@ -142,6 +305,9 @@ export function useCall(callId: string, myUserId: string) {
     setRecording(true);
     broadcastState({ recording: true });
   }, [callId, broadcastState]);
+
+  const startRecordingRef = useRef(startRecording);
+  startRecordingRef.current = startRecording;
 
   const stopRecording = useCallback(async () => {
     await recorderRef.current?.stop();
@@ -191,11 +357,10 @@ export function useCall(callId: string, myUserId: string) {
         setLiveStrokes({});
         textRef.current?.load(msg.text, msg.text_cursors);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
+        flushDiag();
         if (msg.peers.length > 0) openLink(msg.peers[0]);
-        else {
-          closeLink();
-          setRemote(null);
-        }
+        else if (linkRef.current) markAway();
+        else setRemote(null);
         if (wantRecordRef.current && !recorderRef.current?.recording) void startRecording();
         setPhase('live');
         return;
@@ -204,10 +369,7 @@ export function useCall(callId: string, myUserId: string) {
         return;
       case 'peer_left':
         textRef.current?.dropCursor(msg.client_id);
-        if (remoteIdRef.current === msg.client_id) {
-          closeLink();
-          setRemote(null);
-        }
+        if (remoteIdRef.current === msg.client_id) markAway();
         return;
       case 'peer_state':
         setRemote((r) => (r && r.peer.client_id === msg.client_id ? { ...r, peer: { ...r.peer, state: msg.state } } : r));
@@ -241,7 +403,7 @@ export function useCall(callId: string, myUserId: string) {
         annotRef.current?.ping(msg.from, msg.x, msg.y, Date.now(), msg.name);
         return;
       case 'text_cursor':
-        textRef.current?.setCursor({ client_id: msg.client_id, user_id: msg.user_id, name: msg.name, sel: msg.sel });
+        textRef.current?.setCursor({ client_id: msg.client_id, user_id: msg.user_id, name: msg.name, sel: msg.sel, compose: msg.compose ?? null });
         return;
       case 'chat':
         setChat((c) => (c.some((m) => m.id === msg.message.id) ? c : [...c, msg.message]));
@@ -255,7 +417,7 @@ export function useCall(callId: string, myUserId: string) {
       default:
         return;
     }
-  }, [openLink, closeLink, startRecording, finish]);
+  }, [openLink, markAway, flushDiag, startRecording, finish]);
 
   // ---------------------------------------------------------------- join / leave
 
@@ -263,12 +425,9 @@ export function useCall(callId: string, myUserId: string) {
     wantRecordRef.current = opts.record;
     finishedRef.current = false;
     setPhase('joining');
-    const stream = localRef.current ?? (await startPreview());
-    if (!stream) {
-      setPhase('prejoin');
-      return;
-    }
-    stateRef.current = { mic: micOn, cam: camOn && !!cameraTrack(), screen: false, recording: false };
+    // No camera / no microphone is fine: join with what there is, turn the rest on later.
+    stateRef.current = { mic: micOn && !!audioTrack(), cam: camOn && !!cameraTrack(), screen: false, recording: false };
+    diag('join', `joining with ${[audioTrack() ? 'mic' : 'no mic', cameraTrack() ? 'camera' : 'no camera'].join(', ')}; ${navigator.userAgent.slice(0, 120)}`);
     try {
       const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
       wakeLockRef.current = (await nav.wakeLock?.request('screen')) ?? null;
@@ -277,16 +436,25 @@ export function useCall(callId: string, myUserId: string) {
     }
     const room = new CallRoomSocket(callId, {
       onMessage,
-      onStatus: setRoomStatus,
+      onStatus: (status) => {
+        setRoomStatus(status);
+        diag('room', status);
+        if (status === 'open') flushDiag();
+        linkRef.current?.signallingChanged();
+      },
       onJoinInfo: (info) => {
         iceRef.current = info.ice_servers;
+        if (info.turn !== turnRef.current) {
+          diag('join', info.turn ? `TURN relay offered (${info.ice_servers.flatMap((x) => (Array.isArray(x.urls) ? x.urls : [x.urls])).filter((u) => u.startsWith('turn')).length} URLs incl. TLS 443)` : 'no TURN relay configured — STUN only');
+        }
+        turnRef.current = info.turn;
         setTurn(info.turn);
       },
       onFatal: (message) => void finish('error', message),
-    });
+    }, instanceRef.current);
     roomRef.current = room;
     await room.connect();
-  }, [callId, micOn, camOn, onMessage, startPreview, finish]);
+  }, [callId, micOn, camOn, onMessage, finish, diag, flushDiag]);
 
   const endForEveryone = useCallback(async () => {
     const sent = roomRef.current?.send({ type: 'end' });
@@ -298,20 +466,27 @@ export function useCall(callId: string, myUserId: string) {
 
   const toggleMic = useCallback(() => {
     const track = audioTrack();
+    if (!track) {
+      void requestMedia({ audio: true, video: false }); // turn the microphone on (asks for it)
+      return;
+    }
     const next = !micOn;
     if (track) track.enabled = next;
     setMicOn(next);
     broadcastState({ mic: next });
-  }, [micOn, broadcastState]);
+  }, [micOn, broadcastState, requestMedia]);
 
   const toggleCam = useCallback(() => {
     const track = cameraTrack();
-    if (!track) return;
+    if (!track) {
+      void requestMedia({ audio: false, video: true });
+      return;
+    }
     const next = !camOn;
     track.enabled = next;
     setCamOn(next);
     broadcastState({ cam: next });
-  }, [camOn, broadcastState]);
+  }, [camOn, broadcastState, requestMedia]);
 
   const flipCamera = useCallback(async () => {
     const stream = localRef.current;
@@ -323,21 +498,44 @@ export function useCall(callId: string, myUserId: string) {
       const fresh = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(nextFacing) });
       const track = fresh.getVideoTracks()[0];
       track.enabled = camOn;
-      stream.removeTrack(old);
-      stream.addTrack(track);
-      setLocalStream(new MediaStream(stream.getTracks()));
-      if (!screenRef.current) await linkRef.current?.setVideoTrack(track);
+      facingRef.current = nextFacing;
+      await installTrack(track);
       setFacing(nextFacing);
     } catch (err) {
       console.error('[calls] flip camera failed:', err);
     }
-  }, [facing, camOn]);
+  }, [facing, camOn, installTrack]);
+
+  /** Switch microphone / camera / speaker (remembered on this device). */
+  const chooseDevice = useCallback(async (kind: 'audio' | 'video' | 'speaker', deviceId: string | null) => {
+    const next = { ...prefsRef.current, [kind === 'audio' ? 'audioId' : kind === 'video' ? 'videoId' : 'speakerId']: deviceId };
+    prefsRef.current = next;
+    setDevicePrefs(next);
+    saveDevicePrefs(next);
+    if (kind === 'speaker') return;
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia(
+        kind === 'audio' ? { audio: audioConstraints(deviceId) } : { video: videoConstraints(facingRef.current, deviceId) },
+      );
+      const track = (kind === 'audio' ? fresh.getAudioTracks() : fresh.getVideoTracks())[0];
+      if (!track) return;
+      track.enabled = kind === 'audio' ? micOn : camOn;
+      const wasRecording = kind === 'audio' && !!recorderRef.current?.recording;
+      if (wasRecording) await recorderRef.current?.stop();
+      await installTrack(track);
+      if (wasRecording) await recorderRef.current?.start(track);
+      setMediaProblems((p) => (kind === 'audio' ? { ...p, audio: null } : { ...p, video: null }));
+      diag('media', `switched ${kind === 'audio' ? 'microphone' : 'camera'}`);
+    } catch (err) {
+      console.error('[calls] device switch failed:', err);
+    }
+  }, [micOn, camOn, installTrack, diag]);
 
   const stopScreenShare = useCallback(async () => {
     screenRef.current?.getTracks().forEach((t) => t.stop());
     screenRef.current = null;
     setScreenStream(null);
-    await linkRef.current?.setVideoTrack(cameraTrack());
+    await linkRef.current?.setVideoTrack(cameraTrack(), 'camera');
     broadcastState({ screen: false });
   }, [broadcastState]);
 
@@ -350,7 +548,7 @@ export function useCall(callId: string, myUserId: string) {
       track.onended = () => void stopScreenShare();
       screenRef.current = stream;
       setScreenStream(stream);
-      await linkRef.current?.setVideoTrack(track);
+      await linkRef.current?.setVideoTrack(track, 'screen');
       broadcastState({ screen: true });
     } catch {
       /* the picker was cancelled */
@@ -404,10 +602,37 @@ export function useCall(callId: string, myUserId: string) {
     };
   }, [callId]);
 
+  // Before joining: when the person allows the camera / mic in the site settings, pick it up without a reload.
+  useEffect(() => {
+    const perms = typeof navigator !== 'undefined' ? navigator.permissions : undefined;
+    if (!perms?.query) return;
+    const statuses: PermissionStatus[] = [];
+    let alive = true;
+    for (const [name, kind] of [['camera', 'video'], ['microphone', 'audio']] as const) {
+      perms
+        .query({ name: name as PermissionName })
+        .then((status) => {
+          if (!alive) return;
+          statuses.push(status);
+          status.onchange = () => {
+            if (status.state !== 'granted' || phaseRef.current !== 'prejoin') return;
+            const has = kind === 'audio' ? !!localRef.current?.getAudioTracks().length : !!localRef.current?.getVideoTracks().length;
+            if (!has) void requestMedia({ audio: kind === 'audio', video: kind === 'video' });
+          };
+        })
+        .catch(() => {}); // Firefox has no 'camera' permission name
+    }
+    return () => {
+      alive = false;
+      statuses.forEach((st) => (st.onchange = null));
+    };
+  }, [requestMedia]);
+
   // Leaving the page: stop everything (the recording's last piece is closed
   // by the recorder, or by closeOrphanPieces on the next sync if the tab dies first).
   useEffect(() => () => {
     finishedRef.current = true;
+    clearAwayTimer();
     void recorderRef.current?.stop();
     linkRef.current?.close();
     roomRef.current?.close();
@@ -417,7 +642,8 @@ export function useCall(callId: string, myUserId: string) {
   }, []);
 
   return {
-    phase, error, mediaError, localStream, screenStream, remote, roomStatus, turn,
+    phase, error, mediaProblems, mediaAsked, mediaPending, localStream, screenStream, remote, roomStatus, turn,
+    devicePrefs, chooseDevice, requestMedia,
     micOn, camOn, facing, recording, pendingUploads, startedAt,
     board, liveStrokes: Object.values(liveStrokes), chat,
     startPreview, join, endForEveryone, toggleMic, toggleCam, flipCamera,
@@ -427,6 +653,7 @@ export function useCall(callId: string, myUserId: string) {
     annotations: annotRef.current,
     sendAnnotation, sendPing, clearAnnotations,
     hasCamera: !!localStream?.getVideoTracks().length,
+    hasMic: !!localStream?.getAudioTracks().length,
     myUserId,
   };
 }

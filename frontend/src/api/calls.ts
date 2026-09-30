@@ -90,10 +90,11 @@ export function closePiece(callId: string, pieceId: string, body: { chunk_count:
  * API is proxied through Vite, whose proxy doesn't pass WebSocket upgrades
  * here, so the socket goes straight to `wrangler dev` on :8787.
  */
-export function callSocketUrl(wsPath: string, ticket: string): string {
+export function callSocketUrl(wsPath: string, ticket: string, instance?: string): string {
   const base = API_BASE || (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:8787` : window.location.origin);
   const url = new URL(wsPath, base);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('ticket', ticket);
+  if (instance) url.searchParams.set('instance', instance);
   return url.toString();
 }

@@ -1,6 +1,6 @@
 /** Video calls (experimental) — shapes returned by worker/src/routes/calls.ts. */
 
-import type { BoardItem, CallChatMessage, TranscriptSegment } from '@shared/calls';
+import type { BoardItem, CallChatMessage, CallDiagEntry, TranscriptSegment } from '@shared/calls';
 
 export type CallStatus = 'live' | 'ended';
 export type CallProcessingStatus = 'none' | 'waiting_uploads' | 'transcribing' | 'summarizing' | 'done' | 'failed';
@@ -79,6 +79,8 @@ export interface CallDetail {
   board: BoardItem[];
   /** What was typed on the shared text board. */
   board_text?: string;
+  /** The connection log both sides reported (shared/calls/connection.ts). */
+  diagnostics?: CallDiagEntry[];
   chat: CallChatMessage[];
   report: CallReport | null;
   pieces: CallPieceInfo[];

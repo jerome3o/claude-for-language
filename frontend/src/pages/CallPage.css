@@ -250,6 +250,10 @@
   color: #111827;
   border-radius: 16px;
   overflow: hidden;
+  /* The board, drawing and chat are always light "paper" with dark ink, for both people, whatever the
+     theme (the Lab app does the same): no browser dark mode may repaint the paper but not the ink. */
+  color-scheme: light;
+  forced-color-adjust: none;
 }
 .call-live.panel-text .call-stage, .call-live.panel-board .call-stage,
 .call-live.panel-chat .call-stage {
@@ -343,7 +347,7 @@
 .call-chat-name { display: block; font-size: 0.7rem; color: #6b7280; }
 .call-chat-text { font-size: 1.05rem; white-space: pre-wrap; word-break: break-word; }
 .call-chat-form { display: flex; gap: 0.5rem; padding: 0.5rem; border-top: 1px solid #e5e7eb; background: #fff; }
-.call-chat-form input { flex: 1; min-height: 44px; font-size: 16px; padding: 0 0.75rem; border: 1px solid #d1d5db; border-radius: 999px; }
+.call-chat-form input { flex: 1; min-height: 44px; font-size: 16px; padding: 0 0.75rem; border: 1px solid #d1d5db; border-radius: 999px; background: #fff; color: #111827; }
 
 /* ---------- whiteboard */
 .wb { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -448,7 +452,7 @@
 }
 
 /* ---------- the shared text board (components/calls/TextBoard.tsx) */
-.tb { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; }
+.tb { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; color: #111827; color-scheme: light; }
 .tb-paper { position: relative; flex: 1; min-height: 0; }
 /* The mirror and the textarea must lay text out identically. */
 .tb-mirror, .tb-input {
@@ -520,7 +524,7 @@
   background: #f9fafb;
   font-size: 0.95rem;
 }
-.tb-helper-hanzi { font-size: 1.1rem; font-weight: 600; }
+.tb-helper-hanzi { font-size: 1.1rem; font-weight: 600; color: #111827; }
 .tb-helper-pinyin { color: #2563eb; }
 .tb-helper-gloss { color: #374151; font-size: 0.9rem; }
 .tb-helper-error { color: #b91c1c; font-size: 0.85rem; }
@@ -530,9 +534,13 @@
   border: 1px solid #d1d5db;
   border-radius: 999px;
   background: #fff;
+  color: #111827;
   font-size: 0.9rem;
   cursor: pointer;
 }
+/* Their pinyin composition in progress, in their name flag (never in the text, so nothing moves). */
+.tb-flag-compose { font-weight: 500; opacity: 0.95; }
+.tb-flag-compose u { text-decoration-style: dotted; text-underline-offset: 2px; }
 .tb-people { display: flex; align-items: center; gap: 0.75rem; padding: 0.3rem 0.75rem; font-size: 0.8rem; color: #6b7280; border-top: 1px solid #f3f4f6; }
 /* Tab-complete: grey ghost text after the caret (a layer above the textarea), the touch chip, the ⋯ setting. */
 .tb-ghost-layer { z-index: 1; }
@@ -653,4 +661,102 @@
   color: #111827;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* ---------- connection status in the other person's tile (the picture stays, frozen, underneath) */
+.call-tile-status {
+  position: absolute;
+  z-index: 4;
+  top: 0.6rem;
+  right: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.78);
+  color: #f9fafb;
+  font-size: 0.8rem;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.call-tile-status.reconnecting { background: rgba(120, 53, 15, 0.85); color: #fef3c7; }
+.call-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: call-spin 0.8s linear infinite;
+}
+@keyframes call-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .call-spinner { animation-duration: 2.4s; } }
+
+/* ---------- camera / microphone problems (components/calls/MediaProblemCard.tsx) */
+.call-media-problem {
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  background: #1f2937;
+  border: 1px solid #4b5563;
+  color: #f3f4f6;
+  font-size: 0.9rem;
+  text-align: left;
+}
+.call-media-problem-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.35rem; }
+.call-media-problem-steps { margin: 0 0 0.4rem; padding-left: 1.2rem; line-height: 1.45; }
+.call-media-problem-steps li + li { margin-top: 0.2rem; }
+.call-media-problem-note { margin: 0 0 0.5rem; color: #d1d5db; font-size: 0.85rem; }
+.call-media-retry { min-height: 44px; }
+.call-media-problem.compact { margin: 0; border: 0; background: transparent; padding: 0; }
+.call-media-toast {
+  position: relative;
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0.5rem 0.5rem 0;
+  padding: 0.6rem 0.4rem 0.6rem 0.8rem;
+  border-radius: 12px;
+  background: #1f2937;
+  border: 1px solid #4b5563;
+}
+.call-media-toast .call-media-problem { flex: 1; }
+.call-media-toast .call-panel-close { color: #d1d5db; }
+
+/* ---------- a bottom sheet (phones) / centred card (wide) — Devices */
+.call-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+.call-sheet {
+  width: 100%;
+  max-width: 480px;
+  padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  background: #fff;
+  color: #111827;
+  color-scheme: light;
+}
+.call-sheet-head { display: flex; align-items: center; justify-content: space-between; }
+.call-sheet-head h2 { font-size: 1.1rem; margin: 0; }
+.call-devices-row { display: flex; flex-direction: column; gap: 0.3rem; margin: 0.6rem 0; font-size: 0.9rem; font-weight: 600; }
+.call-devices-row select {
+  min-height: 44px;
+  padding: 0 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  color: #111827;
+  font-size: 16px;
+}
+.call-sheet .call-muted { color: #6b7280; font-size: 0.85rem; }
+@media (min-width: 640px) {
+  .call-sheet-backdrop { align-items: center; }
+  .call-sheet { border-radius: 16px; }
 }
