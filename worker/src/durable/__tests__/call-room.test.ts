@@ -30,6 +30,10 @@ import { EMPTY_CALL_END_MS, PRESENCE_TIMEOUT_MS, UNJOINED_CALL_END_MS } from '@s
 
 const OPEN = 1;
 const CLOSED = 3;
+// Node 20 (CI) has no global WebSocket; the room only reads WebSocket.OPEN.
+if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === 'undefined') {
+  (globalThis as { WebSocket?: unknown }).WebSocket = { CONNECTING: 0, OPEN, CLOSING: 2, CLOSED };
+}
 
 class FakeSocket {
   readyState = OPEN;
