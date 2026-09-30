@@ -85,14 +85,16 @@ fun TutorPageRoute(nav: LabNav, relId: String) {
     } else {
         val openChat = { convId: String -> nav.open(Routes.chat(relId, convId)) }
         val call = dev.jeromeswannack.chineselearning.lab.ui.calls.relationshipCallBanner(nav, relId, Routes.connection(relId))
+        val boardPages = dev.jeromeswannack.chineselearning.lab.ui.calls.lessonBoardPageCount(nav.app, relId)
         TutorPageScreen(
-            if (call == null) ui else ui.copy(liveCallId = call.callId, liveCallTitle = call.title, liveCallIncoming = call.kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallAlerts.Kind.INCOMING),
+            (if (call == null) ui else ui.copy(liveCallId = call.callId, liveCallTitle = call.title, liveCallIncoming = call.kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallAlerts.Kind.INCOMING)).copy(boardPages = boardPages),
             TutorPageActions(
                 onBack = nav::back,
                 onMessage = { vm.message(openChat) },
                 onNewPracticeConversation = { vm.newPracticeConversation(it, openChat) },
                 onVideoCall = { vm.videoCall { id -> nav.open(Routes.call(id)) } },
                 onJoinCall = { nav.open(Routes.call(it)) },
+                onOpenBoard = { nav.open(Routes.lessonBoard(relId)) },
                 onOpenConversation = openChat,
                 onOpenCard = { nav.openOrHandoff(Routes.cardHub(it)) },
                 onToggleFlag = vm::toggleFlag,

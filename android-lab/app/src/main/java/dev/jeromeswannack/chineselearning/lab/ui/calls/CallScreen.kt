@@ -158,6 +158,8 @@ data class CallActions(
     /** Tab-complete: pinyin + meaning for Chinese just typed (POST /api/calls/:id/gloss); null = off. */
     val gloss: (suspend (String) -> BoardGloss?)? = null,
     val onBoardGlossOn: (Boolean) -> Unit = {},
+    /** Board pages: the strip, following, "Bring <name> here" (CallController's page actions). */
+    val pages: BoardPageActions = BoardPageActions(),
     val onAnnotate: (dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke) -> Unit = {},
     val onPing: (Double, Double) -> Unit = { _, _ -> },
     val onClearAnnotations: () -> Unit = {},
@@ -551,6 +553,14 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         explain = actions.explain, gloss = actions.gloss, glossOn = info.boardGlossOn, onGlossOn = actions.onBoardGlossOn,
                         previewSuggestion = info.boardGlossPreview,
                     )
+                    // Board pages (an older room has none): the strip, where they are, following.
+                    if (s.pages.current != null) BoardPagesStrip(
+                        s.pages,
+                        otherName = remote?.let { first },
+                        otherColor = remote?.peer?.userId?.let { presenceColorOf(it) },
+                        actions = actions.pages,
+                        onTick = actions.onTick,
+                    )
                 }
             })
             put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true) { _ ->
@@ -579,11 +589,15 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 if (someoneRecording) RecBadge()
                 if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
             }
-            CallTiles(
-                layout, dispatch, h::replace, available, tiles, aspects,
-                Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
-                onTick = actions.onTick, onSnap = actions.onSnap,
-            )
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                CallTiles(
+                    layout, dispatch, h::replace, available, tiles, aspects,
+                    Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                    onTick = actions.onTick, onSnap = actions.onSnap,
+                )
+                // "Minghui brought you to page 3" / "… deleted page 2".
+                BoardNoticePill(s.boardNotice, actions.pages.onDismissNotice, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+            }
             if (s.sharingScreen) ShareBar(s.annotations, otherName, info.screenOverlayOn, now, actions.onToggleScreenOverlay, onDraw = {
                 // "Draw on it": my screen on the stage, drawing on.
                 dispatch(CallLayout.Action.Preset(CallLayout.PresetId.SCREEN))

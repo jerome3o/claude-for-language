@@ -1,6 +1,10 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardItem
+import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPages
+import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPagesState
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallPages
+import dev.jeromeswannack.chineselearning.lab.core.calls.PageEffect
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardOp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallBoard
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
@@ -74,7 +78,12 @@ data class TextBoardUi(
     val mySelection: Pair<Int, Int> = 0 to 0,
     /** What changed last: "remote" rewrites the field (keeping my caret), "local" doesn't. */
     val lastChange: String = "load",
+    /** The board page this text is (null from an older room): a new page resets the field. */
+    val page: String? = null,
 )
+
+/** A short notice over the call ("Minghui brought you to page 3"); [id] makes the same text show again. */
+data class BoardNotice(val id: Long, val text: String)
 
 /**
  * Drawings on a shared screen (shared/calls/annotate.ts, web AnnotationStore): mine ("me") and theirs,
@@ -126,6 +135,9 @@ data class CallState(
     val liveStrokes: Map<String, LiveStroke> = emptyMap(),
     val chat: List<CallChatMessage> = emptyList(),
     val textBoard: TextBoardUi = TextBoardUi(),
+    /** Board pages: the strip, where the other person is, following (core BoardPages). */
+    val pages: BoardPagesState = BoardPagesState(),
+    val boardNotice: BoardNotice? = null,
     val annotations: Annotations = Annotations(),
     val recording: Boolean = false,
     val recordSupported: Boolean = false,
@@ -588,7 +600,7 @@ class CallController(
         room = null
         media.release()
         deps.keepAlive(false)
-        _state.update { it.copy(remote = null, localVideo = null, screenVideo = null, mediaReady = false) }
+        _state.update { it.copy(remote = null, localVideo = null, screenVideo = null, mediaReady = false, pages = it.pages.copy(following = false)) }
         runCatching { deps.drainUploads() }
     }
 
@@ -621,7 +633,11 @@ class CallController(
                 val rejoin = selfId != null
                 selfId = msg.clientId
                 _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap(), annotations = it.annotations.withPersist(msg.annotPersist, now())) }
-                text().load(msg.text, msg.textCursors)
+                // Board pages: a first join shows the opening page; a rejoin goes back to mine (its text comes as a page_doc).
+                val step = BoardPages.welcome(_state.value.pages, msg.pages, msg.page, msg.pageViews, rejoin, msg.peers.firstOrNull()?.clientId)
+                if (step.loadWelcomeText) text().load(msg.text, msg.textCursors, msg.page, resendOthers = true)
+                else { endCompose(); text().resendAll() }
+                applyPages(step)
                 publishText("load")
                 room?.send(CallProtocol.state(mediaState))
                 if (rejoin) diag("room", "rejoined the room")
@@ -631,14 +647,41 @@ class CallController(
                 if (wantRecord && !deps.recorder.recording) startRecording()
                 flushDiag()
             }
-            is ServerMessage.PeerJoined -> peerAnnounced(msg.peer)
+            is ServerMessage.PeerJoined -> {
+                _state.update { it.copy(pages = BoardPages.peerJoined(it.pages, msg.peer.clientId)) }
+                peerAnnounced(msg.peer)
+            }
             is ServerMessage.PeerLeft -> {
+                _state.update { it.copy(pages = BoardPages.peerLeft(it.pages, msg.clientId)) }
                 textBoard?.dropCursor(msg.clientId)
                 publishText("cursor")
                 if (remoteId == msg.clientId) peerAway()
             }
-            is ServerMessage.Text -> { text().applyRemote(msg.ops); publishText("remote") }
-            is ServerMessage.TextCursorMsg -> { text().setCursor(msg.cursor); publishText("cursor") }
+            // Only the page on my board (others come back whole in a page_doc when I open them).
+            is ServerMessage.Text -> if (onMyPage(msg.page)) { text().applyRemote(msg.ops); publishText("remote") }
+            is ServerMessage.TextCursorMsg -> if (onMyPage(msg.page)) { text().setCursor(msg.cursor); publishText("cursor") }
+            is ServerMessage.Pages -> _state.update { it.copy(pages = BoardPages.pagesChanged(it.pages, msg.pages)) }
+            is ServerMessage.PageDoc -> {
+                val b = text()
+                if (b.page != msg.page) endCompose() // a composition on the old page is dropped with it
+                b.load(msg.text, msg.textCursors, msg.page, resendOthers = false)
+                _state.update { it.copy(pages = BoardPages.docLoaded(it.pages, msg.page)) }
+                publishText("load")
+            }
+            is ServerMessage.PageView -> {
+                // Their caret leaves my board with them.
+                if (msg.page != textBoard?.page && textBoard != null) { textBoard?.dropCursor(msg.clientId); publishText("cursor") }
+                applyPages(BoardPages.pageView(_state.value.pages, msg.clientId, msg.page))
+            }
+            is ServerMessage.PagePreview -> _state.update { it.copy(pages = BoardPages.preview(it.pages, msg.page, msg.preview, msg.chars, msg.updatedAt)) }
+            is ServerMessage.PageDeleted -> {
+                val mine = pendingDelete == msg.page
+                if (mine) pendingDelete = null
+                applyPages(BoardPages.deleted(_state.value.pages, msg.page, msg.fallback, msg.by, mine))
+            }
+            is ServerMessage.PageSummon -> applyPages(BoardPages.summoned(_state.value.pages, msg.name, msg.page))
+            // The room refuses a page action (the last page, too many pages): say why.
+            is ServerMessage.Error -> if (now() - pageActionAt < PAGE_ERROR_WINDOW_MS) notice(msg.message)
             is ServerMessage.Annot -> upsertAnnot(msg.stroke, msg.from, msg.name)
             is ServerMessage.AnnotClear -> _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
             is ServerMessage.AnnotPingMsg -> addPing(msg.from, msg.x, msg.y, msg.name)
@@ -816,7 +859,7 @@ class CallController(
 
     private fun publishText(change: String) {
         val b = textBoard ?: return
-        _state.update { it.copy(textBoard = TextBoardUi(b.text, b.version, b.remoteCarets, b.mySelection(), change)) }
+        _state.update { it.copy(textBoard = TextBoardUi(b.text, b.version, b.remoteCarets, b.mySelection(), change, b.page)) }
     }
 
     // IME composition preview (≤ ~12 messages a second, the latest wins).
@@ -882,6 +925,66 @@ class CallController(
         textBoard?.clearSelection()
     }
 
+    // ------------------------------------------------------------ board pages
+
+    /** When I last asked the room for a page change (an `error` right after it is about that). */
+    private var pageActionAt = Long.MIN_VALUE / 2
+    /** The page I asked to delete (its `page_deleted` then needs no notice). */
+    private var pendingDelete: String? = null
+
+    /** [page] is the page on my board (or the room has no pages). */
+    private fun onMyPage(page: String?): Boolean = page == null || textBoard?.page == null || page == textBoard?.page
+
+    private fun notice(text: String) = _state.update { it.copy(boardNotice = BoardNotice(now(), text)) }
+
+    private fun applyPages(step: BoardPages.Step) {
+        _state.update { it.copy(pages = step.state) }
+        for (e in step.effects) when (e) {
+            is PageEffect.Open -> { pageActionAt = now(); room?.send(CallProtocol.pageOpen(e.page)) }
+            is PageEffect.Notice -> notice(e.text)
+        }
+    }
+
+    private fun sendPage(message: String) {
+        pageActionAt = now()
+        room?.send(message)
+    }
+
+    /** A thumbnail tapped: that page (following stops). */
+    fun openPage(page: String) = applyPages(BoardPages.turnTo(_state.value.pages, page))
+
+    /** "+": a new page at the end; the room opens it for me. */
+    fun newPage() {
+        _state.update { it.copy(pages = BoardPages.madePage(it.pages)) }
+        sendPage(CallProtocol.pageNew())
+    }
+
+    fun duplicatePage(page: String) {
+        _state.update { it.copy(pages = BoardPages.madePage(it.pages)) }
+        sendPage(CallProtocol.pageDuplicate(page))
+    }
+
+    /** Blank = back to "Page N". */
+    fun renamePage(page: String, title: String?) = sendPage(CallProtocol.pageRename(page, CallPages.sanitizePageTitle(title)))
+
+    fun deletePage(page: String) {
+        pendingDelete = page
+        sendPage(CallProtocol.pageDelete(page))
+    }
+
+    /** "Go there": the other person's page. */
+    fun goToTheirPage() = applyPages(BoardPages.goThere(_state.value.pages))
+
+    fun setFollowing(on: Boolean) = applyPages(BoardPages.setFollowing(_state.value.pages, on))
+
+    /** "Bring <name> here": the other person comes to my page. */
+    fun bringHere() {
+        val p = _state.value.pages.shown ?: return
+        sendPage(CallProtocol.pageSummon(p))
+    }
+
+    fun dismissBoardNotice() = _state.update { it.copy(boardNotice = null) }
+
     fun sendChat(text: String): Boolean {
         val t = text.trim()
         if (t.isEmpty()) return false
@@ -907,5 +1010,7 @@ class CallController(
         const val STATS_EVERY_MS = 5_000L
         /** ≤ ~12 composition previews a second. */
         const val COMPOSE_MIN_GAP_MS = 84L
+        /** A room `error` this soon after a page action is shown as a notice. */
+        const val PAGE_ERROR_WINDOW_MS = 5_000L
     }
 }

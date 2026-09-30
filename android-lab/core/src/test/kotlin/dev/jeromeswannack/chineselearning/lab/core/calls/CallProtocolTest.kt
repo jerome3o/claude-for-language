@@ -93,4 +93,53 @@ class CallProtocolTest {
         val old = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[]}""") as ServerMessage.Welcome
         assertEquals(false, old.annotPersist)
     }
+
+    // ------------------------------------------------------------ board pages (round 3)
+
+    @Test fun parsesPageMessages() {
+        val w = CallProtocol.parseServer(
+            """{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"text":{"v":1,"runs":[]},
+               "pages":[{"id":"p1","title":null,"preview":"你好","chars":2,"created_at":1,"updated_at":2,"call_id":"call1"},{"id":"p2","title":"Tones","preview":"","chars":0,"created_at":3,"updated_at":4,"call_id":null},{"title":"no id"}],
+               "page":"p2","page_views":{"c1":"p1","c2":7}}""",
+        ) as ServerMessage.Welcome
+        assertEquals(listOf(BoardPageMeta("p1", null, "你好", 2, 1, 2, "call1"), BoardPageMeta("p2", "Tones", "", 0, 3, 4, null)), w.pages)
+        assertEquals("p2", w.page)
+        assertEquals(mapOf("c1" to "p1"), w.pageViews)
+        // An older room: nothing about pages.
+        val old = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[]}""") as ServerMessage.Welcome
+        assertNull(old.page); assertTrue(old.pages.isEmpty())
+
+        val text = CallProtocol.parseServer("""{"type":"text","from":"c1","ops":[{"t":"ins","id":[1,"u:x"],"after":null,"text":"好"}],"page":"p1"}""") as ServerMessage.Text
+        assertEquals("p1", text.page)
+        assertNull((CallProtocol.parseServer("""{"type":"text","from":"c1","ops":[]}""") as ServerMessage.Text).page)
+        assertEquals("p2", (CallProtocol.parseServer("""{"type":"text_cursor","client_id":"c1","user_id":"u","name":"A","sel":null,"page":"p2"}""") as ServerMessage.TextCursorMsg).page)
+
+        assertEquals(ServerMessage.Pages(listOf(BoardPageMeta("p1"))), CallProtocol.parseServer("""{"type":"pages","pages":[{"id":"p1"}]}"""))
+        assertNull(CallProtocol.parseServer("""{"type":"pages"}"""))
+        val doc = CallProtocol.parseServer("""{"type":"page_doc","page":"p1","text":{"v":1,"runs":[[1,"u:x","你好",0]]},"text_cursors":[{"client_id":"c1","user_id":"u","name":"A","sel":null}]}""")
+        assertIs<ServerMessage.PageDoc>(doc)
+        assertEquals("你好", CallTextDoc("me", doc.text).text())
+        assertEquals("c1", doc.textCursors.single().clientId)
+        assertNull(CallProtocol.parseServer("""{"type":"page_doc","text":{"v":1,"runs":[]}}"""))
+        assertEquals(ServerMessage.PageView("c1", "p2"), CallProtocol.parseServer("""{"type":"page_view","client_id":"c1","page":"p2"}"""))
+        assertNull(CallProtocol.parseServer("""{"type":"page_view","client_id":"c1"}"""))
+        assertEquals(ServerMessage.PagePreview("p1", "你好", 2, 1790000000000), CallProtocol.parseServer("""{"type":"page_preview","page":"p1","preview":"你好","chars":2,"updated_at":1790000000000}"""))
+        assertEquals(ServerMessage.PageDeleted("p1", "p2", "王老师"), CallProtocol.parseServer("""{"type":"page_deleted","page":"p1","fallback":"p2","by":"王老师"}"""))
+        assertNull(CallProtocol.parseServer("""{"type":"page_deleted","page":"p1"}"""))
+        assertEquals(ServerMessage.PageSummon("c1", "王老师", "p2"), CallProtocol.parseServer("""{"type":"page_summon","from":"c1","name":"王老师","page":"p2"}"""))
+    }
+
+    @Test fun encodesPageMessages() {
+        fun o(s: String) = Json.parseToJsonElement(s) as kotlinx.serialization.json.JsonObject
+        assertEquals("""{"type":"page_open","page":"p1"}""", CallProtocol.pageOpen("p1"))
+        assertEquals("""{"type":"page_new"}""", CallProtocol.pageNew())
+        assertEquals("""{"type":"page_duplicate","page":"p1"}""", CallProtocol.pageDuplicate("p1"))
+        assertEquals("""{"type":"page_rename","page":"p1","title":"Tones"}""", CallProtocol.pageRename("p1", "Tones"))
+        assertEquals("""{"type":"page_rename","page":"p1","title":null}""", CallProtocol.pageRename("p1", null))
+        assertEquals("""{"type":"page_delete","page":"p1"}""", CallProtocol.pageDelete("p1"))
+        assertEquals("""{"type":"page_summon","page":"p1"}""", CallProtocol.pageSummon("p1"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("p1"), o(CallTextBoard.message(emptyList(), "p1"))["page"])
+        assertNull(o(CallTextBoard.message(emptyList()))["page"])
+        assertEquals("""{"type":"text_cursor","sel":null,"page":"p1"}""", CallTextBoard.cursorMessage(null, page = "p1"))
+    }
 }

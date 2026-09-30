@@ -198,3 +198,37 @@ object CallPaths {
     fun close(callId: String, pieceId: String) = "${callPath(callId)}/pieces/${enc(pieceId)}/close"
     fun prefix(callId: String) = "${callPath(callId)}/"
 }
+
+// ---- board pages (shared/calls/pages.ts; worker/src/routes/board-pages.ts) — read-only outside a call
+
+/** One page of a relationship's board with its text (numbered in strip order). */
+@Serializable
+data class BoardPageDto(
+    val id: String,
+    val number: Int = 0,
+    val title: String? = null,
+    val text: String = "",
+    val chars: Int = 0,
+    val created_at: Long = 0,
+    val updated_at: Long = 0,
+    val call_id: String? = null,
+    /** Only on `GET /api/me/board-pages` (null: a solo test call's page). */
+    val relationship_id: String? = null,
+)
+
+@Serializable
+data class BoardPagesDto(val pages: List<BoardPageDto> = emptyList())
+
+/** A page a call opened / wrote on, with its text when the call ended; [number] null = deleted since. */
+@Serializable
+data class CallBoardPageDto(val page_id: String, val number: Int? = null, val title: String? = null, val text: String = "", val edited: Boolean = false)
+
+@Serializable
+private data class CallBoardPagesDto(val pages: List<CallBoardPageDto> = emptyList())
+
+suspend fun Api.relationshipBoardPages(relId: String): List<BoardPageDto> = get<BoardPagesDto>("/api/relationships/${enc(relId)}/board-pages").pages
+
+/** Every page I can see (each with `relationship_id`) — the offline cache. */
+suspend fun Api.myBoardPages(): List<BoardPageDto> = get<BoardPagesDto>("/api/me/board-pages").pages
+
+suspend fun Api.callBoardPages(callId: String): List<CallBoardPageDto> = get<CallBoardPagesDto>("${callPath(callId)}/board-pages").pages

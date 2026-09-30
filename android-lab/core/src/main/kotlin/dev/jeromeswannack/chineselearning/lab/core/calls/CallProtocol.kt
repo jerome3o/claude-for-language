@@ -39,9 +39,20 @@ object CallProtocol {
             text = CallTextDoc.parseSnapshot(o["text"]),
             textCursors = (o["text_cursors"] as? JsonArray)?.mapNotNull { parseCursor(it) }.orEmpty(),
             annotPersist = (o["annot_persist"] as? JsonPrimitive)?.booleanOrNull == true,
+            pages = (o["pages"] as? JsonArray)?.mapNotNull { CallPages.parseMeta(it) }.orEmpty(),
+            page = o.str("page"),
+            pageViews = (o["page_views"] as? JsonObject)?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { k to it } }?.toMap().orEmpty(),
         )
-        "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty()) }
-        "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it) }
+        "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty(), o.str("page")) }
+        "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it, o.str("page")) }
+        "pages" -> ServerMessage.Pages((o["pages"] as? JsonArray ?: return null).mapNotNull { CallPages.parseMeta(it) })
+        "page_doc" -> o.str("page")?.let { page ->
+            ServerMessage.PageDoc(page, CallTextDoc.parseSnapshot(o["text"]), (o["text_cursors"] as? JsonArray)?.mapNotNull { parseCursor(it) }.orEmpty())
+        }
+        "page_view" -> { val c = o.str("client_id"); val p = o.str("page"); if (c != null && p != null) ServerMessage.PageView(c, p) else null }
+        "page_preview" -> o.str("page")?.let { ServerMessage.PagePreview(it, o.str("preview").orEmpty(), (o.long("chars") ?: 0).toInt(), o.long("updated_at") ?: 0) }
+        "page_deleted" -> { val p = o.str("page"); val f = o.str("fallback"); if (p != null && f != null) ServerMessage.PageDeleted(p, f, o.str("by").orEmpty()) else null }
+        "page_summon" -> o.str("page")?.let { ServerMessage.PageSummon(o.str("from").orEmpty(), o.str("name").orEmpty(), it) }
         "annot" -> o.str("from")?.let { from -> CallAnnotate.sanitizeStroke(o["stroke"])?.let { ServerMessage.Annot(from, o.str("name").orEmpty(), it) } }
         "annot_mode" -> ServerMessage.AnnotMode(o.str("from").orEmpty(), o.str("name").orEmpty(), (o["persist"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true)
         "annot_clear" -> ServerMessage.AnnotClear(o.str("from").orEmpty())
@@ -114,6 +125,19 @@ object CallProtocol {
     fun annotPing(x: Double, y: Double): String = buildJsonObject { put("type", "annot_ping"); put("x", x); put("y", y) }.toString()
     /** Connection events for the call's diagnostics log (≤ 50 per message). */
     fun diag(events: List<CallConnection.DiagEvent>): String = CallConnection.diagMessage(events.take(CallConnection.MAX_DIAG_EVENTS_PER_MESSAGE))
+    // Board pages (shared/calls/pages.ts).
+    /** Look at a page: the room answers with `page_doc` and tells the others (`page_view`). */
+    fun pageOpen(page: String): String = buildJsonObject { put("type", "page_open"); put("page", page) }.toString()
+    /** A new page at the end; the room opens it for me. */
+    fun pageNew(): String = buildJsonObject { put("type", "page_new") }.toString()
+    /** A copy of [page] right after it; the room opens it for me. */
+    fun pageDuplicate(page: String): String = buildJsonObject { put("type", "page_duplicate"); put("page", page) }.toString()
+    /** null = back to "Page N". */
+    fun pageRename(page: String, title: String?): String = buildJsonObject { put("type", "page_rename"); put("page", page); put("title", title?.let { JsonPrimitive(it) } ?: JsonNull) }.toString()
+    /** Refused by the room for the last page left. */
+    fun pageDelete(page: String): String = buildJsonObject { put("type", "page_delete"); put("page", page) }.toString()
+    /** "Bring <name> here": move the other person to [page]. */
+    fun pageSummon(page: String): String = buildJsonObject { put("type", "page_summon"); put("page", page) }.toString()
     fun ping(t: Long): String = buildJsonObject { put("type", "ping"); put("t", t) }.toString()
     fun end(): String = buildJsonObject { put("type", "end") }.toString()
     /** I'm leaving (the call goes on for the other person): the room stops counting me as present at once. */
@@ -144,9 +168,25 @@ sealed interface ServerMessage {
         val textCursors: List<TextCursor> = emptyList(),
         /** Drawings on a shared screen are kept rather than fading (absent = fade). */
         val annotPersist: Boolean = false,
+        /** Board pages in strip order (empty from an older room). */
+        val pages: List<BoardPageMeta> = emptyList(),
+        /** The page [text] is — the one this call opened on (null from an older room). */
+        val page: String? = null,
+        /** Which page each other client looks at. */
+        val pageViews: Map<String, String> = emptyMap(),
     ) : ServerMessage
-    data class Text(val from: String, val ops: List<TextOp>) : ServerMessage
-    data class TextCursorMsg(val cursor: TextCursor) : ServerMessage
+    /** [page] = the board page the ops belong to (null from an older room). */
+    data class Text(val from: String, val ops: List<TextOp>, val page: String? = null) : ServerMessage
+    data class TextCursorMsg(val cursor: TextCursor, val page: String? = null) : ServerMessage
+    data class Pages(val pages: List<BoardPageMeta>) : ServerMessage
+    /** The page I asked for (or just made): its document and the carets on it. */
+    data class PageDoc(val page: String, val text: List<TextRun>?, val textCursors: List<TextCursor>) : ServerMessage
+    data class PageView(val clientId: String, val page: String) : ServerMessage
+    /** A page's thumbnail text changed. */
+    data class PagePreview(val page: String, val preview: String, val chars: Int, val updatedAt: Long) : ServerMessage
+    data class PageDeleted(val page: String, val fallback: String, val by: String) : ServerMessage
+    /** The other person ([name]) brought me to [page]. */
+    data class PageSummon(val from: String, val name: String, val page: String) : ServerMessage
     data class Annot(val from: String, val name: String, val stroke: AnnotStroke) : ServerMessage
     data class AnnotClear(val from: String) : ServerMessage
     data class AnnotMode(val from: String, val name: String, val persist: Boolean) : ServerMessage

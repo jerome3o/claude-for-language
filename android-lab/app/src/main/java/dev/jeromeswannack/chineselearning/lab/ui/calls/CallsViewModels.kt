@@ -15,6 +15,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SessionJobDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TranscriptSegmentDto
+import dev.jeromeswannack.chineselearning.lab.data.api.callBoardPages
 import dev.jeromeswannack.chineselearning.lab.data.api.callHomework
 import dev.jeromeswannack.chineselearning.lab.data.api.cancelSessionJob
 import dev.jeromeswannack.chineselearning.lab.data.api.createCall
@@ -55,6 +56,7 @@ object CallsKeys {
     const val LIST = "calls/list"
     fun detail(id: String) = "calls/detail/$id"
     fun homework(id: String) = "calls/homework/$id"
+    fun boardPages(id: String) = "calls/board-pages-call/$id"
 }
 
 /** The people you can call: active tutors and students, never Claude (web: CallsListPage `people`). */
@@ -99,13 +101,16 @@ class CallsListViewModel(private val app: LabApp) : ViewModel() {
 
 class CallReviewViewModel(private val app: LabApp, private val callId: String) : ViewModel() {
     val detail: CachedResource<CallDetailDto> = app.cachedResource(viewModelScope, CallsKeys.detail(callId), CallsKeys.KIND) { getCall(callId) }
+    /** The board pages this call wrote on (GET /api/calls/:id/board-pages); the review falls back to `board_text`. */
+    private val boardPages: CachedResource<List<dev.jeromeswannack.chineselearning.lab.data.api.CallBoardPageDto>> =
+        app.cachedResource(viewModelScope, CallsKeys.boardPages(callId), CallsKeys.KIND) { callBoardPages(callId) }
     private val uploads = CallUploads(app.outbox, app.cache)
     private val local = MutableStateFlow(CallReviewUi(callId))
     private var player: SegmentPlayer? = null
     private var homeworkPoll: Job? = null
 
-    val ui: StateFlow<CallReviewUi> = combine(detail.state, local, uploads.pending(callId), app.online) { d, l, pending, online ->
-        l.copy(detail = d, pendingLocal = pending, online = online)
+    val ui: StateFlow<CallReviewUi> = combine(detail.state, local, uploads.pending(callId), app.online, boardPages.state) { d, l, pending, online, pages ->
+        l.copy(detail = d, pendingLocal = pending, online = online, boardPages = pages.data)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, CallReviewUi(callId))
 
     init {
@@ -158,7 +163,7 @@ class CallReviewViewModel(private val app: LabApp, private val callId: String) :
         }
     }
 
-    fun refresh() = detail.refresh()
+    fun refresh() { detail.refresh(); boardPages.refresh() }
 
     fun play(seg: TranscriptSegmentDto) {
         val d = detail.state.value.data ?: return

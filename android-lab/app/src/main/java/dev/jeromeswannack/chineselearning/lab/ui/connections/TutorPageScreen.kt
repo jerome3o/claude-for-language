@@ -68,6 +68,8 @@ data class TutorPageUi(
     val liveCallTitle: String? = null,
     val liveCallIncoming: Boolean = true,
     val callBusy: Boolean = false,
+    /** Pages on the lesson board (video calls); 0 hides the row. */
+    val boardPages: Int = 0,
     val relationship: Loadable<RelationshipDto> = Loadable(loading = true),
     val myId: String? = null,
     val conversations: Loadable<List<ChatConversationDto>> = Loadable(loading = true),
@@ -89,6 +91,8 @@ class TutorPageActions(
     val onNewPracticeConversation: (PracticeConversationBody) -> Unit = {},
     val onVideoCall: () -> Unit = {},
     val onJoinCall: (String) -> Unit = {},
+    /** The lesson board (`/connections/:relId/board`). */
+    val onOpenBoard: () -> Unit = {},
     val onOpenConversation: (String) -> Unit = {},
     val onOpenCard: (noteId: String) -> Unit = {},
     val onToggleFlag: (FlagDto) -> Unit = {},
@@ -148,6 +152,9 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
             }
         }
         ui.error?.let { item { InlineNotice(it, kind = NoticeKind.Error) } }
+        if (!isClaude && ui.boardPages > 0) item {
+            LabCard { NavRow("📝", dev.jeromeswannack.chineselearning.lab.ui.calls.lessonBoardTitle(ui.boardPages), desc = "What you wrote together in your video lessons", onClick = actions.onOpenBoard) }
+        }
 
         item { SectionHeader("Conversations") }
         item {

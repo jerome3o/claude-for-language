@@ -93,6 +93,8 @@ object Routes {
     fun calls() = "/calls"
     fun call(id: String) = "/calls/${seg(id)}"
     fun callReview(id: String) = "/calls/${seg(id)}/review"
+    /** The relationship's lesson board outside a call (board pages, read-only). */
+    fun lessonBoard(relId: String) = "/connections/${seg(relId)}/board"
 
     fun admin() = "/admin"
 
