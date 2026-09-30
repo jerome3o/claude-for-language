@@ -39,7 +39,7 @@ export function DeckList({ decks, counts, overview, onMoveTop }: DeckListProps) 
         return (
           <li key={deck.id} className="home-deck-row">
             <Link to={`/decks/${deck.id}`} className="home-deck-link" aria-label={`${deck.name}${ov ? `, ${ov.notes} words` : ''}, ${dueText}`}>
-              <span className="home-deck-name">{deck.name}</span>
+              <span className="home-deck-name" title={deck.name}>{deck.name}</span>
               <span className="home-bar home-bar-thin home-deck-bar" aria-hidden="true" title={ov ? `${ov.notes} ${ov.notes === 1 ? 'word' : 'words'}` : undefined}>
                 <span className="home-bar-fill home-bar-mastered" style={{ width: `${masteredPct}%` }} />
                 <span className="home-bar-fill" style={{ width: `${Math.max(0, seenPct - masteredPct)}%` }} />
