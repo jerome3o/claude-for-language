@@ -467,6 +467,9 @@
   word-break: normal;
   tab-size: 4;
   overflow-y: auto;
+  /* Mobile text autosizing may boost a div but never a textarea: keep the layers identical. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 .tb-mirror { color: transparent; pointer-events: none; overflow: hidden; }
 .tb-input {
@@ -480,6 +483,9 @@
   scrollbar-gutter: stable;
 }
 .tb-mirror { scrollbar-gutter: stable; }
+/* index.css forces inputs to 16px !important on phones (iOS zoom); the board's
+   textarea must keep the mirror's size or every caret / ghost lands in the wrong place. */
+.tb .tb-input { font-size: 1.15rem !important; }
 .tb-input::placeholder { color: #9ca3af; }
 .tb-sel { border-radius: 3px; }
 .tb-caret {
@@ -527,7 +533,69 @@
   font-size: 0.9rem;
   cursor: pointer;
 }
-.tb-people { display: flex; gap: 0.75rem; padding: 0.3rem 0.75rem; font-size: 0.8rem; color: #6b7280; border-top: 1px solid #f3f4f6; }
+.tb-people { display: flex; align-items: center; gap: 0.75rem; padding: 0.3rem 0.75rem; font-size: 0.8rem; color: #6b7280; border-top: 1px solid #f3f4f6; }
+/* Tab-complete: grey ghost text after the caret (a layer above the textarea), the touch chip, the ⋯ setting. */
+.tb-ghost-layer { z-index: 1; }
+.tb-ghost { color: #9ca3af; background: #fff; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.tb-ghost-key {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  border: 1px solid #d1d5db;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: system-ui, sans-serif;
+  font-size: 0.65rem;
+  line-height: 1.3;
+  vertical-align: 0.15em;
+  color: #6b7280;
+}
+.tb-gloss-chip {
+  position: absolute;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  min-height: 40px;
+  padding: 0 0.9rem;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(17, 24, 39, 0.15);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* First in the footer: the bottom-right corner is under the self-view on phones. */
+.tb-menu-wrap { position: relative; order: -1; margin-left: -0.4rem; }
+.tb-menu-btn {
+  min-width: 36px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+.tb-menu-btn:hover { background: #f3f4f6; }
+.tb-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: min(300px, 80vw);
+  padding: 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.15);
+}
+.tb-menu-item { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.4rem; color: #111827; font-size: 0.9rem; cursor: pointer; }
+.tb-menu-item input { width: 18px; height: 18px; margin-top: 0.1rem; }
+.tb-menu-item small { display: block; color: #6b7280; font-size: 0.78rem; margin-top: 0.15rem; }
 .tb-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; }
 
 /* ---------- drawing on a shared screen (components/calls/AnnotationLayer.tsx) */
