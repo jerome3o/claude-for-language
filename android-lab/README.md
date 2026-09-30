@@ -35,6 +35,11 @@ The existing main-app entry needs no change: Obtainium skips pre-releases unless
 entry opts in, so it keeps installing `Android v1.N` releases only. (For belt and
 braces you can give it the title filter `^Android`.)
 
+**Google Play (internal testing)**: the same builds also go to Play's internal testing track
+as `chinese-learning-lab-v0.N.aab` (attached to each pre-release too). Setup, the one manual
+first upload, and why a Play install can't update an Obtainium install (Google re-signs it):
+[PLAY.md](PLAY.md). `versionCode` is the workflow run number for both channels.
+
 Branch / PR builds upload a debug APK as the `chinese-learning-lab-debug-apk` workflow
 artifact (debug-signed: uninstall before switching between debug and release).
 

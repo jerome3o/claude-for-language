@@ -40,6 +40,13 @@ jobs:
       contents: write # create releases
     env:
       IS_RELEASE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      # Google Play internal testing (android-lab/PLAY.md): only when the service-account key is set.
+      HAS_PLAY_KEY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+      # versionCode = this workflow's run number, for the APK AND the AAB of a run (both are built
+      # from this env). run_number only ever goes up (branch / PR runs spend numbers too, which
+      # just leaves gaps), so every Lab release — Obtainium pre-release or Play upload — is newer
+      # than the one before. A re-run keeps its number: Play then refuses the duplicate
+      # versionCode, which is harmless (the upload step is non-fatal).
       APP_VERSION_CODE: ${{ github.run_number }}
       APP_VERSION_NAME: 0.${{ github.run_number }}
 
@@ -116,9 +123,22 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: chineselearning
 
-      - name: Rename APK for release
+      # The same key signs the Play bundle: for Play it is the UPLOAD key; Play App Signing
+      # re-signs what users install with Google's app signing key.
+      - name: Build signed release bundle (Google Play)
         if: env.IS_RELEASE == 'true'
-        run: cp android-lab/app/build/outputs/apk/release/app-release.apk chinese-learning-lab.apk
+        run: ./gradlew :app:bundleRelease --no-daemon
+        working-directory: android-lab
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: chineselearning
+
+      - name: Rename APK and AAB for release
+        if: env.IS_RELEASE == 'true'
+        run: |
+          cp android-lab/app/build/outputs/apk/release/app-release.apk chinese-learning-lab.apk
+          cp android-lab/app/build/outputs/bundle/release/app-release.aab "chinese-learning-lab-v${APP_VERSION_NAME}.aab"
 
       - name: Publish GitHub pre-release
         if: env.IS_RELEASE == 'true'
@@ -132,4 +152,73 @@ jobs:
             Experimental pure-native Android app (android-lab/), versionCode ${{ env.APP_VERSION_CODE }}, built from ${{ github.sha }}.
 
             Installs NEXT TO the main app (`dev.jeromeswannack.chineselearning.lab`). Obtainium: add this repo a second time with "Include prereleases" on and "Filter release titles by regular expression" = `^Lab`.
-          files: chinese-learning-lab.apk
+
+            `chinese-learning-lab-v${{ env.APP_VERSION_NAME }}.aab` is the same build as an Android App Bundle for Google Play (internal testing, see android-lab/PLAY.md); phones install the `.apk`.
+          files: |
+            chinese-learning-lab.apk
+            chinese-learning-lab-v${{ env.APP_VERSION_NAME }}.aab
+
+      # ---- Google Play internal testing (android-lab/PLAY.md) ----
+      # Non-fatal: Google only accepts API uploads once the first bundle has been uploaded by hand
+      # in Play Console, and a Play hiccup must never fail the Obtainium release above.
+
+      - name: Play upload skipped (no service account)
+        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY != 'true'
+        run: echo "::notice title=Play upload skipped::PLAY_SERVICE_ACCOUNT_JSON is not set; the .aab is on the GitHub pre-release. See android-lab/PLAY.md"
+
+      - name: Release notes for Play (commit subject)
+        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true'
+        env:
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/whatsnew"
+          # First line of the pushed commit (the squash-merged PR title); Play allows 500 characters.
+          subject="$(printf '%s\n' "$COMMIT_SUBJECT" | head -n 1 | cut -c1-500)"
+          [ -n "$subject" ] || subject="Lab v${APP_VERSION_NAME}"
+          printf '%s' "$subject" > "$RUNNER_TEMP/whatsnew/whatsnew-en-US"
+          cat "$RUNNER_TEMP/whatsnew/whatsnew-en-US"; echo
+
+      - name: Upload to Google Play (internal testing)
+        id: play
+        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true'
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: dev.jeromeswannack.chineselearning.lab
+          releaseFiles: chinese-learning-lab-v${{ env.APP_VERSION_NAME }}.aab
+          releaseName: Lab v${{ env.APP_VERSION_NAME }}
+          track: internal
+          status: completed
+          whatsNewDirectory: ${{ runner.temp }}/whatsnew
+
+      # An app that has never had a release rolled out is still a "draft app" to Play, and the API
+      # then only accepts DRAFT releases. Retry as a draft so the bundle at least lands in the
+      # console (roll it out there once; after that the step above succeeds).
+      - name: Upload to Google Play as a draft (fallback)
+        id: play_draft
+        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true' && steps.play.outcome == 'failure'
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: dev.jeromeswannack.chineselearning.lab
+          releaseFiles: chinese-learning-lab-v${{ env.APP_VERSION_NAME }}.aab
+          releaseName: Lab v${{ env.APP_VERSION_NAME }}
+          track: internal
+          status: draft
+          whatsNewDirectory: ${{ runner.temp }}/whatsnew
+
+      - name: Report Play upload
+        if: env.IS_RELEASE == 'true' && env.HAS_PLAY_KEY == 'true'
+        env:
+          PLAY: ${{ steps.play.outcome }}
+          PLAY_DRAFT: ${{ steps.play_draft.outcome }}
+        run: |
+          if [ "$PLAY" = "success" ]; then
+            echo "::notice title=Google Play::Lab v${APP_VERSION_NAME} (versionCode ${APP_VERSION_CODE}) is out on the internal testing track"
+          elif [ "$PLAY_DRAFT" = "success" ]; then
+            echo "::warning title=Google Play: uploaded as a draft::Lab v${APP_VERSION_NAME} is on internal testing as a DRAFT. Roll it out in Play Console (Test and release > Internal testing). See android-lab/PLAY.md"
+          else
+            echo "::warning title=Google Play upload failed::Play upload skipped/failed. Upload the first bundle manually (chinese-learning-lab-v${APP_VERSION_NAME}.aab on the GitHub pre-release) in Play Console; if bundles were accepted before, read the 'Upload to Google Play' step log. See android-lab/PLAY.md"
+          fi

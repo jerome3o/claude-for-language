@@ -74,6 +74,7 @@ const LessonTryPage = lazy(() => import('./pages/editor/LessonTryPage').then(m =
 const DeckTryPage = lazy(() => import('./pages/DeckTryPage').then(m => ({ default: m.DeckTryPage })));
 const LessonPrintPage = lazy(() => import('./pages/editor/LessonPrintPage').then(m => ({ default: m.LessonPrintPage })));
 const JoinPage = lazy(() => import('./pages/invites/JoinPage').then(m => ({ default: m.JoinPage })));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
 const CardHubPage = lazy(() => import('./pages/CardHubPage').then(m => ({ default: m.CardHubPage })));
 const ClaudeChatsPage = lazy(() => import('./pages/ClaudeChatsPage').then(m => ({ default: m.ClaudeChatsPage })));
 const CallsListPage = lazy(() => import('./pages/CallsListPage').then(m => ({ default: m.CallsListPage })));
@@ -155,6 +156,8 @@ function AppRoutes() {
       <Route path="/" element={<HomeOrSplash />} />
       {/* Public: the invite landing page works before sign-in and has no Header. */}
       <Route path="/join/:token" element={<JoinPage />} />
+      {/* Public: the privacy policy (Google Play listing of the Lab app links here). */}
+      <Route path="/privacy" element={<PrivacyPage />} />
       {/* Bottom tab bar destinations: Decks (deck list + card search) and More. */}
       <Route
         path="/decks"

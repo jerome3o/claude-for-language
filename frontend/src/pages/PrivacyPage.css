@@ -1,0 +1,85 @@
+.privacy-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 1rem;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.privacy-card {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 1.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.privacy-head {
+  margin-bottom: 1rem;
+}
+
+.privacy-hanzi {
+  display: inline-block;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.privacy-card h1 {
+  margin: 0.25rem 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.privacy-sub {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.privacy-card h2 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.privacy-card p {
+  margin: 0.5rem 0;
+}
+
+.privacy-card ul {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.privacy-card li {
+  margin: 0.375rem 0;
+}
+
+.privacy-card a {
+  color: var(--color-primary);
+  overflow-wrap: anywhere;
+}
+
+.privacy-back {
+  margin-top: 1.5rem !important;
+}
+
+.privacy-back a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+@media (min-width: 640px) {
+  .privacy-page {
+    padding: 2rem 1.5rem;
+  }
+
+  .privacy-card {
+    padding: 2rem 2.25rem;
+  }
+}

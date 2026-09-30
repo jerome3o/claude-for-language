@@ -22,7 +22,9 @@ android {
         // Separate id from the hybrid app (dev.jeromeswannack.chineselearning): both install side by side.
         applicationId = "dev.jeromeswannack.chineselearning.lab"
         minSdk = 26
-        targetSdk = 35
+        // Google Play: new apps and updates must target API 36 since 31 Aug 2026 (PLAY.md).
+        // Robolectric tests pin sdk = [34] in their @Config, so they are unaffected.
+        targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
         // WebRTC ships native code for 4 ABIs (~20 MB); phones are ARM, the emulator x86_64.
