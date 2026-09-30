@@ -88,3 +88,11 @@ Unfolded: after a tap on the pair → Speaker.
 
 ![Lab unfolded screen](lab-46-layout-screen-unfolded.png)
 Unfolded: their share with the pair.
+
+## With board pages (#468)
+
+![Desktop: faces pair + page strip](combined-desktop-pages-and-faces.png)
+The faces pair top-left over the board; the page strip and follow bar at the bottom stay clear.
+
+![Folded: faces pair + page strip](combined-fold-pages-and-faces.png)
+Folded phone: the small pair top-left, "Following 王老师" and the strip free.
