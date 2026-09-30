@@ -121,6 +121,77 @@ Tables (migration `0071_video_calls.sql`): `calls`, `call_recording_pieces`,
 under `calls/<callId>/…` and is served by the public `/api/audio/*` route (unguessable
 keys, same model as study recordings).
 
+## Joining when the camera or microphone won't open
+
+Joining never depends on the devices: without a camera you join with audio, without a microphone
+you join to listen and watch, and the 🎙️ / 📷 buttons turn a missing device on later (a tap asks the
+browser again; the track goes onto the existing transceiver with `replaceTrack`, no renegotiation;
+recording starts when a mic appears). `services/calls/mediaAccess.ts` (unit-tested) asks for camera +
+mic together, then each alone, and classifies what went wrong — `blocked` (site blocked in the
+browser, or an organisation's policy), `system` (macOS / Windows privacy settings stop the browser),
+`dismissed`, `in-use` (Teams / Zoom has the camera), `no-device`, `insecure`, and `waiting` (no
+answer after 6 s: the prompt is probably hidden behind an address-bar icon). `MediaProblemCard`
+shows the exact steps for that browser and OS plus **Try again** (a tap, which also brings back a
+suppressed prompt); a permission switched to Allow in site settings is picked up without a reload
+(`navigator.permissions` change). The Join button says what you'll join with ("Join with audio only",
+"Join without camera & mic"). **Devices** (⚙️ before joining, ⋯ → Camera, mic & speaker in the call):
+camera / microphone / speaker (`setSinkId`), remembered per device (`call-devices-v1`).
+
+Our side sends no `Permissions-Policy` header (the Pages site and the worker were checked), and the
+preview's `getUserMedia` runs on page load, which Chrome allows; so a missing prompt comes from the
+browser / computer — a site previously blocked, a prompt dismissed a few times (Chrome then stops
+asking), or a work machine's policy. Before this change that left the Join button disabled with no
+way forward.
+
+## Staying connected
+
+The room socket (signalling) and the WebRTC link (media) are independent, and the rules are pure,
+in `shared/calls/connection.ts` (Lab: `CallConnection.kt`, parity-tested):
+
+- **Same page, new socket** — each page load / app session has an `instance` (the socket URL's
+  `?instance=`). A socket that drops and comes back from the same instance keeps its
+  RTCPeerConnection on both sides (`shouldAdoptPeer`); the room closes the dead socket quietly (4001)
+  instead of saying "replaced". The other person's socket leaving keeps their picture (frozen on the
+  last frame) for `PEER_AWAY_GRACE_MS` (30 s) before the link is closed. A reload / second device is
+  a new instance → a new link, as before.
+- **Dead sockets** — ping every 10 s, no pong in 8 s → close and reconnect; the browser coming back
+  `online` checks at once; messages from a stale socket are ignored.
+- **ICE restarts** (`nextIceRestartAt`) — `disconnected` gets 2.5 s to heal, then `restartIce()`;
+  `failed` restarts at once; then 2 s, 4 s, 8 s … 30 s; only while the socket is open (re-checked when
+  it returns), and signals always go to the other person's current socket.
+- **Never blank** — the `<video>` element and its `srcObject` stay through a drop; the tile shows a
+  small "Reconnecting…" badge (`tileStatus`), "Connecting…" before the first connect.
+- **Encoders** (`videoEncodingFor`) — camera: `maintain-framerate`, ≤ 900 kbps, ¼ / ½ resolution when
+  the outgoing estimate (`availableOutgoingBitrate`) falls under 180 / 350 kbps (1.5× hysteresis);
+  screen: `maintain-resolution`, ≤ 1.5 Mbps, 15 fps; audio `networkPriority: high`.
+- **TURN** — Cloudflare Realtime TURN when `TURN_KEY_ID` / `TURN_KEY_API_TOKEN` are set; every URL it
+  returns is offered except port 53, i.e. UDP 3478, TCP 3478/80 and **TLS 443** (gets through
+  firewalls that only allow HTTPS).
+- **Connection log** — each side sends `diag` events (pc / ICE state changes, restarts, socket status,
+  the route in use — host / srflx / relay and its protocol + RTT —, device problems, whether TURN was
+  offered, peer away / back); the room keeps the newest 600 and copies them to
+  `calls.diagnostics_json` (migration 0085); the review page has a collapsed **Connection log**.
+
+## Typing latency on the board
+
+The room relays a keystroke **before** storing it and stores the board / text / log at most every
+400 ms with `allowUnconfirmed` (a durable write per keystroke used to hold the next keystroke's
+relay behind the output gate, and serialised the whole document — up to 125 KB — each time; a lost
+write is harmless because clients replay unconfirmed edits on rejoin). The client sends each edit
+at once. Chinese typed through a pinyin IME only enters the document when the composition is
+committed, so the other person used to see nothing for the whole composition (2 s+ for a phrase):
+now `text_cursor` carries `compose` (≤ 40 chars, ≤ 12 updates/s) and the composition shows in the
+typist's name flag above their caret ("Jerome · wo ba cha") — never in the text, so nothing moves.
+Measured locally (two Chromium contexts, `wrangler dev`, 960-char document, 60 keystrokes):
+relay p50 10.1 → 7.5 ms, p90 13.5 → 12.3 ms; first sign of IME typing: at commit (≈ 2.1 s) → 17 ms.
+In production the network round trip to the room dominates.
+
+## The board is paper
+
+The text board, the drawing board and the chat are always light paper with dark ink (`#111827`)
+for both people, whatever the theme: `color-scheme: light` on the panel on the web, a `BoardPaper`
+palette in the Lab app (its dark theme used to paint light ink on the white board).
+
 ## Finding the call (banners, ring, notifications)
 
 The person being called must notice. Every signal comes from ONE list, `GET /api/calls?live=1`,

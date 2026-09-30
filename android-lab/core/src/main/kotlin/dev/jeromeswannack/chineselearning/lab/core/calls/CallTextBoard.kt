@@ -6,10 +6,11 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /** Someone's caret / selection on the board, as the room reports it. */
-data class TextCursor(val clientId: String, val userId: String, val name: String, val sel: TextSelection?)
+/** [compose] = what they are composing in a pinyin IME right now (not in the text yet), shown in their name flag. */
+data class TextCursor(val clientId: String, val userId: String, val name: String, val sel: TextSelection?, val compose: String? = null)
 
 /** The other person's caret resolved to character indexes of the current text. */
-data class RemoteCaret(val clientId: String, val userId: String, val name: String, val color: String, val start: Int, val end: Int, val head: Int)
+data class RemoteCaret(val clientId: String, val userId: String, val name: String, val color: String, val start: Int, val end: Int, val head: Int, val compose: String? = null)
 
 /**
  * Port of frontend/src/services/calls/textBoard.ts (TextBoardSession): this device's replica of
@@ -97,6 +98,13 @@ class CallTextBoard(userId: String, private val send: (String) -> Boolean, rando
 
     fun clearSelection() { send(cursorMessage(null)) }
 
+    /**
+     * While an IME composition is open: tell the other side what is being composed (shown in my
+     * name flag, never in the text) at my last selection; null when the composition ends.
+     */
+    fun sendCompose(compose: String?): Boolean =
+        send(cursorMessage(TextSelection(myAnchor, myHead), CallConnection.sanitizeCompose(compose)))
+
     /** My selection in the current text (UTF-16 offsets), after whatever changed since [select]. */
     fun mySelection(): Pair<Int, Int> {
         val t = text
@@ -117,7 +125,7 @@ class CallTextBoard(userId: String, private val send: (String) -> Boolean, rando
             val sel = c.sel ?: return@mapNotNull null
             val a = doc.indexOfAnchor(sel.anchor)
             val h = doc.indexOfAnchor(sel.head)
-            RemoteCaret(c.clientId, c.userId, c.name, CallTextDoc.presenceColor(c.userId), minOf(a, h), maxOf(a, h), h)
+            RemoteCaret(c.clientId, c.userId, c.name, CallTextDoc.presenceColor(c.userId), minOf(a, h), maxOf(a, h), h, c.compose)
         }
 
     companion object {
@@ -126,9 +134,10 @@ class CallTextBoard(userId: String, private val send: (String) -> Boolean, rando
             putJsonArray("ops") { ops.forEach { add(it.toJson()) } }
         }.toString()
 
-        fun cursorMessage(sel: TextSelection?): String = buildJsonObject {
+        fun cursorMessage(sel: TextSelection?, compose: String? = null): String = buildJsonObject {
             put("type", "text_cursor")
             put("sel", sel?.toJson() ?: JsonNull)
+            if (compose != null) put("compose", compose)
         }.toString()
     }
 }

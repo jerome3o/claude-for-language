@@ -57,7 +57,15 @@ function MirrorContent({ text, decorations }: { text: string; decorations: Decor
       if (d.head === at) {
         out.push(
           <span key={`c-${d.caret.clientId}-${at}`} className="tb-caret" style={{ borderColor: d.caret.color }} data-testid="remote-caret">
-            <span className="tb-flag" style={{ background: d.caret.color }}>{d.caret.name}</span>
+            <span className="tb-flag" style={{ background: d.caret.color }}>
+              {d.caret.name}
+              {d.caret.compose && (
+                <span className="tb-flag-compose" lang="zh" data-testid="remote-compose">
+                  {' · '}
+                  <u>{d.caret.compose}</u>
+                </span>
+              )}
+            </span>
           </span>,
         );
       }
@@ -179,6 +187,7 @@ export function TextBoard({
   const mySel = useRef<{ a: CharId | null; b: CharId | null; backwards: boolean }>({ a: null, b: null, backwards: false });
   const [selected, setSelected] = useState('');
   const lastSent = useRef(0);
+  const composeStart = useRef(0);
   const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Remember my selection as anchors (stable while the other person edits). */
@@ -319,9 +328,14 @@ export function TextBoard({
             session.localEdit(ta.value, caretOf(ta));
             onCaret();
           }}
-          onCompositionStart={() => {
+          onCompositionStart={(e) => {
+            composeStart.current = codeUnitToCharIndex(e.currentTarget.value, e.currentTarget.selectionStart);
             session.setComposing(true);
             suggest.clear(); // never while the IME is open
+          }}
+          onCompositionUpdate={(e) => {
+            // The other person sees my pinyin as I type it (in my name flag), before I commit.
+            session.sendComposing(e.data ?? '', composeStart.current);
           }}
           onCompositionEnd={(e) => {
             const ta = e.currentTarget;

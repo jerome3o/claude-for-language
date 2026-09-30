@@ -111,7 +111,13 @@ data class CallDetailDto(
     val pieces: List<CallPieceDto> = emptyList(),
     val transcript: List<TranscriptSegmentDto> = emptyList(),
     val transcriber: String = "",
+    /** The connection log both sides reported (shared/calls/connection.ts CallDiagEntry). */
+    val diagnostics: List<CallDiagDto> = emptyList(),
 )
+
+/** One connection event: when (ms, reporter's clock), kind (pc / ice / room / restart / route / media / join / peer), who. */
+@Serializable
+data class CallDiagDto(val t: Long = 0, val kind: String = "", val detail: String = "", val user_id: String = "", val name: String = "")
 
 @Serializable
 data class IceServerDto(val urls: JsonElement, val username: String? = null, val credential: String? = null)

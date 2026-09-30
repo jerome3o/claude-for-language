@@ -22,9 +22,11 @@ export interface RemoteCaret {
   name: string;
   color: string;
   sel: TextSelection;
+  /** Their pinyin composition in progress (shown in their name flag, not in the text). */
+  compose: string | null;
 }
 
-type Sender = (msg: { type: 'text'; ops: TextOp[] } | { type: 'text_cursor'; sel: TextSelection | null }) => boolean;
+type Sender = (msg: { type: 'text'; ops: TextOp[] } | { type: 'text_cursor'; sel: TextSelection | null; compose?: string | null }) => boolean;
 
 export class TextBoardSession {
   /** One site per page load: "<user id>:<random>" (the room checks the prefix). */
@@ -34,6 +36,10 @@ export class TextBoardSession {
   private sent: TextOp[] = [];
   private held: TextOp[] = [];
   private composing = false;
+  private lastSel: TextSelection | null = null;
+  private composeTimer: ReturnType<typeof setTimeout> | null = null;
+  private composeSentAt = 0;
+  private composeText: string | null = null;
   private cursors = new Map<string, RemoteCaret>();
   private listeners = new Set<(reason: 'local' | 'remote' | 'cursor' | 'load') => void>();
   version = 0;
@@ -124,6 +130,7 @@ export class TextBoardSession {
       return;
     }
     this.composing = false;
+    this.cancelCompose(); // the committed text itself goes out next
     if (finalText !== undefined) this.localEdit(finalText, caret);
   }
 
@@ -136,18 +143,52 @@ export class TextBoardSession {
 
   /** My caret / selection as character indexes → sent as anchors. */
   sendSelection(start: number, end: number, backwards = false) {
+    // Mid-composition the caret moves over uncommitted text: the composition preview says where I am.
+    if (this.composing) return;
     const a = this.doc.anchorAt(backwards ? end : start);
     const h = this.doc.anchorAt(backwards ? start : end);
-    this.send({ type: 'text_cursor', sel: { anchor: a, head: h } });
+    this.lastSel = { anchor: a, head: h };
+    this.cancelCompose();
+    this.send({ type: 'text_cursor', sel: this.lastSel });
   }
 
   clearSelection() {
+    this.lastSel = null;
+    this.cancelCompose();
     this.send({ type: 'text_cursor', sel: null });
+  }
+
+  /**
+   * What I'm composing in the IME right now (compositionupdate), so the other
+   * person sees my typing before I commit it. ≤ ~12 messages a second, latest wins.
+   * The selection that goes with it is where the composition started.
+   */
+  sendComposing(text: string, caretIndex: number) {
+    if (!this.lastSel || this.composeText === null) {
+      const anchor = this.doc.anchorAt(caretIndex);
+      this.lastSel = { anchor, head: anchor };
+    }
+    this.composeText = text;
+    const flush = () => {
+      this.composeTimer = null;
+      this.composeSentAt = Date.now();
+      if (this.composeText !== null) this.send({ type: 'text_cursor', sel: this.lastSel, compose: this.composeText || null });
+    };
+    if (this.composeTimer) return;
+    const wait = 80 - (Date.now() - this.composeSentAt);
+    if (wait <= 0) flush();
+    else this.composeTimer = setTimeout(flush, wait);
+  }
+
+  private cancelCompose() {
+    if (this.composeTimer) clearTimeout(this.composeTimer);
+    this.composeTimer = null;
+    this.composeText = null;
   }
 
   setCursor(c: TextCursor, emit = true) {
     if (!c.sel) this.cursors.delete(c.client_id);
-    else this.cursors.set(c.client_id, { clientId: c.client_id, userId: c.user_id, name: c.name, color: presenceColor(c.user_id), sel: c.sel });
+    else this.cursors.set(c.client_id, { clientId: c.client_id, userId: c.user_id, name: c.name, color: presenceColor(c.user_id), sel: c.sel, compose: c.compose ?? null });
     if (emit) this.emit('cursor');
   }
 

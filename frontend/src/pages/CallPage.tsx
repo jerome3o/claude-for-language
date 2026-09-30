@@ -17,8 +17,10 @@ import { TextBoard } from '../components/calls/TextBoard';
 import { AnnotationLayer } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
 import { ANNOT_COLORS } from '@shared/calls';
-import { formatOffset, pipSize, type CallChatMessage, type VideoSize } from '@shared/calls';
+import { formatOffset, initialLinkHealth, pipSize, tileStatus, type CallChatMessage, type VideoSize } from '@shared/calls';
 import { CallVideo, useElementSize } from '../components/calls/CallVideo';
+import { MediaProblemCard } from '../components/calls/MediaProblemCard';
+import { DevicesSheet } from '../components/calls/DevicesSheet';
 import './CallPage.css';
 
 function Initials({ name }: { name: string }) {
@@ -78,6 +80,9 @@ export function CallPage() {
   const [record, setRecord] = useState(CallRecorder.supported());
   const [panel, setPanel] = useState<Panel>('none');
   const [moreOpen, setMoreOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
+  // A device problem in the call is shown until dismissed (a new problem shows again).
+  const [dismissedProblem, setDismissedProblem] = useState('');
   const [seenChat, setSeenChat] = useState(0);
   const elapsed = useElapsed(call.startedAt, call.phase === 'live');
   // The camera's real shape (a phone's is portrait, a webcam's landscape) sizes the preview and the self-view.
@@ -123,6 +128,16 @@ export function CallPage() {
   useEffect(() => {
     if (panel === 'chat') setSeenChat(call.chat.length);
   }, [panel, call.chat.length]);
+
+  const problemKey = `${call.mediaProblems.audio ?? ''}|${call.mediaProblems.video ?? ''}`;
+  const retryMedia = () => void call.requestMedia({ audio: !call.hasMic, video: !call.hasCamera });
+  const currentDevices = {
+    audio: call.localStream?.getAudioTracks()[0]?.getSettings().deviceId ?? null,
+    video: call.localStream?.getVideoTracks()[0]?.getSettings().deviceId ?? null,
+  };
+  const devicesSheet = devicesOpen && (
+    <DevicesSheet prefs={call.devicePrefs} current={currentDevices} onChoose={(kind, id) => void call.chooseDevice(kind, id)} onClose={() => setDevicesOpen(false)} />
+  );
 
   if (callQuery.isLoading) return <div className="call-page call-center"><p>Loading the call…</p></div>;
   if (callQuery.error || !detail) {
@@ -172,15 +187,14 @@ export function CallPage() {
             <Initials name={user!.name || user!.email || 'You'} />
           )}
           <div className="call-prejoin-toggles">
-            <button type="button" className={`call-btn${call.micOn ? '' : ' off'}`} onClick={call.toggleMic} aria-label={call.micOn ? 'Mute microphone' : 'Unmute microphone'}>{call.micOn ? '🎙️' : '🔇'}</button>
-            {call.hasCamera && (
-              <button type="button" className={`call-btn${call.camOn ? '' : ' off'}`} onClick={call.toggleCam} aria-label={call.camOn ? 'Turn camera off' : 'Turn camera on'}>{call.camOn ? '📷' : '🚫'}</button>
-            )}
+            <button type="button" className={`call-btn${call.micOn && call.hasMic ? '' : ' off'}`} onClick={call.toggleMic} aria-label={!call.hasMic ? 'Turn microphone on' : call.micOn ? 'Mute microphone' : 'Unmute microphone'} data-testid="prejoin-mic">{call.micOn && call.hasMic ? '🎙️' : '🔇'}</button>
+            <button type="button" className={`call-btn${call.camOn && call.hasCamera ? '' : ' off'}`} onClick={call.toggleCam} aria-label={!call.hasCamera ? 'Turn camera on' : call.camOn ? 'Turn camera off' : 'Turn camera on'} data-testid="prejoin-cam">{call.camOn && call.hasCamera ? '📷' : '🚫'}</button>
+            <button type="button" className="call-btn" onClick={() => setDevicesOpen(true)} aria-label="Devices" title="Camera, microphone and speaker" data-testid="open-devices">⚙️</button>
           </div>
         </div>
         <div className="call-prejoin-body">
           <h1>{detail.call.title || `Lesson with ${otherName}`}</h1>
-          {call.mediaError && <p className="call-warning">{call.mediaError}</p>}
+          <MediaProblemCard problems={call.mediaProblems} pending={call.mediaPending} onRetry={retryMedia} />
           <label className={`call-record-toggle${CallRecorder.supported() ? '' : ' disabled'}`}>
             <input type="checkbox" checked={record} disabled={!CallRecorder.supported()} onChange={(e) => setRecord(e.target.checked)} data-testid="record-toggle" />
             <span>
@@ -192,13 +206,24 @@ export function CallPage() {
             type="button"
             className="btn btn-primary call-join-btn"
             onClick={() => void call.join({ record })}
-            disabled={call.phase === 'joining' || !call.localStream}
+            disabled={call.phase === 'joining'}
             data-testid="join-call"
           >
-            {call.phase === 'joining' ? 'Joining…' : 'Join call'}
+            {call.phase === 'joining'
+              ? 'Joining…'
+              : call.mediaPending || !call.mediaAsked || (call.hasMic && call.hasCamera)
+                ? 'Join call'
+                : call.hasMic
+                  ? 'Join with audio only'
+                  : call.hasCamera
+                    ? 'Join without microphone'
+                    : 'Join without camera & mic'}
           </button>
-          {!call.localStream && !call.mediaError && <p className="call-muted">Allow the camera and microphone to join.</p>}
+          {call.mediaPending && !call.mediaProblems.audio && !call.mediaProblems.video && (
+            <p className="call-muted">Your browser will ask to use the camera and microphone — choose Allow.</p>
+          )}
         </div>
+        {devicesSheet}
       </div>
     );
   }
@@ -209,7 +234,7 @@ export function CallPage() {
   const someoneRecording = call.recording || !!remoteState?.recording;
   const remoteVideoOn = !!remote?.stream && (remoteState?.cam || remoteState?.screen);
   const unread = Math.max(0, call.chat.length - seenChat);
-  const connecting = remote && remote.connection !== 'connected';
+  const status = remote ? tileStatus(remote.health ?? { ...initialLinkHealth(0), pc: remote.connection === 'new' ? 'new' : remote.connection }, remote.away) : 'live';
   const pip = stageSize && stageSize.width > 200 ? pipSize(selfSize ?? localSize, stageSize) : null;
 
   return (
@@ -226,7 +251,7 @@ export function CallPage() {
           {remote ? (
             <>
               {remote.stream && (
-                <CallVideo stream={remote.stream} screen={!!remoteState?.screen} className={`call-remote-video${remoteVideoOn ? '' : ' hidden'}`} testId="remote-video" onVideoSize={setRemoteSize} />
+                <CallVideo stream={remote.stream} screen={!!remoteState?.screen} className={`call-remote-video${remoteVideoOn ? '' : ' hidden'}`} testId="remote-video" onVideoSize={setRemoteSize} sinkId={call.devicePrefs.speakerId ?? null} />
               )}
               {remoteSharing && remote.stream && (
                 <>
@@ -257,9 +282,15 @@ export function CallPage() {
                 </>
               )}
               {!remoteVideoOn && <Initials name={otherName} />}
+              {status !== 'live' && (
+                // The picture stays (frozen on its last frame) while the link recovers.
+                <div className={`call-tile-status ${status}`} data-testid="remote-status" role="status">
+                  <span className="call-spinner" aria-hidden="true" /> {status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
+                </div>
+              )}
               <div className="call-remote-label">
                 {remoteState && !remoteState.mic && <span aria-label="muted">🔇 </span>}
-                {otherName}{connecting ? ' · connecting…' : ''}
+                {otherName}
               </div>
             </>
           ) : (
@@ -331,11 +362,17 @@ export function CallPage() {
         </div>
       )}
 
+      {(call.mediaProblems.audio || call.mediaProblems.video) && dismissedProblem !== problemKey && (
+        <div className="call-media-toast">
+          <MediaProblemCard problems={call.mediaProblems} pending={call.mediaPending} onRetry={retryMedia} compact />
+          <button type="button" className="call-panel-close" aria-label="Dismiss" onClick={() => setDismissedProblem(problemKey)}>✕</button>
+        </div>
+      )}
+      {devicesSheet}
+
       <div className="call-controls" role="toolbar" aria-label="Call controls">
-        <button type="button" className={`call-btn${call.micOn ? '' : ' off'}`} onClick={call.toggleMic} aria-label={call.micOn ? 'Mute' : 'Unmute'} title={call.micOn ? 'Mute' : 'Unmute'}>{call.micOn ? '🎙️' : '🔇'}</button>
-        {call.hasCamera && (
-          <button type="button" className={`call-btn${call.camOn ? '' : ' off'}`} onClick={call.toggleCam} aria-label={call.camOn ? 'Camera off' : 'Camera on'} title="Camera">{call.camOn ? '📷' : '🚫'}</button>
-        )}
+        <button type="button" className={`call-btn${call.micOn && call.hasMic ? '' : ' off'}`} onClick={call.toggleMic} aria-label={!call.hasMic ? 'Turn microphone on' : call.micOn ? 'Mute' : 'Unmute'} title={!call.hasMic ? 'Turn microphone on' : call.micOn ? 'Mute' : 'Unmute'} data-testid="call-mic">{call.micOn && call.hasMic ? '🎙️' : '🔇'}</button>
+        <button type="button" className={`call-btn${call.camOn && call.hasCamera ? '' : ' off'}`} onClick={call.toggleCam} aria-label={!call.hasCamera ? 'Turn camera on' : call.camOn ? 'Camera off' : 'Camera on'} title="Camera" data-testid="call-cam">{call.camOn && call.hasCamera ? '📷' : '🚫'}</button>
         <button type="button" className={`call-btn${panel === 'text' || panel === 'board' ? ' active' : ''}`} onClick={() => setPanel(panel === 'text' || panel === 'board' ? 'none' : 'text')} aria-label="Board" title="Board — type together, or draw" data-testid="open-board">📝</button>
         <button type="button" className={`call-btn${panel === 'chat' ? ' active' : ''}`} onClick={() => setPanel(panel === 'chat' ? 'none' : 'chat')} aria-label="Chat" title="Chat">
           💬{unread > 0 && panel !== 'chat' && <span className="call-badge">{unread}</span>}
@@ -347,6 +384,7 @@ export function CallPage() {
           <button type="button" className="call-btn" onClick={() => setMoreOpen((v) => !v)} aria-label="More" aria-expanded={moreOpen}>⋯</button>
           {moreOpen && (
             <div className="call-more-menu" role="menu" onClick={() => setMoreOpen(false)}>
+              <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}
               {CallRecorder.supported() && (
                 <button type="button" role="menuitem" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())}>

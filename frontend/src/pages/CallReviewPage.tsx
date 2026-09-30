@@ -416,6 +416,27 @@ export function CallReviewPage() {
           </section>
         )}
 
+        {(detail.diagnostics?.length ?? 0) > 0 && (
+          <section className="detail-section cr-section" data-testid="review-connection-log">
+            <details>
+              <summary>
+                <h2 className="cr-inline-h2">Connection log</h2>
+                <span className="cr-muted"> — {detail.diagnostics!.length} events: how each side connected, dropouts and recoveries</span>
+              </summary>
+              <div className="cr-diag">
+                {detail.diagnostics!.map((e, i) => (
+                  <div key={i} className={`cr-diag-row kind-${e.kind}`}>
+                    <span className="cr-time">{formatOffset(Math.max(0, e.t - (detail.diagnostics![0]?.t ?? e.t)))}</span>
+                    <span className="cr-speaker">{names[e.user_id] || e.name}</span>
+                    <span className="cr-diag-kind">{e.kind}</span>
+                    <span className="cr-diag-detail">{e.detail}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          </section>
+        )}
+
         {call.status === 'ended' && (
           <section className="detail-section cr-section cr-actions">
             {failedPieces.length > 0 && <p className="cr-error">{failedPieces.length} part{failedPieces.length === 1 ? '' : 's'} of the recording failed to transcribe: {failedPieces[0].error}</p>}

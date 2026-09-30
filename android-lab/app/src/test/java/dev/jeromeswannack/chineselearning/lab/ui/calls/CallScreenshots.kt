@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardPoint
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallPeer
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.PeerMediaState
@@ -46,9 +47,9 @@ class CallScreenshots : LabScreenshotTest() {
     private val tutor = CallPeer("c-a", CallsSamples.TUTOR, "王老师", null, PeerMediaState(mic = true, cam = true, recording = true))
     private val info = CallScreenInfo(otherName = "王老师", myName = "Jerome Swannack", relationshipId = "r1", audioRoutes = listOf(AudioRoute.SPEAKER, AudioRoute.EARPIECE, AudioRoute.BLUETOOTH))
     private val live = CallState(
-        phase = CallPhase.LIVE, mediaReady = true, hasCamera = true, localVideo = "me", recordSupported = true, recording = true,
+        phase = CallPhase.LIVE, mediaReady = true, hasMic = true, hasCamera = true, localVideo = "me", recordSupported = true, recording = true,
         startedAt = t0, roomStatus = RoomStatus.OPEN, myUserId = CallsSamples.ME, screenShareSupported = true,
-        remote = RemoteParticipant(tutor, video = "them", connection = "connected"),
+        remote = RemoteParticipant(tutor, video = "them", connection = "connected", tile = CallConnection.TileStatus.LIVE),
         board = CallsSamples.board,
         chat = listOf(
             CallChatMessage("m1", CallsSamples.TUTOR, "王老师", "微辣 wēi là = a little spicy", t0 + 20_000),
@@ -59,14 +60,19 @@ class CallScreenshots : LabScreenshotTest() {
     private val now = { t0 + 12 * 60_000 + 34_000 }
 
     @Test fun preJoin() = shoot("calls-11-prejoin") {
-        CallScreen(CallState(mediaReady = true, hasCamera = true, localVideo = "me", recordSupported = true), info, CallActions(), fakeVideo)
+        CallScreen(CallState(mediaReady = true, hasMic = true, hasCamera = true, localVideo = "me", recordSupported = true), info, CallActions(), fakeVideo)
     }
 
+    /** Mic refused for good ("don't ask again" → Open settings), camera refused once (Try again): Join still works. */
     @Test fun preJoinBlocked() = shoot("calls-12-prejoin-blocked") {
         CallScreen(
-            CallState(mediaError = "Camera and microphone are blocked. Allow the microphone for 学 Lab (Settings → Apps → 学 Lab → Permissions), then tap Allow.", recordSupported = true),
-            info.copy(needsPermission = true), CallActions(), fakeVideo,
+            CallState(mediaReady = true, recordSupported = true, micProblem = MediaProblem.BLOCKED, camProblem = MediaProblem.BLOCKED),
+            info.copy(micAccess = DeviceAccess.SETTINGS, camAccess = DeviceAccess.ASK), CallActions(), fakeVideo,
         )
+    }
+
+    @Test fun preJoinCameraInUse() = shoot("calls-31-prejoin-camera-in-use") {
+        CallScreen(CallState(mediaReady = true, hasMic = true, recordSupported = true, camOn = false, camProblem = MediaProblem.IN_USE), info, CallActions(), fakeVideo)
     }
 
     @Test fun waitingAlone() = shoot("calls-13-live-waiting") {
@@ -90,7 +96,17 @@ class CallScreenshots : LabScreenshotTest() {
     }
 
     @Test fun reconnecting() = shoot("calls-18-live-reconnecting-camera-off") {
-        CallScreen(live.copy(roomStatus = RoomStatus.RECONNECTING, camOn = false, micOn = false, recording = false, remote = live.remote!!.copy(connection = "connecting", peer = tutor.copy(state = PeerMediaState(mic = true)))), info, CallActions(), fakeVideo, now)
+        CallScreen(live.copy(roomStatus = RoomStatus.RECONNECTING, camOn = false, micOn = false, recording = false, remote = live.remote!!.copy(connection = "connecting", tile = CallConnection.TileStatus.CONNECTING, peer = tutor.copy(state = PeerMediaState(mic = true)))), info, CallActions(), fakeVideo, now)
+    }
+
+    /** A dropout: their last frame stays up, frozen, with "Reconnecting…" in the corner — never a blank tile. */
+    @Test fun reconnectingFrozenFrame() = shoot("calls-32-live-reconnecting-frozen") {
+        CallScreen(live.copy(remote = live.remote!!.copy(connection = "disconnected", tile = CallConnection.TileStatus.RECONNECTING, away = true)), info, CallActions(), fakeVideo, now)
+    }
+
+    /** Joined without a mic (blocked): the mic button shows "!" and asks for it when tapped. */
+    @Test fun liveWithoutMic() = shoot("calls-33-live-no-mic") {
+        CallScreen(live.copy(hasMic = false, micProblem = MediaProblem.BLOCKED, recording = false), info, CallActions(), fakeVideo, now)
     }
 
     @Test fun ended() = shoot("calls-19-ended-uploading") {
@@ -99,7 +115,7 @@ class CallScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun preJoinUnfolded() = shoot("calls-20-prejoin-unfolded") {
-        CallScreen(CallState(mediaReady = true, hasCamera = true, localVideo = "me", recordSupported = true), info, CallActions(), fakeVideo)
+        CallScreen(CallState(mediaReady = true, hasMic = true, hasCamera = true, localVideo = "me", recordSupported = true), info, CallActions(), fakeVideo)
     }
 
     // ---- video fit (shared/calls/videoFit.ts): cropped only when the shapes nearly match
@@ -185,5 +201,52 @@ class CallScreenshots : LabScreenshotTest() {
     @Test fun sharingWhileTheyDraw() = shoot("calls-27-sharing-they-draw") {
         val theirs = drawings.copy(strokes = drawings.strokes.mapValues { it.value.copy(from = "c-a") }, lastRemoteAt = t0 + 12 * 60_000 + 33_000, lastRemoteName = "王老师")
         CallScreen(live.copy(screenVideo = "screen@1080x2400", annotations = theirs), info.copy(screenOverlayOn = true), CallActions(), fakeVideo, now)
+    }
+
+    // ---- round 2: the board is always light paper; the other person's IME composition in their flag
+
+    private val composeNotes = "第五课 · 点菜\n服务员 - fúwùyuán - waiter\n我想喝一杯咖啡"
+    private val composeBoard = TextBoardUi(
+        text = composeNotes,
+        version = 5,
+        remote = listOf(dev.jeromeswannack.chineselearning.lab.core.calls.RemoteCaret("c-a", CallsSamples.TUTOR, "王老师", "#e11d48", 9, 9, 9, compose = "菜单cai")),
+    )
+    private val composeOffer = GlossSuggestion("我想喝一杯咖啡", composeNotes.codePointCount(0, composeNotes.length), BoardGloss("wǒ xiǎng hē yì bēi kāfēi", "I want to drink a cup of coffee"))
+
+    @Test fun textBoardComposeLight() = shoot("calls-34-text-board-compose-light") {
+        CallScreen(live.copy(textBoard = composeBoard), info.copy(boardGlossPreview = composeOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+    }
+
+    @Test fun textBoardComposeDark() = shoot("calls-35-text-board-compose-dark", dark = true) {
+        CallScreen(live.copy(textBoard = composeBoard), info.copy(boardGlossPreview = composeOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+    }
+
+    @Test fun drawBoardDark() = shoot("calls-36-draw-board-dark", dark = true) {
+        CallScreen(live, info, CallActions(), fakeVideo, now, initialPanel = CallPanel.BOARD)
+    }
+
+    /** The ⋯ menu's device picker: camera front / back, where the sound goes. */
+    @Test fun devicePicker() = shoot("calls-38-device-picker") {
+        androidx.compose.foundation.layout.Column(Modifier.background(dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.background)) {
+            CallMoreMenu(live, info.copy(audioRoute = AudioRoute.BLUETOOTH, audioRoutes = listOf(AudioRoute.SPEAKER, AudioRoute.EARPIECE, AudioRoute.HEADSET, AudioRoute.BLUETOOTH)), CallActions(), close = {})
+        }
+    }
+
+    @Test fun connectionLog() = shoot("calls-39-review-connection-log") {
+        val ev = listOf(
+            Triple(0L, "join", "joining (mic on, camera on, instance k3j9x0ab12cd)") to "Jerome",
+            Triple(900L, "room", "open") to "Jerome",
+            Triple(2_100L, "pc", "connected") to "Jerome",
+            Triple(2_600L, "route", "relay/udp via turn") to "Jerome",
+            Triple(3_000L, "route", "srflx") to "王老师",
+            Triple(754_000L, "pc", "disconnected") to "Jerome",
+            Triple(754_300L, "room", "reconnecting") to "Jerome",
+            Triple(756_600L, "restart", "ICE restart #1 (disconnected)") to "Jerome",
+            Triple(757_100L, "peer", "王老师 came back (same session) — link kept, signals → new client") to "Jerome",
+            Triple(758_000L, "pc", "connected again") to "Jerome",
+        ).map { (e, who) -> dev.jeromeswannack.chineselearning.lab.data.api.CallDiagDto(t0 + e.first, e.second, e.third, if (who == "Jerome") CallsSamples.ME else CallsSamples.TUTOR, who) }
+        androidx.compose.foundation.layout.Column(Modifier.background(dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.background).padding(16.dp)) {
+            ConnectionLog(ev, initiallyOpen = true)
+        }
     }
 }

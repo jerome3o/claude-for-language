@@ -24,6 +24,9 @@ import {
   sanitizeSelection,
   sanitizeTextOp,
   sanitizeTextSnapshot,
+  sanitizeCompose,
+  sanitizeDiagEvents,
+  appendDiag,
   snapshotText,
   TextDoc,
   MAX_TEXT_DOC_CHARS,
@@ -33,6 +36,7 @@ import {
   MAX_CHAT_MESSAGES,
   type BoardItem,
   type CallChatMessage,
+  type CallDiagEntry,
   type CallPeer,
   type ClientMessage,
   type PeerMediaState,
@@ -54,27 +58,70 @@ interface Attachment {
   state: PeerMediaState;
   /** Caret / selection on the shared text board (kept here so it survives hibernation). */
   sel?: TextSelection | null;
+  /** The page load / app session this socket belongs to (shared/calls/connection.ts). */
+  instance?: string;
 }
 
 /** An empty room ends the call after this long (everyone closed the tab without pressing End). */
 const EMPTY_ROOM_END_MS = 20 * 60_000;
 const DEFAULT_STATE: PeerMediaState = { mic: true, cam: true, screen: false, recording: false };
+/**
+ * Board / text / diagnostics are written to storage at most this often. Edits are
+ * relayed first and persisted after, unconfirmed, so a keystroke's relay never
+ * waits on a storage write (the output gate would otherwise hold every message
+ * until the previous keystroke's write is durable). A lost write is harmless:
+ * clients replay the edits the room hasn't confirmed on every rejoin.
+ */
+const PERSIST_EVERY_MS = 400;
 
 export class CallRoom extends DurableObject<Env> {
   private board: BoardItem[] | null = null;
   private chat: CallChatMessage[] | null = null;
   private text: TextDoc | null = null;
+  private diag: CallDiagEntry[] | null = null;
+  private dirty = new Set<'board' | 'text' | 'diag'>();
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   private async load(): Promise<void> {
-    if (this.board && this.chat && this.text) return;
-    const [board, chat, text] = await Promise.all([
+    if (this.board && this.chat && this.text && this.diag) return;
+    const [board, chat, text, diag] = await Promise.all([
       this.ctx.storage.get<BoardItem[]>('board'),
       this.ctx.storage.get<CallChatMessage[]>('chat'),
       this.ctx.storage.get<TextDocSnapshot>('text'),
+      this.ctx.storage.get<CallDiagEntry[]>('diag'),
     ]);
     this.board = board ?? [];
     this.chat = chat ?? [];
     this.text = new TextDoc('room', sanitizeTextSnapshot(text));
+    this.diag = diag ?? [];
+  }
+
+  /** Persist soon (coalesced), without holding back the messages already relayed. */
+  private markDirty(what: 'board' | 'text' | 'diag'): void {
+    this.dirty.add(what);
+    if (this.persistTimer) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.persistNow();
+    }, PERSIST_EVERY_MS);
+  }
+
+  private async persistNow(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    if (this.dirty.size === 0) return;
+    const entries: Record<string, unknown> = {};
+    if (this.dirty.has('board') && this.board) entries.board = this.board;
+    if (this.dirty.has('text') && this.text) entries.text = this.text.snapshot();
+    if (this.dirty.has('diag') && this.diag) entries.diag = this.diag;
+    this.dirty.clear();
+    try {
+      await this.ctx.storage.put(entries, { allowUnconfirmed: true });
+    } catch (err) {
+      console.error('[call-room] persist failed:', err);
+    }
   }
 
   private cursorsExcept(ws: WebSocket): TextCursor[] {
@@ -103,7 +150,7 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   private peerOf(a: Attachment): CallPeer {
-    return { client_id: a.clientId, user_id: a.userId, name: a.name, picture_url: a.picture, state: a.state };
+    return { client_id: a.clientId, user_id: a.userId, name: a.name, picture_url: a.picture, state: a.state, ...(a.instance ? { instance: a.instance } : {}) };
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -115,12 +162,18 @@ export class CallRoom extends DurableObject<Env> {
     await this.ctx.storage.put('callId', callId);
     await this.load();
 
-    // Same user again (a reload, a second device): the new socket replaces the old.
+    const instance = request.headers.get('X-Instance') || undefined;
+    // Same user again: the new socket replaces the old. From the same page load it is
+    // just a reconnect (the old socket is a dead one) — closed quietly; from anywhere
+    // else (a reload, a second device) the old page is told it was replaced.
     const existing = this.sockets();
     for (const { ws, a } of existing) {
       if (a.userId === userId) {
-        this.send(ws, { type: 'replaced' });
-        ws.close(4000, 'Joined from somewhere else');
+        if (instance && a.instance === instance) ws.close(4001, 'Reconnected');
+        else {
+          this.send(ws, { type: 'replaced' });
+          ws.close(4000, 'Joined from somewhere else');
+        }
         this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
       }
     }
@@ -135,6 +188,7 @@ export class CallRoom extends DurableObject<Env> {
       name: decodeURIComponent(request.headers.get('X-User-Name') || 'Someone'),
       picture: request.headers.get('X-User-Picture') || null,
       state: { ...DEFAULT_STATE },
+      ...(instance ? { instance } : {}),
     };
     this.ctx.acceptWebSocket(server, [userId]);
     server.serializeAttachment(attachment);
@@ -184,8 +238,8 @@ export class CallRoom extends DurableObject<Env> {
         if (!op) return;
         await this.load();
         this.board = capBoardSize(applyBoardOp(this.board!, op));
-        await this.ctx.storage.put('board', this.board);
         this.broadcast({ type: 'board', op }, ws);
+        this.markDirty('board');
         return;
       }
       case 'text': {
@@ -204,15 +258,17 @@ export class CallRoom extends DurableObject<Env> {
           accepted.push(op);
         }
         if (accepted.length === 0) return;
-        await this.ctx.storage.put('text', doc.snapshot());
+        // Relay first: the other person sees the keystroke now; the storage write follows.
         this.broadcast({ type: 'text', from: a.clientId, ops: accepted }, ws);
+        this.markDirty('text');
         return;
       }
       case 'text_cursor': {
         const sel = sanitizeSelection(msg.sel);
+        const compose = sanitizeCompose(msg.compose);
+        this.broadcast({ type: 'text_cursor', client_id: a.clientId, user_id: a.userId, name: a.name, sel, ...(compose ? { compose } : {}) }, ws);
         a.sel = sel;
         ws.serializeAttachment(a);
-        this.broadcast({ type: 'text_cursor', client_id: a.clientId, user_id: a.userId, name: a.name, sel }, ws);
         return;
       }
       case 'annot': {
@@ -237,8 +293,16 @@ export class CallRoom extends DurableObject<Env> {
         await this.load();
         const message: CallChatMessage = { id: crypto.randomUUID(), user_id: a.userId, name: a.name, text, at: Date.now() };
         this.chat = [...this.chat!, message].slice(-MAX_CHAT_MESSAGES);
-        await this.ctx.storage.put('chat', this.chat);
         this.broadcast({ type: 'chat', message });
+        await this.ctx.storage.put('chat', this.chat, { allowUnconfirmed: true });
+        return;
+      }
+      case 'diag': {
+        const events = sanitizeDiagEvents(msg.events);
+        if (events.length === 0) return;
+        await this.load();
+        this.diag = appendDiag(this.diag!, events.map((e) => ({ ...e, user_id: a.userId, name: a.name })));
+        this.markDirty('diag');
         return;
       }
       case 'state': {
@@ -288,6 +352,7 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   private async snapshot(): Promise<void> {
+    await this.persistNow();
     const callId = await this.ctx.storage.get<string>('callId');
     if (!callId) return;
     await this.load();
@@ -296,6 +361,7 @@ export class CallRoom extends DurableObject<Env> {
         board: this.board!,
         chat: this.chat!,
         text: this.text ? this.text.text() : snapshotText(null),
+        diagnostics: this.diag ?? [],
         startedAt: (await this.ctx.storage.get<number>('startedAt')) ?? null,
       });
     } catch (err) {

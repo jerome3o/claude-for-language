@@ -6,3 +6,4 @@ export * from './textDoc';
 export * from './alerts';
 export * from './annotate';
 export * from './gloss';
+export * from './connection';

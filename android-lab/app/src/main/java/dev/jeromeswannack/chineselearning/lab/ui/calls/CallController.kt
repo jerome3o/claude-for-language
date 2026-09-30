@@ -4,6 +4,10 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.BoardItem
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardOp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallBoard
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.LinkEvent
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.PcState
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStatus
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallPeer
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallProtocol
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallSignal
@@ -30,7 +34,21 @@ typealias VideoHandle = Any
 
 enum class CallPhase { PREJOIN, JOINING, LIVE, ENDED, ERROR }
 
-data class RemoteParticipant(val peer: CallPeer, val video: VideoHandle? = null, val connection: String = "new")
+/**
+ * The other person. [connection] = the PeerConnection state; [tile] = the badge on their tile
+ * (core CallConnection.tileStatus); [away] = their socket dropped and we are keeping the link (and
+ * their last frame) for PEER_AWAY_GRACE_MS in case they come back.
+ */
+data class RemoteParticipant(
+    val peer: CallPeer,
+    val video: VideoHandle? = null,
+    val connection: String = "new",
+    val tile: TileStatus = TileStatus.CONNECTING,
+    val away: Boolean = false,
+)
+
+/** Why a device isn't in the call. BLOCKED = the permission is missing. */
+enum class MediaProblem { BLOCKED, IN_USE, NO_DEVICE, FAILED }
 
 /** The shared text board as the screen draws it (core CallTextBoard, web TextBoard.tsx). */
 data class TextBoardUi(
@@ -58,11 +76,15 @@ data class CallState(
     val phase: CallPhase = CallPhase.PREJOIN,
     val error: String? = null,
     val mediaError: String? = null,
-    /** Mic (and camera, if any) are open — the preview shows and Join is possible. */
+    /** The devices were opened (whatever is allowed) — the preview shows. Join never waits for a device. */
     val mediaReady: Boolean = false,
     val micOn: Boolean = true,
     val camOn: Boolean = true,
+    /** A microphone track exists (the permission is granted and it opened). */
+    val hasMic: Boolean = false,
     val hasCamera: Boolean = false,
+    val micProblem: MediaProblem? = null,
+    val camProblem: MediaProblem? = null,
     val frontCamera: Boolean = true,
     val localVideo: VideoHandle? = null,
     val screenVideo: VideoHandle? = null,
@@ -86,11 +108,14 @@ data class CallState(
     val sharingScreen: Boolean get() = screenVideo != null
 }
 
-/** Result of opening the mic + camera. */
-sealed interface MediaOpen {
-    data object Ok : MediaOpen
-    data class AudioOnly(val message: String) : MediaOpen
-    data class Failed(val message: String) : MediaOpen
+/**
+ * Result of opening the devices: whatever is allowed opens, the rest says why not. Opening again
+ * only adds what is missing (a permission granted mid-call).
+ */
+data class MediaOpen(val mic: Boolean, val camera: Boolean, val micProblem: MediaProblem? = null, val cameraProblem: MediaProblem? = null) {
+    companion object {
+        val Ok = MediaOpen(mic = true, camera = true)
+    }
 }
 
 /** What a peer link reports back. */
@@ -98,24 +123,39 @@ interface PeerListener {
     fun sendSignal(signal: CallSignal)
     fun onRemoteVideo(video: VideoHandle?)
     fun onConnectionState(state: String)
+    fun onIceState(state: String) {}
 }
+
+/** From the link's stats: the estimated outgoing bitrate and the route in use ("relay/udp via turn", "host"…). */
+data class PeerStats(val availableOutgoingBps: Double?, val route: String?)
 
 /** One WebRTC connection to the other participant (data/calls/rtc/PeerLink.kt; a fake in tests). */
 interface PeerSession {
     fun handleSignal(signal: CallSignal)
     /** Sends [video] instead of the current video (camera ↔ screen); null sends nothing. */
     fun setVideo(video: VideoHandle?)
+    /** Sends [audio] (a mic that appeared mid-call) on the existing transceiver — no renegotiation. */
+    fun setAudio(audio: VideoHandle?) {}
+    fun restartIce() {}
+    suspend fun stats(): PeerStats? = null
+    fun setVideoEncoding(encoding: CallConnection.VideoEncoding) {}
     fun close()
 }
 
 /** Camera, mic and the WebRTC factory (data/calls/rtc/WebRtcMedia.kt; a fake in tests). */
 interface CallMedia {
+    val hasMic: Boolean
     val hasCamera: Boolean
     val frontCamera: Boolean
+    /** The mic track (an org.webrtc.AudioTrack on the phone). */
+    val micAudio: VideoHandle?
     val cameraVideo: VideoHandle?
     val screenVideo: VideoHandle?
     val screenShareSupported: Boolean
+    /** Opens what is allowed and not open yet. */
     suspend fun open(): MediaOpen
+    /** Camera errors after it started (another app took it…), for the connection log. */
+    fun onProblem(listener: (String) -> Unit) {}
     fun setMicEnabled(on: Boolean)
     fun setCameraEnabled(on: Boolean)
     suspend fun flipCamera(): Boolean
@@ -137,7 +177,8 @@ interface CallRecorderControl {
 
 /** Everything else the controller needs from the app. */
 class CallDeps(
-    val openRoom: (RoomHandlers) -> CallRoom,
+    /** Opens the room socket; the second argument is this join's instance id (`&instance=` on the socket URL). */
+    val openRoom: (RoomHandlers, String) -> CallRoom,
     val media: CallMedia,
     val recorder: CallRecorderControl,
     /** `POST /api/calls/:id/end` when the room can't take the message. */
@@ -155,12 +196,22 @@ class CallDeps(
     val uploadEveryMs: Long = 5_000,
     /** My user id: the text board's site prefix, which the room checks. */
     val userId: () -> String = { "" },
+    val now: () -> Long = System::currentTimeMillis,
+    /** Every connection transition, for logcat (the connection log goes to the room too). */
+    val log: (String) -> Unit = { runCatching { android.util.Log.i("CallController", it) } },
 )
 
 /**
  * The live call (port of frontend/src/hooks/useCall.ts): camera / mic, the room socket, the WebRTC
  * link to the other participant, the whiteboard and chat state, the recorder and its upload queue.
  * The screen is only layout. [scope] must be single-threaded (Main): room callbacks are hopped onto it.
+ *
+ * Keeping the call through a bad connection (core CallConnection, parity-tested with
+ * shared/calls/connection.ts): the room socket and the WebRTC link are independent. A peer whose
+ * socket drops is kept "away" (their last frame frozen) for PEER_AWAY_GRACE_MS; the same person
+ * from the same app session coming back adopts the existing link (signals just go to their new
+ * client id). ICE restarts follow the link's health (grace, backoff, only while the socket is
+ * open). Every transition goes to the call's connection log (`diag`).
  */
 class CallController(
     private val callId: String,
@@ -172,9 +223,23 @@ class CallController(
     val state: StateFlow<CallState> = _state.asStateFlow()
 
     private val media = deps.media
-    private var room: CallRoom? = null
+    private val now = deps.now
+    @Volatile private var room: CallRoom? = null
     private var link: PeerSession? = null
-    private var remoteId: String? = null
+    /** Who the link is with (their latest announcement: client id, instance). */
+    private var linkPeer: CallPeer? = null
+    /** Where the link's signals go (their current client id). */
+    @Volatile private var remoteId: String? = null
+    /** Bumped for every new link: callbacks from a closed link are ignored. */
+    @Volatile private var linkGen = 0
+    private var health = CallConnection.initialLinkHealth(0)
+    private var away = false
+    private var awayJob: Job? = null
+    private var restartJob: Job? = null
+    private var statsJob: Job? = null
+    private var lastRoute: String? = null
+    private var lastBps: Double? = null
+    private var lastEncoding: CallConnection.VideoEncoding? = null
     private var selfId: String? = null
     private var ice: List<IceServerDto> = emptyList()
     private var mediaState = PeerMediaState(mic = true, cam = true)
@@ -182,6 +247,9 @@ class CallController(
     private var finished = false
     private var opening: Job? = null
     private var uploadsLoop: Job? = null
+    /** This join's app-session id, sent on the socket URL: the other side keeps our link when we come back with it. */
+    var instance: String = CallConnection.newInstanceId()
+        private set
 
     init {
         uploadsLoop = scope.launch {
@@ -191,30 +259,94 @@ class CallController(
                 delay(deps.uploadEveryMs)
             }
         }
+        media.onProblem { detail -> scope.launch { diag("media", detail) } }
     }
 
     fun setPendingUploads(n: Int) = _state.update { it.copy(pendingUploads = n) }
 
-    // ---------------------------------------------------------------- media
+    private val roomOpen: Boolean get() = _state.value.roomStatus == RoomStatus.OPEN
 
-    /** Opens the camera + mic for the preview (after the permissions are granted). */
-    fun startPreview(): Job {
-        // A run in flight (or one that opened the media) is reused; a failed one is retried (the
-        // permission was granted after a refusal).
-        opening?.let { if (it.isActive || _state.value.mediaReady) return it }
-        return scope.launch {
-            when (val r = media.open()) {
-                MediaOpen.Ok -> _state.update { it.copy(mediaReady = true, mediaError = null, hasCamera = media.hasCamera, localVideo = media.cameraVideo, frontCamera = media.frontCamera) }
-                is MediaOpen.AudioOnly -> _state.update { it.copy(mediaReady = true, mediaError = r.message, hasCamera = false, camOn = false, localVideo = null) }
-                is MediaOpen.Failed -> _state.update { it.copy(mediaReady = false, mediaError = r.message) }
-            }
-            media.setMicEnabled(_state.value.micOn)
-            if (media.hasCamera) media.setCameraEnabled(_state.value.camOn)
-        }.also { opening = it }
+    // ---------------------------------------------------------------- diagnostics
+
+    private val diagBuffer = ArrayList<CallConnection.DiagEvent>()
+
+    /** One line of the call's connection log: to logcat now, to the room when the socket is open. */
+    internal fun diag(kind: String, detail: String) {
+        deps.log("[$kind] $detail")
+        diagBuffer += CallConnection.DiagEvent(now(), kind, detail.replace(Regex("[\r\n]+"), " ").take(200))
+        while (diagBuffer.size > CallConnection.MAX_DIAG_EVENTS) diagBuffer.removeAt(0)
+        flushDiag()
     }
 
-    /** The permissions were refused: say so (web: "Camera and microphone are blocked…"). */
-    fun mediaBlocked(message: String) = _state.update { it.copy(mediaError = message, mediaReady = false) }
+    private fun flushDiag() {
+        val r = room ?: return
+        if (!roomOpen) return
+        while (diagBuffer.isNotEmpty()) {
+            val batch = diagBuffer.take(CallConnection.MAX_DIAG_EVENTS_PER_MESSAGE)
+            if (!r.send(CallProtocol.diag(batch))) return
+            repeat(batch.size) { diagBuffer.removeAt(0) }
+        }
+    }
+
+    // ---------------------------------------------------------------- media
+
+    /** Opens the camera + mic for the preview (whatever is allowed). */
+    fun startPreview(): Job {
+        // A run in flight (or one that opened the media) is reused.
+        opening?.let { if (it.isActive || _state.value.mediaReady) return it }
+        return refreshDevices()
+    }
+
+    /**
+     * Opens whatever is allowed now and isn't open yet — after a permission is granted (on the
+     * pre-join screen, or mid-call from the mic / camera button). A new mic or camera is put on the
+     * existing link (no renegotiation), and a recording that was wanted starts once there is a mic.
+     */
+    fun refreshDevices(): Job = scope.launch {
+        val hadMic = media.hasMic
+        val hadCam = media.hasCamera
+        val r = media.open()
+        val gotMic = media.hasMic && !hadMic
+        val gotCam = media.hasCamera && !hadCam
+        _state.update {
+            it.copy(
+                mediaReady = true,
+                hasMic = media.hasMic,
+                hasCamera = media.hasCamera,
+                micProblem = if (media.hasMic) null else r.micProblem ?: MediaProblem.NO_DEVICE,
+                camProblem = if (media.hasCamera) null else r.cameraProblem ?: MediaProblem.NO_DEVICE,
+                micOn = if (gotMic) true else it.micOn,
+                camOn = if (gotCam) true else if (!media.hasCamera) false else it.camOn,
+                localVideo = media.cameraVideo,
+                frontCamera = media.frontCamera,
+                mediaError = null,
+            )
+        }
+        if (!media.hasMic) diag("media", "microphone: ${(r.micProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
+        if (!media.hasCamera) diag("media", "camera: ${(r.cameraProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
+        if (gotMic && _state.value.phase == CallPhase.LIVE) diag("media", "microphone added mid-call")
+        if (gotCam && _state.value.phase == CallPhase.LIVE) diag("media", "camera added mid-call")
+        media.setMicEnabled(_state.value.micOn)
+        if (media.hasCamera) media.setCameraEnabled(_state.value.camOn)
+        if ((gotMic || gotCam) && _state.value.phase == CallPhase.LIVE) deps.keepAlive(true) // the foreground service takes the new device's type
+        if (gotMic) {
+            link?.setAudio(media.micAudio)
+            deps.recorder.muted = !_state.value.micOn
+            if (_state.value.phase == CallPhase.LIVE) {
+                broadcastState { it.copy(mic = _state.value.micOn) }
+                if (wantRecord && !deps.recorder.recording) startRecording()
+            }
+        }
+        if (gotCam) {
+            if (!_state.value.sharingScreen) link?.setVideo(media.cameraVideo)
+            lastEncoding = null
+            applyEncoding()
+            if (_state.value.phase == CallPhase.LIVE) broadcastState { it.copy(cam = _state.value.camOn) }
+        }
+    }.also { opening = it }
+
+    /** The permissions were refused (kept for older callers; the pre-join screen explains per device). */
+    fun mediaBlocked(message: String) = _state.update { it.copy(mediaError = message, mediaReady = true) }
 
     private fun broadcastState(patch: (PeerMediaState) -> PeerMediaState) {
         mediaState = patch(mediaState)
@@ -224,36 +356,165 @@ class CallController(
     // ---------------------------------------------------------------- peer link
 
     private fun closeLink() {
+        linkGen++
         link?.close()
         link = null
+        linkPeer = null
         remoteId = null
+        away = false
+        awayJob?.cancel(); awayJob = null
+        restartJob?.cancel(); restartJob = null
+        statsJob?.cancel(); statsJob = null
+        lastRoute = null
+        lastEncoding = null
     }
 
     private fun openLink(peer: CallPeer) {
         closeLink()
+        val gen = ++linkGen
         remoteId = peer.clientId
+        linkPeer = peer
+        health = CallConnection.initialLinkHealth(now())
+        val polite = (selfId ?: "") < peer.clientId
         _state.update { it.copy(remote = RemoteParticipant(peer)) }
-        val r = room
-        link = media.createPeer(ice, polite = (selfId ?: "") < peer.clientId, listener = object : PeerListener {
+        link = media.createPeer(ice, polite = polite, listener = object : PeerListener {
             override fun sendSignal(signal: CallSignal) {
-                r?.send(CallProtocol.signal(peer.clientId, signal.toJson()))
+                val to = remoteId
+                if (gen == linkGen && to != null) room?.send(CallProtocol.signal(to, signal.toJson()))
             }
 
             override fun onRemoteVideo(video: VideoHandle?) {
-                scope.launch { _state.update { s -> if (s.remote?.peer?.clientId == peer.clientId) s.copy(remote = s.remote.copy(video = video)) else s } }
+                scope.launch { if (gen == linkGen) _state.update { s -> s.remote?.let { s.copy(remote = it.copy(video = video)) } ?: s } }
             }
 
             override fun onConnectionState(state: String) {
-                scope.launch { _state.update { s -> if (s.remote?.peer?.clientId == peer.clientId) s.copy(remote = s.remote.copy(connection = state)) else s } }
+                scope.launch { if (gen == linkGen) onPcState(state) }
+            }
+
+            override fun onIceState(state: String) {
+                scope.launch { if (gen == linkGen) diag("ice", state) }
             }
         })
+        diag("peer", "link to ${peer.name.ifBlank { "the other person" }} (${if (polite) "answerer" else "offerer"})")
         if (_state.value.sharingScreen) link?.setVideo(media.screenVideo)
+        applyEncoding()
+        statsJob = scope.launch {
+            while (isActive && gen == linkGen) {
+                delay(STATS_EVERY_MS)
+                pollStats()
+            }
+        }
+    }
+
+    private fun publishRemote() {
+        _state.update { s ->
+            val r = s.remote ?: return@update s
+            s.copy(remote = r.copy(connection = health.pc.wire, tile = CallConnection.tileStatus(health, away), away = away))
+        }
+    }
+
+    private fun onPcState(wire: String) {
+        val st = PcState.of(wire) ?: return
+        val before = health
+        health = CallConnection.linkHealthOn(health, LinkEvent.Pc(st, now()))
+        if (health != before) diag("pc", if (st == PcState.CONNECTED && before.everConnected) "connected again" else wire)
+        if (st == PcState.CONNECTED) {
+            lastRoute = null
+            scope.launch { pollStats() }
+        }
+        publishRemote()
+        scheduleRestart()
+    }
+
+    /** (Re)arms the next ICE restart from the link's health; nothing while the room socket is down. */
+    private fun scheduleRestart() {
+        restartJob?.cancel()
+        restartJob = null
+        val l = link ?: return
+        val at = CallConnection.nextIceRestartAt(health, roomOpen) ?: return
+        val gen = linkGen
+        restartJob = scope.launch {
+            val wait = at - now()
+            if (wait > 0) delay(wait)
+            if (gen != linkGen) return@launch
+            l.restartIce()
+            health = CallConnection.linkHealthOn(health, LinkEvent.Restarted(now()))
+            diag("restart", "ICE restart #${health.restarts} (${health.pc.wire})")
+            restartJob = null
+            scheduleRestart()
+        }
+    }
+
+    /** Their socket is gone: keep the link and their last frame for a while. */
+    private fun peerAway() {
+        if (link == null) { _state.update { it.copy(remote = null) }; return }
+        if (away) return
+        away = true
+        val name = linkPeer?.name?.ifBlank { null } ?: "The other person"
+        diag("peer", "$name left the room — keeping the link for ${CallConnection.PEER_AWAY_GRACE_MS / 1000} s")
+        publishRemote()
+        val gen = linkGen
+        awayJob = scope.launch {
+            delay(CallConnection.PEER_AWAY_GRACE_MS)
+            if (gen != linkGen) return@launch
+            diag("peer", "$name did not come back — link closed")
+            closeLink()
+            _state.update { it.copy(remote = null) }
+        }
+    }
+
+    /** Someone is in the room (welcome / peer_joined): the same session keeps the link, anyone else gets a new one. */
+    private fun peerAnnounced(peer: CallPeer) {
+        if (link != null && CallConnection.shouldAdoptPeer(linkPeer, peer)) {
+            awayJob?.cancel(); awayJob = null
+            val wasAway = away
+            away = false
+            val movedFrom = remoteId
+            remoteId = peer.clientId
+            linkPeer = peer
+            _state.update { s -> s.remote?.let { s.copy(remote = it.copy(peer = peer)) } ?: s.copy(remote = RemoteParticipant(peer)) }
+            diag("peer", "${peer.name.ifBlank { "They" }} ${if (wasAway) "came back" else "reconnected"} (same session) — link kept" + if (movedFrom != peer.clientId) ", signals → new client" else "")
+            publishRemote()
+            scheduleRestart()
+        } else {
+            if (link != null) diag("peer", "${peer.name.ifBlank { "They" }} joined from a new session — new link")
+            openLink(peer)
+        }
+    }
+
+    // ---------------------------------------------------------------- stats → route + encodings
+
+    private suspend fun pollStats() {
+        val l = link ?: return
+        val st = runCatching { l.stats() }.getOrNull() ?: return
+        if (l !== link) return
+        if (health.pc == PcState.CONNECTED && st.route != null && st.route != lastRoute) {
+            lastRoute = st.route
+            diag("route", st.route)
+        }
+        if (st.availableOutgoingBps != null) lastBps = st.availableOutgoingBps
+        applyEncoding()
+    }
+
+    /** The video sender's encoding for what it sends now (camera / screen) and the estimated bandwidth. */
+    private fun applyEncoding() {
+        val l = link ?: return
+        val source = if (_state.value.sharingScreen) CallConnection.VideoSource.SCREEN else CallConnection.VideoSource.CAMERA
+        val current = lastEncoding
+        val enc = CallConnection.videoEncodingFor(source, lastBps, if (current != null && source == CallConnection.VideoSource.CAMERA) current.scaleResolutionDownBy else 1.0)
+        if (enc == current) return
+        l.setVideoEncoding(enc)
+        if (current != null && current.scaleResolutionDownBy != enc.scaleResolutionDownBy) {
+            diag("media", "video scale 1/${enc.scaleResolutionDownBy.toInt()} (estimate ${lastBps?.let { "${(it / 1000).toInt()} kbps" } ?: "unknown"})")
+        }
+        lastEncoding = enc
     }
 
     // ---------------------------------------------------------------- recording
 
     fun startRecording() = scope.launch {
-        if (!deps.recorder.supported || deps.recorder.recording || !_state.value.mediaReady) return@launch
+        wantRecord = true
+        if (!deps.recorder.supported || deps.recorder.recording || !_state.value.mediaReady || !media.hasMic) return@launch
         deps.recorder.muted = !_state.value.micOn
         deps.recorder.start { room?.clockOffset ?: 0L }
         _state.update { it.copy(recording = true) }
@@ -261,6 +522,7 @@ class CallController(
     }
 
     fun stopRecording() = scope.launch {
+        wantRecord = false
         deps.recorder.stop()
         _state.update { it.copy(recording = false) }
         broadcastState { it.copy(recording = false) }
@@ -288,7 +550,7 @@ class CallController(
 
     private val handlers = object : RoomHandlers {
         override fun onMessage(msg: ServerMessage) { scope.launch { handle(msg) } }
-        override fun onStatus(status: RoomStatus) { scope.launch { _state.update { it.copy(roomStatus = status) } } }
+        override fun onStatus(status: RoomStatus) { scope.launch { roomStatus(status) } }
         override fun onJoinInfo(info: CallJoinDto) {
             ice = info.ice_servers
             scope.launch { _state.update { it.copy(turn = info.turn) } }
@@ -296,32 +558,45 @@ class CallController(
         override fun onFatal(message: String) { scope.launch { finish(CallPhase.ERROR, message) } }
     }
 
+    internal fun roomStatus(status: RoomStatus) {
+        if (finished) return
+        val before = _state.value.roomStatus
+        _state.update { it.copy(roomStatus = status) }
+        if (before != status) diag("room", status.name.lowercase())
+        if (status == RoomStatus.OPEN) flushDiag()
+        // Restarts wait for the socket (the offer must reach them); re-check now it changed.
+        scheduleRestart()
+    }
+
     internal suspend fun handle(msg: ServerMessage) {
         if (finished) return
         when (msg) {
             is ServerMessage.Welcome -> {
+                val rejoin = selfId != null
                 selfId = msg.clientId
                 _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap()) }
                 text().load(msg.text, msg.textCursors)
                 publishText("load")
                 room?.send(CallProtocol.state(mediaState))
-                if (msg.peers.isNotEmpty()) openLink(msg.peers.first())
-                else { closeLink(); _state.update { it.copy(remote = null) } }
+                if (rejoin) diag("room", "rejoined the room")
+                val p = msg.peers.firstOrNull()
+                if (p != null) peerAnnounced(p) else peerAway()
                 _state.update { it.copy(phase = CallPhase.LIVE) }
                 if (wantRecord && !deps.recorder.recording) startRecording()
+                flushDiag()
             }
-            is ServerMessage.PeerJoined -> openLink(msg.peer)
+            is ServerMessage.PeerJoined -> peerAnnounced(msg.peer)
             is ServerMessage.PeerLeft -> {
                 textBoard?.dropCursor(msg.clientId)
                 publishText("cursor")
-                if (remoteId == msg.clientId) { closeLink(); _state.update { it.copy(remote = null) } }
+                if (remoteId == msg.clientId) peerAway()
             }
             is ServerMessage.Text -> { text().applyRemote(msg.ops); publishText("remote") }
             is ServerMessage.TextCursorMsg -> { text().setCursor(msg.cursor); publishText("cursor") }
             is ServerMessage.Annot -> upsertAnnot(msg.stroke, msg.from, msg.name)
             is ServerMessage.AnnotClear -> _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
             is ServerMessage.AnnotPingMsg -> addPing(msg.from, msg.x, msg.y, msg.name)
-            is ServerMessage.PeerState -> _state.update { s -> if (s.remote?.peer?.clientId == msg.clientId) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
+            is ServerMessage.PeerState -> _state.update { s -> if (remoteId == msg.clientId && s.remote != null) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
             is ServerMessage.Signal -> if (remoteId == msg.from) CallSignal.parse(msg.data)?.let { link?.handleSignal(it) }
             is ServerMessage.Board -> _state.update { s ->
                 s.copy(board = CallBoard.apply(s.board, msg.op), liveStrokes = if (msg.op is BoardItem.Stroke) s.liveStrokes - msg.op.by else s.liveStrokes)
@@ -337,6 +612,13 @@ class CallController(
         }
     }
 
+    /** The phone switched networks (Wi-Fi ↔ mobile): the socket is likely dead — reconnect now, don't wait for the watchdog. */
+    fun networkChanged(description: String) {
+        if (finished || room == null) return
+        diag("room", "network changed ($description) — reconnecting")
+        room?.reconnectNow()
+    }
+
     // ---------------------------------------------------------------- join / leave
 
     fun join(record: Boolean) = scope.launch {
@@ -344,14 +626,12 @@ class CallController(
         finished = false
         _state.update { it.copy(phase = CallPhase.JOINING) }
         startPreview().join()
-        if (!_state.value.mediaReady) {
-            _state.update { it.copy(phase = CallPhase.PREJOIN) }
-            return@launch
-        }
         val s = _state.value
-        mediaState = PeerMediaState(mic = s.micOn, cam = s.camOn && s.hasCamera, screen = false, recording = false)
+        mediaState = PeerMediaState(mic = s.micOn && s.hasMic, cam = s.camOn && s.hasCamera, screen = false, recording = false)
+        instance = CallConnection.newInstanceId()
+        diag("join", "joining (mic ${if (s.hasMic) "on" else s.micProblem?.name?.lowercase() ?: "off"}, camera ${if (s.hasCamera) "on" else s.camProblem?.name?.lowercase() ?: "off"}, instance $instance)")
         deps.keepAlive(true)
-        room = deps.openRoom(handlers).also { it.connect() }
+        room = deps.openRoom(handlers, instance).also { it.connect() }
     }
 
     /** End for everyone (web: endForEveryone). */
@@ -366,7 +646,9 @@ class CallController(
 
     // ---------------------------------------------------------------- controls
 
+    /** Mute / unmute. Without a mic (not allowed yet / failed) it tries to add one (the screen asks for the permission first). */
     fun toggleMic() {
+        if (!media.hasMic) { refreshDevices(); return }
         val next = !_state.value.micOn
         media.setMicEnabled(next)
         deps.recorder.muted = !next
@@ -374,8 +656,9 @@ class CallController(
         broadcastState { it.copy(mic = next) }
     }
 
+    /** Camera on / off. Without a camera it tries to add one. */
     fun toggleCam() {
-        if (!_state.value.hasCamera) return
+        if (!media.hasCamera) { refreshDevices(); return }
         val next = !_state.value.camOn
         media.setCameraEnabled(next)
         _state.update { it.copy(camOn = next) }
@@ -386,12 +669,18 @@ class CallController(
         if (media.flipCamera()) _state.update { it.copy(frontCamera = media.frontCamera) }
     }
 
+    /** Front / back from the device picker. */
+    fun useFrontCamera(front: Boolean) {
+        if (media.hasCamera && media.frontCamera != front) flipCamera()
+    }
+
     fun startScreenShare(permission: Any) = scope.launch {
         if (_state.value.sharingScreen) return@launch
         runCatching { deps.prepareScreenShare() }
         val video = media.startScreenShare(permission) { scope.launch { stopScreenShare() } } ?: return@launch
         link?.setVideo(video)
         _state.update { it.copy(screenVideo = video) }
+        applyEncoding()
         broadcastState { it.copy(screen = true) }
     }
 
@@ -400,6 +689,7 @@ class CallController(
         media.stopScreenShare()
         link?.setVideo(media.cameraVideo)
         _state.update { it.copy(screenVideo = null) }
+        applyEncoding()
         broadcastState { it.copy(screen = false) }
     }
 
@@ -467,19 +757,51 @@ class CallController(
         _state.update { it.copy(textBoard = TextBoardUi(b.text, b.version, b.remoteCarets, b.mySelection(), change)) }
     }
 
+    // IME composition preview (≤ ~12 messages a second, the latest wins).
+    private var composeJob: Job? = null
+    private var composeSentAt = Long.MIN_VALUE / 2
+    private var composePending: String? = null
+    private var composeSent: String? = null
+
+    private fun sendCompose(raw: String?) {
+        composePending = CallConnection.sanitizeCompose(raw)
+        if (composeJob?.isActive == true) return
+        val wait = composeSentAt + COMPOSE_MIN_GAP_MS - now()
+        if (wait <= 0) flushCompose()
+        else composeJob = scope.launch { delay(wait); flushCompose() }
+    }
+
+    private fun flushCompose() {
+        val c = composePending
+        if (c == composeSent) return
+        composeSentAt = now()
+        composeSent = c
+        textBoard?.sendCompose(c)
+    }
+
+    private fun endCompose() {
+        composeJob?.cancel()
+        composeJob = null
+        composePending = null
+        composeSent = null
+    }
+
     /**
      * The field changed: [text] with the selection [start]..[end] (UTF-16); [composing] while an IME
-     * composition is open — then nothing is sent and the other person's edits wait.
+     * composition is open — then no edit is sent (the other person's edits wait) but [compose], the
+     * text being composed, goes out as a preview in my name flag.
      */
-    fun textChanged(text: String, start: Int, end: Int, composing: Boolean) {
+    fun textChanged(text: String, start: Int, end: Int, composing: Boolean, compose: String? = null) {
         val b = text()
         if (composing) {
             if (!b.composing) b.setComposing(true)
+            sendCompose(compose)
             return
         }
         if (b.composing) {
+            endCompose()
             b.setComposing(false, text, end)
-            b.select(start, end)
+            b.select(start, end) // the cursor message without `compose` ends the preview on their side
             b.flushHeld()
             publishText(if (b.text == text) "local" else "remote")
             return
@@ -494,6 +816,7 @@ class CallController(
     }
 
     fun textBlurred() {
+        endCompose()
         textBoard?.clearSelection()
     }
 
@@ -516,5 +839,11 @@ class CallController(
             media.release()
             deps.keepAlive(false)
         }
+    }
+
+    companion object {
+        const val STATS_EVERY_MS = 5_000L
+        /** ≤ ~12 composition previews a second. */
+        const val COMPOSE_MIN_GAP_MS = 84L
     }
 }

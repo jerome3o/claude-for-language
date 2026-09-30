@@ -23,7 +23,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import * as content from '../services/content';
 import { ContentError } from '../services/content';
-import { mergeTranscript, type BoardItem, type CallChatMessage } from '@shared/calls';
+import { mergeTranscript, sanitizeInstance, type BoardItem, type CallChatMessage, type CallDiagEntry } from '@shared/calls';
 import {
   CallError,
   createCall,
@@ -97,7 +97,7 @@ calls.get('/calls/:id', async (c) => {
         .bind(call.id)
         .all(),
     ]);
-    const { board_json, chat_json, summary_json, board_text, ...rest } = call;
+    const { board_json, chat_json, summary_json, board_text, diagnostics_json, ...rest } = call;
     return c.json({
       call: rest,
       participants,
@@ -105,6 +105,8 @@ calls.get('/calls/:id', async (c) => {
       /** What was typed on the shared text board. */
       board_text: board_text ?? '',
       chat: chat_json ? (JSON.parse(chat_json) as CallChatMessage[]) : [],
+      /** Connection events both sides reported (ICE / socket changes, restarts, the route used). */
+      diagnostics: diagnostics_json ? (JSON.parse(diagnostics_json) as CallDiagEntry[]) : [],
       report: summary_json ? (JSON.parse(summary_json) as CallReport) : null,
       pieces: pieces.map((p) => ({
         id: p.id,
@@ -313,6 +315,9 @@ export function mountCallSocket(app: Hono<{ Bindings: Env }>): void {
     headers.set('X-User-Id', user.id);
     headers.set('X-User-Name', encodeURIComponent(user.name || user.email.split('@')[0]));
     if (user.picture_url) headers.set('X-User-Picture', user.picture_url);
+    // One per page load / app session: a socket that comes back with it keeps its WebRTC link.
+    const instance = sanitizeInstance(c.req.query('instance'));
+    if (instance) headers.set('X-Instance', instance);
     const stub = c.env.CALL_ROOM.get(c.env.CALL_ROOM.idFromName(callId));
     return stub.fetch(new Request(c.req.raw.url, { headers }));
   });

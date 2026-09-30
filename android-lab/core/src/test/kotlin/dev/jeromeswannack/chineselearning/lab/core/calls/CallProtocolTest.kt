@@ -56,4 +56,27 @@ class CallProtocolTest {
         assertEquals(offer, CallSignal.parse(offer!!.toJson()))
         assertNull(CallSignal.parse(Json.parseToJsonElement("""{"description":{"type":"weird","sdp":""}}""")))
     }
+
+    @Test fun roundTwoFieldsInstanceComposeAndDiag() {
+        val joined = CallProtocol.parseServer("""{"type":"peer_joined","peer":{"client_id":"c2","user_id":"u2","name":"王老师","picture_url":null,"state":{},"instance":"k3j9x0ab12cd"}}""")
+        assertEquals("k3j9x0ab12cd", (joined as ServerMessage.PeerJoined).peer.instance)
+        // Older rooms / junk: no instance.
+        assertNull((CallProtocol.parseServer("""{"type":"peer_joined","peer":{"client_id":"c2","user_id":"u2","name":"x","state":{}}}""") as ServerMessage.PeerJoined).peer.instance)
+        assertNull((CallProtocol.parseServer("""{"type":"peer_joined","peer":{"client_id":"c2","user_id":"u2","name":"x","state":{},"instance":"a b"}}""") as ServerMessage.PeerJoined).peer.instance)
+        val w = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[{"client_id":"c1","user_id":"u2","name":"A","state":{},"instance":"abcd1234"}],"board":[],"chat":[],
+            "text_cursors":[{"client_id":"c1","user_id":"u2","name":"A","sel":null,"compose":"ni\nhao"}]}""") as ServerMessage.Welcome
+        assertEquals("abcd1234", w.peers.single().instance)
+        assertEquals("ni hao", w.textCursors.single().compose)
+        val cur = CallProtocol.parseServer("""{"type":"text_cursor","client_id":"c1","user_id":"u2","name":"A","sel":null,"compose":"你hao"}""") as ServerMessage.TextCursorMsg
+        assertEquals("你hao", cur.cursor.compose)
+        assertNull((CallProtocol.parseServer("""{"type":"text_cursor","client_id":"c1","user_id":"u2","name":"A","sel":null,"compose":"  "}""") as ServerMessage.TextCursorMsg).cursor.compose)
+        assertNull((CallProtocol.parseServer("""{"type":"text_cursor","client_id":"c1","user_id":"u2","name":"A","sel":null}""") as ServerMessage.TextCursorMsg).cursor.compose)
+        // Outgoing: compose only while composing; diag batches of ≤ 50.
+        assertEquals("""{"type":"text_cursor","sel":null,"compose":"ni"}""", CallTextBoard.cursorMessage(null, "ni"))
+        assertEquals("""{"type":"text_cursor","sel":null}""", CallTextBoard.cursorMessage(null))
+        val events = (1..60).map { CallConnection.DiagEvent(it.toLong(), "pc", "e$it") }
+        val msg = Json.parseToJsonElement(CallProtocol.diag(events)) as kotlinx.serialization.json.JsonObject
+        assertEquals("diag", (msg["type"] as kotlinx.serialization.json.JsonPrimitive).content)
+        assertEquals(events.take(50), CallConnection.sanitizeDiagEvents(msg["events"]))
+    }
 }

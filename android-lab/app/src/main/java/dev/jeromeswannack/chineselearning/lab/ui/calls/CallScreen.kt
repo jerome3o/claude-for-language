@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardOp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStatus
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTranscript
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.core.calls.VideoFit
@@ -100,6 +101,9 @@ typealias VideoSlot = @Composable (video: VideoHandle, mirror: Boolean, contain:
 /** TEXT = the shared text board (the main board), BOARD = drawing. */
 enum class CallPanel { NONE, TEXT, BOARD, CHAT }
 
+/** A permission as the call screen sees it: granted, can be asked, or only fixable in Settings. */
+enum class DeviceAccess { GRANTED, ASK, SETTINGS }
+
 /** What the call page knows beyond the live state. */
 data class CallScreenInfo(
     val title: String? = null,
@@ -109,8 +113,9 @@ data class CallScreenInfo(
     val relationshipId: String? = null,
     val loading: Boolean = false,
     val notFound: Boolean = false,
-    /** Microphone / camera permission refused: show "Allow" again. */
-    val needsPermission: Boolean = false,
+    /** The microphone / camera permissions (the pre-join screen explains a missing one and offers Try again / Open settings). */
+    val micAccess: DeviceAccess = DeviceAccess.GRANTED,
+    val camAccess: DeviceAccess = DeviceAccess.GRANTED,
     val audioRoute: AudioRoute = AudioRoute.SPEAKER,
     val audioRoutes: List<AudioRoute> = listOf(AudioRoute.SPEAKER),
     /** While I share my screen: the other person's drawings are shown over every app. */
@@ -123,7 +128,12 @@ data class CallScreenInfo(
 
 data class CallActions(
     val onBack: () -> Unit = {},
+    /** Ask again for the missing mic / camera permissions ("Try again"). */
     val onAllowMedia: () -> Unit = {},
+    /** The app's page in Settings (a permission Android won't ask for again). */
+    val onOpenSettings: () -> Unit = {},
+    /** The device picker: front (true) or back camera. */
+    val onFrontCamera: (Boolean) -> Unit = {},
     val onJoin: (record: Boolean) -> Unit = {},
     val onToggleMic: () -> Unit = {},
     val onToggleCam: () -> Unit = {},
@@ -137,7 +147,8 @@ data class CallActions(
     val onCommitBoard: (BoardOp) -> Unit = {},
     val onLive: (LiveStroke?) -> Unit = {},
     val onSendChat: (String) -> Boolean = { false },
-    val onTextChanged: (text: String, start: Int, end: Int, composing: Boolean) -> Unit = { _, _, _, _ -> },
+    /** [compose] = the IME composition's text while [composing] (shown to the other person in my name flag). */
+    val onTextChanged: (text: String, start: Int, end: Int, composing: Boolean, compose: String?) -> Unit = { _, _, _, _, _ -> },
     val onTextSelected: (Int, Int) -> Unit = { _, _ -> },
     val onTextBlurred: () -> Unit = {},
     /** Word-by-word meaning of a selection on the board (online). */
@@ -199,7 +210,7 @@ private fun Initials(name: String, size: Dp = 112.dp) {
 }
 
 @Composable
-private fun RoundButton(label: String, desc: String, off: Boolean = false, active: Boolean = false, danger: Boolean = false, badge: Int = 0, size: Dp = 52.dp, onClick: () -> Unit) {
+private fun RoundButton(label: String, desc: String, off: Boolean = false, active: Boolean = false, danger: Boolean = false, badge: Int = 0, warn: Boolean = false, size: Dp = 52.dp, onClick: () -> Unit) {
     Box {
         Box(
             Modifier.size(size).clip(CircleShape)
@@ -211,6 +222,84 @@ private fun RoundButton(label: String, desc: String, off: Boolean = false, activ
             Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).size(20.dp).clip(CircleShape).background(Palette.Again),
             contentAlignment = Alignment.Center,
         ) { Text(if (badge > 9) "9+" else "$badge", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+        // Not in the call (blocked / no device): tap to add it.
+        if (warn) Box(
+            Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).size(20.dp).clip(CircleShape).background(Color(0xFFF59E0B)),
+            contentAlignment = Alignment.Center,
+        ) { Text("!", color = Color(0xFF111827), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+    }
+}
+
+/** The mic / camera buttons: a missing device shows off with a "!" and asks for it when tapped. */
+@Composable
+private fun MicButton(s: CallState, onClick: () -> Unit) =
+    RoundButton(if (s.micOn && s.hasMic) "🎙️" else "🔇", if (!s.hasMic) "Turn on the microphone" else if (s.micOn) "Mute" else "Unmute", off = !s.micOn || !s.hasMic, warn = s.mediaReady && !s.hasMic, onClick = onClick)
+
+@Composable
+private fun CamButton(s: CallState, onClick: () -> Unit) =
+    RoundButton(if (s.camOn && s.hasCamera) "📷" else "🚫", if (!s.hasCamera) "Turn on the camera" else if (s.camOn) "Camera off" else "Camera on", off = !s.camOn || !s.hasCamera, warn = s.mediaReady && !s.hasCamera && s.camProblem != MediaProblem.NO_DEVICE, onClick = onClick)
+
+/** What the Join button says, by which devices will go into the call. */
+fun joinLabel(s: CallState): String = when {
+    s.phase == CallPhase.JOINING -> "Joining…"
+    !s.mediaReady -> "Join call"
+    s.hasMic && s.hasCamera -> "Join call"
+    s.hasMic -> "Join with audio only"
+    s.hasCamera -> "Join without microphone"
+    else -> "Join without camera & mic"
+}
+
+/**
+ * Why the mic / camera aren't in the call, and how to fix it: Try again (asks again / reopens the
+ * camera), or Open settings when Android won't ask again. Joining never waits for this.
+ */
+@Composable
+private fun DeviceNotice(s: CallState, info: CallScreenInfo, actions: CallActions) {
+    if (!s.mediaReady) return
+    val lines = buildList {
+        if (!s.hasMic) add(
+            when (s.micProblem) {
+                MediaProblem.BLOCKED -> "🎙️ Microphone blocked" to "They won’t hear you. 学 Lab needs the microphone to send your voice (and to record it for the transcript)."
+                else -> "🎙️ The microphone didn’t start" to "They won’t hear you until it does."
+            },
+        )
+        if (!s.hasCamera) add(
+            when (s.camProblem) {
+                MediaProblem.BLOCKED -> "📷 Camera blocked" to "They won’t see you. You can still join and turn it on later."
+                MediaProblem.IN_USE -> "📷 The camera is in use by another app" to "Close the other app (another call, the camera app), then tap Try again."
+                MediaProblem.NO_DEVICE -> "📷 No camera found" to "You’ll join with audio only."
+                else -> "📷 The camera didn’t start" to "Tap Try again, or join with audio only."
+            },
+        )
+    }
+    if (lines.isEmpty()) return
+    val blocked = buildList {
+        if (!s.hasMic && s.micProblem == MediaProblem.BLOCKED) add(info.micAccess)
+        if (!s.hasCamera && s.camProblem == MediaProblem.BLOCKED) add(info.camAccess)
+    }
+    val settings = blocked.any { it == DeviceAccess.SETTINGS }
+    val retry = blocked.any { it == DeviceAccess.ASK } || (!s.hasCamera && (s.camProblem == MediaProblem.IN_USE || s.camProblem == MediaProblem.FAILED)) || (!s.hasMic && s.micProblem == MediaProblem.FAILED)
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF2A2314)).border(1.dp, Color(0x66F59E0B), RoundedCornerShape(16.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        lines.forEach { (title, body) ->
+            Column {
+                Text(title, color = OnDark, fontWeight = FontWeight.SemiBold)
+                Text(body, color = MutedDark, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (settings) Text(
+            "Android won’t ask again: open Settings → Permissions and allow ${listOfNotNull(
+                "Microphone".takeIf { !s.hasMic && s.micProblem == MediaProblem.BLOCKED && info.micAccess == DeviceAccess.SETTINGS },
+                "Camera".takeIf { !s.hasCamera && s.camProblem == MediaProblem.BLOCKED && info.camAccess == DeviceAccess.SETTINGS },
+            ).joinToString(" and ")}. Come back here and it switches on.",
+            color = MutedDark, style = MaterialTheme.typography.bodySmall,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (retry) SecondaryPill("Try again", Modifier.height(44.dp), onClick = actions.onAllowMedia)
+            if (settings) SecondaryPill("Open settings", Modifier.height(44.dp), onClick = actions.onOpenSettings)
+        }
     }
 }
 
@@ -273,15 +362,16 @@ private fun PreJoin(s: CallState, info: CallScreenInfo, actions: CallActions, vi
                 if (local != null && s.hasCamera && s.camOn) FittedVideo(local, s.frontCamera, screen = false, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { localFrame = it })
                 else Initials(info.myName)
                 Row(Modifier.align(Alignment.BottomCenter).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    RoundButton(if (s.micOn) "🎙️" else "🔇", if (s.micOn) "Mute microphone" else "Unmute microphone", off = !s.micOn, onClick = actions.onToggleMic)
-                    if (s.hasCamera) RoundButton(if (s.camOn) "📷" else "🚫", if (s.camOn) "Turn camera off" else "Turn camera on", off = !s.camOn, onClick = actions.onToggleCam)
+                    MicButton(s, actions.onToggleMic)
+                    CamButton(s, actions.onToggleCam)
                 }
             }
         }
         val body: @Composable (Modifier) -> Unit = { m ->
             Column(m, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(info.title ?: "Lesson with ${info.otherName ?: "your partner"}", color = OnDark, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                s.mediaError?.let { InlineNotice(it, kind = NoticeKind.Warning, actionLabel = if (info.needsPermission) "Allow" else null, onAction = actions.onAllowMedia) }
+                s.mediaError?.let { InlineNotice(it, kind = NoticeKind.Warning) }
+                DeviceNotice(s, info, actions)
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(DarkCard)
                         .bouncyClickable(enabled = s.recordSupported, pressedScale = 0.99f) { record = !record }
@@ -298,12 +388,13 @@ private fun PreJoin(s: CallState, info: CallScreenInfo, actions: CallActions, vi
                         )
                     }
                 }
+                // Joining never waits for a device: no camera = audio only, no mic = listen & watch.
                 PrimaryPill(
-                    if (s.phase == CallPhase.JOINING) "Joining…" else "Join call",
+                    joinLabel(s),
                     Modifier.fillMaxWidth().height(56.dp),
-                    enabled = s.phase != CallPhase.JOINING && s.mediaReady,
+                    enabled = s.phase != CallPhase.JOINING,
                 ) { actions.onJoin(record && s.recordSupported) }
-                if (!s.mediaReady && s.mediaError == null) Text("Allow the camera and microphone to join.", color = MutedDark, style = MaterialTheme.typography.bodySmall)
+                if (!s.mediaReady && s.mediaError == null) Text("Allow the camera and microphone so they can see and hear you.", color = MutedDark, style = MaterialTheme.typography.bodySmall)
             }
         }
         Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -366,10 +457,16 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     contentAlignment = Alignment.Center,
                 ) {
                     if (remote != null) {
+                        // Their picture stays up through a dropout (the renderer keeps the last frame): never cleared on
+                        // disconnected / failed / away — the badge says what is going on.
                         if (remoteVideoOn) FittedVideo(remote.video!!, false, screen = rs?.screen == true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { remoteFrame = it })
                         else Initials(otherName)
+                        if (remote.tile != TileStatus.LIVE) TileBadge(
+                            if (remote.tile == TileStatus.RECONNECTING) "Reconnecting…" else "Connecting…",
+                            Modifier.align(Alignment.TopStart).padding(12.dp).padding(top = if (remoteSharing) 52.dp else 0.dp),
+                        )
                         Text(
-                            (if (rs != null && !rs.mic) "🔇 " else "") + otherName + if (remote.connection != "connected") " · connecting…" else "",
+                            (if (rs != null && !rs.mic) "🔇 " else "") + otherName,
                             color = Color.White, fontSize = 13.sp,
                             modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 4.dp),
                         )
@@ -446,8 +543,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
             ) {
-                RoundButton(if (s.micOn) "🎙️" else "🔇", if (s.micOn) "Mute" else "Unmute", off = !s.micOn, onClick = actions.onToggleMic)
-                if (s.hasCamera) RoundButton(if (s.camOn) "📷" else "🚫", if (s.camOn) "Camera off" else "Camera on", off = !s.camOn, onClick = actions.onToggleCam)
+                MicButton(s, actions.onToggleMic)
+                CamButton(s, actions.onToggleCam)
                 RoundButton("📝", "Board", active = panel == CallPanel.TEXT || panel == CallPanel.BOARD) { panel = if (panel == CallPanel.TEXT || panel == CallPanel.BOARD) CallPanel.NONE else CallPanel.TEXT }
                 RoundButton("💬", "Chat", active = panel == CallPanel.CHAT, badge = if (panel != CallPanel.CHAT) unread else 0) { panel = if (panel == CallPanel.CHAT) CallPanel.NONE else CallPanel.CHAT }
                 RoundButton("⋯", "More") { more = true }
@@ -456,19 +553,51 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         }
     }
     if (more) LabBottomSheet(onDismiss = { more = false }, title = "Call") {
-        if (s.screenShareSupported) NavRow("🖥️", if (s.sharingScreen) "Stop sharing your screen" else "Share your screen", onClick = { more = false; if (s.sharingScreen) actions.onStopShare() else actions.onShareScreen() })
-        if (s.hasCamera) { RowDivider(); NavRow("🔄", "Flip camera", onClick = { more = false; actions.onFlip() }) }
-        if (s.recordSupported) { RowDivider(); NavRow(if (s.recording) "⏹" else "⏺", if (s.recording) "Stop recording my mic" else "Record my mic", onClick = { more = false; actions.onToggleRecording() }) }
-        if (info.audioRoutes.size > 1) {
-            RowDivider()
-            info.audioRoutes.forEach { r -> NavRow(r.icon, "Sound: ${r.label}", trailing = { if (r == info.audioRoute) Text("✓", color = Lab.colors.accent, fontWeight = FontWeight.Bold) }, onClick = { more = false; actions.onAudioRoute(r) }) }
-        }
-        RowDivider()
-        NavRow("🚪", "Leave (the call goes on)", desc = "Rejoin from the calls page", onClick = { more = false; actions.onLeave() })
-        if (!s.turn) Text("No TURN relay configured — calls on strict networks may not connect.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(16.dp))
-        Spacer(Modifier.height(16.dp))
+        CallMoreMenu(s, info, actions, close = { more = false })
     }
     if (confirmEnd) ConfirmDialog("End the call for everyone?", "The recording is uploaded and the transcript and lesson notes follow.", "End call", onConfirm = { confirmEnd = false; actions.onEnd() }, onDismiss = { confirmEnd = false }, danger = true)
+}
+
+/** The ⋯ sheet: screen share, recording, the device picker (camera front / back, where the sound goes), leave. */
+@Composable
+fun CallMoreMenu(s: CallState, info: CallScreenInfo, actions: CallActions, close: () -> Unit) {
+    val check: @Composable (Boolean) -> Unit = { on -> if (on) Text("✓", color = Lab.colors.accent, fontWeight = FontWeight.Bold) }
+    if (s.screenShareSupported) NavRow("🖥️", if (s.sharingScreen) "Stop sharing your screen" else "Share your screen", onClick = { close(); if (s.sharingScreen) actions.onStopShare() else actions.onShareScreen() })
+    if (s.recordSupported && s.hasMic) { RowDivider(); NavRow(if (s.recording) "⏹" else "⏺", if (s.recording) "Stop recording my mic" else "Record my mic", onClick = { close(); actions.onToggleRecording() }) }
+    DeviceHeader("Camera")
+    if (s.hasCamera) {
+        NavRow("🤳", "Front camera", trailing = { check(s.frontCamera) }, onClick = { close(); actions.onFrontCamera(true) })
+        RowDivider()
+        NavRow("📷", "Back camera", trailing = { check(!s.frontCamera) }, onClick = { close(); actions.onFrontCamera(false) })
+    } else NavRow("📷", "Turn on the camera", desc = if (s.camProblem == MediaProblem.IN_USE) "Another app is using it" else "Allow it for 学 Lab", onClick = { close(); actions.onToggleCam() })
+    if (!s.hasMic) { RowDivider(); NavRow("🎙️", "Turn on the microphone", desc = "Allow it for 学 Lab", onClick = { close(); actions.onToggleMic() }) }
+    DeviceHeader("Sound")
+    info.audioRoutes.forEachIndexed { i, r ->
+        if (i > 0) RowDivider()
+        NavRow(r.icon, r.label, trailing = { check(r == info.audioRoute) }, onClick = { close(); actions.onAudioRoute(r) })
+    }
+    Spacer(Modifier.height(8.dp))
+    RowDivider()
+    NavRow("🚪", "Leave (the call goes on)", desc = "Rejoin from the calls page", onClick = { close(); actions.onLeave() })
+    if (!s.turn) Text("No TURN relay configured — calls on strict networks may not connect.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(16.dp))
+    Spacer(Modifier.height(16.dp))
+}
+
+@Composable
+private fun DeviceHeader(label: String) {
+    Text(label.uppercase(), color = Lab.colors.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
+}
+
+/** "Reconnecting…" / "Connecting…" in the corner of their tile, over the frozen last frame. */
+@Composable
+private fun TileBadge(text: String, modifier: Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xCC111827)).padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+        Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 @Composable
