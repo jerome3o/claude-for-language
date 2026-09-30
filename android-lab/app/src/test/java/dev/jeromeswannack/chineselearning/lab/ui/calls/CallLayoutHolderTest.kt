@@ -68,6 +68,38 @@ class CallLayoutHolderTest {
         assertEquals(TileId.SCREEN, h.layout.value.main)
     }
 
+    @Test fun theirShareUsesTheFacesPairUnlessTheUserChoseSeparateCameras() {
+        val store = MapStore()
+        val h = CallLayoutHolder(store).apply { bind("u1") }
+        h.setRemoteSharing(true)
+        val arr = CallLayout.arrangeTiles(h.layout.value, CallLayout.Availability(true), 840.0)
+        assertEquals(listOf(TileId.SCREEN), arr.stage)
+        assertEquals(CallLayout.Corner.TL, arr.pair)
+        // Separate cameras, chosen and remembered: the next call's share keeps them separate.
+        h.dispatch(Action.SetPip(CallLayout.Pip.SEPARATE))
+        val next = CallLayoutHolder(store).apply { bind("u1") }
+        next.setRemoteSharing(true)
+        val arr2 = CallLayout.arrangeTiles(next.layout.value, CallLayout.Availability(true), 840.0)
+        assertNull(arr2.pair)
+        assertEquals(listOf(TileId.REMOTE, TileId.SELF), arr2.floating.map { it.tile })
+        // A tap on the pair (back to together first) → Speaker.
+        next.dispatch(Action.SetPip(CallLayout.Pip.PAIR))
+        next.dispatch(Action.PairTap)
+        assertEquals(TileId.REMOTE, next.layout.value.main)
+    }
+
+    @Test fun aRoundTwoLayoutReadsAsFacesTogether() {
+        val store = MapStore()
+        store.map["call-layout-v1:u1"] = """{"mode":"focus","main":"text","second":"text","ratio":0.62,"dir":"row","selfCorner":"br","selfScale":1,"remoteFloat":true,"remoteCorner":"tr","open":["remote","text","self"]}"""
+        val h = CallLayoutHolder(store).apply { bind("u1") }
+        assertEquals(CallLayout.Pip.PAIR, h.layout.value.pip)
+        assertEquals(CallLayout.Corner.TL, CallLayout.arrangeTiles(h.layout.value, CallLayout.Availability(false), 412.0).pair)
+        h.dispatch(Action.PairCorner(CallLayout.Corner.BR))
+        val saved = Json.parseToJsonElement(store.map.getValue("call-layout-v1:u1")).jsonObject
+        assertEquals("br", saved["pairCorner"]!!.jsonPrimitive.content)
+        assertEquals("pair", saved["pip"]!!.jsonPrimitive.content)
+    }
+
     @Test fun alreadySharingWhenTheUserIsKnown() {
         val h = CallLayoutHolder(MapStore())
         h.setRemoteSharing(true)

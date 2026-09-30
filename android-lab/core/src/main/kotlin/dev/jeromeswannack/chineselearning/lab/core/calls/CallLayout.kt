@@ -21,6 +21,12 @@ import kotlinx.serialization.json.putJsonArray
  * (two tiles with a draggable divider) or GRID (every open tile). The other person's camera is never
  * hidden: off the stage it floats (or sits in the rail when floating is off). Phones (< 640 wide)
  * use focus only, the cameras float and a swipe moves between tiles.
+ *
+ * Faces together (round 3, like Preply): content on the stage and neither camera → BOTH cameras
+ * float as ONE box, the other person first ([Pip.PAIR], the default); it snaps to [Layout.pairCorner]
+ * (top-left), resizes ([Layout.pairScale]) and a tap goes to Speaker ([Action.PairTap]). Only the
+ * user's "Cameras: together / separate" changes [Layout.pip], so a stored SEPARATE is always their
+ * own choice; a layout stored before round 3 has no `pip` and reads as PAIR.
  */
 object CallLayout {
     /** `TileId`. */
@@ -59,6 +65,15 @@ object CallLayout {
         }
     }
 
+    /** `PipMode`: over content the cameras float together (one box) or separately. */
+    enum class Pip(val wire: String) {
+        PAIR("pair"), SEPARATE("separate");
+
+        companion object {
+            fun of(wire: String?): Pip? = entries.firstOrNull { it.wire == wire }
+        }
+    }
+
     /** `PresetId`. */
     enum class PresetId(val wire: String) {
         SPEAKER("speaker"), BOARD("board"), SCREEN("screen"), SIDE("side"), GRID("grid");
@@ -89,6 +104,12 @@ object CallLayout {
         val remoteCorner: Corner,
         /** Which tiles are open. */
         val open: List<TileId>,
+        /** Over content the two cameras float together (one box, both faces) or separately. Changed only by the user. */
+        val pip: Pip = Pip.PAIR,
+        /** The faces box's corner. */
+        val pairCorner: Corner = Corner.TL,
+        /** The faces box's size as a share of the default (0.6 – 2). */
+        val pairScale: Double = 1.0,
     ) {
         /** What `JSON.stringify(layout)` stores (web localStorage `call-layout-v1:<userId>`). */
         fun toJson(): JsonObject = buildJsonObject {
@@ -102,6 +123,9 @@ object CallLayout {
             put("remoteFloat", remoteFloat)
             put("remoteCorner", remoteCorner.wire)
             putJsonArray("open") { open.forEach { add(JsonPrimitive(it.wire)) } }
+            put("pip", pip.wire)
+            put("pairCorner", pairCorner.wire)
+            put("pairScale", pairScale)
         }
     }
 
@@ -109,12 +133,15 @@ object CallLayout {
     const val MAX_RATIO = 0.8
     const val MIN_SELF_SCALE = 0.6
     const val MAX_SELF_SCALE = 2.0
+    const val MIN_PAIR_SCALE = 0.6
+    const val MAX_PAIR_SCALE = 2.0
 
     /** `DEFAULT_LAYOUT`. */
     val DEFAULT_LAYOUT = Layout(
         mode = Mode.FOCUS, main = TileId.REMOTE, second = TileId.TEXT, ratio = 0.62, dir = Dir.ROW,
         selfCorner = Corner.BR, selfScale = 1.0, remoteFloat = true, remoteCorner = Corner.TR,
         open = listOf(TileId.REMOTE, TileId.SELF),
+        pip = Pip.PAIR, pairCorner = Corner.TL, pairScale = 1.0,
     )
 
     /** `PresetInfo`. */
@@ -158,6 +185,14 @@ object CallLayout {
         data class RemoteFloat(val on: Boolean) : Action
         data class Open(val tile: TileId) : Action
         data class Close(val tile: TileId) : Action
+        /** The layout menu's "Cameras: together / separate". */
+        data class SetPip(val pip: Pip) : Action
+        data class PairCorner(val corner: Corner) : Action
+        data class PairScale(val scale: Double) : Action
+        /** A tap (not a drag) on the faces box: the other person on the stage. */
+        data object PairTap : Action
+        /** The other person starts sharing: their screen on the stage; the cameras float as the user chose. */
+        data object ShareStarted : Action
     }
 
     /** `layoutReducer`. */
@@ -194,6 +229,11 @@ object CallLayout {
         is Action.RemoteCorner -> l.copy(remoteCorner = action.corner)
         is Action.RemoteFloat -> l.copy(remoteFloat = action.on)
         is Action.Open -> l.copy(open = withOpen(l, action.tile))
+        is Action.SetPip -> l.copy(pip = action.pip)
+        is Action.PairCorner -> l.copy(pairCorner = action.corner)
+        is Action.PairScale -> l.copy(pairScale = clamp(action.scale, MIN_PAIR_SCALE, MAX_PAIR_SCALE))
+        Action.PairTap -> reduce(l, Action.Preset(PresetId.SPEAKER))
+        Action.ShareStarted -> reduce(l, Action.Preset(PresetId.SCREEN))
         is Action.Close -> {
             if (action.tile == TileId.REMOTE || action.tile == TileId.SELF) l // cameras can't be closed
             else {
@@ -210,7 +250,8 @@ object CallLayout {
 
     /** `Arrangement`: where every tile goes. */
     data class Floating(val tile: TileId, val corner: Corner)
-    data class Arrangement(val stage: List<TileId>, val rail: List<TileId>, val floating: List<Floating>, val mode: Mode)
+    /** [pair]: both cameras together in one floating box, in this corner (null = no pair). */
+    data class Arrangement(val stage: List<TileId>, val rail: List<TileId>, val floating: List<Floating>, val mode: Mode, val pair: Corner? = null)
 
     /** `NARROW_WIDTH`: phones (focus only, the cameras float). */
     const val NARROW_WIDTH = 640.0
@@ -237,6 +278,11 @@ object CallLayout {
             stage = listOf(present(l.main, a))
         }
         val floating = ArrayList<Floating>()
+        // Content on the stage and neither camera: both faces together in one box (the other person first).
+        if (l.pip == Pip.PAIR && mode != Mode.GRID && TileId.REMOTE !in stage && TileId.SELF !in stage && (l.remoteFloat || narrow)) {
+            val rail = if (narrow) emptyList() else openTiles.filter { it !in stage && it != TileId.REMOTE && it != TileId.SELF }
+            return Arrangement(stage, rail, floating, mode, l.pairCorner)
+        }
         // The other person's camera: never hidden.
         if (TileId.REMOTE !in stage && (l.remoteFloat || narrow)) {
             floating += Floating(TileId.REMOTE, if (l.remoteCorner == l.selfCorner) otherCorner(l.selfCorner) else l.remoteCorner)
@@ -274,6 +320,20 @@ object CallLayout {
         val idx = Math.min(order.size - 1, Math.max(0, (if (cur < 0) 0 else cur) + delta))
         val next = order.getOrNull(idx) ?: return l
         return l.copy(mode = Mode.FOCUS, main = next)
+    }
+
+    /** `boardOnStage`: the board is on the stage (focus / split, not a grid). */
+    fun boardOnStage(l: Layout): Boolean = l.mode != Mode.GRID && (l.main == TileId.TEXT || l.main == TileId.DRAW ||
+        (l.mode == Mode.SPLIT && (l.second == TileId.TEXT || l.second == TileId.DRAW)))
+
+    /**
+     * `boardButton` (📝): back to the camera when the board is up; otherwise the board — focused with the
+     * faces over it (phones, a split, cameras together), or the "Board + camera" split for separate cameras.
+     */
+    fun boardButton(l: Layout, narrow: Boolean): Action = when {
+        boardOnStage(l) -> Action.Focus(TileId.REMOTE)
+        l.mode == Mode.SPLIT || narrow || l.pip == Pip.PAIR -> Action.Focus(TileId.TEXT)
+        else -> Action.Preset(PresetId.BOARD)
     }
 
     /** `layoutShortcut`: keyboard shortcut → action (null = not ours). */
@@ -318,6 +378,10 @@ object CallLayout {
             remoteFloat = rf ?: true,
             remoteCorner = Corner.of(str("remoteCorner")) ?: DEFAULT_LAYOUT.remoteCorner,
             open = LinkedHashSet(listOf(TileId.REMOTE, TileId.SELF) + open).toList(),
+            // Before round 3 there was no choice: a missing / odd value = together.
+            pip = if (str("pip") == "separate") Pip.SEPARATE else Pip.PAIR,
+            pairCorner = Corner.of(str("pairCorner")) ?: DEFAULT_LAYOUT.pairCorner,
+            pairScale = num("pairScale", 1.0, MIN_PAIR_SCALE, MAX_PAIR_SCALE),
         )
     }
 
@@ -327,7 +391,7 @@ object CallLayout {
     data class Box(val x: Double, val y: Double, val w: Double, val h: Double)
 
     /** `TileRole`. */
-    enum class Role(val wire: String) { STAGE("stage"), RAIL("rail"), FLOATING("floating"), HIDDEN("hidden") }
+    enum class Role(val wire: String) { STAGE("stage"), RAIL("rail"), FLOATING("floating"), PAIR("pair"), HIDDEN("hidden") }
 
     /** `TileRect`: z = stacking (stage 1, rail 1, floating 3, self floating 4). */
     data class Rect(val x: Double, val y: Double, val w: Double, val h: Double, val role: Role, val z: Int)
@@ -335,12 +399,49 @@ object CallLayout {
     /** `LayoutRects.divider`. */
     data class Divider(val x: Double, val y: Double, val w: Double, val h: Double, val dir: Dir)
 
+    /** `LayoutRects.pair`: the faces box (both cameras inside it). */
+    data class PairBox(val x: Double, val y: Double, val w: Double, val h: Double, val corner: Corner)
+
     /** `LayoutRects`. */
-    data class Rects(val tiles: Map<TileId, Rect>, val divider: Divider?, val stage: Box)
+    data class Rects(val tiles: Map<TileId, Rect>, val divider: Divider?, val stage: Box, val pair: PairBox? = null)
 
     const val TILE_GAP = 8.0
     const val DIVIDER = 12.0
     private const val FLOAT_MARGIN = 12.0
+    /** Inside the faces box: padding around the faces and the gap between them. */
+    const val PAIR_PAD = 4.0
+    const val PAIR_GAP = 4.0
+
+    /**
+     * `TILE_HEADER`: the controls along the top of a content tile — the Board / Draw tabs (48), on the
+     * drawing also its tool row (+56), on a shared screen the drawing row (56): in a top corner the faces
+     * box sits below them.
+     */
+    val TILE_HEADER: Map<TileId, Double> = mapOf(TileId.TEXT to 48.0, TileId.DRAW to 104.0, TileId.SCREEN to 56.0)
+
+    /** A face's shape in the pair: the camera's, kept between portrait 3:4 and 16:9. */
+    private fun faceAspect(a: Double?): Double = clamp(if (a != null && a > 0 && a.isFinite()) a else 4.0 / 3, 3.0 / 4, 16.0 / 9)
+
+    /** `pairSize`'s result. */
+    data class PairSize(val w: Double, val h: Double, val faceH: Double, val remoteW: Double, val selfW: Double)
+
+    /**
+     * `pairSize`: one height for both faces (~15 % of the stage's shorter side, phones ~16 % and smaller),
+     * each face as wide as its camera, × scale; within 60 % of the stage's width (phones 70 %) and 40 % of its height.
+     */
+    fun pairSize(stage: Box, aspects: Map<TileId, Double>, scale: Double, narrow: Boolean): PairSize {
+        val short = Math.min(stage.w, stage.h)
+        val ar = faceAspect(aspects[TileId.REMOTE])
+        val sa = faceAspect(aspects[TileId.SELF])
+        val base = clamp(short * (if (narrow) 0.16 else 0.15), if (narrow) 56.0 else 72.0, if (narrow) 96.0 else 140.0) * scale
+        val maxW = stage.w * (if (narrow) 0.7 else 0.6) - 2 * PAIR_PAD - PAIR_GAP
+        val maxH = stage.h * 0.4 - 2 * PAIR_PAD
+        val k = Math.max(0.0, Math.min(1.0, Math.min(maxW / (base * (ar + sa)), maxH / base)))
+        val faceH = Js.round(base * k)
+        val remoteW = Js.round(faceH * ar)
+        val selfW = Js.round(faceH * sa)
+        return PairSize(remoteW + selfW + PAIR_GAP + 2 * PAIR_PAD, faceH + 2 * PAIR_PAD, faceH, remoteW, selfW)
+    }
 
     /** `floatingSize`: ~⅓ of the stage's shorter side (phones ~30 %), shaped like the video, × scale. */
     fun floatingSize(stage: Box, aspect: Double, scale: Double, narrow: Boolean): Pair<Double, Double> {
@@ -437,6 +538,25 @@ object CallLayout {
             val box = cornerRect(stage, f.corner, fw, fh)
             tiles[f.tile] = Rect(box.x, box.y, box.w, box.h, Role.FLOATING, if (f.tile == TileId.SELF) 4 else 3)
         }
-        return Rects(tiles, divider, stage)
+        var pair: PairBox? = null
+        arr.pair?.let { corner ->
+            val s = pairSize(stage, aspects, l.pairScale, narrow)
+            val at = cornerRect(stage, corner, s.w, s.h)
+            var y = at.y
+            if (corner == Corner.TL || corner == Corner.TR) {
+                // Below the controls along the top of the tile under this corner.
+                val px = at.x + s.w / 2
+                val py = at.y
+                val under = arr.stage.firstOrNull { t ->
+                    val r = tiles.getValue(t)
+                    px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h
+                }
+                if (under != null) y += TILE_HEADER[under] ?: 0.0
+            }
+            pair = PairBox(at.x, y, s.w, s.h, corner)
+            tiles[TileId.REMOTE] = Rect(at.x + PAIR_PAD, y + PAIR_PAD, s.remoteW, s.faceH, Role.PAIR, 3)
+            tiles[TileId.SELF] = Rect(at.x + PAIR_PAD + s.remoteW + PAIR_GAP, y + PAIR_PAD, s.selfW, s.faceH, Role.PAIR, 3)
+        }
+        return Rects(tiles, divider, stage, pair)
     }
 }

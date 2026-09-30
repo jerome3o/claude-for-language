@@ -8,6 +8,9 @@
  * - Split: drag the divider.
  * - Floating cameras: drag anywhere, they snap to the nearest corner; my own
  *   camera has a resize handle.
+ * - Faces together (content on the stage): both cameras in one box — drag it,
+ *   it snaps to a corner; resize with its handle; a tap (or Enter) → Speaker.
+ *   The two camera tiles stay the same elements, only moved into the box.
  * - Phones: swipe left / right on the stage to move between tiles.
  */
 
@@ -58,6 +61,7 @@ export function CallTiles({
   const rects = box ? layoutRects(layout, arr, { w: box.width, h: box.height }, ratios) : null;
   const narrow = width > 0 && width < 640;
   const lastTap = useRef<{ tile: TileId; at: number } | null>(null);
+  const els = useRef<Partial<Record<TileId | 'pair' | 'pairBg', HTMLDivElement | null>>>({});
   const swipe = useRef<{ x: number; y: number; at: number; lx: number; ly: number } | null>(null);
 
   const setRef = (el: HTMLDivElement | null) => {
@@ -151,6 +155,77 @@ export function CallTiles({
     el.addEventListener('pointerup', up);
   };
 
+  // ---- the faces pair: drag the whole box (both faces move with it), snap on release; a tap → Speaker
+  const pairParts = () => (['pairBg', 'pair', 'remote', 'self'] as const).map((k) => [k, els.current[k]] as const);
+  const onPairDown = (e: React.PointerEvent) => {
+    if (!rects?.pair || (e.target as HTMLElement).closest('.call-tile-resize')) return;
+    const p = rects.pair;
+    const base: Record<string, { x: number; y: number }> = {
+      pairBg: p,
+      pair: p,
+      remote: rects.tiles.remote,
+      self: rects.tiles.self,
+    };
+    const el = e.currentTarget as HTMLElement;
+    const start = { x: e.clientX, y: e.clientY };
+    let moved = false;
+    el.setPointerCapture(e.pointerId);
+    const place = (dx: number, dy: number, animate: boolean) => {
+      for (const [k, node] of pairParts()) {
+        if (!node) continue;
+        node.style.transition = animate ? '' : 'none';
+        node.style.transform = `translate(${base[k].x + dx}px, ${base[k].y + dy}px)`;
+      }
+    };
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - start.x;
+      const dy = ev.clientY - start.y;
+      if (!moved && Math.hypot(dx, dy) < 6) return;
+      moved = true;
+      place(dx, dy, false);
+    };
+    const up = (ev: PointerEvent) => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      if (!moved) {
+        if (ev.type === 'pointerup') dispatch({ type: 'pairTap' });
+        return;
+      }
+      const cx = (p.x + ev.clientX - start.x + p.w / 2 - rects.stage.x) / rects.stage.w;
+      const cy = (p.y + ev.clientY - start.y + p.h / 2 - rects.stage.y) / rects.stage.h;
+      place(0, 0, true); // springs to the (new) corner once the layout re-renders
+      dispatch({ type: 'pairCorner', corner: snapCorner(cx, cy) });
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+
+  const onPairResizeDown = (e: React.PointerEvent) => {
+    if (!rects?.pair) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const p = rects.pair;
+    const startScale = layout.pairScale;
+    const start = { x: e.clientX, y: e.clientY };
+    const left = p.corner === 'tl' || p.corner === 'bl';
+    const top = p.corner === 'tl' || p.corner === 'tr';
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - start.x) * (left ? 1 : -1);
+      const dy = (ev.clientY - start.y) * (top ? 1 : -1);
+      dispatch({ type: 'pairScale', scale: startScale * (1 + Math.max(dx / p.w, dy / p.h)) });
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  };
+
   /** Double-tap → focus (single tap for a rail tile). */
   const tap = (tile: TileId) => {
     const role = rects?.tiles[tile].role;
@@ -206,6 +281,9 @@ export function CallTiles({
           return (
             <div
               key={id}
+              ref={(el) => {
+                els.current[id] = el;
+              }}
               className={`call-tile role-${r.role} tile-${id}${focused ? ' focused' : ''}`}
               style={style}
               data-testid={`tile-${id}`}
@@ -218,7 +296,7 @@ export function CallTiles({
               onClick={r.role === 'rail' ? () => tap(id) : undefined}
             >
               {spec.content}
-              {r.role !== 'floating' && (
+              {r.role !== 'floating' && r.role !== 'pair' && (
                 <div className="call-tile-chrome">
                   <span className="call-tile-name">{spec.label}</span>
                   {r.role === 'stage' && !focused && (
@@ -233,6 +311,40 @@ export function CallTiles({
             </div>
           );
         })}
+      {rects?.pair && (
+        <>
+          <div
+            className="call-pair-bg"
+            ref={(el) => {
+              els.current.pairBg = el;
+            }}
+            style={{ transform: `translate(${rects.pair.x}px, ${rects.pair.y}px)`, width: rects.pair.w, height: rects.pair.h }}
+            aria-hidden="true"
+          />
+          <div
+            className={`call-pair corner-${rects.pair.corner}`}
+            ref={(el) => {
+              els.current.pair = el;
+            }}
+            style={{ transform: `translate(${rects.pair.x}px, ${rects.pair.y}px)`, width: rects.pair.w, height: rects.pair.h }}
+            role="button"
+            tabIndex={0}
+            aria-label="Both cameras — drag to a corner, tap for the speaker view"
+            title="Drag to a corner · click for the speaker view"
+            data-testid="faces-pair"
+            data-corner={rects.pair.corner}
+            onPointerDown={onPairDown}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                dispatch({ type: 'pairTap' });
+              }
+            }}
+          >
+            <span className="call-tile-resize" onPointerDown={onPairResizeDown} aria-label="Resize the cameras" role="separator" data-testid="faces-pair-resize" />
+          </div>
+        </>
+      )}
       {rects?.divider && (
         <div
           className={`call-divider dir-${rects.divider.dir}`}

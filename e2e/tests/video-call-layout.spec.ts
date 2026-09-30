@@ -2,9 +2,10 @@ import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test
 
 /**
  * The call's tile layout (shared/calls/layout.ts, components/calls/CallTiles.tsx):
- * presets, the split divider, the floating self-view snapping to corners, the
- * layout remembered on the device, phone swipes — and a shared screen arriving
- * on its own channel, so the viewer sees the screen AND the sharer's camera.
+ * presets, the split divider, both faces together over the board (drag to a
+ * corner, tap → Speaker), the separate floating self-view snapping to corners,
+ * the layout remembered on the device, phone swipes — and a shared screen
+ * arriving on its own channel, so the viewer sees the screen AND the sharer's camera.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -83,13 +84,49 @@ test('desktop: presets, divider, floating self-view, remembered layout, and scre
   await sp.mouse.up();
   await expect.poll(async () => (await box(sp, 'text'))!.width).toBeLessThan(before.width - 200);
 
-  // Focusing the board keeps the other person's camera on screen (floating).
+  // Focusing the board: both faces together in one box over it, top-left, their camera still playing.
   await sp.getByLabel('Focus Board').click().catch(() => sp.keyboard.press('b'));
   await expect(tiles).toHaveAttribute('data-stage', 'text');
-  await expect(sp.getByTestId('tile-remote')).toHaveAttribute('data-role', 'floating');
+  const pair = sp.getByTestId('faces-pair');
+  await expect(pair).toHaveAttribute('data-corner', 'tl');
+  await expect(sp.getByTestId('tile-remote')).toHaveAttribute('data-role', 'pair');
+  await expect(sp.getByTestId('tile-self')).toHaveAttribute('data-role', 'pair');
   expect(await frames(sp, 'remote-video')).toBeGreaterThan(0);
+  // Side by side (once the tiles have slid into the box), theirs first.
+  await expect.poll(async () => Math.abs((await box(sp, 'remote'))!.y - (await box(sp, 'self'))!.y)).toBeLessThan(2);
+  expect((await box(sp, 'remote'))!.x).toBeLessThan((await box(sp, 'self'))!.x);
+  const pb = (await pair.boundingBox())!;
+  expect(pb.x).toBeLessThan(40);
+  // Drag the pair to the bottom-right: it snaps there, the faces inside it.
+  await sp.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
+  await sp.mouse.down();
+  await sp.mouse.move(1250, 720, { steps: 10 });
+  await sp.mouse.up();
+  await expect(pair).toHaveAttribute('data-corner', 'br');
+  await expect.poll(async () => (await box(sp, 'remote'))!.x).toBeGreaterThan(900);
+  // A click (not a drag) on the pair: Speaker — their camera on the stage.
+  await pair.click();
+  await expect(tiles).toHaveAttribute('data-stage', 'remote');
+  await expect(sp.getByTestId('tile-self')).toHaveAttribute('data-role', 'floating');
+  await expect(pair).toHaveCount(0);
+  // Board again: the pair comes back in its corner; Enter on it is Speaker too.
+  await sp.keyboard.press('b');
+  await expect(pair).toHaveAttribute('data-corner', 'br');
+  await pair.focus();
+  await sp.keyboard.press('Enter');
+  await expect(tiles).toHaveAttribute('data-stage', 'remote');
+  // Cameras: separate (layout menu) — round 2's two floating cameras over the board.
+  await sp.getByTestId('open-layout').click();
+  await expect(sp.getByTestId('pip-pair')).toHaveAttribute('aria-checked', 'true');
+  await sp.getByTestId('pip-separate').click();
+  await sp.getByTestId('open-layout').click();
+  await sp.keyboard.press('b');
+  await expect(tiles).toHaveAttribute('data-stage', 'text');
+  await expect(sp.getByTestId('tile-remote')).toHaveAttribute('data-role', 'floating');
+  await expect(pair).toHaveCount(0);
 
   // Drag my floating camera to the top-left corner: it snaps there.
+  await expect.poll(async () => { const b = (await box(sp, 'self'))!; return b.x + b.width; }).toBeGreaterThan(1350); // settled bottom-right
   const self = (await box(sp, 'self'))!;
   await sp.mouse.move(self.x + self.width / 2, self.y + self.height / 2);
   await sp.mouse.down();
@@ -110,7 +147,8 @@ test('desktop: presets, divider, floating self-view, remembered layout, and scre
   await expect(sp.getByTestId('call-tiles')).toHaveAttribute('data-mode', 'grid');
 
   // The tutor shares their screen: the student gets Screen + camera — the screen on the stage,
-  // the tutor's camera floating beside it, both playing (a separate screen channel).
+  // the tutor's camera floating beside it (separately: the student's remembered explicit choice),
+  // both playing (a separate screen channel).
   await sp.keyboard.press('1');
   await tp.getByLabel('Share screen').click();
   await expect(sp.getByTestId('call-tiles')).toHaveAttribute('data-stage', 'screen', { timeout: 20000 });
@@ -125,6 +163,12 @@ test('desktop: presets, divider, floating self-view, remembered layout, and scre
   });
   expect(ids[0]).toBeTruthy();
   expect(ids[0]).not.toBe(ids[1]);
+  // Cameras together again: both faces over the shared screen.
+  await sp.getByTestId('open-layout').click();
+  await sp.getByTestId('pip-pair').click();
+  await expect(sp.getByTestId('tile-remote')).toHaveAttribute('data-role', 'pair');
+  await expect(sp.getByTestId('faces-pair')).toBeVisible();
+  expect(await frames(sp, 'remote-video')).toBeGreaterThan(0);
 });
 
 test('phone: the focused tile fills the screen, cameras float, swipe moves between tiles', async ({ browser, request }) => {
@@ -138,8 +182,12 @@ test('phone: the focused tile fills the screen, cameras float, swipe moves betwe
   await sp.getByTestId('open-board').click();
   const tiles = sp.getByTestId('call-tiles');
   await expect(tiles).toHaveAttribute('data-stage', 'text');
-  await expect(sp.getByTestId('tile-remote')).toHaveAttribute('data-role', 'floating');
-  await expect(sp.getByTestId('tile-self')).toHaveAttribute('data-role', 'floating');
+  // Both faces together, small, in a corner.
+  await expect(sp.getByTestId('tile-remote')).toHaveAttribute('data-role', 'pair');
+  await expect(sp.getByTestId('tile-self')).toHaveAttribute('data-role', 'pair');
+  const pb = (await sp.getByTestId('faces-pair').boundingBox())!;
+  expect(pb.width).toBeLessThan(220);
+  expect(pb.x).toBeLessThan(40);
   // Swipe right (finger moves right) → back to the camera.
   const t = (await box(sp, 'text'))!;
   const cdp = await sp.context().newCDPSession(sp);

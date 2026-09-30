@@ -14,6 +14,15 @@
  *
  * Phones (narrow: < 640 px wide) use `focus` only: the focused tile fills the
  * screen, a swipe moves to the next one (`swipeFocus`), and the cameras float.
+ *
+ * Faces together (round 3, like Preply): when content — the board, the drawing,
+ * a shared screen — is on the stage and neither camera is, BOTH cameras float
+ * as ONE compact box, the other person first, then me (`pip: 'pair'`, the
+ * default). The box snaps to a corner (`pairCorner`, top-left by default),
+ * resizes (`pairScale`), and a tap on it goes to Speaker (`pairTap`). The
+ * layout menu's "Cameras: together / separate" is the only thing that changes
+ * `pip`, so a stored 'separate' is always the user's own choice and wins; a
+ * layout stored before round 3 has no `pip` and reads as 'pair'.
  */
 
 export type TileId = 'remote' | 'self' | 'screen' | 'text' | 'draw' | 'chat';
@@ -21,6 +30,8 @@ export const ALL_TILES: TileId[] = ['remote', 'screen', 'text', 'draw', 'chat', 
 export type Corner = 'tl' | 'tr' | 'bl' | 'br';
 export type LayoutMode = 'focus' | 'split' | 'grid';
 export type PresetId = 'speaker' | 'board' | 'screen' | 'side' | 'grid';
+/** How the two cameras float over content: one box with both faces, or two separate tiles. */
+export type PipMode = 'pair' | 'separate';
 
 export interface CallLayout {
   mode: LayoutMode;
@@ -41,12 +52,20 @@ export interface CallLayout {
   remoteCorner: Corner;
   /** Which tiles are open (boards / chat can be closed; cameras and a screen are open while they exist). */
   open: TileId[];
+  /** Over content the two cameras float together (one box, both faces) or separately. Changed only by the user. */
+  pip: PipMode;
+  /** The faces box's corner. */
+  pairCorner: Corner;
+  /** The faces box's size as a share of the default (0.6 – 2). */
+  pairScale: number;
 }
 
 export const MIN_RATIO = 0.2;
 export const MAX_RATIO = 0.8;
 export const MIN_SELF_SCALE = 0.6;
 export const MAX_SELF_SCALE = 2;
+export const MIN_PAIR_SCALE = 0.6;
+export const MAX_PAIR_SCALE = 2;
 
 export const DEFAULT_LAYOUT: CallLayout = {
   mode: 'focus',
@@ -59,6 +78,9 @@ export const DEFAULT_LAYOUT: CallLayout = {
   remoteFloat: true,
   remoteCorner: 'tr',
   open: ['remote', 'self'],
+  pip: 'pair',
+  pairCorner: 'tl',
+  pairScale: 1,
 };
 
 export interface PresetInfo {
@@ -106,7 +128,15 @@ export type LayoutAction =
   | { type: 'remoteCorner'; corner: Corner }
   | { type: 'remoteFloat'; on: boolean }
   | { type: 'open'; tile: TileId }
-  | { type: 'close'; tile: TileId };
+  | { type: 'close'; tile: TileId }
+  /** The layout menu's "Cameras: together / separate". */
+  | { type: 'pip'; pip: PipMode }
+  | { type: 'pairCorner'; corner: Corner }
+  | { type: 'pairScale'; scale: number }
+  /** A tap (not a drag) on the faces box: the other person on the stage. */
+  | { type: 'pairTap' }
+  /** The other person starts sharing: their screen on the stage; the cameras float as the user chose (`pip`). */
+  | { type: 'shareStarted' };
 
 export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
   switch (action.type) {
@@ -154,6 +184,16 @@ export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
       return { ...l, remoteFloat: action.on };
     case 'open':
       return { ...l, open: withOpen(l, action.tile) };
+    case 'pip':
+      return { ...l, pip: action.pip === 'separate' ? 'separate' : 'pair' };
+    case 'pairCorner':
+      return { ...l, pairCorner: action.corner };
+    case 'pairScale':
+      return { ...l, pairScale: clamp(action.scale, MIN_PAIR_SCALE, MAX_PAIR_SCALE) };
+    case 'pairTap':
+      return layoutReducer(l, { type: 'preset', preset: 'speaker' });
+    case 'shareStarted':
+      return layoutReducer(l, { type: 'preset', preset: 'screen' });
     case 'close': {
       if (action.tile === 'remote' || action.tile === 'self') return l; // cameras can't be closed
       const open = l.open.filter((t) => t !== action.tile);
@@ -176,6 +216,8 @@ export interface Arrangement {
   rail: TileId[];
   /** Floating tiles (cameras), with their corner. */
   floating: { tile: TileId; corner: Corner }[];
+  /** Both cameras together in one floating box (in this corner), or null. */
+  pair: Corner | null;
   mode: LayoutMode;
 }
 
@@ -204,13 +246,18 @@ export function arrangeTiles(l: CallLayout, a: TileAvailability, width: number):
     stage = [present(l.main, a)];
   }
   const floating: { tile: TileId; corner: Corner }[] = [];
+  // Content on the stage and neither camera: both faces together in one box (the other person first).
+  if (l.pip === 'pair' && mode !== 'grid' && !stage.includes('remote') && !stage.includes('self') && (l.remoteFloat || narrow)) {
+    const rail = narrow ? [] : openTiles.filter((t) => !stage.includes(t) && t !== 'remote' && t !== 'self');
+    return { stage, rail, floating, pair: l.pairCorner, mode };
+  }
   // The other person's camera: never hidden.
   if (!stage.includes('remote') && (l.remoteFloat || narrow)) floating.push({ tile: 'remote', corner: l.remoteCorner === l.selfCorner ? otherCorner(l.selfCorner) : l.remoteCorner });
   // My camera floats unless it's on the stage (in a grid it's a tile).
   if (!stage.includes('self')) floating.push({ tile: 'self', corner: l.selfCorner });
   const floated = new Set(floating.map((f) => f.tile));
   const rail = narrow ? [] : openTiles.filter((t) => !stage.includes(t) && !floated.has(t));
-  return { stage, rail, floating, mode };
+  return { stage, rail, floating, pair: null, mode };
 }
 
 /** The nearest free corner for a second floating camera. */
@@ -239,6 +286,22 @@ export function swipeFocus(l: CallLayout, a: TileAvailability, delta: 1 | -1): C
 }
 
 /** Keyboard shortcut → action (desktop; null = not ours). */
+/** The board is on the stage (focus / split, not a grid). */
+export function boardOnStage(l: CallLayout): boolean {
+  return l.mode !== 'grid' && (l.main === 'text' || l.main === 'draw' || (l.mode === 'split' && (l.second === 'text' || l.second === 'draw')));
+}
+
+/**
+ * The 📝 button: back to the camera when the board is up; otherwise the board —
+ * focused with the faces over it (phones, a split, cameras together), or the
+ * "Board + camera" split when the user keeps the cameras separate on a wide screen.
+ */
+export function boardButton(l: CallLayout, narrow: boolean): LayoutAction {
+  if (boardOnStage(l)) return { type: 'focus', tile: 'remote' };
+  if (l.mode === 'split' || narrow || l.pip === 'pair') return { type: 'focus', tile: 'text' };
+  return { type: 'preset', preset: 'board' };
+}
+
 export function layoutShortcut(key: string): LayoutAction | null {
   const preset = PRESETS.find((p) => p.key === key);
   if (preset) return { type: 'preset', preset: preset.id };
@@ -277,6 +340,10 @@ export function sanitizeLayout(raw: unknown): CallLayout {
     remoteFloat: typeof r.remoteFloat === 'boolean' ? r.remoteFloat : true,
     remoteCorner: corner(r.remoteCorner, DEFAULT_LAYOUT.remoteCorner),
     open: Array.from(new Set<TileId>(['remote', 'self', ...open])).filter((t) => ALL_TILES.includes(t)),
+    // Before round 3 there was no choice: a missing / odd value = together.
+    pip: r.pip === 'separate' ? 'separate' : 'pair',
+    pairCorner: corner(r.pairCorner, DEFAULT_LAYOUT.pairCorner),
+    pairScale: num(r.pairScale, 1, MIN_PAIR_SCALE, MAX_PAIR_SCALE),
   };
 }
 
@@ -289,11 +356,11 @@ export interface TileBox {
   h: number;
 }
 
-export type TileRole = 'stage' | 'rail' | 'floating' | 'hidden';
+export type TileRole = 'stage' | 'rail' | 'floating' | 'pair' | 'hidden';
 
 export interface TileRect extends TileBox {
   role: TileRole;
-  /** Stacking: stage 1, rail 1, floating 3 (self above remote: 4). */
+  /** Stacking: stage 1, rail 1, floating 3 (self above remote: 4), a face in the pair 3. */
   z: number;
 }
 
@@ -303,11 +370,51 @@ export interface LayoutRects {
   divider: (TileBox & { dir: 'row' | 'column' }) | null;
   /** The stage area (the box minus the rail). */
   stage: TileBox;
+  /** The faces box (both cameras inside it), or null. */
+  pair: (TileBox & { corner: Corner }) | null;
 }
 
 export const TILE_GAP = 8;
 export const DIVIDER = 12;
 const FLOAT_MARGIN = 12;
+/** Inside the faces box: padding around the faces and the gap between them. */
+export const PAIR_PAD = 4;
+export const PAIR_GAP = 4;
+/**
+ * The controls along the top of a content tile — the Board / Draw tabs (48), on
+ * the drawing also its tool row (+56), on a shared screen the "✏️ Draw on it"
+ * row (56): in a top corner the faces box sits below them, never over them.
+ */
+export const TILE_HEADER: Partial<Record<TileId, number>> = { text: 48, draw: 104, screen: 56 };
+
+/** A face's shape in the pair: the camera's, kept between portrait 3:4 and 16:9. */
+function faceAspect(a: number | undefined): number {
+  return clamp(a !== undefined && a > 0 && Number.isFinite(a) ? a : 4 / 3, 3 / 4, 16 / 9);
+}
+
+/**
+ * The faces box: one height for both faces (~15 % of the stage's shorter side,
+ * phones ~16 % and smaller), each face as wide as its camera, × scale; kept
+ * within 60 % of the stage's width (phones 70 %) and 40 % of its height.
+ */
+export function pairSize(
+  stage: TileBox,
+  aspects: Partial<Record<TileId, number>>,
+  scale: number,
+  narrow: boolean,
+): { w: number; h: number; faceH: number; remoteW: number; selfW: number } {
+  const short = Math.min(stage.w, stage.h);
+  const ar = faceAspect(aspects.remote);
+  const as = faceAspect(aspects.self);
+  const base = clamp(short * (narrow ? 0.16 : 0.15), narrow ? 56 : 72, narrow ? 96 : 140) * scale;
+  const maxW = stage.w * (narrow ? 0.7 : 0.6) - 2 * PAIR_PAD - PAIR_GAP;
+  const maxH = stage.h * 0.4 - 2 * PAIR_PAD;
+  const k = Math.max(0, Math.min(1, maxW / (base * (ar + as)), maxH / base));
+  const faceH = Math.round(base * k);
+  const remoteW = Math.round(faceH * ar);
+  const selfW = Math.round(faceH * as);
+  return { w: remoteW + selfW + PAIR_GAP + 2 * PAIR_PAD, h: faceH + 2 * PAIR_PAD, faceH, remoteW, selfW };
+}
 
 /** A floating camera's size: ~⅓ of the stage's shorter side (phones ~28 %), shaped like the video, × scale. */
 export function floatingSize(stage: TileBox, aspect: number, scale: number, narrow: boolean): { w: number; h: number } {
@@ -416,5 +523,24 @@ export function layoutRects(
     const { w, h } = floatingSize(stage, aspects[f.tile] ?? 4 / 3, scale, narrow);
     tiles[f.tile] = { ...cornerRect(stage, f.corner, w, h), role: 'floating', z: f.tile === 'self' ? 4 : 3 };
   }
-  return { tiles, divider, stage };
+  let pair: LayoutRects['pair'] = null;
+  if (arr.pair) {
+    const s = pairSize(stage, aspects, l.pairScale, narrow);
+    const at = cornerRect(stage, arr.pair, s.w, s.h);
+    const top = arr.pair === 'tl' || arr.pair === 'tr';
+    if (top) {
+      // Below the Board / Draw tabs of the board tile under this corner.
+      const px = at.x + s.w / 2;
+      const py = at.y;
+      const under = arr.stage.find((t) => {
+        const r = tiles[t];
+        return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h;
+      });
+      if (under) at.y += TILE_HEADER[under] ?? 0;
+    }
+    pair = { ...at, corner: arr.pair };
+    tiles.remote = { x: at.x + PAIR_PAD, y: at.y + PAIR_PAD, w: s.remoteW, h: s.faceH, role: 'pair', z: 3 };
+    tiles.self = { x: at.x + PAIR_PAD + s.remoteW + PAIR_GAP, y: at.y + PAIR_PAD, w: s.selfW, h: s.faceH, role: 'pair', z: 3 };
+  }
+  return { tiles, divider, stage, pair };
 }

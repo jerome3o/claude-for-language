@@ -21,8 +21,8 @@ class PrefsCallLayoutStore(private val prefs: SharedPreferences) : CallLayoutSto
 /**
  * The call's tile layout (core CallLayout), as CallPage.tsx keeps it: remembered per user on this
  * device under the web's key (`call-layout-v1:<userId>`, the same JSON), changed by layout actions
- * or replaced whole (a phone swipe), and switched to the "Screen + camera" preset when the other
- * person starts sharing. Lives in the call's ViewModel, so unfolding the Fold keeps it.
+ * or replaced whole (a phone swipe), and switched to the shared screen (faces together over it, unless
+ * the user keeps the cameras separate) when the other person starts sharing. Lives in the call's ViewModel, so unfolding the Fold keeps it.
  */
 class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: CallLayout.Layout = CallLayout.DEFAULT_LAYOUT) {
     private val _layout = MutableStateFlow(initial)
@@ -39,18 +39,21 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
         val raw = store?.load(k)
         _layout.value = CallLayout.sanitize(raw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() })
         // Already sharing when the layout arrived: their screen goes on the stage.
-        if (remoteSharing) set(CallLayout.reduce(_layout.value, CallLayout.Action.Preset(CallLayout.PresetId.SCREEN)))
+        if (remoteSharing) set(CallLayout.reduce(_layout.value, CallLayout.Action.ShareStarted))
     }
 
     fun dispatch(action: CallLayout.Action) = set(CallLayout.reduce(_layout.value, action))
 
     fun replace(layout: CallLayout.Layout) = set(layout)
 
-    /** Their screen share starts: put it on the stage (their camera floats beside it). Only on the change. */
+    /**
+     * Their screen share starts: put it on the stage, both faces over it (or the two cameras separately,
+     * when the user chose that — a remembered explicit choice wins). Only on the change.
+     */
     fun setRemoteSharing(on: Boolean) {
         val was = remoteSharing
         remoteSharing = on
-        if (on && !was) dispatch(CallLayout.Action.Preset(CallLayout.PresetId.SCREEN))
+        if (on && !was) dispatch(CallLayout.Action.ShareStarted)
     }
 
     private fun set(l: CallLayout.Layout) {

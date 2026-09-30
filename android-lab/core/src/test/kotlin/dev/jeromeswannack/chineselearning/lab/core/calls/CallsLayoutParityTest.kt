@@ -24,7 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/** Video calls round 2 (PR B): CallLayout reproduces shared/calls/layout.ts exactly (parity/fixtures/calls-layout.ts). */
+/** Video calls round 2 (PR B) + round 3 (faces together): CallLayout reproduces shared/calls/layout.ts exactly (parity/fixtures/calls-layout.ts). */
 class CallsLayoutParityTest {
     private val root: JsonObject by lazy {
         val dir = System.getProperty("parity.dir") ?: fail("parity.dir not set — run through Gradle")
@@ -42,6 +42,7 @@ class CallsLayoutParityTest {
         dir = Dir.of(o.s("dir"))!!, selfCorner = corner(o["selfCorner"]!!), selfScale = o.d("selfScale"),
         remoteFloat = o["remoteFloat"]!!.jsonPrimitive.boolean, remoteCorner = corner(o["remoteCorner"]!!),
         open = o["open"]!!.jsonArray.map(::tile),
+        pip = CallLayout.Pip.of(o.s("pip"))!!, pairCorner = corner(o["pairCorner"]!!), pairScale = o.d("pairScale"),
     )
 
     private fun action(o: JsonObject): Action = when (o.s("type")) {
@@ -57,6 +58,11 @@ class CallsLayoutParityTest {
         "remoteFloat" -> Action.RemoteFloat(o["on"]!!.jsonPrimitive.boolean)
         "open" -> Action.Open(tile(o["tile"]!!))
         "close" -> Action.Close(tile(o["tile"]!!))
+        "pip" -> Action.SetPip(CallLayout.Pip.of(o.s("pip"))!!)
+        "pairCorner" -> Action.PairCorner(corner(o["corner"]!!))
+        "pairScale" -> Action.PairScale(o.d("scale"))
+        "pairTap" -> Action.PairTap
+        "shareStarted" -> Action.ShareStarted
         else -> fail("action $o")
     }
 
@@ -65,6 +71,7 @@ class CallsLayoutParityTest {
         rail = o["rail"]!!.jsonArray.map(::tile),
         floating = o["floating"]!!.jsonArray.map { val f = it.jsonObject; CallLayout.Floating(tile(f["tile"]!!), corner(f["corner"]!!)) },
         mode = Mode.of(o.s("mode"))!!,
+        pair = o["pair"]!!.let { if (it is JsonNull) null else corner(it) },
     )
 
     private fun rects(o: JsonObject): CallLayout.Rects {
@@ -74,10 +81,12 @@ class CallsLayoutParityTest {
         }
         val div = o["divider"]!!.let { if (it is JsonNull) null else it.jsonObject }
         val st = o["stage"]!!.jsonObject
+        val pair = o["pair"]!!.let { if (it is JsonNull) null else it.jsonObject }
         return CallLayout.Rects(
             tiles,
             div?.let { CallLayout.Divider(it.d("x"), it.d("y"), it.d("w"), it.d("h"), Dir.of(it.s("dir"))!!) },
             CallLayout.Box(st.d("x"), st.d("y"), st.d("w"), st.d("h")),
+            pair?.let { CallLayout.PairBox(it.d("x"), it.d("y"), it.d("w"), it.d("h"), corner(it["corner"]!!)) },
         )
     }
 
@@ -93,11 +102,38 @@ class CallsLayoutParityTest {
         assertEquals(root["all_tiles"]!!.jsonArray.map(::tile), CallLayout.ALL_TILES)
         val presets = root["presets"]!!.jsonArray.map { val p = it.jsonObject; CallLayout.PresetInfo(PresetId.of(p.s("id"))!!, p.s("label"), p.s("key")) }
         assertEquals(presets, CallLayout.PRESETS)
+        val header = root["tile_header"]!!.jsonObject.entries.associate { (k, v) -> TileId.of(k)!! to v.jsonPrimitive.double }
+        assertEquals(header, CallLayout.TILE_HEADER)
+        assertEquals(root["pair_pad"]!!.jsonPrimitive.double, CallLayout.PAIR_PAD)
+        assertEquals(root["pair_gap"]!!.jsonPrimitive.double, CallLayout.PAIR_GAP)
+    }
+
+    @Test fun pairSizeAndBoardButtonMatch() {
+        val pairs = root["pairs"]!!.jsonArray
+        assertTrue(pairs.size >= 200)
+        for (p in pairs) {
+            val o = p.jsonObject
+            val st = o["stage"]!!.jsonObject
+            val stage = CallLayout.Box(st.d("x"), st.d("y"), st.d("w"), st.d("h"))
+            fun asp(k: String): Double? = o[k]!!.let { if (it is JsonNull) null else it.jsonPrimitive.let { v -> if (v.isString) Double.NaN else v.double } }
+            val aspects = buildMap { asp("remote")?.let { put(TileId.REMOTE, it) }; asp("self")?.let { put(TileId.SELF, it) } }
+            val size = o["size"]!!.jsonObject
+            val want = CallLayout.PairSize(size.d("w"), size.d("h"), size.d("faceH"), size.d("remoteW"), size.d("selfW"))
+            assertEquals(want, CallLayout.pairSize(stage, aspects, o.d("scale"), o["narrow"]!!.jsonPrimitive.boolean), "pairSize $o")
+        }
+        val buttons = root["board_buttons"]!!.jsonArray
+        assertTrue(buttons.size > 100)
+        for (b in buttons) {
+            val o = b.jsonObject
+            val l = layout(o["layout"]!!.jsonObject)
+            assertEquals(o["on_stage"]!!.jsonPrimitive.boolean, CallLayout.boardOnStage(l), "boardOnStage $l")
+            assertEquals(action(o["action"]!!.jsonObject), CallLayout.boardButton(l, o["narrow"]!!.jsonPrimitive.boolean), "boardButton $l")
+        }
     }
 
     @Test fun reducerArrangementsAndRectsMatch() {
         val seqs = root["sequences"]!!.jsonArray
-        assertTrue(seqs.size > 30)
+        assertTrue(seqs.size > 50)
         var checkedRects = 0
         for ((i, seq) in seqs.withIndex()) {
             var l = CallLayout.DEFAULT_LAYOUT

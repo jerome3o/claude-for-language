@@ -213,6 +213,41 @@
   touch-action: none;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0 18%, transparent 18%);
 }
+/* Faces together: one box over the content, both cameras inside it (the tiles are moved in, never remounted). */
+.call-pair-bg, .call-pair {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 14px;
+  transition: transform 0.22s ease, width 0.22s ease, height 0.22s ease;
+  will-change: transform;
+}
+.call-pair-bg {
+  z-index: 2;
+  background: rgba(17, 24, 39, 0.82);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.call-pair {
+  z-index: 5;
+  cursor: grab;
+  touch-action: none;
+  outline: 1px solid rgba(255, 255, 255, 0.28);
+  outline-offset: -1px;
+}
+.call-pair:active { cursor: grabbing; }
+.call-pair:focus-visible { outline: 3px solid #60a5fa; outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .call-pair-bg, .call-pair { transition: none; } }
+.call-tile.role-pair { border-radius: 10px; }
+.call-tile.role-pair .call-remote-label { font-size: 0.66rem; left: 0.25rem; bottom: 0.25rem; padding: 0.05rem 0.35rem; }
+.call-tile.role-pair .call-initials { width: 40px; height: 40px; font-size: 1rem; }
+.call-tile.role-pair .call-self-off { font-size: 0.75rem; }
+.call-tile.role-pair .call-tile-status { top: 0.2rem; right: 0.2rem; font-size: 0.62rem; padding: 0.15rem 0.4rem; }
+/* The pair's resize grip sits in the corner facing the middle of the stage. */
+.call-pair .call-tile-resize { width: 22px; height: 22px; left: auto; top: auto; right: -4px; bottom: -4px; background: radial-gradient(circle at 100% 100%, rgba(255, 255, 255, 0.9) 0 7px, transparent 8px); }
+.call-pair.corner-tr .call-tile-resize { right: auto; left: -4px; cursor: nesw-resize; background: radial-gradient(circle at 0 100%, rgba(255, 255, 255, 0.9) 0 7px, transparent 8px); }
+.call-pair.corner-bl .call-tile-resize { bottom: auto; top: -4px; cursor: nesw-resize; background: radial-gradient(circle at 100% 0, rgba(255, 255, 255, 0.9) 0 7px, transparent 8px); }
+.call-pair.corner-br .call-tile-resize { right: auto; bottom: auto; left: -4px; top: -4px; background: radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.9) 0 7px, transparent 8px); }
 .call-tile-chrome {
   position: absolute;
   z-index: 5;
@@ -292,6 +327,10 @@
 .call-layout-presets kbd { margin-left: auto; font-size: 0.7rem; color: #9ca3af; border: 1px solid #4b5563; border-radius: 4px; padding: 0 0.3rem; }
 .call-layout-open { display: flex; gap: 0.25rem; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 0.25rem; padding-top: 0.25rem; }
 .call-more-menu .call-layout-open button { flex: 1; text-align: center; }
+.call-layout-cams { display: flex; align-items: center; gap: 0.25rem; padding: 0.4rem 0.6rem; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 0.25rem; font-size: 0.85rem; color: #e5e7eb; }
+.call-layout-cams > span { flex: 1; }
+.call-more-menu .call-layout-cams button { flex: 0 0 auto; width: auto; min-height: 40px; padding: 0 0.7rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.18); text-align: center; }
+.call-more-menu .call-layout-cams button.active { background: #2563eb; border-color: #2563eb; color: #fff; }
 .call-layout-toggle { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.6rem; font-size: 0.85rem; color: #e5e7eb; cursor: pointer; }
 .call-layout-toggle input { width: 18px; height: 18px; }
 @media (max-width: 639px) { .call-layout-toggle:last-child { display: none; } }
