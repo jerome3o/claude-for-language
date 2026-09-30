@@ -278,7 +278,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
         // A live call in this relationship shows a Join banner (web polls every 15 s).
         viewModelScope.launch {
             while (isActive) {
-                if (app.online.value) attempt { app.repo.api.liveCalls(relId) }.onSuccess { r -> _t.update { it.copy(liveCallId = r.calls.firstOrNull()?.id) } }
+                if (app.online.value) attempt { app.repo.api.liveCalls(relId) }.onSuccess { r -> _t.update { it.copy(liveCallId = r.occupiedCallId()) } }
                 delay(15_000)
             }
         }

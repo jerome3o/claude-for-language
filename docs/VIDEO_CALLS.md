@@ -87,8 +87,8 @@ test call), and the **Join the call** button that appears in the relationship's 
 - **Room** — `worker/src/durable/call-room.ts`, one SQLite-backed Durable Object per call
   (`idFromName(callId)`), WebSocket Hibernation API. Relays SDP / ICE between the two
   peers, keeps the board (`shared/calls/board.ts` ops) and chat, broadcasts media state
-  (mic / cam / screen / recording), ends the call (the End button, or 20 minutes after the
-  room empties). It copies board + chat to D1 whenever someone leaves.
+  (mic / cam / screen / recording), ends the call (the End button, or automatically — see
+  "Who is in the call" below). It copies board + chat to D1 whenever someone leaves.
 - **Join tickets** — a WebSocket can't carry the `Authorization` header, so
   `POST /api/calls/:id/join` returns a one-minute HMAC ticket bound to call + user
   (`services/calls/ticket.ts`); `GET /api/calls/:id/ws?ticket=` is registered before the
@@ -220,19 +220,55 @@ The text board, the drawing board and the chat are always light paper with dark 
 for both people, whatever the theme: `color-scheme: light` on the panel on the web, a `BoardPaper`
 palette in the Lab app (its dark theme used to paint light ink on the white board).
 
+## Who is in the call (presence) and when a call ends by itself
+
+A call row stays `live` until someone presses End — and before this, a room nobody was in never
+ended: on 30 Sep 2026 Jerome and Minghui pressed "Video call" in the same second, two calls were
+made, both joined Minghui's, and Jerome's (nobody ever entered it; its room never had a socket, so
+the 20-minute empty-room alarm — armed only when a socket left — never ran) stayed "live", and both
+apps showed "📹 … is calling — Join" for hours. Now (pure rules in `shared/calls/presence.ts`,
+applied by the CallRoom; worker tests with a mocked clock in `durable/__tests__/call-room.test.ts`):
+
+- **Present** = the socket is open, hasn't said `leave`, and the room heard from it in the last
+  **45 s** (every client pings every 10 s; the room notes the time at most every 5 s in the socket's
+  attachment, so it survives hibernation). A phone that went to sleep or was killed without closing
+  its socket drops out within ~45 s: the room's alarm, set just after the oldest present socket
+  would time out, closes it (4003, the client reconnects if it is in fact alive) and tells the other
+  side `peer_left`.
+- **Ends by itself** — through the same path as End (`ended_at`, the "missed call" push, post-call
+  processing): **3 min** after the last person left (time for a reload or a network blip), or
+  **10 min** after creation for a call nobody ever entered (the caller may still be on the pre-join
+  screen). `POST /api/calls` arms the room; `GET /api/calls` asks each live call's room
+  `presence()` (≤ 10 rooms, 2.5 s), which also ends a room past its deadline — so a call stuck from
+  before this change is swept up on the first poll after deploy. No "missed call" push for a call
+  ended more than 30 min after it was created.
+- **Leave** — the web's page unmount and the Lab's Leave send `{ type: 'leave' }` before closing;
+  closing the tab sends it too plus a **beacon** on `pagehide` (`POST /api/calls/:id/leave`
+  `{ client_id, token }`, no session — the token is the socket's secret from `welcome.leave_token`;
+  text body, always 204); the Lab app sends it when swiped away from recents
+  (`CallService.onTaskRemoved`). Switching to another app is not leaving (the call goes on in the
+  background; the heartbeat decides).
+- **One call per relationship** — `POST /api/calls` returns the relationship's live call instead of
+  a new one (`reused: true`, no chat line / push) when someone is in it, or when it started in the
+  last 10 min (one conditional `INSERT … WHERE NOT EXISTS`, so two presses in the same second can't
+  both insert).
+
 ## Finding the call (banners, ring, notifications)
 
 The person being called must notice. Every signal comes from ONE list, `GET /api/calls?live=1`,
 and ONE pure rule set, `shared/calls/alerts.ts` (the Lab app's `CallAlerts.kt` is parity-tested):
 
-- **Banners** — `pickCallBanner`: an incoming call (someone else started it) wins over my own call
-  to rejoin; newest first; not the call already on screen, not one I hid, not one older than 4 h
-  (a room nobody entered never ends by itself). "📹 王老师 is calling — Join" appears as a big card
+- **Banners** — `pickCallBanner`: only a call **someone other than me is connected to right now,
+  and I'm not** (`someoneElseInCall` over the list's `present_user_ids`; a server without presence
+  → not older than 4 h, as before); an incoming call (someone else started it) wins over my own call
+  to rejoin; newest first; not the call already on screen, not one I hid (✕ on every banner, inline
+  ones too). So the banner goes on the next poll (≤ 20 s) once the caller leaves or the call ends. "📹 王老师 is calling — Join" appears as a big card
   on **Home** (study and tutor home), a bar across the **top of every normal page** (not full-screen
   pages like a study session, not where the page shows its own), **inline** on the student / tutor
   page and in the **chat** (`components/calls/CallBanner.tsx`, `CallAlerts.tsx`). The web polls every
   20 s while visible (`hooks/useLiveCalls.ts`) and refreshes at once when a push arrives.
-- **Ring** — `callToRing`: a new incoming call started in the last 2 minutes rings once per device
+- **Ring** — `callToRing`: a new incoming call started in the last 2 minutes, with the caller in it,
+  rings once per device (and stops when they leave)
   (a Web Audio chime every 2 s + vibration, 30 s at most; `services/calls/ringtone.ts`), unless the
   account is **Silent** (Settings → Video call alerts; `users.call_alerts`, `PUT /api/profile/call-alerts`).
   Browsers only play sound on a page that has been used; the banner shows regardless.

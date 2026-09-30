@@ -54,7 +54,7 @@ suspend fun Api.liveCallsAll(): List<CallListItemDto> = get<LiveCallsDto>("/api/
 suspend fun Api.pushConfig(): PushConfigDto = get("/api/push/config")
 suspend fun Api.setCallAlerts(mode: String): CallAlertsBody = put("/api/profile/call-alerts", CallAlertsBody(mode))
 
-fun CallListItemDto.toLive() = CallAlerts.LiveCall(id, relationship_id, created_by, status, created_at, other_user_name)
+fun CallListItemDto.toLive() = CallAlerts.LiveCall(id, relationship_id, created_by, status, created_at, other_user_name, present_user_ids)
 
 /**
  * "Someone is calling" for the Lab app (web: components/calls/CallAlerts.tsx + useLiveCalls).
@@ -163,7 +163,9 @@ class CallAlertsWatcher(private val app: LabApp) {
         val calls = _live.value
         val current = ringingFor
         val immersive = NavRules.isImmersiveRoute(path)
-        if (current != null && (calls.none { it.id == current } || CallAlerts.callIdFromPath(path) == current || current in _dismissed.value || immersive)) stopRinging()
+        // Stop when the call is over, or nobody is in it any more (the caller hung up / left).
+        val stillCalling = current != null && calls.firstOrNull { it.id == current }?.let { CallAlerts.someoneElseInCall(it, _myId.value) != false } == true
+        if (current != null && (!stillCalling || CallAlerts.callIdFromPath(path) == current || current in _dismissed.value || immersive)) stopRinging()
         if (immersive || loop == null) return
         val me = _myId.value.ifEmpty { return }
         val target = CallAlerts.callToRing(calls, me, System.currentTimeMillis(), rung(), _silent.value, path) ?: return
@@ -187,8 +189,9 @@ class CallAlertsWatcher(private val app: LabApp) {
             CallAlertNotifier.ringing(app, c)
             notified += c.id
         }
-        // A call we announced that's over now, never opened here: say it was missed.
-        val liveIds = calls.map { it.id }.toSet()
+        // A call we announced that's over now — ended, or nobody in it any more — never opened here:
+        // say it was missed (it replaces the "is calling" notification).
+        val liveIds = calls.filter { CallAlerts.someoneElseInCall(it, me) != false }.map { it.id }.toSet()
         for (id in notified.toList()) {
             if (id !in liveIds && id !in (sp.getStringSet(KEY_MISSED, emptySet()) ?: emptySet())) {
                 if (CallAlertNotifier.isShowing(app, id)) CallAlertNotifier.missed(app, id, sp.getString("$KEY_NAME$id", null))

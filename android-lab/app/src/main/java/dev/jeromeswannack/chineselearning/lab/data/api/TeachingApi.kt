@@ -450,10 +450,20 @@ data class CreatedDeckDto(val id: String, val name: String = "")
 suspend fun Api.createDeckNamed(name: String): CreatedDeckDto = post("/api/decks", TeachNewDeckBody(name))
 
 @Serializable
-data class CallRefDto(val id: String)
+data class CallRefDto(
+    val id: String,
+    /** Who is connected to the call's room right now (absent from an older server). */
+    val present_user_ids: List<String>? = null,
+)
 
 @Serializable
-data class CallsDto(val calls: List<CallRefDto> = emptyList())
+data class CallsDto(val calls: List<CallRefDto> = emptyList()) {
+    /**
+     * The live call someone is actually in (web: the banner rule, shared/calls/alerts.ts) — a row
+     * that is still "live" with nobody connected is not offered; without presence data, the first.
+     */
+    fun occupiedCallId(): String? = calls.firstOrNull { it.present_user_ids == null || it.present_user_ids.isNotEmpty() }?.id
+}
 
 suspend fun Api.liveCalls(relId: String): CallsDto = get("/api/calls?relationship_id=${enc(relId)}&live=1")
 

@@ -11,7 +11,7 @@
  */
 
 import { ROOM_PING_MS, ROOM_PONG_TIMEOUT_MS, type ClientMessage, type ServerMessage } from '@shared/calls';
-import { callSocketUrl, joinCall } from '../../api/calls';
+import { callSocketUrl, joinCall, sendLeaveBeacon } from '../../api/calls';
 import type { CallJoinInfo } from '../../types/calls';
 
 export type RoomStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
@@ -36,6 +36,8 @@ export class CallRoomSocket {
   private readonly onOnline = () => this.kick('online');
   /** serverTime − localTime (ms). */
   clockOffset = 0;
+  /** This socket's id in the room and its leave token (from `welcome`), for the pagehide beacon. */
+  private leaveKey: { clientId: string; token: string } | null = null;
 
   constructor(private readonly callId: string, private readonly handlers: RoomHandlers, private readonly instance?: string) {
     if (typeof window !== 'undefined') window.addEventListener('online', this.onOnline);
@@ -89,7 +91,10 @@ export class CallRoomSocket {
         clearTimeout(this.pongTimer); // anything from the room proves the socket is alive
         this.pongTimer = null;
       }
-      if (msg.type === 'welcome') this.clockOffset = msg.server_time - Date.now();
+      if (msg.type === 'welcome') {
+        this.clockOffset = msg.server_time - Date.now();
+        this.leaveKey = msg.leave_token ? { clientId: msg.client_id, token: msg.leave_token } : null;
+      }
       if (msg.type === 'pong') {
         const rtt = Date.now() - msg.t;
         if (rtt >= 0 && rtt < 5000) this.clockOffset = msg.server_time + rtt / 2 - Date.now();
@@ -169,11 +174,26 @@ export class CallRoomSocket {
     return true;
   }
 
-  close(): void {
+  /**
+   * Leave the room: tell it first ("leave" — I stop counting as in the call at
+   * once, so the other person's "is calling" banner goes away), then close.
+   * `beacon` also sends the leave over sendBeacon, for a page that is being
+   * closed (pagehide), where the socket's last message may never get out.
+   */
+  close(opts: { beacon?: boolean } = {}): void {
+    const alreadyClosed = this.closed;
     this.closed = true;
     if (typeof window !== 'undefined') window.removeEventListener('online', this.onOnline);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.stopTimers();
+    if (!alreadyClosed) {
+      try {
+        this.send({ type: 'leave' });
+      } catch {
+        /* closing anyway */
+      }
+      if (opts.beacon && this.leaveKey) sendLeaveBeacon(this.callId, this.leaveKey.clientId, this.leaveKey.token);
+    }
     this.ws?.close(1000, 'Left the call');
     this.ws = null;
   }

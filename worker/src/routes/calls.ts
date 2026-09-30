@@ -10,6 +10,7 @@
  *   DELETE /calls/:id                                 the creator deletes a call and its audio
  *   POST   /calls/:id/join                            → { ticket, ws_path, ice_servers }
  *   POST   /calls/:id/end                             end for everyone (idempotent)
+ *   POST   /calls/:id/leave                           { client_id, token } — the pagehide beacon (no session; the room's leave token)
  *   POST   /calls/:id/pieces                          register a recording piece { id, piece_index, started_at, mime_type }
  *   PUT    /calls/:id/pieces/:pieceId/chunks/:idx     raw audio bytes
  *   POST   /calls/:id/pieces/:pieceId/close           { chunk_count, duration_ms }
@@ -38,12 +39,22 @@ import { advanceCallProcessing, reprocessCall } from '../services/calls/processi
 import { createJoinTicket, verifyJoinTicket } from '../services/calls/ticket';
 import { getIceServers } from '../services/calls/ice';
 import { alertCallStarted } from '../services/calls/alerts';
+import { roomPresence, withPresence } from '../services/calls/presence';
 import { pickTranscriber } from '../services/calls/transcribe';
 import type { CallReport, CallReportWord } from '../services/calls/report';
 import { StructuredCallError } from '../services/structured-call';
 import { cachedGloss, glossBoardText, rememberGloss, takeGlossToken, validBoardGlossText } from '../services/calls/gloss';
 
 const calls = new Hono<{ Bindings: Env }>();
+
+/** `c.executionCtx` throws outside a real request (tests): then work is awaited inline. */
+function bgContext(c: { executionCtx: { waitUntil(p: Promise<unknown>): void } }): { waitUntil(p: Promise<unknown>): void } | undefined {
+  try {
+    return c.executionCtx;
+  } catch {
+    return undefined;
+  }
+}
 
 function errorResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown, fallback: string): Response {
   if (error instanceof CallError) return c.json({ error: error.message }, error.status);
@@ -62,11 +73,15 @@ calls.get('/calls/ice-servers', async (c) => c.json(await getIceServers(c.env)))
 
 calls.get('/calls', async (c) => {
   try {
+    const liveOnly = c.req.query('live') === '1';
     const list = await listCalls(c.env.DB, c.get('user').id, {
       relationshipId: c.req.query('relationship_id') || undefined,
-      liveOnly: c.req.query('live') === '1',
+      liveOnly,
     });
-    return c.json({ calls: list });
+    // Who is in each live call right now (the banners announce only a call someone is in);
+    // asking also ends rooms whose time is up, so a stale "live" row never survives a poll.
+    await withPresence(c.env, list, bgContext(c));
+    return c.json({ calls: liveOnly ? list.filter((call) => call.status === 'live') : list });
   } catch (error) {
     return errorResponse(c, error, 'Failed to load calls');
   }
@@ -75,11 +90,26 @@ calls.get('/calls', async (c) => {
 calls.post('/calls', async (c) => {
   try {
     if (!c.env.CALL_ROOM) throw new CallError(503, 'Video calls are not set up on this server');
-    const body = await c.req.json<{ relationship_id?: string | null; title?: string | null }>().catch(() => ({}));
+    const body: { relationship_id?: string | null; title?: string | null } = await c.req.json<{ relationship_id?: string | null; title?: string | null }>().catch(() => ({}));
     const origin = frontendOrigin(c.req.raw);
-    const call = await createCall(c.env.DB, c.get('user').id, body, { joinUrl: (id) => `${origin}/calls/${id}` });
-    // Ring the other person's devices (Web Push) — never holds up the call.
-    c.executionCtx.waitUntil(alertCallStarted(c.env, call, c.get('user').id));
+    const userId = c.get('user').id;
+    // Someone is already in a call of this relationship (the other person called first, or it's
+    // still going): join that one instead of starting a second, empty call.
+    if (body.relationship_id) {
+      const live = await listCalls(c.env.DB, userId, { relationshipId: body.relationship_id, liveOnly: true, limit: 5 });
+      await withPresence(c.env, live, bgContext(c));
+      const busy = live.find((call) => call.status === 'live' && (call.present_user_ids?.length ?? 0) > 0);
+      if (busy) {
+        const existing = await requireCall(c.env.DB, busy.id, userId);
+        return c.json({ call: existing, reused: true }, 200);
+      }
+    }
+    const { reused, ...call } = await createCall(c.env.DB, userId, body, { joinUrl: (id) => `${origin}/calls/${id}` });
+    if (reused) return c.json({ call, reused: true }, 200);
+    // Ring the other person's devices (Web Push) — never holds up the call. Arm the room so a
+    // call nobody ever enters still ends by itself.
+    c.executionCtx.waitUntil(alertCallStarted(c.env, call, userId));
+    c.executionCtx.waitUntil(roomPresence(c.env, call.id, call.created_at));
     return c.json({ call }, 201);
   } catch (error) {
     return errorResponse(c, error, 'Failed to start the call');
@@ -299,6 +329,24 @@ export default calls;
 
 /** The WebSocket route — registered BEFORE the auth middleware (it uses a join ticket instead). */
 export function mountCallSocket(app: Hono<{ Bindings: Env }>): void {
+  // The call page's pagehide beacon: `navigator.sendBeacon` can't send the session header, so it
+  // carries the socket's client id + the leave token the room gave that socket in `welcome`.
+  // Text body (a CORS-simple request, no preflight); always 204 — a beacon never reads the answer.
+  app.post('/api/calls/:id/leave', async (c) => {
+    try {
+      if (!c.env.CALL_ROOM) return c.body(null, 204);
+      const raw = await c.req.text();
+      if (raw.length > 1000) return c.body(null, 204);
+      const body = JSON.parse(raw || '{}') as { client_id?: unknown; token?: unknown };
+      const callId = c.req.param('id');
+      if (typeof body.client_id !== 'string' || typeof body.token !== 'string' || !/^[\w-]{1,64}$/.test(callId)) return c.body(null, 204);
+      await c.env.CALL_ROOM.get(c.env.CALL_ROOM.idFromName(callId)).leave(body.client_id.slice(0, 64), body.token.slice(0, 64));
+    } catch (err) {
+      console.error('[calls] leave beacon failed:', err);
+    }
+    return c.body(null, 204);
+  });
+
   app.get('/api/calls/:id/ws', async (c) => {
     if (c.req.header('Upgrade') !== 'websocket') return c.json({ error: 'Expected a WebSocket' }, 426);
     if (!c.env.CALL_ROOM) return c.json({ error: 'Video calls are not set up on this server' }, 503);
