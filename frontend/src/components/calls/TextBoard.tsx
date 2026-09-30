@@ -11,13 +11,20 @@
  *
  * Select Chinese text to see its pinyin (on the device) and, online, a
  * word-by-word meaning.
+ *
+ * Tab-complete (useBoardGloss): pause after typing Chinese and a grey
+ * " - pīnyīn - meaning" appears after the caret — Tab accepts, typing on or
+ * Esc dismisses; on a touch screen a "⇥ pīnyīn - meaning" chip under the caret
+ * accepts on tap. Only the typist sees it; accepted text is ordinary board text.
  */
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { charToCodeUnitIndex, codeUnitToCharIndex, type CharId } from '@shared/calls';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { charToCodeUnitIndex, codeUnitToCharIndex, glossChipLabel, type CharId } from '@shared/calls';
 import type { RemoteCaret, TextBoardSession } from '../../services/calls/textBoard';
+import { boardGlossEnabled, fetchBoardGloss, setBoardGlossEnabled } from '../../services/calls/boardGloss';
 import { explainSentenceText } from '../../api/client';
 import type { SentenceBriefExplanation } from '../../types';
+import { useBoardGloss, type GlossFetcher, type GlossSuggestion } from './useBoardGloss';
 
 interface Decoration {
   caret: RemoteCaret;
@@ -118,9 +125,56 @@ function SelectionHelper({ text }: { text: string }) {
   );
 }
 
-export function TextBoard({ session, placeholder }: { session: TextBoardSession; placeholder?: string }) {
+/**
+ * The ghost: a third layer over the textarea with the same layout — the text up
+ * to the caret (invisible) and then the suggestion in grey on white, so it
+ * reads cleanly even when it wraps over a line below. Nothing after the caret
+ * is laid out here, so nothing else on the board moves.
+ */
+function GhostLayer({
+  before,
+  suggestion,
+  showKey,
+  layerRef,
+  ghostRef,
+}: {
+  before: string;
+  suggestion: GlossSuggestion;
+  showKey: boolean;
+  layerRef: RefObject<HTMLDivElement>;
+  ghostRef: RefObject<HTMLSpanElement>;
+}) {
+  return (
+    <div className="tb-mirror tb-ghost-layer" ref={layerRef} aria-hidden="true" lang="zh">
+      {before}
+      <span className="tb-ghost" ref={ghostRef} data-testid="text-board-ghost">
+        {suggestion.text}
+        {showKey && <kbd className="tb-ghost-key">Tab</kbd>}
+      </span>
+    </div>
+  );
+}
+
+export function TextBoard({
+  session,
+  placeholder,
+  gloss,
+}: {
+  session: TextBoardSession;
+  placeholder?: string;
+  /** Tab-complete for this call (off when absent). */
+  gloss?: { callId: string; userId: string; fetchGloss?: GlossFetcher };
+}) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
+  const ghostLayerRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLSpanElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
+  const [glossOn, setGlossOn] = useState(() => (gloss ? boardGlossEnabled(gloss.userId) : false));
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [touch, setTouch] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches);
+  const [chipPos, setChipPos] = useState<{ left: number; top: number } | null>(null);
   const [, setVersion] = useState(0);
   const mySel = useRef<{ a: CharId | null; b: CharId | null; backwards: boolean }>({ a: null, b: null, backwards: false });
   const [selected, setSelected] = useState('');
@@ -149,6 +203,28 @@ export function TextBoard({ session, placeholder }: { session: TextBoardSession;
     else sendTimer.current = setTimeout(send, wait);
   }, [session]);
 
+  const callId = gloss?.callId;
+  const customFetch = gloss?.fetchGloss;
+  const fetchGloss = useMemo<GlossFetcher | null>(
+    () => customFetch ?? (callId ? (segment, signal) => fetchBoardGloss(callId, segment, signal) : null),
+    [callId, customFetch],
+  );
+  const suggest = useBoardGloss({
+    taRef,
+    isComposing: () => session.isComposing,
+    enabled: glossOn,
+    fetchGloss,
+    onInserted: () => {
+      const ta = taRef.current;
+      if (!ta) return;
+      session.localEdit(ta.value, codeUnitToCharIndex(ta.value, ta.selectionEnd));
+      captureSelection();
+    },
+  });
+  const suggestion = suggest.suggestion;
+  const pokeRef = useRef(suggest.poke);
+  pokeRef.current = suggest.poke;
+
   // Session changes: remote edits rewrite the textarea (keeping my caret); carets just re-render.
   useEffect(() => {
     const unsub = session.subscribe((reason) => {
@@ -165,6 +241,7 @@ export function TextBoard({ session, placeholder }: { session: TextBoardSession;
           ta.setSelectionRange(Math.min(s, e), Math.max(s, e), backwards ? 'backward' : 'forward');
         }
         ta.scrollTop = scroll;
+        if (focused) pokeRef.current(); // a suggestion for text that moved is dropped
       }
       setVersion(session.version);
     });
@@ -180,7 +257,28 @@ export function TextBoard({ session, placeholder }: { session: TextBoardSession;
 
   useLayoutEffect(() => {
     if (mirrorRef.current && taRef.current) mirrorRef.current.scrollTop = taRef.current.scrollTop;
+    if (ghostLayerRef.current && taRef.current) ghostLayerRef.current.scrollTop = taRef.current.scrollTop;
   });
+
+  // The touch chip sits just under the caret's line (above it near the bottom), inside the board.
+  useLayoutEffect(() => {
+    if (!suggestion || !touch) {
+      setChipPos(null);
+      return;
+    }
+    const paper = paperRef.current;
+    const ghost = ghostRef.current;
+    const chip = chipRef.current;
+    if (!paper || !ghost || !chip) return;
+    const p = paper.getBoundingClientRect();
+    const r = ghost.getClientRects()[0] ?? ghost.getBoundingClientRect();
+    const w = chip.offsetWidth;
+    const h = chip.offsetHeight;
+    const left = Math.max(8, Math.min(r.left - p.left, p.width - w - 8));
+    let top = r.bottom - p.top + 6;
+    if (top + h > p.height - 4) top = Math.max(4, r.top - p.top - h - 6);
+    setChipPos((old) => (old && old.left === left && old.top === top ? old : { left, top }));
+  }, [suggestion, touch, session.version]);
 
   const text = session.text;
   const decorations: Decoration[] = useMemo(
@@ -195,11 +293,16 @@ export function TextBoard({ session, placeholder }: { session: TextBoardSession;
   );
 
   const caretOf = (ta: HTMLTextAreaElement) => codeUnitToCharIndex(ta.value, ta.selectionEnd);
+  const onCaret = () => {
+    captureSelection();
+    suggest.poke();
+  };
+  const ghostBefore = suggestion && taRef.current ? taRef.current.value.slice(0, charToCodeUnitIndex(taRef.current.value, suggestion.end)) : '';
 
   return (
     <div className="tb">
-      <div className="tb-paper">
-        <div className="tb-mirror" ref={mirrorRef} aria-hidden="true">
+      <div className="tb-paper" ref={paperRef}>
+        <div className="tb-mirror" ref={mirrorRef} aria-hidden="true" lang="zh">
           <MirrorContent text={text} decorations={decorations} />
         </div>
         <textarea
@@ -214,33 +317,95 @@ export function TextBoard({ session, placeholder }: { session: TextBoardSession;
             const ta = e.currentTarget;
             if ((e.nativeEvent as InputEvent).isComposing || session.isComposing) return;
             session.localEdit(ta.value, caretOf(ta));
-            captureSelection();
+            onCaret();
           }}
-          onCompositionStart={() => session.setComposing(true)}
+          onCompositionStart={() => {
+            session.setComposing(true);
+            suggest.clear(); // never while the IME is open
+          }}
           onCompositionEnd={(e) => {
             const ta = e.currentTarget;
             session.setComposing(false, ta.value, caretOf(ta));
             captureSelection(); // my caret, after my composed text…
             session.flushHeld(); // …then the other person's edits that waited (the caret stays put)
+            suggest.poke(); // …and the pause that may bring a suggestion starts now
           }}
-          onSelect={captureSelection}
-          onKeyUp={captureSelection}
-          onMouseUp={captureSelection}
-          onFocus={captureSelection}
-          onBlur={() => session.clearSelection()}
+          onKeyDown={(e) => {
+            if (!suggestion || e.nativeEvent.isComposing || session.isComposing) return;
+            if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+              if (suggest.accept()) e.preventDefault();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              suggest.dismiss();
+            }
+          }}
+          onPointerDown={(e) => setTouch(e.pointerType === 'touch' || e.pointerType === 'pen')}
+          onSelect={onCaret}
+          onKeyUp={onCaret}
+          onMouseUp={onCaret}
+          onFocus={onCaret}
+          onBlur={() => {
+            session.clearSelection();
+            suggest.clear();
+          }}
           onScroll={(e) => {
             if (mirrorRef.current) mirrorRef.current.scrollTop = e.currentTarget.scrollTop;
+            if (ghostLayerRef.current) ghostLayerRef.current.scrollTop = e.currentTarget.scrollTop;
           }}
         />
+        {suggestion && <GhostLayer before={ghostBefore} suggestion={suggestion} showKey={!touch} layerRef={ghostLayerRef} ghostRef={ghostRef} />}
+        {suggestion && touch && (
+          <button
+            type="button"
+            ref={chipRef}
+            className="tb-gloss-chip"
+            style={chipPos ? { left: chipPos.left, top: chipPos.top } : { left: 8, top: 8, visibility: 'hidden' }}
+            data-testid="text-board-gloss-chip"
+            // Keep the keyboard up: don't take focus from the textarea.
+            onPointerDown={(e) => e.preventDefault()}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => suggest.accept()}
+            aria-label={`Add ${suggestion.gloss.pinyin} - ${suggestion.gloss.english}`}
+          >
+            {glossChipLabel(suggestion.gloss)}
+          </button>
+        )}
       </div>
       {selected && <SelectionHelper text={selected} />}
-      {session.remoteCarets.length > 0 && (
+      {(session.remoteCarets.length > 0 || gloss) && (
         <div className="tb-people">
           {session.remoteCarets.map((c) => (
             <span key={c.clientId} className="tb-person">
               <span className="tb-dot" style={{ background: c.color }} /> {c.name} is here
             </span>
           ))}
+          {gloss && (
+            <span className="tb-menu-wrap">
+              <button type="button" className="tb-menu-btn" aria-label="Board options" aria-expanded={menuOpen} data-testid="text-board-menu" onClick={() => setMenuOpen((o) => !o)}>
+                ⋯
+              </button>
+              {menuOpen && (
+                <div className="tb-menu" role="menu">
+                  <label className="tb-menu-item">
+                    <input
+                      type="checkbox"
+                      checked={glossOn}
+                      data-testid="text-board-gloss-toggle"
+                      onChange={(e) => {
+                        setGlossOn(e.target.checked);
+                        setBoardGlossEnabled(gloss.userId, e.target.checked);
+                      }}
+                    />
+                    <span>
+                      Suggest pinyin &amp; meaning
+                      <small>After you type Chinese, Tab (or tap ⇥) adds “ - pīnyīn - meaning”</small>
+                    </span>
+                  </label>
+                </div>
+              )}
+            </span>
+          )}
         </div>
       )}
     </div>

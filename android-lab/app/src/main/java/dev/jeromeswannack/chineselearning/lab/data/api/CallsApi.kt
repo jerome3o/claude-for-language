@@ -172,6 +172,15 @@ suspend fun Api.makeCallFlashcards(id: String, body: FlashcardsRequest): Flashca
 
 suspend fun Api.callHomework(id: String): List<SessionJobDto> = get<CallJobsDto>("${callPath(id)}/homework").jobs
 
+@Serializable
+data class BoardGlossBody(val text: String)
+
+@Serializable
+data class BoardGlossDto(val pinyin: String = "", val english: String = "")
+
+/** The text board's tab-complete (Haiku, cached server-side); 503 without a key / 429 when asked too often. */
+suspend fun Api.glossBoardText(id: String, text: String): BoardGlossDto = post("${callPath(id)}/gloss", BoardGlossBody(text))
+
 suspend fun Api.makeCallHomework(id: String): SessionJobDto = post<CallHomeworkRequest, CallJobDto>("${callPath(id)}/homework", CallHomeworkRequest()).job
 
 /** Upload paths (queued through the Outbox by data/calls/CallUploads.kt). */

@@ -162,6 +162,9 @@ fun CallRoute(nav: LabNav, id: String) {
     LaunchedEffect(s.annotations, overlayOn) { if (overlayOn) overlay.update(s.annotations) }
     DisposableEffect(Unit) { onDispose { overlay.hide() } }
     var confirmLeave by remember { mutableStateOf(false) }
+    // Tab-complete on the text board: on by default, remembered per user on this phone (web: localStorage).
+    val glossPrefs = remember { context.getSharedPreferences("lab-calls", Context.MODE_PRIVATE) }
+    var glossOn by remember(myId) { mutableStateOf(glossPrefs.getBoolean("board-gloss:$myId", true)) }
     BackHandler(enabled = s.phase == CallPhase.LIVE) { confirmLeave = true }
 
     val other = d?.participants?.firstOrNull { it.id != myId }
@@ -179,6 +182,7 @@ fun CallRoute(nav: LabNav, id: String) {
             audioRoute = route,
             audioRoutes = if (s.phase == CallPhase.LIVE) vm.audio.routes() else listOf(route),
             screenOverlayOn = overlayOn,
+            boardGlossOn = glossOn,
         ),
         CallActions(
             onBack = nav::back,
@@ -213,6 +217,8 @@ fun CallRoute(nav: LabNav, id: String) {
                 nav.app.repo.api.explainSentenceText(dev.jeromeswannack.chineselearning.lab.data.api.ExplainTextBody(hanzi)).words
                     .joinToString(" · ") { "${it.hanzi} ${it.gloss}" }.ifBlank { null }
             },
+            gloss = { text -> BoardGlossFetcher.fetch(nav.app.repo.api, id, text) },
+            onBoardGlossOn = { on -> glossOn = on; glossPrefs.edit().putBoolean("board-gloss:$myId", on).apply() },
             onReview = { nav.back(); nav.open(Routes.callReview(id)) },
             onAllCalls = { nav.back(); nav.open(Routes.calls()) },
         ),
