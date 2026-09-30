@@ -43,6 +43,13 @@ import kotlin.coroutines.resume
  * `setTrack`, so there is no renegotiation in practice; if one happens, perfect-negotiation rules
  * handle a collision. Signals are applied one at a time, in arrival order.
  *
+ * Round 2 (PR B): screen sharing has its OWN video transceiver (the third m-line), so the other person
+ * sees my camera AND my screen: the offerer creates audio, video (camera), video (screen); the
+ * answerer adopts them in that order ([TransceiverRoles]). Incoming video on the screen transceiver
+ * is their screen ([PeerListener.onRemoteScreen]), the rest their camera. An older app offers one
+ * video m-line: then [screenChannel] is false, a share replaces the camera like before and their
+ * screen arrives on the camera stream.
+ *
  * Round 2: the CallController drives ICE restarts ([restartIce], from the link's health and
  * backoff — this class never restarts on its own), a mic or camera that appears mid-call goes
  * onto the existing transceiver ([setAudio] / [setVideo]), the video sender's encoding follows the
@@ -54,6 +61,7 @@ class PeerLink(
     private val polite: Boolean,
     private var audioTrack: AudioTrack?,
     private var videoTrack: VideoTrack?,
+    private var screenTrack: VideoTrack?,
     private val listener: PeerListener,
 ) : PeerSession {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -62,7 +70,21 @@ class PeerLink(
     private var ignoreOffer = false
     private var audio: RtpTransceiver? = null
     private var video: RtpTransceiver? = null
+    private var screen: RtpTransceiver? = null
+    /** The answerer adopts the offer's transceivers once (getTransceivers() disposes the wrappers it handed out before). */
+    private var adopted = false
     @Volatile private var closed = false
+
+    // Incoming video by receiver id, routed to camera / screen once the transceivers' roles are known.
+    private val remoteLock = Any()
+    private val remoteByReceiver = LinkedHashMap<String, VideoTrack>()
+    @Volatile private var cameraReceiverId: String? = null
+    @Volatile private var screenReceiverId: String? = null
+    private var shownCamera: VideoTrack? = null
+    private var shownScreen: VideoTrack? = null
+
+    /** Both sides have a screen transceiver (false with an older app: a share replaces the camera). */
+    override val screenChannel: Boolean get() = screen != null
 
     private val pc: PeerConnection = factory.createPeerConnection(
         PeerConnection.RTCConfiguration(iceServers.flatMap { it.toWebRtc() }).apply {
@@ -78,6 +100,10 @@ class PeerLink(
             val init = RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV)
             audio = if (audioTrack != null) pc.addTransceiver(audioTrack, init) else pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, init)
             video = videoTrack?.let { pc.addTransceiver(it, init) } ?: pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, init)
+            screen = screenTrack?.let { pc.addTransceiver(it, init) } ?: pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, init)
+            cameraReceiverId = runCatching { video?.receiver?.id() }.getOrNull()
+            screenReceiverId = runCatching { screen?.receiver?.id() }.getOrNull()
+            applyScreenEncoding()
         }
         scope.launch { for (s in signals) apply(s) }
     }
@@ -98,12 +124,8 @@ class PeerLink(
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
             if (!closed) listener.onConnectionState(newState.name.lowercase())
         }
-        override fun onTrack(transceiver: RtpTransceiver) {
-            (transceiver.receiver.track() as? VideoTrack)?.let { listener.onRemoteVideo(it) }
-        }
-        override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) {
-            (receiver.track() as? VideoTrack)?.let { listener.onRemoteVideo(it) }
-        }
+        override fun onTrack(transceiver: RtpTransceiver) = incoming(transceiver.receiver)
+        override fun onAddTrack(receiver: RtpReceiver, streams: Array<out MediaStream>) = incoming(receiver)
         override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
             if (!closed) listener.onIceState(state.name.lowercase())
@@ -146,27 +168,99 @@ class PeerLink(
         }
     }
 
+    /** A video track arrived: remembered by its receiver, shown as their camera or their screen. */
+    private fun incoming(receiver: RtpReceiver) {
+        if (closed) return
+        val track = receiver.track() as? VideoTrack ?: return
+        val id = runCatching { receiver.id() }.getOrNull() ?: return
+        synchronized(remoteLock) { remoteByReceiver[id] = track }
+        routeRemote()
+    }
+
+    /** Their camera / screen to the listener (only once the roles are known, and only when they change). */
+    private fun routeRemote() {
+        val camId = cameraReceiverId ?: return
+        val scrId = screenReceiverId
+        var cam: VideoTrack? = null
+        var scr: VideoTrack? = null
+        synchronized(remoteLock) {
+            for ((id, t) in remoteByReceiver) {
+                if (TransceiverRoles.isRemoteScreen(id, scrId)) scr = t
+                else if (id == camId || cam == null) cam = t
+            }
+            if (cam === shownCamera) cam = null else shownCamera = cam
+            if (scr === shownScreen) scr = null else shownScreen = scr
+        }
+        cam?.let { listener.onRemoteVideo(it) }
+        scr?.let { listener.onRemoteScreen(it) }
+    }
+
     /** Answerer: adopt the transceivers the offer created and send our tracks on them. */
     private fun adoptTransceivers() {
-        if (audio != null && video != null) return
-        for (t in pc.transceivers) {
-            when (t.mediaType) {
-                MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO -> if (audio == null) audio = t
-                MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO -> if (video == null) video = t
-                else -> Unit
+        if (audio != null && video != null && (screen != null || adopted)) return
+        val list = pc.transceivers
+        val roles = TransceiverRoles.adopt(list.map {
+            when (it.mediaType) {
+                MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO -> TransceiverRoles.Kind.AUDIO
+                MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO -> TransceiverRoles.Kind.VIDEO
+                else -> null
             }
-        }
+        })
+        adopted = true
+        audio = roles.audio?.let(list::get)
+        video = roles.camera?.let(list::get)
+        screen = roles.screen?.let(list::get)
+        cameraReceiverId = runCatching { video?.receiver?.id() }.getOrNull()
+        screenReceiverId = runCatching { screen?.receiver?.id() }.getOrNull()
+        // An older peer offered one video m-line: a share goes out on the camera transceiver.
+        val sends = TransceiverRoles.sends(roles.screenChannel, videoTrack, screenTrack)
         audio?.let { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV; it.sender.setTrack(audioTrack, false) }
-        video?.let { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV; it.sender.setTrack(videoTrack, false) }
+        video?.let { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV; it.sender.setTrack(sends.camera, false) }
+        screen?.let { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV; it.sender.setTrack(sends.screen, false) }
         prioritiseAudio()
         pendingEncoding?.let { setVideoEncoding(it) }
+        applyScreenEncoding()
+        routeRemote()
     }
 
     override fun setVideo(video: VideoHandle?) {
         val track = video as? VideoTrack
         videoTrack = track
+        if (screen == null && screenTrack != null) return // legacy share in progress: the camera comes back when it ends
         if (!closed) this.video?.sender?.setTrack(track, false)
         pendingEncoding?.let { setVideoEncoding(it) }
+    }
+
+    /** Start / stop sharing my screen: its own transceiver, the camera keeps going (an older peer: it takes the camera's place). */
+    override fun setScreen(video: VideoHandle?) {
+        val track = video as? VideoTrack
+        screenTrack = track
+        if (closed) return
+        val s = screen
+        if (s != null) {
+            s.sender.setTrack(track, false)
+            applyScreenEncoding()
+            return
+        }
+        this.video?.sender?.setTrack(track ?: videoTrack, false)
+        pendingEncoding?.let { setVideoEncoding(it) }
+    }
+
+    /** The screen sender keeps its resolution (core CallConnection.videoEncodingFor(SCREEN)). */
+    private fun applyScreenEncoding() {
+        val sender = screen?.sender ?: return
+        if (closed || screenTrack == null) return
+        val encoding = CallConnection.videoEncodingFor(CallConnection.VideoSource.SCREEN, null)
+        runCatching {
+            val p = sender.parameters
+            p.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+            p.encodings.forEach {
+                it.maxBitrateBps = encoding.maxBitrate
+                it.maxFramerate = encoding.maxFramerate
+                it.scaleResolutionDownBy = encoding.scaleResolutionDownBy
+            }
+            sender.parameters = p
+        }.onFailure { Log.w(TAG, "screen encoding", it) }
     }
 
     override fun setAudio(audio: VideoHandle?) {

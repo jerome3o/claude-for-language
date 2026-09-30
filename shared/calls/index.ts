@@ -7,3 +7,4 @@ export * from './alerts';
 export * from './annotate';
 export * from './gloss';
 export * from './connection';
+export * from './layout';

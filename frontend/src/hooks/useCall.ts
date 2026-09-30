@@ -59,6 +59,10 @@ export interface RemoteParticipant {
   /** Their socket left the room; the link (and the frozen picture) is kept for a while. */
   away: boolean;
   health: LinkHealth | null;
+  /** Their shared screen (its own stream; frames only while they share). */
+  screenStream: MediaStream | null;
+  /** False with an older app: their screen arrives on the camera stream instead. */
+  screenChannel: boolean;
 }
 
 /** What stopped the microphone / camera (null = fine or not asked yet). */
@@ -159,7 +163,7 @@ export function useCall(callId: string, myUserId: string) {
     localRef.current = next;
     setLocalStream(next);
     if (track.kind === 'audio') await linkRef.current?.setAudioTrack(track);
-    else if (!screenRef.current) await linkRef.current?.setVideoTrack(track, 'camera');
+    else await linkRef.current?.setVideoTrack(track, 'camera');
   }, []);
 
   /**
@@ -193,7 +197,7 @@ export function useCall(callId: string, myUserId: string) {
       } else {
         track.enabled = true;
         setCamOn(true);
-        if (phaseRef.current === 'live' && !screenRef.current) broadcastStateRef.current({ cam: true });
+        if (phaseRef.current === 'live') broadcastStateRef.current({ cam: true });
       }
     }
     setMediaProblems((p) => ({
@@ -256,7 +260,7 @@ export function useCall(callId: string, myUserId: string) {
     remoteIdRef.current = peer.client_id;
     remotePeerRef.current = peer;
     diag('peer', `${peer.name} joined — new link`);
-    setRemote({ peer, stream: null, connection: 'new', away: false, health: null });
+    setRemote({ peer, stream: null, connection: 'new', away: false, health: null, screenStream: null, screenChannel: true });
     // Updates from this link only (a newer link may have replaced it).
     let link: PeerLink | null = null;
     const mine = (r: RemoteParticipant | null): r is RemoteParticipant => !!r && !!link && linkRef.current === link;
@@ -264,12 +268,13 @@ export function useCall(callId: string, myUserId: string) {
       iceServers: iceRef.current,
       polite: (selfIdRef.current ?? '') < peer.client_id,
       audioTrack: audioTrack(),
-      videoTrack: screenRef.current?.getVideoTracks()[0] ?? cameraTrack(),
-      videoSource: screenRef.current ? 'screen' : 'camera',
+      videoTrack: cameraTrack(),
+      screenTrack: screenRef.current?.getVideoTracks()[0] ?? null,
       // Signals go to wherever the other person's socket is now (it may have reconnected).
       sendSignal: (data: SignalData) => (remoteIdRef.current ? roomRef.current?.send({ type: 'signal', to: remoteIdRef.current, data }) ?? false : false),
       signallingOpen: () => !!roomRef.current?.isOpen && !!remoteIdRef.current,
-      onRemoteStream: (stream) => setRemote((r) => (mine(r) ? { ...r, stream } : r)),
+      onRemoteStream: (stream) => setRemote((r) => (mine(r) ? { ...r, stream, screenChannel: link!.screenChannel } : r)),
+      onRemoteScreen: (screenStream) => setRemote((r) => (mine(r) ? { ...r, screenStream, screenChannel: true } : r)),
       onConnectionState: (connection) => setRemote((r) => (mine(r) ? { ...r, connection } : r)),
       onHealth: (health) => setRemote((r) => (mine(r) ? { ...r, health } : r)),
       onDiag: diag,
@@ -535,7 +540,7 @@ export function useCall(callId: string, myUserId: string) {
     screenRef.current?.getTracks().forEach((t) => t.stop());
     screenRef.current = null;
     setScreenStream(null);
-    await linkRef.current?.setVideoTrack(cameraTrack(), 'camera');
+    await linkRef.current?.setScreenTrack(null);
     broadcastState({ screen: false });
   }, [broadcastState]);
 
@@ -548,7 +553,7 @@ export function useCall(callId: string, myUserId: string) {
       track.onended = () => void stopScreenShare();
       screenRef.current = stream;
       setScreenStream(stream);
-      await linkRef.current?.setVideoTrack(track, 'screen');
+      await linkRef.current?.setScreenTrack(track);
       broadcastState({ screen: true });
     } catch {
       /* the picker was cancelled */

@@ -193,7 +193,7 @@ class CallScreenshots : LabScreenshotTest() {
     @Config(qualifiers = UNFOLDED)
     @Test fun drawOnTheirScreen() = shoot("calls-26-draw-on-shared-screen") {
         CallScreen(
-            live.copy(remote = live.remote!!.copy(video = "screen@1920x1080", peer = tutor.copy(state = tutor.state.copy(screen = true))), annotations = drawings),
+            live.copy(remote = live.remote!!.copy(screen = "screen@1920x1080", peer = tutor.copy(state = tutor.state.copy(screen = true))), annotations = drawings),
             info, CallActions(), fakeVideo, now,
         )
     }

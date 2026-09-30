@@ -55,8 +55,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.webrtc.RendererCommon
-import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
 /**
@@ -71,6 +69,8 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
     val audio = CallAudio(app)
     private val _myId = MutableStateFlow("")
     val myId: StateFlow<String> = _myId.asStateFlow()
+    /** The tile layout, remembered per user on this phone (web localStorage `call-layout-v1:<userId>`). */
+    val layout = CallLayoutHolder(PrefsCallLayoutStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)))
 
     val controller: CallController = CallController(
         callId, "",
@@ -113,6 +113,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
     init {
         viewModelScope.launch {
             _myId.value = Connections.myId(app.cache) ?: runCatching { app.repo.api.me().id }.getOrNull().orEmpty()
+            layout.bind(_myId.value)
         }
         viewModelScope.launch { uploads.pending(callId).collect { controller.setPendingUploads(it) } }
         runCatching { connectivity?.registerDefaultNetworkCallback(networkCallback) }
@@ -290,8 +291,11 @@ fun CallRoute(nav: LabNav, id: String) {
             onBoardGlossOn = { on -> glossOn = on; glossPrefs.edit().putBoolean("board-gloss:$myId", on).apply() },
             onReview = { nav.back(); nav.open(Routes.callReview(id)) },
             onAllCalls = { nav.back(); nav.open(Routes.calls()) },
+            onTick = { nav.app.haptics.tick() },
+            onSnap = { nav.app.haptics.flip() },
         ),
         video = { handle, mirror, contain, overlay, onFrameSize, modifier -> RtcVideo(handle as? VideoTrack, eglContext, mirror, contain, overlay, onFrameSize, modifier) },
+        layout = vm.layout,
     )
     if (confirmLeave) dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog(
         "Leave the call?", "The call goes on for the other person — rejoin it from the calls page. To end it for both of you, use the red button.", "Leave",
@@ -300,42 +304,36 @@ fun CallRoute(nav: LabNav, id: String) {
 }
 
 /**
- * One WebRTC video in a SurfaceViewRenderer; rebuilt with the composition, the track outlives it.
- * Reports each new frame size (rotation applied) so [FittedVideo] can pick cover / contain.
+ * One WebRTC video in a [TextureVideoView]: composes with the tiles around it (no SurfaceView
+ * z-order), survives the tile moving / resizing, keeps its last frame through a dropout. The track
+ * outlives the view. Reports each new frame size (rotation applied) so [FittedVideo] can pick
+ * cover / contain.
  */
 @Composable
-fun RtcVideo(track: VideoTrack?, egl: org.webrtc.EglBase.Context, mirror: Boolean, contain: Boolean, overlay: Boolean, onFrameSize: (Int, Int) -> Unit, modifier: Modifier = Modifier) {
+fun RtcVideo(track: VideoTrack?, egl: org.webrtc.EglBase.Context, mirror: Boolean, contain: Boolean, @Suppress("UNUSED_PARAMETER") overlay: Boolean, onFrameSize: (Int, Int) -> Unit, modifier: Modifier = Modifier) {
     if (track == null) return
     val sizeCallback = rememberUpdatedState(onFrameSize)
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            SurfaceViewRenderer(ctx).apply {
-                val main = android.os.Handler(android.os.Looper.getMainLooper())
-                init(egl, object : RendererCommon.RendererEvents {
-                    override fun onFirstFrameRendered() {}
-                    override fun onFrameResolutionChanged(width: Int, height: Int, rotation: Int) {
-                        val turned = rotation % 180 != 0
-                        main.post { sizeCallback.value(if (turned) height else width, if (turned) width else height) }
-                    }
-                })
-                setEnableHardwareScaler(true)
-                if (overlay) setZOrderMediaOverlay(true)
+            TextureVideoView(ctx).apply {
+                init(egl)
+                this.onFrameSize = { w, h -> sizeCallback.value(w, h) }
             }
         },
-        update = { r ->
-            r.setMirror(mirror)
-            r.setScalingType(if (contain) RendererCommon.ScalingType.SCALE_ASPECT_FIT else RendererCommon.ScalingType.SCALE_ASPECT_FILL)
-            val bound = r.tag as? VideoTrack
+        update = { v ->
+            v.setMirror(mirror)
+            v.setContain(contain)
+            val bound = v.tag as? VideoTrack
             if (bound !== track) {
-                bound?.let { runCatching { it.removeSink(r) } }
-                runCatching { track.addSink(r) }
-                r.tag = track
+                bound?.let { runCatching { it.removeSink(v) } }
+                runCatching { track.addSink(v) }
+                v.tag = track
             }
         },
-        onRelease = { r ->
-            (r.tag as? VideoTrack)?.let { runCatching { it.removeSink(r) } }
-            r.release()
+        onRelease = { v ->
+            (v.tag as? VideoTrack)?.let { runCatching { it.removeSink(v) } }
+            v.release()
         },
     )
 }
