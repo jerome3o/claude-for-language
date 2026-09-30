@@ -19,6 +19,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.DeckCapsBody
 import dev.jeromeswannack.chineselearning.lab.data.api.setDeckCaps
 import dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkStore
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
+import dev.jeromeswannack.chineselearning.lab.ui.study.sentenceRows
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -91,7 +92,11 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
                 if (a == null || a.kind != "deck") return@collect
                 val ids = Homework.passItemIds(a)
                 notes.value = withContext(Dispatchers.IO) {
-                    app.repo.dao.notes(ids).associate { n -> n.id to PassNote(n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, n.sentenceClue, n.sentenceClueTranslation) }
+                    app.repo.dao.notes(ids).associate { n ->
+                        // The study card's rows: the card's own sentence, then the generated set.
+                        val rows = sentenceRows(n, app.repo.dao.sentencesFor(n.id))
+                        n.id to PassNote(n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, rows, n.deckId)
+                    }
                 }
             }
         }
@@ -160,6 +165,9 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         val note = current()?.note ?: return
         app.audio.play(note.audioUrl, note.hanzi, app.online.value)
     }
+
+    /** ▶ on an example sentence: its clip, else the device voice. Nothing is recorded. */
+    fun playSentence(key: String?, text: String) = app.audio.play(key, text, app.online.value)
 
     fun answer(right: Boolean) {
         val d = current() ?: return

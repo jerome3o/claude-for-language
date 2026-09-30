@@ -4,7 +4,10 @@ import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent
 import dev.jeromeswannack.chineselearning.lab.core.HwMessage
+import dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord
 import dev.jeromeswannack.chineselearning.lab.data.api.OnboardingDeckDto
+import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
+import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceRow
 import dev.jeromeswannack.chineselearning.lab.data.api.OnboardingDto
 import dev.jeromeswannack.chineselearning.lab.data.api.UserSummaryDto
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
@@ -53,7 +56,21 @@ class HomeworkScreenshots : LabScreenshotTest() {
         val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, TODAY))
         val listUi = HomeworkListUi(true, sorted.todo, sorted.done)
 
-        val note = PassNote("n1", "服务员", "fúwùyuán", "waiter; waitress", null, "服务员，我们要点菜。", "Waiter, we'd like to order.")
+        val clueRow = SentenceRow("clue:n1", null, "服务员，我们要点菜。", "fúwùyuán, wǒmen yào diǎn cài.", "Waiter, we'd like to order.", null, "From the card")
+        val setRows = listOf(
+            SentenceRow("s1", "s1", "那个服务员很热情。", "nàge fúwùyuán hěn rèqíng.", "That waiter is very friendly.", null, null),
+            SentenceRow("s2", "s2", "我姐姐在饭店当服务员。", "wǒ jiějie zài fàndiàn dāng fúwùyuán.", "My older sister works as a waitress in a restaurant.", null, "Collocation"),
+        )
+        val note = PassNote("n1", "服务员", "fúwùyuán", "waiter; waitress", null, listOf(clueRow) + setRows, "d1")
+        val breakdown = SentenceExplanation(
+            words = listOf(
+                ExplainedWord("服务员", "fúwùyuán", "waiter"),
+                ExplainedWord("我们", "wǒmen", "we"),
+                ExplainedWord("要", "yào", "want to"),
+                ExplainedWord("点菜", "diǎn cài", "order food"),
+            ),
+            construction = "Calling someone by their role (服务员，…) then **要 + verb** for what you want to do.",
+        )
         val deckAssignment = assignments[0]
         val progress = Homework.passProgress(Homework.passItemIds(deckAssignment), events)
         fun deckPass(revealed: Boolean) = PassUi.Deck("餐厅点菜", "day 1 of 2", Homework.dueLabel("2026-09-25", TODAY), progress, note, revealed, "d1", oneOffOnly = true)
@@ -164,6 +181,25 @@ class HomeworkScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun passFrontUnfolded() = shoot("homework-20-pass-front-unfolded") { HomeworkPassScreen(deckPass(false), PassActions()) }
+
+    // The answer side's example sentence, as on the study card (folded, dark, font 1.3): the
+    // Chinese up; tapped open (pinyin + English + the tools); "What's going on here?" open;
+    // the generated set under "+ N more sentences".
+    @Test fun passSentenceClosed() = shoot("homework-22-pass-sentence-closed", dark = true) { LargeFont { HomeworkPassScreen(deckPass(true), PassActions()) } }
+
+    @Test fun passSentenceOpen() = shoot("homework-23-pass-sentence-open", dark = true) {
+        LargeFont { HomeworkPassScreen(deckPass(true), PassActions(), sentences = PassSentencesStart(steps = mapOf(clueRow.key to 3))) }
+    }
+
+    @Test fun passSentenceBreakdown() = shoot("homework-24-pass-sentence-breakdown", dark = true) {
+        LargeFont {
+            HomeworkPassScreen(deckPass(true), PassActions(), sentences = PassSentencesStart(explained = mapOf(clueRow.key to breakdown), steps = mapOf(clueRow.key to 3)))
+        }
+    }
+
+    @Test fun passSentenceMore() = shoot("homework-25-pass-sentence-more") {
+        HomeworkPassScreen(deckPass(true), PassActions(), sentences = PassSentencesStart(steps = mapOf("s2" to 2), more = true))
+    }
 
     @Config(qualifiers = UNFOLDED)
     @Test fun passRevealedUnfoldedLargeFont() = shoot("homework-21-pass-revealed-unfolded-font130") { LargeFont { HomeworkPassScreen(deckPass(true), PassActions()) } }

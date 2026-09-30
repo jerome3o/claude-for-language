@@ -9,6 +9,7 @@ import {
   resetSentenceSetSyncCursor,
   getSentenceExplanation,
   getTextExplanation,
+  getCachedTextExplanation,
 } from '../services/sentence-sets';
 import { SentenceBriefExplanation } from '../types';
 import { fetchNoteSentences, deleteNoteSentenceSet, API_BASE } from '../api/client';
@@ -110,6 +111,13 @@ interface SentenceSetProps {
   compact?: boolean;
   /** Start with the list expanded (non-compact only; the study card is always open). */
   defaultOpen?: boolean;
+  /**
+   * The homework pass's calm version: the same rows (▶, tap to reveal, "What's
+   * going on here?", + Add as card), but the Chinese is already up — taps add the
+   * pinyin, then the English — with no header, no EN exercise, no generating, and
+   * the generated set behind "+ N more sentences".
+   */
+  variant?: 'card' | 'pass';
 }
 
 export function SentenceSet({
@@ -117,7 +125,12 @@ export function SentenceSet({
   cardSentence,
   compact = false,
   defaultOpen = true,
+  variant = 'card',
 }: SentenceSetProps) {
+  const pass = variant === 'pass';
+  // How much a row shows before any tap: nothing on the study card (listen
+  // first), the Chinese in the pass.
+  const startStage = pass ? 1 : 0;
   const { isOnline } = useNetwork();
   const { isPlaying, play } = useNoteAudio('sentence-set');
 
@@ -146,6 +159,11 @@ export function SentenceSet({
   // Whatever the learner tapped to turn into its own card: a whole sentence
   // or a single word out of a breakdown.
   const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
+  // The pass: the generated set folded away under the card's own sentence.
+  const [showMore, setShowMore] = useState(false);
+  // The card's own sentence has no row to cache its breakdown on: the one this
+  // device already holds (study card, Coach) shows at once, offline too.
+  const [cachedClue, setCachedClue] = useState<SentenceBriefExplanation | null>(null);
 
   // Guard against a slow fetch landing after the user moved to another card
   const noteIdRef = useRef(noteId);
@@ -182,9 +200,23 @@ export function SentenceSet({
     setShowMenu(false);
     setCustomPrompt('');
     setError(null);
+    setShowMore(false);
     setOpen(compact || defaultOpen);
     void load();
   }, [noteId, compact, defaultOpen, load]);
+
+  const clueHanzi = cardSentence?.hanzi ?? null;
+  useEffect(() => {
+    setCachedClue(null);
+    if (!clueHanzi) return;
+    let live = true;
+    void getCachedTextExplanation(clueHanzi).then((cached) => {
+      if (live) setCachedClue(cached);
+    });
+    return () => {
+      live = false;
+    };
+  }, [clueHanzi]);
 
   const handleGenerate = useCallback(
     async (options: { count?: number; keepExisting?: boolean; customPrompt?: string } = {}) => {
@@ -225,9 +257,10 @@ export function SentenceSet({
   /** One more tap, one more line — and a tap on a fully open row hides it again. */
   const advanceRow = (row: DisplayRow) => {
     const total = revealSteps(row, englishFirst[row.key]).length;
+    const first = englishFirst[row.key] ? 0 : startStage;
     setRevealed((prev) => {
-      const stage = prev[row.key] ?? 0;
-      return { ...prev, [row.key]: stage >= total ? 0 : stage + 1 };
+      const stage = prev[row.key] ?? first;
+      return { ...prev, [row.key]: stage >= total ? first : stage + 1 };
     });
   };
 
@@ -279,7 +312,7 @@ export function SentenceSet({
    * and works offline.
    */
   const renderExplanation = (row: DisplayRow) => {
-    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
+    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation) ?? (row.fromCard ? cachedClue : null);
     if (!state || state === 'error') return null;
     return (
       <SentenceWordBreakdown
@@ -291,7 +324,7 @@ export function SentenceSet({
 
   /** The row's quiet tools line: breakdown · add as card. */
   const renderTools = (row: DisplayRow) => {
-    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
+    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation) ?? (row.fromCard ? cachedClue : null);
     const isLoading = explaining.has(row.key);
     return (
       <div className="sentence-set-tools">
@@ -371,6 +404,9 @@ export function SentenceSet({
     return null;
   }
 
+  // The pass never generates: no sentence, nothing to show.
+  if (pass && rows.length === 0) return null;
+
   // Nothing at all yet: a single quiet button that generates the set.
   if (rows.length === 0) {
     return (
@@ -442,8 +478,13 @@ export function SentenceSet({
     </div>
   );
 
+  // The pass shows the card's own sentence; the rest wait behind "+ N more".
+  const visibleRows = pass && !showMore ? rows.slice(0, 1) : rows;
+  const moreCount = rows.length - 1;
+
   return (
-    <div className={rootClass} data-testid="sentence-set">
+    <div className={`${rootClass}${pass ? ' sentence-set--pass' : ''}`} data-testid="sentence-set">
+      {!pass && (
       <div className="sentence-set-header">
         {compact ? (
           <span className="sentence-set-title">Example sentences</span>
@@ -473,6 +514,7 @@ export function SentenceSet({
           </div>
         )}
       </div>
+      )}
 
       {error && <div className="sentence-set-error">{error}</div>}
 
@@ -519,10 +561,10 @@ export function SentenceSet({
 
       {open && (
         <ul className="sentence-set-list">
-          {rows.map((row) => {
-            const isEnglishFirst = !!englishFirst[row.key];
+          {visibleRows.map((row) => {
+            const isEnglishFirst = !pass && !!englishFirst[row.key];
             const steps = revealSteps(row, isEnglishFirst);
-            const stage = showAll ? steps.length : revealed[row.key] ?? 0;
+            const stage = showAll ? steps.length : revealed[row.key] ?? (isEnglishFirst ? 0 : startStage);
             const shown = (step: RevealStep) => {
               const at = steps.indexOf(step);
               return at !== -1 && at < stage;
@@ -538,7 +580,8 @@ export function SentenceSet({
                 className={`sentence-set-row${isFullyShown ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}`}
               >
                 {/* Left: the reverse exercise — English up alone, translate it
-                    back into Chinese before revealing. */}
+                    back into Chinese before revealing. (Not in the calm pass.) */}
+                {!pass && (
                 <button
                   className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
                   onClick={() => toggleEnglishFirst(row)}
@@ -554,6 +597,7 @@ export function SentenceSet({
                 >
                   EN
                 </button>
+                )}
                 <div className="sentence-set-body">
                   {/* A row starts blank on purpose: listen first, then uncover
                       one line per tap so each is read before the next lands. */}
@@ -583,6 +627,11 @@ export function SentenceSet({
                       <span className="sentence-set-translation">{row.translation}</span>
                     )}
                     {isBlank && <span className="sentence-set-blank" aria-hidden="true" />}
+                    {pass && stage > 0 && !isFullyShown && (
+                      <span className="sentence-set-next">
+                        {steps[stage] === 'pinyin' ? 'Tap for pinyin' : 'Tap for English'}
+                      </span>
+                    )}
                   </button>
                   {isFullyShown && (showFocus || row.fromCard || row.focus_note) && (
                     <div className="sentence-set-focus">
@@ -612,7 +661,18 @@ export function SentenceSet({
         </ul>
       )}
 
-      {open && (
+      {pass && moreCount > 0 && (
+        <button
+          className="sentence-set-more"
+          onClick={() => setShowMore((v) => !v)}
+          aria-expanded={showMore}
+          data-testid="sentence-set-show-more"
+        >
+          {showMore ? 'Fewer sentences' : `+ ${moreCount} more ${moreCount === 1 ? 'sentence' : 'sentences'}`}
+        </button>
+      )}
+
+      {open && !pass && (
         <button
           className="sentence-set-more"
           onClick={() =>

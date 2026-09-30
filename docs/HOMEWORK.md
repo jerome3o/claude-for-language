@@ -88,7 +88,14 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   deck, `/lessons` for a legacy lesson. At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one
   small line. Nothing active → the card is not shown.
 - **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: the word (tap ▶ for
-  audio), *Show* reveals pinyin / meaning / sentence, then *Not yet* / *Got it*; a progress line; a
+  audio), *Show* reveals pinyin / meaning / the example sentence, then *Not yet* / *Got it*. The example
+  sentence is the study card's sentence row, kept calm (web `SentenceSet variant="pass"`, Lab
+  `PassSentences` → `SentenceRowView`): the Chinese is up, ▶ plays it, a tap adds the pinyin, the next the
+  English and the tools line — "What's going on here?" (the same word-by-word breakdown: one word per row,
+  each tappable to add as a card, then the construction; a breakdown already on the device — study card,
+  Coach — shows at once, offline) and *+ Add as card*. The note's generated set waits behind
+  "+ N more sentences". No header, EN exercise or generating; nothing there records a review or a homework
+  event. A progress line; a
   celebration at the end, and for a one-off-only deck *Add these words to my daily review*. It is laid out like a
   study card: the card fills the space under the header (the Lab app flips it to the answer like study), and the
   actions sit in one bottom slot within thumb reach, above the system navigation bar. Lesson: the
