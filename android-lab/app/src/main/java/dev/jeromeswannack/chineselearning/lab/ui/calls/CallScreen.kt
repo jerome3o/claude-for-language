@@ -49,6 +49,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -73,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardOp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallChatMessage
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallLayout
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.TileStatus
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTranscript
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
@@ -98,7 +100,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
  */
 typealias VideoSlot = @Composable (video: VideoHandle, mirror: Boolean, contain: Boolean, overlay: Boolean, onFrameSize: (Int, Int) -> Unit, modifier: Modifier) -> Unit
 
-/** TEXT = the shared text board (the main board), BOARD = drawing. */
+/** The first layout for screenshots (the live layout is core CallLayout): TEXT = the text board, BOARD = drawing. */
 enum class CallPanel { NONE, TEXT, BOARD, CHAT }
 
 /** A permission as the call screen sees it: granted, can be asked, or only fixable in Settings. */
@@ -163,6 +165,9 @@ data class CallActions(
     val onToggleScreenOverlay: () -> Unit = {},
     val onReview: () -> Unit = {},
     val onAllCalls: () -> Unit = {},
+    /** Haptics: a light tick (focus, preset, swipe) / a snap (a floating camera lands in its corner). */
+    val onTick: () -> Unit = {},
+    val onSnap: () -> Unit = {},
 )
 
 private val Dark = Color(0xFF111418)
@@ -179,6 +184,8 @@ fun CallScreen(
     video: VideoSlot,
     nowMs: () -> Long = System::currentTimeMillis,
     initialPanel: CallPanel = CallPanel.NONE,
+    /** The call's layout (the ViewModel's, remembered per user); null = a local one from [initialPanel] (screenshots). */
+    layout: CallLayoutHolder? = null,
 ) {
     when {
         info.loading -> Center { Text("Loading the call…", color = OnDark) }
@@ -189,7 +196,7 @@ fun CallScreen(
         }
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout)
     }
 }
 
@@ -232,12 +239,12 @@ private fun RoundButton(label: String, desc: String, off: Boolean = false, activ
 
 /** The mic / camera buttons: a missing device shows off with a "!" and asks for it when tapped. */
 @Composable
-private fun MicButton(s: CallState, onClick: () -> Unit) =
-    RoundButton(if (s.micOn && s.hasMic) "🎙️" else "🔇", if (!s.hasMic) "Turn on the microphone" else if (s.micOn) "Mute" else "Unmute", off = !s.micOn || !s.hasMic, warn = s.mediaReady && !s.hasMic, onClick = onClick)
+private fun MicButton(s: CallState, onClick: () -> Unit, size: Dp = 52.dp) =
+    RoundButton(if (s.micOn && s.hasMic) "🎙️" else "🔇", if (!s.hasMic) "Turn on the microphone" else if (s.micOn) "Mute" else "Unmute", off = !s.micOn || !s.hasMic, warn = s.mediaReady && !s.hasMic, size = size, onClick = onClick)
 
 @Composable
-private fun CamButton(s: CallState, onClick: () -> Unit) =
-    RoundButton(if (s.camOn && s.hasCamera) "📷" else "🚫", if (!s.hasCamera) "Turn on the camera" else if (s.camOn) "Camera off" else "Camera on", off = !s.camOn || !s.hasCamera, warn = s.mediaReady && !s.hasCamera && s.camProblem != MediaProblem.NO_DEVICE, onClick = onClick)
+private fun CamButton(s: CallState, onClick: () -> Unit, size: Dp = 52.dp) =
+    RoundButton(if (s.camOn && s.hasCamera) "📷" else "🚫", if (!s.hasCamera) "Turn on the camera" else if (s.camOn) "Camera off" else "Camera on", off = !s.camOn || !s.hasCamera, warn = s.mediaReady && !s.hasCamera && s.camProblem != MediaProblem.NO_DEVICE, size = size, onClick = onClick)
 
 /** What the Join button says, by which devices will go into the call. */
 fun joinLabel(s: CallState): String = when {
@@ -336,13 +343,13 @@ fun FittedVideo(
     ) {
         val b = box
         val f = frame
-        if (fit == VideoFit.Fit.CONTAIN && b != null && f != null) {
-            val r = VideoFit.containRect(f, b)
-            val size = with(density) { Modifier.requiredSize(r.width.toFloat().toDp(), r.height.toFloat().toDp()) }
-            slot(video, mirror, false, overlay, report, size)
-        } else {
-            slot(video, mirror, fit == VideoFit.Fit.CONTAIN, overlay, report, Modifier.fillMaxSize())
-        }
+        // ONE call site, so the renderer survives a change of fit / size (a tile moving between stage and corner).
+        val contained = fit == VideoFit.Fit.CONTAIN && b != null && f != null
+        val m = if (contained) {
+            val r = VideoFit.containRect(f, b!!)
+            with(density) { Modifier.requiredSize(r.width.toFloat().toDp(), r.height.toFloat().toDp()) }
+        } else Modifier.fillMaxSize()
+        slot(video, mirror, !contained && fit == VideoFit.Fit.CONTAIN, overlay, report, m)
     }
 }
 
@@ -416,60 +423,85 @@ private fun PreJoin(s: CallState, info: CallScreenInfo, actions: CallActions, vi
 
 // ---------------------------------------------------------------- live
 
+/** The layout a screenshot / first open starts from, for the old one-panel API ([CallPanel]). */
+fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
+    val d = CallLayout.DEFAULT_LAYOUT
+    return when (panel) {
+        CallPanel.NONE -> d
+        CallPanel.TEXT -> if (wide) CallLayout.reduce(d, CallLayout.Action.Preset(CallLayout.PresetId.BOARD)) else CallLayout.reduce(d, CallLayout.Action.Focus(CallLayout.TileId.TEXT))
+        CallPanel.BOARD -> if (wide) CallLayout.reduce(CallLayout.reduce(d, CallLayout.Action.Preset(CallLayout.PresetId.BOARD)), CallLayout.Action.Swap(CallLayout.TileId.TEXT, CallLayout.TileId.DRAW))
+        else CallLayout.reduce(d, CallLayout.Action.Focus(CallLayout.TileId.DRAW))
+        CallPanel.CHAT -> if (wide) CallLayout.reduce(d, CallLayout.Action.Split(CallLayout.TileId.CHAT, CallLayout.TileId.REMOTE)) else CallLayout.reduce(d, CallLayout.Action.Focus(CallLayout.TileId.CHAT))
+    }
+}
+
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel) {
-    var panel by rememberSaveable { mutableStateOf(initialPanel) }
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
+    var layoutSheet by remember { mutableStateOf(false) }
     var confirmEnd by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(nowMs()) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1_000); now = nowMs() } }
-    LaunchedEffect(panel, s.chat.size) { if (panel == CallPanel.CHAT) seenChat = s.chat.size }
     val remote = s.remote
     val rs = remote?.peer?.state
     val otherName = remote?.peer?.name?.takeIf { it.isNotBlank() } ?: info.otherName ?: "your partner"
+    val first = otherName.substringBefore(' ')
     val someoneRecording = s.recording || rs?.recording == true
-    val remoteVideoOn = remote?.video != null && (rs?.cam == true || rs?.screen == true)
     val unread = maxOf(0, s.chat.size - seenChat)
-    val density = LocalDensity.current
-    var stageDp by remember { mutableStateOf<VideoFit.Size?>(null) }
     var selfFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
-    var remoteFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
+    var remoteCamFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
+    var remoteScreenFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
+    var myScreenFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
     var annotating by rememberSaveable { mutableStateOf(false) }
     var annotColor by rememberSaveable { mutableStateOf(dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_COLORS[0]) }
-    val remoteSharing = rs?.screen == true && remoteVideoOn
-    LaunchedEffect(remoteSharing) { if (!remoteSharing) annotating = false }
+    val remoteSharing = rs?.screen == true
+    val available = CallLayout.Availability(screen = remoteSharing || s.sharingScreen)
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Dark).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         val wide = maxWidth >= 640.dp
-        Column(Modifier.fillMaxSize()) {
-            // top bar
-            Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(otherName, color = OnDark, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                Text(s.startedAt?.let { CallTranscript.formatOffset(now - it) } ?: "0:00", color = MutedDark, fontSize = 14.sp)
-                if (someoneRecording) RecBadge()
-                if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
+        // The layout: the ViewModel's (remembered per user) or, in screenshots, a local one.
+        val h = holder ?: remember { CallLayoutHolder(initial = layoutForPanel(initialPanel, wide)) }
+        val layout by h.layout.collectAsState()
+        LaunchedEffect(remoteSharing) {
+            if (!remoteSharing) annotating = false
+            h.setRemoteSharing(remoteSharing)
+        }
+        val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
+        val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
+        LaunchedEffect(chatVisible, s.chat.size) { if (chatVisible) seenChat = s.chat.size }
+        val boardOnStage = layout.mode != CallLayout.Mode.GRID && (layout.main == CallLayout.TileId.TEXT || layout.main == CallLayout.TileId.DRAW ||
+            (layout.mode == CallLayout.Mode.SPLIT && (layout.second == CallLayout.TileId.TEXT || layout.second == CallLayout.TileId.DRAW)))
+        val dispatch: (CallLayout.Action) -> Unit = { h.dispatch(it) }
+
+        val boardSwitch: @Composable (CallLayout.TileId) -> Unit = { current ->
+            Row(Modifier.padding(start = 8.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Tab("Board", current == CallLayout.TileId.TEXT) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.DRAW, CallLayout.TileId.TEXT)); actions.onTick() }
+                Tab("Draw", current == CallLayout.TileId.DRAW) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.TEXT, CallLayout.TileId.DRAW)); actions.onTick() }
             }
-            val stage: @Composable (Modifier) -> Unit = { m ->
-                Box(
-                    m.clip(RoundedCornerShape(20.dp)).background(DarkCard)
-                        .onSizeChanged { stageDp = with(density) { VideoFit.Size(it.width.toDp().value.toDouble(), it.height.toDp().value.toDouble()) } },
-                    contentAlignment = Alignment.Center,
-                ) {
+        }
+        val tiles = buildMap<CallLayout.TileId, TileSpec> {
+            put(CallLayout.TileId.REMOTE, TileSpec(otherName) { role ->
+                val floating = role == CallLayout.Role.FLOATING
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (remote != null) {
                         // Their picture stays up through a dropout (the renderer keeps the last frame): never cleared on
                         // disconnected / failed / away — the badge says what is going on.
-                        if (remoteVideoOn) FittedVideo(remote.video!!, false, screen = rs?.screen == true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { remoteFrame = it })
-                        else Initials(otherName)
+                        val cam = remote.video
+                        if (cam != null && remote.cameraOn) FittedVideo(cam, false, screen = false, overlay = floating, slot = video, modifier = Modifier.fillMaxSize(), cover = floating, onFrameSize = { remoteCamFrame = it })
+                        else Initials(otherName, if (floating) 48.dp else 112.dp)
                         if (remote.tile != TileStatus.LIVE) TileBadge(
                             if (remote.tile == TileStatus.RECONNECTING) "Reconnecting…" else "Connecting…",
-                            Modifier.align(Alignment.TopStart).padding(12.dp).padding(top = if (remoteSharing) 52.dp else 0.dp),
+                            Modifier.align(Alignment.TopStart).padding(if (floating) 6.dp else 12.dp),
+                            compact = floating,
                         )
                         Text(
-                            (if (rs != null && !rs.mic) "🔇 " else "") + otherName,
-                            color = Color.White, fontSize = 13.sp,
-                            modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 4.dp),
+                            (if (rs != null && !rs.mic) "🔇 " else "") + if (floating) first else otherName,
+                            color = Color.White, fontSize = if (floating) 11.sp else 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(if (floating) 6.dp else 12.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 8.dp, vertical = 4.dp),
                         )
+                    } else if (floating) {
+                        Text("…", color = OnDark)
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                             WaitingDots()
@@ -478,84 +510,166 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                             Text(if (info.relationshipId != null) "They got a Join link in your chat." else "A test call — try the whiteboard and the chat.", color = MutedDark, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    // Their shared screen: draw on it (circle a character), a tap is a "look here" ping.
+                }
+            })
+            put(CallLayout.TileId.SELF, TileSpec("You") { role ->
+                Box(Modifier.fillMaxSize().background(Color(0xFF2B313A)), contentAlignment = Alignment.Center) {
+                    val local = s.localVideo
+                    if (local != null && s.hasCamera && s.camOn) FittedVideo(local, s.frontCamera, screen = false, overlay = true, slot = video, modifier = Modifier.fillMaxSize(), cover = role == CallLayout.Role.FLOATING, onFrameSize = { selfFrame = it })
+                    else Text(if (s.micOn && s.hasMic) "You" else "🔇 You", color = OnDark, fontSize = 13.sp)
+                }
+            })
+            if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen") { _ ->
+                Box(Modifier.fillMaxSize().background(Color.Black)) {
                     if (remoteSharing) {
+                        remote?.screenVideo?.let { FittedVideo(it, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> remoteScreenFrame = f }) }
+                        // Their shared screen: draw on it (circle a character), a tap is a "look here" ping.
                         AnnotationCanvas(
-                            s.annotations, remoteFrame, Modifier.fillMaxSize(), interactive = annotating, color = annotColor,
+                            s.annotations, remoteScreenFrame, Modifier.fillMaxSize(), interactive = annotating, color = annotColor,
                             onStroke = actions.onAnnotate, onPing = actions.onPing, nowMs = nowMs,
                         )
-                        AnnotateTools(Modifier.align(Alignment.TopStart).padding(10.dp).padding(end = if (wide) 0.dp else 110.dp), otherName, annotating, annotColor,
+                        AnnotateTools(Modifier.align(Alignment.BottomStart).padding(10.dp), first, annotating, annotColor,
                             onToggle = { annotating = !annotating }, onColor = { annotColor = it }, onClear = actions.onClearAnnotations)
-                    }
-                    // self view: shaped like my camera, sized from the stage (VideoFit.pipSize, like the web)
-                    val pip = stageDp?.let { VideoFit.pipSize(selfFrame, it) }
-                    Box(
-                        Modifier.align(if (wide) Alignment.BottomEnd else Alignment.TopEnd).padding(10.dp)
-                            .then(if (pip != null) Modifier.size(pip.width.dp, pip.height.dp) else Modifier.width(if (wide) 160.dp else 96.dp).aspectRatio(3f / 4))
-                            .clip(RoundedCornerShape(14.dp)).background(Color(0xFF2B313A)).border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(14.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        val screen = s.screenVideo
-                        val local = s.localVideo
-                        when {
-                            screen != null -> Box(Modifier.fillMaxSize()) {
-                                FittedVideo(screen, false, screen = true, overlay = true, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { selfFrame = it })
-                                AnnotationCanvas(s.annotations, selfFrame, Modifier.fillMaxSize(), nowMs = nowMs)
-                            }
-                            local != null && s.hasCamera && s.camOn -> FittedVideo(local, s.frontCamera, screen = false, overlay = true, slot = video, modifier = Modifier.fillMaxSize(), cover = true, onFrameSize = { selfFrame = it })
-                            else -> Text(if (s.micOn) "You" else "🔇 You", color = OnDark, fontSize = 13.sp)
-                        }
+                    } else s.screenVideo?.let { mine ->
+                        FittedVideo(mine, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> myScreenFrame = f })
+                        AnnotationCanvas(s.annotations, myScreenFrame, Modifier.fillMaxSize(), nowMs = nowMs)
                     }
                 }
-            }
-            val panelView: @Composable (Modifier) -> Unit = { m ->
-                Column(m.clip(RoundedCornerShape(20.dp)).background(Lab.colors.background)) {
-                    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Tab("Board", panel == CallPanel.TEXT) { panel = CallPanel.TEXT }
-                        Tab("Draw", panel == CallPanel.BOARD) { panel = CallPanel.BOARD }
-                        Tab(if (unread > 0 && panel != CallPanel.CHAT) "Chat ($unread)" else "Chat", panel == CallPanel.CHAT) { panel = CallPanel.CHAT }
-                        Spacer(Modifier.weight(1f))
-                        Text("✕", color = Lab.colors.muted, fontSize = 18.sp, modifier = Modifier.size(44.dp).bouncyClickable { panel = CallPanel.NONE }.padding(top = 10.dp), textAlign = TextAlign.Center)
-                    }
-                    if (panel == CallPanel.TEXT) TextBoardPanel(
+            })
+            put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true) { _ ->
+                Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
+                    boardSwitch(CallLayout.TileId.TEXT)
+                    TextBoardPanel(
                         s.textBoard, actions.onTextChanged, actions.onTextSelected, actions.onTextBlurred, Modifier.fillMaxWidth().weight(1f),
                         explain = actions.explain, gloss = actions.gloss, glossOn = info.boardGlossOn, onGlossOn = actions.onBoardGlossOn,
                         previewSuggestion = info.boardGlossPreview,
                     )
-                    else if (panel == CallPanel.BOARD) Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
-                    else ChatPanel(s.chat, s.myUserId, actions.onSendChat, Modifier.fillMaxWidth().weight(1f))
                 }
-            }
-            Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp)) {
-                if (wide) Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    stage(Modifier.weight(1f).fillMaxHeight())
-                    if (panel != CallPanel.NONE) panelView(Modifier.width(maxOf(360.dp, this@BoxWithConstraints.maxWidth * 0.42f)).fillMaxHeight())
-                } else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    stage(Modifier.fillMaxWidth().weight(if (panel == CallPanel.NONE) 1f else 0.42f))
-                    AnimatedVisibility(panel != CallPanel.NONE, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut(), modifier = Modifier.weight(0.58f, fill = panel != CallPanel.NONE)) {
-                        panelView(Modifier.fillMaxSize())
-                    }
+            })
+            put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true) { _ ->
+                Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
+                    boardSwitch(CallLayout.TileId.DRAW)
+                    Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
                 }
+            })
+            put(CallLayout.TileId.CHAT, TileSpec("Chat", closable = true) { _ ->
+                Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
+                    Spacer(Modifier.height(8.dp))
+                    ChatPanel(s.chat, s.myUserId, actions.onSendChat, Modifier.fillMaxWidth().weight(1f))
+                }
+            })
+        }
+        val aspects = buildMap {
+            remoteCamFrame?.takeIf { it.height > 0 }?.let { put(CallLayout.TileId.REMOTE, it.width / it.height) }
+            selfFrame?.takeIf { it.height > 0 }?.let { put(CallLayout.TileId.SELF, it.width / it.height) }
+        }
+
+        Column(Modifier.fillMaxSize()) {
+            // top bar
+            Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(otherName, color = OnDark, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text(s.startedAt?.let { CallTranscript.formatOffset(now - it) } ?: "0:00", color = MutedDark, fontSize = 14.sp)
+                if (someoneRecording) RecBadge()
+                if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
             }
+            CallTiles(
+                layout, dispatch, h::replace, available, tiles, aspects,
+                Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
+                onTick = actions.onTick, onSnap = actions.onSnap,
+            )
             if (s.sharingScreen) ShareBar(s.annotations, otherName, info.screenOverlayOn, now, actions.onToggleScreenOverlay)
             // controls
+            val btn = if (wide) 52.dp else 48.dp
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (wide) 10.dp else 7.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
             ) {
-                MicButton(s, actions.onToggleMic)
-                CamButton(s, actions.onToggleCam)
-                RoundButton("📝", "Board", active = panel == CallPanel.TEXT || panel == CallPanel.BOARD) { panel = if (panel == CallPanel.TEXT || panel == CallPanel.BOARD) CallPanel.NONE else CallPanel.TEXT }
-                RoundButton("💬", "Chat", active = panel == CallPanel.CHAT, badge = if (panel != CallPanel.CHAT) unread else 0) { panel = if (panel == CallPanel.CHAT) CallPanel.NONE else CallPanel.CHAT }
-                RoundButton("⋯", "More") { more = true }
-                RoundButton("📞", "End call", danger = true) { confirmEnd = true }
+                MicButton(s, actions.onToggleMic, btn)
+                CamButton(s, actions.onToggleCam, btn)
+                RoundButton("📝", "Board", active = boardOnStage, size = btn) {
+                    dispatch(
+                        when {
+                            boardOnStage -> CallLayout.Action.Focus(CallLayout.TileId.REMOTE)
+                            layout.mode == CallLayout.Mode.SPLIT || !wide -> CallLayout.Action.Focus(CallLayout.TileId.TEXT)
+                            else -> CallLayout.Action.Preset(CallLayout.PresetId.BOARD)
+                        },
+                    )
+                    actions.onTick()
+                }
+                RoundButton("💬", "Chat", active = chatVisible, badge = if (!chatVisible) unread else 0, size = btn) {
+                    dispatch(CallLayout.Action.Focus(if (chatVisible) CallLayout.TileId.REMOTE else CallLayout.TileId.CHAT))
+                    actions.onTick()
+                }
+                // The share button lives in ⋯ on the folded phone (no room); unfolded it's in the bar, like the web.
+                if (wide && s.screenShareSupported) RoundButton("🖥️", if (s.sharingScreen) "Stop sharing" else "Share screen", active = s.sharingScreen, size = btn) {
+                    if (s.sharingScreen) actions.onStopShare() else actions.onShareScreen()
+                }
+                RoundButton("▦", "Layout", active = layoutSheet, size = btn) { layoutSheet = true }
+                RoundButton("⋯", "More", size = btn) { more = true }
+                RoundButton("📞", "End call", danger = true, size = btn) { confirmEnd = true }
             }
+        }
+        if (layoutSheet) LabBottomSheet(onDismiss = { layoutSheet = false }, title = "Layout") {
+            CallLayoutMenu(layout, available, first, onAction = { dispatch(it); actions.onTick() }, close = { layoutSheet = false })
         }
     }
     if (more) LabBottomSheet(onDismiss = { more = false }, title = "Call") {
         CallMoreMenu(s, info, actions, close = { more = false })
     }
     if (confirmEnd) ConfirmDialog("End the call for everyone?", "The recording is uploaded and the transcript and lesson notes follow.", "End call", onConfirm = { confirmEnd = false; actions.onEnd() }, onDismiss = { confirmEnd = false }, danger = true)
+}
+
+/**
+ * The ▦ sheet (web: the layout menu): the presets with a little diagram, open the Board / Draw /
+ * Chat, float their camera over the board / screen, stack split panes.
+ */
+@Composable
+fun CallLayoutMenu(layout: CallLayout.Layout, available: CallLayout.Availability, first: String, onAction: (CallLayout.Action) -> Unit, close: () -> Unit) {
+    val current = currentPreset(layout)
+    CallLayout.PRESETS.filter { it.id != CallLayout.PresetId.SCREEN || available.screen }.forEachIndexed { i, p ->
+        if (i > 0) RowDivider()
+        Row(
+            Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.98f) { onAction(CallLayout.Action.Preset(p.id)); close() }
+                .heightIn(min = 56.dp).padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            PresetIcon(p.id, color = if (p.id == current) Lab.colors.accent else Lab.colors.muted)
+            Text(p.label, color = Lab.colors.ink, fontSize = 17.sp, modifier = Modifier.weight(1f))
+            if (p.id == current) Text("✓", color = Lab.colors.accent, fontWeight = FontWeight.Bold)
+        }
+    }
+    DeviceHeader("Open")
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(CallLayout.TileId.TEXT to "📝 Board", CallLayout.TileId.DRAW to "✏️ Draw", CallLayout.TileId.CHAT to "💬 Chat").forEach { (t, label) ->
+            SecondaryPill(label, Modifier.weight(1f).height(48.dp)) { onAction(CallLayout.Action.Focus(t)); close() }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    ToggleRow("Float $first’s camera over the board / screen", layout.remoteFloat) { onAction(CallLayout.Action.RemoteFloat(it)) }
+    RowDivider()
+    ToggleRow("Stack split panes", layout.dir == CallLayout.Dir.COLUMN) { onAction(CallLayout.Action.SetDir(if (it) CallLayout.Dir.COLUMN else CallLayout.Dir.ROW)) }
+    Spacer(Modifier.height(16.dp))
+}
+
+/** Which preset the layout is (for the ✓), if any. */
+fun currentPreset(l: CallLayout.Layout): CallLayout.PresetId? = when {
+    l.mode == CallLayout.Mode.GRID -> CallLayout.PresetId.GRID
+    l.mode == CallLayout.Mode.FOCUS && l.main == CallLayout.TileId.REMOTE -> CallLayout.PresetId.SPEAKER
+    l.mode == CallLayout.Mode.FOCUS && l.main == CallLayout.TileId.SCREEN -> CallLayout.PresetId.SCREEN
+    l.mode == CallLayout.Mode.SPLIT && l.main == CallLayout.TileId.TEXT && l.second == CallLayout.TileId.REMOTE -> CallLayout.PresetId.BOARD
+    l.mode == CallLayout.Mode.SPLIT && l.main == CallLayout.TileId.REMOTE && l.second == CallLayout.TileId.SELF -> CallLayout.PresetId.SIDE
+    else -> null
+}
+
+@Composable
+private fun ToggleRow(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.99f) { onChange(!on) }.heightIn(min = 56.dp).padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Lab.colors.ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        androidx.compose.material3.Switch(on, onCheckedChange = onChange, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Lab.colors.accent))
+    }
 }
 
 /** The ⋯ sheet: screen share, recording, the device picker (camera front / back, where the sound goes), leave. */
@@ -590,13 +704,13 @@ private fun DeviceHeader(label: String) {
 
 /** "Reconnecting…" / "Connecting…" in the corner of their tile, over the frozen last frame. */
 @Composable
-private fun TileBadge(text: String, modifier: Modifier) {
+private fun TileBadge(text: String, modifier: Modifier, compact: Boolean = false) {
     Row(
-        modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xCC111827)).padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xCC111827)).padding(horizontal = if (compact) 6.dp else 10.dp, vertical = if (compact) 4.dp else 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp),
     ) {
-        androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
-        Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        androidx.compose.material3.CircularProgressIndicator(Modifier.size(if (compact) 10.dp else 14.dp), color = Color.White, strokeWidth = 2.dp)
+        Text(text, color = Color.White, fontSize = if (compact) 10.sp else 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

@@ -41,11 +41,25 @@ enum class CallPhase { PREJOIN, JOINING, LIVE, ENDED, ERROR }
  */
 data class RemoteParticipant(
     val peer: CallPeer,
+    /** Their camera. */
     val video: VideoHandle? = null,
+    /** Their shared screen (its own transceiver; only shown while their state says `screen`). */
+    val screen: VideoHandle? = null,
+    /** False with an older app: their screen arrives on the camera stream instead ([video]). */
+    val screenChannel: Boolean = true,
     val connection: String = "new",
     val tile: TileStatus = TileStatus.CONNECTING,
     val away: Boolean = false,
-)
+) {
+    /** They are sharing their screen right now. */
+    val sharing: Boolean get() = peer.state.screen
+    /** An older app sends its screen on the camera stream. */
+    val legacyShare: Boolean get() = sharing && !screenChannel
+    /** What the screen tile shows (null while they don't share). */
+    val screenVideo: VideoHandle? get() = if (!sharing) null else if (legacyShare) video else screen
+    /** Their camera is live (not replaced by a legacy share). */
+    val cameraOn: Boolean get() = video != null && peer.state.cam && !legacyShare
+}
 
 /** Why a device isn't in the call. BLOCKED = the permission is missing. */
 enum class MediaProblem { BLOCKED, IN_USE, NO_DEVICE, FAILED }
@@ -122,6 +136,8 @@ data class MediaOpen(val mic: Boolean, val camera: Boolean, val micProblem: Medi
 interface PeerListener {
     fun sendSignal(signal: CallSignal)
     fun onRemoteVideo(video: VideoHandle?)
+    /** Their shared screen (the second video transceiver). */
+    fun onRemoteScreen(video: VideoHandle?) {}
     fun onConnectionState(state: String)
     fun onIceState(state: String) {}
 }
@@ -132,8 +148,12 @@ data class PeerStats(val availableOutgoingBps: Double?, val route: String?)
 /** One WebRTC connection to the other participant (data/calls/rtc/PeerLink.kt; a fake in tests). */
 interface PeerSession {
     fun handleSignal(signal: CallSignal)
-    /** Sends [video] instead of the current video (camera ↔ screen); null sends nothing. */
+    /** Sends [video] as my camera; null sends nothing. */
     fun setVideo(video: VideoHandle?)
+    /** Sends my shared screen on the screen transceiver (null stops it); the camera keeps going. */
+    fun setScreen(video: VideoHandle?) {}
+    /** Both sides have a screen transceiver (false with an older app: a share replaces the camera). */
+    val screenChannel: Boolean get() = true
     /** Sends [audio] (a mic that appeared mid-call) on the existing transceiver — no renegotiation. */
     fun setAudio(audio: VideoHandle?) {}
     fun restartIce() {}
@@ -338,7 +358,7 @@ class CallController(
             }
         }
         if (gotCam) {
-            if (!_state.value.sharingScreen) link?.setVideo(media.cameraVideo)
+            link?.setVideo(media.cameraVideo) // a legacy share in progress keeps the screen (PeerLink)
             lastEncoding = null
             applyEncoding()
             if (_state.value.phase == CallPhase.LIVE) broadcastState { it.copy(cam = _state.value.camOn) }
@@ -384,7 +404,11 @@ class CallController(
             }
 
             override fun onRemoteVideo(video: VideoHandle?) {
-                scope.launch { if (gen == linkGen) _state.update { s -> s.remote?.let { s.copy(remote = it.copy(video = video)) } ?: s } }
+                scope.launch { if (gen == linkGen) _state.update { s -> s.remote?.let { s.copy(remote = it.copy(video = video, screenChannel = link?.screenChannel ?: true)) } ?: s } }
+            }
+
+            override fun onRemoteScreen(video: VideoHandle?) {
+                scope.launch { if (gen == linkGen) _state.update { s -> s.remote?.let { s.copy(remote = it.copy(screen = video, screenChannel = true)) } ?: s } }
             }
 
             override fun onConnectionState(state: String) {
@@ -396,7 +420,7 @@ class CallController(
             }
         })
         diag("peer", "link to ${peer.name.ifBlank { "the other person" }} (${if (polite) "answerer" else "offerer"})")
-        if (_state.value.sharingScreen) link?.setVideo(media.screenVideo)
+        if (_state.value.sharingScreen) link?.setScreen(media.screenVideo)
         applyEncoding()
         statsJob = scope.launch {
             while (isActive && gen == linkGen) {
@@ -496,10 +520,13 @@ class CallController(
         applyEncoding()
     }
 
-    /** The video sender's encoding for what it sends now (camera / screen) and the estimated bandwidth. */
+    /**
+     * The camera sender's encoding and the estimated bandwidth. The screen has its own sender (PeerLink
+     * gives it the screen encoding); only with an older app does a share go out on the camera sender.
+     */
     private fun applyEncoding() {
         val l = link ?: return
-        val source = if (_state.value.sharingScreen) CallConnection.VideoSource.SCREEN else CallConnection.VideoSource.CAMERA
+        val source = if (_state.value.sharingScreen && !l.screenChannel) CallConnection.VideoSource.SCREEN else CallConnection.VideoSource.CAMERA
         val current = lastEncoding
         val enc = CallConnection.videoEncodingFor(source, lastBps, if (current != null && source == CallConnection.VideoSource.CAMERA) current.scaleResolutionDownBy else 1.0)
         if (enc == current) return
@@ -678,7 +705,7 @@ class CallController(
         if (_state.value.sharingScreen) return@launch
         runCatching { deps.prepareScreenShare() }
         val video = media.startScreenShare(permission) { scope.launch { stopScreenShare() } } ?: return@launch
-        link?.setVideo(video)
+        link?.setScreen(video)
         _state.update { it.copy(screenVideo = video) }
         applyEncoding()
         broadcastState { it.copy(screen = true) }
@@ -687,7 +714,7 @@ class CallController(
     fun stopScreenShare() {
         if (!_state.value.sharingScreen) return
         media.stopScreenShare()
-        link?.setVideo(media.cameraVideo)
+        link?.setScreen(null)
         _state.update { it.copy(screenVideo = null) }
         applyEncoding()
         broadcastState { it.copy(screen = false) }

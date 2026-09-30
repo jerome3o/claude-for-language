@@ -220,7 +220,7 @@ class WebRtcMedia(private val context: Context, val mic: MicTap = MicTap()) : Ca
     }
 
     override fun createPeer(iceServers: List<IceServerDto>, polite: Boolean, listener: PeerListener): PeerSession =
-        PeerLink(factory, iceServers, polite, audioTrack, screenTrack ?: cameraTrack, listener)
+        PeerLink(factory, iceServers, polite, audioTrack, cameraTrack, screenTrack, listener)
 
     override fun release() {
         if (released) return

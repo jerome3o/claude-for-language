@@ -52,7 +52,8 @@ class CallControllerTest {
         fun types() = sent.map { it["type"]!!.jsonPrimitive.content }
     }
 
-    class FakePeer(val polite: Boolean, val listener: PeerListener, var sending: VideoHandle? = "camera", var sendingAudio: VideoHandle? = "mic") : PeerSession {
+    class FakePeer(val polite: Boolean, val listener: PeerListener, var sending: VideoHandle? = "camera", var sendingAudio: VideoHandle? = "mic", override var screenChannel: Boolean = true) : PeerSession {
+        var sendingScreen: VideoHandle? = null
         val signals = ArrayList<CallSignal>()
         var closed = false
         var restarts = 0
@@ -60,6 +61,7 @@ class CallControllerTest {
         var stats: PeerStats? = null
         override fun handleSignal(signal: CallSignal) { signals += signal }
         override fun setVideo(video: VideoHandle?) { sending = video }
+        override fun setScreen(video: VideoHandle?) { sendingScreen = video }
         override fun setAudio(audio: VideoHandle?) { sendingAudio = audio }
         override fun restartIce() { restarts++ }
         override suspend fun stats() = stats
@@ -337,13 +339,16 @@ class CallControllerTest {
         rig.controller.startScreenShare("consent")
         runCurrent()
         assertEquals(1, rig.screenPrepared)
-        assertEquals("screen", rig.media.peers.single().sending)
+        // The screen has its own transceiver: the camera keeps going.
+        assertEquals("screen", rig.media.peers.single().sendingScreen)
+        assertEquals("camera", rig.media.peers.single().sending)
         assertTrue(rig.controller.state.value.sharingScreen)
         assertEquals("true", rig.room.sent.last()["state"]!!.jsonObject["screen"]!!.jsonPrimitive.content)
         // The system's "stop sharing" ends it too.
         rig.media.screenStopped!!()
         runCurrent()
         assertFalse(rig.controller.state.value.sharingScreen)
+        assertNull(rig.media.peers.single().sendingScreen)
         assertEquals("camera", rig.media.peers.single().sending)
         rig.controller.stopRecording()
         runCurrent()
@@ -561,8 +566,13 @@ class CallControllerTest {
         assertEquals(2.0, link.encodings.last().scaleResolutionDownBy, 0.0)
         val routes = rig.sentOf("diag").flatMap { it["events"]!!.jsonArray }.filter { it.jsonObject["kind"]!!.jsonPrimitive.content == "route" }
         assertEquals("relay/udp via turn", routes.single().jsonObject["detail"]!!.jsonPrimitive.content)
-        // A shared screen keeps its resolution.
+        // The screen has its own sender (PeerLink encodes it): the camera's encoding stays a camera's.
         rig.controller.startScreenShare("consent")
+        runCurrent()
+        assertEquals("maintain-framerate", link.encodings.last().degradationPreference)
+        // An older app (one video m-line): the share goes out on the camera sender, which then keeps its resolution.
+        link.screenChannel = false
+        advanceTimeBy(CallController.STATS_EVERY_MS + 1)
         runCurrent()
         assertEquals("maintain-resolution", link.encodings.last().degradationPreference)
         // The next poll (every 5 s) with a better estimate goes back to full size… for the camera.
@@ -604,5 +614,53 @@ class CallControllerTest {
         val rig = liveRig(emptyList())
         rig.controller.networkChanged("switched network")
         assertEquals(1, rig.room.reconnects)
+    }
+
+    // ---- round 2 (PR B): the screen has its own channel
+
+    @Test fun theirScreenArrivesOnItsOwnStreamAndTheCameraStays() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        val link = rig.media.peers.single()
+        link.listener.onRemoteVideo("their-camera")
+        link.listener.onRemoteScreen("their-screen")
+        runCurrent()
+        var r = rig.controller.state.value.remote!!
+        assertEquals("their-camera", r.video)
+        assertEquals("their-screen", r.screen)
+        assertTrue(r.screenChannel)
+        // Not sharing yet: no screen tile.
+        assertNull(r.screenVideo)
+        assertTrue(r.cameraOn)
+        rig.room.handlers.onMessage(ServerMessage.PeerState("c-a", PeerMediaState(mic = true, cam = true, screen = true)))
+        runCurrent()
+        r = rig.controller.state.value.remote!!
+        assertEquals("their-screen", r.screenVideo)
+        assertTrue("their camera keeps going while they share", r.cameraOn)
+    }
+
+    @Test fun anOlderAppSendsItsScreenOnTheCameraStream() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        val link = rig.media.peers.single()
+        link.screenChannel = false
+        link.listener.onRemoteVideo("their-video")
+        runCurrent()
+        rig.room.handlers.onMessage(ServerMessage.PeerState("c-a", PeerMediaState(mic = true, cam = true, screen = true)))
+        runCurrent()
+        val r = rig.controller.state.value.remote!!
+        assertFalse(r.screenChannel)
+        assertTrue(r.legacyShare)
+        assertEquals("their-video", r.screenVideo)
+        assertFalse("the camera stream carries the screen", r.cameraOn)
+    }
+
+    @Test fun aNewLinkWhileSharingPutsTheScreenOnItsTransceiver() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        rig.controller.startScreenShare("consent")
+        runCurrent()
+        rig.room.handlers.onMessage(ServerMessage.PeerJoined(peer("c-z")))
+        runCurrent()
+        val link = rig.media.peers.single()
+        assertEquals("screen", link.sendingScreen)
+        assertEquals("camera", link.sending)
     }
 }
