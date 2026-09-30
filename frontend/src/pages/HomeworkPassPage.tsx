@@ -9,6 +9,7 @@ import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLesson
 import { recordReaderReview, getReaderIntervalPreviews } from '../services/reader-study';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { StudyReader } from '../components/StudyReader';
+import { SentenceSet } from '../components/SentenceSet';
 import { Confetti } from '../components/Confetti';
 import { DueChip } from '../components/homework/HomeworkRow';
 import { useNoteAudio } from '../hooks/useAudio';
@@ -171,12 +172,26 @@ function DeckPass({
             <div className="hw-pass-answer" data-testid="hw-pass-answer">
               <div className="hw-pass-pinyin">{note.pinyin}</div>
               <div className="hw-pass-english">{note.english}</div>
-              {note.sentence_clue && (
-                <div className="hw-pass-sentence">
-                  <div lang="zh">{note.sentence_clue}</div>
-                  {note.sentence_clue_translation && <div className="hw-pass-sentence-en">{note.sentence_clue_translation}</div>}
-                </div>
-              )}
+              {/* The study card's sentence rows, kept calm: ▶, tap for pinyin then
+                  English, "What's going on here?" — nothing here records a review
+                  or a homework event. */}
+              <div className="hw-pass-sentences">
+                <SentenceSet
+                  noteId={note.id}
+                  variant="pass"
+                  defaultOpen
+                  cardSentence={
+                    note.sentence_clue
+                      ? {
+                          hanzi: note.sentence_clue,
+                          pinyin: note.sentence_clue_pinyin ?? null,
+                          translation: note.sentence_clue_translation ?? null,
+                          audio_url: note.sentence_clue_audio_url ?? null,
+                        }
+                      : null
+                  }
+                />
+              </div>
             </div>
           ) : (
             <p className="hw-pass-hint">Say what it means, then check.</p>
