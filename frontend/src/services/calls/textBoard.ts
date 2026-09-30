@@ -79,6 +79,8 @@ export class TextBoardSession {
   awaitingPage = false;
   notice: BoardNotice | null = null;
   private formerLabels = new Map<string, string>();
+  /** A page_new / page_duplicate went out: the next page_doc for another page is that page. */
+  private expectingNewPage = false;
   /** Documents of pages seen in this call (shown at once when flipping back; the room's copy replaces them). */
   private docCache = new Map<string, TextDoc>();
   private composing = false;
@@ -209,12 +211,12 @@ export class TextBoardSession {
 
   newPage() {
     this.following = null;
-    this.send({ type: 'page_new' });
+    if (this.send({ type: 'page_new' })) this.expectingNewPage = true;
   }
 
   duplicatePage(pageId: string) {
     this.following = null;
-    this.send({ type: 'page_duplicate', page: pageId });
+    if (this.send({ type: 'page_duplicate', page: pageId })) this.expectingNewPage = true;
   }
 
   renamePage(pageId: string, title: string | null) {
@@ -276,6 +278,15 @@ export class TextBoardSession {
 
   /** Room: the page I asked for. A late answer for a page I have already left is only remembered. */
   pageDoc(page: string, snapshot: TextDocSnapshot, cursors: TextCursor[]) {
+    // The page I just made (new / duplicate): the room opens it for me.
+    if (this.expectingNewPage && page !== this.page) {
+      this.expectingNewPage = false;
+      if (this.page) this.docCache.set(this.page, this.doc);
+      this.cursors.clear();
+      this.held = [];
+      this.load(snapshot, cursors, page);
+      return;
+    }
     if (page !== this.page) {
       this.docCache.set(page, new TextDoc(this.site, snapshot));
       return;

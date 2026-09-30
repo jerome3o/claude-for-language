@@ -7,7 +7,7 @@
  */
 
 import { db, type LocalBoardPage } from '../db/database';
-import { listMyBoardPages, type BoardPageItem } from '../api/calls';
+import { listMyBoardPages, listRelationshipBoardPages, type BoardPageItem } from '../api/calls';
 
 const LAST_KEY = 'board-pages-synced-at';
 const EVERY_MS = 30 * 60_000;
@@ -55,4 +55,13 @@ export async function syncBoardPagesIfDue(now = Date.now()): Promise<void> {
 export async function cachedBoardPages(relationshipId: string): Promise<LocalBoardPage[]> {
   const rows = await db.boardPages.where('relationship_id').equals(relationshipId).toArray();
   return rows.sort((a, b) => a.number - b.number);
+}
+
+/** One relationship's pages → the device (the student / tutor page and the Lesson board, when online). */
+export async function refreshRelationshipBoardPages(relationshipId: string): Promise<void> {
+  const { pages } = await listRelationshipBoardPages(relationshipId);
+  await db.transaction('rw', db.boardPages, async () => {
+    await db.boardPages.where('relationship_id').equals(relationshipId).delete();
+    await db.boardPages.bulkPut(pages.map((p) => toLocal({ ...p, relationship_id: relationshipId })));
+  });
 }

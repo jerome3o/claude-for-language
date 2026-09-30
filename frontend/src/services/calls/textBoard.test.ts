@@ -192,3 +192,19 @@ describe('TextBoardSession — board pages', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'text', page: 'p1' });
   });
 });
+
+describe('TextBoardSession — making a page', () => {
+  it('a new page the room made for me opens; an unrelated late page_doc does not', () => {
+    const sent: Array<{ type: string }> = [];
+    const s = new TextBoardSession('me', (m) => (sent.push(m), true));
+    s.welcome({ text: { v: 1, runs: [] }, pages: [{ id: 'p1', title: null, preview: '', chars: 0, created_at: 1, updated_at: 1, call_id: null }], page: 'p1' });
+    s.pageDoc('p0', { v: 1, runs: [] }, []);
+    expect(s.page).toBe('p1');
+    s.newPage();
+    expect(sent.at(-1)).toEqual({ type: 'page_new' });
+    s.pageDoc('p2', { v: 1, runs: [] }, []);
+    expect(s.page).toBe('p2');
+    s.localEdit('新', 1);
+    expect(sent.at(-1)).toMatchObject({ type: 'text', page: 'p2' });
+  });
+});

@@ -11,9 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { pagePreview } from '@shared/calls';
-import { db } from '../db/database';
-import { listRelationshipBoardPages } from '../api/calls';
-import { cachedBoardPages } from '../services/boardPages';
+import { cachedBoardPages, refreshRelationshipBoardPages } from '../services/boardPages';
 import { BoardPageStrip } from '../components/calls/BoardPageStrip';
 import '../components/calls/BoardPages.css';
 import './LessonBoardPage.css';
@@ -35,13 +33,7 @@ export function LessonBoardPage() {
     if (!relId || !navigator.onLine) return;
     let alive = true;
     setRefreshing(true);
-    listRelationshipBoardPages(relId)
-      .then(async ({ pages: fresh }) => {
-        await db.transaction('rw', db.boardPages, async () => {
-          await db.boardPages.where('relationship_id').equals(relId).delete();
-          await db.boardPages.bulkPut(fresh.map((p) => ({ ...p, relationship_id: relId })));
-        });
-      })
+    refreshRelationshipBoardPages(relId)
       .catch((err: unknown) => {
         if (alive) setRefreshError(err instanceof Error ? err.message : 'Could not load the board');
       })
@@ -86,6 +78,12 @@ export function LessonBoardPage() {
           </div>
         )}
 
+        {current && pages && pages.length > 0 && (
+          <div className="lb-strip">
+            <BoardPageStrip pages={stripPages} current={current.id} onOpen={open} />
+          </div>
+        )}
+
         {current && (
           <article className="lb-paper" data-testid="lesson-board-page">
             <header className="lb-paper-head">
@@ -115,11 +113,6 @@ export function LessonBoardPage() {
           </article>
         )}
       </div>
-      {current && pages && pages.length > 0 && (
-        <div className="lb-strip">
-          <BoardPageStrip pages={stripPages} current={current.id} onOpen={open} />
-        </div>
-      )}
     </div>
   );
 }

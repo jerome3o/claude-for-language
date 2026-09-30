@@ -39,9 +39,13 @@ test call), and the **Join the call** button that appears in the relationship's 
   `compositionend`, and the other person's edits wait until the composition ends, so pinyin input
   is never disturbed (E2E drives a real composition over CDP). Selecting Chinese shows its pinyin
   (`pinyin-pro`, on the device) and, online, a word-by-word **Meaning**
-  (`/api/sentences/explain-text`). **Draw** is the second tab (the old whiteboard). The text is
-  saved with the call (`calls.board_text`, migration 0081), shown on the review page under
-  "Board", and goes into the lesson report and the session-notes homework agent ("SHARED NOTES").
+  (`/api/sentences/explain-text`). **Draw** is the second tab (the old whiteboard). The text of the
+  pages written in the call is saved with the call (`calls.board_text`, migration 0081), shown on the
+  review page under "Board", and goes into the lesson report and the session-notes homework agent
+  ("SHARED NOTES").
+- **Board pages** — the text board is not per call: it belongs to the tutor relationship and keeps
+  every lesson's writing as numbered **pages** (see "Board pages" below). The board's bottom strip
+  shows them all; the call opens on today's page or a new one.
 - **Tab-complete on the board** — type Chinese, stop for 500 ms (and no IME composition open)
   and a grey ` - pīnyīn - meaning` appears right after the caret; **Tab** types it in (through the
   CRDT, like any typing, so the other person sees it and it is saved in `board_text`), typing on or
@@ -148,6 +152,63 @@ Tables (migration `0071_video_calls.sql`): `calls`, `call_recording_pieces`,
 `call_recording_chunks`, `call_transcript_segments`. Audio lives in the existing R2 bucket
 under `calls/<callId>/…` and is served by the public `/api/audio/*` route (unguessable
 keys, same model as study recordings).
+
+## Board pages
+
+Like Preply's canvas, the board keeps its content **per tutor relationship, across calls, as
+numbered pages** (a solo test call has its caller's own pages). Rules: `shared/calls/pages.ts`
+(unit-tested); storage: `board_pages` + `call_board_pages` (migration 0086); the room:
+`worker/src/durable/call-room.ts`; D1 layer: `worker/src/services/calls/pages.ts`.
+
+- **Which page a call opens on** (`pickOpeningPage`, decided by the room on the first join): no pages
+  yet → a new page; the last page still empty → reuse it; the page used most recently was used by a
+  call **within 3 hours and on the same local day** (the call starter's time zone, `users.time_zone`)
+  → continue it (a dropped call, or a second call to fix the sound, carries on); otherwise **a new
+  page at the end** — every lesson starts on a fresh page with all earlier pages one tap away.
+- **The strip** (`components/calls/BoardPageStrip.tsx`, Lab `BoardPageStrip`): along the bottom of
+  the board, a scrolling row of small paper thumbnails (the page's first lines) numbered 1, 2, 3… (or
+  the page's title), the current one highlighted, a dot in the other person's colour on the page they
+  are on, **+** for a new page; **⋯** on the current page → Rename / Duplicate / Delete (confirm: "Delete
+  page N? Its text is removed for both of you."; the last page can't be deleted). Anyone may do any of
+  it; the room broadcasts the new list.
+- **Each person turns pages on their own.** Following is opt-in: when the other person is on another
+  page a bar says "<name> is on page 5" with **Go there**, **Follow <name>** (my view jumps whenever
+  theirs does; turning a page myself stops following; kept by user id, so their reconnect doesn't
+  break it) and **Bring <name> here** (moves them to my page at once; they see "<name> brought you to
+  page N"). Both start on the opening page. Deleting the page someone is on moves them to the next
+  page ("<name> deleted page N").
+- **Protocol**: `text` / `text_cursor` carry `page` and are only relayed to people looking at that page;
+  `page_open` → `page_doc` (the page's CRDT snapshot + carets on it), `page_new` / `page_duplicate` (the
+  room opens the new page for the sender), `page_rename`, `page_delete`, `page_summon`; the room sends
+  `pages`, `page_view`, `page_preview` (thumbnail text, coalesced with the 400 ms storage write),
+  `page_deleted`, `page_summon`. `welcome` carries `pages`, `page` (the opening page — `text` is its
+  document, so an app from before pages keeps working on it) and `page_views`. A rejoin while on
+  another page asks for that page again; edits typed offline are re-sent tagged with their page.
+- **Storage**: the room loads the relationship's pages from D1 when the call starts, keeps every page
+  it touched in its own storage, and on leave / end writes the changed pages back (`board_pages`) and
+  the call's links (`call_board_pages`: each page the call opened or wrote on, with its text as it stood
+  when that call ended). `calls.board_text` becomes the text of the pages **written in that call** (one
+  page as is, several headed "— Page 3 —"), so the review page, the lesson report and the session-notes
+  homework agent (`composeCallNotes`) still get exactly that call's writing. Two calls live at once for
+  one relationship (rare) each hold their own copy; the last to end wins for a page both changed.
+- **Migration**: 0086 turns every earlier call's `board_text` into a page of its relationship (in call
+  order, one CRDT run from the site `import:<call id>`, `snapshotFromText`) and links it to the call, so
+  the strip starts with the lessons already given.
+- **Outside a call — the Lesson board** (`/connections/:relId/board`, "📝 Lesson board · N pages" on the
+  student / tutor page; Lab: same route): every page, read-only, the same strip, the page large on
+  paper, Copy text. **Read-only on purpose**: editing happens in a call, where the room merges both
+  people's typing; a writer outside the room could not be merged into its CRDT (and a lesson's notes
+  are written together). Offline: `GET /api/me/board-pages` fills IndexedDB `boardPages` (Dexie v24;
+  Lab `JsonCache`) from the sync every 30 min, after every call and whenever the page opens online.
+- **Review page**: the Board section shows the call's pages (`GET /api/calls/:id/board-pages`), each
+  with its number / title and the text it held when the call ended ("Deleted page" if deleted since).
+- **The drawing board stays per call** (not paged): its strokes are small ops kept with the call
+  (`calls.board_json`) and shown on the review page; paging it would need the same page machinery for
+  a second document type, with little use across lessons so far.
+
+API (`worker/src/routes/board-pages.ts`, read-only, either person of an ACTIVE relationship):
+`GET /api/relationships/:relId/board-pages`, `GET /api/me/board-pages`, `GET /api/calls/:id/board-pages`
+(members of the call).
 
 ## Joining when the camera or microphone won't open
 

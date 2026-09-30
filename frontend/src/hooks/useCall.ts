@@ -38,6 +38,7 @@ import { CallRecorder } from '../services/calls/recorder';
 import { closeOrphanPieces, drainCallUploads, pendingCallUploads } from '../services/calls/uploads';
 import { endCall as endCallApi } from '../api/calls';
 import { TextBoardSession } from '../services/calls/textBoard';
+import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
 import type { AnnotStroke } from '@shared/calls';
 import {
@@ -350,6 +351,8 @@ export function useCall(callId: string, myUserId: string) {
     setRemote(null);
     await drainCallUploads().catch(() => {});
     setPendingUploads(await pendingCallUploads(callId));
+    // The board's pages changed in this call: the device's copy (Lesson board, offline) catches up.
+    void refreshBoardPages().catch(() => {});
   }, [callId, closeLink, releaseMedia]);
 
   // ---------------------------------------------------------------- room messages
