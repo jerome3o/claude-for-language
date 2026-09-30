@@ -213,6 +213,7 @@ export class CallRoom extends DurableObject<Env> {
       chat: this.chat!,
       text: this.text!.snapshot(),
       text_cursors: this.cursorsExcept(server),
+      annot_persist: (await this.ctx.storage.get<boolean>('annotPersist')) === true,
     });
     this.broadcast({ type: 'peer_joined', peer: this.peerOf(attachment) }, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -274,6 +275,12 @@ export class CallRoom extends DurableObject<Env> {
       case 'annot': {
         const stroke = sanitizeAnnotStroke(msg.stroke);
         if (stroke) this.broadcast({ type: 'annot', from: a.clientId, name: a.name, stroke }, ws);
+        return;
+      }
+      case 'annot_mode': {
+        const persist = msg.persist === true;
+        this.broadcast({ type: 'annot_mode', from: a.clientId, name: a.name, persist }, ws);
+        await this.ctx.storage.put('annotPersist', persist, { allowUnconfirmed: true });
         return;
       }
       case 'annot_clear':

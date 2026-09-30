@@ -11,6 +11,9 @@ import {
   sanitizePing,
   simplifyPoints,
   strokeAlpha,
+  defaultAnnotColor,
+  SHARER_ANNOT_COLOR,
+  VIEWER_ANNOT_COLOR,
 } from './annotate';
 
 const screen = { width: 1920, height: 1080 };
@@ -83,5 +86,19 @@ describe('wire validation', () => {
   it('thins a path but keeps its end', () => {
     const pts: [number, number][] = [[0, 0], [0.0005, 0], [0.001, 0], [0.01, 0], [0.0101, 0]];
     expect(simplifyPoints(pts)).toEqual([[0, 0], [0.01, 0], [0.0101, 0]]);
+  });
+});
+
+describe('kept drawings and pen colours', () => {
+  it('a kept stroke never fades; a fading one does', () => {
+    expect(strokeAlpha(0, 60_000, true)).toBe(1);
+    expect(strokeAlpha(0, 60_000)).toBe(0);
+    expect(Object.keys(pruneAnnotations({ a: { doneAt: 0 } }, 60_000, true))).toEqual(['a']);
+    expect(Object.keys(pruneAnnotations({ a: { doneAt: 0 } }, 60_000))).toEqual([]);
+  });
+  it('the sharer and the viewer start with different pens', () => {
+    expect(defaultAnnotColor(true)).toBe(SHARER_ANNOT_COLOR);
+    expect(defaultAnnotColor(false)).toBe(VIEWER_ANNOT_COLOR);
+    expect(SHARER_ANNOT_COLOR).not.toBe(VIEWER_ANNOT_COLOR);
   });
 });

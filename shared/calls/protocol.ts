@@ -74,6 +74,8 @@ export type ClientMessage =
   | { type: 'annot'; stroke: AnnotStroke }
   | { type: 'annot_clear' }
   | { type: 'annot_ping'; x: number; y: number }
+  /** Keep drawings on the shared screen (true) or let them fade (false) — one setting for both. */
+  | { type: 'annot_mode'; persist: boolean }
   | { type: 'chat'; text: string }
   | { type: 'state'; state: PeerMediaState }
   | { type: 'ping'; t: number }
@@ -92,6 +94,8 @@ export type ServerMessage =
       /** The shared text board (absent from an older room). */
       text?: TextDocSnapshot;
       text_cursors?: TextCursor[];
+      /** Drawings on a shared screen are kept rather than fading (absent = fade). */
+      annot_persist?: boolean;
     }
   | { type: 'peer_joined'; peer: CallPeer }
   | { type: 'peer_left'; client_id: string }
@@ -104,6 +108,7 @@ export type ServerMessage =
   | { type: 'annot'; from: string; name: string; stroke: AnnotStroke }
   | { type: 'annot_clear'; from: string }
   | { type: 'annot_ping'; from: string; name: string; x: number; y: number }
+  | { type: 'annot_mode'; from: string; name: string; persist: boolean }
   | { type: 'chat'; message: CallChatMessage }
   | { type: 'pong'; t: number; server_time: number }
   | { type: 'ended'; by: string }

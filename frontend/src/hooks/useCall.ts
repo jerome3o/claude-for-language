@@ -99,6 +99,8 @@ export function useCall(callId: string, myUserId: string) {
   const [pendingUploads, setPendingUploads] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [turn, setTurn] = useState(false);
+  /** Drawings on a shared screen stay (true) or fade (false) — one setting for both people. */
+  const [annotPersist, setAnnotPersist] = useState(false);
 
   const roomRef = useRef<CallRoomSocket | null>(null);
   const linkRef = useRef<PeerLink | null>(null);
@@ -361,6 +363,8 @@ export function useCall(callId: string, myUserId: string) {
         setChat(msg.chat);
         setLiveStrokes({});
         textRef.current?.load(msg.text, msg.text_cursors);
+        annotRef.current?.setPersist(msg.annot_persist === true);
+        setAnnotPersist(msg.annot_persist === true);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
         flushDiag();
         if (msg.peers.length > 0) openLink(msg.peers[0]);
@@ -400,6 +404,10 @@ export function useCall(callId: string, myUserId: string) {
         return;
       case 'annot':
         annotRef.current?.upsert(msg.stroke, msg.from, Date.now(), msg.name);
+        return;
+      case 'annot_mode':
+        annotRef.current?.setPersist(msg.persist);
+        setAnnotPersist(msg.persist);
         return;
       case 'annot_clear':
         annotRef.current?.clear();
@@ -584,6 +592,12 @@ export function useCall(callId: string, myUserId: string) {
     roomRef.current?.send({ type: 'annot_clear' });
   }, []);
 
+  const setAnnotationsKept = useCallback((persist: boolean) => {
+    annotRef.current?.setPersist(persist);
+    setAnnotPersist(persist);
+    roomRef.current?.send({ type: 'annot_mode', persist });
+  }, []);
+
   const sendChat = useCallback((text: string) => {
     const t = text.trim();
     if (!t) return false;
@@ -656,7 +670,7 @@ export function useCall(callId: string, myUserId: string) {
     commitBoard, sendLiveStroke, sendChat,
     textBoard: textRef.current,
     annotations: annotRef.current,
-    sendAnnotation, sendPing, clearAnnotations,
+    sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,

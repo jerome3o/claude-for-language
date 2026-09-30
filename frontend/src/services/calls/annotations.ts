@@ -22,6 +22,8 @@ export class AnnotationStore {
   /** When someone else last drew or pinged (for "… is drawing on your screen"). */
   lastRemoteAt = 0;
   lastRemoteName = '';
+  /** Keep finished strokes instead of fading them (shared by both people). */
+  persist = false;
   private listeners = new Set<() => void>();
 
   subscribe(fn: () => void): () => void {
@@ -52,6 +54,14 @@ export class AnnotationStore {
     this.emit();
   }
 
+  /** Keep / fade. Switching back to fading starts every finished stroke's fade now. */
+  setPersist(persist: boolean, now = Date.now()) {
+    if (persist === this.persist) return;
+    this.persist = persist;
+    if (!persist) for (const s of this.strokes.values()) if (s.doneAt !== null) s.doneAt = now;
+    this.emit();
+  }
+
   clear() {
     this.strokes.clear();
     this.pings = [];
@@ -60,12 +70,13 @@ export class AnnotationStore {
 
   /** Anything still visible at `now`? (Stops the redraw loop when not.) */
   active(now = Date.now()): boolean {
-    for (const s of this.strokes.values()) if (strokeAlpha(s.doneAt, now) > 0) return true;
+    // Kept strokes don't animate: they are redrawn on each change (subscribe), not every frame.
+    if (!this.persist) for (const s of this.strokes.values()) if (strokeAlpha(s.doneAt, now) > 0) return true;
     return this.pings.some((p) => pingProgress(p.at, now) !== null);
   }
 
   prune(now = Date.now()) {
-    for (const [k, s] of this.strokes) if (strokeAlpha(s.doneAt, now) <= 0) this.strokes.delete(k);
+    for (const [k, s] of this.strokes) if (strokeAlpha(s.doneAt, now, this.persist) <= 0) this.strokes.delete(k);
     this.pings = this.pings.filter((p) => pingProgress(p.at, now) !== null);
   }
 }
@@ -80,7 +91,7 @@ export function drawAnnotations(ctx: CanvasRenderingContext2D, box: VideoSize, v
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const s of store.strokes.values()) {
-    const alpha = strokeAlpha(s.doneAt, now);
+    const alpha = strokeAlpha(s.doneAt, now, store.persist);
     if (alpha <= 0 || s.points.length === 0) continue;
     const pts = s.points.map((p) => denormalizePoint(p, box, video));
     const w = Math.max(2.5, (s.width || ANNOT_WIDTH) * scale);
