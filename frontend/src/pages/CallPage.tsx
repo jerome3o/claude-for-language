@@ -19,6 +19,8 @@ import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '.
 import { ANNOT_COLORS, defaultAnnotColor } from '@shared/calls';
 import {
   arrangeTiles,
+  boardButton,
+  boardOnStage as isBoardOnStage,
   formatOffset,
   initialLinkHealth,
   layoutReducer,
@@ -143,8 +145,8 @@ export function CallPage() {
     if (!sharing) setAnnotating(false);
   }, [sharing]);
   useEffect(() => {
-    // Their screen share starts: put it on the stage (their camera floats beside it).
-    if (remoteSharing) dispatch({ type: 'preset', preset: 'screen' });
+    // Their screen share starts: put it on the stage, both faces over it (or the cameras separately, if chosen).
+    if (remoteSharing) dispatch({ type: 'shareStarted' });
   }, [remoteSharing, dispatch]);
   // A sideways swipe moves between tiles: it must never be the browser's "back" gesture.
   useEffect(() => {
@@ -311,7 +313,7 @@ export function CallPage() {
   const remoteScreenStream = remoteSharing ? (legacyShare ? remote?.stream ?? null : remote?.screenStream ?? null) : null;
   const unread = Math.max(0, call.chat.length - seenChat);
   const status = remote ? tileStatus(remote.health ?? { ...initialLinkHealth(0), pc: remote.connection === 'new' ? 'new' : remote.connection }, remote.away) : 'live';
-  const boardOnStage = layout.mode !== 'grid' && (layout.main === 'text' || layout.main === 'draw' || (layout.mode === 'split' && (layout.second === 'text' || layout.second === 'draw')));
+  const boardOnStage = isBoardOnStage(layout);
   const chatOnStage = chatVisible;
   const first = otherName.split(' ')[0];
 
@@ -504,7 +506,7 @@ export function CallPage() {
         <button
           type="button"
           className={`call-btn${boardOnStage ? ' active' : ''}`}
-          onClick={() => dispatch(boardOnStage ? { type: 'focus', tile: 'remote' } : layout.mode === 'split' || (typeof window !== 'undefined' && window.innerWidth < 640) ? { type: 'focus', tile: 'text' } : { type: 'preset', preset: 'board' })}
+          onClick={() => dispatch(boardButton(layout, typeof window !== 'undefined' && window.innerWidth < 640))}
           aria-label="Board"
           title="Board — type together, or draw (B)"
           data-testid="open-board"
@@ -536,6 +538,11 @@ export function CallPage() {
                     {t === 'text' ? '📝 Board' : t === 'draw' ? '✏️ Draw' : '💬 Chat'}
                   </button>
                 ))}
+              </div>
+              <div className="call-layout-cams" role="group" aria-label="Cameras over the board / screen">
+                <span>Cameras</span>
+                <button type="button" role="menuitemradio" aria-checked={layout.pip === 'pair'} className={layout.pip === 'pair' ? 'active' : ''} onClick={() => dispatch({ type: 'pip', pip: 'pair' })} data-testid="pip-pair">Together</button>
+                <button type="button" role="menuitemradio" aria-checked={layout.pip === 'separate'} className={layout.pip === 'separate' ? 'active' : ''} onClick={() => dispatch({ type: 'pip', pip: 'separate' })} data-testid="pip-separate">Separate</button>
               </div>
               <label className="call-layout-toggle">
                 <input type="checkbox" checked={layout.remoteFloat} onChange={(e) => dispatch({ type: 'remoteFloat', on: e.target.checked })} />

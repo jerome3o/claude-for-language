@@ -27,7 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import org.junit.Test
 import org.robolectric.annotation.Config
 
-/** Video calls round 2 (PR B): the tile layouts (core CallLayout) folded (412 dp: phone rules) and unfolded (840 dp: split / rail). */
+/** Video calls round 2 (PR B) + round 3 (faces together): the tile layouts (core CallLayout) folded (412 dp: phone rules) and unfolded (840 dp: split / rail). */
 class CallLayoutScreenshots : LabScreenshotTest() {
     private val fakeVideo: VideoSlot = { handle, _, _, _, onFrameSize, modifier -> FakeVideo(handle as String, onFrameSize, modifier) }
 
@@ -121,6 +121,30 @@ class CallLayoutScreenshots : LabScreenshotTest() {
     @Test fun drawStackedUnfolded() = shoot("calls-50-layout-draw-stacked-unfolded") {
         Call(live, Action.Preset(PresetId.BOARD), Action.Swap(TileId.TEXT, TileId.DRAW), Action.SetDir(CallLayout.Dir.COLUMN), Action.Ratio(0.6))
     }
+
+    // ---- round 3: faces together — both cameras in one box over the content
+
+    @Test fun facesBoardFolded() = shoot("calls-51-faces-board-folded") { Call(live, Action.Focus(TileId.TEXT)) }
+
+    @Test fun facesDrawFolded() = shoot("calls-52-faces-draw-folded") { Call(live, Action.Focus(TileId.DRAW)) }
+
+    /** Cameras off: the initials / "You" placeholders, still side by side. */
+    @Test fun facesCamerasOffFolded() = shoot("calls-53-faces-cameras-off-folded") {
+        val off = live.copy(camOn = false, remote = live.remote!!.copy(peer = tutor.copy(state = tutor.state.copy(cam = false))))
+        Call(off, Action.Focus(TileId.TEXT))
+    }
+
+    @Config(qualifiers = UNFOLDED_TALL)
+    @Test fun facesBoardUnfolded() = shoot("calls-54-faces-board-unfolded") { Call(live, Action.Focus(TileId.TEXT)) }
+
+    @Config(qualifiers = UNFOLDED_TALL)
+    @Test fun facesDraggedUnfolded() = shoot("calls-55-faces-bottom-right-unfolded") { Call(live, Action.Focus(TileId.TEXT), Action.PairCorner(CallLayout.Corner.BR), Action.PairScale(1.4)) }
+
+    @Config(qualifiers = UNFOLDED_TALL)
+    @Test fun camerasSeparateUnfolded() = shoot("calls-56-cameras-separate-unfolded") { Call(live, Action.SetPip(CallLayout.Pip.SEPARATE), Action.Focus(TileId.TEXT)) }
+
+    @Config(qualifiers = UNFOLDED_TALL)
+    @Test fun facesTapSpeakerUnfolded() = shoot("calls-57-faces-tap-speaker-unfolded") { Call(live, Action.Focus(TileId.TEXT), Action.PairTap) }
 
     companion object {
         /** The Fold unfolded, portrait-ish (~840 × 900 dp). */

@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -477,8 +478,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
         val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
         LaunchedEffect(chatVisible, s.chat.size) { if (chatVisible) seenChat = s.chat.size }
-        val boardOnStage = layout.mode != CallLayout.Mode.GRID && (layout.main == CallLayout.TileId.TEXT || layout.main == CallLayout.TileId.DRAW ||
-            (layout.mode == CallLayout.Mode.SPLIT && (layout.second == CallLayout.TileId.TEXT || layout.second == CallLayout.TileId.DRAW)))
+        val boardOnStage = CallLayout.boardOnStage(layout)
         val dispatch: (CallLayout.Action) -> Unit = { h.dispatch(it) }
 
         val boardSwitch: @Composable (CallLayout.TileId) -> Unit = { current ->
@@ -489,14 +489,14 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         }
         val tiles = buildMap<CallLayout.TileId, TileSpec> {
             put(CallLayout.TileId.REMOTE, TileSpec(otherName) { role ->
-                val floating = role == CallLayout.Role.FLOATING
+                val floating = role == CallLayout.Role.FLOATING || role == CallLayout.Role.PAIR
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (remote != null) {
                         // Their picture stays up through a dropout (the renderer keeps the last frame): never cleared on
                         // disconnected / failed / away — the badge says what is going on.
                         val cam = remote.video
                         if (cam != null && remote.cameraOn) FittedVideo(cam, false, screen = false, overlay = floating, slot = video, modifier = Modifier.fillMaxSize(), cover = floating, onFrameSize = { remoteCamFrame = it })
-                        else Initials(otherName, if (floating) 48.dp else 112.dp)
+                        else Initials(otherName, if (role == CallLayout.Role.PAIR) 30.dp else if (floating) 48.dp else 112.dp)
                         if (remote.tile != TileStatus.LIVE) TileBadge(
                             if (remote.tile == TileStatus.RECONNECTING) "Reconnecting…" else "Connecting…",
                             Modifier.align(Alignment.TopStart).padding(if (floating) 6.dp else 12.dp),
@@ -522,7 +522,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             put(CallLayout.TileId.SELF, TileSpec("You") { role ->
                 Box(Modifier.fillMaxSize().background(Color(0xFF2B313A)), contentAlignment = Alignment.Center) {
                     val local = s.localVideo
-                    if (local != null && s.hasCamera && s.camOn) FittedVideo(local, s.frontCamera, screen = false, overlay = true, slot = video, modifier = Modifier.fillMaxSize(), cover = role == CallLayout.Role.FLOATING, onFrameSize = { selfFrame = it })
+                    if (local != null && s.hasCamera && s.camOn) FittedVideo(local, s.frontCamera, screen = false, overlay = true, slot = video, modifier = Modifier.fillMaxSize(), cover = role == CallLayout.Role.FLOATING || role == CallLayout.Role.PAIR, onFrameSize = { selfFrame = it })
                     else Text(if (s.micOn && s.hasMic) "You" else "🔇 You", color = OnDark, fontSize = 13.sp)
                 }
             })
@@ -613,13 +613,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 MicButton(s, actions.onToggleMic, btn)
                 CamButton(s, actions.onToggleCam, btn)
                 RoundButton("📝", "Board", active = boardOnStage, size = btn) {
-                    dispatch(
-                        when {
-                            boardOnStage -> CallLayout.Action.Focus(CallLayout.TileId.REMOTE)
-                            layout.mode == CallLayout.Mode.SPLIT || !wide -> CallLayout.Action.Focus(CallLayout.TileId.TEXT)
-                            else -> CallLayout.Action.Preset(CallLayout.PresetId.BOARD)
-                        },
-                    )
+                    dispatch(CallLayout.boardButton(layout, narrow = !wide))
                     actions.onTick()
                 }
                 RoundButton("💬", "Chat", active = chatVisible, badge = if (!chatVisible) unread else 0, size = btn) {
@@ -671,6 +665,8 @@ fun CallLayoutMenu(layout: CallLayout.Layout, available: CallLayout.Availability
         }
     }
     Spacer(Modifier.height(8.dp))
+    CamerasRow(layout.pip) { onAction(CallLayout.Action.SetPip(it)) }
+    RowDivider()
     ToggleRow("Float $first’s camera over the board / screen", layout.remoteFloat) { onAction(CallLayout.Action.RemoteFloat(it)) }
     RowDivider()
     ToggleRow("Stack split panes", layout.dir == CallLayout.Dir.COLUMN) { onAction(CallLayout.Action.SetDir(if (it) CallLayout.Dir.COLUMN else CallLayout.Dir.ROW)) }
@@ -685,6 +681,29 @@ fun currentPreset(l: CallLayout.Layout): CallLayout.PresetId? = when {
     l.mode == CallLayout.Mode.SPLIT && l.main == CallLayout.TileId.TEXT && l.second == CallLayout.TileId.REMOTE -> CallLayout.PresetId.BOARD
     l.mode == CallLayout.Mode.SPLIT && l.main == CallLayout.TileId.REMOTE && l.second == CallLayout.TileId.SELF -> CallLayout.PresetId.SIDE
     else -> null
+}
+
+/** "Cameras: Together / Separate" — both faces in one box over the board / screen, or two floating cameras. */
+@Composable
+private fun CamerasRow(pip: CallLayout.Pip, onChange: (CallLayout.Pip) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Cameras", color = Lab.colors.ink, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        listOf(CallLayout.Pip.PAIR to "Together", CallLayout.Pip.SEPARATE to "Separate").forEach { (p, label) ->
+            val on = p == pip
+            Box(
+                Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp))
+                    .background(if (on) Lab.colors.accent else Color.Transparent)
+                    .border(1.dp, if (on) Lab.colors.accent else Lab.colors.muted.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                    .bouncyClickable(role = androidx.compose.ui.semantics.Role.RadioButton) { onChange(p) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .testTag("pip-${p.wire}"),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, color = if (on) Color.White else Lab.colors.ink, fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal) }
+        }
+    }
 }
 
 @Composable

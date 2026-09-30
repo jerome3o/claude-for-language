@@ -127,6 +127,27 @@ test call), and the **Join the call** button that appears in the relationship's 
   focus only — the tile fills the screen, both cameras float small, a sideways swipe moves between
   tiles (touch events; horizontal overscroll "back" is disabled on the call page), 📝 / 💬 jump to
   the board / chat. The layout is remembered per user on the device (`call-layout-v1:<user>`).
+- **Faces together (round 3, like Preply)** — when content is on the stage (the board, the drawing,
+  a shared screen, the chat — neither camera on the stage, not a grid) the two cameras float as ONE
+  compact box with both faces side by side, **theirs first**, instead of two separate floating
+  tiles (`pip: 'pair'`, the default; `arrangeTiles` → `pair: <corner>`, `layoutRects` → `pair` box
+  + both face rects with role `pair`). Each face keeps its camera's shape (clamped 3:4 – 16:9) at one
+  shared height (`pairSize`: ~15 % of the stage's shorter side, 72–140 px; phones ~16 %, 56–96 px;
+  × `pairScale` 0.6–2; within 60 % / 70 % of the width and 40 % of the height). Drag it anywhere →
+  it snaps to the nearest corner (`pairCorner`, top-left by default; the Lab springs there with a
+  light haptic); the grip in the corner facing the stage's middle resizes it; a **tap** (not a drag;
+  6 px threshold) or Enter / Space on it → Speaker (`pairTap`). In a top corner the box sits below
+  the controls along the top of the tile under it (`TILE_HEADER`: Board / Draw tabs 48, + the
+  drawing's tool row 104, a shared screen's drawing row 56) so it never covers them. The camera
+  tiles stay the same elements (web: moved by transform under a transparent hit layer; Lab: the
+  same keyed composables riding the box's drag offset), so video never restarts. ▦ → **Cameras:
+  Together / Separate** switches back to round 2's two floating cameras; that toggle is the ONLY
+  thing that changes `pip`, so a stored `separate` is always the user's explicit choice and wins
+  (restored next call, kept when their share starts). A layout stored before round 3 has no `pip`
+  and reads as together. Their share starting dispatches `shareStarted` (the screen on the stage;
+  the cameras as `pip` says). 📝 (`boardButton`) now focuses the board with the faces over it; the
+  "Board + camera" split only when the cameras are separate on a wide screen. With "Float <their>
+  camera" off (wide screens), their camera stays in the rail and mine floats alone.
 - **Screen share has its own channel** — the offerer creates audio, camera and screen transceivers;
   the second video m-line is the screen, so the viewer sees the screen AND the sharer's camera. An
   older app that offers one video m-line gets the old behaviour (the screen replaces the camera;

@@ -40,6 +40,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -71,6 +75,9 @@ private val VIDEO_TILES = setOf(TileId.REMOTE, TileId.SELF, TileId.SCREEN)
  * - Double-tap a video tile (or tap its ⤢) to focus it; a rail tile focuses on a single tap.
  * - Split: drag the divider.
  * - Floating cameras: drag anywhere, they spring to the nearest corner; my own camera has a resize handle.
+ * - Faces together (content on the stage): both cameras in ONE box — drag it and it springs to a corner
+ *   (a light haptic), resize it with its grip, tap it for Speaker. The camera tiles stay the same
+ *   composables (videos never restart); they just ride along with the box.
  * - Phones: swipe left / right on the stage to move between tiles.
  */
 @Composable
@@ -92,6 +99,10 @@ fun CallTiles(
         val rects = CallLayout.layoutRects(layout, arr, bw, bh, aspects)
         val narrow = bw < CallLayout.NARROW_WIDTH
         val focusedTile = if (arr.mode == CallLayout.Mode.FOCUS) arr.stage.firstOrNull() else null
+        // The faces box's drag: both faces ride along; on release it springs back to 0 while the box
+        // springs to its (new) corner, so the move is continuous.
+        val pairDrag = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+        rects.pair?.let { p -> PairFrame(p, rects.stage, layout, pairDrag, onAction, onTick, onSnap) }
         for (id in CallLayout.ALL_TILES) {
             val spec = tiles[id] ?: continue
             val r = rects.tiles.getValue(id)
@@ -100,6 +111,7 @@ fun CallTiles(
                 TileFrame(
                     id, spec, r, rects.stage, focused = focusedTile == id, narrow = narrow, layout = layout, available = available,
                     onAction = onAction, onReplace = onReplace, onTick = onTick, onSnap = onSnap,
+                    pairDrag = { pairDrag.value },
                 )
             }
         }
@@ -121,6 +133,7 @@ private fun TileFrame(
     onReplace: (CallLayout.Layout) -> Unit,
     onTick: () -> Unit,
     onSnap: () -> Unit,
+    pairDrag: () -> Offset = { Offset.Zero },
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -141,10 +154,14 @@ private fun TileFrame(
     val currentLayout by rememberUpdatedState(layout)
     val currentAvailable by rememberUpdatedState(available)
     val floating = r.role == Role.FLOATING
-    val shape = RoundedCornerShape(if (floating) 14.dp else 16.dp)
+    val inPair = r.role == Role.PAIR
+    val shape = RoundedCornerShape(if (inPair) 10.dp else if (floating) 14.dp else 16.dp)
 
     var m = Modifier
-        .offset { pos.value + IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
+        .offset {
+            val ride = if (inPair) pairDrag() else Offset.Zero
+            pos.value + IntOffset((drag.x + ride.x).roundToInt(), (drag.y + ride.y).roundToInt())
+        }
         .size(w, h)
         .zIndex(r.z.toFloat() + if (dragging) 10f else 0f)
         .clip(shape)
@@ -205,8 +222,79 @@ private fun TileFrame(
             Modifier.fillMaxSize().pointerInput(id, "rail") { detectTapGestures { onAction(Action.Focus(id)); onTick() } },
         )
         // Phones: one focused tile at a time — the 📝 / 💬 buttons and a swipe move on, no chrome over the floating camera.
-        if (!floating && !(narrow && r.role == Role.STAGE)) TileChrome(spec, r.role, focused, id, onAction, onTick, Modifier.align(Alignment.TopEnd))
-        if (floating && id == TileId.SELF) ResizeHandle(layout, r, onAction, onResizing = { resizing = it }, modifier = Modifier.align(resizeAlignment(layout.selfCorner)))
+        if (!floating && !inPair && !(narrow && r.role == Role.STAGE)) TileChrome(spec, r.role, focused, id, onAction, onTick, Modifier.align(Alignment.TopEnd))
+        if (floating && id == TileId.SELF) ResizeHandle(
+            layout.selfCorner, { layout.selfScale }, r.w, r.h, { onAction(Action.SelfScale(it)) },
+            onResizing = { resizing = it }, modifier = Modifier.align(resizeAlignment(layout.selfCorner)), tag = "self-resize",
+        )
+    }
+}
+
+/**
+ * The faces box (web .call-pair-bg + .call-pair): a dark rounded backdrop under the two faces and a
+ * transparent hit layer over them — drag → spring to the nearest corner (+ a snap haptic), tap →
+ * Speaker, a grip in the corner facing the stage's middle resizes it.
+ */
+@Composable
+private fun PairFrame(
+    p: CallLayout.PairBox,
+    stage: CallLayout.Box,
+    layout: CallLayout.Layout,
+    pairDrag: Animatable<Offset, androidx.compose.animation.core.AnimationVector2D>,
+    onAction: (Action) -> Unit,
+    onTick: () -> Unit,
+    onSnap: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val target = with(density) { IntOffset(p.x.dp.roundToPx(), p.y.dp.roundToPx()) }
+    val pos = remember { Animatable(target, IntOffset.VectorConverter) }
+    LaunchedEffect(target) { pos.animateTo(target, SPRING) }
+    val w by animateDpAsState(p.w.dp, SIZE_SPRING, label = "pair-w")
+    val h by animateDpAsState(p.h.dp, SIZE_SPRING, label = "pair-h")
+    val box by rememberUpdatedState(p)
+    val stageBox by rememberUpdatedState(stage)
+    val current by rememberUpdatedState(layout)
+    val shape = RoundedCornerShape(14.dp)
+    val at: androidx.compose.ui.unit.Density.() -> IntOffset = {
+        val d = pairDrag.value
+        pos.value + IntOffset(d.x.roundToInt(), d.y.roundToInt())
+    }
+    // The backdrop, under the faces (z 3).
+    Box(Modifier.offset(at).size(w, h).zIndex(2f).clip(shape).background(Color(0xD1111827)).border(1.dp, Color(0x47FFFFFF), shape))
+    // The hit layer, over the faces.
+    Box(
+        Modifier.offset(at).size(w, h).zIndex(5f).testTag("faces-pair")
+            .semantics {
+                role = androidx.compose.ui.semantics.Role.Button
+                contentDescription = "Both cameras — drag to a corner, tap for the speaker view"
+                onClick { onAction(Action.PairTap); true }
+            }
+            .pointerInput("pair-tap") { detectTapGestures(onTap = { onAction(Action.PairTap); onTick() }) }
+            .pointerInput("pair-drag") {
+                detectDragGestures(
+                    onDrag = { change, amount ->
+                        change.consume()
+                        scope.launch { pairDrag.snapTo(pairDrag.value + amount) }
+                    },
+                    onDragEnd = {
+                        val d = pairDrag.value
+                        val b = box
+                        val s = stageBox
+                        val cx = (b.x + d.x / density.density + b.w / 2 - s.x) / s.w
+                        val cy = (b.y + d.y / density.density + b.h / 2 - s.y) / s.h
+                        onAction(Action.PairCorner(CallLayout.snapCorner(cx, cy)))
+                        onSnap()
+                        scope.launch { pairDrag.animateTo(Offset.Zero, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)) }
+                    },
+                    onDragCancel = { scope.launch { pairDrag.animateTo(Offset.Zero, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)) } },
+                )
+            },
+    ) {
+        ResizeHandle(
+            p.corner, { current.pairScale }, p.w, p.h, { onAction(Action.PairScale(it)) },
+            onResizing = {}, modifier = Modifier.align(resizeAlignment(p.corner)), tag = "pair-resize",
+        )
     }
 }
 
@@ -218,33 +306,44 @@ private fun resizeAlignment(c: CallLayout.Corner): Alignment = when (c) {
     CallLayout.Corner.TL -> Alignment.BottomEnd
 }
 
+/** A resize grip for a floating box in [corner]: dragging away from that corner grows it ([onScale] gets the new scale). */
 @Composable
-private fun ResizeHandle(layout: CallLayout.Layout, r: CallLayout.Rect, onAction: (Action) -> Unit, onResizing: (Boolean) -> Unit, modifier: Modifier) {
+private fun ResizeHandle(
+    corner: CallLayout.Corner,
+    scale: () -> Double,
+    width: Double,
+    height: Double,
+    onScale: (Double) -> Unit,
+    onResizing: (Boolean) -> Unit,
+    modifier: Modifier,
+    tag: String,
+) {
     val density = LocalDensity.current
-    val current by rememberUpdatedState(layout)
-    val rect by rememberUpdatedState(r)
-    val c = layout.selfCorner
+    val currentCorner by rememberUpdatedState(corner)
+    val w by rememberUpdatedState(width)
+    val h by rememberUpdatedState(height)
+    val c = corner
     Box(
-        modifier.size(32.dp).testTag("self-resize")
+        modifier.size(32.dp).testTag(tag)
             .pointerInput(Unit) {
                 var startScale = 1.0
                 var total = Offset.Zero
                 var w0 = 1.0
                 var h0 = 1.0
                 detectDragGestures(
-                    onDragStart = { startScale = current.selfScale; total = Offset.Zero; w0 = rect.w; h0 = rect.h; onResizing(true) },
+                    onDragStart = { startScale = scale(); total = Offset.Zero; w0 = w; h0 = h; onResizing(true) },
                     onDragEnd = { onResizing(false) },
                     onDragCancel = { onResizing(false) },
                     onDrag = { change, amount ->
                         change.consume()
                         total += amount
-                        val left = current.selfCorner == CallLayout.Corner.TL || current.selfCorner == CallLayout.Corner.BL
-                        val top = current.selfCorner == CallLayout.Corner.TL || current.selfCorner == CallLayout.Corner.TR
+                        val left = currentCorner == CallLayout.Corner.TL || currentCorner == CallLayout.Corner.BL
+                        val top = currentCorner == CallLayout.Corner.TL || currentCorner == CallLayout.Corner.TR
                         // Dragging away from the tile's corner makes it bigger.
                         val dx = total.x / density.density * (if (left) 1 else -1)
                         val dy = total.y / density.density * (if (top) 1 else -1)
                         val grow = maxOf(dx / w0, dy / h0)
-                        onAction(Action.SelfScale(startScale * (1 + grow)))
+                        onScale(startScale * (1 + grow))
                     },
                 )
             }
