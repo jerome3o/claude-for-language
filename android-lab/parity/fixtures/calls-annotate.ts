@@ -5,9 +5,11 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  defaultAnnotColor,
   denormalizePoint,
   normalizePoint,
   pingProgress,
+  pruneAnnotations,
   sanitizeAnnotStroke,
   sanitizePing,
   simplifyPoints,
@@ -44,6 +46,11 @@ for (let i = 0; i < 400; i++) {
 }
 
 const alphas = [null, 0, 1000, 5000].flatMap((doneAt) => [0, 1000, 3999, 4000, 4600, 5200, 5201, 9000, 20000].map((now) => ({ doneAt, now, alpha: strokeAlpha(doneAt, now) })));
+// Round 2 C: kept drawings ("Keep" = annot_mode) never fade; the per-role default pens.
+const alphasKept = [null, 0, 1000, 5000].flatMap((doneAt) => [0, 4600, 5201, 9000, 20000, 600000].map((now) => ({ doneAt, now, alpha: strokeAlpha(doneAt, now, true) })));
+const pruneSet = { a: { doneAt: null }, b: { doneAt: 0 }, c: { doneAt: 3000 }, d: { doneAt: 10000 } } as Record<string, { doneAt: number | null }>;
+const prune = [0, 4200, 5000, 7200, 15000, 60000].flatMap((now) => [false, true].map((persist) => ({ now, persist, kept: Object.keys(pruneAnnotations(pruneSet, now, persist)) })));
+const pens = [true, false].map((sharing) => ({ sharing, color: defaultAnnotColor(sharing) }));
 const pings = [0, 500].flatMap((at) => [-10, 0, 400, 800, 1599, 1600, 2100, 2500].map((now) => ({ at, now, t: pingProgress(at, now) })));
 
 const raws: unknown[] = [
@@ -85,4 +92,4 @@ for (let i = 0; i < 60; i++) {
   simplify.push({ points: pts, result: simplifyPoints(pts) });
 }
 
-writeFileSync(join(OUT, 'calls-annotate.json'), JSON.stringify({ normalize, alphas, pings, strokes, pingSan, simplify }));
+writeFileSync(join(OUT, 'calls-annotate.json'), JSON.stringify({ normalize, alphas, alphasKept, prune, pruneSet, pens, pings, strokes, pingSan, simplify }));

@@ -663,4 +663,87 @@ class CallControllerTest {
         assertEquals("screen", link.sendingScreen)
         assertEquals("camera", link.sending)
     }
+
+    // ------------------------------------------------------------ round 2 C: the sharer draws too; Keep drawings
+
+    private fun annot(id: String, color: String, done: Boolean = true) =
+        dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke(id, color, 0.006, listOf(0.2 to 0.3, 0.4 to 0.5), done)
+
+    @Test fun keepDrawingsComesWithTheWelcomeAndTheirSwitch() = runTest(UnconfinedTestDispatcher()) {
+        val rig = Rig(this)
+        rig.controller.join(record = false)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))).copy(annotPersist = true))
+        runCurrent()
+        assertTrue("the room says drawings are kept", rig.controller.state.value.annotations.persist)
+        // Their stroke, finished; a minute later it is still there (kept), and survives the next stroke's pruning.
+        rig.room.handlers.onMessage(ServerMessage.Annot("c-a", "王老师", annot("s1", "#38bdf8")))
+        runCurrent()
+        advanceTimeBy(60_000)
+        rig.room.handlers.onMessage(ServerMessage.Annot("c-a", "王老师", annot("s2", "#38bdf8")))
+        runCurrent()
+        assertEquals(setOf("c-a:s1", "c-a:s2"), rig.controller.state.value.annotations.strokes.keys)
+        // They switch Keep off: every finished stroke starts its fade now, nothing vanishes at once.
+        val offAt = testScheduler.currentTime
+        rig.room.handlers.onMessage(ServerMessage.AnnotMode("c-a", "王老师", false))
+        runCurrent()
+        val a = rig.controller.state.value.annotations
+        assertFalse(a.persist)
+        assertEquals(listOf(offAt, offAt), a.strokes.values.map { it.doneAt })
+        // …and once faded, the next stroke prunes them.
+        advanceTimeBy(dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_HOLD_MS + dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_FADE_MS + 1)
+        rig.room.handlers.onMessage(ServerMessage.Annot("c-a", "王老师", annot("s3", "#38bdf8", done = false)))
+        runCurrent()
+        assertEquals(setOf("c-a:s3"), rig.controller.state.value.annotations.strokes.keys)
+        // A welcome without annot_persist (an older room) = fade.
+        rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))))
+        runCurrent()
+        assertFalse(rig.controller.state.value.annotations.persist)
+    }
+
+    @Test fun myKeepSwitchIsSentToTheRoom() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        rig.controller.setAnnotationsKept(true)
+        assertTrue(rig.controller.state.value.annotations.persist)
+        rig.controller.setAnnotationsKept(false)
+        assertFalse(rig.controller.state.value.annotations.persist)
+        assertEquals(listOf("true", "false"), rig.sentOf("annot_mode").map { it["persist"]!!.jsonPrimitive.content })
+    }
+
+    @Test fun theSharerDrawsOnTheirOwnScreenInBlueAndSeesTheViewersRed() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a")))
+        // Watching: my pen starts red.
+        assertFalse(rig.controller.state.value.iShareScreen)
+        assertEquals(dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.VIEWER_ANNOT_COLOR, annotPen(null, rig.controller.state.value))
+        rig.controller.startScreenShare("consent")
+        runCurrent()
+        val s = rig.controller.state.value
+        assertTrue(s.iShareScreen)
+        assertEquals("#38bdf8", annotPen(null, s))
+        assertEquals("a picked colour wins", "#22c55e", annotPen("#22c55e", s))
+        // My stroke on my own screen goes to the room and shows here; theirs arrives in their colour.
+        rig.controller.sendAnnotation(annot("m1", annotPen(null, s), done = false))
+        rig.controller.sendAnnotation(annot("m1", annotPen(null, s)))
+        rig.controller.sendPing(0.5, 0.5)
+        rig.room.handlers.onMessage(ServerMessage.Annot("c-a", "王老师", annot("t1", "#f43f5e")))
+        runCurrent()
+        val sent = rig.sentOf("annot")
+        assertEquals(2, sent.size)
+        assertEquals("#38bdf8", sent.last()["stroke"]!!.jsonObject["color"]!!.jsonPrimitive.content)
+        assertEquals("true", sent.last()["stroke"]!!.jsonObject["done"]!!.jsonPrimitive.content)
+        assertEquals(1, rig.sentOf("annot_ping").size)
+        val a = rig.controller.state.value.annotations
+        assertEquals(mapOf("me:m1" to "#38bdf8", "c-a:t1" to "#f43f5e"), a.strokes.mapValues { it.value.stroke.color })
+        assertEquals("王老师", a.lastRemoteName)
+        // Clear clears both sides.
+        rig.controller.clearAnnotations()
+        assertTrue(rig.controller.state.value.annotations.strokes.isEmpty())
+        assertEquals(1, rig.sentOf("annot_clear").size)
+        // Both sharing: their screen is the one shown, so my pen is the viewer's again.
+        rig.room.handlers.onMessage(ServerMessage.PeerState("c-a", PeerMediaState(mic = true, cam = true, screen = true)))
+        runCurrent()
+        assertFalse(rig.controller.state.value.iShareScreen)
+        assertEquals("#f43f5e", annotPen(null, rig.controller.state.value))
+    }
 }

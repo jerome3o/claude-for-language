@@ -29,7 +29,9 @@ data class AnnotPing(val id: String, val from: String, val x: Double, val y: Dou
 
 /**
  * Port of shared/calls/annotate.ts — drawing on a shared screen: normalised points on the shared
- * picture (so they land on the same spot in any window), fading after the pen lifts, pings.
+ * picture (so they land on the same spot in any window), fading after the pen lifts (or kept while
+ * "Keep" is on — `annot_mode`, one setting for both people), pings, and the per-role default pen
+ * (the sharer blue, the viewer red).
  * Parity-tested (parity/fixtures/calls-annotate.ts → CallsAnnotateParityTest).
  */
 object CallAnnotate {
@@ -59,8 +61,16 @@ object CallAnnotate {
         return (r.x + p.first * r.width) to (r.y + p.second * r.height)
     }
 
-    fun strokeAlpha(doneAt: Long?, now: Long): Double {
-        if (doneAt == null) return 1.0
+    /** The pen colour each person starts with, so two people drawing at once are told apart. */
+    const val SHARER_ANNOT_COLOR = "#38bdf8"
+    const val VIEWER_ANNOT_COLOR = "#f43f5e"
+
+    /** Port of defaultAnnotColor. */
+    fun defaultAnnotColor(iAmSharing: Boolean): String = if (iAmSharing) SHARER_ANNOT_COLOR else VIEWER_ANNOT_COLOR
+
+    /** Port of strokeAlpha: 1 while drawing and for ANNOT_HOLD_MS after, then fading — or always 1 while drawings are kept ([persist]). */
+    fun strokeAlpha(doneAt: Long?, now: Long, persist: Boolean = false): Double {
+        if (doneAt == null || persist) return 1.0
         val t = (now - doneAt - ANNOT_HOLD_MS).toDouble()
         if (t <= 0) return 1.0
         return maxOf(0.0, 1 - t / ANNOT_FADE_MS)
@@ -70,6 +80,10 @@ object CallAnnotate {
         val t = (now - at).toDouble() / PING_MS
         return if (t < 0) 0.0 else if (t >= 1) null else t
     }
+
+    /** Port of pruneAnnotations: drop what has faded away (nothing while kept). */
+    fun <T> pruneAnnotations(strokes: Map<String, T>, now: Long, persist: Boolean = false, doneAt: (T) -> Long?): Map<String, T> =
+        strokes.filterValues { strokeAlpha(doneAt(it), now, persist) > 0 }
 
     private fun num(el: JsonElement?): Double? = when (el) {
         is JsonPrimitive -> if (el.isString) el.content.trim().let { s -> if (s.isEmpty()) 0.0 else s.toDoubleOrNull() }

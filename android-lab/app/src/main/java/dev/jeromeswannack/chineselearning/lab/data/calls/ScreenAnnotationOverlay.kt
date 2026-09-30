@@ -19,10 +19,11 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * The other person's drawings on top of MY real screen while I share it (Android can do what a
- * browser can't): a see-through, untouchable window over every app ("Display over other apps"
- * permission). Screen sharing captures the whole display, so the shared picture's 0..1 points map
- * straight onto this full-screen window.
+ * The drawings on my shared screen — theirs and my own — on top of MY real screen while I share it
+ * (Android can do what a browser can't): a see-through, untouchable window over every app ("Display
+ * over other apps" permission). Screen sharing captures the whole display, so the shared picture's
+ * 0..1 points map straight onto this full-screen window. Kept drawings ("Keep") stay; others fade.
+ * Shown only while the call screen is in the background: in the call the screen tile shows them.
  */
 class ScreenAnnotationOverlay(private val context: Context) {
     private val wm = context.getSystemService(WindowManager::class.java)
@@ -75,7 +76,7 @@ class ScreenAnnotationOverlay(private val context: Context) {
             val box = VideoFit.Size(width.toDouble(), height.toDouble())
             val scale = min(width, height).toFloat()
             for (s in annotations.strokes.values) {
-                val alpha = CallAnnotate.strokeAlpha(s.doneAt, now).toFloat()
+                val alpha = CallAnnotate.strokeAlpha(s.doneAt, now, annotations.persist).toFloat()
                 if (alpha <= 0f || s.stroke.points.isEmpty()) continue
                 val path = Path()
                 s.stroke.points.forEachIndexed { i, p ->

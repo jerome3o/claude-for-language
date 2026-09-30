@@ -38,10 +38,12 @@ object CallProtocol {
             chat = (o["chat"] as? JsonArray)?.mapNotNull { parseChat(it) }.orEmpty(),
             text = CallTextDoc.parseSnapshot(o["text"]),
             textCursors = (o["text_cursors"] as? JsonArray)?.mapNotNull { parseCursor(it) }.orEmpty(),
+            annotPersist = (o["annot_persist"] as? JsonPrimitive)?.booleanOrNull == true,
         )
         "text" -> o.str("from")?.let { from -> ServerMessage.Text(from, (o["ops"] as? JsonArray)?.mapNotNull { CallTextDoc.sanitizeOp(it) }.orEmpty()) }
         "text_cursor" -> parseCursor(o)?.let { ServerMessage.TextCursorMsg(it) }
         "annot" -> o.str("from")?.let { from -> CallAnnotate.sanitizeStroke(o["stroke"])?.let { ServerMessage.Annot(from, o.str("name").orEmpty(), it) } }
+        "annot_mode" -> ServerMessage.AnnotMode(o.str("from").orEmpty(), o.str("name").orEmpty(), (o["persist"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true)
         "annot_clear" -> ServerMessage.AnnotClear(o.str("from").orEmpty())
         "annot_ping" -> o.str("from")?.let { from -> CallAnnotate.sanitizePing(o)?.let { (x, y) -> ServerMessage.AnnotPingMsg(from, o.str("name").orEmpty(), x, y) } }
         "peer_joined" -> parsePeer(o["peer"])?.let { ServerMessage.PeerJoined(it) }
@@ -107,6 +109,8 @@ object CallProtocol {
     }.toString()
     fun annot(stroke: AnnotStroke): String = buildJsonObject { put("type", "annot"); put("stroke", stroke.toJson()) }.toString()
     fun annotClear(): String = buildJsonObject { put("type", "annot_clear") }.toString()
+    /** Keep drawings on the shared screen (true) or let them fade (false) — one setting for both. */
+    fun annotMode(persist: Boolean): String = buildJsonObject { put("type", "annot_mode"); put("persist", persist) }.toString()
     fun annotPing(x: Double, y: Double): String = buildJsonObject { put("type", "annot_ping"); put("x", x); put("y", y) }.toString()
     /** Connection events for the call's diagnostics log (≤ 50 per message). */
     fun diag(events: List<CallConnection.DiagEvent>): String = CallConnection.diagMessage(events.take(CallConnection.MAX_DIAG_EVENTS_PER_MESSAGE))
@@ -136,11 +140,14 @@ sealed interface ServerMessage {
         /** The shared text board (null from an older room). */
         val text: List<TextRun>? = null,
         val textCursors: List<TextCursor> = emptyList(),
+        /** Drawings on a shared screen are kept rather than fading (absent = fade). */
+        val annotPersist: Boolean = false,
     ) : ServerMessage
     data class Text(val from: String, val ops: List<TextOp>) : ServerMessage
     data class TextCursorMsg(val cursor: TextCursor) : ServerMessage
     data class Annot(val from: String, val name: String, val stroke: AnnotStroke) : ServerMessage
     data class AnnotClear(val from: String) : ServerMessage
+    data class AnnotMode(val from: String, val name: String, val persist: Boolean) : ServerMessage
     data class AnnotPingMsg(val from: String, val name: String, val x: Double, val y: Double) : ServerMessage
     data class PeerJoined(val peer: CallPeer) : ServerMessage
     data class PeerLeft(val clientId: String) : ServerMessage

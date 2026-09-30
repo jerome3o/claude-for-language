@@ -79,4 +79,18 @@ class CallProtocolTest {
         assertEquals("diag", (msg["type"] as kotlinx.serialization.json.JsonPrimitive).content)
         assertEquals(events.take(50), CallConnection.sanitizeDiagEvents(msg["events"]))
     }
+
+    @Test fun keepDrawingsModeInAndOut() {
+        // Round 2 C: "Keep" on the shared-screen drawings is one setting for both people.
+        assertEquals("""{"type":"annot_mode","persist":true}""", CallProtocol.annotMode(true))
+        assertEquals("""{"type":"annot_mode","persist":false}""", CallProtocol.annotMode(false))
+        assertEquals(ServerMessage.AnnotMode("c1", "王老师", true), CallProtocol.parseServer("""{"type":"annot_mode","from":"c1","name":"王老师","persist":true}"""))
+        assertEquals(ServerMessage.AnnotMode("c1", "", false), CallProtocol.parseServer("""{"type":"annot_mode","from":"c1","persist":false}"""))
+        assertEquals(ServerMessage.AnnotMode("c1", "", false), CallProtocol.parseServer("""{"type":"annot_mode","from":"c1","persist":"yes"}"""))
+        val kept = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[],"annot_persist":true}""") as ServerMessage.Welcome
+        assertTrue(kept.annotPersist)
+        // An older room sends no annot_persist: drawings fade.
+        val old = CallProtocol.parseServer("""{"type":"welcome","client_id":"c9","peers":[],"board":[],"chat":[]}""") as ServerMessage.Welcome
+        assertEquals(false, old.annotPersist)
+    }
 }

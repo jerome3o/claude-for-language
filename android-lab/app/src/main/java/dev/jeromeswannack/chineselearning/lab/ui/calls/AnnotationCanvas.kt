@@ -30,15 +30,19 @@ import kotlin.math.min
 
 private fun parse(hex: String): Color = Color(0xFF000000 or hex.removePrefix("#").toLong(16))
 
+/** Anything still animating at [now]? Kept strokes don't animate (web AnnotationStore.active). */
 fun annotationsActive(a: Annotations, now: Long): Boolean =
-    a.strokes.values.any { CallAnnotate.strokeAlpha(it.doneAt, now) > 0 } || a.pings.any { CallAnnotate.pingProgress(it.at, now) != null }
+    (!a.persist && a.strokes.values.any { CallAnnotate.strokeAlpha(it.doneAt, now) > 0 }) || a.pings.any { CallAnnotate.pingProgress(it.at, now) != null }
+
+/** My pen: the colour I picked, else my role's default — blue while I share, red on their screen (web CallPage `pen`). */
+fun annotPen(chosen: String?, s: CallState): String = chosen ?: CallAnnotate.defaultAnnotColor(s.iShareScreen)
 
 /** Draw every stroke and ping over the shared picture shown whole (contain) in this box. */
 fun DrawScope.drawAnnotations(a: Annotations, video: VideoFit.Size?, now: Long) {
     val box = VideoFit.Size(size.width.toDouble(), size.height.toDouble())
     val scale = min(size.width, size.height)
     for (s in a.strokes.values) {
-        val alpha = CallAnnotate.strokeAlpha(s.doneAt, now).toFloat()
+        val alpha = CallAnnotate.strokeAlpha(s.doneAt, now, a.persist).toFloat()
         if (alpha <= 0f || s.stroke.points.isEmpty()) continue
         val path = Path()
         s.stroke.points.forEachIndexed { i, p ->
@@ -65,8 +69,9 @@ fun DrawScope.drawAnnotations(a: Annotations, video: VideoFit.Size?, now: Long) 
 }
 
 /**
- * The drawings over a video of a shared screen (web: AnnotationLayer.tsx). With [interactive], a drag
- * is a stroke and a quick tap is a "look here" ping; points are normalised to the shared picture.
+ * The drawings over a video of a shared screen — theirs, or my own while I share (web: AnnotationLayer.tsx).
+ * With [interactive], a drag is a stroke and a quick tap is a "look here" ping; points are normalised to
+ * the shared picture.
  */
 @Composable
 fun AnnotationCanvas(
