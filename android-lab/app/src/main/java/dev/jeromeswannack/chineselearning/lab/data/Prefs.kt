@@ -66,6 +66,14 @@ class Prefs(context: Context) {
         get() = sp.getLong("last_full_sync", 0)
         set(v) = sp.edit().putLong("last_full_sync", v).apply()
 
+    /**
+     * The last one-time full refresh this device ran ([Repository.FULL_REFRESH_VERSION]):
+     * heals cards an older incremental sync dropped (see [SyncChanges]).
+     */
+    var fullRefreshVersion: Int
+        get() = sp.getInt("full_refresh_version", 0)
+        set(v) = sp.edit().putInt("full_refresh_version", v).apply()
+
     /** `since` for GET /api/sync/changes (epoch ms, server clock). */
     var changesCursor: Long
         get() = sp.getLong("changes_cursor", 0)

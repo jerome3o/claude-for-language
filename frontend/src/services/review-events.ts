@@ -705,8 +705,13 @@ export async function recomputeCardsWithEvents(cardIds: string[]): Promise<numbe
 /**
  * Bring every card row in line with the replay of its events, in bulk: one
  * read of the events, one of the cards, one bulk write of the rows that
- * differ. Cards without events are left alone (a card whose events have not
- * arrived yet must not be reset). Returns how many rows changed.
+ * differ. A card with no events on the device is NEW — the replay of nothing,
+ * as in the Lab app and a freshly synced browser. Rows an older build wrote
+ * from the server's cached state (199 "Anki Export" cards in review with no
+ * events, 30 Sep) or with no queue at all (73 Mengfei Conversations cards,
+ * counted as learning) are reset. The caller runs this only after an event
+ * download that succeeded; a card whose events arrive later is recomputed then.
+ * Returns how many rows changed.
  */
 export async function repairCardStatesFromEvents(): Promise<{ checked: number; fixed: number }> {
   // One read-write transaction: a rating made meanwhile (event + row) waits
@@ -725,12 +730,14 @@ async function repairInTransaction(): Promise<{ checked: number; fixed: number }
   }
   const updates: LocalCard[] = [];
   const now = new Date().toISOString();
+  const unreviewed = stateColumns(initialCardState(DEFAULT_DECK_SETTINGS));
   for (const card of cards) {
     const list = byCard.get(card.id);
-    if (!list || list.length === 0) continue;
-    list.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
-    const computed = computeCardState(list, DEFAULT_DECK_SETTINGS);
-    const cols = stateColumns(computed);
+    let cols = unreviewed;
+    if (list && list.length > 0) {
+      list.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
+      cols = stateColumns(computeCardState(list, DEFAULT_DECK_SETTINGS));
+    }
     const same =
       card.queue === cols.queue &&
       card.next_review_at === cols.next_review_at &&
@@ -751,7 +758,7 @@ async function repairInTransaction(): Promise<{ checked: number; fixed: number }
 
 const REPAIR_KEY = 'cardStateRepair';
 /** Bump to force every device to re-derive all card rows once more. */
-export const CARD_STATE_REPAIR_VERSION = 1;
+export const CARD_STATE_REPAIR_VERSION = 2; // 2: cards with no events → NEW
 
 /**
  * Run `repairCardStatesFromEvents` after a sync: always once per repair
