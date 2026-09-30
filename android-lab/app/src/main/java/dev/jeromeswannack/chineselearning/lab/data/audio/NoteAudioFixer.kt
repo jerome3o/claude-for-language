@@ -52,7 +52,8 @@ class NoteAudioFixer(
     private val online: () -> Boolean,
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    // Best-effort background work: a failure (e.g. the database closing under it) is logged, never a crash.
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + kotlinx.coroutines.CoroutineExceptionHandler { _, e -> android.util.Log.w("NoteAudio", "background clip job failed", e) }),
     /** The API call (tests swap it). */
     private val request: suspend (noteId: String, broken: List<String>) -> EnsureAudioResult = { id, broken -> repo.api.ensureNoteAudio(id, broken) },
 ) {

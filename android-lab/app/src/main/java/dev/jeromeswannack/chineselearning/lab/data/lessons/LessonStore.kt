@@ -72,7 +72,13 @@ data class LessonEntry(val lesson: CustomLessonDto, val events: List<ItemEvent>,
  * attempt is on the server (a 404 means "not yet"). Scheduling is always replayed from
  * the merged events.
  */
-class LessonStore(private val cache: JsonCache, private val outbox: Outbox, private val api: Api) {
+class LessonStore(
+    private val cache: JsonCache,
+    private val outbox: Outbox,
+    private val api: Api,
+    /** Half-done runs on this phone (cleared by a completion); null in plain data tests. */
+    val progress: LessonProgressStore? = null,
+) {
     /** Next to the outbox's own folder (app filesDir). */
     private val filesDir: File = outbox.dir.parentFile ?: outbox.dir
     val media = LessonMedia(filesDir, api)
@@ -141,6 +147,8 @@ class LessonStore(private val cache: JsonCache, private val outbox: Outbox, priv
             cache.put(MEDIA, KIND, queued, mediaSerializer)
         }
         homework.recordDone("lesson", lessonId)
+        // Completed: the half-done run is over (its recordings now wait in the media queue).
+        progress?.clear(lessonId, deleteRecordings = false)
         newState
     }
 

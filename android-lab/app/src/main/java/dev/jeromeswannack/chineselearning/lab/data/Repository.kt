@@ -81,7 +81,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
     private val eventsMutex = Mutex()
     /** Card-state writes (see class doc). */
     private val stateMutex = Mutex()
-    private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO + kotlinx.coroutines.CoroutineExceptionHandler { _, e -> android.util.Log.w("Repository", "background job failed", e) })
     private val audioLock = Any()
     private var audioJob: Job? = null
     private val audioAgain = AtomicBoolean(false)

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -86,7 +88,19 @@ sealed interface PlayerContext {
     data class Session(val counts: QueueCounts) : PlayerContext
     data object Homework : PlayerContext
     data object Preview : PlayerContext
+    /** Lab "today split": a lesson started from Home / today's list (recorded exactly like the session). */
+    data object Today : PlayerContext
 }
+
+/**
+ * A half-done run to continue ([saved], null = start fresh) and where to save the run after
+ * every exercise (core LessonResume; data/lessons/LessonProgressStore). Never for previews.
+ */
+class LessonResumeHandle(
+    val saved: dev.jeromeswannack.chineselearning.lab.core.LessonResume.Progress?,
+    val onProgress: (index: Int, correct: Int, total: Int, startedAt: Long, attempts: List<ExerciseAttempt>, recordings: List<LessonRecording>) -> Unit = { _, _, _, _, _, _ -> },
+    val onStartOver: () -> Unit = {},
+)
 
 /**
  * A custom mini lesson (the web's StudyCustomLesson): walks the flattened exercises,
@@ -110,17 +124,25 @@ fun LessonPlayer(
     showTopBar: Boolean = true,
     /** The exercise now on screen (the editor preview's jump bar follows it); items.size = done. */
     onIndex: (Int) -> Unit = {},
+    /** Continue a half-done run and save this one after every exercise (null: previews, nothing kept). */
+    resume: LessonResumeHandle? = null,
 ) {
     val items = remember(spec) { flattenSpec(spec) }
     var run by remember { mutableIntStateOf(0) }
-    var idx by remember(run) { mutableIntStateOf(startAt) }
-    var correct by remember(run) { mutableIntStateOf(0) }
-    var total by remember(run) { mutableIntStateOf(0) }
+    // A run saved earlier today continues where it stopped (the exercise on screen starts again).
+    val restored = remember(spec) { resume?.saved?.takeIf { context !is PlayerContext.Preview && it.index in 1..items.size } }
+    var continuing by remember { mutableStateOf(restored != null) }
+    fun from(run: Int) = if (run == 0) restored else null
+    var idx by remember(run) { mutableIntStateOf(from(run)?.index ?: startAt) }
+    var correct by remember(run) { mutableIntStateOf(from(run)?.correct ?: 0) }
+    var total by remember(run) { mutableIntStateOf(from(run)?.total ?: 0) }
     var rating by remember(run) { mutableStateOf(false) }
-    val startedAt = remember(run) { System.currentTimeMillis() }
+    val startedAt = remember(run) { from(run)?.startedAt ?: System.currentTimeMillis() }
     var exerciseStart by remember(run) { mutableLongStateOf(System.currentTimeMillis()) }
-    val attempts = remember(run) { mutableStateListOf<ExerciseAttempt>() }
-    val recordings = remember(run) { mutableStateListOf<LessonRecording>() }
+    val attempts = remember(run) { mutableStateListOf<ExerciseAttempt>().apply { from(run)?.let { addAll(it.attempts) } } }
+    val recordings = remember(run) {
+        mutableStateListOf<LessonRecording>().apply { from(run)?.let { p -> addAll(p.recordings.map { LessonRecording(it.mediaKey, java.io.File(it.path), it.mime) }) } }
+    }
     val preview = context is PlayerContext.Preview
     val done = idx >= items.size
 
@@ -139,6 +161,8 @@ fun LessonPlayer(
         if (recording != null && rec != null) recordings += LessonRecording(rec.mediaKey, recording, rec.mime ?: "audio/mp4")
         exerciseStart = System.currentTimeMillis()
         idx++
+        continuing = false
+        if (!preview) resume?.onProgress(idx, correct, total, startedAt, attempts.toList(), recordings.toList())
     }
 
     Box(Modifier.fillMaxSize().background(Lab.colors.background).then(if (showTopBar) Modifier.safeDrawingPadding() else Modifier)) {
@@ -148,6 +172,7 @@ fun LessonPlayer(
                     when (context) {
                         is PlayerContext.Session -> SessionCounts(context.counts)
                         PlayerContext.Homework -> Text("Homework", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
+                        PlayerContext.Today -> Text("Today's mini lesson", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
                         PlayerContext.Preview -> Text("Preview · nothing is recorded", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                             modifier = Modifier.clip(CircleShape).background(Violet.copy(alpha = 0.12f)).padding(horizontal = 12.dp, vertical = 6.dp))
                     }
@@ -163,6 +188,13 @@ fun LessonPlayer(
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("${icon ?: "🎓"}  MINI LESSON", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.sp)
                         Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
+                    }
+                    if (continuing && run == 0 && restored != null) {
+                        ContinueLine(dev.jeromeswannack.chineselearning.lab.core.LessonResume.continueLine(restored.index, items.size)) {
+                            resume?.onStartOver()
+                            continuing = false
+                            run++
+                        }
                     }
                     if (!done) {
                         val progress by animateFloatAsState(if (items.isEmpty()) 1f else idx.toFloat() / items.size, spring(dampingRatio = 0.9f, stiffness = 120f), label = "lessonProgress")
@@ -221,6 +253,24 @@ fun LessonPlayer(
         }
     }
 }
+
+/** "Continuing where you left off · exercise 4 of 9 · Start over" — subtle, above the progress bar. */
+@Composable
+private fun ContinueLine(text: String, onStartOver: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(CircleShape).background(Violet.copy(alpha = 0.08f)).padding(start = 14.dp, end = 4.dp)
+            .testTag(CONTINUE_TAG),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        androidx.compose.material3.TextButton(onClick = onStartOver, modifier = Modifier.heightIn(min = 44.dp)) {
+            Text("Start over", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        }
+    }
+}
+
+/** Test tag of the "Continuing where you left off" line. */
+const val CONTINUE_TAG = "lesson-continue"
 
 @Composable
 private fun DoneBody(icon: String?, title: String, correct: Int, total: Int, preview: Boolean) {

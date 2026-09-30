@@ -25,6 +25,10 @@ object Routes {
     fun study(deckId: String? = null) = "/study" + query("deck" to deckId)
     fun homework() = "/homework"
     fun homeworkPass(id: String) = "/homework/${seg(id)}"
+    /** Lab-only "today split" (no web route): today's mini lessons, one of them, today's story. */
+    fun todayLessons() = "/today/lessons"
+    fun todayLesson(id: String) = "/today/lessons/${seg(id)}"
+    fun todayReader() = "/today/reader"
     fun tutorNotes() = "/tutor-notes"
     /** Practise the cards a tutor left notes on (a focused mini session; ids comma-separated). */
     fun tutorNotesPractice(cardIds: List<String>, noteIds: List<String>) =

@@ -24,7 +24,17 @@ data class CardView(
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */
-data class TodaySummary(val activeMs: Long, val reviews: Int, val correct: Int, val celebrate: Boolean) {
+data class TodaySummary(
+    val activeMs: Long,
+    val reviews: Int,
+    val correct: Int,
+    val celebrate: Boolean,
+    /** Lab "today split": the extras finished today (the Done screen's "2 mini lessons ✓ · Today's story ✓"). */
+    val lessonsDone: Int = 0,
+    val readerDone: Boolean = false,
+    /** Lab "today split": everything for today is done and this is the moment (the second, smaller celebration). */
+    val allClear: Boolean = false,
+) {
     val accuracy: Int? get() = if (reviews == 0) null else Math.round(correct * 100f / reviews)
 }
 
@@ -45,6 +55,11 @@ sealed interface StudyPhase {
     // ---- Package B: a mini lesson in the card flow (ui/lessons/StudyExtras.kt) ----
     data class Lesson(val lesson: dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLesson) : StudyPhase
     data class Reader(val reader: dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader) : StudyPhase
+    /**
+     * Lab "today split": the flashcards ran out and mini lessons / today's story are left —
+     * "Flashcards done ✓ · 2 mini lessons and today's story left · Continue / Later".
+     */
+    data class Extras(val lessons: Int, val reader: Boolean, val titles: List<String>) : StudyPhase
     data object Done : StudyPhase
 }
 
@@ -80,6 +95,8 @@ data class StudyUi(
     val practice: PracticeUi? = null,
     /** The card's clips being made (auto-audio: Generating… / made when online / retry). */
     val cardAudio: CardAudio = CardAudio(),
+    /** Lab "today split": mini lessons / today's story still to do (the top bar's "📘2 📖1"). */
+    val todayLeft: TodayLeft = TodayLeft(),
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }
@@ -91,6 +108,12 @@ data class StudyUi(
         val total = stats.reviews + counts.total
         return if (total == 0) 1f else stats.reviews.toFloat() / total
     }
+}
+
+/** Lab "today split": today's extras still to do (all-decks sessions only). */
+data class TodayLeft(val lessons: Int = 0, val reader: Boolean = false) {
+    val any: Boolean get() = lessons > 0 || reader
+    val chip: String get() = dev.jeromeswannack.chineselearning.lab.core.TodayPlan.chip(lessons, reader)
 }
 
 /** Card-back actions that are running (the web's per-item `busy` flags in the ⋯ menu). */
