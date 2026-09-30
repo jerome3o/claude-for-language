@@ -115,6 +115,11 @@ test('the pass sentence: reveal, breakdown, add a word — and nothing is record
 
   await page.goto(`/homework/${assignmentId}`);
   await expect(page.getByTestId('hw-pass-card')).toBeVisible({ timeout: 30_000 });
+  // The face is inert: taps on the card never turn it — only Show answer does.
+  await page.getByTestId('hw-pass-card').click({ position: { x: 8, y: 8 } });
+  await page.getByTestId('hw-pass-card').getByText('互动', { exact: true }).click();
+  await expect(page.getByTestId('hw-show')).toBeVisible();
+  await expect(page.getByTestId('hw-gotit')).toHaveCount(0);
   await page.getByTestId('hw-show').click();
 
   const sentences = page.locator('.sentence-set--pass');

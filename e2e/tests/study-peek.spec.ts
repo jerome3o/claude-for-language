@@ -4,6 +4,7 @@ import { test, expect, APIRequestContext, Page } from '@playwright/test';
  * Peek: on the answer side, a tap on the card's empty space turns it back to the
  * question; a tap on the question returns to the answer. View only — nothing is
  * recorded, the ratings stay up, and buttons on the answer side keep their taps.
+ * An unrevealed card's face is inert: only its buttons reveal it.
  *
  * Self-contained: seeds a user, a deck and one note through the E2E test-auth
  * endpoint and the public API.
@@ -57,6 +58,15 @@ test('peek: tap empty space on the answer to see the question, tap again to come
   const gotIt = page.getByRole('button', { name: 'Got it' });
   await page.waitForTimeout(500);
   if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+
+  // Unrevealed: taps on the face (the word, empty space) never reveal — only the buttons do.
+  const face = page.locator('.study-card-content');
+  await face.click({ position: { x: 4, y: 4 } });
+  await face.locator('.hanzi-large').click();
+  await expect(skip).toBeVisible();
+  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+  await expect(page.getByTestId('study-peek-front')).toHaveCount(0);
+
   await skip.click();
 
   const back = page.getByTestId('study-card-back');

@@ -370,7 +370,7 @@ fun FirstCardExplainer(onDismiss: () -> Unit) {
         ) {
             Text("Before your first card", style = MaterialTheme.typography.headlineSmall, color = Lab.colors.ink, fontWeight = FontWeight.SemiBold)
             ExplainerLine("1", "You'll see each word three ways", " — read it and say it, hear it and type it, see the English and type it.")
-            ExplainerLine("2", "Answer first, then tap to reveal.", " Tap the speaker any time to hear the word again.")
+            ExplainerLine("2", "Answer first, then check with the buttons below.", " Tap the speaker any time to hear the word again.")
             ExplainerLine("3", "Rate yourself honestly", " — if you didn't get it right, always tap Again. That is how the app knows what to show you tomorrow.")
             Text(
                 "Recording your voice is optional — you can skip it. Your phone asks for the microphone the first time you tap Record.",
