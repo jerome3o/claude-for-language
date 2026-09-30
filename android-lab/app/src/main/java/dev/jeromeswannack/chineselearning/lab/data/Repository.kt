@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.withTransaction
 import dev.jeromeswannack.chineselearning.lab.Config
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
-import dev.jeromeswannack.chineselearning.lab.core.GhostDecks
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
@@ -140,7 +139,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             _status.update { it.copy(running = true, error = null, phase = null, progress = null) }
             withContext(Dispatchers.IO) {
                 clock.phase("Profile") { refreshProfile() }
-                full = forceFull || prefs.lastFullSync == 0L || dao.noteCount() == 0
+                full = forceFull || prefs.lastFullSync == 0L || dao.noteCount() == 0 || prefs.fullRefreshVersion < FULL_REFRESH_VERSION
                 val dirty = Dirty()
                 try {
                     if (full) fullSync(clock, dirty) else incrementalSync(clock, dirty)
@@ -246,43 +245,19 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         }
         prefs.lastFullSync = System.currentTimeMillis()
         prefs.changesCursor = snapshotAt
+        prefs.fullRefreshVersion = FULL_REFRESH_VERSION
         // A full sync is also the repair path: every card is replayed from its events.
         dirty.all = true
     }
 
-    /** `incrementalSync`: GET /api/sync/changes since the cursor, tombstones first. */
+    /** `incrementalSync`: GET /api/sync/changes since the cursor, applied by [SyncChanges]. */
     private suspend fun incrementalSync(clock: Clock, dirty: Dirty) {
         val changes = clock.phase("Changes") { step ->
             api.changes(prefs.changesCursor).also { step.detail = "${it.notes.size} notes · ${it.cards.size} cards · ${it.deleted.note_ids.size + it.deleted.deck_ids.size} deleted" }
         }
         clock.phase("Saving changes") {
-            db.withTransaction {
-                val deckIds = changes.deleted.deck_ids
-                if (deckIds.isNotEmpty()) deckIds.chunked(500).forEach {
-                    dao.deleteCardsOfDecks(it); dao.deleteNotesOfDecks(it); dao.deleteDecks(it)
-                }
-                val noteIds = changes.deleted.note_ids
-                if (noteIds.isNotEmpty()) noteIds.chunked(500).forEach {
-                    dao.deleteCardsOfNotes(it); dao.deleteSentencesOf(it); dao.deleteNotes(it)
-                }
-                if (changes.deleted.card_ids.isNotEmpty()) changes.deleted.card_ids.chunked(500).forEach { dao.deleteCards(it) }
-                // Decks the server no longer has but never tombstoned (deleted before tombstones
-                // existed): an incremental sync would otherwise keep them forever.
-                changes.live_deck_ids?.let { live ->
-                    val ghosts = GhostDecks.find(dao.decks().map { GhostDecks.LocalDeck(it.id, it.createdAt) }, live, changes.live_deck_ids_at)
-                    ghosts.chunked(500).forEach { dao.deleteCardsOfDecks(it); dao.deleteNotesOfDecks(it); dao.deleteDecks(it) }
-                    if (ghosts.isNotEmpty()) android.util.Log.i("LabSync", "Removed ${ghosts.size} decks the server no longer has: $ghosts")
-                }
-                dao.upsertDecks(changes.decks.map(::deckEntity))
-                val notes = changes.notes.map { noteEntity(it) }
-                dao.upsertNotes(notes)
-                notes.forEach { dao.moveCardsOfNote(it.id, it.deckId) }
-                val deckOfNote = HashMap<String, String>()
-                changes.cards.map { it.note_id }.distinct().chunked(500).forEach { ids -> dao.notes(ids).forEach { deckOfNote[it.id] = it.deckId } }
-                val newCards = changes.cards.mapNotNull { c -> deckOfNote[c.note_id]?.let { CardEntity(c.id, c.note_id, it, c.card_type) } }
-                newCards.chunked(500).forEach { dao.insertCardsIfMissing(it) }
-                dao.deleteOrphanSentences()
-            }
+            val ghosts = db.withTransaction { SyncChanges.apply(dao, changes) }
+            if (ghosts.isNotEmpty()) android.util.Log.i("LabSync", "Removed ${ghosts.size} decks the server no longer has: $ghosts")
         }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
@@ -508,6 +483,8 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
     }
 
     private companion object {
+        /** Bump to make every device run one full sync (heals rows older incremental syncs lost). */
+        const val FULL_REFRESH_VERSION = 1
         /** Deck downloads in flight during a full sync. */
         const val DECK_DOWNLOADS = 4
         /** Events per `GET /api/reviews` page. */

@@ -41,6 +41,42 @@ describe('incremental sync applies server deletions', () => {
   });
 });
 
+// 27 Sep: 40 words were moved out of an old homework deck into Core Homework,
+// then the old deck was deleted. One /sync/changes response carried both the
+// moved notes and the deck's tombstone; the deck removal took the notes (still
+// in the old deck locally) with it and the sync then skipped them as "removed
+// on this device" — the browser lost 40 notes / 120 cards for good.
+describe('a note moved out of a deck deleted in the same sync survives', () => {
+  beforeEach(async () => {
+    mockFetch.mockReset();
+    (syncService as any).isSyncing = false;
+    (syncService as any).pendingFullSync = false;
+    (syncService as any).syncPromise = null;
+    await db.decks.clear();
+    await db.notes.clear();
+    await db.cards.clear();
+    await updateSyncMeta({ id: 'sync_state', last_full_sync: Date.now() - 86400000, last_incremental_sync: Date.now() - 3600000, user_id: 'u' });
+  });
+
+  it('keeps the moved note and its cards, in the new deck', async () => {
+    await seedDeck('d-old', ['字体', '留下']);
+    await seedDeck('d-core', ['打算']);
+    const moved = { ...(await db.notes.get('字体'))!, deck_id: 'd-core', updated_at: new Date().toISOString() };
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/api/sync/changes')) {
+        return { ok: true, json: async () => ({ decks: [], notes: [moved], cards: [], deleted: { deck_ids: ['d-old'], note_ids: [], card_ids: [] }, server_time: new Date().toISOString() }) };
+      }
+      if (url.includes('/api/decks')) return { ok: true, json: async () => [] };
+      return { ok: false, status: 404, text: async () => 'Not mocked', json: async () => ({}) };
+    });
+    await syncService.incrementalSync();
+    expect((await db.decks.toArray()).map(d => d.id)).toEqual(['d-core']);
+    expect((await db.notes.toArray()).map(n => [n.id, n.deck_id]).sort()).toEqual([['字体', 'd-core'], ['打算', 'd-core']]);
+    // 留下 went with its deck; 字体 kept its card, now in Core
+    expect((await db.cards.toArray()).map(c => [c.id, c.deck_id]).sort()).toEqual([['字体-h', 'd-core'], ['打算-h', 'd-core']]);
+  });
+});
+
 // A deck deleted on this device while a sync is in flight must stay deleted:
 // the sync carries a snapshot from before the delete.
 describe('a sync in flight does not bring back a deck deleted meanwhile', () => {

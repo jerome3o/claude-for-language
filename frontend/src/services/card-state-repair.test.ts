@@ -49,7 +49,7 @@ describe('card rows are the replay of their events', () => {
       [2, '2026-09-16T07:49:33.274Z'], [2, '2026-09-19T16:20:56.769Z'],
     ]);
     await db.cards.put(newCard('drift', { queue: CardQueue.REVIEW, next_review_at: '2026-09-28T16:20:56.768Z', repetitions: 5 }));
-    await db.cards.put(newCard('fresh')); // no events: left alone
+    await db.cards.put(newCard('fresh')); // no events and already NEW: nothing to write
 
     const result = await repairCardStatesFromEvents();
     expect(result).toEqual({ checked: 3, fixed: 2 });
@@ -64,6 +64,28 @@ describe('card rows are the replay of their events', () => {
     expect((await db.cards.get('fresh'))!.queue).toBe(CardQueue.NEW);
 
     // Idempotent
+    expect((await repairCardStatesFromEvents()).fixed).toBe(0);
+  });
+
+  it('resets cards with no events to NEW: legacy server state and rows with no queue (30 Sep: 390 due on the web, 119 in the Lab)', async () => {
+    // "Anki Export": the server row says review, due 3 Mar, 4 reps — but there is not one review event.
+    await db.cards.put(newCard('anki', { queue: CardQueue.REVIEW, next_review_at: '2026-03-03T11:02:32.528Z', due_timestamp: null, repetitions: 4, interval: 25, stability: 25, difficulty: 5 }));
+    // "Mengfei Conversations": a row an older build wrote without a queue — counted as learning.
+    const { queue: _q, ...noQueue } = newCard('noqueue');
+    await db.cards.put(noQueue as LocalCard);
+    await db.cards.put(newCard('fresh'));
+    const reviewed = await events('reviewed', [[2, '2026-09-20T10:00:00.000Z']]);
+    await db.cards.put(newCard('reviewed', { ...computeCardState(reviewed), queue: computeCardState(reviewed).queue }));
+
+    const result = await repairCardStatesFromEvents();
+    expect(result.fixed).toBeGreaterThanOrEqual(2);
+    for (const id of ['anki', 'noqueue']) {
+      const c = await db.cards.get(id);
+      expect(c!.queue).toBe(CardQueue.NEW);
+      expect(c!.next_review_at).toBeNull();
+      expect(c!.repetitions).toBe(0);
+    }
+    expect((await db.cards.get('reviewed'))!.queue).toBe(computeCardState(reviewed).queue);
     expect((await repairCardStatesFromEvents()).fixed).toBe(0);
   });
 

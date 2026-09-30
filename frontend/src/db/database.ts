@@ -1553,10 +1553,15 @@ export function wasRemovedLocally(kind: 'deck' | 'note', id: string): boolean {
  * of truth for history and harmless without a card). Used right after a
  * successful server delete and when a sync reports deleted deck ids.
  */
-export async function removeDecksLocally(deckIds: string[]): Promise<void> {
+export async function removeDecksLocally(deckIds: string[], spareNoteIds?: ReadonlySet<string>): Promise<void> {
   if (deckIds.length === 0) return;
   deckIds.forEach(id => removedDeckIds.add(id));
-  const noteIds = (await db.notes.where('deck_id').anyOf(deckIds).primaryKeys()) as string[];
+  // `spareNoteIds`: notes the same sync moves into a deck that lives on (moved
+  // out, then the deck deleted). Locally they still sit in the deleted deck —
+  // removing them here would drop them for good (the sync then skips them as
+  // "removed on this device").
+  const noteIds = ((await db.notes.where('deck_id').anyOf(deckIds).primaryKeys()) as string[])
+    .filter(id => !spareNoteIds?.has(id));
   await removeNotesLocally(noteIds);
   await db.decks.bulkDelete(deckIds);
   await db.dailyStats.where('deck_id').anyOf(deckIds).delete();

@@ -107,6 +107,36 @@ function markTombstonesReplayed(): void {
   }
 }
 
+/**
+ * Notes a /sync/changes response places in a deck that is not deleted in the
+ * same response (and that are not deleted themselves).
+ */
+export function movedToLiveDecks(changes: Pick<SyncChangesResponse, 'notes' | 'deleted'>): Set<string> {
+  const deadDecks = new Set(changes.deleted.deck_ids);
+  const deadNotes = new Set(changes.deleted.note_ids);
+  return new Set(changes.notes.filter(n => !deadDecks.has(n.deck_id) && !deadNotes.has(n.id)).map(n => n.id));
+}
+
+// A one-time full sync on every device (bump the key to run another): heals
+// notes an incremental sync dropped before movedToLiveDecks existed.
+const FULL_REFRESH_KEY = 'sync-full-refresh-v1';
+
+function needsFullRefresh(): boolean {
+  try {
+    return localStorage.getItem(FULL_REFRESH_KEY) !== '1';
+  } catch {
+    return false; // no storage: never a full sync on every run
+  }
+}
+
+function markFullRefreshed(): void {
+  try {
+    localStorage.setItem(FULL_REFRESH_KEY, '1');
+  } catch {
+    // ignore
+  }
+}
+
 // Convert API types to local DB types
 function deckToLocal(deck: Deck): LocalDeck {
   return {
@@ -586,8 +616,12 @@ class SyncService {
     const currentSyncMeta = await getSyncMeta();
 
     // Apply deletions first (decks take their notes and cards with them; the
-    // server only tombstones decks and notes — see deleted_items).
-    await removeDecksLocally(changes.deleted.deck_ids);
+    // server only tombstones decks and notes — see deleted_items). A note this
+    // response places in a live deck was moved out of the deleted one first
+    // (merge words into another deck, then delete the old deck): it stays, with
+    // its cards — 40 Core Homework words vanished from a browser on 27 Sep.
+    const spareNoteIds = movedToLiveDecks(changes);
+    await removeDecksLocally(changes.deleted.deck_ids, spareNoteIds);
     await removeNotesLocally(changes.deleted.note_ids);
     if (changes.deleted.deck_ids.length || changes.deleted.note_ids.length) {
       console.log('[Sync] Removed', changes.deleted.deck_ids.length, 'deleted decks and', changes.deleted.note_ids.length, 'deleted notes');
@@ -598,7 +632,7 @@ class SyncService {
       const ghosts = findGhostDecks(await db.decks.toArray(), changes.live_deck_ids, changes.live_deck_ids_at);
       if (ghosts.length > 0) {
         console.log('[Sync] Removing', ghosts.length, 'decks the server no longer has:', ghosts);
-        await removeDecksLocally(ghosts);
+        await removeDecksLocally(ghosts, spareNoteIds);
         this.lastSyncDetails.ghost_decks_removed = ghosts.length;
       }
     }
@@ -850,14 +884,23 @@ class SyncService {
         details.events_downloaded = eventResult.downloaded;
         details.recordings_uploaded = eventResult.recordings_uploaded;
 
-        // Sync deck/note/card data
-        await this.incrementalSync();
+        // Sync deck/note/card data. Once per refresh version a full sync instead:
+        // it brings back notes an older incremental sync dropped (see
+        // movedToLiveDecks) — nothing incremental ever would.
+        if (needsFullRefresh()) {
+          await this.fullSync();
+          markFullRefreshed();
+        } else {
+          await this.incrementalSync();
+        }
         // Merge incremental details
         Object.assign(details, this.lastSyncDetails);
 
         // Every card row = the replay of its events: once per repair version,
         // then daily (review-events.ts). Fixes rows an older build left drifting.
-        await repairCardStatesIfDue();
+        // Skipped when the event download failed: a card whose events did not
+        // arrive must not be re-derived without them (it is, next sync).
+        if (eventResult.errors.length === 0) await repairCardStatesIfDue();
 
         this.notifyProgress({ phase: 'done', message: 'Sync complete' });
         this.logSync('background', startTime, 'success', details);
