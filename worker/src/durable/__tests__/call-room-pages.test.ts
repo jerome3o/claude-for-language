@@ -70,12 +70,18 @@ function newCall(id: string, rel: string | null, by = TUTOR) {
   exec("INSERT INTO calls (id, relationship_id, created_by, status) VALUES (?, ?, ?, 'live')", id, rel, by);
 }
 
-type Room = CallRoom & Record<string, (...args: unknown[]) => Promise<unknown>>;
+/** The room's private steps the tests drive directly. */
+interface Room {
+  loadPages(): Promise<void>;
+  persistNow(): Promise<void>;
+  snapshot(): Promise<void>;
+  webSocketMessage(ws: unknown, raw: string): Promise<void>;
+}
 
 async function openRoom(callId: string) {
   const ctx = fakeCtx();
   ctx.store.set('callId', callId);
-  const room = new CallRoom(ctx as never, { DB: db } as never) as Room;
+  const room = new CallRoom(ctx as never, { DB: db } as never) as unknown as Room;
   await room.loadPages();
   const join = (userId: string, clientId: string) => {
     const ws = new FakeWs({ clientId, userId, name: userId, picture: null, state: { mic: true, cam: true, screen: false, recording: false }, instance: clientId });
@@ -232,6 +238,15 @@ describe('call room — board pages', () => {
     expect(tutor.of('text')).toHaveLength(0); // the tutor is on page 2
     await say(tutor, { type: 'page_open', page: page1 });
     expect(new TextDoc('x', tutor.of('page_doc').at(-1)!.text).text()).toBe('hi');
+  });
+
+  it('a call that ends before anyone joined makes no page', async () => {
+    newCall('call-1', 'rel-1');
+    const ctx = fakeCtx();
+    ctx.store.set('callId', 'call-1');
+    const room = new CallRoom(ctx as never, { DB: db } as never) as unknown as Room;
+    await room.snapshot();
+    expect(pageRows()).toHaveLength(0);
   });
 
   it('a page of another relationship can neither be opened nor written', async () => {

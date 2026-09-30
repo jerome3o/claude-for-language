@@ -139,6 +139,22 @@ export class CallRoom extends DurableObject<Env> {
       return;
     }
     const callId = (await this.ctx.storage.get<string>('callId')) ?? '';
+    try {
+      await this.initPages(callId);
+    } catch (err) {
+      // D1 unreachable: the board still works for this call on a page kept in the room only
+      // (not written back, no strip history); the next join tries D1 again.
+      console.error('[call-room] loading board pages failed:', err);
+      const id = `tmp-${crypto.randomUUID().slice(0, 8)}`;
+      const now = Date.now();
+      this.pages = [{ id, title: null, preview: '', chars: 0, created_at: now, updated_at: now, call_id: callId || null, last_used_at: now }];
+      this.scope = null;
+      this.opening = id;
+      this.links = {};
+    }
+  }
+
+  private async initPages(callId: string): Promise<void> {
     const call = await this.env.DB
       .prepare('SELECT c.relationship_id, c.created_by, u.time_zone FROM calls c LEFT JOIN users u ON u.id = c.created_by WHERE c.id = ?')
       .bind(callId)
@@ -270,6 +286,8 @@ export class CallRoom extends DurableObject<Env> {
 
   /** The pages this call changed → D1, and the call's links (with each page's text now). */
   private async savePagesToD1(callId: string): Promise<string> {
+    // A call nobody joined never opened a page: nothing to write (and no page to make).
+    if (!this.pages && !(await this.ctx.storage.get('pageState'))) return '';
     await this.loadPages();
     const scope = this.scope;
     const pages = this.pages ?? [];
