@@ -1,12 +1,22 @@
 package dev.jeromeswannack.chineselearning.lab.ui.homework
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import dev.jeromeswannack.chineselearning.lab.core.Rating
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTile
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTileHeight
+import dev.jeromeswannack.chineselearning.lab.ui.kit.StudyCardFlip
+import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardSurface
+import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardTransition
+import dev.jeromeswannack.chineselearning.lab.ui.kit.studyHanziSize
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -217,63 +227,167 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions) {
         PassDone(if (ui.part != null) "${ui.title} · ${ui.part}" else ui.title, p.total, ui.oneOffOnly, ui.addState, ui.online, actions)
         return
     }
-    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        ProgressBar(if (p.total > 0) p.done.toFloat() / p.total else 0f, Modifier.fillMaxWidth().padding(top = 4.dp))
-        Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // How the last card left (Got it flings it away like Good, Not yet drops it like Again),
+    // and a fresh key each time a card is shown again (a "Not yet" word coming back).
+    var lastRight by remember { mutableStateOf<Boolean?>(null) }
+    val shown = remember { PassShown() }
+    val answer: (Boolean) -> Unit = { right -> lastRight = right; actions.onAnswer(right) }
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        ProgressBar(if (p.total > 0) p.done.toFloat() / p.total else 0f, Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp))
+        Row(Modifier.padding(horizontal = 4.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (ui.part != null) Text(ui.part.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
             DueChip(ui.due)
             if (p.retrying > 0) StatusPill("${p.retrying} to try again", Palette.Hard)
         }
+        // The card takes the room between the header and the answer bar, like a study card.
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             val note = ui.note
             if (note == null) {
                 EmptyState("⏳", "The words for this homework haven’t reached this device yet.", actionLabel = "Try again", onAction = actions.onRetrySync)
             } else {
                 AnimatedContent(
-                    targetState = note to ui.revealed,
-                    transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.96f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))) togetherWith fadeOut() },
+                    targetState = PassFace(shown.key(note.id, ui.revealed), note, ui.revealed),
+                    contentKey = { it.key },
+                    transitionSpec = { studyCardTransition(when (lastRight) { true -> Rating.GOOD; false -> Rating.AGAIN; null -> null }) },
                     label = "pass-card",
-                ) { (n, revealed) -> PassCard(n, revealed, actions.onPlay) }
+                ) { face -> PassCard(face.note, face.revealed, actions.onPlay, actions.onReveal) }
             }
         }
+        // The answer bar: anchored at the bottom, clear of the navigation bar (the frame pads it).
         if (ui.note != null) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp).testTag("hw-pass-actions"),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 if (ui.revealed) {
-                    PrimaryPill("Not yet", Modifier.weight(1f).height(56.dp).testTag("hw-notyet"), enabled = !ui.busy, color = Palette.Hard) { actions.onAnswer(false) }
-                    PrimaryPill("Got it", Modifier.weight(1f).height(56.dp).testTag("hw-gotit"), enabled = !ui.busy, color = Palette.Good) { actions.onAnswer(true) }
+                    AnswerTile("Not yet", Palette.Hard, Modifier.weight(1f).testTag("hw-notyet"), enabled = !ui.busy) { answer(false) }
+                    AnswerTile("Got it", Palette.Good, Modifier.weight(1f).testTag("hw-gotit"), enabled = !ui.busy) { answer(true) }
                 } else {
-                    PrimaryPill("Show answer", Modifier.fillMaxWidth().height(56.dp).testTag("hw-show")) { actions.onReveal() }
+                    PrimaryPill("Show answer", Modifier.fillMaxWidth().height(AnswerTileHeight).testTag("hw-show")) { actions.onReveal() }
                 }
             }
         }
     }
 }
 
+/** What the card shows: [key] changes when a new card comes up (the same word again gets a new one). */
+private data class PassFace(val key: String, val note: PassNote, val revealed: Boolean)
+
+/** Counts the cards shown: a card is done when its answer side gives way to a question side. */
+private class PassShown {
+    private var count = 0
+    private var wasRevealed = false
+    fun key(noteId: String, revealed: Boolean): String {
+        if (wasRevealed && !revealed) count++
+        wasRevealed = revealed
+        return "$noteId#$count"
+    }
+}
+
+/**
+ * The word card (web: `.hw-pass-card`), built like the study card: it fills its slot, the
+ * question centred on the front; Show answer turns it over to the answer side — hanzi,
+ * pinyin, meaning, the example sentence — which scrolls when it doesn't fit (large fonts).
+ */
 @Composable
-private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Lab.colors.card).padding(24.dp).testTag("hw-pass-card"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(note.hanzi, fontSize = 52.sp, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = 60.sp)
-        Box(
-            Modifier.size(52.dp).clip(CircleShape).background(Lab.colors.accentSoft).bouncyClickable(onClick = onPlay),
-            contentAlignment = Alignment.Center,
-        ) { Text("▶", color = Lab.colors.accent, fontSize = 20.sp) }
-        if (revealed) {
-            Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
-            Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
-            if (!note.sentence.isNullOrBlank()) {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.background).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(note.sentence, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, textAlign = TextAlign.Center)
-                    if (!note.sentenceTranslation.isNullOrBlank()) Text(note.sentenceTranslation, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
-                }
+private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, onReveal: () -> Unit) {
+    val rotation by animateFloatAsState(if (revealed) 180f else 0f, StudyCardFlip, label = "flip")
+    val density = LocalDensity.current
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(vertical = 4.dp)
+            .graphicsLayer {
+                rotationY = rotation
+                cameraDistance = 14f * density.density
             }
+            .studyCardSurface(Lab.colors.card, Lab.colors.cardBorder, lifted = revealed)
+            .testTag("hw-pass-card"),
+    ) {
+        if (rotation <= 90f) {
+            PassFront(note, onPlay, onReveal)
         } else {
-            Text("Say what it means, then check.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
+            Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) { PassBack(note, onPlay) }
         }
     }
+}
+
+@Composable
+private fun PassFront(note: PassNote, onPlay: () -> Unit, onReveal: () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val minHeight = maxHeight
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = minHeight)
+                // Like a study card: a tap on the card shows the answer.
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onReveal)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Spacer(Modifier.height(0.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val size = studyHanziSize(note.hanzi)
+                Text(note.hanzi, fontSize = size, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = size * 1.2f)
+                Spacer(Modifier.height(16.dp))
+                PlayCircle(onPlay)
+            }
+            Text("Say what it means, then check.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 16.dp))
+        }
+    }
+}
+
+@Composable
+private fun PassBack(note: PassNote, onPlay: () -> Unit) {
+    // Centred in the card while it fits (a word's answer is short — no big empty half);
+    // scrolls from the top when it doesn't (large fonts, a long sentence).
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val minHeight = maxHeight
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = minHeight).padding(22.dp).testTag("hw-pass-answer"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            val size = studyHanziSize(note.hanzi) * 0.85f
+            Text(note.hanzi, fontSize = size, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center, lineHeight = size * 1.2f)
+            Spacer(Modifier.height(8.dp))
+            Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(4.dp))
+            Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.clip(CircleShape).background(Lab.colors.faint).clickable(onClick = onPlay).padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, null, Modifier.size(18.dp), tint = Lab.colors.accent)
+                Spacer(Modifier.width(6.dp))
+                Text("Play", color = Lab.colors.ink, style = MaterialTheme.typography.labelLarge)
+            }
+            if (!note.sentence.isNullOrBlank()) {
+                Spacer(Modifier.height(20.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(note.sentence, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, textAlign = TextAlign.Center)
+                    if (!note.sentenceTranslation.isNullOrBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(note.sentenceTranslation, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        }
+    }
+    }
+}
+
+/** ▶ on the question side (the study card's play button, smaller). */
+@Composable
+private fun PlayCircle(onPlay: () -> Unit) {
+    Box(
+        Modifier.size(56.dp).clip(CircleShape).background(Lab.colors.accentSoft).bouncyClickable(onClick = onPlay),
+        contentAlignment = Alignment.Center,
+    ) { Icon(Icons.AutoMirrored.Filled.VolumeUp, "Play", Modifier.size(24.dp), tint = Lab.colors.accent) }
 }
 
 @Composable
