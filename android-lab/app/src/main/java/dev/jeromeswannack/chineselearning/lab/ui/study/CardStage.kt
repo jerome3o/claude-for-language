@@ -495,7 +495,7 @@ private fun CardBack(
             } else {
                 TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar)
             }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, actions.onRetryTranscription) }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
@@ -745,9 +745,27 @@ private fun rememberRecordPermission(onGranted: () -> Unit): () -> Unit {
 
 /** "You said: …" under the answer (the web's renderTranscriptionResult). */
 @Composable
-private fun TranscriptionLine(t: TranscriptionUi?) {
+private fun TranscriptionLine(t: TranscriptionUi?, onRetry: () -> Unit = {}) {
     val (text, tint) = when (t) {
-        null, TranscriptionUi.Failed -> return
+        null -> return
+        TranscriptionUi.Failed -> {
+            // Never silent: both paths failed, the recording is saved, a tap sends it again.
+            Spacer(Modifier.height(6.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Palette.Again.copy(alpha = 0.10f))
+                    .border(1.dp, Palette.Again.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                    .clickable(onClick = onRetry)
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            ) {
+                Text("Couldn’t transcribe — tap to retry", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+                Text("Your recording is saved", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            }
+            return
+        }
         TranscriptionUi.Working -> "Transcribing…" to Palette.Easy
         TranscriptionUi.Offline -> "Recording saved, will transcribe when online" to Lab.colors.muted
         is TranscriptionUi.Done -> {

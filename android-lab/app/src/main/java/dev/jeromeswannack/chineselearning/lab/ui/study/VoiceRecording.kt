@@ -8,6 +8,7 @@ import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -54,9 +55,51 @@ sealed interface TranscriptionUi {
     data object Working : TranscriptionUi
     /** Offline: "Recording saved, will transcribe when online". */
     data object Offline : TranscriptionUi
-    /** Failed: nothing shown (the recording is still saved). */
+    /** Live and upload both failed: "Couldn't transcribe — tap to retry" (the recording is still saved). */
     data object Failed : TranscriptionUi
     data class Done(val result: TranscriptionComparison) : TranscriptionUi
+}
+
+/**
+ * `transcribeTakeOutcome` (frontend/src/services/takeTranscription.ts): the live (Soniox) text
+ * when the stream gave one, else the take uploaded — told why live gave nothing. Both failing is
+ * [TranscriptionUi.Failed] (shown with a retry), never nothing.
+ */
+object TakeTranscription {
+    data class Outcome(val ui: TranscriptionUi, val liveError: String?, val via: String?)
+
+    suspend fun outcome(
+        live: kotlinx.coroutines.Deferred<String>?,
+        online: () -> Boolean,
+        compare: (String) -> TranscriptionComparison,
+        upload: suspend (liveError: String?) -> String,
+    ): Outcome {
+        if (live == null && !online()) return Outcome(TranscriptionUi.Offline, null, null)
+        var liveError: String? = null
+        if (live != null) {
+            val text = try {
+                live.await()
+            } catch (e: Throwable) {
+                // A timeout arrives as a CancellationException from the deferred; only this
+                // coroutine being cancelled itself is re-thrown.
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                liveError = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
+                null
+            }
+            if (text != null) {
+                if (text.isNotBlank()) return Outcome(TranscriptionUi.Done(compare(text)), null, "live")
+                liveError = "live returned no text"
+            }
+            if (!online()) return Outcome(TranscriptionUi.Offline, liveError, null)
+        }
+        return try {
+            Outcome(TranscriptionUi.Done(compare(upload(liveError))), liveError, "upload")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Outcome(TranscriptionUi.Failed, liveError, null)
+        }
+    }
 }
 
 /**

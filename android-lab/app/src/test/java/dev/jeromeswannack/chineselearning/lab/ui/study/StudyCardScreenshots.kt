@@ -261,6 +261,11 @@ class StudyCardScreenshots : LabScreenshotTest() {
         study(ui(view(CardTypes.HANZI_TO_MEANING), CardExtras(take = TakeUi(hasTake = true, transcription = TranscriptionUi.Offline)), online = false), CardStartState(flipped = true))
     }
 
+    /** Live and upload both failed: never nothing any more — a retry on the saved take. */
+    @Test fun readBackTranscriptionFailed() = shoot("study-b10b-read-back-transcribe-failed") {
+        study(ui(view(CardTypes.HANZI_TO_MEANING), CardExtras(take = TakeUi(hasTake = true, transcription = TranscriptionUi.Failed))), CardStartState(flipped = true))
+    }
+
     private val breakdown = dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation(
         words = listOf(
             dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord("你", "nǐ", "you"),

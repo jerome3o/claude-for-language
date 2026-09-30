@@ -56,6 +56,94 @@ class LiveTranscriptionTest {
         assertEquals("Soniox 401: Invalid API key", SonioxProtocol.apply(t0, """{"error_code":401,"error_message":"Invalid API key"}""").error)
     }
 
+    @Test fun nullErrorFieldsAreANormalResponse() {
+        val s = SonioxProtocol.apply(t0, """{"tokens":[{"text":"好","is_final":true}],"error_code":null,"error_message":null}""")
+        assertNull(s.error)
+        assertEquals("好", s.text)
+        assertEquals("Soniox 402: Balance exhausted", SonioxProtocol.apply(t0, """{"tokens":[],"error_code":402,"error_type":"organization_balance_exhausted","error_message":"Balance exhausted"}""").error)
+    }
+
+    @Test fun onlyARefusedKeyIsDropped() {
+        assertTrue(SonioxProtocol.invalidatesKey("Soniox 401: Incorrect API key provided."))
+        assertTrue(SonioxProtocol.invalidatesKey("Soniox 403: temp_api_key_session_expired"))
+        assertFalse(SonioxProtocol.invalidatesKey("Soniox 402: Balance exhausted"))
+        assertFalse(SonioxProtocol.invalidatesKey("closed early"))
+    }
+
+    // ---- TakeTranscription.outcome (frontend/src/services/takeTranscription.ts) ----
+
+    private val cmp: (String) -> TranscriptionComparison = { TranscriptionComparison(it, "", isMatch = it == "谢谢", containsExpected = false) }
+    private fun failed(reason: String) = kotlinx.coroutines.CompletableDeferred<String>().apply { completeExceptionally(IllegalStateException(reason)) }
+
+    /** The bug: live gave nothing AND the upload failed → the card showed nothing. Now: Failed (retry). */
+    @Test fun liveFailedAndUploadFailedIsAVisibleFailure() = runBlocking {
+        var sentReason: String? = "unset"
+        val out = TakeTranscription.outcome(failed("timeout"), online = { true }, compare = cmp) { reason -> sentReason = reason; throw java.io.IOException("HTTP 502") }
+        assertEquals(TranscriptionUi.Failed, out.ui)
+        assertEquals("timeout", out.liveError)
+        assertEquals("timeout", sentReason) // the live reason goes up with the upload
+    }
+
+    @Test fun liveTextWinsWithoutAnUpload() = runBlocking {
+        val out = TakeTranscription.outcome(kotlinx.coroutines.CompletableDeferred("谢谢"), online = { true }, compare = cmp) { fail("no upload"); "" }
+        assertTrue((out.ui as TranscriptionUi.Done).result.isMatch)
+        assertEquals("live", out.via)
+        assertNull(out.liveError)
+    }
+
+    @Test fun blankLiveTextUploadsAndSaysWhy() = runBlocking {
+        var sent: String? = null
+        val out = TakeTranscription.outcome(kotlinx.coroutines.CompletableDeferred("  "), online = { true }, compare = cmp) { sent = it; "谢谢" }
+        assertEquals("upload", out.via)
+        assertEquals("live returned no text", sent)
+    }
+
+    @Test fun aLiveTimeoutIsAFailureNotACancellation() = runBlocking {
+        // SonioxStream.finish() times out with a TimeoutCancellationException inside the deferred.
+        val timedOut = kotlinx.coroutines.CompletableDeferred<String>().apply { completeExceptionally(kotlinx.coroutines.CancellationException("Timed out waiting for 4000 ms")) }
+        val out = TakeTranscription.outcome(timedOut, online = { true }, compare = cmp) { "谢谢" }
+        assertEquals("upload", out.via)
+        assertEquals("Timed out waiting for 4000 ms", out.liveError)
+    }
+
+    @Test fun offlineSaysSo() = runBlocking {
+        assertEquals(TranscriptionUi.Offline, TakeTranscription.outcome(null, online = { false }, compare = cmp) { fail("no upload"); "" }.ui)
+        val o = TakeTranscription.outcome(failed("socket failure"), online = { false }, compare = cmp) { fail("no upload"); "" }
+        assertEquals(TranscriptionUi.Offline, o.ui)
+        assertEquals("socket failure", o.liveError)
+    }
+
+    /** End to end over a real socket: Soniox refuses the take (402) and the upload fails too. */
+    @Test fun sonioxRefusesTheTakeAndTheUploadFails() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                webSocket.send("""{"tokens":[],"error_code":402,"error_type":"organization_balance_exhausted","error_message":"Balance exhausted"}""")
+                webSocket.close(1000, null)
+            }
+        }))
+        server.start()
+        val stream = SonioxStream(OkHttpClient(), session(server))
+        stream.send(ByteArray(3200), 3200)
+        val live = kotlinx.coroutines.CompletableDeferred<String>()
+        runCatching { stream.finish(timeoutMs = 2_000) }.fold({ live.complete(it) }, { live.completeExceptionally(it) })
+        val out = TakeTranscription.outcome(live, online = { true }, compare = cmp) { throw java.io.IOException("HTTP 502") }
+        assertEquals(TranscriptionUi.Failed, out.ui)
+        assertEquals("Soniox 402: Balance exhausted", out.liveError)
+        server.shutdown()
+    }
+
+    @Test fun aRefusedKeyIsForgotten() = runBlocking {
+        var calls = 0
+        val cache = LiveSessionCache(now = { 0L }) { calls++; LiveTranscriptionSessionDto("soniox", "k$calls", "2099-01-01T00:00:00Z", "wss://x", "stt-rt-v5") }
+        kotlinx.coroutines.coroutineScope { cache.prefetch(this) }
+        assertEquals("k1", cache.usable()?.api_key)
+        cache.invalidate()
+        assertNull(cache.usable())
+        kotlinx.coroutines.coroutineScope { cache.prefetch(this) }
+        assertEquals("k2", cache.usable()?.api_key)
+    }
+
     @Test fun keyReuseUntilAMinuteBeforeExpiry() {
         val s = LiveTranscriptionSessionDto("soniox", "k", "2026-09-27T10:30:00Z", "wss://x", "stt-rt-v5", listOf("zh"))
         val now = java.time.Instant.parse("2026-09-27T10:00:00Z").toEpochMilli()

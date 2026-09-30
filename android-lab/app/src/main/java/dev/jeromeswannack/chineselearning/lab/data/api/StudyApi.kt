@@ -287,11 +287,18 @@ suspend fun Api.initiateAIConversation(conversationId: String): JsonElement =
 // ---------------- voice recordings ----------------
 
 @Serializable
-data class TranscriptionDto(val text: String = "", val language: String? = null)
+data class TranscriptionDto(val text: String = "", val language: String? = null, val provider: String? = null)
 
-/** POST /api/transcribe (Workers AI Whisper). */
-suspend fun Api.transcribe(file: File, mime: String): TranscriptionDto {
-    val res = upload("/api/transcribe", file, fileName = file.name, mime = mime)
+/**
+ * POST /api/transcribe — the upload path (Whisper, then Soniox async / Gemini on the server).
+ * [liveError] says why the live stream gave nothing; the server logs it.
+ */
+suspend fun Api.transcribe(file: File, mime: String, liveError: String? = null): TranscriptionDto {
+    val fields = buildMap {
+        put("client", "lab")
+        liveError?.takeIf { it.isNotBlank() }?.let { put("live_error", it.take(200)) }
+    }
+    val res = upload("/api/transcribe", file, fileName = file.name, mime = mime, fields = fields)
     if (!res.ok) throw dev.jeromeswannack.chineselearning.lab.data.HttpException(res.code, res.body.take(200), res.body)
     return json.decodeFromString(TranscriptionDto.serializer(), res.body)
 }

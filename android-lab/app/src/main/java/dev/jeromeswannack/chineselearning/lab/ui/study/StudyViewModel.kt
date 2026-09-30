@@ -670,28 +670,39 @@ class StudyViewModel(
 
     /**
      * `useTranscription`: the live (Soniox) text when the take was streamed, else the take
-     * uploaded to Whisper; compared in pinyin here; offline says so.
+     * uploaded (Whisper → Soniox async → Gemini on the server, told why live gave nothing);
+     * compared in pinyin here; offline says so; both failing shows "tap to retry".
      */
-    private fun transcribe(v: CardView) {
+    private fun transcribe(v: CardView, useLive: Boolean = true) {
         val file = take ?: return
-        val live = liveResult
+        val live = liveResult.takeIf { useLive }
         if (!aiAvailable && live == null) return updateTake(v) { it.copy(transcription = TranscriptionUi.Offline) }
         val gen = takeGeneration
         val mime = recorder.mime
         updateTake(v) { it.copy(transcription = TranscriptionUi.Working) }
         viewModelScope.launch {
             val started = System.currentTimeMillis()
-            val liveText = live?.let { d -> runCatching { d.await() }.onFailure { android.util.Log.w("transcribe", "live failed, uploading: ${it.message}") }.getOrNull() }
-                ?.takeIf { it.isNotBlank() }
-            val outcome: TranscriptionUi = when {
-                liveText != null -> TranscriptionUi.Done(Transcription.compare(liveText, v.note.hanzi))
-                !aiAvailable -> TranscriptionUi.Offline
-                else -> runCatching { repo.api.transcribe(file, mime) }
-                    .fold({ r -> TranscriptionUi.Done(Transcription.compare(r.text, v.note.hanzi)) }, { TranscriptionUi.Failed })
+            val outcome = TakeTranscription.outcome(
+                live = live,
+                online = { aiAvailable },
+                compare = { text -> Transcription.compare(text, v.note.hanzi) },
+                upload = { liveError -> repo.api.transcribe(file, mime, liveError).text },
+            )
+            outcome.liveError?.let { reason ->
+                android.util.Log.w("transcribe", "live gave nothing, uploaded instead: $reason")
+                // A refused key would fail every take until it expires: mint a fresh one.
+                if (SonioxProtocol.invalidatesKey(reason)) liveKeys.invalidate()
             }
-            android.util.Log.i("transcribe", "${if (liveText != null) "live (Soniox)" else "upload (Whisper)"} ready ${System.currentTimeMillis() - started} ms after stop")
-            if (gen == takeGeneration) updateTake(v) { it.copy(transcription = outcome) }
+            android.util.Log.i("transcribe", "${outcome.via ?: "no result"} after ${System.currentTimeMillis() - started} ms")
+            if (gen == takeGeneration) updateTake(v) { it.copy(transcription = outcome.ui) }
         }
+    }
+
+    /** "Couldn't transcribe — tap to retry": the same saved take, straight to the upload path. */
+    fun retryTranscription() {
+        val v = currentView() ?: return
+        if (take == null || _ui.value.extras.take.transcription == TranscriptionUi.Working) return
+        transcribe(v, useLive = false)
     }
 
     /** The take goes up with its review: `POST /api/audio/upload { review_id }`, queued (offline-first). */

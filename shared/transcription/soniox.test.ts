@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySonioxMessage, buildSonioxConfig, EMPTY_TRANSCRIPT, liveKeyUsable, transcriptText } from './soniox';
+import { applySonioxMessage, buildSonioxConfig, EMPTY_TRANSCRIPT, liveFailureInvalidatesKey, liveKeyUsable, transcriptText } from './soniox';
 
 describe('buildSonioxConfig', () => {
   it('streams webm with auto-detection and zh + en hints', () => {
@@ -48,6 +48,26 @@ describe('applySonioxMessage', () => {
     expect(applySonioxMessage(EMPTY_TRANSCRIPT, 'not json')).toBe(EMPTY_TRANSCRIPT);
     const s = applySonioxMessage(EMPTY_TRANSCRIPT, JSON.stringify({ error_code: 401, error_message: 'Invalid API key' }));
     expect(s.error).toBe('Soniox 401: Invalid API key');
+  });
+
+  it('a null error_code next to tokens is a normal response, not an error', () => {
+    const s = applySonioxMessage(EMPTY_TRANSCRIPT, JSON.stringify({ tokens: [{ text: '好', is_final: true }], error_code: null, error_message: null }));
+    expect(s.error).toBeNull();
+    expect(transcriptText(s)).toBe('好');
+  });
+
+  it('out of credit (402) is reported with its code', () => {
+    const s = applySonioxMessage(EMPTY_TRANSCRIPT, JSON.stringify({ tokens: [], error_code: 402, error_type: 'organization_balance_exhausted', error_message: 'Balance exhausted' }));
+    expect(s.error).toBe('Soniox 402: Balance exhausted');
+  });
+});
+
+describe('liveFailureInvalidatesKey', () => {
+  it('drops the cached key only when Soniox refused the key itself', () => {
+    expect(liveFailureInvalidatesKey('Soniox 401: Incorrect API key provided.')).toBe(true);
+    expect(liveFailureInvalidatesKey('Soniox 403: temp_api_key_session_expired')).toBe(true);
+    expect(liveFailureInvalidatesKey('Soniox 402: Balance exhausted')).toBe(false);
+    expect(liveFailureInvalidatesKey('timeout')).toBe(false);
   });
 });
 
