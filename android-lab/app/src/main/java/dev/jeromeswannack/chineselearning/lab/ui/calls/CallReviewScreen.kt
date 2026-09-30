@@ -92,7 +92,13 @@ data class CallReviewUi(
     val cardsResult: CardsResult? = null,
     val cardsError: String? = null,
     val online: Boolean = true,
+    /** The board pages this call wrote on (null: not loaded — the review shows `board_text`). */
+    val boardPages: List<dev.jeromeswannack.chineselearning.lab.data.api.CallBoardPageDto>? = null,
 )
+
+/** A board page's header on the review: "Page 3", its title, or "Deleted page". */
+fun callPageHeader(p: dev.jeromeswannack.chineselearning.lab.data.api.CallBoardPageDto): String =
+    p.number?.let { dev.jeromeswannack.chineselearning.lab.core.calls.CallPages.pageLabel(it - 1, p.title) } ?: "Deleted page"
 
 data class CallReviewActions(
     val onBack: () -> Unit = {},
@@ -269,7 +275,21 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
             )
         }
 
-        if (d.board_text.isNotBlank()) {
+        val writtenPages = ui.boardPages.orEmpty().filter { it.text.isNotBlank() }
+        if (writtenPages.isNotEmpty()) {
+            item { SectionHeader("Board") }
+            writtenPages.forEach { p ->
+                item(key = "board-${p.page_id}") {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).padding(16.dp)) {
+                        Text(callPageHeader(p), color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.height(6.dp))
+                        androidx.compose.foundation.text.selection.SelectionContainer {
+                            Text(p.text.trim(), color = Lab.colors.ink, fontSize = 18.sp, lineHeight = 28.sp)
+                        }
+                    }
+                }
+            }
+        } else if (d.board_text.isNotBlank()) {
             item { SectionHeader("Board") }
             item {
                 androidx.compose.material3.Text(

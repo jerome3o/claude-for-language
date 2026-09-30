@@ -527,6 +527,20 @@ export interface LocalPictureHuntPlay extends PictureHuntPlay {
   _synced: 0 | 1 | -1;
 }
 
+/** A board page of one of my relationships (GET /api/me/board-pages; solo-call pages have no relationship). */
+export interface LocalBoardPage {
+  id: string;
+  /** '' for a solo test call's pages (IndexedDB can't index null). */
+  relationship_id: string;
+  number: number;
+  title: string | null;
+  text: string;
+  chars: number;
+  created_at: number;
+  updated_at: number;
+  call_id: string | null;
+}
+
 export class ChineseLearningDB extends Dexie {
   // Core tables
   decks!: Table<LocalDeck, string>;
@@ -571,6 +585,8 @@ export class ChineseLearningDB extends Dexie {
   tutorNotes!: Table<LocalTutorNote, string>;
   // Reader narration: waveform peaks + phrase blocks per clip
   readerAudioBlocks!: Table<LocalReaderAudioBlocks, string>;
+  // Video-call board pages of my relationships (the Lesson board, offline)
+  boardPages!: Table<LocalBoardPage, string>;
 
   // Cards flagged for the tutor while offline, waiting to be posted
   pendingCardFlags!: Table<LocalPendingCardFlag, string>;
@@ -999,6 +1015,12 @@ export class ChineseLearningDB extends Dexie {
     // (waveform peaks + block boundaries), cached per clip for the scrubber.
     this.version(23).stores({
       readerAudioBlocks: 'key',
+    });
+
+    // Version 24: the video-call board's pages per relationship (shared/calls/pages.ts),
+    // replaced wholesale by each fetch of GET /api/me/board-pages, so past pages read offline.
+    this.version(24).stores({
+      boardPages: 'id, relationship_id',
     });
   }
 }
@@ -1593,7 +1615,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -1610,6 +1632,7 @@ export async function clearAllData(): Promise<void> {
     await db.sentenceTextExplanations.clear();
     await db.recordingNotes.clear();
     await db.tutorNotes.clear();
+    await db.boardPages.clear();
   });
 }
 

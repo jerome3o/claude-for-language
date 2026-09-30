@@ -145,8 +145,16 @@ fun TextBoardPanel(
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val currentValue by rememberUpdatedState(value)
+    var shownPage by remember { mutableStateOf(board.page) }
     // The other person's edit (or a rejoin) rewrites the field, my caret moved along with it.
     LaunchedEffect(board.version) {
+        if (board.page != shownPage) {
+            // Another board page: its text, from the top; a composition on the old page is dropped with it.
+            shownPage = board.page
+            suggestion = null
+            value = TextFieldValue(board.text, TextRange(0))
+            return@LaunchedEffect
+        }
         if ((board.lastChange == "remote" || board.lastChange == "load") && value.composition == null && value.text != board.text) {
             val (s, e) = board.mySelection
             value = TextFieldValue(board.text, TextRange(s.coerceIn(0, board.text.length), e.coerceIn(0, board.text.length)))
@@ -188,7 +196,7 @@ fun TextBoardPanel(
     val padY = 14.dp
 
     Column(modifier.background(BoardPaper.Paper)) {
-        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).onSizeChanged { fieldWidth = it.width }) {
+        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(remember(board.page) { androidx.compose.foundation.ScrollState(0) }).onSizeChanged { fieldWidth = it.width }) {
             BasicTextField(
                 value = value,
                 onValueChange = { v ->

@@ -168,3 +168,5 @@
 .cr-diag-kind { color: #6b7280; font-family: ui-monospace, monospace; }
 .cr-diag-detail { overflow-wrap: anywhere; }
 .cr-diag-row.kind-restart .cr-diag-detail, .cr-diag-row.kind-peer .cr-diag-detail { color: #b45309; }
+.cr-board-page + .cr-board-page { margin-top: 0.9rem; }
+.cr-board-page-title { margin: 0 0 0.35rem; font-size: 0.9rem; font-weight: 600; color: var(--text-secondary, #6b7280); }

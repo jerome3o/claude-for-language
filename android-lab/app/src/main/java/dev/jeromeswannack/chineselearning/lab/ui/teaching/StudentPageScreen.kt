@@ -86,6 +86,8 @@ data class StudentPageUi(
     /** "Jerome is calling" (CallAlerts.pickCallBanner) and whether they started it. */
     val liveCallTitle: String? = null,
     val liveCallIncoming: Boolean = true,
+    /** Pages on the relationship's lesson board (video calls); 0 hides the row. */
+    val boardPages: Int = 0,
     /** One line about the last action ("Moved … to #1"), success or failure. */
     val notice: String? = null,
     val noticeIsError: Boolean = false,
@@ -229,6 +231,14 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
             }
             TeachButton(if (ui.callBusy) "Starting…" else "📹 Video call (beta)", Modifier.fillMaxWidth(), enabled = !ui.callBusy, onClick = actions.videoCall)
             if (ui.notice != null) InlineNotice(ui.notice, kind = if (ui.noticeIsError) NoticeKind.Error else NoticeKind.Success)
+        }
+    }
+    if (ui.boardPages > 0) item(key = "board") {
+        dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow(
+                "📝", dev.jeromeswannack.chineselearning.lab.ui.calls.lessonBoardTitle(ui.boardPages), desc = "What you wrote together in your video lessons",
+                onClick = { actions.open(Routes.lessonBoard(ui.relId)) },
+            )
         }
     }
     item(key = "state") {

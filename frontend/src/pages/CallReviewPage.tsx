@@ -12,7 +12,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { pinyin as toPinyin } from 'pinyin-pro';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../api/client';
-import { deleteCall, getCall, makeCallFlashcards, processCall } from '../api/calls';
+import { deleteCall, getCall, listCallBoardPages, makeCallFlashcards, processCall } from '../api/calls';
 import { db } from '../db/database';
 import { drainCallUploads } from '../services/calls/uploads';
 import { BoardSnapshot } from '../components/calls/Whiteboard';
@@ -174,6 +174,14 @@ export function CallReviewPage() {
     enabled: !!relId,
     staleTime: 60_000,
   });
+  // The board pages this call wrote on (each with the text it held at the end of the call).
+  const pagesQuery = useQuery({
+    queryKey: ['call-board-pages', callId],
+    queryFn: () => listCallBoardPages(callId),
+    enabled: !!detail && detail.call.status === 'ended',
+    staleTime: 60_000,
+  });
+  const writtenPages = (pagesQuery.data?.pages ?? []).filter((p) => p.text.trim());
   const iAmTutor = !!relQuery.data && !!user && getMyRoleInRelationship(relQuery.data, user.id) === 'tutor';
 
   if (query.isLoading) return <div className="page"><div className="container"><p>Loading…</p></div></div>;
@@ -386,12 +394,29 @@ export function CallReviewPage() {
           )}
         </section>
 
-        {!!detail.board_text?.trim() && (
+        {writtenPages.length > 0 ? (
           <section className="detail-section cr-section" data-testid="review-board-text">
             <h2>Board</h2>
-            <p className="cr-muted">What you typed together during the call.</p>
-            <div className="cr-board-text" lang="zh">{detail.board_text.trim()}</div>
+            <p className="cr-muted">
+              What you typed together during the call{relId ? <> — every page of your lessons is on the <Link to={`/connections/${relId}/board`}>lesson board</Link></> : null}.
+            </p>
+            {writtenPages.map((p) => (
+              <div key={p.page_id} className="cr-board-page">
+                {writtenPages.length > 1 || p.title ? (
+                  <h3 className="cr-board-page-title">{p.number === null ? 'Deleted page' : p.title || `Page ${p.number}`}</h3>
+                ) : null}
+                <div className="cr-board-text" lang="zh">{p.text.trim()}</div>
+              </div>
+            ))}
           </section>
+        ) : (
+          !!detail.board_text?.trim() && (
+            <section className="detail-section cr-section" data-testid="review-board-text">
+              <h2>Board</h2>
+              <p className="cr-muted">What you typed together during the call.</p>
+              <div className="cr-board-text" lang="zh">{detail.board_text.trim()}</div>
+            </section>
+          )
         )}
 
         {detail.board.length > 0 && (

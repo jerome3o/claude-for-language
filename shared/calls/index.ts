@@ -8,4 +8,5 @@ export * from './annotate';
 export * from './gloss';
 export * from './connection';
 export * from './layout';
+export * from './pages';
 export * from './presence';

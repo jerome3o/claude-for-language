@@ -81,3 +81,130 @@ describe('TextBoardSession', () => {
     expect(b.remoteCarets).toHaveLength(0);
   });
 });
+
+describe('TextBoardSession — board pages', () => {
+  const PAGES = [
+    { id: 'p1', title: null, preview: '', chars: 0, created_at: 1, updated_at: 1, call_id: null },
+    { id: 'p2', title: 'Homework', preview: '', chars: 0, created_at: 2, updated_at: 2, call_id: null },
+    { id: 'p3', title: null, preview: '', chars: 0, created_at: 3, updated_at: 3, call_id: null },
+  ];
+  type Sent = { type: string; page?: string; ops?: TextOp[] };
+  function session(online = () => true) {
+    const sent: Sent[] = [];
+    const s = new TextBoardSession('me', (m) => {
+      if (!online()) return false;
+      sent.push(m as Sent);
+      return true;
+    });
+    s.resetPeers([{ client_id: 'c-t', name: 'Minghui', user_id: 'tutor' }]);
+    s.welcome({ text: { v: 1, runs: [] }, pages: PAGES, page: 'p3', page_views: { 'c-t': 'p3' } });
+    return { s, sent };
+  }
+
+  it('opens on the page the room says; typing is tagged with it', () => {
+    const { s, sent } = session();
+    expect(s.page).toBe('p3');
+    s.localEdit('你好', 2);
+    expect(sent.at(-1)).toMatchObject({ type: 'text', page: 'p3' });
+  });
+
+  it('turning to another page asks the room for it and is read-only until it arrives; a seen page shows at once', () => {
+    const { s, sent } = session();
+    s.localEdit('第三页', 3);
+    s.openPage('p1');
+    expect(sent.at(-1)).toEqual({ type: 'page_open', page: 'p1' });
+    expect(s.awaitingPage).toBe(true);
+    expect(s.text).toBe('');
+    const doc = new TextDoc('tutor:x');
+    doc.replaceText('第一页');
+    s.pageDoc('p1', doc.snapshot(), []);
+    expect(s.awaitingPage).toBe(false);
+    expect(s.text).toBe('第一页');
+    // Back to page 3: shown from this call's copy straight away.
+    s.openPage('p3');
+    expect(s.awaitingPage).toBe(false);
+    expect(s.text).toBe('第三页');
+  });
+
+  it('ignores keystrokes and carets for a page it is not on', () => {
+    const { s } = session();
+    const other = new TextDoc('tutor:x');
+    s.applyRemote(other.replaceText('elsewhere'), 'p1');
+    expect(s.text).toBe('');
+    s.setCursor({ client_id: 'c-t', user_id: 'tutor', name: 'Minghui', sel: { anchor: null, head: null }, page: 'p1' });
+    expect(s.remoteCarets).toHaveLength(0);
+    s.applyRemote(new TextDoc('tutor:y').replaceText('here'), 'p3');
+    expect(s.text).toBe('here');
+  });
+
+  it('follow: my view jumps with theirs; turning a page myself stops following', () => {
+    const { s, sent } = session();
+    s.follow('tutor');
+    s.pageView('c-t', 'p2');
+    expect(s.page).toBe('p2');
+    expect(sent.at(-1)).toEqual({ type: 'page_open', page: 'p2' });
+    expect(s.following).toBe('tutor');
+    s.openPage('p1');
+    expect(s.following).toBeNull();
+    s.pageView('c-t', 'p3');
+    expect(s.page).toBe('p1');
+  });
+
+  it('following survives their reconnect (a new client id, same user)', () => {
+    const { s } = session();
+    s.follow('tutor');
+    s.dropPeer('c-t');
+    s.setPeer('c-t2', 'Minghui', 'tutor');
+    s.pageView('c-t2', 'p1');
+    expect(s.page).toBe('p1');
+  });
+
+  it('"Bring me there" and a deleted page move me with a note', () => {
+    const { s } = session();
+    s.summoned('Minghui', 'p2');
+    expect(s.page).toBe('p2');
+    expect(s.notice?.text).toBe('Minghui brought you to Homework');
+    s.summoned('Minghui', 'p1');
+    expect(s.notice?.text).toBe('Minghui brought you to page 1');
+    // The room sends the new list, then the deletion.
+    s.setPages(PAGES.filter((p) => p.id !== 'p1'));
+    s.pageDeleted('p1', 'p2', 'Minghui');
+    expect(s.page).toBe('p2');
+    expect(s.notice?.text).toBe('Minghui deleted page 1');
+    expect(s.labelOf('p3')).toBe('Page 2');
+  });
+
+  it('a rejoin while on another page stays there; edits typed offline go out tagged with their page', () => {
+    let online = true;
+    const { s, sent } = session(() => online);
+    s.openPage('p1');
+    s.pageDoc('p1', { v: 1, runs: [] }, []);
+    online = false;
+    s.localEdit('离线', 2);
+    online = true;
+    sent.length = 0;
+    s.welcome({ text: { v: 1, runs: [] }, pages: PAGES, page: 'p3', page_views: {} });
+    expect(s.page).toBe('p1');
+    expect(sent).toEqual([{ type: 'page_open', page: 'p1' }]);
+    // The room's copy of p1 lacks them → they are replayed onto it and sent.
+    s.pageDoc('p1', { v: 1, runs: [] }, []);
+    expect(s.text).toBe('离线');
+    expect(sent.at(-1)).toMatchObject({ type: 'text', page: 'p1' });
+  });
+});
+
+describe('TextBoardSession — making a page', () => {
+  it('a new page the room made for me opens; an unrelated late page_doc does not', () => {
+    const sent: Array<{ type: string }> = [];
+    const s = new TextBoardSession('me', (m) => (sent.push(m), true));
+    s.welcome({ text: { v: 1, runs: [] }, pages: [{ id: 'p1', title: null, preview: '', chars: 0, created_at: 1, updated_at: 1, call_id: null }], page: 'p1' });
+    s.pageDoc('p0', { v: 1, runs: [] }, []);
+    expect(s.page).toBe('p1');
+    s.newPage();
+    expect(sent.at(-1)).toEqual({ type: 'page_new' });
+    s.pageDoc('p2', { v: 1, runs: [] }, []);
+    expect(s.page).toBe('p2');
+    s.localEdit('新', 1);
+    expect(sent.at(-1)).toMatchObject({ type: 'text', page: 'p2' });
+  });
+});

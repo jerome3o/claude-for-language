@@ -25,6 +25,7 @@ import { boardGlossEnabled, fetchBoardGloss, setBoardGlossEnabled } from '../../
 import { explainSentenceText } from '../../api/client';
 import type { SentenceBriefExplanation } from '../../types';
 import { useBoardGloss, type GlossFetcher, type GlossSuggestion } from './useBoardGloss';
+import { BoardPageStrip } from './BoardPageStrip';
 
 interface Decoration {
   caret: RemoteCaret;
@@ -189,6 +190,7 @@ export function TextBoard({
   const lastSent = useRef(0);
   const composeStart = useRef(0);
   const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shownPage = useRef(session.page);
 
   /** Remember my selection as anchors (stable while the other person edits). */
   const captureSelection = useCallback(() => {
@@ -233,11 +235,33 @@ export function TextBoard({
   const suggestion = suggest.suggestion;
   const pokeRef = useRef(suggest.poke);
   pokeRef.current = suggest.poke;
+  const clearRef = useRef(suggest.clear);
+  clearRef.current = suggest.clear;
+
+  // "Minghui brought you to page 7" — shown for a few seconds.
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeAt = session.notice?.at ?? 0;
+  useEffect(() => {
+    if (!session.notice || Date.now() - session.notice.at > 4000) return;
+    setNotice(session.notice.text);
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noticeAt]);
 
   // Session changes: remote edits rewrite the textarea (keeping my caret); carets just re-render.
   useEffect(() => {
     const unsub = session.subscribe((reason) => {
       const ta = taRef.current;
+      // Another page: start at its top, with no selection carried over.
+      if (ta && reason === 'load' && shownPage.current !== session.page) {
+        shownPage.current = session.page;
+        ta.value = session.text;
+        ta.scrollTop = 0;
+        mySel.current = { a: null, b: null, backwards: false };
+        setSelected('');
+        clearRef.current();
+      }
       if (ta && (reason === 'remote' || reason === 'load') && !session.isComposing && ta.value !== session.text) {
         const focused = document.activeElement === ta;
         const { a, b, backwards } = mySel.current;
@@ -321,6 +345,9 @@ export function TextBoard({
           spellCheck={false}
           placeholder={placeholder ?? 'Type here — you both see it as you write. Pinyin input works.'}
           data-testid="text-board"
+          data-page={session.page}
+          readOnly={session.awaitingPage}
+          aria-busy={session.awaitingPage}
           defaultValue={text}
           onInput={(e) => {
             const ta = e.currentTarget;
@@ -368,6 +395,11 @@ export function TextBoard({
             if (ghostLayerRef.current) ghostLayerRef.current.scrollTop = e.currentTarget.scrollTop;
           }}
         />
+        {notice && (
+          <div className="bp-notice" role="status" data-testid="board-page-notice">
+            {notice}
+          </div>
+        )}
         {suggestion && <GhostLayer before={ghostBefore} suggestion={suggestion} showKey={!touch} layerRef={ghostLayerRef} ghostRef={ghostRef} />}
         {suggestion && touch && (
           <button
@@ -421,6 +453,55 @@ export function TextBoard({
             </span>
           )}
         </div>
+      )}
+      {session.pages.length > 0 && <FollowBar session={session} />}
+      {session.pages.length > 0 && (
+        <BoardPageStrip
+          pages={session.pages}
+          current={session.page}
+          people={session.others.map((o) => ({ key: o.clientId, name: o.name, color: o.color, page: o.page }))}
+          onOpen={(id) => session.openPage(id)}
+          onNew={() => session.newPage()}
+          onRename={(id, title) => session.renamePage(id, title)}
+          onDuplicate={(id) => session.duplicatePage(id)}
+          onDelete={(id) => session.deletePage(id)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where the other person is: "<name> is on page 5 · Go there · Follow · Bring
+ * <name> here", or "Following <name> · Stop". Nothing while we're on the same
+ * page and I'm not following.
+ */
+function FollowBar({ session }: { session: TextBoardSession }) {
+  const other = session.others.find((o) => o.page) ?? session.others[0];
+  if (!other) return null;
+  const following = session.following === other.userId;
+  if (!following && (!other.page || other.page === session.page)) return null;
+  const where = session.labelOf(other.page).replace(/^Page/, 'page');
+  return (
+    <div className="bp-follow" data-testid="board-follow-bar">
+      <span className="bp-follow-dot" style={{ background: other.color }} />
+      <span className="bp-follow-text">{following ? `Following ${other.name}` : `${other.name} is on ${where}`}</span>
+      {following ? (
+        <button type="button" className="is-on" data-testid="board-follow" onClick={() => session.follow(null)}>
+          Stop following
+        </button>
+      ) : (
+        <>
+          <button type="button" data-testid="board-go-there" onClick={() => session.openPage(other.page)}>
+            Go there
+          </button>
+          <button type="button" data-testid="board-follow" onClick={() => session.follow(other.userId)}>
+            Follow {other.name}
+          </button>
+          <button type="button" data-testid="board-summon" onClick={() => session.summon()}>
+            Bring {other.name} here
+          </button>
+        </>
       )}
     </div>
   );

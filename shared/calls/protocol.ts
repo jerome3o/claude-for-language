@@ -9,6 +9,7 @@ import type { BoardItem, BoardOp, BoardPoint } from './board';
 import type { TextDocSnapshot, TextOp, TextSelection } from './textDoc';
 import type { AnnotStroke } from './annotate';
 import type { CallDiagEvent } from './connection';
+import type { BoardPageMeta } from './pages';
 
 export interface CallPeer {
   client_id: string;
@@ -65,9 +66,22 @@ export type ClientMessage =
   | { type: 'signal'; to: string; data: unknown }
   | { type: 'board'; op: BoardOp }
   | { type: 'board_live'; stroke: LiveStroke | null }
-  /** Edits to the shared text (site = "<my user id>:<random>", the same for the whole page load). */
-  | { type: 'text'; ops: TextOp[] }
-  | { type: 'text_cursor'; sel: TextSelection | null; compose?: string | null }
+  /**
+   * Edits to the shared text (site = "<my user id>:<random>", the same for the whole page load).
+   * `page`: the board page they belong to (absent from older clients = the call's opening page).
+   */
+  | { type: 'text'; ops: TextOp[]; page?: string }
+  | { type: 'text_cursor'; sel: TextSelection | null; compose?: string | null; page?: string }
+  /** Board pages (./pages.ts): look at a page (the room answers with `page_doc`). */
+  | { type: 'page_open'; page: string }
+  /** A new page at the end / a copy right after `page`; the room opens it for the sender. */
+  | { type: 'page_new' }
+  | { type: 'page_duplicate'; page: string }
+  | { type: 'page_rename'; page: string; title: string | null }
+  /** Refused for the last page left. */
+  | { type: 'page_delete'; page: string }
+  /** "Bring <name> here": move the other person to this page. */
+  | { type: 'page_summon'; page: string }
   /** Connection events for the call's diagnostics log (shared/calls/connection.ts). */
   | { type: 'diag'; events: CallDiagEvent[] }
   /** Drawing on the other person's shared screen (relayed, never stored). */
@@ -98,6 +112,12 @@ export type ServerMessage =
       text_cursors?: TextCursor[];
       /** Drawings on a shared screen are kept rather than fading (absent = fade). */
       annot_persist?: boolean;
+      /** Board pages of the relationship, in strip order (absent from an older room). */
+      pages?: BoardPageMeta[];
+      /** The page `text` is — the one this call opened on. */
+      page?: string;
+      /** Which page each other client is looking at. */
+      page_views?: Record<string, string>;
       /**
        * Secret for `POST /api/calls/:id/leave` { client_id, token } — the page's
        * sendBeacon on pagehide, which can't carry the session header.
@@ -110,8 +130,20 @@ export type ServerMessage =
   | { type: 'signal'; from: string; data: unknown }
   | { type: 'board'; op: BoardOp }
   | { type: 'board_live'; from: string; stroke: LiveStroke | null }
-  | { type: 'text'; from: string; ops: TextOp[] }
-  | ({ type: 'text_cursor' } & TextCursor)
+  | { type: 'text'; from: string; ops: TextOp[]; page?: string }
+  | ({ type: 'text_cursor'; page?: string } & TextCursor)
+  /** The page list changed (new / renamed / duplicated / deleted / moved). */
+  | { type: 'pages'; pages: BoardPageMeta[] }
+  /** The page I asked for (page_open, or one I just made): its document and the carets on it. */
+  | { type: 'page_doc'; page: string; text: TextDocSnapshot; text_cursors: TextCursor[] }
+  /** Someone now looks at `page`. */
+  | { type: 'page_view'; client_id: string; page: string }
+  /** A page's thumbnail text changed (sent at most every few hundred ms). */
+  | { type: 'page_preview'; page: string; preview: string; chars: number; updated_at: number }
+  /** `page` was deleted; whoever was on it goes to `fallback`. */
+  | { type: 'page_deleted'; page: string; fallback: string; by: string }
+  /** The other person brought me to `page`. */
+  | { type: 'page_summon'; from: string; name: string; page: string }
   | { type: 'annot'; from: string; name: string; stroke: AnnotStroke }
   | { type: 'annot_clear'; from: string }
   | { type: 'annot_ping'; from: string; name: string; x: number; y: number }

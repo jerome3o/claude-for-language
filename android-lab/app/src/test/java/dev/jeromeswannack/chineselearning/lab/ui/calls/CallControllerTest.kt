@@ -746,4 +746,161 @@ class CallControllerTest {
         assertFalse(rig.controller.state.value.iShareScreen)
         assertEquals("#f43f5e", annotPen(null, rig.controller.state.value))
     }
+
+    // ------------------------------------------------------------ board pages (round 3)
+
+    private val pagesAbc = listOf(
+        dev.jeromeswannack.chineselearning.lab.core.calls.BoardPageMeta("pa"),
+        dev.jeromeswannack.chineselearning.lab.core.calls.BoardPageMeta("pb"),
+        dev.jeromeswannack.chineselearning.lab.core.calls.BoardPageMeta("pc"),
+    )
+
+    private fun pagedWelcome(page: String = "pa", views: Map<String, String> = mapOf("c-a" to "pa"), me: String = "c-me", text: String = "") =
+        welcome(peers = listOf(peer("c-a", instance = "tab1")), me = me).copy(
+            pages = pagesAbc, page = page, pageViews = views,
+            text = if (text.isEmpty()) emptyList() else listOf(dev.jeromeswannack.chineselearning.lab.core.calls.TextRun(1, "u2:x", text, false)),
+        )
+
+    private fun doc(page: String, text: String) = ServerMessage.PageDoc(page, listOf(dev.jeromeswannack.chineselearning.lab.core.calls.TextRun(1, "u2:x", text, false)), emptyList())
+
+    private fun TestScope.pagedRig(): Rig {
+        val rig = Rig(this)
+        rig.controller.join(record = false)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(pagedWelcome(text = "第一页"))
+        runCurrent()
+        return rig
+    }
+
+    @Test fun pagesTagTextAndIgnoreOtherPages() = runTest(UnconfinedTestDispatcher()) {
+        val rig = pagedRig()
+        val s = rig.controller.state.value
+        assertEquals("pa", s.pages.current)
+        assertEquals("pa", s.textBoard.page)
+        assertEquals("第一页", s.textBoard.text)
+        rig.controller.textChanged("第一页。", 4, 4, composing = false)
+        assertEquals("pa", rig.sentOf("text").last()["page"]!!.jsonPrimitive.content)
+        assertEquals("pa", rig.sentOf("text_cursor").last()["page"]!!.jsonPrimitive.content)
+        // Text for another page is not mine to apply.
+        val other = dev.jeromeswannack.chineselearning.lab.core.calls.TextOp.Ins(dev.jeromeswannack.chineselearning.lab.core.calls.CharId(9, "u2:x"), null, "X")
+        rig.room.handlers.onMessage(ServerMessage.Text("c-a", listOf(other), page = "pb"))
+        runCurrent()
+        assertEquals("第一页。", rig.controller.state.value.textBoard.text)
+    }
+
+    @Test fun turningAPageAsksTheRoomAndLoadsItsDoc() = runTest(UnconfinedTestDispatcher()) {
+        val rig = pagedRig()
+        rig.controller.openPage("pb")
+        assertEquals("pb", rig.sentOf("page_open").last()["page"]!!.jsonPrimitive.content)
+        assertEquals("pb", rig.controller.state.value.pages.shown)
+        rig.room.handlers.onMessage(doc("pb", "第二页"))
+        runCurrent()
+        val s = rig.controller.state.value
+        assertEquals("pb", s.pages.current)
+        assertEquals("第二页", s.textBoard.text)
+        assertEquals("pb", s.textBoard.page)
+        rig.controller.newPage()
+        assertEquals(1, rig.sentOf("page_new").size)
+        rig.controller.duplicatePage("pb")
+        assertEquals("pb", rig.sentOf("page_duplicate").single()["page"]!!.jsonPrimitive.content)
+        rig.controller.renamePage("pb", "  Tones \n drill ")
+        assertEquals("Tones drill", rig.sentOf("page_rename").single()["title"]!!.jsonPrimitive.content)
+        rig.controller.renamePage("pb", "   ")
+        assertEquals(kotlinx.serialization.json.JsonNull, rig.sentOf("page_rename").last()["title"])
+    }
+
+    @Test fun followingJumpsWithThemAndTurningStopsIt() = runTest(UnconfinedTestDispatcher()) {
+        val rig = pagedRig()
+        rig.room.handlers.onMessage(ServerMessage.PageView("c-a", "pc"))
+        runCurrent()
+        assertEquals("pc", rig.controller.state.value.pages.otherPage)
+        assertTrue(rig.sentOf("page_open").isEmpty())
+        rig.controller.setFollowing(true)
+        assertEquals("pc", rig.sentOf("page_open").last()["page"]!!.jsonPrimitive.content)
+        rig.room.handlers.onMessage(doc("pc", "三"))
+        rig.room.handlers.onMessage(ServerMessage.PageView("c-a", "pb"))
+        runCurrent()
+        assertEquals("pb", rig.sentOf("page_open").last()["page"]!!.jsonPrimitive.content)
+        rig.controller.openPage("pa")
+        assertFalse(rig.controller.state.value.pages.following)
+        rig.controller.bringHere()
+        assertEquals("pa", rig.sentOf("page_summon").single()["page"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun summonAndDeleteMoveMeWithANotice() = runTest(UnconfinedTestDispatcher()) {
+        val rig = pagedRig()
+        rig.room.handlers.onMessage(ServerMessage.PageSummon("c-a", "王老师", "pc"))
+        runCurrent()
+        assertEquals("pc", rig.sentOf("page_open").last()["page"]!!.jsonPrimitive.content)
+        assertEquals("王老师 brought you to page 3", rig.controller.state.value.boardNotice?.text)
+        rig.room.handlers.onMessage(doc("pc", "三"))
+        rig.room.handlers.onMessage(ServerMessage.Pages(pagesAbc.take(2)))
+        rig.room.handlers.onMessage(ServerMessage.PageDeleted("pc", "pb", "王老师"))
+        runCurrent()
+        assertEquals("pb", rig.sentOf("page_open").last()["page"]!!.jsonPrimitive.content)
+        assertEquals("王老师 deleted page 3", rig.controller.state.value.boardNotice?.text)
+        rig.controller.dismissBoardNotice()
+        // My own delete: moved, no notice.
+        rig.room.handlers.onMessage(doc("pb", "二"))
+        rig.controller.deletePage("pb")
+        rig.room.handlers.onMessage(ServerMessage.Pages(pagesAbc.take(1)))
+        rig.room.handlers.onMessage(ServerMessage.PageDeleted("pb", "pa", "Jerome"))
+        runCurrent()
+        assertEquals("pa", rig.sentOf("page_open").last()["page"]!!.jsonPrimitive.content)
+        assertNull(rig.controller.state.value.boardNotice)
+        // The room refuses deleting the last page: its reason shows.
+        rig.controller.deletePage("pa")
+        rig.room.handlers.onMessage(ServerMessage.Error("The board's last page can't be deleted"))
+        runCurrent()
+        assertEquals("The board's last page can't be deleted", rig.controller.state.value.boardNotice?.text)
+    }
+
+    @Test fun theirCaretLeavesWithThem() = runTest(UnconfinedTestDispatcher()) {
+        val rig = pagedRig()
+        val sel = dev.jeromeswannack.chineselearning.lab.core.calls.TextSelection(null, null)
+        rig.room.handlers.onMessage(ServerMessage.TextCursorMsg(dev.jeromeswannack.chineselearning.lab.core.calls.TextCursor("c-a", "u2", "王老师", sel), page = "pa"))
+        runCurrent()
+        assertEquals(1, rig.controller.state.value.textBoard.remote.size)
+        rig.room.handlers.onMessage(ServerMessage.PageView("c-a", "pb"))
+        runCurrent()
+        assertTrue(rig.controller.state.value.textBoard.remote.isEmpty())
+        // A late caret for another page is dropped.
+        rig.room.handlers.onMessage(ServerMessage.TextCursorMsg(dev.jeromeswannack.chineselearning.lab.core.calls.TextCursor("c-a", "u2", "王老师", sel), page = "pb"))
+        runCurrent()
+        assertTrue(rig.controller.state.value.textBoard.remote.isEmpty())
+    }
+
+    @Test fun aRejoinGoesBackToMyPageAndResendsWhatWasLost() = runTest(UnconfinedTestDispatcher()) {
+        val rig = pagedRig()
+        rig.controller.openPage("pb")
+        rig.room.handlers.onMessage(doc("pb", "二"))
+        runCurrent()
+        rig.room.open = false
+        rig.controller.textChanged("二三", 2, 2, composing = false) // lost with the socket
+        rig.room.open = true
+        rig.room.sent.clear()
+        // The room welcomes me back on the opening page.
+        rig.room.handlers.onMessage(pagedWelcome(page = "pa", me = "c-me2", text = "第一页"))
+        runCurrent()
+        assertEquals(listOf("pb"), rig.sentOf("text").map { it["page"]!!.jsonPrimitive.content })
+        assertEquals("pb", rig.sentOf("page_open").single()["page"]!!.jsonPrimitive.content)
+        assertEquals("二三", rig.controller.state.value.textBoard.text) // still my page, not the welcome's
+        // Its doc (without my op yet): my op is applied again on top.
+        rig.room.handlers.onMessage(doc("pb", "二"))
+        runCurrent()
+        assertEquals("pb", rig.controller.state.value.pages.current)
+        assertEquals("二三", rig.controller.state.value.textBoard.text)
+    }
+
+    @Test fun anOlderRoomWithoutPagesStillWorks() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        assertNull(rig.controller.state.value.pages.current)
+        rig.controller.textChanged("你好", 2, 2, composing = false)
+        assertNull(rig.sentOf("text").last()["page"])
+        val op = dev.jeromeswannack.chineselearning.lab.core.calls.TextOp.Ins(dev.jeromeswannack.chineselearning.lab.core.calls.CharId(9, "u2:x"), null, "X")
+        rig.room.handlers.onMessage(ServerMessage.Text("c-a", listOf(op)))
+        runCurrent()
+        assertTrue(rig.controller.state.value.textBoard.text.contains("X"))
+    }
 }

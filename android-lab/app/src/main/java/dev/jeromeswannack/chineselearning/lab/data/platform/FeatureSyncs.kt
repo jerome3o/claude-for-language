@@ -27,5 +27,6 @@ object FeatureSyncs {
         platform.register("quests", dev.jeromeswannack.chineselearning.lab.ui.quests.QuestsSync) // H: levels playable offline
         platform.register("picture-hunt", dev.jeromeswannack.chineselearning.lab.data.picturehunt.PictureHuntSync) // H: finished hunts + pictures, playable offline
         platform.register("calls", dev.jeromeswannack.chineselearning.lab.data.calls.CallsSync) // J: close orphaned call-recording pieces + push them
+        platform.register("board-pages", dev.jeromeswannack.chineselearning.lab.data.calls.BoardPagesSync) // J: lesson board pages per relationship, readable offline
     }
 }

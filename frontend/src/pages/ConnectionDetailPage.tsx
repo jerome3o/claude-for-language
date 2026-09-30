@@ -25,6 +25,7 @@ import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { createCall, listCalls } from '../api/calls';
 import { LiveCallBanner } from '../components/calls/CallBanner';
 import { CallAlertsNudge } from '../components/calls/CallAlertsSettings';
+import { LessonBoardLink } from '../components/calls/LessonBoardLink';
 import { useAuth } from '../contexts/AuthContext';
 import { StudentLessonsSection } from '../components/editor/StudentLessonsSection';
 import { OverflowMenu } from '../components/tutor/OverflowMenu';
@@ -355,6 +356,7 @@ export function ConnectionDetailPage() {
             <button type="button" className="btn btn-secondary" onClick={() => void handleVideoCall()} disabled={callBusy} data-testid="start-video-call">📹 Video call <span className="td-beta">beta</span></button>
           </div>
           <CallAlertsNudge name={otherUser.name?.split(' ')[0] || otherName} />
+          <LessonBoardLink relId={relId!} />
           {pageError && <div className="td-error">{pageError}</div>}
 
           {overviewQuery.isLoading && <Loading message="Loading activity…" />}
@@ -567,6 +569,7 @@ export function ConnectionDetailPage() {
           )}
         </div>
         {!isClaudeRelationship && <CallAlertsNudge name={otherUser.name?.split(' ')[0] || otherName} />}
+        {!isClaudeRelationship && <LessonBoardLink relId={relId!} />}
         {pageError && <div className="td-error">{pageError}</div>}
 
         <section className="detail-section">

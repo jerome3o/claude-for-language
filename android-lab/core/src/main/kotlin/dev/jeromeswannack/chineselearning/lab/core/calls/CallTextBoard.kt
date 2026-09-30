@@ -19,12 +19,18 @@ data class RemoteCaret(val clientId: String, val userId: String, val name: Strin
  * [send] returns false when the socket isn't open.
  */
 class CallTextBoard(userId: String, private val send: (String) -> Boolean, random: String = java.util.UUID.randomUUID().toString().take(6)) {
+    /** An op and the board page it was typed on (null = an older room without pages). */
+    private data class Tagged(val page: String?, val op: TextOp)
+
     /** One site per board: "<user id>:<random>" (the room checks the prefix). */
     val site = "$userId:$random"
     var doc = CallTextDoc(site)
         private set
-    private val unsent = ArrayList<TextOp>()
-    private val sent = ArrayList<TextOp>()
+    /** The board page [doc] is (shared/calls/pages.ts); every op and caret goes out tagged with it. */
+    var page: String? = null
+        private set
+    private val unsent = ArrayList<Tagged>()
+    private val sent = ArrayList<Tagged>()
     private val held = ArrayList<TextOp>()
     private val cursors = LinkedHashMap<String, TextCursor>()
     var composing = false
@@ -41,20 +47,46 @@ class CallTextBoard(userId: String, private val send: (String) -> Boolean, rando
 
     private fun changed() { version++ }
 
-    fun load(snapshot: List<TextRun>?, cursorsNow: List<TextCursor>) {
+    /**
+     * The board now holds [snapshot], page [pageId] (a welcome, or a page the room sent). My ops on
+     * that page the snapshot lacks are applied and sent again. [resendOthers] (a rejoin): ops typed on
+     * OTHER pages that may not have reached the room are sent again tagged with their own page
+     * (inserts and deletes are idempotent); otherwise they stay as they were. A composition in
+     * progress is dropped with the old page.
+     */
+    fun load(snapshot: List<TextRun>?, cursorsNow: List<TextCursor>, pageId: String? = page, resendOthers: Boolean = true) {
+        if (pageId != page) {
+            composing = false
+            myAnchor = null; myHead = null
+        }
         doc = CallTextDoc(site, snapshot)
+        page = pageId
+        held.clear() // the snapshot already has them
         val replay = sent + unsent
         sent.clear(); unsent.clear()
-        val missing = replay.filter { doc.apply(it) }
+        val (here, elsewhere) = replay.partition { it.page == pageId }
+        val missing = here.map { it.op }.filter { doc.apply(it) }
         cursors.clear()
         cursorsNow.forEach { if (it.sel != null) cursors[it.clientId] = it }
-        push(missing)
+        push(missing, pageId)
+        if (resendOthers) elsewhere.groupBy { it.page }.forEach { (p, ops) -> push(ops.map { it.op }, p) }
+        else sent.addAll(0, elsewhere)
         changed()
     }
 
-    private fun push(ops: List<TextOp>) {
+    /** A rejoin that keeps this page (the room is asked for it again): send everything not confirmed, each with its page. */
+    fun resendAll() {
+        val replay = sent + unsent
+        sent.clear(); unsent.clear()
+        replay.groupBy { it.page }.forEach { (p, ops) -> push(ops.map { it.op }, p) }
+        cursors.clear()
+        changed()
+    }
+
+    private fun push(ops: List<TextOp>, pageId: String? = page) {
         ops.chunked(50).forEach { batch ->
-            if (send(message(batch))) sent.addAll(batch) else unsent.addAll(batch)
+            val tagged = batch.map { Tagged(pageId, it) }
+            if (send(message(batch, pageId))) sent.addAll(tagged) else unsent.addAll(tagged)
         }
         while (sent.size > 2000) sent.removeAt(0)
     }
@@ -66,6 +98,12 @@ class CallTextBoard(userId: String, private val send: (String) -> Boolean, rando
         if (ops.isEmpty()) return
         push(ops)
         changed()
+    }
+
+    /** Stop composing without an edit (switching page mid composition). */
+    fun cancelComposing() {
+        composing = false
+        held.clear()
     }
 
     fun applyRemote(ops: List<TextOp>) {
@@ -93,17 +131,17 @@ class CallTextBoard(userId: String, private val send: (String) -> Boolean, rando
         val t = text
         myAnchor = doc.anchorAt(CallTextDoc.codeUnitToCharIndex(t, start))
         myHead = doc.anchorAt(CallTextDoc.codeUnitToCharIndex(t, end))
-        if (notify) send(cursorMessage(TextSelection(myAnchor, myHead)))
+        if (notify) send(cursorMessage(TextSelection(myAnchor, myHead), page = page))
     }
 
-    fun clearSelection() { send(cursorMessage(null)) }
+    fun clearSelection() { send(cursorMessage(null, page = page)) }
 
     /**
      * While an IME composition is open: tell the other side what is being composed (shown in my
      * name flag, never in the text) at my last selection; null when the composition ends.
      */
     fun sendCompose(compose: String?): Boolean =
-        send(cursorMessage(TextSelection(myAnchor, myHead), CallConnection.sanitizeCompose(compose)))
+        send(cursorMessage(TextSelection(myAnchor, myHead), CallConnection.sanitizeCompose(compose), page))
 
     /** My selection in the current text (UTF-16 offsets), after whatever changed since [select]. */
     fun mySelection(): Pair<Int, Int> {
@@ -129,15 +167,18 @@ class CallTextBoard(userId: String, private val send: (String) -> Boolean, rando
         }
 
     companion object {
-        fun message(ops: List<TextOp>): String = buildJsonObject {
+        /** [page] = the board page the ops belong to (absent for an older room). */
+        fun message(ops: List<TextOp>, page: String? = null): String = buildJsonObject {
             put("type", "text")
             putJsonArray("ops") { ops.forEach { add(it.toJson()) } }
+            if (page != null) put("page", page)
         }.toString()
 
-        fun cursorMessage(sel: TextSelection?, compose: String? = null): String = buildJsonObject {
+        fun cursorMessage(sel: TextSelection?, compose: String? = null, page: String? = null): String = buildJsonObject {
             put("type", "text_cursor")
             put("sel", sel?.toJson() ?: JsonNull)
             if (compose != null) put("compose", compose)
+            if (page != null) put("page", page)
         }.toString()
     }
 }

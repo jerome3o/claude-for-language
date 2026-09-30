@@ -38,6 +38,7 @@ import { prefetchAllAudio } from './audioPrefetch';
 import { reportClientStateIfDue } from './clientState';
 import { reportStudyTimeIfDue } from './studyTime';
 import { topUpLessonImagesIfDue } from './lessonImages';
+import { syncBoardPagesIfDue } from './boardPages';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -445,6 +446,8 @@ class SyncService {
 
     // Study-state debug report (web vs Lab app due counts). Every 30 min at most.
     void import('./debugReport').then(m => m.sendDebugReportIfDue()).catch(() => {});
+    // Video-call board pages, for the Lesson board offline. Every 30 min at most, never throws.
+    void syncBoardPagesIfDue();
   }
 
   /**
@@ -752,6 +755,7 @@ class SyncService {
     // Active study time per day (docs/STUDY_SESSION.md "Time"). Throttled, never throws.
     void reportStudyTimeIfDue();
     void import('./debugReport').then(m => m.sendDebugReportIfDue()).catch(() => {});
+    void syncBoardPagesIfDue();
   }
 
   /**

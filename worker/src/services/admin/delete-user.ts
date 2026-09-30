@@ -94,6 +94,9 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'call_transcript_segments', sql: `DELETE FROM call_transcript_segments WHERE call_id IN ${CALLS} OR user_id = ?1` },
   { label: 'call_recording_chunks', sql: `DELETE FROM call_recording_chunks WHERE piece_id IN ${PIECES}` },
   { label: 'call_recording_pieces', sql: `DELETE FROM call_recording_pieces WHERE call_id IN ${CALLS} OR user_id = ?1` },
+  // Board pages (the relationship's, and a solo call's own) and the call ↔ page links.
+  { label: 'call_board_pages', sql: `DELETE FROM call_board_pages WHERE call_id IN ${CALLS} OR page_id IN (SELECT id FROM board_pages WHERE owner_id = ?1 OR relationship_id IN ${REL})` },
+  { label: 'board_pages', sql: `DELETE FROM board_pages WHERE owner_id = ?1 OR relationship_id IN ${REL}` },
   { label: 'calls', sql: `DELETE FROM calls WHERE id IN ${CALLS}` },
 
   // Relationship-scoped rows without foreign keys.

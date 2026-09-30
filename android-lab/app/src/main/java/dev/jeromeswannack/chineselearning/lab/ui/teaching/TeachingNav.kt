@@ -292,6 +292,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto) {
             lastLessonAt = lessonLog.data?.firstOrNull()?.lesson_at,
             studentDecks = t.studentDecks,
             liveCallId = call?.callId ?: t.liveCallId,
+            boardPages = dev.jeromeswannack.chineselearning.lab.ui.calls.lessonBoardPageCount(app, relId),
             liveCallTitle = call?.title,
             liveCallIncoming = call == null || call.kind == dev.jeromeswannack.chineselearning.lab.core.calls.CallAlerts.Kind.INCOMING,
             notice = t.notice,
