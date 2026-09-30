@@ -5,7 +5,7 @@
  * hooks/useCall.ts.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,8 +17,23 @@ import { TextBoard } from '../components/calls/TextBoard';
 import { AnnotationLayer } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
 import { ANNOT_COLORS } from '@shared/calls';
-import { formatOffset, initialLinkHealth, pipSize, tileStatus, type CallChatMessage, type VideoSize } from '@shared/calls';
-import { CallVideo, useElementSize } from '../components/calls/CallVideo';
+import {
+  arrangeTiles,
+  formatOffset,
+  initialLinkHealth,
+  layoutReducer,
+  layoutShortcut,
+  PRESETS,
+  sanitizeLayout,
+  tileStatus,
+  type CallChatMessage,
+  type CallLayout,
+  type LayoutAction,
+  type TileId,
+  type VideoSize,
+} from '@shared/calls';
+import { CallTiles, type TileSpec } from '../components/calls/CallTiles';
+import { CallVideo } from '../components/calls/CallVideo';
 import { MediaProblemCard } from '../components/calls/MediaProblemCard';
 import { DevicesSheet } from '../components/calls/DevicesSheet';
 import './CallPage.css';
@@ -67,8 +82,23 @@ function ChatPanel({ messages, myUserId, onSend }: { messages: CallChatMessage[]
   );
 }
 
-/** 'text' = the shared text board (the main board), 'board' = drawing. */
-type Panel = 'none' | 'text' | 'board' | 'chat';
+/** The last layout, per user on this device. */
+function layoutKey(userId: string): string {
+  return `call-layout-v1:${userId}`;
+}
+
+function loadLayout(userId: string): CallLayout {
+  try {
+    return sanitizeLayout(JSON.parse(localStorage.getItem(layoutKey(userId)) || 'null'));
+  } catch {
+    return sanitizeLayout(null);
+  }
+}
+
+function isTyping(el: EventTarget | null): boolean {
+  const e = el as HTMLElement | null;
+  return !!e && (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || e.tagName === 'SELECT' || e.isContentEditable);
+}
 
 export function CallPage() {
   const { id } = useParams<{ id: string }>();
@@ -78,7 +108,16 @@ export function CallPage() {
   const callQuery = useQuery({ queryKey: ['call', callId], queryFn: () => getCall(callId), staleTime: 30_000 });
   const call = useCall(callId, user!.id);
   const [record, setRecord] = useState(CallRecorder.supported());
-  const [panel, setPanel] = useState<Panel>('none');
+  const [layout, setLayout] = useState<CallLayout>(() => loadLayout(user!.id));
+  const dispatch = useCallback((a: LayoutAction) => setLayout((l) => layoutReducer(l, a)), []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(layoutKey(user!.id), JSON.stringify(layout));
+    } catch {
+      /* private mode */
+    }
+  }, [layout, user]);
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   // A device problem in the call is shown until dismissed (a new problem shows again).
@@ -88,7 +127,7 @@ export function CallPage() {
   // The camera's real shape (a phone's is portrait, a webcam's landscape) sizes the preview and the self-view.
   const [localSize, setLocalSize] = useState<VideoSize | null>(null);
   const [selfSize, setSelfSize] = useState<VideoSize | null>(null);
-  const [stageSize, stageRef] = useElementSize<HTMLDivElement>();
+  const [remoteCamSize, setRemoteCamSize] = useState<VideoSize | null>(null);
   // Drawing on the other person's shared screen / seeing drawings on mine.
   const [remoteSize, setRemoteSize] = useState<VideoSize | null>(null);
   const [annotating, setAnnotating] = useState(false);
@@ -98,7 +137,33 @@ export function CallPage() {
   const remoteSharing = !!call.remote?.peer.state.screen;
   useEffect(() => {
     if (!remoteSharing) setAnnotating(false);
-  }, [remoteSharing]);
+    // Their screen share starts: put it on the stage (their camera floats beside it).
+    if (remoteSharing) dispatch({ type: 'preset', preset: 'screen' });
+  }, [remoteSharing, dispatch]);
+  // A sideways swipe moves between tiles: it must never be the browser's "back" gesture.
+  useEffect(() => {
+    const root = document.documentElement;
+    const prev = root.style.overscrollBehaviorX;
+    root.style.overscrollBehaviorX = 'none';
+    document.body.style.overscrollBehaviorX = 'none';
+    return () => {
+      root.style.overscrollBehaviorX = prev;
+      document.body.style.overscrollBehaviorX = '';
+    };
+  }, []);
+  // Desktop shortcuts: 1–5 presets, B board, D draw, C chat, V video, S screen (not while typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+      const action = layoutShortcut(e.key);
+      if (action) {
+        e.preventDefault();
+        dispatch(action);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dispatch]);
   // "… is drawing on your screen" while I share.
   useEffect(() => call.annotations.subscribe(() => setTheyDrawAt(call.annotations.lastRemoteAt)), [call.annotations]);
   const [, setTick] = useState(0);
@@ -125,9 +190,11 @@ export function CallPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.call.status]);
 
+  const available = { screen: remoteSharing || !!call.screenStream };
+  const chatVisible = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
   useEffect(() => {
-    if (panel === 'chat') setSeenChat(call.chat.length);
-  }, [panel, call.chat.length]);
+    if (chatVisible) setSeenChat(call.chat.length);
+  }, [chatVisible, call.chat.length]);
 
   const problemKey = `${call.mediaProblems.audio ?? ''}|${call.mediaProblems.video ?? ''}`;
   const retryMedia = () => void call.requestMedia({ audio: !call.hasMic, video: !call.hasCamera });
@@ -232,13 +299,132 @@ export function CallPage() {
   const remote = call.remote;
   const remoteState = remote?.peer.state;
   const someoneRecording = call.recording || !!remoteState?.recording;
-  const remoteVideoOn = !!remote?.stream && (remoteState?.cam || remoteState?.screen);
+  // An older app sends its screen on the camera stream (no screen channel).
+  const legacyShare = remoteSharing && !!remote && !remote.screenChannel;
+  const remoteCamOn = !!remote?.stream && !!remoteState?.cam && !legacyShare;
+  const remoteScreenStream = remoteSharing ? (legacyShare ? remote?.stream ?? null : remote?.screenStream ?? null) : null;
   const unread = Math.max(0, call.chat.length - seenChat);
   const status = remote ? tileStatus(remote.health ?? { ...initialLinkHealth(0), pc: remote.connection === 'new' ? 'new' : remote.connection }, remote.away) : 'live';
-  const pip = stageSize && stageSize.width > 200 ? pipSize(selfSize ?? localSize, stageSize) : null;
+  const boardOnStage = layout.mode !== 'grid' && (layout.main === 'text' || layout.main === 'draw' || (layout.mode === 'split' && (layout.second === 'text' || layout.second === 'draw')));
+  const chatOnStage = chatVisible;
+  const first = otherName.split(' ')[0];
+
+  const boardSwitch = (current: 'text' | 'draw') => (
+    <div className="call-board-switch" role="tablist">
+      <button type="button" role="tab" aria-selected={current === 'text'} className={current === 'text' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'draw', to: 'text' })} data-testid={current === 'draw' ? 'board-tab-text' : undefined}>Board</button>
+      <button type="button" role="tab" aria-selected={current === 'draw'} className={current === 'draw' ? 'active' : ''} onClick={() => dispatch({ type: 'swap', from: 'text', to: 'draw' })} data-testid={current === 'text' ? 'board-tab-draw' : undefined}>Draw</button>
+    </div>
+  );
+
+  const tiles: Partial<Record<TileId, TileSpec>> = {
+    remote: {
+      label: otherName,
+      content: remote ? (
+        <div className="call-tile-body call-tile-video" data-testid="remote-tile">
+          {remote.stream && (
+            // Always mounted while they're here: a dropout freezes the last frame instead of going blank.
+            <CallVideo stream={remote.stream} className={`call-remote-video${remoteCamOn ? '' : ' hidden'}`} testId="remote-video" onVideoSize={setRemoteCamSize} sinkId={call.devicePrefs.speakerId ?? null} />
+          )}
+          {!remoteCamOn && <Initials name={otherName} />}
+          {status !== 'live' && (
+            <div className={`call-tile-status ${status}`} data-testid="remote-status" role="status">
+              <span className="call-spinner" aria-hidden="true" /> {status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
+            </div>
+          )}
+          <div className="call-remote-label">
+            {remoteState && !remoteState.mic && <span aria-label="muted">🔇 </span>}
+            {otherName}
+          </div>
+        </div>
+      ) : (
+        <div className="call-tile-body call-waiting" data-testid="call-waiting">
+          <p>Waiting for {otherName} to join…</p>
+          <p className="call-muted">They got a Join link in your chat.</p>
+        </div>
+      ),
+    },
+    self: {
+      label: 'You',
+      content: (
+        <div className="call-tile-body call-tile-video" data-testid="self-view">
+          {call.hasCamera && call.camOn ? (
+            <CallVideo stream={call.localStream} muted mirrored={call.facing === 'user'} fit="cover" className="call-self-video" onVideoSize={setSelfSize} />
+          ) : (
+            <div className="call-self-off">{call.micOn && call.hasMic ? 'You' : '🔇 You'}</div>
+          )}
+        </div>
+      ),
+    },
+    screen: {
+      label: remoteSharing ? `${first}’s screen` : 'Your screen',
+      content: remoteSharing ? (
+        <div className="call-tile-body call-tile-video" data-testid="screen-tile">
+          {remoteScreenStream && <CallVideo stream={remoteScreenStream} screen className="call-remote-screen" testId="remote-screen" onVideoSize={setRemoteSize} />}
+          <AnnotationLayer
+            store={call.annotations}
+            video={remoteSize}
+            interactive={annotating}
+            color={annotColor}
+            onStroke={call.sendAnnotation}
+            onPing={call.sendPing}
+            className="annot-over-remote"
+            testId="annot-remote"
+          />
+          <div className="annot-tools" data-testid="annot-tools">
+            <button type="button" className={`annot-toggle${annotating ? ' on' : ''}`} onClick={() => setAnnotating((v) => !v)} data-testid="annot-toggle">
+              {annotating ? '✓ Done' : `✏️ Draw on ${first}’s screen`}
+            </button>
+            {annotating && (
+              <>
+                {ANNOT_COLORS.map((c) => (
+                  <button key={c} type="button" className={`annot-swatch${c === annotColor ? ' active' : ''}`} style={{ background: c }} onClick={() => setAnnotColor(c)} aria-label={`Colour ${c}`} />
+                ))}
+                <button type="button" className="annot-clear" onClick={call.clearAnnotations}>Clear</button>
+                <span className="annot-hint">Drag to circle · tap to point</span>
+              </>
+            )}
+          </div>
+        </div>
+      ) : call.screenStream ? (
+        <div className="call-tile-body call-tile-video" data-testid="screen-tile">
+          <CallVideo stream={call.screenStream} muted screen className="call-self-screen" onVideoSize={setSelfSize} />
+          <AnnotationLayer store={call.annotations} video={selfSize} testId="annot-self" />
+        </div>
+      ) : null,
+    },
+    text: {
+      label: 'Board',
+      closable: true,
+      content: (
+        <div className="call-tile-body call-paper" data-testid="call-panel-text">
+          {boardSwitch('text')}
+          <TextBoard session={call.textBoard} gloss={{ callId, userId: call.myUserId }} />
+        </div>
+      ),
+    },
+    draw: {
+      label: 'Draw',
+      closable: true,
+      content: (
+        <div className="call-tile-body call-paper" data-testid="call-panel-board">
+          {boardSwitch('draw')}
+          <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
+        </div>
+      ),
+    },
+    chat: {
+      label: 'Chat',
+      closable: true,
+      content: (
+        <div className="call-tile-body call-paper" data-testid="call-panel-chat">
+          <ChatPanel messages={call.chat} myUserId={call.myUserId} onSend={call.sendChat} />
+        </div>
+      ),
+    },
+  };
 
   return (
-    <div className={`call-page call-live panel-${panel}`} data-testid="call-live">
+    <div className="call-page call-live" data-testid="call-live">
       <div className="call-topbar">
         <span className="call-title">{otherName}</span>
         <span className="call-time">{elapsed}</span>
@@ -247,91 +433,14 @@ export function CallPage() {
       </div>
 
       <div className="call-main">
-        <div className="call-stage" ref={stageRef}>
-          {remote ? (
-            <>
-              {remote.stream && (
-                <CallVideo stream={remote.stream} screen={!!remoteState?.screen} className={`call-remote-video${remoteVideoOn ? '' : ' hidden'}`} testId="remote-video" onVideoSize={setRemoteSize} sinkId={call.devicePrefs.speakerId ?? null} />
-              )}
-              {remoteSharing && remote.stream && (
-                <>
-                  <AnnotationLayer
-                    store={call.annotations}
-                    video={remoteSize}
-                    interactive={annotating}
-                    color={annotColor}
-                    onStroke={call.sendAnnotation}
-                    onPing={call.sendPing}
-                    className="annot-over-remote"
-                    testId="annot-remote"
-                  />
-                  <div className="annot-tools" data-testid="annot-tools">
-                    <button type="button" className={`annot-toggle${annotating ? ' on' : ''}`} onClick={() => setAnnotating((v) => !v)} data-testid="annot-toggle">
-                      {annotating ? '✓ Done' : `✏️ Draw on ${otherName.split(' ')[0]}’s screen`}
-                    </button>
-                    {annotating && (
-                      <>
-                        {ANNOT_COLORS.map((c) => (
-                          <button key={c} type="button" className={`annot-swatch${c === annotColor ? ' active' : ''}`} style={{ background: c }} onClick={() => setAnnotColor(c)} aria-label={`Colour ${c}`} />
-                        ))}
-                        <button type="button" className="annot-clear" onClick={call.clearAnnotations}>Clear</button>
-                        <span className="annot-hint">Drag to circle · tap to point</span>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-              {!remoteVideoOn && <Initials name={otherName} />}
-              {status !== 'live' && (
-                // The picture stays (frozen on its last frame) while the link recovers.
-                <div className={`call-tile-status ${status}`} data-testid="remote-status" role="status">
-                  <span className="call-spinner" aria-hidden="true" /> {status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
-                </div>
-              )}
-              <div className="call-remote-label">
-                {remoteState && !remoteState.mic && <span aria-label="muted">🔇 </span>}
-                {otherName}
-              </div>
-            </>
-          ) : (
-            <div className="call-waiting" data-testid="call-waiting">
-              <p>Waiting for {otherName} to join…</p>
-              <p className="call-muted">They got a Join link in your chat.</p>
-            </div>
-          )}
-          <div className="call-self" style={pip ? { width: pip.width, height: pip.height } : undefined} data-testid="self-view">
-            {call.screenStream ? (
-              <>
-                <CallVideo stream={call.screenStream} muted screen className="call-self-video" onVideoSize={setSelfSize} />
-                <AnnotationLayer store={call.annotations} video={selfSize} testId="annot-self" />
-              </>
-            ) : call.hasCamera && call.camOn ? (
-              <CallVideo stream={call.localStream} muted mirrored={call.facing === 'user'} fit="cover" className="call-self-video" onVideoSize={setSelfSize} />
-            ) : (
-              <div className="call-self-off">{call.micOn ? 'You' : '🔇 You'}</div>
-            )}
-          </div>
-        </div>
-
-        {panel !== 'none' && (
-          <div className="call-panel" data-testid={`call-panel-${panel}`}>
-            <div className="call-panel-head">
-              <div className="call-panel-tabs" role="tablist">
-                <button type="button" role="tab" aria-selected={panel === 'text'} className={panel === 'text' ? 'active' : ''} onClick={() => setPanel('text')} data-testid="board-tab-text">Board</button>
-                <button type="button" role="tab" aria-selected={panel === 'board'} className={panel === 'board' ? 'active' : ''} onClick={() => setPanel('board')} data-testid="board-tab-draw">Draw</button>
-                <button type="button" role="tab" aria-selected={panel === 'chat'} className={panel === 'chat' ? 'active' : ''} onClick={() => setPanel('chat')}>Chat{unread > 0 && panel !== 'chat' ? ` (${unread})` : ''}</button>
-              </div>
-              <button type="button" className="call-panel-close" onClick={() => setPanel('none')} aria-label="Close panel">✕</button>
-            </div>
-            {panel === 'text' ? (
-              <TextBoard session={call.textBoard} gloss={{ callId, userId: call.myUserId }} />
-            ) : panel === 'board' ? (
-              <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
-            ) : (
-              <ChatPanel messages={call.chat} myUserId={call.myUserId} onSend={call.sendChat} />
-            )}
-          </div>
-        )}
+        <CallTiles
+          layout={layout}
+          dispatch={dispatch}
+          replace={setLayout}
+          available={available}
+          tiles={tiles}
+          aspects={{ remote: remoteCamSize, self: selfSize ?? localSize }}
+        />
       </div>
 
       {call.screenStream && (
@@ -373,13 +482,53 @@ export function CallPage() {
       <div className="call-controls" role="toolbar" aria-label="Call controls">
         <button type="button" className={`call-btn${call.micOn && call.hasMic ? '' : ' off'}`} onClick={call.toggleMic} aria-label={!call.hasMic ? 'Turn microphone on' : call.micOn ? 'Mute' : 'Unmute'} title={!call.hasMic ? 'Turn microphone on' : call.micOn ? 'Mute' : 'Unmute'} data-testid="call-mic">{call.micOn && call.hasMic ? '🎙️' : '🔇'}</button>
         <button type="button" className={`call-btn${call.camOn && call.hasCamera ? '' : ' off'}`} onClick={call.toggleCam} aria-label={!call.hasCamera ? 'Turn camera on' : call.camOn ? 'Camera off' : 'Camera on'} title="Camera" data-testid="call-cam">{call.camOn && call.hasCamera ? '📷' : '🚫'}</button>
-        <button type="button" className={`call-btn${panel === 'text' || panel === 'board' ? ' active' : ''}`} onClick={() => setPanel(panel === 'text' || panel === 'board' ? 'none' : 'text')} aria-label="Board" title="Board — type together, or draw" data-testid="open-board">📝</button>
-        <button type="button" className={`call-btn${panel === 'chat' ? ' active' : ''}`} onClick={() => setPanel(panel === 'chat' ? 'none' : 'chat')} aria-label="Chat" title="Chat">
-          💬{unread > 0 && panel !== 'chat' && <span className="call-badge">{unread}</span>}
+        <button
+          type="button"
+          className={`call-btn${boardOnStage ? ' active' : ''}`}
+          onClick={() => dispatch(boardOnStage ? { type: 'focus', tile: 'remote' } : layout.mode === 'split' || (typeof window !== 'undefined' && window.innerWidth < 640) ? { type: 'focus', tile: 'text' } : { type: 'preset', preset: 'board' })}
+          aria-label="Board"
+          title="Board — type together, or draw (B)"
+          data-testid="open-board"
+        >
+          📝
+        </button>
+        <button type="button" className={`call-btn${chatOnStage ? ' active' : ''}`} onClick={() => dispatch({ type: 'focus', tile: chatOnStage ? 'remote' : 'chat' })} aria-label="Chat" title="Chat (C)" data-testid="open-chat">
+          💬{unread > 0 && !chatOnStage && <span className="call-badge">{unread}</span>}
         </button>
         {canShareScreen() && (
           <button type="button" className={`call-btn${call.screenStream ? ' active' : ''}`} onClick={() => void (call.screenStream ? call.stopScreenShare() : call.startScreenShare())} aria-label={call.screenStream ? 'Stop sharing' : 'Share screen'} title="Share screen">🖥️</button>
         )}
+        <div className="call-more">
+          <button type="button" className={`call-btn${layoutOpen ? ' active' : ''}`} onClick={() => setLayoutOpen((v) => !v)} aria-label="Layout" aria-expanded={layoutOpen} title="Layout" data-testid="open-layout">▦</button>
+          {layoutOpen && (
+            <div className="call-more-menu call-layout-menu" role="menu" data-testid="layout-menu">
+              <div className="call-layout-presets">
+                {PRESETS.filter((p) => p.id !== 'screen' || available.screen).map((p) => (
+                  <button key={p.id} type="button" role="menuitem" onClick={() => { dispatch({ type: 'preset', preset: p.id }); setLayoutOpen(false); }} data-testid={`preset-${p.id}`}>
+                    <span className={`call-preset-icon preset-${p.id}`} aria-hidden="true" />
+                    <span>{p.label}</span>
+                    <kbd>{p.key}</kbd>
+                  </button>
+                ))}
+              </div>
+              <div className="call-layout-open">
+                {(['text', 'draw', 'chat'] as TileId[]).map((t) => (
+                  <button key={t} type="button" role="menuitem" onClick={() => { dispatch({ type: 'focus', tile: t }); setLayoutOpen(false); }}>
+                    {t === 'text' ? '📝 Board' : t === 'draw' ? '✏️ Draw' : '💬 Chat'}
+                  </button>
+                ))}
+              </div>
+              <label className="call-layout-toggle">
+                <input type="checkbox" checked={layout.remoteFloat} onChange={(e) => dispatch({ type: 'remoteFloat', on: e.target.checked })} />
+                Float {first}’s camera over the board / screen
+              </label>
+              <label className="call-layout-toggle">
+                <input type="checkbox" checked={layout.dir === 'column'} onChange={(e) => dispatch({ type: 'dir', dir: e.target.checked ? 'column' : 'row' })} />
+                Stack split panes
+              </label>
+            </div>
+          )}
+        </div>
         <div className="call-more">
           <button type="button" className="call-btn" onClick={() => setMoreOpen((v) => !v)} aria-label="More" aria-expanded={moreOpen}>⋯</button>
           {moreOpen && (

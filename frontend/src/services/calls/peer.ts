@@ -11,6 +11,11 @@
  * `replaceTrack`) still use the perfect-negotiation rules, so a collision then
  * is handled too. Signals are applied one at a time, in arrival order.
  *
+ * Screen sharing has its own video transceiver (the third m-line), so the
+ * other person can see my camera AND my screen at once. A peer whose offer has
+ * only one video m-line (an older app) gets the screen on the camera
+ * transceiver instead, like before (`screenChannel` false).
+ *
  * Staying up (shared/calls/connection.ts): the link watches its own health —
  * `disconnected` gets a grace period, then an ICE restart; `failed` restarts at
  * once; later restarts back off — but only while the signalling socket is open
@@ -43,9 +48,13 @@ export interface PeerLinkOptions {
   audioTrack: MediaStreamTrack | null;
   videoTrack: MediaStreamTrack | null;
   videoSource?: VideoSource;
+  /** My shared screen (sent on the screen transceiver). */
+  screenTrack?: MediaStreamTrack | null;
   /** Returns false when the signalling socket is down (the signal is lost). */
   sendSignal: (data: SignalData) => boolean | void;
   onRemoteStream: (stream: MediaStream) => void;
+  /** Their shared screen (a stream of its own; only live while they share). */
+  onRemoteScreen?: (stream: MediaStream) => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
   onHealth?: (health: LinkHealth) => void;
   /** Is the room socket open right now (ICE restarts wait for it). */
@@ -61,6 +70,9 @@ export class PeerLink {
   private ignoreOffer = false;
   private audio: RTCRtpTransceiver | null = null;
   private video: RTCRtpTransceiver | null = null;
+  private screen: RTCRtpTransceiver | null = null;
+  private screenTrack: MediaStreamTrack | null;
+  private readonly remoteScreen = new MediaStream();
   private audioTrack: MediaStreamTrack | null;
   private videoTrack: MediaStreamTrack | null;
   private videoSource: VideoSource;
@@ -77,9 +89,17 @@ export class PeerLink {
     this.audioTrack = opts.audioTrack;
     this.videoTrack = opts.videoTrack;
     this.videoSource = opts.videoSource ?? 'camera';
+    this.screenTrack = opts.screenTrack ?? null;
     this.pc = new RTCPeerConnection({ iceServers: opts.iceServers, bundlePolicy: 'max-bundle' });
 
     this.pc.ontrack = (event) => {
+      // The second video m-line is their screen.
+      const videos = this.pc.getTransceivers().filter((t) => t.receiver.track.kind === 'video');
+      if (event.track.kind === 'video' && videos.indexOf(event.transceiver) === 1) {
+        if (!this.remoteScreen.getTracks().includes(event.track)) this.remoteScreen.addTrack(event.track);
+        opts.onRemoteScreen?.(this.remoteScreen);
+        return;
+      }
       if (!this.remote.getTracks().includes(event.track)) this.remote.addTrack(event.track);
       opts.onRemoteStream(this.remote);
     };
@@ -110,6 +130,7 @@ export class PeerLink {
       // The offerer: adding the transceivers fires negotiationneeded → offer.
       this.audio = this.pc.addTransceiver(this.audioTrack ?? 'audio', { direction: 'sendrecv' });
       this.video = this.pc.addTransceiver(this.videoTrack ?? 'video', { direction: 'sendrecv' });
+      this.screen = this.pc.addTransceiver(this.screenTrack ?? 'video', { direction: 'sendrecv' });
       void this.applyEncodings();
     }
     this.statsTimer = setInterval(() => void this.readStats(false), STATS_EVERY_MS);
@@ -121,6 +142,15 @@ export class PeerLink {
 
   get remoteStream(): MediaStream {
     return this.remote;
+  }
+
+  get remoteScreenStream(): MediaStream {
+    return this.remoteScreen;
+  }
+
+  /** Both sides have a screen transceiver (false with an older peer: the screen replaces the camera). */
+  get screenChannel(): boolean {
+    return !!this.screen;
   }
 
   private setHealth(h: LinkHealth) {
@@ -158,13 +188,16 @@ export class PeerLink {
 
   /** Answerer: adopt the transceivers the offer created and send our tracks on them. */
   private async adoptTransceivers(): Promise<void> {
-    if (this.audio && this.video) return;
+    if (this.audio && this.video && this.screen) return;
     for (const t of this.pc.getTransceivers()) {
       const kind = t.receiver.track.kind;
       if (kind === 'audio' && !this.audio) this.audio = t;
       else if (kind === 'video' && !this.video) this.video = t;
+      else if (kind === 'video' && this.video !== t && !this.screen) this.screen = t;
     }
-    for (const [t, track] of [[this.audio, this.audioTrack], [this.video, this.videoTrack]] as const) {
+    // An older peer offered one video m-line: a share goes out on the camera transceiver.
+    const legacyShare = !this.screen && this.screenTrack;
+    for (const [t, track] of [[this.audio, this.audioTrack], [this.video, legacyShare ? this.screenTrack : this.videoTrack], [this.screen, this.screenTrack]] as const) {
       if (!t) continue;
       t.direction = 'sendrecv';
       await t.sender.replaceTrack(track);
@@ -208,8 +241,23 @@ export class PeerLink {
     await this.audio?.sender.replaceTrack(track);
   }
 
+  /** Start / stop sharing my screen (its own transceiver; the camera keeps going). */
+  async setScreenTrack(track: MediaStreamTrack | null): Promise<void> {
+    this.screenTrack = track;
+    if (this.screen) {
+      await this.screen.sender.replaceTrack(track);
+      await this.applyEncodings();
+      return;
+    }
+    // An older peer: the screen takes the camera's place while it lasts.
+    await this.video?.sender.replaceTrack(track ?? this.videoTrack);
+    this.videoSource = track ? 'screen' : 'camera';
+    await this.applyEncodings();
+  }
+
   async setVideoTrack(track: MediaStreamTrack | null, source: VideoSource = 'camera'): Promise<void> {
     this.videoTrack = track;
+    if (!this.screen && this.screenTrack) return; // legacy share in progress: the camera comes back when it ends
     this.videoSource = source;
     this.scale = 1;
     await this.video?.sender.replaceTrack(track);
@@ -243,6 +291,22 @@ export class PeerLink {
         }
       } catch {
         /* some browsers refuse parameters before negotiation — tried again on the next stats tick */
+      }
+    }
+    const screen = this.screen?.sender;
+    if (screen && typeof screen.getParameters === 'function' && this.screenTrack) {
+      const want = videoEncodingFor('screen', null);
+      try {
+        const params = screen.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
+        if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+        if (params.encodings[0].maxBitrate !== want.maxBitrate || params.degradationPreference !== want.degradationPreference) {
+          params.encodings[0].maxBitrate = want.maxBitrate;
+          params.encodings[0].maxFramerate = want.maxFramerate;
+          params.degradationPreference = want.degradationPreference;
+          await screen.setParameters(params);
+        }
+      } catch {
+        /* retried on the next stats tick */
       }
     }
     const audio = this.audio?.sender;

@@ -126,10 +126,10 @@ test('tutor and student connect, share the whiteboard and chat, and the call is 
   await tp.mouse.up();
 
   // ---- Chat both ways
-  await sp.getByRole('tab', { name: /Chat/ }).click();
+  await sp.getByTestId('open-chat').click();
   await sp.getByTestId('call-chat-input').fill('怎么说 a cup of coffee?');
   await sp.keyboard.press('Enter');
-  await tp.getByRole('tab', { name: /Chat/ }).click();
+  await tp.getByTestId('open-chat').click();
   await expect(tp.getByText('a cup of coffee')).toBeVisible({ timeout: 10000 });
 
   // Let each recorder write at least one 10 s chunk.
