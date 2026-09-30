@@ -17,11 +17,17 @@ export interface SqliteD1 extends D1Database {
   rows<T = Record<string, unknown>>(sql: string, params?: SqlValue[]): T[];
 }
 
-export async function createSqliteD1(): Promise<SqliteD1> {
+/**
+ * `stopBefore`: apply only the migrations whose file name sorts before it (a
+ * migration's data step can then be tested on rows written first; apply the
+ * rest with `applyMigrationsFrom`).
+ */
+export async function createSqliteD1(opts: { stopBefore?: string } = {}): Promise<SqliteD1> {
   const SQL = await initSqlJs();
   const raw = new SQL.Database();
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
   for (const file of files) {
+    if (opts.stopBefore && file >= opts.stopBefore) break;
     raw.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
   }
   raw.exec('PRAGMA foreign_keys = ON');
@@ -96,4 +102,10 @@ export async function createSqliteD1(): Promise<SqliteD1> {
     dump: async () => new ArrayBuffer(0),
   };
   return db as unknown as SqliteD1;
+}
+
+/** Apply the migrations from `first` (a file name prefix, e.g. '0086') onwards. */
+export function applyMigrationsFrom(db: SqliteD1, first: string): void {
+  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+  for (const file of files) if (file >= first) db.raw.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
 }

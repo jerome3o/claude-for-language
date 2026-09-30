@@ -77,6 +77,7 @@ import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
 import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
+import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
 import profileRoutes from './routes/profile';
 import { handleCallQueueMessage } from './services/calls/processing';
@@ -489,6 +490,7 @@ app.route('/api', wordImportRoutes);
 
 // Video calls (experimental): rooms, recording uploads, transcripts, lesson report
 app.route('/api', callsRoutes);
+app.route('/api', boardPagesRoutes);
 // Web Push subscriptions + the call-alerts setting (routes/push.ts).
 app.route('/api', pushRoutes);
 
