@@ -54,6 +54,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.webrtc.VideoTrack
 
@@ -121,7 +122,27 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
 
     fun selectRoute(r: AudioRoute) = audio.choose(r)
 
+    /**
+     * While I share my screen: the drawings on it (theirs and my own, kept or fading) over every other
+     * app. Driven from here, not the composition, so it keeps updating while another app is in front;
+     * hidden while the call screen is in the foreground (its screen tile shows them there).
+     */
+    val overlay = dev.jeromeswannack.chineselearning.lab.data.calls.ScreenAnnotationOverlay(app)
+    val overlayWanted = MutableStateFlow(true)
+    val foreground = MutableStateFlow(true)
+
+    init {
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(controller.state, overlayWanted, foreground) { s, want, fg ->
+                if (want && !fg && s.sharingScreen) s.annotations else null
+            }.distinctUntilChanged().collect { a ->
+                if (a == null || !overlay.permitted()) overlay.hide() else { overlay.show(); overlay.update(a) }
+            }
+        }
+    }
+
     override fun onCleared() {
+        overlay.hide()
         runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
         controller.dispose()
     }
@@ -154,7 +175,7 @@ fun CallRoute(nav: LabNav, id: String) {
     var askedCam by rememberSaveable { mutableStateOf(false) }
     // Bumped on every resume (back from Settings / the permission page) so permissions are re-read.
     var resumes by remember { mutableStateOf(0) }
-    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { resumes++; onPauseOrDispose { } }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { resumes++; vm.foreground.value = true; onPauseOrDispose { vm.foreground.value = false } }
 
     fun access(p: String, asked: Boolean): DeviceAccess = when {
         context.granted(p) -> DeviceAccess.GRANTED
@@ -221,13 +242,11 @@ fun CallRoute(nav: LabNav, id: String) {
         view.keepScreenOn = s.phase == CallPhase.LIVE || s.phase == CallPhase.JOINING
         onDispose { view.keepScreenOn = false }
     }
-    // While I share my screen, the other person's drawings over every app (needs "Display over other apps").
-    val overlay = remember { dev.jeromeswannack.chineselearning.lab.data.calls.ScreenAnnotationOverlay(context.applicationContext) }
-    var overlayWanted by remember { mutableStateOf(true) }
+    // While I share my screen, the drawings on it (theirs and mine) over every other app (needs "Display over other apps").
+    // The ViewModel shows it while the call screen is in the background (see CallViewModel.overlay).
+    val overlay = vm.overlay
+    val overlayWanted by vm.overlayWanted.collectAsStateWithLifecycle()
     val overlayOn = remember(resumes, overlayWanted, s.sharingScreen) { overlayWanted && s.sharingScreen && overlay.permitted() }
-    LaunchedEffect(overlayOn) { if (overlayOn) overlay.show() else overlay.hide() }
-    LaunchedEffect(s.annotations, overlayOn) { if (overlayOn) overlay.update(s.annotations) }
-    DisposableEffect(Unit) { onDispose { overlay.hide() } }
     var confirmLeave by remember { mutableStateOf(false) }
     // Tab-complete on the text board: on by default, remembered per user on this phone (web: localStorage).
     val glossPrefs = remember { context.getSharedPreferences("lab-calls", Context.MODE_PRIVATE) }
@@ -277,9 +296,10 @@ fun CallRoute(nav: LabNav, id: String) {
             onAnnotate = vm.controller::sendAnnotation,
             onPing = vm.controller::sendPing,
             onClearAnnotations = vm.controller::clearAnnotations,
+            onAnnotationsKept = { keep -> vm.controller.setAnnotationsKept(keep); nav.app.haptics.tick() },
             onToggleScreenOverlay = {
-                if (!overlay.permitted()) { overlayWanted = true; context.startActivity(overlay.permissionIntent()) }
-                else overlayWanted = !overlayOn
+                if (!overlay.permitted()) { vm.overlayWanted.value = true; context.startActivity(overlay.permissionIntent()) }
+                else vm.overlayWanted.value = !overlayOn
             },
             onTextSelected = vm.controller::textSelected,
             onTextBlurred = vm.controller::textBlurred,

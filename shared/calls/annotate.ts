@@ -1,9 +1,12 @@
 /**
- * Drawing on a shared screen. The viewer circles something on the other
- * person's shared screen; the strokes travel through the call room (never
- * stored) and show on both sides: over the viewer's video of the screen, and
- * for the sharer over their own preview of it (and, on Chrome desktop, in an
- * always-on-top mini window — a browser can't draw on the real screen).
+ * Drawing on a shared screen. Either person circles something on the shared
+ * screen — the viewer on their video of it, the sharer on their own large view
+ * of it; the strokes travel through the call room (never stored) and show on
+ * both sides in the drawer's colour (the sharer's pen defaults to blue, the
+ * viewer's to red), and for the sharer also in an always-on-top mini window on
+ * Chrome desktop (a browser can't draw on the real screen). Strokes fade a few
+ * seconds after they're finished, or stay while "Keep drawings" is on (one
+ * setting for both people, `annot_mode`).
  *
  * Points are 0..1 of the shared picture (not of any element), so they land on
  * the same spot whatever size either window is. Strokes fade a few seconds
@@ -73,9 +76,20 @@ export function denormalizePoint(p: AnnotPoint, box: VideoSize, video: VideoSize
   return [r.x + p[0] * r.width, r.y + p[1] * r.height];
 }
 
-/** A stroke's opacity: 1 while drawing and for ANNOT_HOLD_MS after, then fading to 0. */
-export function strokeAlpha(doneAt: number | null, now: number): number {
-  if (doneAt === null) return 1;
+/** The pen colour each person starts with, so two people drawing at once are told apart. */
+export const SHARER_ANNOT_COLOR = '#38bdf8';
+export const VIEWER_ANNOT_COLOR = '#f43f5e';
+
+export function defaultAnnotColor(iAmSharing: boolean): string {
+  return iAmSharing ? SHARER_ANNOT_COLOR : VIEWER_ANNOT_COLOR;
+}
+
+/**
+ * A stroke's opacity: 1 while drawing and for ANNOT_HOLD_MS after, then fading
+ * to 0 — or always 1 while drawings are kept (`persist`).
+ */
+export function strokeAlpha(doneAt: number | null, now: number, persist = false): number {
+  if (doneAt === null || persist) return 1;
   const t = now - doneAt - ANNOT_HOLD_MS;
   if (t <= 0) return 1;
   return Math.max(0, 1 - t / ANNOT_FADE_MS);
@@ -88,9 +102,9 @@ export function pingProgress(at: number, now: number): number | null {
 }
 
 /** Drop what has faded away. */
-export function pruneAnnotations<T extends { doneAt: number | null }>(strokes: Record<string, T>, now: number): Record<string, T> {
+export function pruneAnnotations<T extends { doneAt: number | null }>(strokes: Record<string, T>, now: number, persist = false): Record<string, T> {
   const out: Record<string, T> = {};
-  for (const [k, s] of Object.entries(strokes)) if (strokeAlpha(s.doneAt, now) > 0) out[k] = s;
+  for (const [k, s] of Object.entries(strokes)) if (strokeAlpha(s.doneAt, now, persist) > 0) out[k] = s;
   return out;
 }
 

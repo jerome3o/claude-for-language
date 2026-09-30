@@ -16,7 +16,7 @@ import { Whiteboard } from '../components/calls/Whiteboard';
 import { TextBoard } from '../components/calls/TextBoard';
 import { AnnotationLayer } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
-import { ANNOT_COLORS } from '@shared/calls';
+import { ANNOT_COLORS, defaultAnnotColor } from '@shared/calls';
 import {
   arrangeTiles,
   formatOffset,
@@ -131,12 +131,18 @@ export function CallPage() {
   // Drawing on the other person's shared screen / seeing drawings on mine.
   const [remoteSize, setRemoteSize] = useState<VideoSize | null>(null);
   const [annotating, setAnnotating] = useState(false);
-  const [annotColor, setAnnotColor] = useState<string>(ANNOT_COLORS[0]);
+  const [annotColor, setAnnotColor] = useState<string | null>(null); // null = my default for this role
+  const [myScreenSize, setMyScreenSize] = useState<VideoSize | null>(null);
   const [annotPip, setAnnotPip] = useState<AnnotationPip | null>(null);
   const [theyDrawAt, setTheyDrawAt] = useState(0);
   const remoteSharing = !!call.remote?.peer.state.screen;
+  const iShare = !!call.screenStream && !remoteSharing;
+  const pen = annotColor ?? defaultAnnotColor(iShare);
+  const sharing = remoteSharing || !!call.screenStream;
   useEffect(() => {
-    if (!remoteSharing) setAnnotating(false);
+    if (!sharing) setAnnotating(false);
+  }, [sharing]);
+  useEffect(() => {
     // Their screen share starts: put it on the stage (their camera floats beside it).
     if (remoteSharing) dispatch({ type: 'preset', preset: 'screen' });
   }, [remoteSharing, dispatch]);
@@ -357,38 +363,41 @@ export function CallPage() {
     },
     screen: {
       label: remoteSharing ? `${first}’s screen` : 'Your screen',
-      content: remoteSharing ? (
+      content: sharing ? (
         <div className="call-tile-body call-tile-video" data-testid="screen-tile">
-          {remoteScreenStream && <CallVideo stream={remoteScreenStream} screen className="call-remote-screen" testId="remote-screen" onVideoSize={setRemoteSize} />}
+          {remoteSharing ? (
+            remoteScreenStream && <CallVideo stream={remoteScreenStream} screen className="call-remote-screen" testId="remote-screen" onVideoSize={setRemoteSize} />
+          ) : (
+            // My own shared screen, as big as any tile: I can draw on it too.
+            <CallVideo stream={call.screenStream} muted screen className="call-self-screen" testId="my-screen" onVideoSize={setMyScreenSize} />
+          )}
           <AnnotationLayer
             store={call.annotations}
-            video={remoteSize}
+            video={remoteSharing ? remoteSize : myScreenSize}
             interactive={annotating}
-            color={annotColor}
+            color={pen}
             onStroke={call.sendAnnotation}
             onPing={call.sendPing}
-            className="annot-over-remote"
-            testId="annot-remote"
+            className={remoteSharing ? 'annot-over-remote' : 'annot-over-mine'}
+            testId={remoteSharing ? 'annot-remote' : 'annot-self'}
           />
           <div className="annot-tools" data-testid="annot-tools">
             <button type="button" className={`annot-toggle${annotating ? ' on' : ''}`} onClick={() => setAnnotating((v) => !v)} data-testid="annot-toggle">
-              {annotating ? '✓ Done' : `✏️ Draw on ${first}’s screen`}
+              {annotating ? '✓ Done' : remoteSharing ? `✏️ Draw on ${first}’s screen` : '✏️ Draw on your screen'}
             </button>
             {annotating && (
               <>
                 {ANNOT_COLORS.map((c) => (
-                  <button key={c} type="button" className={`annot-swatch${c === annotColor ? ' active' : ''}`} style={{ background: c }} onClick={() => setAnnotColor(c)} aria-label={`Colour ${c}`} />
+                  <button key={c} type="button" className={`annot-swatch${c === pen ? ' active' : ''}`} style={{ background: c }} onClick={() => setAnnotColor(c)} aria-label={`Colour ${c}`} />
                 ))}
-                <button type="button" className="annot-clear" onClick={call.clearAnnotations}>Clear</button>
+                <button type="button" className="annot-clear" onClick={call.clearAnnotations} data-testid="annot-clear">Clear</button>
+                <label className="annot-keep" title="Keep drawings until cleared (for both of you)">
+                  <input type="checkbox" checked={call.annotPersist} onChange={(e) => call.setAnnotationsKept(e.target.checked)} data-testid="annot-keep" /> Keep
+                </label>
                 <span className="annot-hint">Drag to circle · tap to point</span>
               </>
             )}
           </div>
-        </div>
-      ) : call.screenStream ? (
-        <div className="call-tile-body call-tile-video" data-testid="screen-tile">
-          <CallVideo stream={call.screenStream} muted screen className="call-self-screen" onVideoSize={setSelfSize} />
-          <AnnotationLayer store={call.annotations} video={selfSize} testId="annot-self" />
         </div>
       ) : null,
     },
@@ -449,8 +458,18 @@ export function CallPage() {
             {Date.now() - theyDrawAt < 6000
               ? `✏️ ${call.annotations.lastRemoteName || otherName} is drawing on your screen`
               : '🖥️ You’re sharing your screen.'}
-            {!annotationPipSupported() && ' Their drawings show in your preview in the corner.'}
           </span>
+          <button
+            type="button"
+            className="call-share-btn"
+            data-testid="draw-on-my-screen"
+            onClick={() => {
+              dispatch({ type: 'preset', preset: 'screen' });
+              setAnnotating(true);
+            }}
+          >
+            ✏️ Draw on it
+          </button>
           {annotationPipSupported() && (
             annotPip ? (
               <button type="button" className="call-share-btn" onClick={() => { annotPip.close(); setAnnotPip(null); }}>Close mini window</button>

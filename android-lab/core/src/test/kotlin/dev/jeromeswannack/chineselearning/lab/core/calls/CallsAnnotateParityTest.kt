@@ -62,6 +62,28 @@ class CallsAnnotateParityTest {
     }
 
     @Test
+    fun keptDrawingsAndPens() {
+        val kept = root["alphasKept"]!!.jsonArray
+        assertTrue(kept.isNotEmpty())
+        for (c in kept) {
+            val o = c.jsonObject
+            val doneAt = o["doneAt"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.long }
+            assertEquals(o["alpha"]!!.jsonPrimitive.double, CallAnnotate.strokeAlpha(doneAt, o["now"]!!.jsonPrimitive.long, persist = true), "kept alpha $o")
+        }
+        val set = root["pruneSet"]!!.jsonObject.mapValues { (_, v) -> v.jsonObject["doneAt"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.long } }
+        for (c in root["prune"]!!.jsonArray) {
+            val o = c.jsonObject
+            val want = o["kept"]!!.jsonArray.map { it.jsonPrimitive.content }
+            val got = CallAnnotate.pruneAnnotations(set, o["now"]!!.jsonPrimitive.long, o["persist"]!!.jsonPrimitive.content == "true") { it }.keys.toList()
+            assertEquals(want, got, "prune $o")
+        }
+        for (c in root["pens"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["color"]!!.jsonPrimitive.content, CallAnnotate.defaultAnnotColor(o["sharing"]!!.jsonPrimitive.content == "true"), "pen $o")
+        }
+    }
+
+    @Test
     fun sanitizeAndSimplify() {
         for ((i, c) in root["strokes"]!!.jsonArray.withIndex()) {
             val o = c.jsonObject

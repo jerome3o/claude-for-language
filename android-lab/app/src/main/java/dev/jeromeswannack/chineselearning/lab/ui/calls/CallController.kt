@@ -76,14 +76,31 @@ data class TextBoardUi(
     val lastChange: String = "load",
 )
 
-/** Drawings on a shared screen (shared/calls/annotate.ts): mine ("me") and theirs, fading after the pen lifts. */
+/**
+ * Drawings on a shared screen (shared/calls/annotate.ts, web AnnotationStore): mine ("me") and theirs,
+ * fading after the pen lifts — or kept while [persist] ("Keep", `annot_mode`, one setting for both people).
+ */
 data class Annotations(
     val strokes: Map<String, dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke> = emptyMap(),
     val pings: List<dev.jeromeswannack.chineselearning.lab.core.calls.AnnotPing> = emptyList(),
     /** When the other person last drew or pinged, and their name ("… is drawing on your screen"). */
     val lastRemoteAt: Long = 0,
     val lastRemoteName: String = "",
-)
+    /** Keep finished strokes instead of fading them (shared by both people). */
+    val persist: Boolean = false,
+) {
+    /**
+     * Port of AnnotationStore.setPersist: keep / fade. Switching back to fading starts every finished
+     * stroke's fade at [now].
+     */
+    fun withPersist(persist: Boolean, now: Long): Annotations {
+        if (persist == this.persist) return this
+        return copy(
+            persist = persist,
+            strokes = if (persist) strokes else strokes.mapValues { (_, s) -> if (s.doneAt != null) s.copy(doneAt = now) else s },
+        )
+    }
+}
 
 /** Everything the call screen shows (web: the return value of useCall). */
 data class CallState(
@@ -120,6 +137,8 @@ data class CallState(
     val myUserId: String = "",
 ) {
     val sharingScreen: Boolean get() = screenVideo != null
+    /** I share and they don't (web `iShare`): the screen tile shows MY screen and my pen defaults to the sharer's colour. */
+    val iShareScreen: Boolean get() = sharingScreen && remote?.sharing != true
 }
 
 /**
@@ -601,7 +620,7 @@ class CallController(
             is ServerMessage.Welcome -> {
                 val rejoin = selfId != null
                 selfId = msg.clientId
-                _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap()) }
+                _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap(), annotations = it.annotations.withPersist(msg.annotPersist, now())) }
                 text().load(msg.text, msg.textCursors)
                 publishText("load")
                 room?.send(CallProtocol.state(mediaState))
@@ -623,6 +642,7 @@ class CallController(
             is ServerMessage.Annot -> upsertAnnot(msg.stroke, msg.from, msg.name)
             is ServerMessage.AnnotClear -> _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
             is ServerMessage.AnnotPingMsg -> addPing(msg.from, msg.x, msg.y, msg.name)
+            is ServerMessage.AnnotMode -> _state.update { it.copy(annotations = it.annotations.withPersist(msg.persist, now())) }
             is ServerMessage.PeerState -> _state.update { s -> if (remoteId == msg.clientId && s.remote != null) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
             is ServerMessage.Signal -> if (remoteId == msg.from) CallSignal.parse(msg.data)?.let { link?.handleSignal(it) }
             is ServerMessage.Board -> _state.update { s ->
@@ -732,12 +752,12 @@ class CallController(
     // ------------------------------------------------------------ drawing on a shared screen
 
     private fun upsertAnnot(stroke: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke, from: String, name: String? = null) {
-        val now = System.currentTimeMillis()
+        val now = this.now()
         _state.update { s ->
             val a = s.annotations
             val key = "$from:${stroke.id}"
             val prev = a.strokes[key]
-            val live = a.strokes.filterValues { dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.strokeAlpha(it.doneAt, now) > 0 }
+            val live = dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.pruneAnnotations(a.strokes, now, a.persist) { it.doneAt }
             val shown = dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke(stroke, from, if (stroke.done) prev?.doneAt ?: now else null)
             s.copy(annotations = a.copy(
                 strokes = live + (key to shown),
@@ -748,7 +768,7 @@ class CallController(
     }
 
     private fun addPing(from: String, x: Double, y: Double, name: String? = null) {
-        val now = System.currentTimeMillis()
+        val now = this.now()
         _state.update { s ->
             val a = s.annotations
             val pings = a.pings.filter { dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.pingProgress(it.at, now) != null } +
@@ -770,6 +790,12 @@ class CallController(
     fun clearAnnotations() {
         _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
         room?.send(CallProtocol.annotClear())
+    }
+
+    /** "Keep" on the drawing tools: keep drawings until cleared (true) or let them fade — for both people (web setAnnotationsKept). */
+    fun setAnnotationsKept(persist: Boolean) {
+        _state.update { it.copy(annotations = it.annotations.withPersist(persist, now())) }
+        room?.send(CallProtocol.annotMode(persist))
     }
 
     // ------------------------------------------------------------ shared text board

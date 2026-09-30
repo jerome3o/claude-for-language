@@ -161,6 +161,8 @@ data class CallActions(
     val onAnnotate: (dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke) -> Unit = {},
     val onPing: (Double, Double) -> Unit = { _, _ -> },
     val onClearAnnotations: () -> Unit = {},
+    /** "Keep" on the drawing tools: drawings stay until cleared, for both people (`annot_mode`). */
+    val onAnnotationsKept: (Boolean) -> Unit = {},
     /** Show / hide the drawings over other apps while sharing (asks for the permission first). */
     val onToggleScreenOverlay: () -> Unit = {},
     val onReview: () -> Unit = {},
@@ -184,6 +186,8 @@ fun CallScreen(
     video: VideoSlot,
     nowMs: () -> Long = System::currentTimeMillis,
     initialPanel: CallPanel = CallPanel.NONE,
+    /** Screenshots: the drawing tools already on over the shared screen. */
+    initialAnnotating: Boolean = false,
     /** The call's layout (the ViewModel's, remembered per user); null = a local one from [initialPanel] (screenshots). */
     layout: CallLayoutHolder? = null,
 ) {
@@ -196,7 +200,7 @@ fun CallScreen(
         }
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel, layout)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating)
     }
 }
 
@@ -436,7 +440,7 @@ fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
 }
 
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?) {
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
     var layoutSheet by remember { mutableStateOf(false) }
@@ -453,20 +457,21 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     var remoteCamFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
     var remoteScreenFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
     var myScreenFrame by remember { mutableStateOf<VideoFit.Size?>(null) }
-    var annotating by rememberSaveable { mutableStateOf(false) }
-    var annotColor by rememberSaveable { mutableStateOf(dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_COLORS[0]) }
+    var annotating by rememberSaveable(initialAnnotating) { mutableStateOf(initialAnnotating) }
+    // null = my role's default pen (blue while I share, red on their screen) until I pick one.
+    var annotColor by rememberSaveable { mutableStateOf<String?>(null) }
     val remoteSharing = rs?.screen == true
-    val available = CallLayout.Availability(screen = remoteSharing || s.sharingScreen)
+    val sharing = remoteSharing || s.sharingScreen
+    val pen = annotPen(annotColor, s)
+    val available = CallLayout.Availability(screen = sharing)
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Dark).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         val wide = maxWidth >= 640.dp
         // The layout: the ViewModel's (remembered per user) or, in screenshots, a local one.
         val h = holder ?: remember { CallLayoutHolder(initial = layoutForPanel(initialPanel, wide)) }
         val layout by h.layout.collectAsState()
-        LaunchedEffect(remoteSharing) {
-            if (!remoteSharing) annotating = false
-            h.setRemoteSharing(remoteSharing)
-        }
+        LaunchedEffect(remoteSharing) { h.setRemoteSharing(remoteSharing) }
+        LaunchedEffect(sharing) { if (!sharing) annotating = false }
         val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
         val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
         LaunchedEffect(chatVisible, s.chat.size) { if (chatVisible) seenChat = s.chat.size }
@@ -521,19 +526,21 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             })
             if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen") { _ ->
                 Box(Modifier.fillMaxSize().background(Color.Black)) {
-                    if (remoteSharing) {
-                        remote?.screenVideo?.let { FittedVideo(it, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> remoteScreenFrame = f }) }
-                        // Their shared screen: draw on it (circle a character), a tap is a "look here" ping.
-                        AnnotationCanvas(
-                            s.annotations, remoteScreenFrame, Modifier.fillMaxSize(), interactive = annotating, color = annotColor,
-                            onStroke = actions.onAnnotate, onPing = actions.onPing, nowMs = nowMs,
-                        )
-                        AnnotateTools(Modifier.align(Alignment.BottomStart).padding(10.dp), first, annotating, annotColor,
-                            onToggle = { annotating = !annotating }, onColor = { annotColor = it }, onClear = actions.onClearAnnotations)
-                    } else s.screenVideo?.let { mine ->
-                        FittedVideo(mine, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> myScreenFrame = f })
-                        AnnotationCanvas(s.annotations, myScreenFrame, Modifier.fillMaxSize(), nowMs = nowMs)
-                    }
+                    // Their shared screen — or MY own, as big as any tile: either person can draw on it
+                    // (circle a character); a tap is a "look here" ping. Strokes show on both sides.
+                    if (remoteSharing) remote?.screenVideo?.let { FittedVideo(it, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> remoteScreenFrame = f }) }
+                    else s.screenVideo?.let { mine -> FittedVideo(mine, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> myScreenFrame = f }) }
+                    AnnotationCanvas(
+                        s.annotations, if (remoteSharing) remoteScreenFrame else myScreenFrame, Modifier.fillMaxSize(), interactive = annotating, color = pen,
+                        onStroke = actions.onAnnotate, onPing = actions.onPing, nowMs = nowMs,
+                    )
+                    AnnotateTools(
+                        Modifier.align(Alignment.BottomStart).padding(10.dp),
+                        if (remoteSharing) "✏️ Draw on $first’s screen" else "✏️ Draw on your screen",
+                        annotating, pen, s.annotations.persist,
+                        onToggle = { annotating = !annotating; actions.onTick() }, onColor = { annotColor = it; actions.onTick() },
+                        onClear = actions.onClearAnnotations, onKeep = actions.onAnnotationsKept,
+                    )
                 }
             })
             put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true) { _ ->
@@ -577,7 +584,12 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp),
                 onTick = actions.onTick, onSnap = actions.onSnap,
             )
-            if (s.sharingScreen) ShareBar(s.annotations, otherName, info.screenOverlayOn, now, actions.onToggleScreenOverlay)
+            if (s.sharingScreen) ShareBar(s.annotations, otherName, info.screenOverlayOn, now, actions.onToggleScreenOverlay, onDraw = {
+                // "Draw on it": my screen on the stage, drawing on.
+                dispatch(CallLayout.Action.Preset(CallLayout.PresetId.SCREEN))
+                annotating = true
+                actions.onTick()
+            })
             // controls
             val btn = if (wide) 52.dp else 48.dp
             Row(
@@ -714,36 +726,60 @@ private fun TileBadge(text: String, modifier: Modifier, compact: Boolean = false
     }
 }
 
+/** Draw toggle, pens, Clear (both sides) and Keep (both people) — web CallPage's `.annot-tools`. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun AnnotateTools(modifier: Modifier, otherName: String, on: Boolean, color: String, onToggle: () -> Unit, onColor: (String) -> Unit, onClear: () -> Unit) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun AnnotateTools(
+    modifier: Modifier, label: String, on: Boolean, color: String, keep: Boolean,
+    onToggle: () -> Unit, onColor: (String) -> Unit, onClear: () -> Unit, onKeep: (Boolean) -> Unit,
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Text(
-            if (on) "✓ Done" else "✏️ Draw on ${otherName.substringBefore(' ')}’s screen", color = Color.White, fontSize = 14.sp,
+            if (on) "✓ Done" else label, color = Color.White, fontSize = 14.sp,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) Color(0xFFF43F5E) else Color(0xD9111827)).bouncyClickable(onClick = onToggle).heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 10.dp),
         )
         if (on) {
             dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_COLORS.forEach { c ->
                 Box(
-                    Modifier.size(30.dp).clip(CircleShape).background(Color(0xFF000000 or c.removePrefix("#").toLong(16)))
+                    Modifier.align(Alignment.CenterVertically).size(32.dp).clip(CircleShape).background(Color(0xFF000000 or c.removePrefix("#").toLong(16)))
                         .border(if (c == color) 3.dp else 2.dp, if (c == color) Color.White else Color(0x99FFFFFF), CircleShape).bouncyClickable { onColor(c) },
                 )
             }
             Text("Clear", color = Color.White, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xD9111827)).bouncyClickable(onClick = onClear).heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 10.dp))
+            // Keep drawings until cleared (for both of you).
+            Row(
+                Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xD9111827)).bouncyClickable { onKeep(!keep) }.heightIn(min = 40.dp).padding(start = 4.dp, end = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Checkbox(
+                    checked = keep, onCheckedChange = onKeep, modifier = Modifier.size(36.dp),
+                    colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = Color(0xFF38BDF8), uncheckedColor = Color.White, checkmarkColor = Color(0xFF111827)),
+                )
+                Text("Keep", color = Color.White, fontSize = 14.sp)
+            }
+            Text("Drag to circle · tap to point", color = Color(0xFFE5E7EB), fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterVertically).clip(RoundedCornerShape(999.dp)).background(Color(0xB3111827)).padding(horizontal = 8.dp, vertical = 3.dp))
         }
     }
 }
 
-/** While I share: "… is drawing on your screen" and the switch for drawings over other apps. */
+/** While I share: "… is drawing on your screen", "✏️ Draw on it" and the switch for drawings over other apps. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun ShareBar(a: Annotations, otherName: String, overlayOn: Boolean, now: Long, onToggleOverlay: () -> Unit) {
+private fun ShareBar(a: Annotations, otherName: String, overlayOn: Boolean, now: Long, onToggleOverlay: () -> Unit, onDraw: () -> Unit) {
     val drawing = now - a.lastRemoteAt < 6_000
-    Row(
+    androidx.compose.foundation.layout.FlowRow(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 8.dp).clip(RoundedCornerShape(14.dp)).background(if (drawing) Color(0xFF7F1D1D) else DarkCard).padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             if (drawing) "✏️ ${a.lastRemoteName.ifBlank { otherName }} is drawing on your screen" else "🖥️ You’re sharing your screen",
-            color = OnDark, fontSize = 14.sp, modifier = Modifier.weight(1f),
+            color = OnDark, fontSize = 14.sp, modifier = Modifier.weight(1f).widthIn(min = 150.dp).align(Alignment.CenterVertically),
+        )
+        Text(
+            "✏️ Draw on it", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFF0284C7)).bouncyClickable(onClick = onDraw).heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 10.dp),
         )
         Text(
             if (overlayOn) "Drawings over apps: on" else "Show drawings over apps", color = Color(0xFF111827), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,

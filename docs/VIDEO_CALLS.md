@@ -59,6 +59,16 @@ test call), and the **Join the call** button that appears in the relationship's 
   text that has changed since is ignored. Off switch: the board's ⋯ (web, remembered per user on the
   device) / "⇥ Pinyin hints" (Lab). Web: `components/calls/useBoardGloss.ts`,
   `services/calls/boardGloss.ts`; Lab: `ui/calls/TextBoardPanel.kt`, `BoardGlossFetcher.kt`.
+- **Both people draw on a shared screen** — the sharer's own screen is a tile like any other
+  (large, not a corner preview): **✏️ Draw on it** on the share bar puts it on the stage (their
+  camera floats beside it) with the pen on, so the sharer can circle things on their own screen the
+  same way the viewer does on theirs. Strokes go both ways over the same `annot` messages and show
+  on both views; each person's pen starts in their own colour (sharer blue `#38bdf8`, viewer red
+  `#f43f5e`; `defaultAnnotColor`), any swatch can be picked. **Keep** (`annot_mode`, one setting for
+  both, remembered by the room and sent in `welcome.annot_persist`) stops strokes fading until
+  **Clear**; turning it off starts every stroke's fade. Strokes themselves are never stored, so
+  someone who (re)joins sees only new ones. The Document PiP mini window (below) shows both people's
+  strokes; the Lab app's overlay too.
 - **Drawing on a shared screen** — when one person shares their screen, the other taps
   **✏️ Draw on …'s screen** over it: a drag is a stroke (circle a character), a quick tap a "look
   here" ping; strokes fade ~3 s after the pen lifts, **Clear** clears. Points are normalised to the

@@ -674,6 +674,19 @@
 .annot-toggle.on { background: #f43f5e; }
 .annot-swatch { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.85); cursor: pointer; padding: 0; }
 .annot-swatch.active { box-shadow: 0 0 0 2px #111827, 0 0 0 4px #fff; }
+.annot-keep {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 40px;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.85);
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.annot-keep input { width: 18px; height: 18px; }
 .annot-hint { font-size: 0.75rem; color: #e5e7eb; background: rgba(17, 24, 39, 0.7); padding: 0.15rem 0.5rem; border-radius: 999px; }
 .tile-screen .annot-layer { z-index: 2; }
 
