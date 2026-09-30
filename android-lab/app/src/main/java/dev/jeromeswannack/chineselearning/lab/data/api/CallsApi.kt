@@ -23,6 +23,8 @@ data class CallListItemDto(
     val other_user_name: String? = null,
     val segment_count: Int = 0,
     val has_summary: Boolean = false,
+    /** Who is connected to the call's room right now (live calls; absent from an older server). */
+    val present_user_ids: List<String>? = null,
 )
 
 @Serializable

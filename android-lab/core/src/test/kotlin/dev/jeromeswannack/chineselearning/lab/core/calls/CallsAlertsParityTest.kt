@@ -26,7 +26,10 @@ class CallsAlertsParityTest {
 
     private fun calls(e: JsonElement) = e.jsonArray.map {
         val o = it.jsonObject
-        CallAlerts.LiveCall(str(o["id"])!!, str(o["relationship_id"]), str(o["created_by"])!!, str(o["status"])!!, str(o["created_at"])!!, str(o["other_user_name"]))
+        CallAlerts.LiveCall(
+            str(o["id"])!!, str(o["relationship_id"]), str(o["created_by"])!!, str(o["status"])!!, str(o["created_at"])!!, str(o["other_user_name"]),
+            presentUserIds = (o["present_user_ids"] as? kotlinx.serialization.json.JsonArray)?.map { p -> p.jsonPrimitive.content },
+        )
     }
 
     @Test

@@ -8,6 +8,7 @@ import {
   callToRing,
   parseCallTime,
   pickCallBanner,
+  someoneElseInCall,
   type LiveCallLike,
 } from './alerts';
 
@@ -115,5 +116,44 @@ describe('push payloads', () => {
     expect(start).toMatchObject({ type: 'call', url: '/calls/c1', title: '📹 王老师 is calling' });
     expect(missed).toMatchObject({ type: 'call_missed', url: '/connections/rel-1' });
     expect(start.tag).toBe(missed.tag);
+  });
+});
+
+describe('presence decides who is "calling"', () => {
+  const ctx = { myUserId: 'me', path: '/', now: NOW };
+  const ringCtx = { myUserId: 'me', now: NOW, rung: [] as string[], mode: 'ring' as const, path: '/' };
+
+  it('someoneElseInCall: another person connected and me not; null when the server said nothing', () => {
+    expect(someoneElseInCall(call('c1', { present_user_ids: ['tutor'] }), 'me')).toBe(true);
+    expect(someoneElseInCall(call('c1', { present_user_ids: [] }), 'me')).toBe(false);
+    expect(someoneElseInCall(call('c1', { present_user_ids: ['me'] }), 'me')).toBe(false);
+    expect(someoneElseInCall(call('c1', { present_user_ids: ['me', 'tutor'] }), 'me')).toBe(false);
+    expect(someoneElseInCall(call('c1'), 'me')).toBeNull();
+    expect(someoneElseInCall(call('c1', { present_user_ids: null }), 'me')).toBeNull();
+  });
+
+  it('a live row nobody is in shows no banner and never rings (both left, or the caller never came)', () => {
+    const empty = call('c1', { present_user_ids: [] });
+    expect(pickCallBanner([empty], ctx)).toBeNull();
+    expect(pickCallBanner([call('mine', { created_by: 'me', present_user_ids: [] })], ctx)).toBeNull();
+    expect(callToRing([empty], ringCtx)).toBeNull();
+  });
+
+  it('the banner clears as soon as the caller leaves (next poll) and never shows while I am in the call elsewhere', () => {
+    expect(pickCallBanner([call('c1', { present_user_ids: ['tutor'] })], ctx)?.kind).toBe('incoming');
+    expect(pickCallBanner([call('c1', { present_user_ids: [] })], ctx)).toBeNull();
+    expect(pickCallBanner([call('c1', { present_user_ids: ['me', 'tutor'] })], ctx)).toBeNull();
+    expect(callToRing([call('c1', { present_user_ids: ['tutor'] })], ringCtx)?.id).toBe('c1');
+  });
+
+  it('with presence, age no longer hides a call someone is really in; my call with the partner waiting offers Rejoin', () => {
+    const old = call('c1', { created_at: sqlTime(CALL_BANNER_MAX_AGE_MS + 60_000), present_user_ids: ['tutor'] });
+    expect(pickCallBanner([old], ctx)?.call_id).toBe('c1');
+    expect(pickCallBanner([call('mine', { created_by: 'me', present_user_ids: ['tutor'] })], ctx)).toMatchObject({ kind: 'rejoin', action: 'Rejoin' });
+  });
+
+  it('a solo test call is never announced once presence is known (nobody else can be in it)', () => {
+    const solo = call('solo', { relationship_id: null, created_by: 'me', other_user_name: null, present_user_ids: [] });
+    expect(pickCallBanner([solo], { ...ctx, includeTest: true })).toBeNull();
   });
 });

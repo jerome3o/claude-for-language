@@ -83,16 +83,22 @@ export interface CreateCallInput {
   title?: string | null;
 }
 
+/** A live call in the relationship younger than this is joined instead of starting a second one. */
+export const REUSE_LIVE_CALL_MINUTES = 10;
+
 /**
  * Start a call. With a relationship, a line goes into its chat so the other
  * side sees a Join link (and the usual unread badge / notification fires).
+ * When the relationship already has a call that started in the last
+ * REUSE_LIVE_CALL_MINUTES (the other person pressed "call" at the same time),
+ * that call is returned with `reused: true` and nothing is posted.
  */
 export async function createCall(
   db: D1Database,
   userId: string,
   input: CreateCallInput,
   opts: { joinUrl?: (callId: string) => string } = {},
-): Promise<CallRow> {
+): Promise<CallRow & { reused?: boolean }> {
   const relId = input.relationship_id || null;
   if (relId) {
     try {
@@ -105,10 +111,34 @@ export async function createCall(
   }
   const id = generateId();
   const title = (input.title || '').trim().slice(0, 120) || null;
-  await db
-    .prepare(`INSERT INTO calls (id, relationship_id, created_by, title, status) VALUES (?, ?, ?, ?, 'live')`)
-    .bind(id, relId, userId, title)
-    .run();
+  if (relId) {
+    // Both people pressing "Video call" at the same moment used to make two calls: each joined
+    // one, and the other stayed "live" with nobody in it. One statement, so the check and the
+    // insert can't interleave: a live call in this relationship started in the last few minutes
+    // is returned instead (both end up in the same room).
+    const res = await db
+      .prepare(
+        `INSERT INTO calls (id, relationship_id, created_by, title, status)
+         SELECT ?, ?, ?, ?, 'live'
+          WHERE NOT EXISTS (SELECT 1 FROM calls WHERE relationship_id = ? AND status = 'live' AND created_at >= datetime('now', ?))`,
+      )
+      .bind(id, relId, userId, title, relId, `-${REUSE_LIVE_CALL_MINUTES} minutes`)
+      .run();
+    if ((res.meta?.changes ?? 0) === 0) {
+      const existing = await db
+        .prepare(`SELECT * FROM calls WHERE relationship_id = ? AND status = 'live' ORDER BY created_at DESC LIMIT 1`)
+        .bind(relId)
+        .first<CallRow>();
+      if (existing) return Object.assign(existing, { reused: true });
+      // It ended in between: make a new one after all.
+      await db.prepare(`INSERT INTO calls (id, relationship_id, created_by, title, status) VALUES (?, ?, ?, ?, 'live')`).bind(id, relId, userId, title).run();
+    }
+  } else {
+    await db
+      .prepare(`INSERT INTO calls (id, relationship_id, created_by, title, status) VALUES (?, ?, ?, ?, 'live')`)
+      .bind(id, relId, userId, title)
+      .run();
+  }
   if (relId && opts.joinUrl) {
     try {
       let conversationId = await fetchLastConversationId(db, relId);
@@ -134,6 +164,8 @@ export interface CallListItem {
   other_user_name: string | null;
   segment_count: number;
   has_summary: boolean;
+  /** Who is connected to the room right now (live calls only; from the room, see services/calls/presence.ts). */
+  present_user_ids?: string[];
 }
 
 /** Calls the user is part of, newest first (optionally one relationship's, or only live ones). */

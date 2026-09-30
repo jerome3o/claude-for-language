@@ -18,6 +18,8 @@ export interface CallListItem {
   other_user_name: string | null;
   segment_count: number;
   has_summary: boolean;
+  /** Who is connected to the call's room right now (live calls; absent from an older server). */
+  present_user_ids?: string[];
 }
 
 export interface CallInfo {

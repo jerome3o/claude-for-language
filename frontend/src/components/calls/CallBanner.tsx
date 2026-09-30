@@ -79,7 +79,7 @@ export function CallBannerView({ banner, variant, onJoin, onDismiss }: { banner:
 }
 
 /** The banner for the call to announce here (optionally only one relationship's), or nothing. */
-export function LiveCallBanner({ variant, relationshipId, includeTest, dismissible = variant !== 'inline' }: { variant: CallBannerVariant; relationshipId?: string | null; includeTest?: boolean; dismissible?: boolean }) {
+export function LiveCallBanner({ variant, relationshipId, includeTest, dismissible = true }: { variant: CallBannerVariant; relationshipId?: string | null; includeTest?: boolean; dismissible?: boolean }) {
   const { user } = useAuth();
   const calls = useLiveCalls();
   const dismissed = useDismissedCalls();
