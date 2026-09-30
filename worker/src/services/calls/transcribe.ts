@@ -195,9 +195,18 @@ async function sonioxFetch<T>(apiKey: string, path: string, init: RequestInit = 
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
-export async function transcribeWithSoniox(apiKey: string, bytes: Uint8Array, mime: string): Promise<RawSegment[]> {
+export interface SonioxAsyncOptions {
+  /** Name the upload carries (Soniox detects the format from the bytes; the name is cosmetic). */
+  filename?: string;
+  /** Wait before each status check: `first` ms for the first 10, then `later` ms. A few-second
+   *  pronunciation take is done in about a second, so it polls faster than a 5-minute call piece. */
+  pollMs?: { first: number; later: number };
+}
+
+export async function transcribeWithSoniox(apiKey: string, bytes: Uint8Array, mime: string, opts: SonioxAsyncOptions = {}): Promise<RawSegment[]> {
   const form = new FormData();
-  form.append('file', new Blob([bytes], { type: baseMime(mime) }), 'piece.webm');
+  form.append('file', new Blob([bytes], { type: baseMime(mime) }), opts.filename ?? 'piece.webm');
+  const poll = opts.pollMs ?? { first: 1000, later: 3000 };
   const file = await sonioxFetch<{ id: string }>(apiKey, '/files', { method: 'POST', body: form });
   let transcriptionId: string | null = null;
   try {
@@ -209,7 +218,7 @@ export async function transcribeWithSoniox(apiKey: string, bytes: Uint8Array, mi
     transcriptionId = job.id;
     // A 5-minute piece usually finishes in seconds; give up after ~4 minutes.
     for (let i = 0; i < 80; i++) {
-      await new Promise((r) => setTimeout(r, i < 10 ? 1000 : 3000));
+      await new Promise((r) => setTimeout(r, i < 10 ? poll.first : poll.later));
       const status = await sonioxFetch<{ status: string; error_message?: string }>(apiKey, `/transcriptions/${job.id}`);
       if (status.status === 'completed') break;
       if (status.status === 'error') throw new Error(`Soniox: ${status.error_message || 'transcription failed'}`);

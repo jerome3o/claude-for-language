@@ -559,6 +559,7 @@ export function StudyCard({
     isOffline: transcriptionOffline,
     error: transcriptionError,
     transcribe,
+    retry: retryTranscription,
     reset: resetTranscription,
   } = useTranscription();
 
@@ -1220,7 +1221,18 @@ export function StudyCard({
     }
 
     if (transcriptionError) {
-      return null; // Fail silently — the recording is still saved
+      // Never silent: the recording is saved either way, and a tap sends the same take again.
+      return (
+        <button
+          type="button"
+          className="transcription-result transcription-failed"
+          data-testid="transcription-retry"
+          onClick={(e) => { e.stopPropagation(); retryTranscription(); }}
+        >
+          Couldn’t transcribe — tap to retry
+          <span className="transcription-failed-note">Your recording is saved</span>
+        </button>
+      );
     }
 
     if (transcriptionComparison) {

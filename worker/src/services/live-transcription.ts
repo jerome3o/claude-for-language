@@ -45,6 +45,8 @@ export async function mintLiveSession(
       expires_in_seconds: LIVE_KEY_TTL_SECONDS,
       client_reference_id: userId.slice(0, 256),
       max_session_duration_seconds: LIVE_MAX_SESSION_SECONDS,
+      // The device reuses one key for every take until a minute before it expires.
+      single_use: false,
     }),
   });
   if (!res.ok) {

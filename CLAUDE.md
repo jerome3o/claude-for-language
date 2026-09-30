@@ -795,9 +795,15 @@ before expiry, fetched ahead of time when a read card shows. The protocol (confi
 every 250 ms, `audio_format: auto`) + `useTranscription(…, live)`. Lab: `ui/study/LiveTranscription.kt` (a port of the
 protocol + `SonioxStream` on OkHttp) with `VoiceRecorder.startLive` (AudioRecord 16 kHz PCM → `pcm_s16le`, the take kept as
 WAV). **Fallback**: no key, the mint fails, the socket errors, empty text or a 4 s timeout → the take is uploaded to
-`POST /api/transcribe` (Workers AI Whisper, the old path) exactly as before; offline shows "will transcribe when online".
+`POST /api/transcribe` with `live_error` (why live gave nothing — logged as `[transcribe] live stream failed on <client>: …`,
+the only place a device's live failure reaches the server logs); the server tries **Whisper → Soniox async
+(stt-async-v5) → Gemini** (`services/take-transcription.ts`, each provider's own error logged); offline shows "will
+transcribe when online". **Never silent**: when live and the upload both fail the card shows **"Couldn't transcribe — tap
+to retry"** (web `services/takeTranscription.ts` `transcribeTakeOutcome` + `useTranscription().retry`; Lab
+`TakeTranscription.outcome` + `StudyViewModel.retryTranscription`), which re-sends the SAME saved take; the recording is
+kept either way. A take Soniox refuses for its key (401 / 403, `liveFailureInvalidatesKey`) drops the cached key.
 - `POST /api/transcribe/live` - `{ provider: 'soniox', api_key, expires_at, websocket_url, model, language_hints }` or `{ provider: 'upload' }`; 502 when Soniox refuses (client falls back)
-- `POST /api/transcribe` - multipart `file` → `{ text, language }` (Whisper; the fallback)
+- `POST /api/transcribe` - multipart `file` (+ `live_error`, `client`) → `{ text, language, provider }`; 502 `{ error, providers }` when every provider failed (`routes/transcription.ts`)
 - `GET /api/admin/transcription` - admin: which providers are configured (booleans only, never a key)
 
 ### AI

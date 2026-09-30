@@ -53,7 +53,10 @@ object SonioxProtocol {
     /** `applySonioxMessage`: folds one server message into the running transcript. */
     fun apply(state: Transcript, raw: String): Transcript {
         val msg = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return state
-        if (msg.containsKey("error_code") || msg.containsKey("error_message")) {
+        // Only a real error: a null / absent `error_code` next to tokens is a normal response.
+        val errCode = msg["error_code"]?.takeUnless { it is kotlinx.serialization.json.JsonNull }
+        val errMessage = msg["error_message"]?.takeUnless { it is kotlinx.serialization.json.JsonNull }
+        if (errCode != null || errMessage != null) {
             val code = (msg["error_code"] as? JsonPrimitive)?.contentOrNull.orEmpty()
             val message = (msg["error_message"] as? JsonPrimitive)?.contentOrNull ?: "error"
             return state.copy(error = "Soniox $code: $message".trim())
@@ -69,6 +72,12 @@ object SonioxProtocol {
         val finished = state.finished || (msg["finished"] as? JsonPrimitive)?.booleanOrNull == true
         return Transcript(finalText, partial.toString(), finished, state.error)
     }
+
+    /**
+     * `liveFailureInvalidatesKey`: Soniox refused the key itself (401 / 403), so drop the cached
+     * one and mint a fresh key for the next take instead of failing until it expires.
+     */
+    fun invalidatesKey(reason: String): Boolean = Regex("^Soniox (401|403)\\b").containsMatchIn(reason.trim())
 
     /** `liveKeyUsable`: reuse a temporary key until a minute before it expires. */
     fun usable(session: LiveTranscriptionSessionDto?, nowMs: Long, marginMs: Long = 60_000): Boolean {
@@ -88,6 +97,12 @@ class LiveSessionCache(private val now: () -> Long = System::currentTimeMillis, 
     private var job: Job? = null
 
     fun usable(): LiveTranscriptionSessionDto? = session?.takeIf { SonioxProtocol.usable(it, now()) }
+
+    /** The key was refused: forget it so the next read card mints a fresh one. */
+    fun invalidate() {
+        session = null
+        retryAfter = 0L
+    }
 
     fun prefetch(scope: CoroutineScope) {
         if (session?.provider == "upload" || usable() != null || now() < retryAfter || job?.isActive == true) return

@@ -33,6 +33,7 @@ describe('mintLiveSession', () => {
       expires_in_seconds: LIVE_KEY_TTL_SECONDS,
       client_reference_id: 'user-42',
       max_session_duration_seconds: 300,
+      single_use: false,
     });
   });
 

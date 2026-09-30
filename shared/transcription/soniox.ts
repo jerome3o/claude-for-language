@@ -86,7 +86,8 @@ export function applySonioxMessage(state: SonioxTranscript, raw: string): Soniox
   } catch {
     return state;
   }
-  if (msg.error_code !== undefined || msg.error_message !== undefined) {
+  // Only a real error: a null / absent `error_code` next to tokens is a normal response.
+  if ((msg.error_code !== undefined && msg.error_code !== null) || (msg.error_message !== undefined && msg.error_message !== null)) {
     return { ...state, error: `Soniox ${String(msg.error_code ?? '')}: ${String(msg.error_message ?? 'error')}`.trim() };
   }
   let finalText = state.finalText;
@@ -109,4 +110,13 @@ export function liveKeyUsable(session: LiveTranscriptionSession | null | undefin
   if (!session || session.provider !== 'soniox') return false;
   const expires = Date.parse(session.expires_at);
   return Number.isFinite(expires) && expires - marginMs > nowMs;
+}
+
+/**
+ * The live stream was refused because of the key (401 unauthenticated, 403 expired / not
+ * allowed): drop the cached temporary key so the next take mints a fresh one instead of
+ * failing the same way until it expires.
+ */
+export function liveFailureInvalidatesKey(reason: string): boolean {
+  return /^Soniox (401|403)\b/.test(reason.trim());
 }
