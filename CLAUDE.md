@@ -207,6 +207,12 @@ Jerome wants it at **full feature parity with the web app, to the same standard*
   Changing those TS files without the matching Kotlin change turns the Lab build red.
 - Native sign-in: `/api/auth/login?client=lab&nonce=…` → callback redirects to
   `chineselearning-lab://auth?session_token=…&nonce=…` (`NATIVE_AUTH_CLIENTS`, `services/auth.ts`).
+- **Google Play internal testing**: each `main` build also runs `:app:bundleRelease` (same key = the
+  Play *upload key*), attaches `chinese-learning-lab-v0.N.aab` to the pre-release and uploads it to the
+  internal track when `PLAY_SERVICE_ACCOUNT_JSON` is set (non-fatal; warning annotation on failure).
+  `versionCode` = the workflow run number for APK and AAB. `targetSdk` must meet Play's current
+  target-API rule. Setup + the Play-vs-Obtainium signing caveat: [android-lab/PLAY.md](android-lab/PLAY.md).
+  The public privacy policy Play links to is `/privacy` (`frontend/src/pages/PrivacyPage.tsx`).
 
 ## Key Concepts
 
