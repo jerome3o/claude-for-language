@@ -38,7 +38,7 @@ import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storag
 import { handleLessonImageMessage, lessonImageHash, normalizeImagePrompt, LESSON_IMAGE_PREFIX, type LessonImageMessage } from './services/lesson-images';
 import lessonEditor from './routes/lesson-editor';
 import readerEditor from './routes/reader-editor';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, bytesToBase64, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -2752,46 +2752,9 @@ app.get('/api/audio/*', async (c) => {
   return new Response(object.body, { headers });
 });
 
-// ============ Transcription (Workers AI Whisper) ============
-// The upload path — the fallback. Streaming (Soniox, ready the moment the learner stops)
-// is POST /api/transcribe/live in routes/transcription.ts.
-
-app.post('/api/transcribe', async (c) => {
-  const user = c.get('user');
-  if (!user) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-
-  const formData = await c.req.formData();
-  const file = formData.get('file') as unknown;
-
-  if (!file || typeof file !== 'object' || !('arrayBuffer' in file)) {
-    return c.json({ error: 'file is required' }, 400);
-  }
-
-  const blob = file as Blob;
-  const arrayBuffer = await blob.arrayBuffer();
-
-  try {
-    // Use whisper-large-v3-turbo for better accuracy and Chinese language support
-    // It supports language, initial_prompt, and prefix parameters unlike basic whisper
-    const base64 = bytesToBase64(new Uint8Array(arrayBuffer));
-    const result = await c.env.AI.run('@cf/openai/whisper-large-v3-turbo' as any, {
-      audio: base64,
-      language: 'zh',
-      initial_prompt: '以下是普通话的句子。',
-    });
-
-    const res = result as Record<string, any>;
-    return c.json({
-      text: res.text || '',
-      language: res.transcription_info?.language || res.detected_language || 'zh',
-    });
-  } catch (err) {
-    console.error('[transcribe] Whisper error:', err);
-    return c.json({ error: 'Transcription failed' }, 500);
-  }
-});
+// ============ Transcription ============
+// POST /api/transcribe (the upload path: Whisper → Soniox async → Gemini) and
+// POST /api/transcribe/live (the temporary Soniox key) live in routes/transcription.ts.
 
 // ============ AI Generation ============
 

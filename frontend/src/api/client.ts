@@ -842,6 +842,8 @@ export function getAudioUrl(key: string): string {
 export interface TranscriptionResult {
   text: string;
   language: string;
+  /** Which server provider answered the upload (whisper | soniox | gemini). */
+  provider?: string;
 }
 
 /** POST /api/transcribe/live — a short-lived Soniox key for streaming, or { provider: 'upload' }. */
@@ -849,9 +851,16 @@ export async function getLiveTranscriptionSession(): Promise<import('@shared/tra
   return fetchJSON('/transcribe/live', { method: 'POST' });
 }
 
-export async function transcribeAudio(audioBlob: Blob): Promise<TranscriptionResult> {
+/**
+ * POST /api/transcribe — the upload path. `liveError` says why the live stream gave nothing
+ * (logged by the server, so a broken live path shows up in its logs).
+ */
+export async function transcribeAudio(audioBlob: Blob, opts: { liveError?: string | null } = {}): Promise<TranscriptionResult> {
   const formData = new FormData();
-  formData.append('file', audioBlob, 'recording.webm');
+  const ext = audioBlob.type.includes('mp4') ? 'm4a' : audioBlob.type.includes('ogg') ? 'ogg' : audioBlob.type.includes('wav') ? 'wav' : 'webm';
+  formData.append('file', audioBlob, `recording.${ext}`);
+  formData.append('client', 'web');
+  if (opts.liveError) formData.append('live_error', opts.liveError.slice(0, 200));
 
   const headers: Record<string, string> = {};
   if (sessionToken) {

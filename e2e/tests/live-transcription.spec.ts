@@ -17,8 +17,9 @@ test.use({
 
 const FAKE_WS = 'wss://fake-soniox.test/transcribe-websocket';
 
-async function fakeSoniox(page: import('@playwright/test').Page) {
-  await page.addInitScript((fakeUrl) => {
+/** `refuse`: Soniox answers the config with an error (402 out of credit) and closes — the live path fails. */
+async function fakeSoniox(page: import('@playwright/test').Page, mode: 'ok' | 'refuse' = 'ok') {
+  await page.addInitScript(([fakeUrl, fakeMode]) => {
     const Real = window.WebSocket;
     const stats = { config: null as null | Record<string, unknown>, chunks: 0, ended: false };
     (window as unknown as { __soniox: typeof stats }).__soniox = stats;
@@ -33,7 +34,17 @@ async function fakeSoniox(page: import('@playwright/test').Page) {
         setTimeout(() => { this.readyState = 1; this.onopen?.(new Event('open')); }, 20);
       }
       send(data: unknown) {
-        if (!stats.config) { stats.config = JSON.parse(String(data)); return; }
+        if (!stats.config) {
+          stats.config = JSON.parse(String(data));
+          if (fakeMode === 'refuse') {
+            setTimeout(() => {
+              this.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ tokens: [], error_code: 402, error_type: 'organization_balance_exhausted', error_message: 'Balance exhausted' }) }));
+              this.readyState = 3;
+              this.onclose?.(new CloseEvent('close'));
+            }, 20);
+          }
+          return;
+        }
         const empty = data === '' || (data instanceof Blob && data.size === 0);
         if (!empty) { stats.chunks++; return; }
         stats.ended = true;
@@ -48,7 +59,17 @@ async function fakeSoniox(page: import('@playwright/test').Page) {
     window.WebSocket = function (url: string | URL, protocols?: string | string[]) {
       return String(url) === fakeUrl ? new FakeSoniox(String(url)) : new Real(url, protocols);
     } as unknown as typeof WebSocket;
-  }, FAKE_WS);
+  }, [FAKE_WS, mode] as const);
+}
+
+async function routeLiveKey(page: import('@playwright/test').Page) {
+  await page.route('**/api/transcribe/live', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      provider: 'soniox', api_key: 'temp:e2e', expires_at: new Date(Date.now() + 1800e3).toISOString(),
+      websocket_url: FAKE_WS, model: 'stt-rt-v5', language_hints: ['zh', 'en'],
+    }),
+  }));
 }
 
 async function recordOneTake(page: import('@playwright/test').Page) {
@@ -104,5 +125,47 @@ test.describe('Live pronunciation transcription', () => {
 
     await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
     expect(uploads).toBe(1);
+  });
+
+  /**
+   * The bug of 30 Sep 2026: the live stream failed AND the upload failed (Whisper 500), so
+   * "Transcribing…" vanished and nothing showed. Now the card says so, the upload carried the
+   * live failure reason (the server logs it), and a tap re-sends the SAME saved take.
+   */
+  test('live and upload both failing shows "Couldn’t transcribe — tap to retry", and the retry re-sends the take', async ({ authenticatedPage: page, testUser, request }) => {
+    await request.post('http://localhost:8787/api/decks/starter', { headers: { Authorization: `Bearer ${testUser.sessionToken}` } });
+    await fakeSoniox(page, 'refuse');
+    await routeLiveKey(page);
+    const uploads: Array<{ liveError: string | null; client: string | null; size: number }> = [];
+    let failUploads = true;
+    await page.route(/\/api\/transcribe$/, async (route) => {
+      const body = route.request().postDataBuffer() ?? Buffer.alloc(0);
+      const text = body.toString('latin1');
+      const field = (name: string) => text.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`))?.[1] ?? null;
+      // The file part's bytes: from after its headers to the next boundary.
+      const start = text.indexOf('\r\n\r\n', text.indexOf('filename=')) + 4;
+      const end = text.indexOf('\r\n--', start);
+      uploads.push({ liveError: field('live_error'), client: field('client'), size: end - start });
+      if (failUploads) return route.fulfill({ status: 502, json: { error: "Couldn't transcribe the recording", providers: ['whisper'] } });
+      return route.fulfill({ json: { text: '是', language: 'zh', provider: 'soniox' } });
+    });
+    await page.gotoAuthenticated('/');
+    await page.waitForSelector('.home-study-card');
+
+    await recordOneTake(page);
+
+    const retry = page.getByTestId('transcription-retry');
+    await expect(retry).toBeVisible({ timeout: 8000 });
+    await expect(retry).toContainText('Couldn’t transcribe — tap to retry');
+    await expect(retry).toContainText('Your recording is saved');
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]).toMatchObject({ liveError: 'Soniox 402: Balance exhausted', client: 'web' });
+
+    failUploads = false;
+    await retry.click();
+    await expect(page.getByText(/You said: shì \(是\)/)).toBeVisible({ timeout: 5000 });
+    expect(uploads).toHaveLength(2);
+    expect(uploads[1].liveError).toBeNull(); // the retry goes straight to the upload
+    expect(uploads[1].size).toBe(uploads[0].size); // …with the same saved take
   });
 });
