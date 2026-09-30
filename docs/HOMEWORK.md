@@ -89,7 +89,9 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   small line. Nothing active → the card is not shown.
 - **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: the word (tap ▶ for
   audio), *Show* reveals pinyin / meaning / sentence, then *Not yet* / *Got it*; a progress line; a
-  celebration at the end, and for a one-off-only deck *Add these words to my daily review*. Lesson: the
+  celebration at the end, and for a one-off-only deck *Add these words to my daily review*. It is laid out like a
+  study card: the card fills the space under the header (the Lab app flips it to the answer like study), and the
+  actions sit in one bottom slot within thumb reach, above the system navigation bar. Lesson: the
   regular lesson player. Reader: the regular reader.
 - FSRS enrolment is whatever the tutor chose; the student can still add a one-off deck to daily review.
 

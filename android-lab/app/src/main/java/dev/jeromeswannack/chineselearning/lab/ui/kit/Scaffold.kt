@@ -9,12 +9,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -43,8 +40,8 @@ val MaxContentWidth: Dp = 720.dp
 
 /**
  * The standard screen: title row (with ← when [onBack] is set, trailing [actions]), then a
- * scrolling list. Handles the status bar, the keyboard and the unfolded width; the tab bar
- * pads the bottom itself (LabShell), so screens never measure it.
+ * scrolling list. Handles the status bar, the navigation bar, the keyboard and the unfolded
+ * width, so screens never measure them (see [LabScreenFrame]).
  *
  *   LabScreen("Readers", onBack = nav::back) {
  *       item { SectionHeader("Today") }
@@ -78,6 +75,11 @@ fun LabScreen(
 /**
  * The frame alone (background, insets, max width) for screens that lay out their own body
  * (editors, players, two-pane layouts). Put [ScreenTitle] at the top yourself.
+ *
+ * It pads every system bar (safeDrawing), bottom included: the app draws edge to edge, so on
+ * an immersive route (no tab bar) a bottom button would otherwise sit under the gesture /
+ * navigation bar. While the tab bar shows, LabShell has already consumed the navigation bar
+ * (the tab bar pads it), so the bottom padding is 0 there — a screen never adds it twice.
  */
 @Composable
 fun LabScreenFrame(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -85,8 +87,7 @@ fun LabScreenFrame(modifier: Modifier = Modifier, content: @Composable () -> Uni
         modifier
             .fillMaxSize()
             .background(Lab.colors.background)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .imePadding(),
+            .windowInsetsPadding(WindowInsets.safeDrawing),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(Modifier.fillMaxSize().widthIn(max = MaxContentWidth)) { content() }

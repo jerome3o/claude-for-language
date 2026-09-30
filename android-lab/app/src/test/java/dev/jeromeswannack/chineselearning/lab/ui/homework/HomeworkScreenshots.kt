@@ -151,4 +151,27 @@ class HomeworkScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun passUnfolded() = shoot("homework-11-pass-unfolded") { HomeworkPassScreen(deckPass(true), PassActions()) }
+
+    // The pass laid out like a study card (card fills the space, answer bar at the bottom):
+    // dark, font scale 1.3 and the unfolded Fold.
+    @Test fun passFrontDark() = shoot("homework-16-pass-front-dark", dark = true) { HomeworkPassScreen(deckPass(false), PassActions()) }
+
+    @Test fun passRevealedDark() = shoot("homework-17-pass-revealed-dark", dark = true) { HomeworkPassScreen(deckPass(true), PassActions()) }
+
+    @Test fun passFrontLargeFont() = shoot("homework-18-pass-front-font130") { LargeFont { HomeworkPassScreen(deckPass(false), PassActions()) } }
+
+    @Test fun passRevealedLargeFont() = shoot("homework-19-pass-revealed-font130", dark = true) { LargeFont { HomeworkPassScreen(deckPass(true), PassActions()) } }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun passFrontUnfolded() = shoot("homework-20-pass-front-unfolded") { HomeworkPassScreen(deckPass(false), PassActions()) }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun passRevealedUnfoldedLargeFont() = shoot("homework-21-pass-revealed-unfolded-font130") { LargeFont { HomeworkPassScreen(deckPass(true), PassActions()) } }
+}
+
+/** Android's font size setting at 130 %. */
+@androidx.compose.runtime.Composable
+private fun LargeFont(content: @androidx.compose.runtime.Composable () -> Unit) {
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, 1.3f), content = content)
 }

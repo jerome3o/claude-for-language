@@ -16,6 +16,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.platform.LocalDensity
@@ -108,10 +112,13 @@ fun LabShell(
 fun ShellFrame(tabs: List<TabSpec>, active: TabId?, showBar: Boolean, onSelect: (TabSpec) -> Unit, badges: Map<TabId, Int> = emptyMap(), content: @Composable () -> Unit) {
     // Measured, not WindowInsets.isImeVisible: that reads true where no keyboard exists (tests).
     val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val barShowing = showBar && !imeUp
     Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
-        Box(Modifier.weight(1f)) { content() }
+        // The tab bar pads the navigation bar itself, so while it shows the screens above it
+        // must not pad it again; on immersive routes they do (LabScreenFrame, safeDrawing).
+        Box(Modifier.weight(1f).then(if (barShowing) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)) { content() }
         AnimatedVisibility(
-            visible = showBar && !imeUp,
+            visible = barShowing,
             enter = slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(160)),
             exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(120)),
         ) {
