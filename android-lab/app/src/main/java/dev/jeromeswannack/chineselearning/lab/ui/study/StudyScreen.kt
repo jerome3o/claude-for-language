@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardTransition
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -294,18 +295,8 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
     }
 }
 
-/** Good/Easy fling the card away to the right, Again drops it, Hard slides it left; the next one rises in. */
-private fun cardTransition(lastRating: Int?): ContentTransform {
-    val enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = 380f)) { it / 6 } +
-        scaleIn(spring(dampingRatio = 0.8f, stiffness = 380f), initialScale = 0.94f) + fadeIn(tween(180))
-    val exit = when (lastRating) {
-        0 -> slideOutVertically(tween(260)) { it / 3 } + fadeOut(tween(200))
-        1 -> slideOutHorizontally(tween(240)) { -it / 2 } + fadeOut(tween(200))
-        2, 3 -> slideOutHorizontally(tween(260)) { it } + scaleOut(tween(260), targetScale = 0.9f) + fadeOut(tween(240))
-        else -> fadeOut(tween(150))
-    }
-    return enter togetherWith exit
-}
+/** Good/Easy fling the card away to the right, Again drops it, Hard slides it left; the next one rises in (shared with the homework pass). */
+private fun cardTransition(lastRating: Int?): ContentTransform = studyCardTransition(lastRating)
 
 @Composable
 private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int, onCountsCopied: (CountsCopy) -> Unit) {

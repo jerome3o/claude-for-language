@@ -12,7 +12,8 @@ touching, and add a line to the table below.
 | Piece | File | Use it for |
 |---|---|---|
 | `LabScreen(title, onBack?, subtitle?, actions) { items… }` | `Scaffold.kt` | Every list-shaped screen: title row, ← back, insets, keyboard, 720dp max width on the unfolded Fold. Body is a `LazyColumn` scope. |
-| `LabScreenFrame { }` + `ScreenTitle(…)` | `Scaffold.kt` | Screens that lay out their own body (players, editors, two-pane ≥ 640dp). |
+| `LabScreenFrame { }` + `ScreenTitle(…)` | `Scaffold.kt` | Screens that lay out their own body (players, editors, two-pane ≥ 640dp). Pads every system bar incl. the bottom: on an immersive route (no tab bar) a bottom button stays above the gesture / navigation bar; while the tab bar shows, `ShellFrame` has consumed that inset, so it is 0 there. Never add `navigationBarsPadding()` yourself inside it. |
+| `Modifier.studyCardSurface(…)`, `studyHanziSize(hanzi)`, `StudyCardFlip`, `studyCardTransition(rating)`, `AnswerTile(label, color) { }` | `StudyCard.kt` | The study card's look, shared by the study session and the homework pass: the card surface, hanzi sizes, the flip spring, card-to-card transition, and the 66dp colored answer tiles of the bottom bar (the ratings, Not yet / Got it). |
 | `SectionHeader(title)` | `Rows.kt` | Muted group heading. |
 | `LabCard { }` + `RowDivider()` | `Rows.kt` | A rounded group of rows. |
 | `NavSection(title, rows = listOf({ … }, …))` | `Rows.kt` | Header + card + dividers in one call (the More page groups). |

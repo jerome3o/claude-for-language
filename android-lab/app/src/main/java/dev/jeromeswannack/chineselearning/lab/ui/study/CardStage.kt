@@ -1,5 +1,9 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTile
+import dev.jeromeswannack.chineselearning.lab.ui.kit.StudyCardFlip
+import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardSurface
+import dev.jeromeswannack.chineselearning.lab.ui.kit.studyHanziSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -153,7 +157,7 @@ fun CardStage(
 
     val rotation by animateFloatAsState(
         targetValue = if (flipped) 180f else 0f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 240f),
+        animationSpec = StudyCardFlip,
         label = "flip",
     )
     val glow by animateColorAsState(
@@ -219,10 +223,7 @@ fun CardStage(
                         rotationY = rotation
                         cameraDistance = 14f * density.density
                     }
-                    .shadow(if (flipped) 10.dp else 6.dp, RoundedCornerShape(28.dp))
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Lab.colors.card)
-                    .border(if (verdict != null) 2.dp else 1.dp, glow, RoundedCornerShape(28.dp)),
+                    .studyCardSurface(Lab.colors.card, glow, lifted = flipped, borderWidth = if (verdict != null) 2.dp else 1.dp),
             ) {
                 // Once revealed both faces stay composed (the answer side keeps its scroll
                 // position and opened sentence rows through a peek); the one turned away is
@@ -634,23 +635,7 @@ fun RatingBar(previews: List<IntervalPreview>, enabled: Boolean, onRate: (Int) -
     val colors = listOf(Palette.Again, Palette.Hard, Palette.Good, Palette.Easy)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         for (r in Rating.ALL) {
-            val source = remember { MutableInteractionSource() }
-            val pressed by source.collectIsPressedAsState()
-            val scale by animateFloatAsState(if (pressed) 0.92f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium), label = "press")
-            Column(
-                Modifier
-                    .weight(1f)
-                    .height(66.dp)
-                    .scale(scale)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(colors[r].copy(alpha = if (enabled) 1f else 0.4f))
-                    .clickable(interactionSource = source, indication = null, enabled = enabled) { onRate(r) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(labels[r], color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                previews.getOrNull(r)?.let { Text(it.intervalText, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp) }
-            }
+            AnswerTile(labels[r], colors[r], Modifier.weight(1f), sub = previews.getOrNull(r)?.intervalText, enabled = enabled) { onRate(r) }
         }
     }
 }
@@ -681,13 +666,7 @@ private fun BigPlayButton(playing: Boolean, size: Dp = 132.dp, onClick: () -> Un
     }
 }
 
-private fun hanziSize(hanzi: String): TextUnit = when {
-    hanzi.length <= 2 -> 76.sp
-    hanzi.length <= 4 -> 60.sp
-    hanzi.length <= 8 -> 44.sp
-    hanzi.length <= 14 -> 34.sp
-    else -> 26.sp
-}
+private fun hanziSize(hanzi: String): TextUnit = studyHanziSize(hanzi)
 
 /**
  * Front of a read card (StudyPage.tsx `renderSpeakingCardButtons`): record yourself saying
