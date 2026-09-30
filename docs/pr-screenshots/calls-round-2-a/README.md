@@ -25,4 +25,31 @@ Review page → Connection log: joins, socket status, TURN offered or not, ICE/p
 
 ## Lab app
 
-Screenshots from Roborazzi in [lab/](lab/).
+Roborazzi screenshots:
+
+![Pre-join, blocked](lab/calls-12-prejoin-blocked.png)
+Mic and camera permission denied: explanation, Try again / Open settings, Join still enabled.
+
+![Camera in use](lab/calls-31-prejoin-camera-in-use.png)
+Another app holds the camera: "Join with audio only".
+
+![Reconnecting](lab/calls-32-live-reconnecting-frozen.png)
+The remote tile keeps its last frame with a Reconnecting… badge.
+
+![No mic in the call](lab/calls-33-live-no-mic.png)
+In the call without a microphone — the mic button asks for it.
+
+![Board, light](lab/calls-34-text-board-compose-light.png)
+Text board with the other person's composition preview.
+
+![Board, dark theme](lab/calls-35-text-board-compose-dark.png)
+Same in the dark theme — the board stays paper with dark ink (was light ink on white).
+
+![Draw board, dark theme](lab/calls-36-draw-board-dark.png)
+Drawing board in the dark theme.
+
+![Device picker](lab/calls-38-device-picker.png)
+⋯ → camera front/back and speaker / phone / headphones / Bluetooth.
+
+![Connection log](lab/calls-39-review-connection-log.png)
+Review screen → Connection log.

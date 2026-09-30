@@ -302,6 +302,9 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
             }
         }
 
+        // The connection log (collapsed): what the connection did during the call, both sides.
+        if (d.diagnostics.isNotEmpty()) item { ConnectionLog(d.diagnostics) }
+
         if (call.status == "ended") {
             val failed = d.pieces.filter { it.status == "failed" }
             if (failed.isNotEmpty()) item { InlineNotice("${CallsFormat.plural(failed.size, "part")} of the recording failed to transcribe: ${failed.first().error.orEmpty()}", kind = NoticeKind.Error) }
@@ -317,6 +320,34 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
         "Delete this call?", "Its recording and transcript are deleted too. This cannot be undone.", "Delete",
         onConfirm = { confirmDelete = false; actions.onDelete() }, onDismiss = { confirmDelete = false }, danger = true,
     )
+}
+
+/** "Connection log" — ICE / socket changes, restarts, the route used (collapsed until tapped). */
+@Composable
+fun ConnectionLog(events: List<dev.jeromeswannack.chineselearning.lab.data.api.CallDiagDto>, initiallyOpen: Boolean = false) {
+    var open by remember { mutableStateOf(initiallyOpen) }
+    val rows = remember(events) { CallsFormat.diagRows(events) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).bouncyClickable(pressedScale = 0.99f) { open = !open }.heightIn(min = 44.dp).padding(horizontal = 4.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Connection log", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+            Text("${rows.size} ${if (open) "▾" else "▸"}", color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
+        }
+        if (open) LabCard {
+            rows.forEachIndexed { i, r ->
+                if (i > 0) RowDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(r.time, color = Lab.colors.muted, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, modifier = Modifier.width(44.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${r.who} · ${r.kind}", color = Lab.colors.muted, fontSize = 12.sp)
+                        Text(r.detail, color = Lab.colors.ink, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
 }
 
 private class SegmentRef(val seg: TranscriptSegmentDto) : CallTranscript.Segment {

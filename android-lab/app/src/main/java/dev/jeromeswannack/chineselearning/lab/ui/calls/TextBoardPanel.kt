@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -51,7 +51,12 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -65,7 +70,6 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallGloss
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTextDoc
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
-import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -108,12 +112,16 @@ private fun checkAt(v: TextFieldValue): CallGloss.Check = CallGloss.findSegment(
  * composition open, " - pīnyīn - meaning" shows grey after the caret with a "⇥ …" chip under it;
  * a tap on the chip (or Tab on a hardware keyboard) types it in like any edit, so the other person
  * gets it through the CRDT. Typing on moves past it; Esc dismisses. Only I see the offer.
+ *
+ * While I compose (pinyin IME), the composing text goes to the other person as a preview in my name
+ * flag; theirs shows in their flag above their caret as "Name · 你hao" — drawn over the text, never
+ * laid out in it, so nothing shifts. The board is always light paper ([BoardPaper]) in both themes.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TextBoardPanel(
     board: TextBoardUi,
-    onChange: (text: String, start: Int, end: Int, composing: Boolean) -> Unit,
+    onChange: (text: String, start: Int, end: Int, composing: Boolean, compose: String?) -> Unit,
     onSelect: (start: Int, end: Int) -> Unit,
     onBlur: () -> Unit,
     modifier: Modifier = Modifier,
@@ -171,7 +179,7 @@ fun TextBoardPanel(
         val next = value.text.substring(0, pos) + ins + value.text.substring(pos)
         val v = TextFieldValue(next, TextRange(pos + ins.length))
         value = v
-        onChange(v.text, v.selection.min, v.selection.max, false)
+        onChange(v.text, v.selection.min, v.selection.max, false, null)
         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
     val selected = value.text.substring(value.selection.min.coerceAtMost(value.text.length), value.selection.max.coerceAtMost(value.text.length))
@@ -179,7 +187,7 @@ fun TextBoardPanel(
     val padX = 16.dp
     val padY = 14.dp
 
-    Column(modifier.background(Color.White)) {
+    Column(modifier.background(BoardPaper.Paper)) {
         Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).onSizeChanged { fieldWidth = it.width }) {
             BasicTextField(
                 value = value,
@@ -189,7 +197,10 @@ fun TextBoardPanel(
                     val selChanged = v.selection != value.selection
                     value = v
                     when {
-                        textChanged || v.composition != null || wasComposing -> onChange(v.text, v.selection.min, v.selection.max, v.composition != null)
+                        textChanged || v.composition != null || wasComposing -> onChange(
+                            v.text, v.selection.min, v.selection.max, v.composition != null,
+                            v.composition?.let { c -> v.text.substring(c.min.coerceIn(0, v.text.length), c.max.coerceIn(0, v.text.length)) },
+                        )
                         selChanged -> onSelect(v.selection.min, v.selection.max)
                     }
                 },
@@ -203,23 +214,28 @@ fun TextBoardPanel(
                             else -> false
                         }
                     },
-                textStyle = TextStyle(fontSize = 19.sp, lineHeight = 30.sp, color = Lab.colors.ink),
-                cursorBrush = SolidColor(Lab.colors.ink),
+                textStyle = TextStyle(fontSize = 19.sp, lineHeight = 30.sp, color = BoardPaper.Ink),
+                cursorBrush = SolidColor(BoardPaper.Caret),
                 onTextLayout = { layout = it },
                 decorationBox = { inner ->
                     Box(
-                        Modifier.fillMaxWidth().padding(horizontal = padX, vertical = padY).drawBehind {
-                            val l = layout ?: return@drawBehind
+                        Modifier.fillMaxWidth().padding(horizontal = padX, vertical = padY).drawWithContent {
+                            val l = layout
+                            if (l == null) { drawContent(); return@drawWithContent }
                             val text = value.text
+                            // Their selection under the text; their caret and name flag over it (the flag is opaque).
                             for (c in board.remote) {
-                                val color = parseColor(c.color)
                                 val start = CallTextDoc.charToCodeUnitIndex(text, c.start).coerceIn(0, text.length)
                                 val end = CallTextDoc.charToCodeUnitIndex(text, c.end).coerceIn(0, text.length)
-                                if (end > start) drawPath(l.getPathForRange(start, end), color.copy(alpha = 0.22f))
+                                if (end > start) drawPath(l.getPathForRange(start, end), parseColor(c.color).copy(alpha = 0.22f))
+                            }
+                            drawContent()
+                            for (c in board.remote) {
+                                val color = parseColor(c.color)
                                 val head = CallTextDoc.charToCodeUnitIndex(text, c.head).coerceIn(0, text.length)
                                 val r = l.getCursorRect(head)
                                 drawLine(color, Offset(r.left, r.top), Offset(r.left, r.bottom), strokeWidth = 2.dp.toPx())
-                                val label = measurer.measure(c.name, TextStyle(fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold))
+                                val label = measurer.measure(caretFlag(c.name, c.compose), TextStyle(fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold))
                                 val px = 4.dp.toPx()
                                 val top = r.top - label.size.height - 1.dp.toPx()
                                 drawRoundRect(color, Offset(r.left - 1.dp.toPx(), top), Size(label.size.width + px * 2, label.size.height.toFloat()), androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
@@ -233,7 +249,7 @@ fun TextBoardPanel(
                                 val room = (size.width - r.left).toInt()
                                 if (room > 24) {
                                     val ghost = measurer.measure(
-                                        s.text, TextStyle(fontSize = 19.sp, lineHeight = 30.sp, color = Color(0xFF9CA3AF)),
+                                        s.text, TextStyle(fontSize = 19.sp, lineHeight = 30.sp, color = BoardPaper.Ghost),
                                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                                         constraints = androidx.compose.ui.unit.Constraints(maxWidth = room),
                                     )
@@ -242,7 +258,7 @@ fun TextBoardPanel(
                             }
                         },
                     ) {
-                        if (value.text.isEmpty()) Text("Type here — you both see it as you write. Pinyin input works.", color = Lab.colors.muted, fontSize = 17.sp)
+                        if (value.text.isEmpty()) Text("Type here — you both see it as you write. Pinyin input works.", color = BoardPaper.Muted, fontSize = 17.sp)
                         inner()
                     }
                 },
@@ -258,14 +274,14 @@ fun TextBoardPanel(
                 val y = r.bottom + with(density) { (padY + 6.dp).toPx() }
                 Text(
                     CallGloss.chipLabel(s.gloss.pinyin, s.gloss.english),
-                    color = Color(0xFF3730A3), fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = BoardPaper.ChipText, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
                         .widthIn(max = with(density) { (fieldWidth - 2 * margin).coerceAtLeast(0f).toDp() })
                         .onSizeChanged { chipWidth = it.width }
                         .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xFFEEF2FF))
-                        .border(1.dp, Color(0xFFC7D2FE), RoundedCornerShape(999.dp))
+                        .background(BoardPaper.ChipBg)
+                        .border(1.dp, BoardPaper.ChipBorder, RoundedCornerShape(999.dp))
                         .bouncyClickable { accept() }
                         .heightIn(min = 44.dp)
                         .padding(horizontal = 16.dp, vertical = 11.dp),
@@ -274,13 +290,13 @@ fun TextBoardPanel(
         }
         if (showHelper) SelectionHelper(selected, pinyinOf, explain)
         if (board.remote.isNotEmpty() || gloss != null) Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+            Modifier.fillMaxWidth().drawBehind { drawLine(BoardPaper.Border, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }.padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
             board.remote.forEach { c ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(parseColor(c.color)))
-                    Text("${c.name} is here", color = Lab.colors.muted, fontSize = 13.sp)
+                    Text("${c.name} is here", color = BoardPaper.Muted, fontSize = 13.sp)
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -288,14 +304,23 @@ fun TextBoardPanel(
                 Modifier.clip(RoundedCornerShape(12.dp)).bouncyClickable { onGlossOn(!glossOn) }.padding(start = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("⇥ Pinyin hints", color = Lab.colors.muted, fontSize = 13.sp)
+                Text("⇥ Pinyin hints", color = BoardPaper.Muted, fontSize = 13.sp)
                 Switch(
                     checked = glossOn, onCheckedChange = onGlossOn,
-                    colors = SwitchDefaults.colors(checkedTrackColor = Lab.colors.accent),
+                    colors = BoardPaper.switchColors(),
                     modifier = Modifier.scale(0.75f),
                 )
             }
         }
+    }
+}
+
+/** Their name flag: "Name", or "Name · 你hao" while they compose (the composing part underlined, a little faded). */
+internal fun caretFlag(name: String, compose: String?): AnnotatedString = buildAnnotatedString {
+    append(name)
+    if (!compose.isNullOrEmpty()) {
+        append(" · ")
+        withStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = Color.White.copy(alpha = 0.85f))) { append(compose) }
     }
 }
 
@@ -307,16 +332,16 @@ private fun SelectionHelper(text: String, pinyinOf: (String) -> String, explain:
     var busy by remember(text) { mutableStateOf(false) }
     val py = remember(text) { runCatching { pinyinOf(text) }.getOrDefault("") }
     FlowRow(
-        Modifier.fillMaxWidth().background(Lab.colors.card).padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().background(BoardPaper.HelperBg).drawBehind { drawLine(BoardPaper.Border, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }.padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(text, color = Lab.colors.ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        if (py.isNotBlank()) Text(py, color = Lab.colors.accent, fontSize = 16.sp, modifier = Modifier.align(Alignment.CenterVertically))
+        Text(text, color = BoardPaper.HelperText, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        if (py.isNotBlank()) Text(py, color = BoardPaper.HelperPinyin, fontSize = 16.sp, modifier = Modifier.align(Alignment.CenterVertically))
         val m = meaning
-        if (m != null) Text(m, color = Lab.colors.ink, fontSize = 14.sp, modifier = Modifier.align(Alignment.CenterVertically))
+        if (m != null) Text(m, color = BoardPaper.HelperMeaning, fontSize = 14.sp, modifier = Modifier.align(Alignment.CenterVertically))
         else if (explain != null) Text(
-            if (busy) "…" else "Meaning", color = Lab.colors.ink, fontSize = 14.sp,
-            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color.White).bouncyClickable(enabled = !busy) {
+            if (busy) "…" else "Meaning", color = BoardPaper.HelperText, fontSize = 14.sp,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(BoardPaper.Paper).border(1.dp, BoardPaper.Border, RoundedCornerShape(999.dp)).bouncyClickable(enabled = !busy) {
                 busy = true
                 scope.launch { meaning = runCatching { explain(text) }.getOrNull() ?: "Couldn't look it up"; busy = false }
             }.padding(horizontal = 12.dp, vertical = 8.dp),

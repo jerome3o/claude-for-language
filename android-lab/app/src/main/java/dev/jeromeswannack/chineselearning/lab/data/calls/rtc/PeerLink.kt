@@ -1,10 +1,12 @@
 package dev.jeromeswannack.chineselearning.lab.data.calls.rtc
 
 import android.util.Log
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallSignal
 import dev.jeromeswannack.chineselearning.lab.data.api.IceServerDto
 import dev.jeromeswannack.chineselearning.lab.ui.calls.PeerListener
 import dev.jeromeswannack.chineselearning.lab.ui.calls.PeerSession
+import dev.jeromeswannack.chineselearning.lab.ui.calls.PeerStats
 import dev.jeromeswannack.chineselearning.lab.ui.calls.VideoHandle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +24,8 @@ import org.webrtc.MediaStream
 import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RTCStatsReport
+import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
@@ -38,12 +42,17 @@ import kotlin.coroutines.resume
  * transceivers the offer created. Camera flips happen inside the capturer and screen share is
  * `setTrack`, so there is no renegotiation in practice; if one happens, perfect-negotiation rules
  * handle a collision. Signals are applied one at a time, in arrival order.
+ *
+ * Round 2: the CallController drives ICE restarts ([restartIce], from the link's health and
+ * backoff — this class never restarts on its own), a mic or camera that appears mid-call goes
+ * onto the existing transceiver ([setAudio] / [setVideo]), the video sender's encoding follows the
+ * bandwidth estimate ([setVideoEncoding]) and the audio sender is marked high priority.
  */
 class PeerLink(
     factory: PeerConnectionFactory,
     iceServers: List<IceServerDto>,
     private val polite: Boolean,
-    private val audioTrack: AudioTrack?,
+    private var audioTrack: AudioTrack?,
     private var videoTrack: VideoTrack?,
     private val listener: PeerListener,
 ) : PeerSession {
@@ -87,8 +96,7 @@ class PeerLink(
             }
         }
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
-            listener.onConnectionState(newState.name.lowercase())
-            if (newState == PeerConnection.PeerConnectionState.FAILED && !closed) pc.restartIce()
+            if (!closed) listener.onConnectionState(newState.name.lowercase())
         }
         override fun onTrack(transceiver: RtpTransceiver) {
             (transceiver.receiver.track() as? VideoTrack)?.let { listener.onRemoteVideo(it) }
@@ -97,7 +105,9 @@ class PeerLink(
             (receiver.track() as? VideoTrack)?.let { listener.onRemoteVideo(it) }
         }
         override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
-        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) = Unit
+        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+            if (!closed) listener.onIceState(state.name.lowercase())
+        }
         override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
         override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
@@ -148,12 +158,68 @@ class PeerLink(
         }
         audio?.let { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV; it.sender.setTrack(audioTrack, false) }
         video?.let { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV; it.sender.setTrack(videoTrack, false) }
+        prioritiseAudio()
+        pendingEncoding?.let { setVideoEncoding(it) }
     }
 
     override fun setVideo(video: VideoHandle?) {
         val track = video as? VideoTrack
         videoTrack = track
         if (!closed) this.video?.sender?.setTrack(track, false)
+        pendingEncoding?.let { setVideoEncoding(it) }
+    }
+
+    override fun setAudio(audio: VideoHandle?) {
+        val track = audio as? AudioTrack
+        audioTrack = track
+        if (!closed) this.audio?.sender?.setTrack(track, false)
+        prioritiseAudio()
+    }
+
+    override fun restartIce() {
+        if (!closed) runCatching { pc.restartIce() }.onFailure { Log.w(TAG, "restartIce failed", it) }
+    }
+
+    /** Voice first: the audio sender gets high network / bitrate priority. */
+    private fun prioritiseAudio() {
+        val sender = audio?.sender ?: return
+        runCatching {
+            val p = sender.parameters
+            if (p.encodings.isEmpty()) return
+            p.encodings.forEach { it.networkPriority = org.webrtc.Priority.HIGH; it.bitratePriority = 4.0 }
+            sender.parameters = p
+        }.onFailure { Log.w(TAG, "audio priority", it) }
+    }
+
+    private var pendingEncoding: CallConnection.VideoEncoding? = null
+
+    /** The video sender's encoding (core CallConnection.videoEncodingFor), kept and re-applied after a track change. */
+    override fun setVideoEncoding(encoding: CallConnection.VideoEncoding) {
+        pendingEncoding = encoding
+        val sender = video?.sender ?: return
+        if (closed) return
+        runCatching {
+            val p = sender.parameters
+            p.degradationPreference = if (encoding.degradationPreference == "maintain-resolution") RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION else RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+            p.encodings.forEach {
+                it.maxBitrateBps = encoding.maxBitrate
+                it.maxFramerate = encoding.maxFramerate
+                it.scaleResolutionDownBy = encoding.scaleResolutionDownBy
+            }
+            sender.parameters = p
+        }.onFailure { Log.w(TAG, "video encoding", it) }
+    }
+
+    /**
+     * The outgoing bandwidth estimate (the active candidate pair's availableOutgoingBitrate) and the
+     * route it takes: "relay/udp via turn", "host", "srflx"… from the local candidate.
+     */
+    override suspend fun stats(): PeerStats? {
+        if (closed) return null
+        val report = suspendCancellableCoroutine<RTCStatsReport?> { cont ->
+            runCatching { pc.getStats { r -> if (cont.isActive) cont.resume(r) } }.onFailure { if (cont.isActive) cont.resume(null) }
+        } ?: return null
+        return statsFrom(report.statsMap.values.map { it.type to (it.members + ("__id" to it.id)) })
     }
 
     private suspend fun setLocal(): Boolean = suspendCancellableCoroutine { cont ->
@@ -187,6 +253,25 @@ class PeerLink(
 
     companion object {
         private const val TAG = "PeerLink"
+
+        /** Pure: (type, members + "__id") of every stats entry → bandwidth + route (unit-tested). */
+        fun statsFrom(entries: List<Pair<String, Map<String, Any?>>>): PeerStats {
+            fun of(type: String, id: Any?) = entries.firstOrNull { (t, m) -> t == type && id != null && m["__id"] == id }?.second
+            val pairId = entries.firstOrNull { it.first == "transport" }?.second?.get("selectedCandidatePairId")
+            val pair = of("candidate-pair", pairId)
+                ?: entries.firstOrNull { (t, m) -> t == "candidate-pair" && m["nominated"] == true && m["state"] == "succeeded" }?.second
+            val bps = (pair?.get("availableOutgoingBitrate") as? Number)?.toDouble()
+            val local = of("local-candidate", pair?.get("localCandidateId"))
+            val route = local?.let { describeRoute(it["candidateType"] as? String, it["protocol"] as? String, it["relayProtocol"] as? String) }
+            return PeerStats(bps, route)
+        }
+
+        /** "relay/udp via turn", "relay/tls via turns", "host", "srflx", "prflx". */
+        fun describeRoute(candidateType: String?, protocol: String?, relayProtocol: String?): String? {
+            val type = candidateType ?: return null
+            if (type != "relay") return type
+            return "relay/${relayProtocol ?: protocol ?: "?"} via ${if (relayProtocol == "tls") "turns" else "turn"}"
+        }
 
         /** `{ urls: string | string[], username?, credential? }` → WebRTC ice servers. */
         fun IceServerDto.toWebRtc(): List<PeerConnection.IceServer> {

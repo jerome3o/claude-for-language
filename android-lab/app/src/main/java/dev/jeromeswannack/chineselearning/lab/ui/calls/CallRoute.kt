@@ -3,8 +3,13 @@ package dev.jeromeswannack.chineselearning.lab.ui.calls
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.Uri
+import android.provider.Settings
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -68,7 +75,7 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
     val controller: CallController = CallController(
         callId, "",
         CallDeps(
-            openRoom = { handlers -> CallRoomSocket({ app.repo.api.joinCall(callId) }, app.repo.api.http, app.repo.api.baseUrl, handlers, viewModelScope) },
+            openRoom = { handlers, instance -> CallRoomSocket({ app.repo.api.joinCall(callId) }, app.repo.api.http, app.repo.api.baseUrl, handlers, viewModelScope, instance = instance) },
             media = media,
             recorder = MicRecorder(callId, uploads, media.mic),
             endCall = { app.repo.api.endCall(callId) },
@@ -85,16 +92,36 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
         viewModelScope,
     )
 
+    // Wi-Fi ↔ mobile: the room socket is reconnected at once instead of waiting for the pong watchdog.
+    private val connectivity = app.getSystemService(ConnectivityManager::class.java)
+    private var network: Network? = null
+    private var networkKnown = false
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(n: Network) {
+            viewModelScope.launch {
+                if (networkKnown && n != network) controller.networkChanged(if (network == null) "back online" else "switched network")
+                network = n
+                networkKnown = true
+            }
+        }
+
+        override fun onLost(n: Network) {
+            viewModelScope.launch { if (n == network) network = null }
+        }
+    }
+
     init {
         viewModelScope.launch {
             _myId.value = Connections.myId(app.cache) ?: runCatching { app.repo.api.me().id }.getOrNull().orEmpty()
         }
         viewModelScope.launch { uploads.pending(callId).collect { controller.setPendingUploads(it) } }
+        runCatching { connectivity?.registerDefaultNetworkCallback(networkCallback) }
     }
 
-    fun selectRoute(r: AudioRoute) = audio.select(r)
+    fun selectRoute(r: AudioRoute) = audio.choose(r)
 
     override fun onCleared() {
+        runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
         controller.dispose()
     }
 
@@ -106,6 +133,12 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
 
 private fun Context.granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 fun CallRoute(nav: LabNav, id: String) {
     val vm: CallViewModel = viewModel(key = "call-$id", factory = CallViewModel.Factory(nav.app, id))
@@ -114,8 +147,22 @@ fun CallRoute(nav: LabNav, id: String) {
     val myId by vm.myId.collectAsStateWithLifecycle()
     val route by vm.audio.route.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var askedOnce by remember { mutableStateOf(false) }
-    var denied by remember { mutableStateOf(false) }
+    val activity = remember(context) { context.findActivity() }
+    var askedOnce by rememberSaveable { mutableStateOf(false) }
+    var askedMic by rememberSaveable { mutableStateOf(false) }
+    var askedCam by rememberSaveable { mutableStateOf(false) }
+    // Bumped on every resume (back from Settings / the permission page) so permissions are re-read.
+    var resumes by remember { mutableStateOf(0) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { resumes++; onPauseOrDispose { } }
+
+    fun access(p: String, asked: Boolean): DeviceAccess = when {
+        context.granted(p) -> DeviceAccess.GRANTED
+        // Refused before and Android won't show the dialog again ("Don't allow" twice / "don't ask again").
+        asked && activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, p) -> DeviceAccess.SETTINGS
+        else -> DeviceAccess.ASK
+    }
+    val micAccess = remember(resumes, askedMic, s.hasMic, s.micProblem) { access(Manifest.permission.RECORD_AUDIO, askedMic) }
+    val camAccess = remember(resumes, askedCam, s.hasCamera, s.camProblem) { access(Manifest.permission.CAMERA, askedCam) }
 
     val permissions = remember {
         buildList {
@@ -126,8 +173,29 @@ fun CallRoute(nav: LabNav, id: String) {
     }
     val askMedia = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         askedOnce = true
-        if (result[Manifest.permission.RECORD_AUDIO] == true || context.granted(Manifest.permission.RECORD_AUDIO)) { denied = false; vm.controller.startPreview() }
-        else { denied = true; vm.controller.mediaBlocked("Camera and microphone are blocked. Allow the microphone for 学 Lab (Settings → Apps → 学 Lab → Permissions), then tap Allow.") }
+        if (Manifest.permission.RECORD_AUDIO in result) askedMic = true
+        if (Manifest.permission.CAMERA in result) askedCam = true
+        // Whatever was allowed opens now; the rest is explained on the screen (and can be added later).
+        vm.controller.refreshDevices()
+    }
+    fun openAppSettings() {
+        runCatching {
+            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+    /** Ask for the devices that are missing (or send the person to Settings when Android won't ask again). */
+    fun askFor(vararg wanted: String) {
+        val missing = wanted.filter { !context.granted(it) }
+        if (missing.isEmpty()) { vm.controller.refreshDevices(); return }
+        val settingsOnly = missing.all { access(it, if (it == Manifest.permission.RECORD_AUDIO) askedMic else askedCam) == DeviceAccess.SETTINGS }
+        if (settingsOnly) openAppSettings() else askMedia.launch(missing.toTypedArray())
+    }
+    // Back from Settings with a permission granted → add the device (pre-join and mid-call).
+    LaunchedEffect(resumes) {
+        if (!s.mediaReady) return@LaunchedEffect
+        val micNow = context.granted(Manifest.permission.RECORD_AUDIO) && !s.hasMic
+        val camNow = context.granted(Manifest.permission.CAMERA) && !s.hasCamera && s.camProblem == MediaProblem.BLOCKED
+        if (micNow || camNow) vm.controller.refreshDevices()
     }
     val askScreen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         if (r.resultCode == Activity.RESULT_OK && r.data != null) vm.controller.startScreenShare(r.data!!)
@@ -139,7 +207,7 @@ fun CallRoute(nav: LabNav, id: String) {
         if (d?.call?.status == "live" && s.phase == CallPhase.PREJOIN && !s.mediaReady) {
             if (context.granted(Manifest.permission.RECORD_AUDIO) && context.granted(Manifest.permission.CAMERA)) vm.controller.startPreview()
             else if (!askedOnce) askMedia.launch(permissions)
-            else if (context.granted(Manifest.permission.RECORD_AUDIO)) vm.controller.startPreview()
+            else vm.controller.startPreview()
         }
     }
     // An ended call opens its review instead (web: <Navigate to review>).
@@ -155,8 +223,6 @@ fun CallRoute(nav: LabNav, id: String) {
     // While I share my screen, the other person's drawings over every app (needs "Display over other apps").
     val overlay = remember { dev.jeromeswannack.chineselearning.lab.data.calls.ScreenAnnotationOverlay(context.applicationContext) }
     var overlayWanted by remember { mutableStateOf(true) }
-    var resumes by remember { mutableStateOf(0) }
-    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { resumes++; onPauseOrDispose { } } // back from the permission page
     val overlayOn = remember(resumes, overlayWanted, s.sharingScreen) { overlayWanted && s.sharingScreen && overlay.permitted() }
     LaunchedEffect(overlayOn) { if (overlayOn) overlay.show() else overlay.hide() }
     LaunchedEffect(s.annotations, overlayOn) { if (overlayOn) overlay.update(s.annotations) }
@@ -178,7 +244,8 @@ fun CallRoute(nav: LabNav, id: String) {
             relationshipId = d?.call?.relationship_id,
             loading = d == null && detail.loading,
             notFound = d == null && !detail.loading,
-            needsPermission = denied,
+            micAccess = micAccess,
+            camAccess = camAccess,
             audioRoute = route,
             audioRoutes = if (s.phase == CallPhase.LIVE) vm.audio.routes() else listOf(route),
             screenOverlayOn = overlayOn,
@@ -186,11 +253,13 @@ fun CallRoute(nav: LabNav, id: String) {
         ),
         CallActions(
             onBack = nav::back,
-            onAllowMedia = { askMedia.launch(permissions) },
+            onAllowMedia = { askFor(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA) },
+            onOpenSettings = ::openAppSettings,
             onJoin = { record -> vm.controller.join(record); nav.app.haptics.tick() },
-            onToggleMic = { vm.controller.toggleMic(); nav.app.haptics.tick() },
-            onToggleCam = { vm.controller.toggleCam(); nav.app.haptics.tick() },
+            onToggleMic = { if (s.hasMic) vm.controller.toggleMic() else askFor(Manifest.permission.RECORD_AUDIO); nav.app.haptics.tick() },
+            onToggleCam = { if (s.hasCamera) vm.controller.toggleCam() else askFor(Manifest.permission.CAMERA); nav.app.haptics.tick() },
             onFlip = { vm.controller.flipCamera() },
+            onFrontCamera = vm.controller::useFrontCamera,
             onShareScreen = {
                 val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 askScreen.launch(mpm.createScreenCaptureIntent())
@@ -203,7 +272,7 @@ fun CallRoute(nav: LabNav, id: String) {
             onCommitBoard = vm.controller::commitBoard,
             onLive = vm.controller::sendLiveStroke,
             onSendChat = vm.controller::sendChat,
-            onTextChanged = vm.controller::textChanged,
+            onTextChanged = { t, a, b, composing, compose -> vm.controller.textChanged(t, a, b, composing, compose) },
             onAnnotate = vm.controller::sendAnnotation,
             onPing = vm.controller::sendPing,
             onClearAnnotations = vm.controller::clearAnnotations,

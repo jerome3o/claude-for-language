@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.data.calls
 
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallProtocol
 import dev.jeromeswannack.chineselearning.lab.core.calls.ServerMessage
 import dev.jeromeswannack.chineselearning.lab.data.HttpException
@@ -36,13 +37,18 @@ interface CallRoom {
     fun connect()
     fun send(text: String): Boolean
     fun close()
+    /** Drop the socket and connect again at once (the network changed); the instance keeps the WebRTC link. */
+    fun reconnectNow() {}
 }
 
 /**
  * The WebSocket to the call room (port of frontend/src/services/calls/room.ts). Each connect asks
  * the API for a fresh one-minute join ticket ([join] = `POST /api/calls/:id/join`), then opens the
- * socket; a dropped socket reconnects with backoff until the call ends or [close]. Keeps the
- * server clock offset (welcome, then every pong) for the recorder.
+ * socket with `&instance=` ([instance], one per join — the room tells the other side, which keeps
+ * our WebRTC link when we come back with the same one); a dropped socket reconnects with backoff
+ * until the call ends or [close]. A pong watchdog (ping every ROOM_PING_MS, no pong within
+ * ROOM_PONG_TIMEOUT_MS → reconnect) catches a socket that died without a close. Messages from a
+ * socket we already replaced are ignored. Keeps the server clock offset (welcome, then every pong).
  */
 class CallRoomSocket(
     private val join: suspend () -> CallJoinDto,
@@ -51,7 +57,9 @@ class CallRoomSocket(
     private val handlers: RoomHandlers,
     private val scope: CoroutineScope,
     private val now: () -> Long = System::currentTimeMillis,
-    private val pingMs: Long = 20_000,
+    private val pingMs: Long = CallConnection.ROOM_PING_MS,
+    private val instance: String? = null,
+    private val pongTimeoutMs: Long = CallConnection.ROOM_PONG_TIMEOUT_MS,
 ) : CallRoom {
     @Volatile private var ws: WebSocket? = null
     @Volatile private var open = false
@@ -60,6 +68,8 @@ class CallRoomSocket(
     private var everOpened = false
     private var ping: Job? = null
     private var retry: Job? = null
+    /** When the last ping went out unanswered (0 = none outstanding). */
+    @Volatile private var awaitingPongSince = 0L
 
     @Volatile override var clockOffset = 0L
         private set
@@ -88,7 +98,7 @@ class CallRoomSocket(
         }
         if (closed) return
         handlers.onJoinInfo(info)
-        val request = Request.Builder().url(socketUrl(baseUrl, info.ws_path, info.ticket)).build()
+        val request = Request.Builder().url(socketUrl(baseUrl, info.ws_path, info.ticket, instance)).build()
         ws = http.newBuilder().pingInterval(0, TimeUnit.SECONDS).build().newWebSocket(request, Listener())
     }
 
@@ -100,14 +110,30 @@ class CallRoomSocket(
             open = true
             handlers.onStatus(RoomStatus.OPEN)
             ping?.cancel()
-            ping = scope.launch { while (isActive) { delay(pingMs); send(CallProtocol.ping(now())) } }
+            awaitingPongSince = 0L
+            ping = scope.launch {
+                while (isActive) {
+                    delay(pingMs)
+                    if (ws !== webSocket) return@launch
+                    if (send(CallProtocol.ping(now()))) awaitingPongSince = System.nanoTime()
+                    // The watchdog: no pong in time → the socket is dead even if TCP hasn't noticed.
+                    delay(pongTimeoutMs)
+                    if (ws === webSocket && awaitingPongSince != 0L) {
+                        webSocket.cancel()
+                        gone(webSocket, null)
+                        return@launch
+                    }
+                }
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            if (webSocket !== ws) return // a socket we already replaced
             val msg = CallProtocol.parseServer(text) ?: return
             when (msg) {
                 is ServerMessage.Welcome -> clockOffset = msg.serverTime - now()
                 is ServerMessage.Pong -> {
+                    awaitingPongSince = 0L
                     val rtt = now() - msg.t
                     if (rtt in 0 until 5000) clockOffset = msg.serverTime + rtt / 2 - now()
                 }
@@ -160,6 +186,20 @@ class CallRoomSocket(
         return socket.send(text)
     }
 
+    @Synchronized
+    override fun reconnectNow() {
+        if (closed) return
+        val socket = ws
+        retry?.cancel()
+        ping?.cancel()
+        ws = null
+        open = false
+        socket?.cancel()
+        attempt = 1
+        handlers.onStatus(RoomStatus.RECONNECTING)
+        retry = scope.launch { connectOnce() }
+    }
+
     override fun close() {
         closed = true
         retry?.cancel()
@@ -171,10 +211,11 @@ class CallRoomSocket(
 
     companion object {
         /** ws(s):// URL of the room: the API's origin + `ws_path` + `?ticket=` (web: callSocketUrl). */
-        fun socketUrl(baseUrl: String, wsPath: String, ticket: String): String {
+        fun socketUrl(baseUrl: String, wsPath: String, ticket: String, instance: String? = null): String {
             val origin = baseUrl.trimEnd('/').replaceFirst(Regex("^https://"), "wss://").replaceFirst(Regex("^http://"), "ws://")
             val path = if (wsPath.startsWith("/")) wsPath else "/$wsPath"
-            return "$origin$path?ticket=${java.net.URLEncoder.encode(ticket, "UTF-8")}"
+            val inst = instance?.let { CallConnection.sanitizeInstance(it) }?.let { "&instance=$it" } ?: ""
+            return "$origin$path?ticket=${java.net.URLEncoder.encode(ticket, "UTF-8")}$inst"
         }
     }
 }

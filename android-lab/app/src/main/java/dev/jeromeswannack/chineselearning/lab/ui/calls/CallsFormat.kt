@@ -89,4 +89,17 @@ object CallsFormat {
         "Lesson ${Instant.ofEpochMilli(startedAt ?: now).toString().take(10)}"
 
     fun plural(n: Int, word: String) = "$n $word${if (n == 1) "" else "s"}"
+
+    /** The connection log's rows: "m:ss" since the first event, who, kind, detail (web: the review page's Connection log). */
+    fun diagRows(events: List<dev.jeromeswannack.chineselearning.lab.data.api.CallDiagDto>): List<DiagRow> {
+        if (events.isEmpty()) return emptyList()
+        val sorted = events.sortedBy { it.t }
+        val first = sorted.first().t
+        return sorted.map { e ->
+            val s = maxOf(0L, (e.t - first) / 1000)
+            DiagRow("${s / 60}:${(s % 60).toString().padStart(2, '0')}", e.name.ifBlank { "?" }, e.kind, e.detail)
+        }
+    }
+
+    data class DiagRow(val time: String, val who: String, val kind: String, val detail: String)
 }

@@ -11,10 +11,13 @@ import androidx.core.content.ContextCompat
 import dev.jeromeswannack.chineselearning.lab.data.api.IceServerDto
 import dev.jeromeswannack.chineselearning.lab.ui.calls.CallMedia
 import dev.jeromeswannack.chineselearning.lab.ui.calls.MediaOpen
+import dev.jeromeswannack.chineselearning.lab.ui.calls.MediaProblem
 import dev.jeromeswannack.chineselearning.lab.ui.calls.PeerListener
 import dev.jeromeswannack.chineselearning.lab.ui.calls.PeerSession
 import dev.jeromeswannack.chineselearning.lab.ui.calls.VideoHandle
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.webrtc.AudioSource
@@ -70,41 +73,84 @@ class WebRtcMedia(private val context: Context, val mic: MicTap = MicTap()) : Ca
     private var front = true
     private var released = false
 
+    override val hasMic: Boolean get() = audioTrack != null
     override val hasCamera: Boolean get() = cameraTrack != null
     override val frontCamera: Boolean get() = front
+    override val micAudio: VideoHandle? get() = audioTrack
     override val cameraVideo: VideoHandle? get() = cameraTrack
     override val screenVideo: VideoHandle? get() = screenTrack
     override val screenShareSupported: Boolean = true
+    private var problemListener: (String) -> Unit = {}
+
+    override fun onProblem(listener: (String) -> Unit) { problemListener = listener }
 
     private fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * Opens what is allowed and not open yet: the mic when RECORD_AUDIO is granted, the camera when
+     * CAMERA is. Nothing here fails the call — a missing device is reported (BLOCKED / IN_USE /
+     * NO_DEVICE / FAILED) and the call goes on without it; calling again after a permission is
+     * granted adds it.
+     */
     override suspend fun open(): MediaOpen = withContext(Dispatchers.Default) {
-        if (audioTrack != null) return@withContext if (cameraTrack != null) MediaOpen.Ok else MediaOpen.AudioOnly("No camera — joining with audio only.")
-        if (!granted(Manifest.permission.RECORD_AUDIO)) {
-            return@withContext MediaOpen.Failed("The microphone is blocked. Allow it in Settings → Apps → 学 Lab → Permissions, then come back.")
+        if (released) return@withContext MediaOpen(false, false, MediaProblem.FAILED, MediaProblem.FAILED)
+        var micProblem: MediaProblem? = null
+        if (audioTrack == null) {
+            if (!granted(Manifest.permission.RECORD_AUDIO)) micProblem = MediaProblem.BLOCKED
+            else runCatching {
+                val constraints = MediaConstraints().apply {
+                    mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+                }
+                audioSource = factory.createAudioSource(constraints)
+                audioTrack = factory.createAudioTrack("mic", audioSource)
+            }.onFailure { micProblem = MediaProblem.FAILED; problemListener("microphone failed: ${it.message}") }
         }
-        val constraints = MediaConstraints().apply {
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
-        }
-        audioSource = factory.createAudioSource(constraints)
-        audioTrack = factory.createAudioTrack("mic", audioSource)
-        if (!granted(Manifest.permission.CAMERA)) return@withContext MediaOpen.AudioOnly("No camera access — joining with audio only.")
+        val camProblem = if (cameraTrack != null) null else if (!granted(Manifest.permission.CAMERA)) MediaProblem.BLOCKED else openCamera()
+        MediaOpen(mic = audioTrack != null, camera = cameraTrack != null, micProblem = micProblem, cameraProblem = camProblem)
+    }
+
+    /** Opens the front camera and waits (≤ 3 s) for its first frame, so "in use by another app" is caught here. */
+    private suspend fun openCamera(): MediaProblem? {
         val enumerator = Camera2Enumerator(context)
-        val names = enumerator.deviceNames
-        val name = names.firstOrNull { enumerator.isFrontFacing(it) } ?: names.firstOrNull()
-            ?: return@withContext MediaOpen.AudioOnly("No camera — joining with audio only.")
+        val names = runCatching { enumerator.deviceNames.toList() }.getOrDefault(emptyList())
+        val name = names.firstOrNull { enumerator.isFrontFacing(it) } ?: names.firstOrNull() ?: return MediaProblem.NO_DEVICE
+        val started = CompletableDeferred<String?>()
+        val events = object : CameraVideoCapturer.CameraEventsHandler {
+            override fun onCameraError(error: String?) {
+                if (!started.complete(error ?: "camera error")) problemListener("camera error: $error")
+            }
+            override fun onCameraDisconnected() {
+                if (!started.complete("disconnected")) problemListener("camera disconnected (another app took it?)")
+            }
+            override fun onCameraFreezed(error: String?) { problemListener("camera froze: $error") }
+            override fun onCameraOpening(cameraName: String?) = Unit
+            override fun onFirstFrameAvailable() { started.complete(null) }
+            override fun onCameraClosed() = Unit
+        }
+        val capturer = runCatching { enumerator.createCapturer(name, events) }.getOrNull() ?: return MediaProblem.FAILED
         front = enumerator.isFrontFacing(name)
-        val capturer = enumerator.createCapturer(name, null)
-            ?: return@withContext MediaOpen.AudioOnly("No camera — joining with audio only.")
         cameraHelper = SurfaceTextureHelper.create("call-camera", egl.eglBaseContext)
         cameraSource = factory.createVideoSource(false)
         capturer.initialize(cameraHelper, context, cameraSource!!.capturerObserver)
         camera = capturer
         cameraTrack = factory.createVideoTrack("camera", cameraSource)
         startCamera()
-        MediaOpen.Ok
+        val error = withTimeoutOrNull(3_000) { started.await() }
+        if (error == null) return null // first frame (or slow: keep it — it may still start)
+        problemListener("camera: $error")
+        disposeCamera()
+        return if (Regex("in use|in_use|max_cameras|busy|disabled", RegexOption.IGNORE_CASE).containsMatchIn(error)) MediaProblem.IN_USE else MediaProblem.FAILED
+    }
+
+    private fun disposeCamera() {
+        stopCamera()
+        runCatching { camera?.dispose() }
+        runCatching { cameraTrack?.dispose() }
+        runCatching { cameraSource?.dispose() }
+        runCatching { cameraHelper?.dispose() }
+        camera = null; cameraTrack = null; cameraSource = null; cameraHelper = null
     }
 
     private fun startCamera() {
@@ -181,17 +227,13 @@ class WebRtcMedia(private val context: Context, val mic: MicTap = MicTap()) : Ca
         released = true
         mic.setConsumer(null)
         disposeScreen()
-        stopCamera()
-        runCatching { camera?.dispose() }
-        runCatching { cameraTrack?.dispose() }
-        runCatching { cameraSource?.dispose() }
-        runCatching { cameraHelper?.dispose() }
+        disposeCamera()
         runCatching { audioTrack?.dispose() }
         runCatching { audioSource?.dispose() }
         runCatching { factory.dispose() }
         runCatching { adm.release() }
         runCatching { egl.release() }
-        camera = null; cameraTrack = null; audioTrack = null
+        audioTrack = null
     }
 
     companion object {

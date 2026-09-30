@@ -66,6 +66,7 @@ object CallProtocol {
             name = o.str("name").orEmpty(),
             pictureUrl = o.str("picture_url"),
             state = parseState(o["state"]),
+            instance = CallConnection.sanitizeInstance(o["instance"]),
         )
     }
 
@@ -77,7 +78,10 @@ object CallProtocol {
 
     fun parseCursor(el: JsonElement?): TextCursor? {
         val o = el as? JsonObject ?: return null
-        return TextCursor(o.str("client_id") ?: return null, o.str("user_id").orEmpty(), o.str("name").orEmpty(), CallTextDoc.parseSelection(o["sel"]))
+        return TextCursor(
+            o.str("client_id") ?: return null, o.str("user_id").orEmpty(), o.str("name").orEmpty(), CallTextDoc.parseSelection(o["sel"]),
+            compose = CallConnection.sanitizeCompose(o["compose"]),
+        )
     }
 
     fun parseChat(el: JsonElement?): CallChatMessage? {
@@ -104,6 +108,8 @@ object CallProtocol {
     fun annot(stroke: AnnotStroke): String = buildJsonObject { put("type", "annot"); put("stroke", stroke.toJson()) }.toString()
     fun annotClear(): String = buildJsonObject { put("type", "annot_clear") }.toString()
     fun annotPing(x: Double, y: Double): String = buildJsonObject { put("type", "annot_ping"); put("x", x); put("y", y) }.toString()
+    /** Connection events for the call's diagnostics log (≤ 50 per message). */
+    fun diag(events: List<CallConnection.DiagEvent>): String = CallConnection.diagMessage(events.take(CallConnection.MAX_DIAG_EVENTS_PER_MESSAGE))
     fun ping(t: Long): String = buildJsonObject { put("type", "ping"); put("t", t) }.toString()
     fun end(): String = buildJsonObject { put("type", "end") }.toString()
 
@@ -113,7 +119,8 @@ object CallProtocol {
 
 data class PeerMediaState(val mic: Boolean = false, val cam: Boolean = false, val screen: Boolean = false, val recording: Boolean = false)
 
-data class CallPeer(val clientId: String, val userId: String, val name: String, val pictureUrl: String?, val state: PeerMediaState)
+/** [instance] = the peer's app session / page load (absent from older clients): the same instance back = the same WebRTC link. */
+data class CallPeer(val clientId: String, val userId: String, val name: String, val pictureUrl: String?, val state: PeerMediaState, val instance: String? = null)
 
 data class CallChatMessage(val id: String, val userId: String, val name: String, val text: String, val at: Long)
 

@@ -25,6 +25,8 @@ enum class AudioRoute(val label: String, val icon: String) {
  */
 class CallAudio(context: Context) {
     private val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    /** The route picked in the ⋯ menu's device picker, used again next call when it is available. */
+    private val prefs = context.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)
     private var focus: AudioFocusRequest? = null
     private var active = false
     private val _route = MutableStateFlow(AudioRoute.SPEAKER)
@@ -40,7 +42,14 @@ class CallAudio(context: Context) {
                 .build().also { am.requestAudioFocus(it) }
         }
         val available = routes()
-        select(listOf(AudioRoute.BLUETOOTH, AudioRoute.HEADSET, AudioRoute.SPEAKER).first { it in available })
+        val saved = prefs.getString(PREF_ROUTE, null)?.let { n -> AudioRoute.entries.firstOrNull { it.name == n } }
+        select(saved?.takeIf { it in available } ?: listOf(AudioRoute.BLUETOOTH, AudioRoute.HEADSET, AudioRoute.SPEAKER).first { it in available })
+    }
+
+    /** The person picked [route]: use it and remember it. */
+    fun choose(route: AudioRoute) {
+        prefs.edit().putString(PREF_ROUTE, route.name).apply()
+        select(route)
     }
 
     /** The routes this phone offers right now. */
@@ -75,6 +84,10 @@ class CallAudio(context: Context) {
             am.isSpeakerphoneOn = route == AudioRoute.SPEAKER
         }
         _route.value = route
+    }
+
+    companion object {
+        private const val PREF_ROUTE = "audio-route"
     }
 
     @Suppress("DEPRECATION")

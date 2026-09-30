@@ -66,8 +66,8 @@ class CallRoomSocketTest {
         }
     }
 
-    private fun socket(join: suspend () -> CallJoinDto, now: () -> Long = System::currentTimeMillis, pingMs: Long = 20_000) =
-        CallRoomSocket(join, OkHttpClient(), server.url("/").toString().removeSuffix("/"), handlers, scope, now, pingMs)
+    private fun socket(join: suspend () -> CallJoinDto, now: () -> Long = System::currentTimeMillis, pingMs: Long = 20_000, instance: String? = null, pongTimeoutMs: Long = 8_000) =
+        CallRoomSocket(join, OkHttpClient(), server.url("/").toString().removeSuffix("/"), handlers, scope, now, pingMs, instance, pongTimeoutMs)
 
     @Test fun joinsWithATicketTracksTheClockAndSends() {
         server.enqueue(upgrade { it.send("""{"type":"welcome","client_id":"c1","server_time":5000,"started_at":1,"peers":[],"board":[],"chat":[]}""") })
@@ -84,6 +84,52 @@ class CallRoomSocketTest {
         assertEquals("""{"type":"chat","text":"你好"}""", received.poll(5, TimeUnit.SECONDS))
         // Pings every [pingMs].
         assertTrue(received.poll(5, TimeUnit.SECONDS)!!.contains("\"type\":\"ping\""))
+        room.close()
+    }
+
+    @Test fun sendsTheInstanceAndReconnectsWhenPongsStop() {
+        // The first server never answers pings (a dead socket TCP hasn't noticed): the watchdog reconnects.
+        server.enqueue(upgrade())
+        server.enqueue(upgrade())
+        val joins = AtomicInteger()
+        val room = socket({ CallJoinDto("t${joins.incrementAndGet()}", "/api/calls/c9/ws") }, pingMs = 150, instance = "k3j9x0ab12cd", pongTimeoutMs = 200)
+        room.connect()
+        assertEquals("join:t1", next("join"))
+        assertEquals("status:OPEN", next("status:OPEN"))
+        assertEquals("/api/calls/c9/ws?ticket=t1&instance=k3j9x0ab12cd", server.takeRequest().path)
+        assertEquals("status:RECONNECTING", next("status:RECONNECTING"))
+        assertEquals("join:t2", next("join"))
+        assertEquals("status:OPEN", next("status:OPEN"))
+        // Same instance on every reconnect: the other side keeps our WebRTC link.
+        assertEquals("/api/calls/c9/ws?ticket=t2&instance=k3j9x0ab12cd", server.takeRequest().path)
+        room.close()
+    }
+
+    @Test fun pongsKeepTheSocketAndReconnectNowReplacesIt() {
+        val pongs = object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) { serverSockets += webSocket }
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                received += text
+                if (text.contains("\"ping\"")) webSocket.send("""{"type":"pong","t":1,"server_time":2}""")
+            }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { serverClosed.incrementAndGet() }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { serverClosed.incrementAndGet() }
+        }
+        server.enqueue(MockResponse().withWebSocketUpgrade(pongs))
+        server.enqueue(upgrade())
+        val joins = AtomicInteger()
+        val room = socket({ CallJoinDto("t${joins.incrementAndGet()}", "/ws") }, pingMs = 100, pongTimeoutMs = 400)
+        room.connect()
+        assertEquals("status:OPEN", next("status:OPEN"))
+        Thread.sleep(1_000) // ~10 pings, every one answered
+        assertTrue(events.toString(), events.none { it == "status:RECONNECTING" })
+        assertEquals(1, joins.get())
+        // The network changed: drop it and connect again at once.
+        room.reconnectNow()
+        assertEquals("status:RECONNECTING", next("status:RECONNECTING"))
+        assertEquals("status:OPEN", next("status:OPEN"))
+        assertEquals(2, joins.get())
         room.close()
     }
 
@@ -117,5 +163,7 @@ class CallRoomSocketTest {
     @Test fun socketUrlFollowsTheApiOrigin() {
         assertEquals("wss://api.example.com/api/calls/x/ws?ticket=a%2Bb", CallRoomSocket.socketUrl("https://api.example.com/", "/api/calls/x/ws", "a+b"))
         assertEquals("ws://10.0.2.2:8787/ws?ticket=t", CallRoomSocket.socketUrl("http://10.0.2.2:8787", "ws", "t"))
+        assertEquals("ws://h/ws?ticket=t&instance=abcd1234", CallRoomSocket.socketUrl("http://h", "/ws", "t", "abcd1234"))
+        assertEquals("ws://h/ws?ticket=t", CallRoomSocket.socketUrl("http://h", "/ws", "t", "no good!"))
     }
 }

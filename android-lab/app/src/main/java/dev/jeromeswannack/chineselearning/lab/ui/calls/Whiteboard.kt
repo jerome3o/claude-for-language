@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,7 +49,6 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.CallBoard
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
-import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import java.util.UUID
 
 private const val PEN_WIDTH = 10.0
@@ -92,7 +90,7 @@ fun Whiteboard(
         draft = null
     }
 
-    Column(modifier) {
+    Column(modifier.background(BoardPaper.Surround)) {
         FlowRow(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -104,7 +102,7 @@ fun Whiteboard(
             CallBoard.BOARD_COLORS.forEach { c ->
                 Box(
                     Modifier.align(Alignment.CenterVertically).size(32.dp).clip(CircleShape).background(boardColor(c))
-                        .border(if (color == c) 3.dp else 0.dp, if (color == c) Lab.colors.accent else Color.Transparent, CircleShape)
+                        .border(if (color == c) 3.dp else 1.dp, if (color == c) BoardPaper.Accent else BoardPaper.Border, CircleShape)
                         .bouncyClickable { color = c },
                 )
             }
@@ -116,7 +114,7 @@ fun Whiteboard(
             val ratio = CallBoard.BOARD_WIDTH.toFloat() / CallBoard.BOARD_HEIGHT
             val w = if (maxWidth / maxHeight > ratio) maxHeight * ratio else maxWidth
             val h = w / ratio
-            Box(Modifier.size(w, h).clip(RoundedCornerShape(10.dp)).background(Color.White).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(10.dp))) {
+            Box(Modifier.size(w, h).clip(RoundedCornerShape(10.dp)).background(BoardPaper.Paper).border(1.dp, BoardPaper.Border, RoundedCornerShape(10.dp))) {
                 Canvas(
                     Modifier.fillMaxSize()
                         .pointerInput(tool, color) {
@@ -154,12 +152,12 @@ fun Whiteboard(
                         OutlinedTextField(
                             value = text,
                             onValueChange = { draft = p to it.take(CallBoard.MAX_TEXT_LENGTH) },
-                            placeholder = { Text("Type…") },
+                            placeholder = { Text("Type…", color = BoardPaper.Muted) },
                             singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle(color = boardColor(color), fontSize = 20.sp),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { commitDraft() }),
-                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.White, unfocusedContainerColor = Color.White),
+                            colors = BoardPaper.fieldColors(boardColor(color)),
                             modifier = Modifier.width(fieldW),
                         )
                     }
@@ -177,11 +175,11 @@ fun Whiteboard(
 private fun ToolButton(label: String, active: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
-            .background(if (active) Lab.colors.accent.copy(alpha = 0.15f) else Lab.colors.card)
-            .border(1.dp, if (active) Lab.colors.accent else Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+            .background(if (active) BoardPaper.AccentSoft else BoardPaper.Paper)
+            .border(1.dp, if (active) BoardPaper.Accent else BoardPaper.Border, RoundedCornerShape(12.dp))
             .bouncyClickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Lab.colors.ink) }
+    ) { Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = BoardPaper.Ink) }
 }
 
 private fun newId(): String = UUID.randomUUID().toString().take(18)

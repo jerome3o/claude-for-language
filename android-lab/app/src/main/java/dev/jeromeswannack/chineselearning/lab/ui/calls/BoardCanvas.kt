@@ -28,7 +28,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.CallBoard
 import dev.jeromeswannack.chineselearning.lab.core.calls.LiveStroke
 
 /** "#dc2626" → Color (board colours are always #rrggbb; anything else draws in ink). */
-fun boardColor(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF1F2937))
+fun boardColor(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(BoardPaper.Ink)
 
 /**
  * Draws the call whiteboard (port of services/calls/boardRender.ts): white paper, strokes
@@ -38,7 +38,7 @@ fun DrawScope.drawBoard(items: List<BoardItem>, live: List<LiveStroke>, measurer
     val w = size.width
     val h = size.height
     val scale = w / CallBoard.BOARD_WIDTH
-    drawRect(Color.White)
+    drawRect(BoardPaper.Paper)
     for (item in items) when (item) {
         is BoardItem.Stroke -> drawBoardStroke(item.points, boardColor(item.color), item.width, scale)
         is BoardItem.Text -> {
@@ -83,7 +83,7 @@ fun BoardSnapshot(items: List<BoardItem>, modifier: Modifier = Modifier) {
     val measurer = rememberTextMeasurer()
     BoxWithConstraints(modifier.fillMaxWidth()) {
         Canvas(
-            Modifier.fillMaxWidth().aspectRatio(CallBoard.BOARD_WIDTH.toFloat() / CallBoard.BOARD_HEIGHT).clip(RoundedCornerShape(12.dp)).background(Color.White),
+            Modifier.fillMaxWidth().aspectRatio(CallBoard.BOARD_WIDTH.toFloat() / CallBoard.BOARD_HEIGHT).clip(RoundedCornerShape(12.dp)).background(BoardPaper.Paper),
         ) { drawBoard(items, emptyList(), measurer, density) }
     }
 }

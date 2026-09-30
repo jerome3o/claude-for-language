@@ -56,4 +56,12 @@ class CallsFormatTest {
         val people = callPeople(MyRelationshipsDto(students = listOf(rel("r1", "u2"), rel("r2", "claude-ai"), rel("r3", "u3", "removed"), rel("r4", "u4"))), "me")
         assertEquals(listOf(CallPerson("r1", "李明"), CallPerson("r4", "u4@x.com")), people)
     }
+
+    @Test fun connectionLogRowsAreTimedFromTheFirstEvent() {
+        val d = { t: Long, name: String -> dev.jeromeswannack.chineselearning.lab.data.api.CallDiagDto(t, "pc", "x$t", "u", name) }
+        val rows = CallsFormat.diagRows(listOf(d(1_000_125_000, "B"), d(1_000_000_000, "A"), d(1_000_000_999, "")))
+        org.junit.Assert.assertEquals(listOf("0:00", "0:00", "2:05"), rows.map { it.time })
+        org.junit.Assert.assertEquals(listOf("A", "?", "B"), rows.map { it.who })
+        org.junit.Assert.assertTrue(CallsFormat.diagRows(emptyList()).isEmpty())
+    }
 }

@@ -77,4 +77,27 @@ class CallTextBoardTest {
         p.b.dropCursor("c-a")
         assertTrue(p.b.remoteCarets.isEmpty())
     }
+
+    @Test fun composePreviewRidesOnTheCursorAndNeverTouchesTheText() {
+        val sent = mutableListOf<String>()
+        val a = CallTextBoard("user-a", { sent += it; true }, "aa")
+        a.localEdit("我要", 2)
+        a.select(2, 2)
+        sent.clear()
+        a.setComposing(true)
+        a.sendCompose("ka\nfei")
+        val msg = Json.parseToJsonElement(sent.single()).jsonObject
+        val cursor = CallProtocol.parseServer(msg.toString().replace("\"type\":\"text_cursor\"", "\"type\":\"text_cursor\",\"client_id\":\"c1\",\"user_id\":\"user-a\",\"name\":\"A\""))
+        val c = (cursor as ServerMessage.TextCursorMsg).cursor
+        assertEquals("ka fei", c.compose)
+        // The other side draws it in the flag at my caret; the text stays as it was.
+        val b = CallTextBoard("user-b", { true }, "bb")
+        b.load(a.doc.snapshot(), emptyList())
+        b.setCursor(c)
+        val caret = b.remoteCarets.single()
+        assertEquals("ka fei", caret.compose)
+        assertEquals(2, caret.head)
+        assertEquals("我要", b.text)
+        assertEquals("我要", a.text)
+    }
 }
