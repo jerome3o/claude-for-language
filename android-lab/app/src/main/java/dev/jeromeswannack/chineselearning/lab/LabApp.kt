@@ -41,6 +41,8 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
     lateinit var haptics: Haptics
     lateinit var audio: WordAudio
     lateinit var debugReports: DebugReporter
+    /** Auto-audio: missing / broken clips made on the card, queued offline, backfilled after sync (data/audio/). */
+    lateinit var noteAudio: dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Offline store for feature data (data/platform/JsonCache.kt). */
@@ -66,6 +68,10 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
         sounds = Sounds(this) { prefs.soundOn }
         haptics = Haptics(this) { prefs.hapticsOn }
         audio = WordAudio(this, repo)
+        noteAudio = dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer(repo, online = {
+            online.value && !dev.jeromeswannack.chineselearning.lab.data.settings.SettingsStore.forcedOffline(this)
+        })
+        dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer.current = noteAudio
         FeatureSyncs.registerAll(repo.platform)
         debugReports = DebugReporter(this, repo, appVersion())
         watchNetwork()

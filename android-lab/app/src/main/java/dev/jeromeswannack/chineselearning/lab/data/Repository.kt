@@ -420,6 +420,14 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
 
     private fun fileName(key: String) = key.removePrefix("/api/audio/").replace(Regex("[^A-Za-z0-9._-]"), "_")
 
+    /** Downloads one clip into the offline cache (no-op when it is there); throws [HttpException] (404 = gone from the server). */
+    suspend fun cacheClip(key: String): File = withContext(Dispatchers.IO) {
+        cachedAudio(key) ?: File(audioDir, fileName(key)).also { api.download(Config.audioUrl(key, api.baseUrl), it) }
+    }
+
+    /** Told about every clip the prefetch got a 404 for (data/audio/NoteAudioFixer remakes it). */
+    @Volatile var onClipNotFound: ((key: String) -> Unit)? = null
+
     /**
      * Starts downloading missing clips in the background (after a sync). Never inside the
      * sync lock: a first download of thousands of clips must not hold up review uploads. A
@@ -461,6 +469,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                 gate.withPermit {
                     runCatching { api.download(Config.audioUrl(key, api.baseUrl), File(audioDir, fileName(key))) }
                         .onSuccess { _status.update { it.copy(audioCached = it.audioCached + 1) } }
+                        .onFailure { e -> if ((e as? HttpException)?.code == 404) onClipNotFound?.invoke(key) }
                 }
             }
         }.awaitAll()

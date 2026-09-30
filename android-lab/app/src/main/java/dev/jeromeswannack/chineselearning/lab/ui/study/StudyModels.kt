@@ -78,6 +78,8 @@ data class StudyUi(
     val today: TodaySummary? = null,
     /** Non-null in the tutor-notes practice (a focused mini session). */
     val practice: PracticeUi? = null,
+    /** The card's clips being made (auto-audio: Generating… / made when online / retry). */
+    val cardAudio: CardAudio = CardAudio(),
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }

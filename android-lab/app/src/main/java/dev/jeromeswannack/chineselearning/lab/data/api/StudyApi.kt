@@ -78,6 +78,19 @@ suspend fun Api.generateNoteAudio(noteId: String, options: GenerateAudioOptions?
     else post("/api/notes/${enc(noteId)}/generate-audio", options)
 
 @Serializable
+data class EnsureAudioBody(val broken: List<String>? = null)
+
+/** `word` / `sentence`: ok | copied | generated | failed | none (worker `ensureNoteClips`). */
+@Serializable
+data class EnsureAudioResult(val note: StudyNoteDto? = null, val word: String = "ok", val sentence: String = "none") {
+    val failed: Boolean get() = word == "failed" || sentence == "failed"
+}
+
+/** Auto-audio: make the note's missing word / sentence clips (idempotent; [broken] = keys that 404'd here). */
+suspend fun Api.ensureNoteAudio(noteId: String, broken: List<String> = emptyList()): EnsureAudioResult =
+    post("/api/notes/${enc(noteId)}/ensure-audio", EnsureAudioBody(broken.ifEmpty { null }))
+
+@Serializable
 data class NoteAudioRecordingDto(
     val id: String,
     val note_id: String = "",

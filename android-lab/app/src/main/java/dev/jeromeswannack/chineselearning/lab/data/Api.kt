@@ -201,9 +201,14 @@ class Api(val baseUrl: String = Config.API_BASE, private val tokenProvider: () -
     suspend fun download(url: String, dest: File) = withContext(Dispatchers.IO) {
         http.newCall(Request.Builder().url(url).build()).execute().use { res ->
             if (!res.isSuccessful) throw HttpException(res.code, url)
-            val tmp = File(dest.parentFile, dest.name + ".part")
-            res.body!!.byteStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
-            if (!tmp.renameTo(dest)) throw IOException("rename failed")
+            // Unique temp name: the card and the background prefetch may fetch the same clip at once.
+            val tmp = File(dest.parentFile, dest.name + "." + java.util.UUID.randomUUID().toString().take(8) + ".part")
+            try {
+                res.body!!.byteStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                if (!tmp.renameTo(dest)) throw IOException("rename failed")
+            } finally {
+                tmp.delete()
+            }
         }
     }
 

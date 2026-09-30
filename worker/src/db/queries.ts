@@ -669,6 +669,33 @@ export async function propagateNoteAudioToSharedCopies(db: D1Database, noteId: s
   return updated;
 }
 
+/** A tutor's note that a student's copy was made from, with its clips. */
+export interface SharedSourceClips {
+  audio_url: string | null;
+  audio_provider: string | null;
+  sentence_clue: string | null;
+  sentence_clue_audio_url: string | null;
+  sentence_clue_audio_provider: string | null;
+}
+
+/**
+ * The source notes of a copy: notes with the same hanzi in every deck this deck was
+ * copied from (`shared_decks.target_deck_id`). Empty for a deck that is nobody's copy.
+ */
+export async function findSharedSourceClips(db: D1Database, deckId: string, hanzi: string): Promise<SharedSourceClips[]> {
+  const res = await db
+    .prepare(
+      `SELECT n.audio_url, n.audio_provider, n.sentence_clue, n.sentence_clue_audio_url, n.sentence_clue_audio_provider
+         FROM shared_decks s JOIN notes n ON n.deck_id = s.source_deck_id
+        WHERE s.target_deck_id = ? AND TRIM(n.hanzi) = ?
+          AND (n.audio_url IS NOT NULL OR n.sentence_clue_audio_url IS NOT NULL)
+        LIMIT 5`,
+    )
+    .bind(deckId, hanzi)
+    .all<SharedSourceClips>();
+  return res.results || [];
+}
+
 // ============ Deletion tombstones (offline clients drop these on sync) ============
 
 export type DeletedItemKind = 'deck' | 'note';
