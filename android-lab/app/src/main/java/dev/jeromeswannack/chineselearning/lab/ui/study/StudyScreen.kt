@@ -28,6 +28,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -135,6 +139,8 @@ class StudyActions(
     val onLessonComplete: (dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) -> Unit = {},
     val readerEnv: @Composable (readerId: String) -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv = { dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv() },
     val onReaderRated: (rating: Int, timeSpentMs: Long) -> Unit = { _, _ -> },
+    /** Lab "today split": Continue on the "Flashcards done" pause. (Later = [onClose].) */
+    val onContinueExtras: () -> Unit = {},
 )
 
 @Composable
@@ -251,6 +257,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onLessonComplete = vm::completeLesson, // Package B
             readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B
             onReaderRated = vm::rateReader, // Package B
+            onContinueExtras = vm::continueToExtras, // Lab today split
         ),
     )
 }
@@ -278,7 +285,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
                     targetState = ui.phase,
-                    contentKey = { p -> when (p) { is StudyPhase.Showing -> p.view.presentation; is StudyPhase.Lesson -> "lesson-${p.lesson.key}"; is StudyPhase.Reader -> "reader-${p.reader.key}"; StudyPhase.Done -> "done"; StudyPhase.Loading -> "loading" } },
+                    contentKey = { p -> when (p) { is StudyPhase.Showing -> p.view.presentation; is StudyPhase.Lesson -> "lesson-${p.lesson.key}"; is StudyPhase.Reader -> "reader-${p.reader.key}"; is StudyPhase.Extras -> "extras"; StudyPhase.Done -> "done"; StudyPhase.Loading -> "loading" } },
                     transitionSpec = { cardTransition(ui.lastRating) },
                     label = "card",
                 ) { phase ->
@@ -287,6 +294,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                         is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay)
                         is StudyPhase.Lesson -> dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLessonView(phase.lesson, ui.counts, actions.lessonEnv, actions.onLessonComplete) // Package B
                         is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderRated) // Package B
+                        is StudyPhase.Extras -> ExtrasBreakView(phase, ui, actions) // Lab today split
                         StudyPhase.Done -> DoneView(ui, actions)
                     }
                 }
@@ -310,6 +318,8 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "Leave study (you can come back to this card)", tint = Lab.colors.muted) }
             QueueCountsBar(ui.counts, ui.activeBucket, Modifier.weight(1f), onCountsCopied)
+            // Lab today split: what's waiting after the cards ("📘2 📖1").
+            if (ui.todayLeft.any && (ui.phase is StudyPhase.Showing || ui.phase is StudyPhase.Loading)) TodayLeftChip(ui.todayLeft)
             OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
             IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
                 Icon(Icons.AutoMirrored.Filled.Undo, "Undo last review", tint = if (ui.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
@@ -347,7 +357,7 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
     val practice = ui.practice
     // 🎉 + confetti only for the finish being celebrated now; quiet when today's finish was
     // already celebrated (back to Study later with nothing due). The practice keeps its own finish.
-    val quiet = practice == null && today?.celebrate != true
+    val quiet = practice == null && today?.celebrate != true && today?.allClear != true
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -357,7 +367,7 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
             var shown by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) { shown = true }
             val scale by animateFloatAsState(if (shown) 1f else 0.3f, spring(dampingRatio = 0.45f, stiffness = 200f), label = "trophy")
-            Text(if (quiet) "✅" else "🎉", fontSize = 84.sp, modifier = Modifier.scale(scale))
+            Text(if (quiet) "✅" else if (today?.allClear == true && today.celebrate != true) "🌟" else "🎉", fontSize = 84.sp, modifier = Modifier.scale(scale))
             Text(
                 when {
                     practice != null -> if (stats.reviews > 0) "Practised!" else "Nothing to practise"
@@ -398,6 +408,7 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
                     dev.jeromeswannack.chineselearning.lab.core.ActiveTime.todayLine(today.activeMs, today.reviews),
                     style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted,
                 )
+                TodayDoneLine(today)
                 if (ui.stats.leeches.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))
                     Text("${ui.stats.leeches.size} word${if (ui.stats.leeches.size == 1) "" else "s"} needed several tries — they'll be back soon.", style = MaterialTheme.typography.bodyMedium, color = Palette.Again, textAlign = TextAlign.Center)
@@ -413,8 +424,95 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
         }
         if (practice != null && stats.reviews > 0) ConfettiRain(key = stats.reviews, colors = Palette.Confetti)
         else if (today?.celebrate == true) ConfettiRain(key = today.reviews, colors = Palette.Confetti)
+        // The second, smaller one: flashcards, lessons and today's story all done.
+        else if (today?.allClear == true) SparkBurst(trigger = 1, colors = Palette.Confetti, sparks = 34)
     }
 }
+
+/** "Flashcards ✓ · 2 mini lessons ✓ · Today's story ✓" under today's numbers (Lab today split). */
+@Composable
+private fun TodayDoneLine(today: TodaySummary) {
+    if (today.lessonsDone == 0 && !today.readerDone) return
+    Spacer(Modifier.height(8.dp))
+    val parts = listOfNotNull(
+        "Flashcards ✓",
+        if (today.lessonsDone > 0) "${today.lessonsDone} mini lesson${if (today.lessonsDone == 1) "" else "s"} ✓" else null,
+        if (today.readerDone) "Today's story ✓" else null,
+    )
+    Text(
+        if (today.allClear) "Everything for today ✓" else parts.joinToString(" · "),
+        style = MaterialTheme.typography.labelLarge,
+        color = Palette.Good,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+    )
+    if (today.allClear) Text(parts.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, textAlign = TextAlign.Center)
+}
+
+/** The top bar's "📘2 📖1": mini lessons and today's story waiting after the cards. */
+@Composable
+private fun TodayLeftChip(left: TodayLeft) {
+    Text(
+        left.chip,
+        fontSize = 12.sp,
+        color = Lab.colors.muted,
+        maxLines = 1,
+        modifier = Modifier.padding(horizontal = 2.dp).clip(CircleShape).background(Lab.colors.faint.copy(alpha = 0.7f))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .describedAs("After the cards: ${dev.jeromeswannack.chineselearning.lab.core.TodayPlan.extrasPhrase(left.lessons, left.reader)}"),
+    )
+}
+
+private fun Modifier.describedAs(label: String): Modifier =
+    this.then(Modifier.semantics { contentDescription = label })
+
+/**
+ * Lab "today split": the flashcards are done and lessons / today's story are left — the
+ * cards' celebration (once a day) and Continue / Later. Later just leaves: Home shows what's left.
+ */
+@Composable
+private fun ExtrasBreakView(phase: StudyPhase.Extras, ui: StudyUi, actions: StudyActions) {
+    val today = ui.today
+    Box(Modifier.fillMaxSize().testTag(EXTRAS_BREAK_TAG)) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(20.dp))
+            var shown by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { shown = true }
+            val scale by animateFloatAsState(if (shown) 1f else 0.3f, spring(dampingRatio = 0.45f, stiffness = 200f), label = "cardsDone")
+            Text(if (today?.celebrate == true) "🎉" else "✅", fontSize = 72.sp, modifier = Modifier.scale(scale))
+            Text("Flashcards done ✓", style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                dev.jeromeswannack.chineselearning.lab.core.TodayPlan.extrasPhrase(phase.lessons, phase.reader).replaceFirstChar { it.uppercase() } + " left",
+                style = MaterialTheme.typography.bodyLarge, color = Lab.colors.muted, textAlign = TextAlign.Center,
+            )
+            if (today != null && today.reviews > 0) {
+                Spacer(Modifier.height(6.dp))
+                Text(dev.jeromeswannack.chineselearning.lab.core.ActiveTime.todayLine(today.activeMs, today.reviews), style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted)
+            }
+            Spacer(Modifier.height(20.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).padding(vertical = 6.dp)) {
+                phase.titles.forEach { t ->
+                    Text(t, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp))
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            PrimaryPill("Continue", Modifier.fillMaxWidth().height(58.dp).testTag(EXTRAS_CONTINUE_TAG), onClick = actions.onContinueExtras)
+            Spacer(Modifier.height(6.dp))
+            TextButton(onClick = actions.onClose, modifier = Modifier.heightIn(min = 48.dp)) { Text("Later", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold) }
+        }
+        if (today?.celebrate == true) ConfettiRain(key = today.reviews, colors = Palette.Confetti)
+    }
+}
+
+/** Test tags of the "Flashcards done" pause. */
+const val EXTRAS_BREAK_TAG = "study-extras-break"
+const val EXTRAS_CONTINUE_TAG = "study-extras-continue"
 
 @Composable
 private fun StatTile(label: String, value: Int, suffix: String, modifier: Modifier) {

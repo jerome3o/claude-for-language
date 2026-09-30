@@ -135,6 +135,18 @@ class StudyDayStore private constructor(context: Context, private val zone: Zone
         return true
     }
 
+    /**
+     * Lab "today split": the second, smaller celebration — flashcards, today's mini lessons
+     * and today's story all done. Once per local day; true (and marked) the first time.
+     */
+    @Synchronized
+    fun claimAllClear(now: Long = System.currentTimeMillis()): Boolean {
+        val day = today(now)
+        if (sp.getString(ALL_CLEAR, null) == day) return false
+        sp.edit().putString(ALL_CLEAR, day).apply()
+        return true
+    }
+
     /** Runs after every sync: report this device's time (throttled). */
     object Sync : FeatureSync {
         override suspend fun sync(ctx: dev.jeromeswannack.chineselearning.lab.data.platform.SyncContext) {
@@ -148,6 +160,7 @@ class StudyDayStore private constructor(context: Context, private val zone: Zone
         private const val DEVICE = "device_id"
         private const val POINT = "resume_point"
         private const val MARK = "celebrated"
+        private const val ALL_CLEAR = "all_clear"
         private const val SAVE_EVERY_MS = 5_000L
         private const val REPORT_EVERY_MS = 10 * 60_000L
 

@@ -476,6 +476,7 @@ private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: Exerc
                 previews = lesson.previews,
                 onComplete = actions.onLessonComplete,
                 onEnd = actions.onClose,
+                resume = if (lesson.id.isNotEmpty()) dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberLessonResume(androidx.compose.ui.platform.LocalContext.current, lesson.id, lesson.spec) else null,
             )
         else -> MissingTarget(ui.title, actions.onClose)
     }

@@ -52,7 +52,8 @@ object NavRules {
 
     // ---------------- tabs ----------------
 
-    val STUDY = TabSpec(TabId.STUDY, "Study", "/", listOf("/", "/study"))
+    // "/today" = the Lab-only "today split" screens (today's lessons / reader; no web route).
+    val STUDY = TabSpec(TabId.STUDY, "Study", "/", listOf("/", "/study", "/today"))
     val DECKS = TabSpec(TabId.DECKS, "Decks", "/decks", listOf("/decks", "/generate", "/search"))
     val TUTOR = TabSpec(TabId.TUTOR, "Tutor", "/connections", listOf("/connections"))
     val STUDENTS = TabSpec(TabId.STUDENTS, "Students", "/connections", listOf("/connections"))
@@ -105,6 +106,7 @@ object NavRules {
         Regex("^/calls/[^/]+/?$"),
         Regex("^/homework/[^/]+/?$"),
         Regex("^/tutor-notes/practice/?$"),
+        Regex("^/today/(lessons/[^/]+|reader)/?$"), // Lab-only "today split": a lesson / the story from Home
     )
 
     fun isImmersiveRoute(path: String): Boolean {

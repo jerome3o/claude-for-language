@@ -67,6 +67,9 @@ class HomeActions(
     val onSignIn: () -> Unit = {},
     /** "All decks" under the queue → the Decks tab. */
     val onAllDecks: () -> Unit = {},
+    /** Lab "today split": today's mini lessons (`/today/lessons`) and today's story (`/today/reader`). */
+    val onTodayLessons: () -> Unit = {},
+    val onTodayReader: () -> Unit = {},
 )
 
 /** The Study tab's home (`/`). Lab settings live in the More tab. */
@@ -103,6 +106,15 @@ fun HomeScreen(
             }
             if (sync.signedOut) item { SignedOutBanner(actions.onSignIn) }
             item { StudyHero(ui, sync, actions.onStudyAll) }
+            // Lab "today split": the three kinds of today's work, separately.
+            ui.today?.let { t ->
+                item(key = "today") {
+                    dev.jeromeswannack.chineselearning.lab.ui.today.TodaySection(
+                        t,
+                        dev.jeromeswannack.chineselearning.lab.ui.today.TodayActions(onFlashcards = actions.onStudyAll, onLessons = actions.onTodayLessons, onReader = actions.onTodayReader),
+                    )
+                }
+            }
             if (homework != null) item { homework() }
             if (ui.decks.isNotEmpty()) {
                 item {
@@ -168,6 +180,8 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "hero")
     val empty = ui.loaded && due.total == 0 && !sync.running
+    // Lab "today split": cards done but lessons / the story left → the hero says so (Study → Continue).
+    val extras = ui.today?.let { dev.jeromeswannack.chineselearning.lab.core.TodayPlan.extrasPhrase(it.lessonsToDo.size, it.readerLeft) }.orEmpty()
     Column(
         Modifier
             .fillMaxWidth()
@@ -177,24 +191,29 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
             .clickable(interactionSource = source, indication = null, enabled = ui.loaded, onClick = onStudy)
             .padding(24.dp),
     ) {
-        Text(if (empty) "All caught up" else "Study today's cards", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(if (empty && extras.isNotEmpty()) "Flashcards done ✓" else if (empty) "All caught up" else "Study today's cards", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
         val minutes = Math.max(1, Math.round(due.total * 20 / 60f))
         Text(
             when {
                 !ui.loaded || (sync.running && due.total == 0) -> "Getting your cards…" + (sync.progress?.let { "\n${sync.phase} · $it" } ?: "")
+                empty && extras.isNotEmpty() -> extras.replaceFirstChar { it.uppercase() } + " left"
                 empty -> "Nothing due. ${ui.reviewedToday} reviews today — 很好！"
+                extras.isNotEmpty() -> "${due.total} card${if (due.total == 1) "" else "s"} due · about $minutes min\nthen $extras"
                 else -> "${due.total} card${if (due.total == 1) "" else "s"} due · about $minutes min"
             },
             color = Color.White.copy(alpha = 0.9f),
             fontSize = 15.sp,
         )
-        Spacer(Modifier.height(16.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            HeroChip(due.new, "new", Palette.New)
-            HeroChip(due.secondaryNew, "more", Palette.Secondary)
-            HeroChip(due.learning, "learning", Palette.Learning)
-            HeroChip(due.review, "review", Palette.Review)
+        // Four zero chips say nothing once the cards are done (Lab today split: the Today card says what's left).
+        if (!(empty && extras.isNotEmpty())) {
+            Spacer(Modifier.height(16.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HeroChip(due.new, "new", Palette.New)
+                HeroChip(due.secondaryNew, "more", Palette.Secondary)
+                HeroChip(due.learning, "learning", Palette.Learning)
+                HeroChip(due.review, "review", Palette.Review)
+            }
         }
     }
 }

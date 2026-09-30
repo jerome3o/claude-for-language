@@ -10,6 +10,8 @@ import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -23,14 +25,24 @@ data class HomeUi(
     val due: QueueCounts = QueueCounts(0, 0, 0, 0),
     val decks: List<DeckSummary> = emptyList(),
     val reviewedToday: Int = 0,
+    /** Lab "today split": flashcards, mini lessons and the graded reader side by side (null until loaded). */
+    val today: dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome? = null,
 )
 
 class HomeViewModel(private val app: LabApp) : ViewModel() {
     private val _ui = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = _ui
 
+    private val todayData = dev.jeromeswannack.chineselearning.lab.ui.today.TodayData(app)
+    private var askedForStory = false
+
     init {
         viewModelScope.launch { app.repo.dataVersion.collect { refresh() } }
+        // Today's lessons / story change when one is completed or a sync brings new ones.
+        val runtime = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app)
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.merge(runtime.store.observe().map { }, runtime.readers.observe().map { }).drop(2).collect { refresh() }
+        }
     }
 
     fun refresh() {
@@ -57,13 +69,24 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
             val q = StudyQueue.build(queueDecks, cards, app.prefs.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id)
             DeckSummary(d.id, d.name, noteCounts[d.id] ?: 0, StudyQueue.counts(q.dueCards, q.reviewedNoteIds))
         }
+        val snapshot = runCatching { todayData.snapshot(now, zone) }.getOrDefault(dev.jeromeswannack.chineselearning.lab.ui.today.TodaySnapshot.EMPTY)
+        // No story yet today: ask for one (once a local day, like the session does).
+        if (!askedForStory && snapshot.readerEntry == null && snapshot.reader == dev.jeromeswannack.chineselearning.lab.core.TodayPlan.Reader.None && app.online.value) {
+            askedForStory = true
+            val dueNotes = all.dueCards.map { it.noteId }.distinct()
+            app.scope.launch { if (todayData.ensureDailyReader(dueNotes)) refresh() }
+        }
+        val reviewedToday = dao.reviewsSince(Js.toIsoString(dayStart))
+        val due = StudyQueue.counts(all.dueCards, all.reviewedNoteIds)
+        val progress = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app)
         val ordered = dev.jeromeswannack.chineselearning.lab.core.Budget.sortForQueue(summaries, { s -> decks.first { it.id == s.id }.studyPriority }, { s -> decks.first { it.id == s.id }.createdAt })
         return HomeUi(
             loaded = true,
             userName = app.prefs.userName,
-            due = StudyQueue.counts(all.dueCards, all.reviewedNoteIds),
+            due = due,
             decks = ordered,
-            reviewedToday = dao.reviewsSince(Js.toIsoString(dayStart)),
+            reviewedToday = reviewedToday,
+            today = dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome.from(snapshot, due.total, reviewedToday) { progress.has(it) },
         )
     }
 
