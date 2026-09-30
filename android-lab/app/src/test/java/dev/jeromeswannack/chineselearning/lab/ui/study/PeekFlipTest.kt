@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
@@ -29,6 +31,8 @@ import org.junit.Test
  * Peek: on the answer side a tap on empty space turns the card back to the question, and a tap
  * on the question turns it to the answer again — a view-only flip. Nothing is re-checked or
  * recorded, the typed answer is kept, and buttons / scrolls / long presses never flip it.
+ * An UNREVEALED card's face is inert: taps, swipes and long presses do nothing — only its
+ * buttons (Show answer / Record / Check / Show) reveal it.
  */
 class PeekFlipTest : LabScreenshotTest() {
     private val reveals = mutableListOf<AnswerKey.Verdict?>()
@@ -129,19 +133,45 @@ class PeekFlipTest : LabScreenshotTest() {
         assertEquals(0, peeks)
     }
 
-    @Test fun frontTapOnAnUnrevealedCardStillReveals() {
+    /** A tap in the question side's top padding: empty space on the face. */
+    private fun tapEmptyFront() = compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { click(Offset(centerX, 12f)) }
+
+    @Test fun faceTapsAndSwipesNeverRevealAnUnansweredCard() {
         studyScreen(CardTypes.HANZI_TO_MEANING)
         compose.onNodeWithText(Samples.note.hanzi).performClick()
+        tapEmptyFront()
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { swipeLeft() }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { swipeRight() }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { swipeUp() }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { swipeDown() }
+        compose.onNodeWithTag(CARD_FRONT_TAG).performTouchInput { longClick(Offset(centerX, centerY)) }
+        compose.mainClock.advanceTimeBy(500)
+
+        // Still the question, with its buttons; no answer, no hint to tap.
+        compose.onNodeWithText("Show answer").assertIsDisplayed()
+        compose.onNodeWithText("🎤  Record").assertIsDisplayed()
+        compose.onNodeWithText(Samples.note.pinyin).assertDoesNotExist()
+        compose.onNodeWithText(PEEK_HINT).assertDoesNotExist()
+        compose.onNodeWithTag(CARD_BACK_TAG).assertDoesNotExist()
+        assertTrue(reveals.isEmpty())
+        assertEquals(0, peeks)
+
+        // Only the button reveals.
+        compose.onNodeWithText("Show answer").performClick()
         assertAnswerSide()
         assertEquals(1, reveals.size)
-        assertEquals(0, peeks)
     }
 
     @Test fun frontTapOnAnUnrevealedTypingCardDoesNothing() {
         studyScreen(CardTypes.MEANING_TO_HANZI)
+        compose.onNode(hasSetTextAction()).performTextInput(Samples.note.hanzi)
         compose.onNodeWithText(Samples.note.english).performClick()
-        compose.onNodeWithText("Show").assertIsDisplayed()
+        tapEmptyFront()
+        compose.onNodeWithText("Check").assertIsDisplayed()
         assertTrue(reveals.isEmpty())
+        compose.onNodeWithText("Check").performClick()
+        assertEquals(1, reveals.size)
+        assertAnswerSide()
     }
 
     private companion object {

@@ -281,6 +281,19 @@ every row for the current card only; the next card starts blank again.
 
 On the unfolded Fold (≥ 700px) the whole card column is capped at 640px and centred.
 
+**Only the buttons reveal.** On an unanswered card the face is inert: a tap on the word, the
+English, the audio card or empty space, a swipe or a long press does nothing — the answer
+comes up only through the controls at the bottom (Show answer / Record / Check answer on a read
+card, Check / Show on a typing card, the multiple-choice button). The same holds for the
+homework pass card: only **Show answer** turns it. Buttons on the face keep their own taps
+(▶, Use in a sentence, Multiple choice). There is no "tap to reveal" hint on an unanswered
+card; "Tap to see the answer" only appears on the question while peeking (below). Web: the
+card click handler returns early while unrevealed (`handleCardClick` in `StudyPage.tsx`), the
+pass card has no click handler (`HomeworkPassPage.tsx`); e2e `study-peek.spec.ts`,
+`homework-pass-sentences.spec.ts`. Lab: `CardFront` in `ui/study/CardStage.kt` is clickable
+only once revealed, `PassFront` in `ui/homework/HomeworkScreens.kt` has no tap
+(`PeekFlipTest`, `PassSentencesTest`).
+
 **Peek at the question.** On a revealed card, a tap on the card's empty space turns it back
 to the question side (with a quiet "Tap to see the answer"), and a tap on the question turns
 it to the answer again. It is view only: nothing is re-checked, re-played, re-transcribed or
@@ -289,8 +302,8 @@ running, and the action row and ratings stay up (you can rate from either side).
 with its own tap never peeks — buttons, links, tappable characters, the answer diff, the
 explanation, tutor notes, sentence rows, popups — and neither does a drag / scroll, a long
 press or finishing a text selection. The answer side keeps its scroll position and opened
-sentence rows through the round trip. An unrevealed card's front is unchanged (the web card
-has no front tap; the Lab app's read card reveals on a front tap as before). Web:
+sentence rows through the round trip. An unrevealed card's front never peeks or reveals
+(see above). Web:
 `components/study/peekFlip.ts` (`isPeekTap`, unit-tested) + `peeking` in `StudyPage.tsx`;
 Lab: `peek` / `keepTaps` in `ui/study/CardStage.kt` (`PeekFlipTest`).
 

@@ -2,7 +2,6 @@ package dev.jeromeswannack.chineselearning.lab.ui.homework
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
@@ -262,7 +261,7 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions, playingKey: String?,
                     transitionSpec = { studyCardTransition(when (lastRight) { true -> Rating.GOOD; false -> Rating.AGAIN; null -> null }) },
                     label = "pass-card",
                 ) { face ->
-                    PassCard(face.note, face.revealed, actions.onPlay, actions.onReveal) {
+                    PassCard(face.note, face.revealed, actions.onPlay) {
                         PassSentences(
                             key = face.key,
                             rows = face.note.sentences,
@@ -326,7 +325,7 @@ private class PassShown {
  * pinyin, meaning, the example sentence — which scrolls when it doesn't fit (large fonts).
  */
 @Composable
-private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, onReveal: () -> Unit, sentences: @Composable () -> Unit) {
+private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, sentences: @Composable () -> Unit) {
     val rotation by animateFloatAsState(if (revealed) 180f else 0f, StudyCardFlip, label = "flip")
     val density = LocalDensity.current
     Box(
@@ -341,7 +340,7 @@ private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, onRe
             .testTag("hw-pass-card"),
     ) {
         if (rotation <= 90f) {
-            PassFront(note, onPlay, onReveal)
+            PassFront(note, onPlay)
         } else {
             Box(Modifier.fillMaxSize().graphicsLayer { rotationY = 180f }) { PassBack(note, onPlay, sentences) }
         }
@@ -349,7 +348,7 @@ private fun PassCard(note: PassNote, revealed: Boolean, onPlay: () -> Unit, onRe
 }
 
 @Composable
-private fun PassFront(note: PassNote, onPlay: () -> Unit, onReveal: () -> Unit) {
+private fun PassFront(note: PassNote, onPlay: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val minHeight = maxHeight
         Column(
@@ -357,8 +356,7 @@ private fun PassFront(note: PassNote, onPlay: () -> Unit, onReveal: () -> Unit) 
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = minHeight)
-                // Like a study card: a tap on the card shows the answer.
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onReveal)
+                // Like a study card: the face is inert — only Show answer reveals.
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,

@@ -38,7 +38,7 @@ export function FirstCardExplainer() {
             <strong>You'll see each word three ways</strong> — read it and say it, hear it and type it, see the English and type it.
           </li>
           <li>
-            <strong>Answer first, then tap to reveal.</strong> Tap the speaker any time to hear the word again.
+            <strong>Answer first, then check with the buttons below.</strong> Tap the speaker any time to hear the word again.
           </li>
           <li>
             <strong>Rate yourself honestly</strong> — if you didn't get it right, <strong>always tap Again</strong>. That is how the app knows what to show you tomorrow.

@@ -10,6 +10,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.geometry.Offset
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.test.core.app.ApplicationProvider
@@ -30,6 +35,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -77,6 +83,32 @@ class PassSentencesTest {
             clue,
             SentenceExplanation(listOf(ExplainedWord("老师", "lǎoshī", "teacher"), ExplainedWord("互动", "hùdòng", "to interact")), construction = "喜欢 + a whole activity."),
         )
+    }
+
+    /** The question face is inert: taps and swipes on it never turn the card — Show answer only. */
+    @Test
+    fun faceTapsNeverRevealOnlyShowAnswerDoes() {
+        val vm = HomeworkPassViewModel(app, "a1")
+        compose.setContent {
+            val ui by vm.ui.collectAsStateWithLifecycle()
+            LabTheme { HomeworkPassScreen(ui, PassActions(onReveal = vm::reveal, onAnswer = vm::answer)) }
+        }
+        compose.waitUntil(5_000) { (vm.ui.value as? PassUi.Deck)?.note != null }
+        compose.onNodeWithText("互动").performClick()
+        compose.onNodeWithTag("hw-pass-card").performTouchInput { click(Offset(centerX, 12f)) }
+        compose.onNodeWithTag("hw-pass-card").performTouchInput { click(Offset(centerX, bottom - 12f)) }
+        compose.onNodeWithTag("hw-pass-card").performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("hw-pass-card").performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        assertFalse((vm.ui.value as PassUi.Deck).revealed)
+        compose.onNodeWithTag("hw-show").assertExists()
+        compose.onNodeWithTag("hw-gotit").assertDoesNotExist()
+
+        compose.onNodeWithTag("hw-show").performClick()
+        compose.waitForIdle()
+        assertTrue((vm.ui.value as PassUi.Deck).revealed)
+        compose.onNodeWithTag("hw-gotit").assertExists()
+        runBlocking { assertEquals(0, app.repo.dao.allEvents().size) }
     }
 
     @Test

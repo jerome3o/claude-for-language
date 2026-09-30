@@ -229,10 +229,13 @@ fun CardStage(
                 // position and opened sentence rows through a peek); the one turned away is
                 // invisible, silent to accessibility and under the other, which takes every touch.
                 val backShowing = rotation > 90f
-                Box(Modifier.fillMaxSize().face(visible = !backShowing)) {
+                Box(Modifier.fillMaxSize().face(visible = !backShowing).testTag(CARD_FRONT_TAG)) {
+                    // Only a revealed card's front takes a tap (peek back to the answer). An
+                    // unrevealed card is revealed by its buttons alone — Show answer / Record /
+                    // Check / the grid — so a stray tap on the face never gives the answer away.
                     CardFront(
                         view, ui, playingKey, actions, start.showClue, revealed,
-                        onTapToReveal = { if (revealed) peek(true) else if (!typing) reveal() },
+                        onTapToAnswer = { peek(true) },
                     )
                 }
                 if (revealed) {
@@ -340,7 +343,7 @@ fun CardStage(
 }
 
 @Composable
-private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startShowClue: Boolean, revealed: Boolean, onTapToReveal: () -> Unit) {
+private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startShowClue: Boolean, revealed: Boolean, onTapToAnswer: () -> Unit) {
     val note = view.note
     var showClue by remember(view.presentation) { mutableStateOf(startShowClue) }
     val generating = CardBusy.SENTENCE_CLUE in ui.extras.busy
@@ -351,7 +354,9 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
     val frontScroll = rememberScrollState()
     Column(
         (if (short) Modifier.fillMaxSize().verticalScroll(frontScroll).heightIn(min = maxHeight) else Modifier.fillMaxSize())
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTapToReveal)
+            // Peeking (revealed): a tap anywhere on the question turns back to the answer.
+            // Unrevealed: the face is inert — only the controls below reveal.
+            .then(if (revealed) Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTapToAnswer) else Modifier)
             .padding(if (short) 14.dp else 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = if (short) Arrangement.spacedBy(6.dp, Alignment.CenterVertically) else Arrangement.Top,
@@ -448,7 +453,7 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
                 }
             }
             if (reading) {
-                Text("Say it aloud, then tap to check", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+                Text("Say it aloud, then check with the buttons below", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
             }
         }
     }
@@ -554,6 +559,9 @@ private val SHORT_FRONT = 330.dp
 
 /** Test tag of the answer side (its empty space peeks back at the question). */
 const val CARD_BACK_TAG = "card-back"
+
+/** Test tag of the question side (inert until revealed; then a tap turns back to the answer). */
+const val CARD_FRONT_TAG = "card-front"
 
 /** One face of the card: the one turned away is see-through, has no semantics and sits under the other. */
 private fun Modifier.face(visible: Boolean): Modifier =
