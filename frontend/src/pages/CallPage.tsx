@@ -293,7 +293,7 @@ export function CallPage() {
               <button type="button" className="call-panel-close" onClick={() => setPanel('none')} aria-label="Close panel">✕</button>
             </div>
             {panel === 'text' ? (
-              <TextBoard session={call.textBoard} />
+              <TextBoard session={call.textBoard} gloss={{ callId, userId: call.myUserId }} />
             ) : panel === 'board' ? (
               <Whiteboard items={call.board} live={call.liveStrokes} myUserId={call.myUserId} onCommit={call.commitBoard} onLive={call.sendLiveStroke} />
             ) : (

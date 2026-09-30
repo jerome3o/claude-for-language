@@ -23,6 +23,11 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+/** The text board's tab-complete: pinyin + a short meaning for Chinese just typed (Haiku, cached server-side). */
+export function glossBoardText(callId: string, text: string, signal?: AbortSignal): Promise<{ text: string; pinyin: string; english: string; cached?: boolean }> {
+  return request(`/calls/${callId}/gloss`, { method: 'POST', body: JSON.stringify({ text }), signal });
+}
+
 export function listCalls(opts: { relationshipId?: string; live?: boolean } = {}): Promise<{ calls: CallListItem[] }> {
   const q = new URLSearchParams();
   if (opts.relationshipId) q.set('relationship_id', opts.relationshipId);

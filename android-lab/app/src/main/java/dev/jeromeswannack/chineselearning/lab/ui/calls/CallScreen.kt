@@ -115,6 +115,10 @@ data class CallScreenInfo(
     val audioRoutes: List<AudioRoute> = listOf(AudioRoute.SPEAKER),
     /** While I share my screen: the other person's drawings are shown over every app. */
     val screenOverlayOn: Boolean = false,
+    /** The text board's tab-complete is on for me (Settings live on the board's footer). */
+    val boardGlossOn: Boolean = true,
+    /** Screenshots only: a tab-complete offer already showing. */
+    val boardGlossPreview: GlossSuggestion? = null,
 )
 
 data class CallActions(
@@ -138,6 +142,9 @@ data class CallActions(
     val onTextBlurred: () -> Unit = {},
     /** Word-by-word meaning of a selection on the board (online). */
     val explain: (suspend (String) -> String?)? = null,
+    /** Tab-complete: pinyin + meaning for Chinese just typed (POST /api/calls/:id/gloss); null = off. */
+    val gloss: (suspend (String) -> BoardGloss?)? = null,
+    val onBoardGlossOn: (Boolean) -> Unit = {},
     val onAnnotate: (dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke) -> Unit = {},
     val onPing: (Double, Double) -> Unit = { _, _ -> },
     val onClearAnnotations: () -> Unit = {},
@@ -413,7 +420,11 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         Spacer(Modifier.weight(1f))
                         Text("✕", color = Lab.colors.muted, fontSize = 18.sp, modifier = Modifier.size(44.dp).bouncyClickable { panel = CallPanel.NONE }.padding(top = 10.dp), textAlign = TextAlign.Center)
                     }
-                    if (panel == CallPanel.TEXT) TextBoardPanel(s.textBoard, actions.onTextChanged, actions.onTextSelected, actions.onTextBlurred, Modifier.fillMaxWidth().weight(1f), explain = actions.explain)
+                    if (panel == CallPanel.TEXT) TextBoardPanel(
+                        s.textBoard, actions.onTextChanged, actions.onTextSelected, actions.onTextBlurred, Modifier.fillMaxWidth().weight(1f),
+                        explain = actions.explain, gloss = actions.gloss, glossOn = info.boardGlossOn, onGlossOn = actions.onBoardGlossOn,
+                        previewSuggestion = info.boardGlossPreview,
+                    )
                     else if (panel == CallPanel.BOARD) Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
                     else ChatPanel(s.chat, s.myUserId, actions.onSendChat, Modifier.fillMaxWidth().weight(1f))
                 }
