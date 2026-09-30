@@ -136,6 +136,29 @@ class CallScreenshots : LabScreenshotTest() {
         CallScreen(live.copy(textBoard = board), info, CallActions(), fakeVideo, now, initialPanel = CallPanel.TEXT)
     }
 
+    // ---- tab-complete on the text board (shared/calls/gloss.ts): the grey offer + the "⇥ …" chip under the caret
+
+    private val glossNotes = "第五课 · 点菜\n服务员 - fúwùyuán - waiter\n菜单 - càidān - menu\n我想喝一杯咖啡"
+    private val glossBoard = TextBoardUi(
+        text = glossNotes,
+        version = 4,
+        remote = listOf(dev.jeromeswannack.chineselearning.lab.core.calls.RemoteCaret("c-a", CallsSamples.TUTOR, "王老师", "#e11d48", 9, 9, 9)),
+    )
+    private val glossOffer = GlossSuggestion("我想喝一杯咖啡", glossNotes.codePointCount(0, glossNotes.length), BoardGloss("wǒ xiǎng hē yì bēi kāfēi", "I want to drink a cup of coffee"))
+
+    @Test fun textBoardGlossChip() = shoot("calls-28-live-text-board-gloss-chip") {
+        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossPreview = glossOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+    }
+
+    @Config(qualifiers = UNFOLDED)
+    @Test fun textBoardGlossChipUnfolded() = shoot("calls-29-live-text-board-gloss-chip-unfolded") {
+        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossPreview = glossOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+    }
+
+    @Test fun textBoardGlossOff() = shoot("calls-30-live-text-board-gloss-off") {
+        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossOn = false), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+    }
+
     // ---- drawing on a shared screen (shared/calls/annotate.ts)
 
     private fun circle(cx: Double, cy: Double, rx: Double, ry: Double) = (0..36).map { i ->

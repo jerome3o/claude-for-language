@@ -8,7 +8,9 @@ import Anthropic from '@anthropic-ai/sdk';
  * the preview before saving.
  */
 
-const MODEL = 'claude-haiku-4-5-20251001';
+/** Haiku — also the board's tab-complete gloss (services/calls/gloss.ts). */
+export const GLOSS_MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = GLOSS_MODEL;
 export const MAX_GLOSS_WORDS = 100;
 
 const SYSTEM_PROMPT = `You complete a vocabulary list for a Chinese learner's flashcards.
