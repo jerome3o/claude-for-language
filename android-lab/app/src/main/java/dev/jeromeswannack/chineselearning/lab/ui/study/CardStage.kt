@@ -680,7 +680,7 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
             MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("↓", color = Lab.colors.muted)
-            Row { diff.expected.forEach { e -> Text(e.char, fontSize = size, color = if (e.matched) Palette.Good else Lab.colors.ink, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(e.char) }) } }
+            ExpectedAnswerRow(diff.expected.map { it.char }, diff.expected.map { it.matched }, size, Lab.colors.ink, onChar)
         }
     }
 }
