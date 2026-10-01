@@ -465,6 +465,12 @@ export interface DailyActivitySummary {
     accuracy: number;
     time_spent_ms: number;
   }>;
+  /** Characters / words known (shared/progress/known.ts) from the server's card state — tutor view only. */
+  known?: {
+    characters: { known: number; learning: number };
+    words: { known: number; learning: number };
+    sentences: { known: number; learning: number };
+  };
 }
 
 // Cards reviewed on a specific day

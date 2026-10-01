@@ -17,6 +17,7 @@ export {
   type ComputedCardState,
   type CardCheckpoint,
   type IntervalPreview,
+  type CardTimelinePoint,
 
   // Constants
   DEFAULT_DECK_SETTINGS,
@@ -25,6 +26,7 @@ export {
   initialCardState,
   applyReview,
   computeCardState,
+  computeCardTimeline,
   createCheckpoint,
   isCheckpointStale,
 

@@ -138,6 +138,24 @@ object CardScheduler {
         return toComputed(card, lastReviewedAt)
     }
 
+    /** One point of `computeCardTimeline`: the card's queue and stability right after a review. */
+    data class TimelinePoint(val reviewedAt: String, val queue: Int, val stability: Double)
+
+    /**
+     * Port of `computeCardTimeline(events)`: the same replay as [computeCardState], keeping
+     * the state after every event (the Progress tab's "known over time").
+     */
+    fun computeCardTimeline(events: List<ReviewEventInput>): List<TimelinePoint> {
+        if (events.isEmpty()) return emptyList()
+        var card = toFsrsCard(initialCardState(), events[0].reviewedAt)
+        val out = ArrayList<TimelinePoint>(events.size)
+        for (event in events) {
+            card = fsrs.next(card, Js.parseDate(event.reviewedAt), event.rating + 1)
+            out += TimelinePoint(event.reviewedAt, card.state.value, card.stability)
+        }
+        return out
+    }
+
     /** `getIntervalPreviews(state, DEFAULT_DECK_SETTINGS, now)` — the labels on the rating buttons. */
     fun intervalPreviews(state: ComputedCardState, nowMs: Long): List<IntervalPreview> {
         val card = toFsrsCard(state, Js.toIsoString(nowMs))

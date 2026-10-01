@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getStudentDailyProgress, getRelationship } from '../api/client';
@@ -5,6 +6,7 @@ import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { useAuth } from '../contexts/AuthContext';
 import { getMyRoleInRelationship } from '../types';
 import { formatTime } from '../components/DeckProgress';
+import { KnownHeadline } from '../components/progress/KnownCounts';
 import './StudentProgressPage.css';
 
 function formatDate(dateStr: string): { day: string; full: string } {
@@ -37,6 +39,7 @@ function formatDate(dateStr: string): { day: string; full: string } {
 export function StudentProgressPage() {
   const { relId } = useParams<{ relId: string }>();
   const { user } = useAuth();
+  const [explainKnown, setExplainKnown] = useState(false);
 
   const relationshipQuery = useQuery({
     queryKey: ['relationship', relId],
@@ -94,6 +97,17 @@ export function StudentProgressPage() {
             </div>
           </div>
         </div>
+
+        {progress.known && (
+          <section className="known-section">
+            <KnownHeadline
+              counts={progress.known}
+              subject="they"
+              explain={explainKnown}
+              onToggleExplain={() => setExplainKnown(!explainKnown)}
+            />
+          </section>
+        )}
 
         {/* 30-Day Summary */}
         <div className="summary-section">

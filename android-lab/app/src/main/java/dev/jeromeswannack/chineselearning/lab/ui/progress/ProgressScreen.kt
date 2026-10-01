@@ -64,12 +64,20 @@ class ProgressActions(
 /**
  * The Progress tab (web: pages/MyProgressPage.tsx + the Home streak card + the deck page's
  * mastery block), from the phone's own review events — so it works on the train. Jerome's
- * question it answers at a glance: am I making good progress? Streak and the 30-day heatmap,
+ * question it answers at a glance: am I making good progress? Characters & words known (with
+ * their history), streak and the 30-day heatmap,
  * cards mastered, a reviews-a-day chart, % through each deck, then the web's 30-day summary
  * and daily list (tap a day → the cards of that day).
  */
 @Composable
-fun ProgressScreen(ui: ProgressUi, actions: ProgressActions, initialSelected: Int? = null) {
+fun ProgressScreen(
+    ui: ProgressUi,
+    actions: ProgressActions,
+    initialSelected: Int? = null,
+    zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    knownScrub: Int? = null,
+    knownExplain: Boolean = false,
+) {
     val snap = ui.snapshot
     LabScreen(title = "Progress") {
         when {
@@ -78,6 +86,7 @@ fun ProgressScreen(ui: ProgressUi, actions: ProgressActions, initialSelected: In
                 EmptyState("📅", "No activity yet", body = "Start studying to see your progress here", actionLabel = "Study", onAction = actions.study)
             }
             else -> {
+                item { KnownCard(ui.known, zone, actions.onPick, initialScrub = knownScrub, initialExplain = knownExplain) }
                 item {
                     BoxWithConstraints {
                         if (maxWidth >= 600.dp) {

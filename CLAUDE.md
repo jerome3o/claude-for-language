@@ -1181,6 +1181,18 @@ reports plus the server's own `review_events` (which side is missing events / ho
 - `GET /api/stats/overview` - Overall statistics
 - `GET /api/stats/deck/:id` - Deck statistics
 
+**Characters & words known** (Progress page, `shared/progress/known.ts`, Lab port `core/…/Known.kt`,
+parity-tested): computed on the device from notes + cards + review events, so it works offline. A
+card is *known* when its replayed state is mature (Review, stability > 21 days — the deck page's
+"mastered"); a note takes its best card; a note is a **word** with 1–4 Han characters and no sentence
+punctuation (else a sentence), counted once per spelling; a **character** is known when it appears
+in any known note. The history chart replays every card with `computeCardTimeline`
+(`shared/scheduler`) — ~1 s of FSRS for 35k events, so the web runs it in a Web Worker
+(`services/knownProgress.worker.ts`) and shows the last result from localStorage meanwhile. The
+tutor's `GET /api/relationships/:relId/student-progress/daily` carries `known` (same grouping via
+`knownCountsFromTiers`, from the server's cached card state — `services/known-counts.ts`). No HSK
+list is in the repo, so there is no HSK coverage yet.
+
 ### Tutor Student Insights (tutor-only, `worker/src/routes/insights.ts`)
 One-page briefing for a tutor before a lesson: pure aggregation over the student's
 `review_events` (`worker/src/services/insights.ts`, unit-tested), a lesson log that anchors

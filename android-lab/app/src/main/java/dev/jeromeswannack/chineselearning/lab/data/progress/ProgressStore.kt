@@ -4,6 +4,11 @@ import dev.jeromeswannack.chineselearning.lab.core.Budget
 import dev.jeromeswannack.chineselearning.lab.core.Completion
 import dev.jeromeswannack.chineselearning.lab.core.DailyProgress
 import dev.jeromeswannack.chineselearning.lab.core.DayCards
+import dev.jeromeswannack.chineselearning.lab.core.Known
+import dev.jeromeswannack.chineselearning.lab.core.KnownCard
+import dev.jeromeswannack.chineselearning.lab.core.KnownEvent
+import dev.jeromeswannack.chineselearning.lab.core.KnownNote
+import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
 import dev.jeromeswannack.chineselearning.lab.core.Mastery
 import dev.jeromeswannack.chineselearning.lab.core.MasteryCard
 import dev.jeromeswannack.chineselearning.lab.core.MasteryCounts
@@ -68,6 +73,30 @@ class ProgressStore(private val db: LabDatabase) {
             decks = ordered,
             totalReviews = total,
         )
+    }
+
+    /**
+     * Characters / words known and their history (core `Known`, port of
+     * shared/progress/known.ts): every card's events replayed with FSRS, so it reads the
+     * whole review history — off the main thread, after the snapshot has drawn.
+     */
+    suspend fun known(nowMs: Long): KnownProgress {
+        val (notes, cards, events) = withContext(Dispatchers.IO) {
+            val r = db.openHelper.readableDatabase
+            val notes = r.query("SELECT id, hanzi FROM notes").use { c ->
+                ArrayList<KnownNote>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownNote(c.getString(0), c.getString(1) ?: "") }
+            }
+            val cards = r.query("SELECT id, noteId FROM cards").use { c ->
+                ArrayList<KnownCard>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownCard(c.getString(0), c.getString(1)) }
+            }
+            val events = r.query("SELECT id, cardId, rating, reviewedAt FROM review_events").use { c ->
+                ArrayList<KnownEvent>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownEvent(c.getString(0), c.getString(1), c.getInt(2), c.getString(3)) }
+            }
+            Triple(notes, cards, events)
+        }
+        return withContext(Dispatchers.Default) {
+            Known.progress(notes, cards, events, Known.historyPoints(events, nowMs))
+        }
     }
 
     /** `/progress/day/:date` from the phone: events of that UTC date joined with their cards and notes. */

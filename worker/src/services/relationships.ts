@@ -1,4 +1,5 @@
 import { insertNoteCopy } from '../db/queries';
+import { getKnownCounts } from './known-counts';
 import {
   TutorRelationship,
   TutorRelationshipWithUsers,
@@ -546,6 +547,12 @@ export interface DailyActivitySummary {
     accuracy: number;
     time_spent_ms: number;
   }>;
+  /** Characters / words known (shared/progress/known.ts) from the server's card state — tutor view only. */
+  known?: {
+    characters: { known: number; learning: number };
+    words: { known: number; learning: number };
+    sentences: { known: number; learning: number };
+  };
 }
 
 export interface DayCardsDetail {
@@ -639,6 +646,12 @@ export async function getStudentDailyProgress(
   }>();
 
   const days = dailyResult.results || [];
+  // Characters / words known (same definitions as the student's Progress page); never
+  // fails the page.
+  const known = await getKnownCounts(db, studentId).catch((err) => {
+    console.error('known counts failed', err);
+    return undefined;
+  });
 
   const totalReviews30d = days.reduce((sum, d) => sum + d.reviews_count, 0);
   const totalDaysActive = days.length;
@@ -667,6 +680,7 @@ export async function getStudentDailyProgress(
       accuracy: Math.round(d.accuracy),
       time_spent_ms: d.time_spent_ms || 0,
     })),
+    known,
   };
 }
 

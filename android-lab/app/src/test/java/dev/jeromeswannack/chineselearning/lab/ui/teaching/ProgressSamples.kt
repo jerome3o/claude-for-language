@@ -8,6 +8,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CardDayReviewDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CompletionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DailyProgressDto
+import dev.jeromeswannack.chineselearning.lab.data.api.KnownCountsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.KnownSummaryDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DayCardDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DayCardsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.DaySummaryDto
@@ -58,6 +60,7 @@ object ProgressSamples {
             ProgressDayDto("2026-09-26", 57, 41, 79.0, 16 * 60_000L),
             ProgressDayDto("2026-09-24", 35, 28, 91.0, 9 * 60_000L),
         ),
+        known = KnownSummaryDto(KnownCountsDto(1184, 213), KnownCountsDto(1342, 377), KnownCountsDto(128, 96)),
     )
 
     private fun ref(id: String, h: String, p: String, e: String) = NoteRefDto(id, h, p, e)
