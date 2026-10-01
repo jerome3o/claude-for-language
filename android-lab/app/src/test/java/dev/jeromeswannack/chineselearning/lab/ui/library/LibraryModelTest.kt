@@ -16,7 +16,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -74,7 +75,12 @@ class LibraryModelTest {
     }
 
     @After fun tearDown() {
-        scope.cancel()
+        // Wait for the models' coroutines to finish before closing the database. `cancel()` alone
+        // returns while a Room query of a CachedResource flow is still running on an IO thread; it
+        // then fails on the closed database, and kotlinx-coroutines-test reports that uncaught
+        // exception in the NEXT test that uses runTest (CI: ReaderWordsComposeTest failed with
+        // UncaughtExceptionsBeforeTest, "connection pool has been closed").
+        runBlocking { scope.coroutineContext.job.cancelAndJoin() }
         server.shutdown()
         db.close()
     }
