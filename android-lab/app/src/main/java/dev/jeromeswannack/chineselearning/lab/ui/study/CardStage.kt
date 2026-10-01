@@ -4,6 +4,12 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTile
 import dev.jeromeswannack.chineselearning.lab.ui.kit.StudyCardFlip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardSurface
 import dev.jeromeswannack.chineselearning.lab.ui.kit.studyHanziSize
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -203,6 +209,23 @@ fun CardStage(
     }
     val peekToFront by rememberUpdatedState { peek(false) }
 
+    // Record again (answer side): the card turns to the question while the new take records, so
+    // he reads it from the hanzi alone, not the pinyin / English. A tap anywhere on the card (or
+    // Stop) stops it and turns back to the answer, where the take is transcribed as usual; back /
+    // Cancel throws the new take away and keeps the previous one. Ratings and FSRS are untouched.
+    val reRecording = revealed && ui.extras.take.recording
+    var recordFlip by remember(view.presentation) { mutableStateOf(false) }
+    LaunchedEffect(reRecording) {
+        if (reRecording) {
+            recordFlip = true
+            flipped = false
+        } else if (recordFlip) {
+            recordFlip = false
+            flipped = true
+        }
+    }
+    BackHandler(enabled = reRecording) { actions.onCancelRecording() }
+
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     val mc = ui.extras.mc
     val mcGridUp = !revealed && typing && mc.showing && mc.rows != null
@@ -236,7 +259,7 @@ fun CardStage(
                     // Check / the grid — so a stray tap on the face never gives the answer away.
                     CardFront(
                         view, ui, playingKey, actions, start.showClue, revealed,
-                        onTapToAnswer = { peek(true) },
+                        onTapToAnswer = { if (reRecording) actions.onStopRecording(true) else peek(true) },
                     )
                 }
                 if (revealed) {
@@ -406,7 +429,10 @@ private fun CardFront(view: CardView, ui: StudyUi, playingKey: String?, actions:
             }
         }
         if (!short) Spacer(Modifier.weight(1f))
-        if (revealed) {
+        if (revealed && ui.extras.take.recording) {
+            // Record again: the question while the new take records — a tap anywhere stops it.
+            RecordingAgainPanel(actions)
+        } else if (revealed) {
             // Peeking back at the question: the hints are spent, the answer is one tap away.
             Text("Tap to see the answer", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
         } else {
@@ -714,14 +740,7 @@ private fun RecordControls(take: TakeUi, actions: StudyActions, onReveal: () -> 
     when {
         take.recording && take.starting -> PrimaryPill("Recording…", Modifier.fillMaxWidth().height(60.dp), color = Palette.Again, enabled = false) {}
         take.recording -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val level by actions.recordingLevel.collectAsState()
-            val shown by animateFloatAsState((level * 2f).coerceIn(0.03f, 1f), spring(stiffness = 600f), label = "level")
-            Box(Modifier.fillMaxWidth(0.8f).height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
-                Box(
-                    Modifier.fillMaxWidth(shown).fillMaxSize().clip(CircleShape)
-                        .background(if (level > 0.4f) Palette.Again else if (level > 0.15f) Palette.Good else Lab.colors.muted),
-                )
-            }
+            LevelMeter(actions)
             Spacer(Modifier.height(10.dp))
             PrimaryPill("⏹  Stop recording", Modifier.fillMaxWidth().height(60.dp), color = Palette.Again) { actions.onStopRecording(false) }
         }
@@ -738,6 +757,62 @@ private fun RecordControls(take: TakeUi, actions: StudyActions, onReveal: () -> 
         else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SecondaryPill("Show answer", Modifier.weight(1f).height(60.dp), onClick = onReveal)
             PrimaryPill("🎤  Record", Modifier.weight(1.4f).height(60.dp), onClick = start)
+        }
+    }
+}
+
+/** The microphone level while recording (green when it hears speech, red when loud). */
+@Composable
+private fun LevelMeter(actions: StudyActions, modifier: Modifier = Modifier.fillMaxWidth(0.8f)) {
+    val level by actions.recordingLevel.collectAsState()
+    val shown by animateFloatAsState((level * 2f).coerceIn(0.03f, 1f), spring(stiffness = 600f), label = "level")
+    Box(modifier.height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
+        Box(
+            Modifier.fillMaxWidth(shown).fillMaxSize().clip(CircleShape)
+                .background(if (level > 0.4f) Palette.Again else if (level > 0.15f) Palette.Good else Lab.colors.muted),
+        )
+    }
+}
+
+/** Test tag of the recording state on the question side (Record again). */
+const val RECORD_AGAIN_FRONT_TAG = "record-again-front"
+
+/**
+ * Record again, on the question side: a pulsing mic, the time so far, the level, "Tap anywhere to
+ * stop", and Stop / Cancel (the web's `.study-rerecord`). The card's own tap stops it too.
+ */
+@Composable
+private fun RecordingAgainPanel(actions: StudyActions) {
+    var seconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(1_000); seconds++ } }
+    val pulse by rememberInfiniteTransition(label = "rec-again").animateFloat(
+        1f, 1.18f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "pulse",
+    )
+    Column(
+        Modifier.fillMaxWidth().testTag(RECORD_AGAIN_FRONT_TAG),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(40.dp).scale(pulse).clip(CircleShape).background(Palette.Again.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) { Text("🎤", fontSize = 18.sp) }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Recording · ${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Palette.Again,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        LevelMeter(actions, Modifier.fillMaxWidth(0.6f))
+        Spacer(Modifier.height(8.dp))
+        Text("Tap anywhere to stop", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = actions.onCancelRecording, modifier = Modifier.height(48.dp)) { Text("Cancel", color = Lab.colors.muted) }
+            PrimaryPill("⏹  Stop", Modifier.height(52.dp), color = Palette.Again) { actions.onStopRecording(true) }
         }
     }
 }
