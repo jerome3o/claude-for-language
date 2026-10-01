@@ -516,8 +516,15 @@ export function StudyCard({
   // Ask Claude: inline error (never alert())
   const [askError, setAskError] = useState<string | null>(null);
 
-  const { isRecording, audioBlob, audioLevel, startRecording, stopRecording, clearRecording } =
+  const { isRecording, audioBlob, audioLevel, error: recorderError, startRecording, stopRecording, cancelRecording, clearRecording } =
     useAudioRecorder(restored.recording);
+  // Record again (answer side): the card turns to the question while the new take records, so
+  // the word is read from the hanzi alone; a tap anywhere on the card (or Stop) stops it and
+  // turns back to the answer, where the new take is transcribed. Back / Esc / Cancel drops the
+  // new take and keeps the previous one with its "You said".
+  const [reRecording, setReRecording] = useState(false);
+  const [reRecordSeconds, setReRecordSeconds] = useState(0);
+  const reRecordStartedRef = useRef(false);
 
   // Resume point (shared/study/resume.ts): the card on screen, revealed or not, its answer and
   // time so far — saved as it changes and when leaving, so coming back to Study (from the coach,
@@ -560,7 +567,6 @@ export function StudyCard({
     error: transcriptionError,
     transcribe,
     retry: retryTranscription,
-    reset: resetTranscription,
   } = useTranscription();
 
   // Microphone device selection (persisted in localStorage)
@@ -581,7 +587,7 @@ export function StudyCard({
   useEffect(() => () => { liveRef.current?.abort(); }, []);
 
   // Enhanced startRecording with 0.5s delay
-  const startRecordingWithDelay = useCallback((skipDelay = false) => {
+  const startRecordingWithDelay = useCallback((skipDelay = false, keepPrevious = false) => {
     // Clear any existing timeout
     if (recordingDelayTimeoutRef.current) {
       clearTimeout(recordingDelayTimeoutRef.current);
@@ -601,7 +607,7 @@ export function StudyCard({
         p.catch(() => { /* falls back to the upload in useTranscription */ });
         livePromiseRef.current = p;
       },
-    } : undefined);
+    } : undefined, keepPrevious);
 
     // Only enable delay flag if not skipping
     if (!skipDelay) {
@@ -785,6 +791,12 @@ export function StudyCard({
 
   const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!flipped) return; // unrevealed: the card's own buttons do the revealing
+    if (reRecording) {
+      // Record again: a tap anywhere on the card stops the take (and turns back to the answer).
+      pressRef.current = null;
+      if (isRecording) stopRecordingWithDelay();
+      return;
+    }
     const down = pressRef.current;
     pressRef.current = null;
     const tap = isPeekTap({
@@ -806,6 +818,61 @@ export function StudyCard({
     if (!el || !flipped) return;
     el.scrollTop = peeking ? 0 : backScrollRef.current;
   }, [peeking, flipped]);
+
+  // Cancel a Record again: the new take is thrown away, the previous one stays as it was.
+  const cancelReRecord = useCallback(() => {
+    liveRef.current?.abort();
+    liveRef.current = null;
+    livePromiseRef.current = null;
+    cancelRecording();
+  }, [cancelRecording]);
+  const cancelReRecordRef = useRef(cancelReRecord);
+  cancelReRecordRef.current = cancelReRecord;
+
+  // Record again: the question side as recording starts, the answer side once it stops
+  // (saved or cancelled). The microphone failing to open leaves the answer where it was.
+  useEffect(() => {
+    if (!reRecording) return;
+    if (isRecording) {
+      if (!reRecordStartedRef.current) {
+        reRecordStartedRef.current = true;
+        backScrollRef.current = cardContentRef.current?.scrollTop ?? 0;
+        setReRecordSeconds(0);
+        setPeeking(true);
+        setPeekFlips((n) => n + 1);
+      }
+    } else if (reRecordStartedRef.current) {
+      reRecordStartedRef.current = false;
+      setReRecording(false);
+      setPeeking(false);
+      setPeekFlips((n) => n + 1);
+    }
+  }, [reRecording, isRecording]);
+  useEffect(() => {
+    if (recorderError && reRecording && !reRecordStartedRef.current) setReRecording(false);
+  }, [recorderError, reRecording]);
+  // The time so far, on the question side.
+  useEffect(() => {
+    if (!reRecording || !isRecording) return;
+    const id = window.setInterval(() => setReRecordSeconds((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [reRecording, isRecording]);
+  // Back (the Android back gesture in the app, the browser's back) and Esc cancel a Record
+  // again instead of leaving Study: a history entry is pushed for the take and popped after.
+  useEffect(() => {
+    if (!reRecording) return;
+    window.history.pushState({ ...(window.history.state ?? {}), studyRerecord: true }, '');
+    let popped = false;
+    const onPop = () => { popped = true; cancelReRecordRef.current(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') cancelReRecordRef.current(); };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey);
+      if (!popped && (window.history.state as { studyRerecord?: boolean } | null)?.studyRerecord) window.history.back();
+    };
+  }, [reRecording]);
 
 
   const handleGenerateSentenceClue = async (
@@ -1268,11 +1335,12 @@ export function StudyCard({
     return null;
   };
 
-  // Re-record from the back: clear the last take and start straight away.
+  // Re-record from the back: start straight away, keeping the last take (and its "You said")
+  // until the new one is saved; the card shows the question while recording (effect below).
   const recordAgain = () => {
-    resetTranscription();
-    clearRecording();
-    setTimeout(() => startRecordingWithDelay(true), 100);
+    stopAudio();
+    setReRecording(true);
+    startRecordingWithDelay(true, true);
   };
 
   const handleCharacterClick = (char: string) => {
@@ -2123,6 +2191,43 @@ export function StudyCard({
     );
   };
 
+  // Record again, on the question side: pulsing mic, time, level, "Tap anywhere to stop",
+  // Stop and Cancel. Any other tap on the card stops it too (handleCardClick).
+  const renderReRecordPanel = () => (
+    <div className="study-rerecord" data-testid="study-rerecord" aria-live="polite">
+      <div className="study-rerecord-status">
+        <span className="study-rerecord-mic" aria-hidden="true">🎤</span>
+        <span>Recording · {Math.floor(reRecordSeconds / 60)}:{String(reRecordSeconds % 60).padStart(2, '0')}</span>
+      </div>
+      <div className="study-rerecord-level" aria-hidden="true">
+        <div
+          className="study-rerecord-level-bar"
+          style={{
+            width: `${Math.max(3, Math.min(audioLevel * 200, 100))}%`,
+            backgroundColor: audioLevel > 0.4 ? '#ef4444' : audioLevel > 0.15 ? '#22c55e' : '#94a3b8',
+          }}
+        />
+      </div>
+      <p className="study-rerecord-hint">Tap anywhere to stop</p>
+      <div className="study-rerecord-actions">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={(e) => { e.stopPropagation(); cancelReRecord(); }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-error"
+          onClick={(e) => { e.stopPropagation(); stopRecordingWithDelay(); }}
+        >
+          <span aria-hidden="true">⏹</span> Stop
+        </button>
+      </div>
+    </div>
+  );
+
   const renderSpeakingCardButtons = () => {
     if (isRecording) {
       // During the initial 0.5s delay, show "Transcribing..." instead of clickable button
@@ -2538,7 +2643,7 @@ export function StudyCard({
               {peeking && (
                 <div className="study-card-main study-card-main--peek study-face-flip" data-testid="study-peek-front">
                   {renderFront()}
-                  <p className="study-peek-hint">Tap to see the answer</p>
+                  {reRecording ? renderReRecordPanel() : <p className="study-peek-hint">Tap to see the answer</p>}
                 </div>
               )}
               {/* Hidden, not unmounted, while peeking: opened sentence rows and the

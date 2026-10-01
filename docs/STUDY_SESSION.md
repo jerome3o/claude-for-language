@@ -307,6 +307,20 @@ sentence rows through the round trip. An unrevealed card's front never peeks or 
 `components/study/peekFlip.ts` (`isPeekTap`, unit-tested) + `peeking` in `StudyPage.tsx`;
 Lab: `peek` / `keepTaps` in `ui/study/CardStage.kt` (`PeekFlipTest`).
 
+**Record again reads from the question.** On the answer side of a read card, **🎤 Record again**
+turns the card back to the question as the new take starts, so the word is said from the hanzi
+alone, not read off the pinyin / English. The question shows a pulsing mic, the time so far, the
+level, "Tap anywhere to stop" and **Stop** / **Cancel**; the ratings stay up. A tap anywhere on
+the card (or Stop) saves the take and turns back to the answer, where it is transcribed as usual
+("You said …", live Soniox or the upload). Back (the Android back gesture / browser back), Esc or
+Cancel throws the new take away and the answer comes back with the previous take and its result —
+the previous take is replaced only when the new one is saved. Rating, FSRS and the upload are
+unchanged; the first Record on the question works as before. Web: `reRecording` /
+`renderReRecordPanel` in `StudyPage.tsx` (a history entry is pushed while recording so back
+cancels), `useAudioRecorder` `keepPrevious` / `cancelRecording`; e2e `study-record-again.spec.ts`.
+Lab: `RecordingAgainPanel` + `BackHandler` in `ui/study/CardStage.kt`, `cancelRecording` /
+`keepNewTake` in `StudyViewModel.kt` (`RecordAgainFlipTest`).
+
 ## Offline mode
 
 Study is offline whenever **NetworkContext** says the browser is offline (automatic) or the

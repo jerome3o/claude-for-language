@@ -254,7 +254,7 @@ class StudyViewModel(
         val counts = practiceCounts(card)
         _ui.update { u -> u.copy(stats = stats, lastRating = rating, practice = u.practice?.let { p -> if (counts) p.copy(counted = p.counted + 1) else p.copy(practiceOnly = p.practiceOnly + 1) }) }
         viewModelScope.launch {
-            if (recorder.recording) { takeJob?.cancel(); take = recorder.stop() }
+            if (recorder.recording) { takeJob?.cancel(); keepNewTake() }
             if (counts) {
                 val (eventId, updated) = repo.recordReview(card.id, rating, timeSpentMs, userAnswer)
                 queueTake(eventId)
@@ -721,12 +721,19 @@ class StudyViewModel(
         liveResult = null
     }
 
-    /** "Record your pronunciation" / "Record again" (the permission was granted by the card). */
+    /**
+     * "Record your pronunciation" (front) / "Record again" (back; the permission was granted by
+     * the card). Record again keeps the previous take and its "You said" until the new take is
+     * saved: Stop replaces it, Cancel ([cancelRecording]) brings it back untouched.
+     */
     fun startRecording(skipDelay: Boolean = false) {
         val v = currentView() ?: return
-        take?.delete()
-        take = null
-        takeGeneration++
+        val again = _ui.value.extras.take.hasTake
+        if (!again) {
+            take?.delete()
+            take = null
+            takeGeneration++
+        }
         dropLive()
         app.audio.stop()
         val live = liveKeys.usable()?.takeIf { aiAvailable }?.let { runCatching { SonioxStream(repo.api.http, it) }.getOrNull() }
@@ -735,11 +742,11 @@ class StudyViewModel(
             else -> { live?.abort(); recorder.start() }
         }
         if (!started) {
-            updateExtras(v) { it.copy(notice = "Couldn't open the microphone.", take = TakeUi()) }
+            updateExtras(v) { it.copy(notice = "Couldn't open the microphone.", take = if (again) it.take else TakeUi()) }
             return
         }
         app.haptics.tick()
-        updateTake(v) { TakeUi(recording = true, starting = !skipDelay) }
+        updateTake(v) { if (again) it.copy(recording = true, starting = !skipDelay) else TakeUi(recording = true, starting = !skipDelay) }
         takeJob?.cancel()
         if (!skipDelay) takeJob = viewModelScope.launch { delay(500); updateTake(v) { it.copy(starting = false) } }
     }
@@ -748,12 +755,40 @@ class StudyViewModel(
     fun stopRecording(@Suppress("UNUSED_PARAMETER") flipped: Boolean) {
         val v = currentView() ?: return
         takeJob?.cancel()
-        take = recorder.stop()
-        liveResult = liveStream?.let { s -> viewModelScope.async { s.finish() } }
+        val fresh = keepNewTake()
+        liveResult = liveStream?.takeIf { fresh }?.let { s -> viewModelScope.async { s.finish() } }
+        if (!fresh) liveStream?.abort()
         liveStream = null
         app.haptics.tick()
+        if (!fresh) return updateTake(v) { it.copy(recording = false, starting = false) }
         updateTake(v) { TakeUi(hasTake = take != null) }
         transcribe(v)
+    }
+
+    /**
+     * Stop the recorder and keep what it made: the new take replaces the previous one (deleted)
+     * and older transcriptions no longer land. Nothing came out → the previous take stays.
+     */
+    private fun keepNewTake(): Boolean {
+        val fresh = recorder.stop() ?: return false
+        if (take != fresh) take?.delete()
+        take = fresh
+        takeGeneration++
+        return true
+    }
+
+    /**
+     * Cancel a "Record again" (back gesture / Cancel on the question side): the new take is
+     * thrown away and the previous one — its file and its "You said" — is back as it was.
+     */
+    fun cancelRecording() {
+        val v = currentView() ?: return
+        if (!recorder.recording) return
+        takeJob?.cancel()
+        recorder.stop()?.delete()
+        liveStream?.abort()
+        liveStream = null
+        updateTake(v) { it.copy(recording = false, starting = false, hasTake = take != null) }
     }
 
     /** "Re-record" on the front: drop the take. */
@@ -1021,7 +1056,7 @@ class StudyViewModel(
         _ui.update { it.copy(stats = stats, lastRating = rating) }
 
         viewModelScope.launch {
-            if (recorder.recording) { takeJob?.cancel(); take = recorder.stop() }
+            if (recorder.recording) { takeJob?.cancel(); keepNewTake() }
             val (eventId, updated) = repo.recordReview(card.id, rating, timeSpentMs, userAnswer)
             queueTake(eventId)
             undo = UndoSnapshot(eventId, card, snapshotQueue, snapshotReviewed, snapshotRecent, before)
