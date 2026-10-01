@@ -110,6 +110,8 @@ class StudyActions(
     val onStartRecording: (skipDelay: Boolean) -> Unit = {},
     val onStopRecording: (flipped: Boolean) -> Unit = {},
     val onClearRecording: () -> Unit = {},
+    /** Cancel a "Record again" (back gesture / Cancel): the new take is dropped, the previous one kept. */
+    val onCancelRecording: () -> Unit = {},
     /** "Couldn't transcribe — tap to retry" (the same saved take). */
     val onRetryTranscription: () -> Unit = {},
     val recordingLevel: kotlinx.coroutines.flow.StateFlow<Float> = kotlinx.coroutines.flow.MutableStateFlow(0f),
@@ -220,6 +222,7 @@ fun StudyRoute(app: LabApp, deckId: String?, onExit: () -> Unit, onOpen: (String
             onStartRecording = vm::startRecording,
             onStopRecording = vm::stopRecording,
             onClearRecording = vm::clearRecording,
+            onCancelRecording = vm::cancelRecording,
             onRetryTranscription = vm::retryTranscription,
             recordingLevel = vm.level,
             sendFlag = vm::flag,

@@ -20,6 +20,8 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  // Set by cancelRecording: the take being made is thrown away when the recorder stops.
+  const discardRef = useRef(false);
 
   const stopLevelMonitor = useCallback(() => {
     if (animFrameRef.current) {
@@ -37,11 +39,14 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
   /**
    * `live.onChunk` gets the webm/Opus data every `timesliceMs` while recording (streamed to
    * the live transcriber); `live.onStop` runs once the last chunk has been delivered.
+   * `keepPrevious` (Record again): the last take stays in `audioBlob` until the new one is
+   * saved by Stop — `cancelRecording` then leaves it untouched.
    */
-  const startRecording = useCallback(async (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: () => void; timesliceMs?: number }) => {
+  const startRecording = useCallback(async (deviceId?: string, live?: { onChunk: (chunk: Blob) => void; onStop: () => void; timesliceMs?: number }, keepPrevious = false) => {
     try {
       setError(null);
-      setAudioBlob(null);
+      discardRef.current = false;
+      if (!keepPrevious) setAudioBlob(null);
 
       const constraints: MediaStreamConstraints = {
         audio: deviceId ? { deviceId: { exact: deviceId } } : true,
@@ -79,10 +84,15 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
         stopLevelMonitor();
+        if (discardRef.current) {
+          discardRef.current = false;
+          chunksRef.current = [];
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
         live?.onStop();
       };
 
@@ -112,6 +122,15 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
     }
   }, [isRecording]);
 
+  /** Stop without keeping the take: `audioBlob` stays what it was before this recording. */
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      discardRef.current = true;
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }, [isRecording]);
+
   const clearRecording = useCallback(() => {
     setAudioBlob(null);
   }, []);
@@ -123,6 +142,7 @@ export function useAudioRecorder(initialBlob: Blob | null = null) {
     audioLevel,
     startRecording,
     stopRecording,
+    cancelRecording,
     clearRecording,
   };
 }

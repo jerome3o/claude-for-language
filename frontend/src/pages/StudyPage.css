@@ -410,6 +410,79 @@
   text-align: center;
 }
 
+/* Record again, on the question side: the take records while the word is read from the
+   hanzi alone. A tap anywhere on the card stops it (handleCardClick). */
+.study-rerecord {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.625rem;
+  margin-top: 1.5rem;
+  width: 100%;
+}
+
+.study-rerecord-status {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-weight: 600;
+  font-size: 1rem;
+  color: #dc2626;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-rerecord-mic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.16);
+  font-size: 1.125rem;
+  animation: study-rerecord-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes study-rerecord-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35); }
+  50% { transform: scale(1.12); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .study-rerecord-mic { animation: none; }
+}
+
+.study-rerecord-level {
+  width: 60%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.study-rerecord-level-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.1s, background-color 0.2s;
+}
+
+.study-rerecord-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.study-rerecord-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.study-rerecord-actions .btn {
+  min-height: 44px;
+  min-width: 6.5rem;
+}
+
 .study-face-flip {
   animation: study-face-flip 200ms ease-out;
 }
