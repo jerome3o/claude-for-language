@@ -31,5 +31,5 @@ Touch and drag along the chart to scrub (a light tick per point).
 ![Lab dark](lab-progress-02-tab-dark.png)
 Dark mode (series colours stepped for the dark surface).
 
-![Lab tutor view](lab-teaching-student-progress.png)
-Tutor's student progress screen with the counts from `/student-progress/daily`.
+The Lab tutor screen (`teaching-34-progress`) shows the same card with the server's counts
+(no chart / recent characters there).
