@@ -24,6 +24,7 @@ import { parseTimestamp } from '@shared/calls';
 import { bytesToBase64 } from '../audio';
 import type { Env } from '../../types';
 import { baseMime } from './recording';
+import { GEMINI_FLASH_MODELS, geminiGenerateContent, leastThinking, type FetchLike } from '../gemini';
 
 export type TranscriberId = 'soniox' | 'gemini' | 'whisper';
 
@@ -68,7 +69,8 @@ export async function transcribeAudio(env: Env, provider: TranscriberId, bytes: 
 
 // ---------------------------------------------------------------- Gemini
 
-export const GEMINI_TRANSCRIBE_MODEL = 'gemini-2.5-flash';
+/** The models tried, in order (CALL_GEMINI_MODEL, when set, goes first). */
+export const GEMINI_TRANSCRIBE_MODELS = GEMINI_FLASH_MODELS;
 
 const GEMINI_PROMPT = `Transcribe this recording of ONE person speaking in a Mandarin Chinese lesson (a tutor or a learner on a video call).
 
@@ -108,23 +110,27 @@ function geminiMime(mime: string): string {
   return base === 'audio/mp4' ? 'audio/mp4' : base === 'audio/ogg' ? 'audio/ogg' : base === 'audio/wav' ? 'audio/wav' : base === 'audio/mpeg' ? 'audio/mp3' : 'audio/webm';
 }
 
-export async function transcribeWithGemini(apiKey: string, bytes: Uint8Array, mime: string, model = GEMINI_TRANSCRIBE_MODEL): Promise<RawSegment[]> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || GEMINI_TRANSCRIBE_MODEL}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({
-      contents: [{ parts: [{ inline_data: { mime_type: geminiMime(mime), data: bytesToBase64(bytes) } }, { text: GEMINI_PROMPT }] }],
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: 'application/json',
-        responseSchema: GEMINI_SCHEMA,
-        // Transcription needs no deliberation; thinking only adds latency and cost.
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    }),
+export async function transcribeWithGemini(apiKey: string, bytes: Uint8Array, mime: string, model?: string | null, fetchImpl?: FetchLike): Promise<RawSegment[]> {
+  const { data: body } = await geminiGenerateContent<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }>({
+    apiKey,
+    models: GEMINI_FLASH_MODELS,
+    override: model,
+    fetch: fetchImpl,
+    label: 'transcribe',
+    body: (m) => {
+      // Transcription needs no deliberation; thinking only adds latency and cost.
+      const thinkingConfig = leastThinking(m);
+      return {
+        contents: [{ parts: [{ inline_data: { mime_type: geminiMime(mime), data: bytesToBase64(bytes) } }, { text: GEMINI_PROMPT }] }],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: 'application/json',
+          responseSchema: GEMINI_SCHEMA,
+          ...(thinkingConfig ? { thinkingConfig } : {}),
+        },
+      };
+    },
   });
-  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const body = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
   return parseGeminiSegments(text);
 }

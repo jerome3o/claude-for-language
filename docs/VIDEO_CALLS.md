@@ -417,7 +417,8 @@ Optional, worth adding:
    audio to improve its products.
 
 `CALL_TRANSCRIBE_PROVIDER` (`gemini` | `soniox` | `whisper`) forces one provider;
-`CALL_GEMINI_MODEL` overrides the Gemini model (default `gemini-2.5-flash`). Any provider
+`CALL_GEMINI_MODEL` is tried before the Gemini model list (`GEMINI_FLASH_MODELS` in
+`worker/src/services/gemini.ts`; a 404 moves on to the next model). Any provider
 failure falls back to Whisper so a lesson is never left without a transcript.
 
 ## Choosing a transcription service
