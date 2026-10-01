@@ -6,6 +6,8 @@
  *   - selectStudyQueue(...)                             (the cards a session gets: learning / review due
  *                                                         by the cutoff + the budget's new cards)
  *   - countQueue(...)                                   (the four numbers Home shows)
+ *   - selectStudyQueue(..., noteText)                   ("new characters first": which brand-new
+ *                                                         notes, in pick order — shared/decks/novelty.ts)
  * Writes study-queue.json; core StudyQueueParityTest asserts StudyQueue.kt reproduces them.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -86,6 +88,7 @@ for (let i = 0; i < 250; i++) {
     return {
       deckId,
       due: q.due.map(c => c.id).sort(),
+      newOrder: q.due.filter(c => c.queue === 0).map(c => c.id),
       counts: countQueue(q.due, q.reviewedNoteIds),
       hasMoreNew: q.hasMoreNew,
       allocation: [...q.allocation.entries()].map(([id, a]) => ({ deckId: id, primary: a.primary, secondary: a.secondary })),
@@ -104,5 +107,77 @@ for (let i = 0; i < 250; i++) {
     queues,
   });
 }
-writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases }));
-console.log(`study-queue: ${cases.length} scenarios`);
+
+// "New characters first": notes with hanzi drawn from a pool with shared characters, words
+// inside other words, sentences (with punctuation), non-Han text, repeats and rare
+// characters, so the greedy pick (earlier picks make characters seen) is exercised.
+const HANZI = [
+  '你好', '你', '好', '你们', '我们', '人', '好人', '大人', '大学', '大学生', '学生', '学',
+  '咖啡', '喝咖啡', '喝茶', '茶', '中国', '中国人', '我是学生。', '你好吗？', '我喜欢喝咖啡，你呢？',
+  '老师', '老师您好', '他是王老师的儿子。', 'T恤', '卡拉OK', 'OK', '', ' 你好 ', '𠮷野家',
+  '高高兴兴', '一', '二', '三', '一二三', '谢谢', '不客气', 'ひらがな', '豈', '我们明天去北京看长城。',
+];
+const novelty: unknown[] = [];
+for (let i = 0; i < 300; i++) {
+  const dayStart = Date.parse('2026-09-26T23:00:00.000Z');
+  const now = dayStart + int(6, 22) * H;
+  const cutoff = Math.max(dayStart + DAY - 1, now + H);
+  const decks: QueueDeckInput[] = [];
+  for (let d = 0; d < int(1, 4); d++) {
+    decks.push({
+      id: `v${i}-${d}`,
+      priority: pick([0, 1, 2, 5]),
+      created_at: `2026-0${int(1, 9)}-${String(int(10, 28))}T10:00:00.000Z`,
+      cap_primary: pick([1, 3, 5, 20]),
+      cap_secondary: pick([0, 6, 10]),
+    });
+  }
+  const cards: QueueCardInput[] = [];
+  const firstReviewAt: Record<string, number> = {};
+  const noteHanzi: Record<string, string> = {};
+  for (let n = 0; n < int(0, 24); n++) {
+    const noteId = `w${i}-${String(n).padStart(2, '0')}`;
+    noteHanzi[noteId] = pick(HANZI);
+    const deckId = rand() < 0.05 ? `gone-${i}` : pick(decks).id;
+    const reviewed = rand() < 0.35;
+    const types = rand() < 0.1 ? TYPES.slice(1, 3) : TYPES.slice(0, int(1, 3));
+    for (const t of types) {
+      const id = `k${i}-${n}-${t[0]}-${int(0, 9)}`;
+      const queue = reviewed ? pick([0, 1, 2, 2, 3]) : 0;
+      let due: number | null = null;
+      if (queue !== 0) {
+        due = now + int(-48, 48) * H;
+        firstReviewAt[id] = rand() < 0.3 ? dayStart + int(0, 5) * H : dayStart - int(1, 40) * DAY;
+      }
+      cards.push({ id, note_id: noteId, deck_id: deckId, card_type: t, queue, due_ms: due });
+    }
+  }
+  // A note the device knows only by its hanzi (reviewed elsewhere) and one with no hanzi entry.
+  noteHanzi[`elsewhere-${i}`] = pick(HANZI);
+  const budget = { new_cards_per_day: pick([1, 3, 5, 10]), secondary_cards_per_day: pick([0, 6]) };
+  const bonus = pick([0, 0, 10]);
+  const intro = introducedToday(cards, new Map(Object.entries(firstReviewAt)), dayStart);
+  const reviewedIds = [...new Set(cards.filter(c => c.queue !== 0).map(c => c.note_id))];
+  const seenNoteIds = rand() < 0.3 ? [...reviewedIds, `elsewhere-${i}`, `missing-${i}`] : null;
+  const hanziMap = new Map(Object.entries(noteHanzi));
+  const scopes: Array<string | null> = [null, pick(decks).id];
+  const queues = scopes.map(deckId => {
+    const q = selectStudyQueue(decks, cards, budget, bonus, intro, cutoff, deckId,
+      { hanzi: hanziMap, ...(seenNoteIds ? { reviewedNoteIds: seenNoteIds } : {}) });
+    return {
+      deckId,
+      due: q.due.map(c => c.id).sort(),
+      newOrder: q.due.filter(c => c.queue === 0).map(c => c.id),
+      counts: countQueue(q.due, q.reviewedNoteIds),
+      hasMoreNew: q.hasMoreNew,
+      allocation: [...q.allocation.entries()].map(([id, a]) => ({ deckId: id, primary: a.primary, secondary: a.secondary })),
+    };
+  });
+  novelty.push({
+    now, dayStart, cutoff, decks, cards, firstReviewAt, budget, bonus, noteHanzi, seenNoteIds,
+    introduced: [...intro.entries()].map(([deckId, v]) => ({ deckId, ...v })),
+    queues,
+  });
+}
+writeFileSync(join(OUT, 'study-queue.json'), JSON.stringify({ cases, novelty }));
+console.log(`study-queue: ${cases.length} + ${novelty.length} (new characters first) scenarios`);

@@ -124,6 +124,9 @@ data class FirstReview(val cardId: String, val firstAt: String)
 
 data class DeckCount(val deckId: String, val count: Int)
 
+/** A note's id and hanzi — what "new characters first" (core Novelty.kt) needs from every note. */
+data class NoteHanzi(val id: String, val hanzi: String)
+
 data class CardPlacement(val id: String, val noteId: String, val deckId: String)
 
 /** The columns of a review event the FSRS replay reads. */
@@ -143,6 +146,7 @@ interface LabDao {
     @Query("SELECT * FROM notes WHERE id = :id") suspend fun note(id: String): NoteEntity?
     @Query("SELECT * FROM notes WHERE id IN (:ids)") suspend fun notes(ids: List<String>): List<NoteEntity>
     @Query("SELECT * FROM notes") suspend fun allNotes(): List<NoteEntity>
+    @Query("SELECT id, hanzi FROM notes") suspend fun noteHanziRows(): List<NoteHanzi>
     @Query("SELECT COUNT(*) FROM notes") suspend fun noteCount(): Int
     @Query("SELECT deckId, COUNT(*) AS count FROM notes GROUP BY deckId") suspend fun noteCounts(): List<DeckCount>
     @Upsert suspend fun upsertNotes(notes: List<NoteEntity>)
@@ -221,3 +225,6 @@ abstract class LabDatabase : RoomDatabase() {
             Room.databaseBuilder(context, LabDatabase::class.java, "lab.db").addMigrations(*LabMigrations.ALL).build()
     }
 }
+
+/** note id → hanzi for StudyQueue.build's "new characters first". */
+suspend fun LabDao.noteHanzi(): Map<String, String> = noteHanziRows().associate { it.id to it.hanzi }
