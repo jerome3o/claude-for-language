@@ -16,7 +16,13 @@ import dev.jeromeswannack.chineselearning.lab.data.api.dailyReader
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteReader
 import dev.jeromeswannack.chineselearning.lab.data.api.generatePageImage
 import dev.jeromeswannack.chineselearning.lab.data.api.readerReviews
-import dev.jeromeswannack.chineselearning.lab.data.api.analyzeSentence
+import dev.jeromeswannack.chineselearning.lab.data.api.PageWordsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordExplainBody
+import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordExplanationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.backfillReaderWords
+import dev.jeromeswannack.chineselearning.lab.data.api.explainReaderWord
+import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
 import dev.jeromeswannack.chineselearning.lab.data.api.readersWithPages
 import dev.jeromeswannack.chineselearning.lab.data.api.retryReader
 import dev.jeromeswannack.chineselearning.lab.data.lessons.HomeworkLink
@@ -129,19 +135,73 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
         media.tts(page.contentChinese, null, READER_TTS_SPEED, pageTtsKey(page), online, regenerate)
 
     /**
-     * A page's words (the web's segmentation on reveal: `analyzeSentence` per sentence), kept
-     * on the phone so the words stay tappable offline. Null when they can't be had.
+     * A page's word chips (`useReaderPageWords`): the page's own words when they came with the
+     * sync, else asked for (`POST /api/reader-words/backfill`, the reader's pages at once) and
+     * kept on the cached reader so they stay tappable offline. Null until then — plain text.
      */
-    suspend fun segments(page: ReaderPageDto, online: Boolean): List<dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto>? {
-        val key = "readers/segments/${page.id}/${pageTtsKey(page).substringAfterLast('/')}"
-        val chunkList = ListSerializer(dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto.serializer())
-        cache.get(key, chunkList)?.let { return it }
+    suspend fun words(readerId: String, page: ReaderPageDto, online: Boolean): List<ReaderWordDto>? {
+        page.currentWords()?.let { return it }
+        cachedPage(readerId, page.id)?.takeIf { it.contentChinese == page.contentChinese }?.currentWords()?.let { return it }
+        sessionWords[page.id]?.takeIf { ReaderWords.matches(it.map { w -> w.text }, page.contentChinese) }?.let { return it }
         if (!online) return null
-        val sentences = page.contentChinese.split(Regex("(?<=[。！？])")).filter { it.isNotBlank() }
-        val chunks = runCatching { sentences.flatMap { api.analyzeSentence(it).chunks } }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
-        cache.put(key, KIND, chunks, chunkList)
-        return chunks
+        backfillWords(readerId)
+        return sessionWords[page.id]?.takeIf { ReaderWords.matches(it.map { w -> w.text }, page.contentChinese) }
     }
+
+    private suspend fun cachedPage(readerId: String, pageId: String): ReaderPageDto? =
+        cache.get(LIST, listSerializer)?.firstOrNull { it.id == readerId }?.pages?.firstOrNull { it.id == pageId }
+
+    /** Words made this session, for a reader that isn't cached yet. */
+    private val sessionWords = java.util.concurrent.ConcurrentHashMap<String, List<ReaderWordDto>>()
+    private val backfillLock = Mutex()
+
+    /** One backfill call (deduplicated): stores what it made on the cached readers. Returns `remaining`, or null on failure. */
+    suspend fun backfillWords(readerId: String?): Int? = backfillLock.withLock {
+        val res = runCatching { api.backfillReaderWords(readerId) }.getOrElse { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            return@withLock null
+        }
+        for (p in res.pages) sessionWords[p.id] = p.words
+        if (res.pages.isNotEmpty()) storeWords(res.pages)
+        res.remaining
+    }
+
+    private suspend fun storeWords(made: List<PageWordsDto>) = lock.withLock {
+        val byPage = made.associateBy { it.id }
+        val list = cache.get(LIST, listSerializer) ?: return@withLock
+        cache.put(LIST, KIND, list.map { r ->
+            if (r.pages.none { it.id in byPage }) r
+            else r.copy(pages = r.pages.map { pg ->
+                val w = byPage[pg.id]?.words
+                if (w != null && ReaderWords.matches(w.map { it.text }, pg.contentChinese)) pg.copy(words = w) else pg
+            })
+        }, listSerializer)
+    }
+
+    /** Part of every sync (`backfillReaderWordsInSync`): a couple of calls, then hourly once none remain. */
+    suspend fun backfillWordsInSync(maxCalls: Int = 2) {
+        if (cache.isFresh(WORDS_DONE, 60 * 60 * 1000L)) return
+        repeat(maxCalls) {
+            val remaining = backfillWords(null) ?: return
+            if (remaining <= 0) {
+                cache.put(WORDS_DONE, KIND, true)
+                return
+            }
+        }
+    }
+
+    /** "More about this word": the device cache first (works offline), else Haiku on the server. */
+    suspend fun explainWord(word: String, sentence: String, pinyin: String?, gloss: String?): ReaderWordExplanationDto {
+        val key = "readers/word-explain/$word|$sentence"
+        cache.get(key, ReaderWordExplanationDto.serializer())?.let { return it }
+        val fresh = api.explainReaderWord(ReaderWordExplainBody(word, sentence, pinyin?.ifBlank { null }, gloss?.ifBlank { null }))
+        cache.put(key, KIND, fresh, ReaderWordExplanationDto.serializer())
+        return fresh
+    }
+
+    /** The cached explanation, if this phone has one. */
+    suspend fun cachedExplanation(word: String, sentence: String): ReaderWordExplanationDto? =
+        cache.get("readers/word-explain/$word|$sentence", ReaderWordExplanationDto.serializer())
 
     suspend fun delete(id: String) {
         api.deleteReader(id)
@@ -230,6 +290,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
     suspend fun sync(zone: ZoneId = ZoneId.systemDefault(), prefetch: Boolean = true) {
         downloadEvents()
         refresh()
+        runCatching { backfillWordsInSync() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
         if (prefetch) {
             val now = System.currentTimeMillis()
             prefetchMedia(now, dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(now, zone), zone)
@@ -242,6 +303,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
         const val EVENTS = "readers/events"
         private const val CURSOR = "readers/cursor"
         private const val ATTEMPT = "readers/daily-attempt"
+        private const val WORDS_DONE = "readers/words-backfill-done"
         /** READER_TTS_SPEED. */
         const val READER_TTS_SPEED = 0.6
         private const val MAX_PAGES = 100

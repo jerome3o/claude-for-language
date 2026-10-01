@@ -7,6 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -86,7 +89,7 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
         val id = entry.arguments?.getString("id").orEmpty()
         val vm: ReaderViewModel = viewModel(key = "reader-$id", factory = factory { ReaderViewModel(nav.app, id) })
         val state by vm.state.collectAsStateWithLifecycle()
-        val env = rememberReaderEnv(nav.app, id, words = true)
+        val env = rememberReaderEnv(nav.app, id)
         var anki by remember { mutableStateOf<AnkiExportTarget?>(null) }
         AnkiExportSheet(anki) { anki = null }
         ReaderScreen(
@@ -104,32 +107,47 @@ private inline fun <reified V : ViewModel> factory(crossinline make: () -> V) = 
     override fun <T : ViewModel> create(modelClass: Class<T>): T = make() as T
 }
 
-/** Illustrations (generated on demand) and narration for one reader, from the shared runtime. */
+/**
+ * Illustrations (generated on demand), narration and word chips for one reader, from the shared
+ * runtime. Every reading view has the chips — the reading page, Today's story, the in-session
+ * reader and homework — so a tapped word always opens the word sheet.
+ */
 @Composable
-fun rememberReaderEnv(app: LabApp, readerId: String, words: Boolean = false): ReaderEnv {
+fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
     val runtime = remember(app) { LessonRuntime.of(app) }
     val playing by runtime.audio.playing.collectAsState()
     val clips = remember(app) { dev.jeromeswannack.chineselearning.lab.data.readers.ReaderClipAnalyzer(app.cache) }
     DisposableEffect(readerId) { onDispose { runtime.audio.stop() } }
-    var word by remember { mutableStateOf<dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto?>(null) }
-    word?.let { chunk ->
+    var knownVersion by remember { mutableStateOf(0) }
+    val known by produceState(emptySet<String>(), knownVersion) {
+        value = withContext(Dispatchers.IO) { app.repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }
+    }
+    var tapped by remember { mutableStateOf<Pair<dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto, String>?>(null) }
+    tapped?.let { (w, sentence) ->
         val tools = remember(app) { dev.jeromeswannack.chineselearning.lab.ui.study.CardTools(app) }
-        AddWordSheet(
-            chunk,
-            AddWordActions(
+        ReaderWordSheet(
+            w,
+            sentence,
+            known = w.text in known,
+            actions = ReaderWordActions(
+                online = { app.online.value },
+                play = { text -> runtime.audio.speak(text) },
+                cachedExplanation = { word, s -> runtime.readers.cachedExplanation(word.text, s) },
+                explain = { word, s -> runtime.readers.explainWord(word.text, s, word.pinyin, word.gloss) },
                 decks = { app.repo.dao.decks().sortedBy { it.name.lowercase() }.map { DeckChoice(it.id, it.name, it.description) } },
                 isDuplicate = { deckId, hanzi -> tools.deckHas(deckId, hanzi) },
-                add = { deckId, c -> tools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody(c.hanzi, c.pinyin, c.english)) },
+                add = { deckId, word, ex -> tools.addNote(deckId, readerWordNote(word, ex)) },
             ),
-            onDismiss = { word = null },
-            onAdded = { app.haptics.correct() },
+            onDismiss = { tapped = null },
+            onAdded = { app.haptics.correct(); knownVersion++ },
         )
     }
     return ReaderEnv(
-        segments = if (words) { page -> runtime.readers.segments(page, app.online.value) } else null,
+        words = { page -> runtime.readers.words(readerId, page, app.online.value) },
+        known = known,
+        onWord = { w, sentence -> tapped = w to sentence; app.haptics.tick() },
         pageAudio = { page, regenerate -> runtime.audio.stop(); runtime.readers.pageAudio(page, app.online.value, regenerate) },
         analyze = { page, file -> clips.analyze(runtime.readers.pageTtsKey(page).removePrefix("reader-tts/"), file) },
-        onWord = { word = it; app.haptics.tick() },
         image = { page -> runtime.readers.pageImage(readerId, page, app.online.value) },
         cachedImage = { page -> runtime.media.cachedImage(page.imageUrl) },
         togglePlay = { page -> togglePage(app, runtime, page) },

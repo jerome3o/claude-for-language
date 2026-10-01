@@ -1,3 +1,5 @@
+import type { ReaderWord } from '@shared/reader/words';
+
 // Cloudflare bindings
 export interface Env {
   DB: D1Database;
@@ -887,6 +889,8 @@ export interface ReaderPage {
   content_english: string;
   image_url: string | null;
   image_prompt: string | null;
+  /** Word chips (shared/reader/words.ts): parsed, null when missing or stale. Raw JSON in the column. */
+  words?: ReaderWord[] | null;
 }
 
 export interface GradedReaderWithPages extends GradedReader {

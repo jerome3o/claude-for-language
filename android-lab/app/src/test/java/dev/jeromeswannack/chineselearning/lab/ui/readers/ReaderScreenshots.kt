@@ -21,6 +21,8 @@ import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordExplanationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.VocabItemDto
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
@@ -196,24 +198,64 @@ class ReaderScreenshots : LabScreenshotTest() {
     @Test fun generateDue() = shoot("readers-10-generate-due-cards") {
         GenerateReaderScreen(GenerateUi(decks = decks, dueWords = 23, source = "due_cards"), GenerateActions())
     }
-    private val chunks = listOf(
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("小明", "Xiǎomíng", "Xiaoming"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("今天", "jīntiān", "today"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("第一次", "dì yī cì", "for the first time"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("去", "qù", "to go"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("巴黎", "Bālí", "Paris"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("。", "", ""),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("他", "tā", "he"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("很", "hěn", "very"),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("兴奋", "xīngfèn", "excited", note = "Stronger than 高兴 — thrilled, keyed up."),
-        dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto("。", "", ""),
+    /** Page 1's word chips as the server makes them (shared/reader/words.ts). */
+    private val words = listOf(
+        ReaderWordDto("小明", "Xiǎomíng", "Xiaoming"),
+        ReaderWordDto("今天", "jīntiān", "today"),
+        ReaderWordDto("第一次", "dì yī cì", "for the first time"),
+        ReaderWordDto("去", "qù", "go to"),
+        ReaderWordDto("巴黎", "Bālí", "Paris"),
+        ReaderWordDto("。", "", ""),
+        ReaderWordDto("他", "tā", "he"),
+        ReaderWordDto("很", "hěn", "very"),
+        ReaderWordDto("兴奋", "xīngfèn", "excited"),
+        ReaderWordDto("。", "", ""),
     )
+    /** A dialogue page with quotes and a line break — what most newer readers look like. */
+    private val dialogue = ReaderPageDto(
+        "d1", 1, "小徐说：\"早上好！\"\n吴先生笑了。", "Xiǎo Xú shuō: \"Zǎoshang hǎo!\" Wú xiānsheng xiào le.", "Xiao Xu said: \"Good morning!\" Mr Wu laughed.", "k1", "Two neighbours",
+        words = listOf(
+            ReaderWordDto("小徐", "Xiǎo Xú", "Xiao Xu"), ReaderWordDto("说", "shuō", "says"), ReaderWordDto("：\"", "", ""),
+            ReaderWordDto("早上好", "zǎoshang hǎo", "good morning"), ReaderWordDto("！\"", "", ""), ReaderWordDto("\n", "", ""),
+            ReaderWordDto("吴先生", "Wú xiānsheng", "Mr Wu"), ReaderWordDto("笑了", "xiào le", "laughed"), ReaderWordDto("。", "", ""),
+        ),
+    )
+    private val known = setOf("今天", "去", "很")
+    private val wordsEnv get() = ReaderEnv(image = { picture }, cachedImage = { picture }, words = { p -> if (p.id == "p1") words else null }, known = known)
+    private val explanation = ReaderWordExplanationDto(
+        word = "兴奋", pinyin = "xīngfèn", english = "excited",
+        explanation = "兴 (xīng) rise, mood + 奋 (fèn) exert, rouse: keyed up, thrilled.\nStronger than 高兴 — 他很兴奋 = he's buzzing with excitement.",
+        funFacts = "兴 (xīng) rise + 奋 (fèn) rouse.", sentenceClue = "他很兴奋。", sentenceCluePinyin = "tā hěn xīngfèn", sentenceClueTranslation = "He is very excited.",
+    )
+    private val sheetActions = ReaderWordActions(decks = { listOf(DeckChoice("d1", "HSK 3 · Plans & time", null), DeckChoice("d2", "Reader words", null), DeckChoice("d3", "Food & ordering", null)) })
+
     @Test fun words() = shootAfter("readers-13-reader-words", {
-        ReaderScreen(reader, null, ReaderEnv(image = { picture }, cachedImage = { picture }, segments = { chunks }), onBack = {}, onEdit = {}, onFinish = {})
+        ReaderScreen(reader, null, wordsEnv, onBack = {}, onEdit = {}, onFinish = {})
     }) { tap("Tap to reveal Chinese") }
-    @Test fun addWord() = shoot("readers-14-add-word") {
-        AddWordSheet(chunks[8], AddWordActions(decks = { listOf(DeckChoice("d1", "HSK 3 · Plans & time", null), DeckChoice("d2", "Reader words", null), DeckChoice("d3", "Food & ordering", null)) }, isDuplicate = { _, _ -> false }), onDismiss = {})
+    @Test fun wordSheet() = shoot("readers-14-word-sheet") {
+        ReaderWordSheet(words[8], "他很兴奋。", known = false, actions = sheetActions, onDismiss = {})
     }
+    @Test fun wordSheetExplained() = shoot("readers-23-word-sheet-explained") {
+        ReaderWordSheet(words[8], "他很兴奋。", known = false, actions = sheetActions, onDismiss = {}, initialExplanation = explanation)
+    }
+    @Test fun wordSheetAdding() = shoot("readers-24-word-sheet-add") {
+        ReaderWordSheet(words[8], "他很兴奋。", known = false, actions = sheetActions, onDismiss = {}, initialExplanation = explanation, startAdding = true)
+    }
+    @Test fun wordSheetKnown() = shoot("readers-25-word-sheet-known", dark = true) {
+        ReaderWordSheet(words[1], "小明今天第一次去巴黎。", known = true, actions = sheetActions, onDismiss = {})
+    }
+    /** The in-session reader has the chips too (it used to be plain text). */
+    @Test fun sessionWords() = shootAfter("readers-26-session-words", {
+        StudyScreen(
+            StudyUi(phase = StudyPhase.Reader(SessionReader(reader, previews, 1)), counts = Samples.counts.copy(new = 0, secondaryNew = 0, learning = 0, review = 0), stats = SessionStats(reviews = 24, correct = 21)),
+            playingKey = null,
+            actions = StudyActions(readerEnv = { wordsEnv }),
+            autoplay = false,
+        )
+    }) { tap("Tap to reveal Chinese") }
+    @Test fun dialogueWords() = shootAfter("readers-27-dialogue-words", {
+        ReaderScreen(reader.copy(pages = listOf(dialogue)), null, ReaderEnv(image = { picture }, cachedImage = { picture }), onBack = {}, onEdit = {}, onFinish = {})
+    }) { tap("Tap to reveal Chinese") }
 
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("readers-11-session-unfolded", content = session())

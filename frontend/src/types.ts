@@ -826,6 +826,8 @@ export interface ReaderPage {
   content_english: string;
   image_url: string | null;
   image_prompt: string | null;
+  /** Word chips (shared/reader/words.ts); null when not made yet or stale. */
+  words?: import('@shared/reader/words').ReaderWord[] | null;
 }
 
 export interface GradedReaderWithPages extends GradedReader {

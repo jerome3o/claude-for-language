@@ -134,6 +134,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
 │       ├── diff.ts        # Page-level diff (added / removed / moved / changed by id, content or similarity)
 │       ├── export.ts      # Markdown / re-importable JSON / Quizlet CSV
+│       ├── words.ts       # Word chips: alignReaderWords (concat invariant), parseReaderWords, sentenceAround
 │       ├── audioBlocks.ts # Page narration → phrase blocks at the pauses (RMS envelope, adaptive threshold) — parity-tested by the Lab app
 │       └── blockPlayback.ts # The scrubber's restart point: advance per block, pause → this block (or the previous within 1 s) — parity-tested
 │
@@ -301,6 +302,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `review_events` - Individual review records (rating, time, answer, recording_url). Card state is computed from these.
 - `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `deleted_items` - Tombstones (`kind` deck|note, `item_id`, `deleted_at`) written whenever a deck or note is deleted (API routes, Ask Claude's delete_current_card, the MCP server's delete_deck/delete_note); `GET /api/sync/changes` returns them as `deleted.deck_ids` / `note_ids` so offline clients drop the rows (with their cards) on the next sync
+- `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence. See "Reader word chips"
 - `note_questions` - Q&A from Ask Claude feature (question, answer, asked_at). Listed per user (`GET /api/me/claude-chats`) and per student for the tutor (`GET /api/relationships/:relId/claude-chats`), grouped into threads client-side by `groupQuestionThreads` (`shared/chats/threads.ts`)
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
 - `note_sentences` - Graded sentence set per note (position, hanzi, pinyin, translation, audio_url, focus, explanation). Written as whole sets; synced to IndexedDB for offline study.
@@ -1103,6 +1105,23 @@ files are ported to `android-lab/core` (`AudioBlocks.kt`, `BlockPlayback.kt`) an
 - `POST /api/readers/import` - New reader from `{ spec }` (owner = caller; page ids never reused)
 - `GET /api/readers/:id/export.md|json|csv`
 - `POST /api/readers/:id/assist` - `{ field: 'english'|'image_prompt', chinese, english? }` → `{ text }` (503 without an API key)
+
+**Reader word chips** (`shared/reader/words.ts`, `worker/src/services/reader-words.ts`, `routes/reader-words.ts`;
+web `components/reader/ReaderWords.tsx` + `ReaderWordSheet.tsx` + `services/readerWords.ts`; Lab `core/ReaderWords.kt`,
+`ui/readers/ReaderWordSheet.kt`). Every reading view (reader page, in-session reader, homework, Lab Today's story) shows
+the revealed Chinese as tappable word chips. Each page carries `words` — `{ text, pinyin, gloss }` segments whose texts
+**concatenate to `content_chinese` exactly** (punctuation, quotes and line breaks are segments with empty pinyin / gloss).
+Made with Haiku via `structuredCall` (forced `split_words` tool, thinking off); `alignReaderWords` repairs whatever comes
+back (unmatched stretches → one character per segment; < 85 % coverage is retried once). Made at story generation (queue
+consumer), in the background after an editor save / import / page edit, copied with a shared reader, and lazily:
+`POST /api/reader-words/backfill { reader_id?, limit? }` → `{ pages, remaining }` (≤ 12 pages of the caller's, that reader
+first) — called when a reader opens and a couple of times per sync until none remain. Stale words (text edited since) are
+never served (`parseReaderWords` / `ReaderWords.matches`). Until words exist the page is plain text. Tapping a chip opens
+the word sheet: hanzi · pinyin · gloss, ▶, the sentence (`sentenceAround`), **More about this word**
+(`POST /api/reader-words/explain { word, sentence, pinyin?, gloss? }` → explanation + card-standard `fun_facts` / sentence
+clue, Haiku, cached server-side and on the device) and **+ Add as card** (deck picker, duplicate warning). Words already in a
+deck get a quieter chip. (Before this, readers called `/api/sentence/analyze` per sentence on reveal — free-text JSON that
+failed on pages with quotes / line breaks, all-or-nothing per page, and the in-session reader had no chips at all.)
 - `GET|POST /api/editor-chat/reader/:id[/messages]`, `…/messages/:id/accept|reject` - the co-editor chat (see Lesson library & editor)
 
 ### Video calls (experimental — `worker/src/routes/calls.ts`, full design in docs/VIDEO_CALLS.md)

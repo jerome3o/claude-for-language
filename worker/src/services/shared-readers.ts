@@ -16,6 +16,7 @@
 import type { GradedReaderWithPages, ReaderPage, VocabularyItem } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from './relationships';
 import { generateId } from './cards';
+import { parseReaderWords } from '@shared/reader/words';
 
 export interface SharedReader {
   id: string;
@@ -119,8 +120,8 @@ export async function shareReader(
     // image_url is the same R2 key on both copies — no bytes are copied.
     await db
       .prepare(`
-        INSERT INTO reader_pages (id, reader_id, page_number, content_chinese, content_pinyin, content_english, image_url, image_prompt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO reader_pages (id, reader_id, page_number, content_chinese, content_pinyin, content_english, image_url, image_prompt, words)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         pageId,
@@ -130,10 +131,12 @@ export async function shareReader(
         page.content_pinyin,
         page.content_english,
         page.image_url ?? null,
-        page.image_prompt ?? null
+        page.image_prompt ?? null,
+        // The word chips travel with the copy (same text, same words).
+        typeof page.words === 'string' ? page.words : null
       )
       .run();
-    copiedPages.push({ ...page, id: pageId, reader_id: targetReaderId });
+    copiedPages.push({ ...page, id: pageId, reader_id: targetReaderId, words: parseReaderWords(page.words ?? null, page.content_chinese) });
   }
 
   const shareId = generateId();

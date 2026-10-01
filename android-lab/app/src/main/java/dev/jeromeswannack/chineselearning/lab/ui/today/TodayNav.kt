@@ -219,7 +219,7 @@ private fun TodayReaderRoute(nav: LabNav, state: TodayItemState, vm: TodayReader
         is TodayItemState.Reader -> {
             val e = state.entry
             val session = remember(e) { SessionReader(e.reader, CardScheduler.intervalPreviews(e.state, System.currentTimeMillis()), 1) }
-            val env = rememberReaderEnv(nav.app, e.id, words = true)
+            val env = rememberReaderEnv(nav.app, e.id)
             Column(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Today's story", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted, modifier = Modifier.weight(1f).padding(start = 12.dp))
