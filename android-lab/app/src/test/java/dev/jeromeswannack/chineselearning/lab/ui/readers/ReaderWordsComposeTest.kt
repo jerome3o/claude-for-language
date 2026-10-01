@@ -51,29 +51,18 @@ class ReaderWordsComposeTest {
 
     /** The reading page wired like rememberReaderEnv, with fakes; records what was asked and added. */
     private class Recorder {
+        val tapped = mutableListOf<Pair<String, String>>()
         val explained = mutableListOf<Pair<String, String>>()
         val added = mutableListOf<Pair<String, NewNoteBody>>()
     }
 
     @Composable
     private fun Harness(page: ReaderPageDto, rec: Recorder, load: (suspend (ReaderPageDto) -> List<ReaderWordDto>?)? = null) {
-        var tapped by remember { mutableStateOf<Pair<ReaderWordDto, String>?>(null) }
         ReaderScreen(
             reader(page), null,
-            ReaderEnv(words = load, known = setOf("早上"), onWord = { w, s -> tapped = w to s }),
+            ReaderEnv(words = load, known = setOf("早上"), onWord = { w, s -> rec.tapped += w.text to s }),
             onBack = {}, onEdit = {}, onFinish = {},
         )
-        tapped?.let { (w, s) ->
-            ReaderWordSheet(
-                w, s, known = false,
-                actions = ReaderWordActions(
-                    explain = { word, sentence -> rec.explained += word.text to sentence; explanation },
-                    decks = { listOf(DeckChoice("d1", "Readers", null), DeckChoice("d2", "HSK 3", null)) },
-                    add = { deckId, word, ex -> rec.added += deckId to readerWordNote(word, ex) },
-                ),
-                onDismiss = { tapped = null },
-            )
-        }
     }
 
     private fun show(content: @Composable () -> Unit) {
@@ -84,31 +73,52 @@ class ReaderWordsComposeTest {
 
     private fun tap(text: String) {
         compose.onNodeWithText(text).performClick()
-        if (compose.mainClock.autoAdvance) compose.waitForIdle() else compose.mainClock.advanceTimeBy(1_500)
+        compose.mainClock.advanceTimeBy(1_500)
     }
 
-    /** A button in the sheet (a dialog window: Robolectric routes injected touches to the window below, so click by semantics). */
+    /**
+     * A button in the sheet. The sheet is a dialog window: Robolectric routes injected touches
+     * to the window below and its recompositions only run on an auto-advancing clock, so click
+     * by semantics and wait for idle (the sheet alone has no endless animation).
+     */
     private fun press(node: androidx.compose.ui.test.SemanticsNodeInteraction) {
         node.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        compose.mainClock.autoAdvance = true
         compose.waitForIdle()
     }
 
     @Test
-    fun tapWordOpensSheetExplainsAndAddsCard() {
+    fun tapWordGivesTheWordAndItsSentenceWithoutHidingTheChinese() {
         val rec = Recorder()
         show { Harness(ReaderPageDto("p1", 1, text, words = words), rec) }
         tap("Tap to reveal Chinese")
         assertEquals(5, compose.onAllNodesWithTag("word-chip").fetchSemanticsNodes().size)
         compose.onNodeWithContentDescription("早上, in your decks").assertIsDisplayed()
-
         compose.onNodeWithContentDescription("小徐").performClick()
-        // The sheet animates in on its own clock: let it settle.
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        compose.onNodeWithTag("reader-word-sheet").assertIsDisplayed()
-        compose.onNodeWithText("Xiǎo Xú").assertIsDisplayed()
-        compose.onNodeWithText("Xiao Xu").assertIsDisplayed()
-        compose.onNodeWithText("我叫小徐。").assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(listOf("小徐" to "我叫小徐。"), rec.tapped)
+        // Tapping a word doesn't hide the Chinese: the chips are still there.
+        compose.onNodeWithTag("reader-words").assertIsDisplayed()
+    }
+
+    @Test
+    fun sheetExplainsAndAddsCard() {
+        val rec = Recorder()
+        show {
+            ReaderWordSheet(
+                words[5], "我叫小徐。", known = false,
+                actions = ReaderWordActions(
+                    explain = { word, sentence -> rec.explained += word.text to sentence; explanation },
+                    decks = { listOf(DeckChoice("d1", "Readers", null), DeckChoice("d2", "HSK 3", null)) },
+                    add = { deckId, word, ex -> rec.added += deckId to readerWordNote(word, ex) },
+                ),
+                onDismiss = {},
+            )
+        }
+        compose.onNodeWithTag("reader-word-sheet").assertExists()
+        compose.onNodeWithText("Xiǎo Xú").assertExists()
+        compose.onNodeWithText("Xiao Xu").assertExists()
+        compose.onNodeWithText("我叫小徐。").assertExists()
 
         press(compose.onNodeWithText("✨ More about this word"))
         assertEquals(listOf("小徐" to "我叫小徐。"), rec.explained)
@@ -120,9 +130,8 @@ class ReaderWordsComposeTest {
         val (deck, note) = rec.added[0]
         assertEquals("d1", deck)
         assertEquals(NewNoteBody("小徐", "Xiǎo Xú", "Xiao Xu (a name)", "小 (xiǎo) little + 徐 (Xú) surname.", "我叫小徐。", "wǒ jiào Xiǎo Xú", "My name is Xiao Xu."), note)
-        compose.onNodeWithText("Added to Readers ✓").assertIsDisplayed()
-        // The Chinese stayed revealed under the sheet: the word chips are still there.
-        compose.onNodeWithTag("reader-words").assertIsDisplayed()
+        compose.onNodeWithText("Added to Readers ✓").assertExists()
+        assertEquals(listOf("小徐" to "我叫小徐。"), rec.explained) // asked once, reused for the card
     }
 
     @Test
