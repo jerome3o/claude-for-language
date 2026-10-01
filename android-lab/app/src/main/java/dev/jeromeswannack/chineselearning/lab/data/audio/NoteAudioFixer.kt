@@ -25,7 +25,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
@@ -62,6 +64,7 @@ class NoteAudioFixer(
     private val _statuses = MutableStateFlow<Map<String, NoteAudio.Status>>(emptyMap())
     private val _updates = MutableSharedFlow<NoteEntity>(extraBufferCapacity = 32)
     private var backfillJob: Job? = null
+    private val saveLock = Mutex()
     private val restored = scope.launch { restoreQueue() }
 
     /** Where each note's clips stand (absent = nothing going on). */
@@ -203,9 +206,17 @@ class NoteAudioFixer(
         return out
     }
 
+    /**
+     * Snapshot and write under one lock: two concurrent requests (the backfill runs
+     * [NoteAudio.CONCURRENCY] at a time) could otherwise write their snapshots out of order —
+     * B snapshots [n1] before A starts n1, A writes [], then B's stale [n1] lands last and a
+     * note that was already made stays queued across restarts.
+     */
     private suspend fun saveQueue() {
-        val ids = synchronized(tracker) { tracker.queued.toList() }
-        runCatching { repo.platform.cache.put(QUEUE_KEY, KIND, ids) }
+        saveLock.withLock {
+            val ids = synchronized(tracker) { tracker.queued.toList() }
+            runCatching { repo.platform.cache.put(QUEUE_KEY, KIND, ids) }
+        }
     }
 
     private suspend fun restoreQueue() {
