@@ -25,6 +25,7 @@ import {
 } from '../types';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { noteCopyValues } from '../services/note-copy';
+import { parseReaderWords } from '@shared/reader/words';
 import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, moveInOrder, sortDecksForQueue, type DeckSettings as DeckSettingsRow, type QueueMove, type StudyBudget } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
@@ -2136,7 +2137,7 @@ export async function getGradedReadersWithPages(
     else pagesByReader.set(page.reader_id, [page]);
   }
 
-  return readers.map(r => ({ ...r, pages: pagesByReader.get(r.id) ?? [] }));
+  return readers.map(r => ({ ...r, pages: (pagesByReader.get(r.id) ?? []).map(pageWithWords) }));
 }
 
 /**
@@ -2170,6 +2171,11 @@ export async function getGradedReaderById(
   return reader ? withReaderPages(db, parseReaderRow(reader)) : null;
 }
 
+/** A page row with its word chips parsed (null when missing or stale — shared/reader/words.ts). */
+function pageWithWords(page: ReaderPage): ReaderPage {
+  return { ...page, words: parseReaderWords(page.words ?? null, page.content_chinese) };
+}
+
 async function withReaderPages(
   db: D1Database,
   reader: GradedReader
@@ -2180,7 +2186,7 @@ async function withReaderPages(
     ORDER BY page_number ASC
   `).bind(reader.id).all<ReaderPage>();
 
-  return { ...reader, pages: pagesResult.results };
+  return { ...reader, pages: pagesResult.results.map(pageWithWords) };
 }
 
 /**

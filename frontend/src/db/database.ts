@@ -155,6 +155,8 @@ export interface LocalReaderPage {
   // so a null here with a non-null image_prompt means "generate on demand".
   image_url: string | null;
   image_prompt: string | null;
+  /** Word chips (shared/reader/words.ts), kept so the words stay tappable offline. */
+  words?: import('@shared/reader/words').ReaderWord[] | null;
 }
 
 /**

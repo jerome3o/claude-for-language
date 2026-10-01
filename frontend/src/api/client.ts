@@ -1915,3 +1915,20 @@ export async function retryQuest(id: string): Promise<{ id: string; status: stri
 export async function deleteQuest(id: string): Promise<void> {
   await fetchJSON(`/quests/${id}`, { method: 'DELETE' });
 }
+
+// ============ Reader word chips (routes/reader-words.ts) ============
+
+export interface ReaderWordsBackfill {
+  pages: Array<{ id: string; reader_id: string; words: import('@shared/reader/words').ReaderWord[] }>;
+  remaining: number;
+}
+
+/** Split up to `limit` of my reader pages without word chips into words (the given reader's first). */
+export async function backfillReaderWords(body: { reader_id?: string; limit?: number } = {}): Promise<ReaderWordsBackfill> {
+  return fetchJSON('/reader-words/backfill', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** "More about this word": Haiku's explanation of a word in its sentence + the card fields (cached server-side). */
+export async function explainReaderWord(body: { word: string; sentence: string; pinyin?: string; gloss?: string }): Promise<import('@shared/reader/words').ReaderWordExplanation> {
+  return fetchJSON('/reader-words/explain', { method: 'POST', body: JSON.stringify(body) });
+}

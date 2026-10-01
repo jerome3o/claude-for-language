@@ -21,7 +21,49 @@ data class ReaderPageDto(
     @SerialName("content_english") val contentEnglish: String = "",
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("image_prompt") val imagePrompt: String? = null,
+    /** Word chips (shared/reader/words.ts); null when not made yet. Stale ones are refused by `ReaderWords.matches`. */
+    val words: List<ReaderWordDto>? = null,
+) {
+    /** The page's word chips when they still match its text (else null — plain text). */
+    fun currentWords(): List<ReaderWordDto>? =
+        words?.takeIf { w -> dev.jeromeswannack.chineselearning.lab.core.ReaderWords.matches(w.map { it.text }, contentChinese) }
+}
+
+/** One segment of a page: a word (pinyin + gloss) or punctuation / whitespace (both empty). */
+@Serializable
+data class ReaderWordDto(val text: String = "", val pinyin: String = "", val gloss: String = "")
+
+@Serializable
+data class ReaderWordsBackfillBody(@SerialName("reader_id") val readerId: String? = null, val limit: Int? = null)
+
+@Serializable
+data class PageWordsDto(val id: String, @SerialName("reader_id") val readerId: String, val words: List<ReaderWordDto> = emptyList())
+
+@Serializable
+data class ReaderWordsBackfillDto(val pages: List<PageWordsDto> = emptyList(), val remaining: Int = 0)
+
+@Serializable
+data class ReaderWordExplainBody(val word: String, val sentence: String, val pinyin: String? = null, val gloss: String? = null)
+
+/** `ReaderWordExplanation`: the word in its sentence + the card fields for "+ Add as card". */
+@Serializable
+data class ReaderWordExplanationDto(
+    val word: String = "",
+    val pinyin: String = "",
+    val english: String = "",
+    val explanation: String = "",
+    @SerialName("fun_facts") val funFacts: String = "",
+    @SerialName("sentence_clue") val sentenceClue: String? = null,
+    @SerialName("sentence_clue_pinyin") val sentenceCluePinyin: String? = null,
+    @SerialName("sentence_clue_translation") val sentenceClueTranslation: String? = null,
 )
+
+/** `POST /api/reader-words/backfill`: word chips for up to 12 of my pages without them (the given reader's first). */
+suspend fun Api.backfillReaderWords(readerId: String? = null): ReaderWordsBackfillDto =
+    post("/api/reader-words/backfill", ReaderWordsBackfillBody(readerId))
+
+/** `POST /api/reader-words/explain`: Haiku's explanation of a word in its sentence (cached server-side). */
+suspend fun Api.explainReaderWord(body: ReaderWordExplainBody): ReaderWordExplanationDto = post("/api/reader-words/explain", body)
 
 @Serializable
 data class GradedReaderDto(

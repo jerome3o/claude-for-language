@@ -27,6 +27,7 @@ function pageToLocal(page: GradedReaderWithPages['pages'][number]): LocalReaderP
     content_english: page.content_english,
     image_url: page.image_url,
     image_prompt: page.image_prompt,
+    words: page.words ?? null,
   };
 }
 

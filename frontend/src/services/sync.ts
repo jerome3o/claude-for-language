@@ -461,6 +461,10 @@ class SyncService {
       prefetchReaderMedia().catch(err =>
         console.error('[Sync] Reader media prefetch failed:', err)
       );
+      // Word chips for pages that don't have them yet (a few per sync, then hourly).
+      void import('./readerWords')
+        .then(m => m.backfillReaderWordsInSync())
+        .catch(err => console.error('[Sync] Reader word chips backfill failed:', err));
     } catch (err) {
       console.error('[Sync] Reader sync failed:', err);
     }

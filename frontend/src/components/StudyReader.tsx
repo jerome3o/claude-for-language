@@ -7,6 +7,7 @@ import { updateLocalReaderPageImage } from '../services/readerSync';
 import { generateReaderPageImage } from '../api/client';
 import { useCachedImageUrl } from '../hooks/useCachedImageUrl';
 import { ReaderAudioScrubber } from './ReaderAudioScrubber';
+import { ReaderWordsText } from './reader/ReaderWords';
 import '../pages/ReaderPage.css';
 import './StudyReader.css';
 
@@ -87,7 +88,7 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
           {showChinese ? (
             // Whole block is the hit target, same as the pinyin/translation
             // boxes below — tap anywhere on (or around) the hanzi to hide it
-            // again. Nothing inside is individually tappable here.
+            // again. The word chips inside keep their own taps (→ word sheet).
             <div
               className="reader-chinese-revealed tappable"
               onClick={() => setShowChinese(false)}
@@ -101,7 +102,8 @@ function StudyReaderPage({ readerId, page }: { readerId: string; page: LocalRead
                 }
               }}
             >
-              <div className="reader-chinese-text">{page.content_chinese}</div>
+              {/* Word chips: tap a word → its sheet (the tap never hides the Chinese). Plain text until they arrive. */}
+              <ReaderWordsText readerId={readerId} page={page} />
             </div>
           ) : (
             <div className="reader-chinese-reveal-box" onClick={() => setShowChinese(true)}>

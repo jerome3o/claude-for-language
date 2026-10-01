@@ -30,6 +30,7 @@ import { Env } from '../types';
 import * as db from '../db/queries';
 import { readerToSpec, applyReaderSpec, createReaderFromSpec } from '../db/reader-editor-queries';
 import { unreferencedImageKeys } from '../services/shared-readers';
+import { segmentReader } from '../services/reader-words';
 
 type AppEnv = { Bindings: Env };
 
@@ -85,6 +86,17 @@ export function readerExportResponse(spec: ReaderSpec, format: string): Response
   });
 }
 
+/** Word chips for pages whose text is new or changed (services/reader-words.ts); never blocks the save. */
+function wordsInBackground(c: { env: Env; executionCtx: { waitUntil(p: Promise<unknown>): void } }, readerId: string): void {
+  if (!c.env.ANTHROPIC_API_KEY) return;
+  const work = segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch((err) => console.error('[reader-words]', err));
+  try {
+    c.executionCtx.waitUntil(work);
+  } catch {
+    // no execution context (tests): let it run
+  }
+}
+
 // ============ Import (before /:id routes so "import" is never an id) ============
 
 readerEditor.post('/readers/import', async (c) => {
@@ -95,6 +107,7 @@ readerEditor.post('/readers/import', async (c) => {
   const spec = normalizeReaderSpec(body.spec as ReaderSpec);
   const { reader, imageJobs } = await createReaderFromSpec(c.env.DB, userId, spec);
   const queued = await queueReaderImages(c.env, reader.id, imageJobs);
+  wordsInBackground(c, reader.id);
   return c.json({ ...reader, spec: readerToSpec(reader), image_jobs: queued, warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message) }, 201);
 });
 
@@ -125,6 +138,7 @@ readerEditor.put('/readers/:id/spec', async (c) => {
   const applied = await applyReaderSpec(c.env.DB, existing, spec);
   await deleteImages(c.env, applied.removedImageKeys, existing.id);
   const queued = await queueReaderImages(c.env, existing.id, applied.imageJobs);
+  wordsInBackground(c, existing.id);
 
   const updated: typeof existing = {
     ...existing,

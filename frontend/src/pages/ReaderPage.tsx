@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
-import { SentenceChunk } from '../types';
 import { useQuery } from '@tanstack/react-query';
 import {
   getGradedReader,
   getReaderImageUrl,
-  analyzeSentence,
   generateReaderPageImage,
   generatePracticeTTS,
 } from '../api/client';
@@ -15,12 +13,10 @@ import { base64ToBlob } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { Loading } from '../components/Loading';
 import { AnkiExportButton } from '../components/export/AnkiExportModal';
-import { SentenceBreakdown } from '../components/SentenceBreakdown';
-import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
+import { ReaderWordsText } from '../components/reader/ReaderWords';
 import { markDailyActivity } from '../api/client';
 import {
   ReaderPage as ReaderPageType,
-  SentenceBreakdown as SentenceBreakdownType,
   DifficultyLevel,
 } from '../types';
 import './ReaderPage.css';
@@ -32,68 +28,6 @@ const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; lab
   advanced: { bg: '#fce7f3', text: '#9d174d', label: 'Advanced' },
 };
 
-function SentenceAnalysisModal({
-  breakdown,
-  isLoading,
-  onClose,
-  onAddChunk,
-  onRetry,
-}: {
-  breakdown: SentenceBreakdownType | null;
-  isLoading: boolean;
-  onClose: () => void;
-  onAddChunk: (c: Chunk) => void;
-  onRetry?: () => void;
-}) {
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
-        {isLoading ? (
-          <div style={{ textAlign: 'center', padding: '3rem' }}>
-            <span className="spinner" style={{ width: '30px', height: '30px' }} />
-            <p className="text-light mt-2">Analyzing...</p>
-          </div>
-        ) : breakdown ? (
-          <>
-            <SentenceBreakdown breakdown={breakdown} onClose={onClose} />
-            <div style={{ padding: '0 1rem 1rem', borderTop: '1px solid #eee' }}>
-              <div style={{ fontSize: '0.8rem', color: '#666', margin: '0.75rem 0 0.5rem' }}>
-                Tap a word to add as a flashcard
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                {breakdown.chunks.map((c, i) => (
-                  <button
-                    key={i}
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => onAddChunk({ hanzi: c.hanzi, pinyin: c.pinyin, english: c.english })}
-                  >
-                    {c.hanzi}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div style={{ padding: '1rem' }}>
-            <div className="modal-header">
-              <h2 className="modal-title">Analysis Failed</h2>
-              <button className="modal-close" onClick={onClose}>
-                &times;
-              </button>
-            </div>
-            <p className="text-light">Failed to analyze sentence.</p>
-            {onRetry && (
-              <button className="btn btn-primary btn-sm" onClick={onRetry} style={{ marginTop: '0.5rem' }}>
-                Try Again
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function PageView({
   page,
   readerId,
@@ -101,8 +35,6 @@ function PageView({
   showTranslation,
   onTogglePinyin,
   onToggleTranslation,
-  onAnalyzeSentence,
-  onAddChunk,
 }: {
   page: ReaderPageType;
   readerId: string;
@@ -110,17 +42,12 @@ function PageView({
   showTranslation: boolean;
   onTogglePinyin: () => void;
   onToggleTranslation: () => void;
-  onAnalyzeSentence: (sentence: string) => void;
-  onAddChunk: (chunk: { hanzi: string; pinyin: string; english: string }) => void;
 }) {
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showChinese, setShowChinese] = useState(false);
-  const [segments, setSegments] = useState<SentenceChunk[] | null>(null);
-  const [isSegmenting, setIsSegmenting] = useState(false);
-  const segmentingRef = useRef(false);
   const pagePlayerRef = useRef(createAudioPlayer());
   const ttsCache = useRef<Map<string, Blob>>(new Map());
 
@@ -151,25 +78,7 @@ function PageView({
     setImageLoading(false);
     setImageError(false);
     setShowChinese(false);
-    setSegments(null);
-    setIsSegmenting(false);
-    segmentingRef.current = false;
   }, [page.id]);
-
-  // Load word segmentation when Chinese is revealed
-  useEffect(() => {
-    if (!showChinese || segments !== null || segmentingRef.current) return;
-    segmentingRef.current = true;
-    setIsSegmenting(true);
-    const sents = page.content_chinese.split(/(?<=[。！？])/g).filter((s) => s.trim());
-    Promise.all(sents.map((s) => analyzeSentence(s)))
-      .then((breakdowns) => setSegments(breakdowns.flatMap((b) => b.chunks)))
-      .catch(() => {})
-      .finally(() => {
-        setIsSegmenting(false);
-        segmentingRef.current = false;
-      });
-  }, [showChinese, page.content_chinese, segments]);
 
   // Play Chinese audio via MiniMax TTS API, with in-memory caching to avoid regenerating
   const playAudio = useCallback(() => {
@@ -212,11 +121,6 @@ function PageView({
     const player = pagePlayerRef.current;
     return () => player.dispose();
   }, []);
-
-  // Split sentences for individual analysis
-  const sentences = page.content_chinese
-    .split(/(?<=[。！？])/g)
-    .filter((s) => s.trim());
 
   return (
     <div className="reader-page-view">
@@ -281,40 +185,8 @@ function PageView({
               className="reader-chinese-revealed tappable"
               onClick={() => setShowChinese(false)}
             >
-              <div className="reader-chinese-text">
-                {segments ? (
-                  segments.map((chunk, i) => (
-                    <span
-                      key={i}
-                      className="reader-word-segment"
-                      onClick={e => {
-                        e.stopPropagation();
-                        onAddChunk({ hanzi: chunk.hanzi, pinyin: chunk.pinyin, english: chunk.english });
-                      }}
-                    >
-                      {chunk.hanzi}
-                    </span>
-                  ))
-                ) : (
-                  sentences.map((sentence, index) => (
-                    <span
-                      key={index}
-                      onClick={e => {
-                        e.stopPropagation();
-                        onAnalyzeSentence(sentence);
-                      }}
-                      className="reader-sentence"
-                    >
-                      {sentence}
-                    </span>
-                  ))
-                )}
-                {isSegmenting && (
-                  <span className="reader-segmenting-indicator" title="Loading word segments...">
-                    <span className="spinner" style={{ width: '14px', height: '14px', display: 'inline-block', verticalAlign: 'middle', marginLeft: '0.5rem' }} />
-                  </span>
-                )}
-              </div>
+              {/* Word chips (made with Haiku, cached on the page); plain text until they arrive. */}
+              <ReaderWordsText readerId={readerId} page={page} />
               <button
                 type="button"
                 className="reader-chinese-hide-btn"
@@ -362,13 +234,6 @@ export function ReaderPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [analysisModal, setAnalysisModal] = useState<{
-    sentence: string;
-    breakdown: SentenceBreakdownType | null;
-    isLoading: boolean;
-  } | null>(null);
-  const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
-
   const readerQuery = useQuery({
     queryKey: ['reader', id],
     queryFn: () => getGradedReader(id!),
@@ -378,23 +243,6 @@ export function ReaderPage() {
         ? 3000
         : false,
   });
-
-  const handleAnalyzeSentence = async (sentence: string) => {
-    setAnalysisModal({ sentence, breakdown: null, isLoading: true });
-    try {
-      const breakdown = await analyzeSentence(sentence);
-      setAnalysisModal({ sentence, breakdown, isLoading: false });
-    } catch (error) {
-      console.error('Failed to analyze sentence:', error);
-      setAnalysisModal({ sentence, breakdown: null, isLoading: false });
-    }
-  };
-
-  const handleRetryAnalysis = () => {
-    if (analysisModal) {
-      void handleAnalyzeSentence(analysisModal.sentence);
-    }
-  };
 
   const goToNextPage = () => {
     if (readerQuery.data && currentPage < readerQuery.data.pages.length - 1) {
@@ -523,8 +371,6 @@ export function ReaderPage() {
           showTranslation={showTranslation}
           onTogglePinyin={() => setShowPinyin(!showPinyin)}
           onToggleTranslation={() => setShowTranslation(!showTranslation)}
-          onAnalyzeSentence={handleAnalyzeSentence}
-          onAddChunk={(c) => setAddingChunk(c)}
         />
       </div>
 
@@ -555,22 +401,6 @@ export function ReaderPage() {
         )}
       </footer>
 
-      {/* Analysis Modal */}
-      {analysisModal && (
-        <SentenceAnalysisModal
-          breakdown={analysisModal.breakdown}
-          isLoading={analysisModal.isLoading}
-          onClose={() => setAnalysisModal(null)}
-          onAddChunk={(c) => {
-            setAnalysisModal(null);
-            setAddingChunk(c);
-          }}
-          onRetry={!analysisModal.isLoading && !analysisModal.breakdown ? handleRetryAnalysis : undefined}
-        />
-      )}
-      {addingChunk && (
-        <AddChunkModal chunk={addingChunk} onClose={() => setAddingChunk(null)} />
-      )}
     </div>
   );
 }

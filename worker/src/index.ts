@@ -75,6 +75,8 @@ import cardFlagsRoutes from './routes/card-flags';
 import claudeChatsRoutes from './routes/claude-chats';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
+import readerWordsRoutes from './routes/reader-words';
+import { segmentReader } from './services/reader-words';
 import wordImportRoutes from './routes/word-import';
 import callsRoutes, { mountCallSocket } from './routes/calls';
 import boardPagesRoutes from './routes/board-pages';
@@ -524,6 +526,8 @@ app.route('/api', conversationVoicesRoutes);
 app.route('/api', pictureHuntRoutes);
 // Active study time per local day and device: PUT|GET /api/me/study-time (routes/study-time.ts)
 app.route('/api', studyTimeRoutes);
+// Reader word chips: POST /api/reader-words/backfill, /explain (routes/reader-words.ts)
+app.route('/api', readerWordsRoutes);
 
 // ============ Admin Routes ============
 
@@ -3452,6 +3456,7 @@ app.post('/api/readers/:id/pages', async (c) => {
   const readerId = c.req.param('id');
   const pageData = await c.req.json<{ content_chinese: string; content_pinyin: string; content_english: string; image_prompt?: string | null }>();
   const page = await db.addReaderPage(c.env.DB, readerId, userId, { ...pageData, image_prompt: pageData.image_prompt || null });
+  if (c.env.ANTHROPIC_API_KEY) c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch(() => {}));
   return c.json(page);
 });
 
@@ -3461,6 +3466,9 @@ app.put('/api/readers/:readerId/pages/:pageId', async (c) => {
   const pageId = c.req.param('pageId');
   const data = await c.req.json<{ content_chinese?: string; content_pinyin?: string; content_english?: string; image_prompt?: string | null }>();
   await db.updateReaderPage(c.env.DB, pageId, readerId, userId, data);
+  if (data.content_chinese !== undefined && c.env.ANTHROPIC_API_KEY) {
+    c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch(() => {}));
+  }
   return c.json({ success: true });
 });
 
@@ -6823,6 +6831,15 @@ export default {
             // No image generation configured, mark as ready immediately
             await db.updateReaderStatus(env.DB, readerId, 'ready');
             console.log('[Queue] Reader ready (no image generation):', readerId);
+          }
+
+          // Word chips for every page (Haiku, a few seconds; failures leave the
+          // page for the clients' lazy backfill — services/reader-words.ts).
+          try {
+            const segmented = await segmentReader(env.DB, env.ANTHROPIC_API_KEY, readerId);
+            console.log('[Queue] Word chips made for', segmented.length, 'of', pages.length, 'pages');
+          } catch (err) {
+            console.error('[Queue] Word chips failed for reader:', readerId, err);
           }
 
           message.ack();
