@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
@@ -18,8 +19,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
@@ -69,6 +72,22 @@ object AnswerMarks {
         return Cell(chosen, if (slot.status == MultipleChoice.SlotStatus.WRONG) Mark.WRONG else Mark.CORRECT)
     }
 
+    /** Punctuation that must not start a line (Chinese line-breaking rules). */
+    private const val NO_LINE_START = "，。、！？；：,.!?;:)）]】》」』”’…—%"
+
+    /**
+     * Indices grouped into wrap units: a closing punctuation mark stays with the character
+     * before it, so a wrapped answer never starts a line with "，" or "。".
+     */
+    fun wrapGroups(chars: List<String>): List<List<Int>> {
+        val groups = ArrayList<MutableList<Int>>()
+        chars.forEachIndexed { i, ch ->
+            if (groups.isNotEmpty() && ch.isNotEmpty() && NO_LINE_START.contains(ch)) groups.last() += i
+            else groups += mutableListOf(i)
+        }
+        return groups
+    }
+
     private fun codePoints(s: String): List<String> = s.codePoints().toArray().map { String(Character.toChars(it)) }
 }
 
@@ -83,7 +102,40 @@ private val UnderlineRoom = 8.dp
 @Composable
 fun MarkedAnswerRow(cells: List<AnswerMarks.Cell>, size: TextUnit, onChar: (String) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.Center) {
-        for (cell in cells) MarkedChar(cell, size, onChar)
+        for (group in AnswerMarks.wrapGroups(cells.map { it.char })) {
+            Row { for (i in group) MarkedChar(cells[i], size, onChar) }
+        }
+    }
+}
+
+/** Test tag on each character of the correct-answer line under the "↓". */
+const val EXPECTED_CHAR_TAG = "answer-expected-char"
+
+/**
+ * The correct answer under the "↓": every character, wrapping onto as many lines as it needs
+ * (closing punctuation kept with the character before it; a plain Row clipped long sentences at the card's edge — "…聊了两个小" for "…聊了两个小时。").
+ * [matched] characters are green, the rest in [other]; each one is tappable (lookup).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ExpectedAnswerRow(chars: List<String>, matched: List<Boolean>, size: TextUnit, other: Color, onChar: (String) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.Center) {
+        for (group in AnswerMarks.wrapGroups(chars)) {
+            Row {
+                for (i in group) {
+                    val ch = chars[i]
+                    val source = remember { MutableInteractionSource() }
+                    Text(
+                        ch,
+                        fontSize = size,
+                        lineHeight = size * 1.15f,
+                        color = if (matched.getOrElse(i) { false }) Palette.Good else other,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.testTag(EXPECTED_CHAR_TAG).clickable(interactionSource = source, indication = null) { onChar(ch) },
+                    )
+                }
+            }
+        }
     }
 }
 

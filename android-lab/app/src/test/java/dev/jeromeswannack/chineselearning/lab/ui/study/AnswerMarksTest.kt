@@ -45,4 +45,14 @@ class AnswerMarksTest {
         assertEquals(AnswerMarks.Mark.MISSING, cells[1].mark)
         assertEquals(AnswerMarks.Mark.CORRECT, cells[2].mark)
     }
+
+    @Test fun punctuationNeverStartsAWrapUnit() {
+        val chars = "早饭、聊天了，聊了两个小时。".codePoints().toArray().map { String(Character.toChars(it)) }
+        val groups = AnswerMarks.wrapGroups(chars).map { g -> g.joinToString("") { chars[it] } }
+        assertEquals(listOf("早", "饭、", "聊", "天", "了，", "聊", "了", "两", "个", "小", "时。"), groups)
+        assertEquals("早饭、聊天了，聊了两个小时。", groups.joinToString(""))
+        // A missing cell ("") is its own unit; a leading mark has nothing to join.
+        assertEquals(listOf(listOf(0), listOf(1, 2)), AnswerMarks.wrapGroups(listOf("，", "好", "。")))
+        assertEquals(listOf(listOf(0), listOf(1)), AnswerMarks.wrapGroups(listOf("好", "")))
+    }
 }

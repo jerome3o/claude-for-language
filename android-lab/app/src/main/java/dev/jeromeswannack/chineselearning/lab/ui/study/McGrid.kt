@@ -172,12 +172,11 @@ fun McAnswerDiff(slots: List<MultipleChoice.Slot>, size: TextUnit, onChar: (Stri
         if (picked.isNotEmpty()) Text(Pinyin.of(picked), style = MaterialTheme.typography.bodyMedium, color = muted, textAlign = TextAlign.Center)
         if (skipped > 0) Text("$skipped of $choiceRows left blank", style = MaterialTheme.typography.labelMedium, color = muted)
         Text("↓", color = muted)
-        Row {
-            for (s in slots) {
-                val hit = s.status == MultipleChoice.SlotStatus.RIGHT || s.status == MultipleChoice.SlotStatus.GIVEN
-                Text(s.correct, fontSize = size, color = if (hit) Palette.Good else Lab.colors.ink, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { onChar(s.correct) })
-            }
-        }
+        ExpectedAnswerRow(
+            slots.map { it.correct },
+            slots.map { it.status == MultipleChoice.SlotStatus.RIGHT || it.status == MultipleChoice.SlotStatus.GIVEN },
+            size, Lab.colors.ink, onChar,
+        )
     }
 }
 
