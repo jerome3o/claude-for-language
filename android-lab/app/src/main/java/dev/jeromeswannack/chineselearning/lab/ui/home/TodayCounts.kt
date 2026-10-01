@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.home
 
+import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.BuiltQueue
 import dev.jeromeswannack.chineselearning.lab.core.Js
@@ -27,7 +28,7 @@ object TodayCounts {
         val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(nowMs, zone))
         return StudyQueue.build(
             dao.decks().map { it.toQueueDeck() }, cards, prefs.budget,
-            prefs.bonus("all", java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()), introduced, StudyQueue.cutoff(nowMs, zone), null,
+            prefs.bonus("all", java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()), introduced, StudyQueue.cutoff(nowMs, zone), null, dao.noteHanzi(),
         )
     }
 }

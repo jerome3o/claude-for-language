@@ -102,6 +102,10 @@ object StudyQueue {
      * `getStudyQueue(deckId)`: learning/relearning cards due by the cutoff, review cards
      * due by the cutoff, and new cards as allocated by the global budget from the deck
      * queue top-down. [deckId] = null studies all decks.
+     *
+     * [noteHanzi] (note id → hanzi; null = plain tier / id order) turns on "new characters
+     * first" (Novelty.kt): a deck's brand-new words are the ones with never-seen characters.
+     * Seen = the notes in [seenNoteIds], default the notes of [cards] with a reviewed card.
      */
     fun build(
         decks: List<QueueDeck>,
@@ -111,6 +115,8 @@ object StudyQueue {
         introduced: Map<String, Introduced>,
         cutoff: StudyCutoff,
         deckId: String?,
+        noteHanzi: Map<String, String>? = null,
+        seenNoteIds: Collection<String>? = null,
     ): BuiltQueue {
         val reviewed = reviewedNoteIds(cards)
         val inScope = if (deckId == null) decks else decks.filter { it.id == deckId }
@@ -145,18 +151,25 @@ object StudyQueue {
                     if (card.state.dueTimestamp == null || card.state.dueTimestamp <= cutoff.ts) due += card
             }
         }
+        // New cards: deck queue order; within a deck the primary cards (best tier first, the
+        // hanzi_to_meaning cards by novelty), then the secondary ones (best tier, then id).
+        val hanziOf = { c: QueueCard -> noteHanzi?.get(c.noteId) ?: "" }
+        val seen = noteHanzi?.let { h -> NoveltyRank.seenFrom((seenNoteIds ?: reviewed).map { h[it] ?: "" }) }
         for ((id, a) in alloc) {
-            var primary = a.primary
-            var secondary = a.secondary
             val list = cards.filter { it.deckId == id && it.queue == CardQueue.NEW }
                 .sortedWith(compareBy<QueueCard> { tier(it, reviewed) }.thenBy { it.id })
-            for (card in list) {
-                if (card.noteId in reviewed) {
-                    if (secondary > 0) { secondary--; due += card }
-                } else if (primary > 0) {
-                    primary--; due += card
-                }
+            val primaryList = list.filter { it.noteId !in reviewed }
+            if (seen != null) {
+                val first = primaryList.filter { it.cardType == CardTypes.HANZI_TO_MEANING }
+                val picked = NoveltyRank.pick(first, a.primary, hanziOf, seen)
+                val others = primaryList.filter { it.cardType != CardTypes.HANZI_TO_MEANING }.take(Math.max(0, a.primary - picked.size))
+                for (c in others) NoveltyRank.markSeen(seen, hanziOf(c))
+                due += picked
+                due += others
+            } else {
+                due += primaryList.take(a.primary)
             }
+            due += list.filter { it.noteId in reviewed }.take(a.secondary)
         }
         val hasMoreNew = pools.any { p ->
             val a = alloc[p.deckId] ?: DeckAllocation(0, 0)

@@ -1,7 +1,7 @@
 import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
-import { selectStudyQueue, isDueByCutoff, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
+import { selectStudyQueue, isDueByCutoff, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards } from '@shared/decks';
 import { readStudyBudget } from '../services/studyBudget';
 import { CardType, CardQueue, Rating } from '../types';
@@ -1473,7 +1473,8 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
  * Get cards that are due for study, respecting per-deck new-card limits.
  *
  * New cards are sorted by priority before the daily limits are applied:
- *   1. Notes with no reviews yet + hanzi_to_meaning type (highest)
+ *   1. Notes with no reviews yet + hanzi_to_meaning type (highest) — among
+ *      them, the notes with never-seen characters first (shared/decks/novelty.ts)
  *   2. Notes with no reviews yet (any type)
  *   3. Notes already reviewed + hanzi_to_meaning type
  *   4. Notes already reviewed (any type)
@@ -1488,14 +1489,29 @@ export async function getRawQueueCounts(deckId?: string): Promise<Map<string, De
  * @param bonusNewCards Extra new cards beyond the daily limit (Infinity = no limit).
  */
 export async function getDueCards(deckId?: string, bonusNewCards = 0): Promise<LocalCard[]> {
-  const inputs = await loadStudyInputs(deckId);
-  return selectDueCards(inputs, collectReviewedNoteIds(inputs.cards), bonusNewCards, getStudyCutoff());
+  const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
+  return selectDueCards(inputs, noteText, bonusNewCards, getStudyCutoff());
+}
+
+/**
+ * The notes' hanzi for "new characters first" (shared/decks/novelty.ts): a deck's
+ * brand-new words are the ones with never-seen characters. Seen = every note with
+ * a reviewed card in ANY deck, so a one-deck session loads those separately.
+ */
+async function loadQueueNoteText(deckId?: string): Promise<QueueNoteText> {
+  const [notes, reviewedCards] = await Promise.all([
+    db.notes.toArray(),
+    deckId ? db.cards.where('queue').above(CardQueue.NEW).toArray() : Promise.resolve(null),
+  ]);
+  const hanzi = new Map<string, string>();
+  for (const n of notes) hanzi.set(n.id, n.hanzi ?? '');
+  return reviewedCards ? { hanzi, reviewedNoteIds: reviewedCards.map(c => c.note_id) } : { hanzi };
 }
 
 /** The due-card selection described on getDueCards, over already-loaded inputs. */
 function selectDueCards(
   inputs: StudyInputs,
-  _reviewedNoteIds: Set<string>,
+  noteText: QueueNoteText | null,
   bonusNewCards: number,
   cutoff: { iso: string; ts: number }
 ): LocalCard[] {
@@ -1509,7 +1525,7 @@ function selectDueCards(
   const rows = inputs.cards.map(c => ({ ...queueInput(c), card: c }));
   // `studied` covers every deck; a one-deck session still spends the global
   // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
-  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId);
+  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText);
   return result.due.map(r => r.card);
 }
 
@@ -1528,9 +1544,9 @@ export interface StudyQueue {
  */
 export async function getStudyQueue(deckId?: string, bonusNewCards = 0): Promise<StudyQueue> {
   const cutoff = getStudyCutoff();
-  const inputs = await loadStudyInputs(deckId);
+  const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
   const reviewedNoteIds = collectReviewedNoteIds(inputs.cards);
-  const dueCards = selectDueCards(inputs, reviewedNoteIds, bonusNewCards, cutoff);
+  const dueCards = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
   const raw = countRawQueues(inputs, reviewedNoteIds, cutoff);
   const applied = allocateQueueCounts(raw, bonusNewCards, inputs.budget, inputs.spentElsewhere);
   const counts = deckId ? applied.get(deckId) ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied.values());

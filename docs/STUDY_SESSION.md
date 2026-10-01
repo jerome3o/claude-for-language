@@ -135,6 +135,17 @@ rate.
 - **New words per day** (blue, primary): cards of unseen notes, preferring the hanzi_to_meaning
   card so a brand-new word is introduced by its characters first. The budget is walked deck by
   deck in queue order: the first deck takes as many as it can, the next deck gets the rest.
+  **New characters first**: which of a deck's unseen notes it gives is decided by
+  `pickByNovelty` (`shared/decks/novelty.ts`, Lab `core/…/Novelty.kt`, parity-tested). "Seen"
+  = the Han characters in the hanzi of every note with a card past NEW (any deck; the example
+  sentence doesn't count). Candidates rank by (1) never-seen characters, counted up to 2 — so a
+  note that teaches a new character comes first, but a long sentence with five new characters
+  doesn't beat a word with two; (2) an unseen word — its Han text isn't part of any seen note's
+  hanzi (学生 counts as seen once 大学生 was studied); (3) fewer Han characters (words before
+  sentences, short sentences first); (4) card id, the old order. Picks are greedy: each pick's
+  characters count as seen for the next one, across decks too, so two notes sharing one new
+  character aren't both introduced the same day. Only the choice inside a deck changes — the
+  deck queue, the budget and the caps, and the secondary (purple) cards are as before.
 - **Extra cards per day** (purple, secondary): additive to the primary budget. NEW cards whose
   note already has at least one reviewed card (e.g. meaning_to_hanzi after hanzi_to_meaning is in
   circulation), so the other card types of started words keep flowing even when brand-new words

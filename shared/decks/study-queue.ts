@@ -9,7 +9,9 @@
  *   - learning / relearning cards due by the cutoff,
  *   - review cards due by the cutoff,
  *   - new cards as the ONE daily budget allocates them, deck queue top-down
- *     (budget.ts `allocateNewCards`), highest-value tier first within a deck.
+ *     (budget.ts `allocateNewCards`), highest-value tier first within a deck;
+ *     with the notes' hanzi given, a deck's brand-new words are the ones with
+ *     the most never-seen characters (novelty.ts, "new characters first").
  * The home screen's numbers are the counts of exactly this queue.
  *
  * "Introduced today" is derived from review events (a card counts on the day of
@@ -18,6 +20,7 @@
  */
 
 import { allocateNewCards, type DeckAllocation, type DeckNewPool, type StudyBudget } from './budget';
+import { markSeen, pickByNovelty, seenFrom } from './novelty';
 
 /** CardQueue values (shared/scheduler): NEW 0, LEARNING 1, REVIEW 2, RELEARNING 3. */
 export const QUEUE_NEW = 0;
@@ -61,6 +64,20 @@ export interface QueueCounts {
   secondaryNew: number;
   learning: number;
   review: number;
+}
+
+/**
+ * The notes' text, for "new characters first" (novelty.ts). Without it new
+ * cards keep the plain tier / id order.
+ */
+export interface QueueNoteText {
+  /** note id → hanzi: the candidate notes in scope and every reviewed note (all decks). */
+  hanzi: ReadonlyMap<string, string>;
+  /**
+   * Notes with a card past NEW across ALL decks — their characters are "seen".
+   * Defaults to the ones in `cards` (pass it when `cards` is one deck's).
+   */
+  reviewedNoteIds?: Iterable<string>;
 }
 
 export interface StudyQueueResult<C extends QueueCardInput> {
@@ -141,7 +158,8 @@ export function selectStudyQueue<C extends QueueCardInput>(
   bonus: number,
   introduced: ReadonlyMap<string, IntroducedToday>,
   cutoffMs: number,
-  deckId?: string | null
+  deckId?: string | null,
+  noteText?: QueueNoteText | null
 ): StudyQueueResult<C> {
   const reviewed = collectReviewedNoteIds(cards);
   const inScope = deckId ? decks.filter(d => d.id === deckId) : decks;
@@ -181,20 +199,29 @@ export function selectStudyQueue<C extends QueueCardInput>(
   const allocation = allocateNewCards(pools, budget, bonus, spent);
 
   const due: C[] = [];
-  // New cards: deck queue order (the allocation's order), best tier first, then id.
+  // Seen characters / words, built once; every primary pick below adds to it.
+  const hanziOf = (c: C) => noteText?.hanzi.get(c.note_id) ?? '';
+  const seen = noteText
+    ? seenFrom([...(noteText.reviewedNoteIds ?? reviewed)].map(id => noteText.hanzi.get(id) ?? ''))
+    : null;
+  // New cards: deck queue order (the allocation's order); within a deck the
+  // primary cards (best tier first, the hanzi_to_meaning cards by novelty),
+  // then the secondary ones (best tier first, then id).
   for (const [id, a] of allocation) {
-    let primary = a.primary;
-    let secondary = a.secondary;
     const list = [...(newByDeck.get(id) ?? [])].sort(
       (x, y) => tierOf(x, reviewed) - tierOf(y, reviewed) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)
     );
-    for (const card of list) {
-      if (reviewed.has(card.note_id)) {
-        if (secondary > 0) { secondary--; due.push(card); }
-      } else if (primary > 0) {
-        primary--; due.push(card);
-      }
+    const primaryList = list.filter(c => !reviewed.has(c.note_id));
+    if (seen) {
+      const first = primaryList.filter(c => c.card_type === 'hanzi_to_meaning');
+      const picked = pickByNovelty(first, a.primary, hanziOf, seen);
+      const others = primaryList.filter(c => c.card_type !== 'hanzi_to_meaning').slice(0, a.primary - picked.length);
+      for (const c of others) markSeen(seen, hanziOf(c));
+      due.push(...picked, ...others);
+    } else {
+      due.push(...primaryList.slice(0, a.primary));
     }
+    due.push(...list.filter(c => reviewed.has(c.note_id)).slice(0, a.secondary));
   }
   for (const c of cards) {
     if (scopeIds.has(c.deck_id) && isDueByCutoff(c, cutoffMs)) due.push(c);

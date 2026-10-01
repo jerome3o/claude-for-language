@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.data.audio
 
+import dev.jeromeswannack.chineselearning.lab.data.noteHanzi
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.NoteAudio
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
@@ -195,8 +196,9 @@ class NoteAudioFixer(
         val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(nowMs, z))
         val cutoff = StudyQueue.cutoff(nowMs, z)
         val bonus = repo.prefs.bonus("all", java.time.Instant.ofEpochMilli(nowMs).atZone(z).toLocalDate().toString())
-        val today = StudyQueue.build(decks, cards, repo.prefs.budget, bonus, introduced, cutoff, null).dueCards
-        val ahead = StudyQueue.build(decks, cards, repo.prefs.budget, bonus + NEXT_NEW, introduced, cutoff, null).dueCards
+        val hanzi = repo.dao.noteHanzi()
+        val today = StudyQueue.build(decks, cards, repo.prefs.budget, bonus, introduced, cutoff, null, hanzi).dueCards
+        val ahead = StudyQueue.build(decks, cards, repo.prefs.budget, bonus + NEXT_NEW, introduced, cutoff, null, hanzi).dueCards
         return (today + ahead).map { it.noteId }.distinct()
     }
 
