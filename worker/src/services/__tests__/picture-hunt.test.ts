@@ -6,6 +6,7 @@ import {
   assembleObjects, boxFrom2d, buildScenePrompt, cleanDetections, parseJsonArray, runPictureHuntJob, sniffImage,
   type Detection, type NamedItem,
 } from '../picture-hunt';
+import { GEMINI_FLASH_MODELS, resetGeminiModelMemory } from '../gemini';
 
 const SCENE_PNG = makePng(64, 48, (x, y) => (x + y) % 256, { rgba: true });
 const DISC = pngDataUrl(makePng(32, 32, (x, y) => ((x - 16) ** 2 + (y - 16) ** 2 <= 144 ? 255 : 0)));
@@ -96,6 +97,7 @@ describe('runPictureHuntJob', () => {
     db = await createSqliteD1();
     db.raw.run("INSERT INTO users (id, email, name) VALUES ('u1', 'u1@x.test', 'U')");
     bucket = fakeBucket();
+    resetGeminiModelMemory();
   });
 
   const env = () => ({ DB: db, AUDIO_BUCKET: bucket, GEMINI_API_KEY: 'g-key', ANTHROPIC_API_KEY: 'a-key' }) as never;
@@ -104,7 +106,7 @@ describe('runPictureHuntJob', () => {
     const calls: string[] = [];
     const fn = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push(url);
-      if (url.includes('gemini-2.5-flash-image')) {
+      if (url.includes('flash-image')) {
         return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: Buffer.from(SCENE_PNG).toString('base64') } }] } }] }), { status: 200 });
       }
       const body = JSON.parse(String(init?.body));
@@ -177,6 +179,56 @@ describe('runPictureHuntJob', () => {
     const { client } = fakeClaude([namingAnswer(GOOD_ITEMS)]);
     expect(await runPictureHuntJob(env(), id, { fetch: fn, claude: client, sleep: async () => {} })).toBe('ready');
     expect(calls.some((c) => c.includes('flash-image'))).toBe(false);
+  });
+
+  it('moves on to the next Gemini model on a 404 and remembers the one that answered', async () => {
+    const id = await huntDb.createPictureHunt(db, { userId: 'u1', title: 'My photo', source: 'upload', prompt: null, deckIds: [] });
+    bucket.store.set(`picture-hunts/${id}.png`, SCENE_PNG);
+    await huntDb.setPictureHuntImage(db, id, `picture-hunts/${id}.png`, 64, 48);
+    const notFound = (model: string) => new Response(JSON.stringify({ error: { code: 404, status: 'NOT_FOUND', message: `models/${model} is not found for API version v1beta, or is not supported for generateContent.` } }), { status: 404 });
+    const requests: Array<{ url: string; key: string | null; thinking: unknown }> = [];
+    const fn = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      requests.push({ url, key: new Headers(init?.headers).get('x-goog-api-key'), thinking: body.generationConfig.thinkingConfig });
+      if (url.includes(`/${GEMINI_FLASH_MODELS[0]}:`)) return notFound(GEMINI_FLASH_MODELS[0]);
+      return geminiText(JSON.stringify(DETECTIONS));
+    });
+    const { client } = fakeClaude([namingAnswer(GOOD_ITEMS)]);
+    expect(await runPictureHuntJob(env(), id, { fetch: fn, claude: client, sleep: async () => {} })).toBe('ready');
+    expect(requests.map((r) => r.url.split('/models/')[1])).toEqual([`${GEMINI_FLASH_MODELS[0]}:generateContent`, `${GEMINI_FLASH_MODELS[1]}:generateContent`]);
+    // The key travels in the header, never the URL.
+    expect(requests.every((r) => r.key === 'g-key' && !r.url.includes('g-key'))).toBe(true);
+    expect(requests[1].thinking).toEqual({ thinkingLevel: 'minimal' });
+
+    // A second hunt goes straight to the model that worked.
+    const again = await huntDb.createPictureHunt(db, { userId: 'u1', title: 'k', source: 'upload', prompt: null, deckIds: [] });
+    bucket.store.set(`picture-hunts/${again}.png`, SCENE_PNG);
+    await huntDb.setPictureHuntImage(db, again, `picture-hunts/${again}.png`, 64, 48);
+    requests.length = 0;
+    expect(await runPictureHuntJob(env(), again, { fetch: fn, claude: fakeClaude([namingAnswer(GOOD_ITEMS)]).client, sleep: async () => {} })).toBe('ready');
+    expect(requests.map((r) => r.url.split('/models/')[1])).toEqual([`${GEMINI_FLASH_MODELS[1]}:generateContent`]);
+  });
+
+  it('records Google\'s message (not the key) when no Gemini model answers, and Retry rebuilds the same hunt', async () => {
+    const id = await huntDb.createPictureHunt(db, { userId: 'u1', title: 'My photo', source: 'upload', prompt: null, deckIds: [] });
+    bucket.store.set(`picture-hunts/${id}.png`, SCENE_PNG);
+    await huntDb.setPictureHuntImage(db, id, `picture-hunts/${id}.png`, 64, 48);
+    const fn = vi.fn(async (url: string) => {
+      const model = url.split('/models/')[1].split(':')[0];
+      return new Response(JSON.stringify({ error: { code: 404, message: `models/${model} is not found for API version v1beta (key=AIzaSyFAKEFAKEFAKEFAKEFAKEFAKE)`, status: 'NOT_FOUND' } }), { status: 404 });
+    });
+    expect(await runPictureHuntJob(env(), id, { fetch: fn })).toBe('error');
+    // Every model tried once — no second boxes-only round of 404s.
+    expect(fn).toHaveBeenCalledTimes(GEMINI_FLASH_MODELS.length);
+    const failed = (await huntDb.getPictureHunt(db, id, 'u1'))!;
+    expect(failed.error).toMatch(/^Finding the objects failed \(Gemini 404: models\/gemini-2\.5-flash is not found/);
+    expect(failed.error).not.toMatch(/AIza|g-key/);
+
+    // After the fix is deployed, Retry re-queues the same row and it builds from the kept upload.
+    await huntDb.resetPictureHuntForRetry(db, id, 'u1');
+    const ok = vi.fn(async () => geminiText(JSON.stringify(DETECTIONS)));
+    expect(await runPictureHuntJob(env(), id, { fetch: ok, claude: fakeClaude([namingAnswer(GOOD_ITEMS)]).client, sleep: async () => {} })).toBe('ready');
+    expect((await huntDb.getPictureHunt(db, id, 'u1'))).toMatchObject({ status: 'ready', error: null, image_key: `picture-hunts/${id}.png` });
   });
 
   it('records a readable error: missing upload, nothing detected, no keys', async () => {

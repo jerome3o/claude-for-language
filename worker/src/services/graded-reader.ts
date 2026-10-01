@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, VocabularyItem, GeneratedStory, DifficultyLevel } from '../types';
 import { storeAudio } from './audio';
+import { GEMINI_IMAGE_MODELS, geminiGenerateContent } from './gemini';
 import { READER_STANDARD, readerPageWarnings } from '@shared/reader/standard';
 
 const STORY_SYSTEM_PROMPT = `You are an expert Chinese language author creating graded reading stories for adult language learners.
@@ -389,7 +390,7 @@ function expandImagePrompt(
 }
 
 /**
- * Generate an illustration for a reader page using Google Nano Banana (Gemini 2.5 Flash Image)
+ * Generate an illustration for a reader page using Google Nano Banana (Gemini Flash Image)
  */
 export async function generatePageImage(
   geminiKey: string,
@@ -408,7 +409,7 @@ export async function generatePageImage(
   }
 
   try {
-    // Use Nano Banana (Gemini 2.5 Flash Image) for image generation
+    // Nano Banana (GEMINI_IMAGE_MODELS in services/gemini.ts) draws the picture
     // The imagePrompt already contains expanded character/location descriptions
     const fullPrompt = `Create a high-quality illustration for a Chinese language learning book for adults.
 
@@ -422,45 +423,25 @@ Style guidelines:
 - No text, words, or writing in the image
 - Suitable for adult language learners`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${geminiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: fullPrompt }]
-          }],
-          generationConfig: {
-            responseModalities: ['IMAGE'],
-          }
+    let data: {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string; inlineData?: { mimeType?: string; data?: string } }> } }>;
+    };
+    try {
+      const result = await geminiGenerateContent<typeof data>({
+        apiKey: geminiKey,
+        models: GEMINI_IMAGE_MODELS,
+        label: 'illustration',
+        body: () => ({
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          generationConfig: { responseModalities: ['IMAGE'] },
         }),
-      }
-    );
-
-    console.log('[Image] Nano Banana response status:', response.status);
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('[Image] Nano Banana error:', error);
+      });
+      data = result.data;
+      console.log('[Image] Drawn with', result.model);
+    } catch (err) {
+      console.error('[Image] Image model error:', err instanceof Error ? err.message : err);
       return null;
     }
-
-    const data = await response.json() as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{
-            text?: string;
-            inlineData?: {
-              mimeType?: string;
-              data?: string;
-            };
-          }>;
-        };
-      }>;
-    };
 
     // Find the image part in the response (note: API uses camelCase)
     const imagePart = data.candidates?.[0]?.content?.parts?.find(
