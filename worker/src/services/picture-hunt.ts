@@ -2,9 +2,9 @@
  * Picture hunt pipeline (看图找词) — runs on picture-hunt-queue, one hunt per
  * message, the way quests do (minutes of wall clock: too long for waitUntil).
  *
- *   1. Picture: generated with Gemini 2.5 Flash Image from the learner's prompt
+ *   1. Picture: generated with Gemini Flash Image from the learner's prompt
  *      (leaning toward words they are learning), or the upload already in R2.
- *   2. Detection: Gemini 2.5 Flash finds up to 25 nameable objects — `box_2d`
+ *   2. Detection: Gemini Flash (GEMINI_FLASH_MODELS, services/gemini.ts) finds up to 25 nameable objects — `box_2d`
  *      ([ymin, xmin, ymax, xmax] on a 0–1000 grid) plus, when it manages,
  *      a segmentation `mask` (base64 PNG over the box). The mask becomes an
  *      outline polygon (picture-hunt-mask.ts); without one the box is drawn.
@@ -31,12 +31,9 @@ import * as huntDb from '../db/picture-hunt-queries';
 import { getLearnedVocabulary } from '../db/queries';
 import { polygonFromMaskData } from './picture-hunt-mask';
 import { structuredCall } from './structured-call';
+import { GEMINI_FLASH_MODELS, GEMINI_IMAGE_MODELS, GeminiError, geminiGenerateContent, leastThinking, type FetchLike } from './gemini';
 
-export const HUNT_IMAGE_MODEL = 'gemini-2.5-flash-image';
-export const HUNT_DETECT_MODEL = 'gemini-2.5-flash';
 export const HUNT_NAMING_MODEL = 'claude-sonnet-5';
-
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 /** Claude's image input limit is 5 MB of base64; stay under it. */
 const CLAUDE_IMAGE_MAX_BYTES = 3_700_000;
 /** A detection smaller than this share of the picture is too small to spot. */
@@ -45,7 +42,7 @@ const MIN_AREA = 0.0025;
 const MAX_AREA = 0.85;
 const JUNK_LABELS = new Set(['', 'object', 'objects', 'thing', 'item', 'unknown', 'background', 'scene', 'image', 'picture', 'photo', 'other']);
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+export type { FetchLike };
 
 export interface HuntDeps {
   fetch?: FetchLike;
@@ -129,23 +126,24 @@ Bright even lighting, sharp focus, eye-level view, no people's faces in close-up
 No text, letters, signs with writing, labels or watermarks anywhere in the picture.`;
 }
 
-/** Generate a picture with Gemini 2.5 Flash Image. Throws with a readable message. */
+/** Generate a picture with Gemini Flash Image. Throws with a readable message. */
 export async function generateHuntPicture(
   geminiKey: string,
   prompt: string,
   deps: HuntDeps = {},
 ): Promise<{ bytes: Uint8Array; mime: ImageMime }> {
-  const fetchImpl = deps.fetch ?? fetch;
-  const response = await fetchImpl(`${GEMINI_BASE}/${HUNT_IMAGE_MODEL}:generateContent?key=${geminiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  const data = await geminiGenerateContent<GeminiResponse>({
+    apiKey: geminiKey,
+    models: GEMINI_IMAGE_MODELS,
+    fetch: deps.fetch,
+    label: 'picture-hunt draw',
+    body: () => ({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { responseModalities: ['IMAGE'] },
     }),
+  }).then((r) => r.data, (err) => {
+    throw new Error(`The picture could not be drawn (${geminiReason(err)})`);
   });
-  if (!response.ok) throw new Error(`The picture could not be drawn (Gemini ${response.status})`);
-  const data = (await response.json()) as GeminiResponse;
   const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
   if (!part?.inlineData?.data) throw new Error('The picture could not be drawn (no image came back)');
   const bytes = Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0));
@@ -231,28 +229,45 @@ export function cleanDetections(detections: Detection[]): Detection[] {
   return kept;
 }
 
+/** "Gemini 404: models/… is not found …" — Google's reason, never the key. */
+function geminiReason(err: unknown): string {
+  if (err instanceof GeminiError) return err.message;
+  return err instanceof Error ? err.message : 'Gemini request failed';
+}
+
 async function geminiDetect(geminiKey: string, image: Uint8Array, mime: string, prompt: string, deps: HuntDeps): Promise<Detection[]> {
-  const fetchImpl = deps.fetch ?? fetch;
-  const response = await fetchImpl(`${GEMINI_BASE}/${HUNT_DETECT_MODEL}:generateContent?key=${geminiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ inline_data: { mime_type: mime, data: toBase64(image) } }, { text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.5,
-        maxOutputTokens: 60_000,
-        // Google's guidance for detection / segmentation: no thinking.
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    }),
+  const data = await geminiGenerateContent<GeminiResponse>({
+    apiKey: geminiKey,
+    models: GEMINI_FLASH_MODELS,
+    fetch: deps.fetch,
+    label: 'picture-hunt detect',
+    body: (model) => {
+      // Google's guidance for detection / segmentation: no (or minimal) thinking.
+      const thinkingConfig = leastThinking(model);
+      return {
+        contents: [{ parts: [{ inline_data: { mime_type: mime, data: toBase64(image) } }, { text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.5,
+          maxOutputTokens: 60_000,
+          ...(thinkingConfig ? { thinkingConfig } : {}),
+        },
+      };
+    },
+  }).then((r) => r.data, (err) => {
+    throw new DetectRequestError(`Finding the objects failed (${geminiReason(err)})`, err instanceof GeminiError ? err.status : 0);
   });
-  if (!response.ok) throw new Error(`Finding the objects failed (Gemini ${response.status})`);
-  const data = (await response.json()) as GeminiResponse;
   const candidate = data.candidates?.[0];
   const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
   if (candidate?.finishReason === 'MAX_TOKENS') throw new Error('detection answer was cut off');
   return parseDetections(parseJsonArray(text));
+}
+
+/** The detection request itself failed (no model answered). */
+class DetectRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
 }
 
 /**
@@ -264,6 +279,8 @@ export async function detectObjects(geminiKey: string, image: Uint8Array, mime: 
     const withMasks = cleanDetections(await geminiDetect(geminiKey, image, mime, DETECT_PROMPT_MASKS, deps));
     if (withMasks.length > 0) return { detections: withMasks, masks: withMasks.some((d) => d.mask) };
   } catch (err) {
+    // A refused request (no model for this key, bad key, bad image) would be refused again for boxes.
+    if (err instanceof DetectRequestError && err.status >= 400 && err.status < 500 && err.status !== 429) throw err;
     console.warn('[picture-hunt] segmentation answer unusable, asking for boxes:', err instanceof Error ? err.message : err);
   }
   const boxes = cleanDetections(await geminiDetect(geminiKey, image, mime, DETECT_PROMPT_BOXES, deps));
