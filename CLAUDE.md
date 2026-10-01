@@ -346,6 +346,15 @@ Uses Anthropic Claude API for several features:
    - Questions and answers are stored in `note_questions` table
    - Visible in note history modal
 
+### Calling Gemini (read before adding a Gemini call)
+Every Gemini call goes through `geminiGenerateContent` (`worker/src/services/gemini.ts`) with a model LIST —
+`GEMINI_FLASH_MODELS` (text / vision / audio: picture-hunt detection, call + take transcription) or
+`GEMINI_IMAGE_MODELS` (reader / lesson illustrations, picture-hunt scenes). Google retires models and limits old
+families to keys that already used them (a plain 404 — that broke picture hunts with `gemini-2.5-flash`), so a 404
+(or a 400 / 403 about the model or thinking) moves on to the next model, the one that answered is remembered per
+isolate, and errors carry Google's message (the key goes in `x-goog-api-key`, never the URL). A rename is a one-line
+change there. `leastThinking(model)` gives the right thinking setting per family (2.5 budget 0, 3.x level).
+
 ### Calling Claude reliably (read before adding a Claude call)
 - **Sonnet 5 and Opus 5 think by default** when `thinking` is omitted, and thinking tokens count against
   `max_tokens`. A small `max_tokens` then truncates or empties the answer — this is what broke the
@@ -881,10 +890,10 @@ Endpoints (rows live in `quests`):
 ### Picture hunt (看图找词; `worker/src/services/picture-hunt.ts`, `routes/picture-hunts.ts`, page at `/picture-hunt`, play at `/picture-hunt/:id`)
 Type the Chinese names of things in a picture; each right answer lights up that object. Built like quests on
 **`picture-hunt-queue`** (`runPictureHuntJob`, `progress` breadcrumb, stale builds marked failed after 20 min, Retry):
-1. picture — generated with `gemini-2.5-flash-image` from the prompt (`buildScenePrompt`, leaning toward the learner's
+1. picture — generated with Gemini Flash Image (`GEMINI_IMAGE_MODELS`) from the prompt (`buildScenePrompt`, leaning toward the learner's
    words), or the upload already in R2 (the client resizes to 1600px JPEG; `stripJpegMetadata` drops EXIF/GPS again);
-2. detection — `gemini-2.5-flash` with `box_2d` (0–1000, [ymin,xmin,ymax,xmax]) + segmentation `mask` (base64 PNG over
-   the box), thinking off; an unusable mask answer (cut off / not JSON) → a boxes-only call. `cleanDetections` drops
+2. detection — Gemini Flash (`GEMINI_FLASH_MODELS`) with `box_2d` (0–1000, [ymin,xmin,ymax,xmax]) + segmentation `mask` (base64 PNG over
+   the box), least thinking; an unusable mask answer (cut off / not JSON) → a boxes-only call. `cleanDetections` drops
    junk labels, specks, the whole scene and duplicate boxes (≤25). `services/picture-hunt-mask.ts` decodes each mask
    (PNG via DecompressionStream) and traces its largest blob into ONE simplified polygon in normalised image
    coordinates — no PNGs stored, SVG on the web / Canvas in the Lab; failure = box;
