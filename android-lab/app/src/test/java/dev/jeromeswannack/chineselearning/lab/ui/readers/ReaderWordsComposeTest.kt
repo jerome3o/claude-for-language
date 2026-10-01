@@ -12,7 +12,6 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performSemanticsAction
 import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
@@ -76,15 +75,9 @@ class ReaderWordsComposeTest {
         compose.mainClock.advanceTimeBy(1_500)
     }
 
-    /**
-     * A button in the sheet. The sheet is a dialog window: Robolectric routes injected touches
-     * to the window below and its recompositions only run on an auto-advancing clock, so click
-     * by semantics and wait for idle (the sheet alone has no endless animation).
-     */
     private fun press(node: androidx.compose.ui.test.SemanticsNodeInteraction) {
-        node.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
+        node.performClick()
+        compose.mainClock.advanceTimeBy(1_500)
     }
 
     @Test
@@ -105,14 +98,14 @@ class ReaderWordsComposeTest {
     fun sheetExplainsAndAddsCard() {
         val rec = Recorder()
         show {
-            ReaderWordSheet(
+            // The sheet's content in the main window (the ModalBottomSheet dialog doesn't idle reliably under Robolectric).
+            ReaderWordPanel(
                 words[5], "我叫小徐。", known = false,
                 actions = ReaderWordActions(
                     explain = { word, sentence -> rec.explained += word.text to sentence; explanation },
                     decks = { listOf(DeckChoice("d1", "Readers", null), DeckChoice("d2", "HSK 3", null)) },
                     add = { deckId, word, ex -> rec.added += deckId to readerWordNote(word, ex) },
                 ),
-                onDismiss = {},
             )
         }
         compose.onNodeWithTag("reader-word-sheet").assertExists()
