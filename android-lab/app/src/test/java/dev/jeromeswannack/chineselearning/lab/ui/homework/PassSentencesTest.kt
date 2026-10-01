@@ -85,6 +85,23 @@ class PassSentencesTest {
         )
     }
 
+    /**
+     * Waits for [done], which background work makes true (Room's query executor, Dispatchers.IO,
+     * the outbox), by running the main looper until it holds — never a short wall-clock budget, so
+     * a slow or busy machine can't fail the test (it hit a 5 s waitUntil under load). The deadline
+     * only stops a real hang, and then says what the screen was showing.
+     */
+    private fun settle(what: String, state: () -> Any? = { null }, done: () -> Boolean) {
+        val hangGuard = System.nanoTime() + 120_000_000_000L
+        while (true) {
+            compose.waitForIdle()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            if (done()) return
+            check(System.nanoTime() < hangGuard) { "Still waiting for $what after 2 minutes; ui = ${state()}" }
+            Thread.sleep(5)
+        }
+    }
+
     /** The question face is inert: taps and swipes on it never turn the card — Show answer only. */
     @Test
     fun faceTapsNeverRevealOnlyShowAnswerDoes() {
@@ -93,7 +110,7 @@ class PassSentencesTest {
             val ui by vm.ui.collectAsStateWithLifecycle()
             LabTheme { HomeworkPassScreen(ui, PassActions(onReveal = vm::reveal, onAnswer = vm::answer)) }
         }
-        compose.waitUntil(5_000) { (vm.ui.value as? PassUi.Deck)?.note != null }
+        settle("the first word to load", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.note != null }
         compose.onNodeWithText("互动").performClick()
         compose.onNodeWithTag("hw-pass-card").performTouchInput { click(Offset(centerX, 12f)) }
         compose.onNodeWithTag("hw-pass-card").performTouchInput { click(Offset(centerX, bottom - 12f)) }
@@ -123,7 +140,7 @@ class PassSentencesTest {
                 )
             }
         }
-        compose.waitUntil(5_000) { (vm.ui.value as? PassUi.Deck)?.note != null }
+        settle("the first word to load", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.note != null }
         compose.onNodeWithTag("hw-show").performClick()
         compose.waitForIdle()
 
@@ -134,7 +151,7 @@ class PassSentencesTest {
         compose.onAllNodesWithTag(SENTENCE_ROW_TAG).onFirst().performScrollTo().performClick()
         compose.onNodeWithText("The teacher likes to interact with the students in class.", substring = true).assertExists()
         // The breakdown comes from the cache (offline) — one row per word; a word opens the add sheet.
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag(BREAKDOWN_HANZI_TAG, useUnmergedTree = true).fetchSemanticsNodes().size == 2 }
+        settle("the cached breakdown") { compose.onAllNodesWithTag(BREAKDOWN_HANZI_TAG, useUnmergedTree = true).fetchSemanticsNodes().size == 2 }
         compose.onNodeWithText("喜欢 + a whole activity.", substring = true).assertExists()
         // (This phone is offline in the test: adding a card needs the network, so the word tap is inert.)
         compose.onAllNodesWithTag(BREAKDOWN_HANZI_TAG, useUnmergedTree = true).onFirst().performScrollTo().performClick()
@@ -158,11 +175,7 @@ class PassSentencesTest {
         // Got it still works as before: one homework event, no review.
         compose.onNodeWithTag("hw-gotit").performClick()
         // The event is written off the main thread (Room, the outbox): let it land.
-        repeat(300) {
-            if ((vm.ui.value as? PassUi.Deck)?.note?.id == "n2") return@repeat
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-            Thread.sleep(10)
-        }
+        settle("the next word after Got it", { vm.ui.value }) { (vm.ui.value as? PassUi.Deck)?.note?.id == "n2" }
         assertEquals("n2", (vm.ui.value as? PassUi.Deck)?.note?.id)
         runBlocking {
             assertEquals(0, app.repo.dao.allEvents().size)
