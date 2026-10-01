@@ -874,7 +874,19 @@ data class ProgressSummaryDto(val total_reviews_30d: Int = 0, val total_days_act
 data class ProgressDayDto(val date: String, val reviews_count: Int = 0, val unique_cards: Int = 0, val accuracy: Double = 0.0, val time_spent_ms: Long = 0)
 
 @Serializable
-data class DailyProgressDto(val student: UserSummaryDto? = null, val summary: ProgressSummaryDto = ProgressSummaryDto(), val days: List<ProgressDayDto> = emptyList())
+data class DailyProgressDto(
+    val student: UserSummaryDto? = null,
+    val summary: ProgressSummaryDto = ProgressSummaryDto(),
+    val days: List<ProgressDayDto> = emptyList(),
+    /** Characters / words known (shared/progress/known.ts, from the server's card state). */
+    val known: KnownSummaryDto? = null,
+)
+
+@Serializable
+data class KnownCountsDto(val known: Int = 0, val learning: Int = 0)
+
+@Serializable
+data class KnownSummaryDto(val characters: KnownCountsDto = KnownCountsDto(), val words: KnownCountsDto = KnownCountsDto(), val sentences: KnownCountsDto = KnownCountsDto())
 
 suspend fun Api.studentDailyProgress(relId: String): DailyProgressDto = get("${rel(relId)}/student-progress/daily")
 

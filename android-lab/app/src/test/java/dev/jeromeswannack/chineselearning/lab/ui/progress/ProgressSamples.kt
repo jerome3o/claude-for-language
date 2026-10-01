@@ -1,6 +1,10 @@
 package dev.jeromeswannack.chineselearning.lab.ui.progress
 
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.KnownCounts
+import dev.jeromeswannack.chineselearning.lab.core.KnownPoint
+import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
+import dev.jeromeswannack.chineselearning.lab.core.RecentCharacter
 import dev.jeromeswannack.chineselearning.lab.core.Mastery
 import dev.jeromeswannack.chineselearning.lab.core.MasteryCard
 import dev.jeromeswannack.chineselearning.lab.core.Progress
@@ -65,7 +69,25 @@ object ProgressSamples {
         totalReviews = events.size + 4_210,
     )
 
-    val ui = ProgressUi(true, snapshot, LocalDate.ofInstant(java.time.Instant.ofEpochMilli(NOW), zone), barsFor(snapshot, NOW))
+    /** Thirteen months of steady study: weekly points, a summer lull, a lapse dip in spring. */
+    val known: KnownProgress = run {
+        val weeks = 57
+        fun curve(t: Double, total: Int): Int {
+            val lull = if (t > 0.62 && t < 0.72) (t - 0.62) * 0.9 else if (t >= 0.72) 0.09 else 0.0
+            val dip = if (t > 0.4 && t < 0.46) Math.sin((t - 0.4) / 0.06 * Math.PI) * 0.02 else 0.0
+            val base = Math.pow(t, 1.15) - lull * 0.5 - dip
+            return Math.max(0, Math.round(total * base.coerceIn(0.0, 1.0) / (1 - 0.045)).toInt().coerceAtMost(total))
+        }
+        val history = (0..weeks).map { k ->
+            val t = k.toDouble() / weeks
+            KnownPoint(NOW - (weeks - k) * 7 * 86_400_000L, KnownCounts(curve(t, 1184), 0), KnownCounts(curve(t, 1342), 0))
+        }
+        val recent = listOf("郊", "辣", "慧", "抱", "歉", "恤", "瑞", "典", "璃", "签", "订", "阅")
+            .mapIndexed { i, c -> RecentCharacter(c, Js.toIsoString(NOW - i * 20 * 3_600_000L)) }
+        KnownProgress(KnownCounts(1184, 213), KnownCounts(1342, 377), KnownCounts(128, 96), recent, history)
+    }
+
+    val ui = ProgressUi(true, snapshot, LocalDate.ofInstant(java.time.Instant.ofEpochMilli(NOW), zone), barsFor(snapshot, NOW), known = known)
 
     val day = Progress.dayCards(events, cards, snapshot.daily.days[1].date)
 

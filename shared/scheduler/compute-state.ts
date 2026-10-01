@@ -325,6 +325,34 @@ export function computeCardState(
   return fsrsCardToComputedState(fsrsCard, lastReviewedAt);
 }
 
+/** A card's queue and stability right after one of its reviews. */
+export interface CardTimelinePoint {
+  reviewed_at: string;
+  queue: CardQueue;
+  stability: number;
+}
+
+/**
+ * The same replay as `computeCardState(events)` (no checkpoint), keeping the state after
+ * EVERY event — what a progress history needs ("was this card mature on day X?"). The last
+ * point always equals `computeCardState(events)`'s queue / stability. Events must be sorted
+ * by reviewed_at ascending, as for computeCardState.
+ */
+export function computeCardTimeline(
+  events: readonly ReviewEvent[],
+  settings: DeckSettings = DEFAULT_DECK_SETTINGS
+): CardTimelinePoint[] {
+  if (events.length === 0) return [];
+  const f = settings === DEFAULT_DECK_SETTINGS ? defaultFsrs : createFsrs(settings);
+  let fsrsCard = computedStateToFsrsCard(initialCardState(settings), events[0].reviewed_at);
+  const out: CardTimelinePoint[] = [];
+  for (const event of events) {
+    fsrsCard = applyReviewToFsrsCard(fsrsCard, event.rating, event.reviewed_at, f);
+    out.push({ reviewed_at: event.reviewed_at, queue: toCardQueue(fsrsCard.state), stability: fsrsCard.stability });
+  }
+  return out;
+}
+
 /**
  * Create a checkpoint from the current state.
  * Checkpoints allow efficient incremental computation.

@@ -100,6 +100,9 @@ After completing a study session:
 - Average accuracy
 - Time spent studying
 - Deck-by-deck breakdown
+- Characters & words known (+ still learning), with a known-over-time chart and the newest known
+  characters — "known" = a card remembered for 3+ weeks (stability > 21 days); computed on the
+  device, also shown on the tutor's view of a student
 
 ### 7. AI Card Generation
 

@@ -145,6 +145,16 @@ private fun <T> LazyListScope.loadable(state: Loadable<T>, retry: () -> Unit, bo
 fun StudentProgressScreen(name: String, state: Loadable<DailyProgressDto>, back: () -> Unit, openDay: (String) -> Unit, retry: () -> Unit = {}, today: LocalDate = LocalDate.now()) {
     LabScreen("$name's Progress", onBack = back, subtitle = state.data?.student?.email) {
         loadable(state, retry) { p ->
+            p.known?.let { k ->
+                item {
+                    val c = { d: dev.jeromeswannack.chineselearning.lab.data.api.KnownCountsDto -> dev.jeromeswannack.chineselearning.lab.core.KnownCounts(d.known, d.learning) }
+                    dev.jeromeswannack.chineselearning.lab.ui.progress.KnownCard(
+                        dev.jeromeswannack.chineselearning.lab.core.KnownProgress(c(k.characters), c(k.words), c(k.sentences), emptyList(), emptyList()),
+                        java.time.ZoneId.systemDefault(),
+                        subject = "they",
+                    )
+                }
+            }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     TeachSectionTitle("30-Day Summary")

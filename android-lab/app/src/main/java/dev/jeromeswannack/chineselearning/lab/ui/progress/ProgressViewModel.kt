@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.DayCards
+import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
 import dev.jeromeswannack.chineselearning.lab.core.Progress
 import dev.jeromeswannack.chineselearning.lab.data.progress.CardDay
 import dev.jeromeswannack.chineselearning.lab.data.progress.ProgressSnapshot
 import dev.jeromeswannack.chineselearning.lab.data.progress.ProgressStore
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -23,6 +25,8 @@ data class ProgressUi(
     val today: LocalDate = LocalDate.now(),
     /** The chart's days: the last 30 UTC dates (the days the numbers are grouped by), oldest first. */
     val bars: List<BarDay> = emptyList(),
+    /** Characters & words known (null until the replay of every event is done). */
+    val known: KnownProgress? = null,
 )
 
 /** Builds the chart's 30 bars from the daily rows; days without reviews are empty bars. */
@@ -48,12 +52,18 @@ class ProgressViewModel(private val app: LabApp) : ViewModel() {
         viewModelScope.launch { app.repo.dataVersion.collect { refresh() } }
     }
 
+    private var job: Job? = null
+
     fun refresh() {
-        viewModelScope.launch {
+        job?.cancel()
+        job = viewModelScope.launch {
             val zone = ZoneId.systemDefault()
             val now = System.currentTimeMillis()
             val snap = store.snapshot(now, zone)
-            _ui.value = ProgressUi(true, snap, LocalDate.now(zone), barsFor(snap, now))
+            // Keep the last known counts on screen while they are recomputed.
+            _ui.value = ProgressUi(true, snap, LocalDate.now(zone), barsFor(snap, now), known = _ui.value.known)
+            val known = store.known(now)
+            _ui.value = _ui.value.copy(known = known)
         }
     }
 

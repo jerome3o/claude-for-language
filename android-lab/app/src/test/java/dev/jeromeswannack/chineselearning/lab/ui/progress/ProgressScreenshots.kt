@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 class ProgressScreenshots : LabScreenshotTest() {
     private val s = ProgressSamples
 
-    @Test fun tab() = shootInShell("progress-01-tab", active = TabId.PROGRESS) { ProgressScreen(s.ui, ProgressActions()) }
+    @Test fun tab() = shootInShell("progress-01-tab", active = TabId.PROGRESS) { ProgressScreen(s.ui, ProgressActions(), zone = s.zone) }
 
     @Test fun tabDark() = shoot("progress-02-tab-dark", dark = true) { ProgressScreen(s.ui, ProgressActions()) }
 
@@ -25,6 +25,12 @@ class ProgressScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("progress-05-unfolded") { ProgressScreen(s.ui, ProgressActions()) }
+
+    @Test fun knownScrub() = shoot("progress-09-known-scrub") { ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownScrub = 40) }
+
+    @Test fun knownExplain() = shoot("progress-10-known-explain") { ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownExplain = true) }
+
+    @Test fun knownComputing() = shoot("progress-11-known-computing") { ProgressScreen(s.ui.copy(known = null), ProgressActions(), zone = s.zone) }
 
     @Test fun day() = shoot("progress-06-day") { DayScreen(s.day.date, s.day, onBack = {}, openCard = {}) }
 
