@@ -165,25 +165,41 @@ export async function getConversationById(
 
 // ============ Messages ============
 
-/**
- * Get messages for a conversation (supports polling with 'since' parameter)
- */
-export async function getMessages(
-  db: D1Database,
-  conversationId: string,
-  userId: string,
-  since?: string
-): Promise<{ messages: MessageWithSender[]; latest_timestamp: string | null }> {
-  // Verify access
-  const conv = await getConversationById(db, conversationId, userId);
-  if (!conv) {
-    throw new Error('Conversation not found');
-  }
+type MessageRow = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+  check_status: string | null;
+  check_feedback: string | null;
+  recording_url: string | null;
+  reply_to_message_id: string | null;
+  translation: string | null;
+  segmentation: string | null;
+  client_id: string | null;
+  u_id: string;
+  u_name: string | null;
+  u_picture: string | null;
+  reply_id: string | null;
+  reply_content: string | null;
+  reply_sender_id: string | null;
+  reply_sender_name: string | null;
+  reply_sender_picture: string | null;
+  has_discussion: number;
+};
 
-  let query = `
+/** Messages as the chat shows them (sender, reply, reactions), filtered by `where` (params after the viewer id). */
+async function queryMessages(
+  db: D1Database,
+  viewerId: string,
+  where: string,
+  params: string[],
+): Promise<MessageWithSender[]> {
+  const query = `
     SELECT m.id, m.conversation_id, m.sender_id, m.content, m.created_at,
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
-           m.translation, m.segmentation,
+           m.translation, m.segmentation, m.client_id,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -193,45 +209,16 @@ export async function getMessages(
     LEFT JOIN messages rm ON m.reply_to_message_id = rm.id
     LEFT JOIN users ru ON rm.sender_id = ru.id
     LEFT JOIN message_discussions md ON md.message_id = m.id AND md.user_id = ?
-    WHERE m.conversation_id = ?
+    WHERE ${where}
+    ORDER BY m.created_at ASC
   `;
-  const params: string[] = [userId, conversationId];
-
-  if (since) {
-    query += ` AND m.created_at > ?`;
-    params.push(since);
-  }
-
-  query += ` ORDER BY m.created_at ASC`;
-
-  const result = await db.prepare(query).bind(...params).all<{
-    id: string;
-    conversation_id: string;
-    sender_id: string;
-    content: string;
-    created_at: string;
-    check_status: string | null;
-    check_feedback: string | null;
-    recording_url: string | null;
-    reply_to_message_id: string | null;
-    translation: string | null;
-    segmentation: string | null;
-    u_id: string;
-    u_name: string | null;
-    u_picture: string | null;
-    reply_id: string | null;
-    reply_content: string | null;
-    reply_sender_id: string | null;
-    reply_sender_name: string | null;
-    reply_sender_picture: string | null;
-    has_discussion: number;
-  }>();
+  const result = await db.prepare(query).bind(viewerId, ...params).all<MessageRow>();
 
   // Collect message IDs to fetch reactions in bulk
   const messageIds = result.results.map(r => r.id);
   const reactionsMap = await getReactionsForMessages(db, messageIds);
 
-  const messages: MessageWithSender[] = result.results.map(row => ({
+  return result.results.map(row => ({
     id: row.id,
     conversation_id: row.conversation_id,
     sender_id: row.sender_id,
@@ -243,6 +230,7 @@ export async function getMessages(
     reply_to_message_id: row.reply_to_message_id,
     translation: row.translation,
     segmentation: row.segmentation,
+    client_id: row.client_id ?? null,
     sender: {
       id: row.u_id,
       name: row.u_name,
@@ -260,38 +248,98 @@ export async function getMessages(
     reactions: reactionsMap.get(row.id) || [],
     has_discussion: row.has_discussion === 1,
   }));
-
-  const latest = messages.length > 0 ? messages[messages.length - 1].created_at : null;
-
-  return { messages, latest_timestamp: latest };
 }
 
 /**
- * Send a message
+ * Get messages for a conversation (supports polling with 'since' parameter)
  */
-export async function sendMessage(
+export async function getMessages(
   db: D1Database,
   conversationId: string,
   userId: string,
-  content: string,
-  replyToMessageId?: string
-): Promise<MessageWithSender> {
+  since?: string
+): Promise<{ messages: MessageWithSender[]; latest_timestamp: string | null }> {
   // Verify access
   const conv = await getConversationById(db, conversationId, userId);
   if (!conv) {
     throw new Error('Conversation not found');
   }
 
+  const messages = since
+    ? await queryMessages(db, userId, 'm.conversation_id = ? AND m.created_at > ?', [conversationId, since])
+    : await queryMessages(db, userId, 'm.conversation_id = ?', [conversationId]);
+
+  const latest = messages.length > 0 ? messages[messages.length - 1].created_at : null;
+
+  return { messages, latest_timestamp: latest };
+}
+
+/** The message this sender already sent with this idempotency key, if any. */
+export async function findMessageByClientId(
+  db: D1Database,
+  senderId: string,
+  clientId: string,
+): Promise<MessageWithSender | null> {
+  const found = await queryMessages(db, senderId, 'm.sender_id = ? AND m.client_id = ?', [senderId, clientId]);
+  return found[0] ?? null;
+}
+
+/** A client-chosen idempotency key: 1–100 characters of [A-Za-z0-9_.:-], else null. */
+export function normalizeClientId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  return /^[A-Za-z0-9_.:-]{1,100}$/.test(v) ? v : null;
+}
+
+export type SentMessage = MessageWithSender & {
+  client_id: string | null;
+  /** True when this (sender, client_id) was already sent: the existing message is returned, nothing new was written. */
+  duplicate?: boolean;
+};
+
+/**
+ * Send a message. With `clientId` the send is idempotent per sender: a repeat
+ * returns the message already stored (`duplicate: true`).
+ */
+export async function sendMessage(
+  db: D1Database,
+  conversationId: string,
+  userId: string,
+  content: string,
+  replyToMessageId?: string,
+  opts: { clientId?: string | null } = {}
+): Promise<SentMessage> {
+  // Verify access
+  const conv = await getConversationById(db, conversationId, userId);
+  if (!conv) {
+    throw new Error('Conversation not found');
+  }
+
+  const clientId = opts.clientId ?? null;
+  if (clientId) {
+    const existing = await findMessageByClientId(db, userId, clientId);
+    if (existing) return { ...existing, client_id: clientId, duplicate: true };
+  }
+
   const id = generateId();
   const now = new Date().toISOString();
 
-  await db
-    .prepare(`
-      INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
-    .bind(id, conversationId, userId, content, now, replyToMessageId || null)
-    .run();
+  try {
+    await db
+      .prepare(`
+        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .bind(id, conversationId, userId, content, now, replyToMessageId || null, clientId)
+      .run();
+  } catch (err) {
+    // Two sends with the same key at once: the other one won the unique index.
+    if (clientId) {
+      const existing = await findMessageByClientId(db, userId, clientId);
+      if (existing) return { ...existing, client_id: clientId, duplicate: true };
+    }
+    throw err;
+  }
 
   // Update conversation's last_message_at
   await db
@@ -337,6 +385,7 @@ export async function sendMessage(
     reply_to_message_id: replyToMessageId || null,
     translation: null,
     segmentation: null,
+    client_id: clientId,
     sender: sender || { id: userId, name: null, picture_url: null },
     reply_to: replyTo,
     reactions: [],

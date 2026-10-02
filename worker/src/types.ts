@@ -14,6 +14,8 @@ export interface Env {
   /** Video calls (experimental): one CallRoom Durable Object per call + the after-call queue. */
   CALL_ROOM: DurableObjectNamespace<import('./durable/call-room').CallRoom>;
   CALL_QUEUE: Queue<CallProcessingMessage>;
+  /** Chat live delivery: one ChatHub Durable Object per user (docs/CHAT.md §4). */
+  CHAT_HUB: DurableObjectNamespace<import('./durable/chat-hub').ChatHub>;
   TUTOR_NOTES_QUEUE: Queue<TutorNotesJobMessage>;
   ANTHROPIC_API_KEY: string;
   GOOGLE_TTS_API_KEY: string;
@@ -25,6 +27,8 @@ export interface Env {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  /** Firebase service-account JSON (project_id, client_email, private_key) — FCM chat pushes to the Lab app. Optional. */
+  FCM_SERVICE_ACCOUNT_JSON?: string;
   TURN_KEY_API_TOKEN?: string;
   /** Call transcription: 'gemini' | 'whisper' | … (default: the best one with a key). */
   CALL_TRANSCRIBE_PROVIDER?: string;
@@ -543,6 +547,8 @@ export interface Message {
   // Interactive translation fields
   translation: string | null;
   segmentation: string | null; // JSON-stringified SentenceBreakdown
+  /** The sender's idempotency key (docs/CHAT.md §2), when the client sent one. */
+  client_id?: string | null;
 }
 
 export interface MessageReaction {
@@ -590,6 +596,8 @@ export interface CreateConversationRequest {
 export interface SendMessageRequest {
   content: string;
   reply_to_message_id?: string;
+  /** Idempotency key: a second send with the same (sender, client_id) returns the first message. */
+  client_id?: string;
 }
 
 export interface ShareDeckRequest {

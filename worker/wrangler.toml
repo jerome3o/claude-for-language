@@ -120,6 +120,17 @@ class_name = "CallRoom"
 [[migrations]]
 tag = "v1-call-room"
 new_sqlite_classes = ["CallRoom"]
+
+# Chat live delivery: one ChatHub Durable Object per user holds that user's open
+# chat sockets (web tabs, the Lab app in the foreground) — docs/CHAT.md §4.
+[[durable_objects.bindings]]
+name = "CHAT_HUB"
+class_name = "ChatHub"
+
+[[migrations]]
+tag = "v2-chat-hub"
+new_sqlite_classes = ["ChatHub"]
+
 # Queue for the session-notes agent: a tutor's free-form lesson notes become a
 # deck (+ a mini lesson / reader when warranted) through a multi-round tool
 # loop that is checkpointed in D1 after every round. One job per message; a
