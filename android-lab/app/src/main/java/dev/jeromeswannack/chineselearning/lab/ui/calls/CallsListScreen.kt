@@ -1,7 +1,15 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +58,7 @@ data class CallsListActions(
 )
 
 /** `/calls` — start a call (per relationship, or a solo test call) and every past call (web: CallsListPage). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CallsListScreen(ui: CallsListUi, actions: CallsListActions) {
     LabScreen("Video calls", onBack = actions.onBack, actions = { BetaBadge(Modifier.padding(end = 12.dp)) }) {
@@ -93,15 +102,30 @@ fun CallsListScreen(ui: CallsListUi, actions: CallsListActions) {
             list == null -> item { InlineNotice(q.error ?: "Couldn't load your calls.", kind = if (q.offline) NoticeKind.Offline else NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRefresh) }
             list.isEmpty() -> item { EmptyState("📼", "No calls yet") }
             else -> item {
+                // One entry per lesson (calls within 20 minutes of each other), its calls listed small underneath.
+                val lessons = CallsFormat.groupByLesson(list)
                 LabCard {
-                    list.forEachIndexed { i, c ->
+                    lessons.forEachIndexed { i, lesson ->
                         if (i > 0) RowDivider()
-                        NavRow(
-                            CallsFormat.listIcon(c), CallsFormat.listTitle(c),
-                            desc = CallsFormat.meta(c),
-                            trailing = if (c.status == "live") ({ LivePill() }) else null,
-                            onClick = { actions.onOpen(c) },
-                        )
+                        val group = lesson.calls
+                        val head = CallsFormat.lessonHead(group)
+                        Column(Modifier.fillMaxWidth().testTag("calls-lesson")) {
+                            NavRow(
+                                CallsFormat.lessonIcon(group), CallsFormat.lessonTitle(group),
+                                desc = CallsFormat.lessonMeta(group),
+                                trailing = if (head.status == "live") ({ LivePill() }) else null,
+                                onClick = { actions.onOpen(head) },
+                            )
+                            if (group.size > 1) FlowRow(
+                                Modifier.fillMaxWidth().padding(start = 60.dp, end = 16.dp, bottom = 10.dp).semantics { contentDescription = "Calls in this lesson" },
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                CallsFormat.lessonCallLines(group).forEach { line ->
+                                    Text(line, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -100,6 +100,8 @@ class CallControllerTest {
         override fun stopScreenShare() { screenVideo = null }
         override fun createPeer(iceServers: List<IceServerDto>, polite: Boolean, listener: PeerListener) = FakePeer(polite, listener, cameraVideo, micAudio).also { peers += it }
         override fun release() { released = true }
+        var stops = 0
+        override fun stopDevices() { stops++; hasMic = false; hasCamera = false; screenVideo = null }
     }
 
     class FakeRecorder(override val supported: Boolean = true) : CallRecorderControl {
@@ -386,6 +388,79 @@ class CallControllerTest {
         rig2.controller.endForEveryone()
         runCurrent()
         assertEquals(1, rig2.endCalls)
+    }
+
+    // ------------------------------------------------------------ round 4: Leave (the call goes on) vs End (for everyone)
+
+    @Test fun leaveKeepsTheCallForThemAndRejoinComesBackWithTheDevicesAsLeft() = runTest(UnconfinedTestDispatcher()) {
+        val rig = Rig(this)
+        rig.controller.join(record = true)
+        runCurrent()
+        rig.room.handlers.onStatus(RoomStatus.OPEN)
+        rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))))
+        runCurrent()
+        rig.controller.toggleCam() // camera off before leaving: it comes back off
+        val firstInstance = rig.room.instance
+        rig.controller.leave()
+        runCurrent()
+        var s = rig.controller.state.value
+        assertEquals(CallPhase.LEFT, s.phase)
+        // Never "end": the room only hears the socket close (CallRoomSocket.close sends `leave` first).
+        assertFalse(rig.room.types().contains("end"))
+        assertEquals(0, rig.endCalls)
+        assertTrue(rig.room.closed)
+        assertNull(s.remote)
+        assertFalse(s.recording)
+        assertEquals(1, rig.recorder.stops)
+        // The devices close but the engine stays, so a rejoin can open them again.
+        assertEquals(1, rig.media.stops)
+        assertFalse(rig.media.released)
+        assertEquals(listOf(true, false), rig.alive)
+        assertTrue(rig.drains >= 1)
+        // Anything the old socket still delivers is ignored.
+        rig.room.handlers.onMessage(ServerMessage.PeerJoined(peer("c-b")))
+        runCurrent()
+        assertNull(rig.controller.state.value.remote)
+
+        rig.room.closed = false
+        val opensBefore = rig.media.opens
+        rig.controller.rejoin()
+        runCurrent()
+        s = rig.controller.state.value
+        assertEquals(CallPhase.JOINING, s.phase)
+        assertEquals(2, rig.room.connects)
+        assertTrue(rig.room.instance != firstInstance) // a new join = a new session id
+        assertEquals(opensBefore + 1, rig.media.opens)
+        assertTrue(s.hasMic && s.hasCamera)
+        assertTrue(s.micOn)
+        assertFalse(s.camOn) // as I left it
+        assertEquals(listOf(true, false, true), rig.alive)
+        rig.room.handlers.onMessage(welcome(peers = listOf(peer("c-a"))))
+        runCurrent()
+        s = rig.controller.state.value
+        assertEquals(CallPhase.LIVE, s.phase)
+        assertTrue(s.recording) // recording was on: it resumes
+        assertNotNull(s.remote)
+    }
+
+    @Test fun leaveFromTheAppBeingRemovedAndRejoinOnlyAfterLeaving() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        rig.controller.leaveNow()
+        runCurrent()
+        assertEquals(CallPhase.LEFT, rig.controller.state.value.phase)
+        assertTrue(rig.room.closed)
+
+        // Ended for everyone: nothing to rejoin.
+        val ended = liveRig(emptyList())
+        ended.controller.endForEveryone()
+        runCurrent()
+        assertEquals("end", ended.room.types().last())
+        assertTrue(ended.media.released)
+        assertEquals(0, ended.media.stops)
+        ended.controller.rejoin()
+        runCurrent()
+        assertEquals(CallPhase.ENDED, ended.controller.state.value.phase)
+        assertEquals(1, ended.room.connects)
     }
 
     @Test fun endedByTheOtherSideOrReplaced() = runTest(UnconfinedTestDispatcher()) {

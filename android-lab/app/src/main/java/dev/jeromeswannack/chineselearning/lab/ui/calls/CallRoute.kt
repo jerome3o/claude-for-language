@@ -295,7 +295,8 @@ fun CallRoute(nav: LabNav, id: String) {
             onToggleRecording = { if (s.recording) vm.controller.stopRecording() else vm.controller.startRecording() },
             onAudioRoute = vm::selectRoute,
             onEnd = { vm.controller.endForEveryone() },
-            onLeave = { vm.controller.leave() },
+            onLeave = { vm.controller.leave(); nav.app.haptics.tick() },
+            onRejoin = { vm.controller.rejoin(); nav.app.haptics.tick() },
             onCommitBoard = vm.controller::commitBoard,
             onLive = vm.controller::sendLiveStroke,
             onSendChat = vm.controller::sendChat,
@@ -338,7 +339,7 @@ fun CallRoute(nav: LabNav, id: String) {
         layout = vm.layout,
     )
     if (confirmLeave) dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog(
-        "Leave the call?", "The call goes on for the other person — rejoin it from the calls page. To end it for both of you, use the red button.", "Leave",
+        "Leave the call?", "The call goes on for the other person — rejoin from here or from another device. To end it for both of you, use the red button.", "Leave",
         onConfirm = { confirmLeave = false; vm.controller.leave() }, onDismiss = { confirmLeave = false },
     )
 }

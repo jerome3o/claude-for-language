@@ -20,6 +20,8 @@ data class CallListItemDto(
     val started_at: Long? = null,
     val ended_at: Long? = null,
     val created_at: String = "",
+    /** The lesson it belongs to (calls within 20 minutes, shared/calls/lessons.ts): the list shows one entry per lesson. */
+    val lesson_id: String? = null,
     val other_user_name: String? = null,
     val segment_count: Int = 0,
     val has_summary: Boolean = false,
@@ -49,6 +51,8 @@ data class CallParticipantDto(val id: String, val name: String? = null, val emai
 @Serializable
 data class CallPieceDto(
     val id: String,
+    /** Which call of the lesson it was recorded in. */
+    val call_id: String? = null,
     val user_id: String = "",
     val piece_index: Int = 0,
     val started_at: Long = 0,
@@ -100,9 +104,32 @@ data class TranscriptSegmentDto(
 @Serializable
 data class CallChatDto(val id: String, val user_id: String = "", val name: String = "", val text: String = "", val at: Long = 0)
 
+/** One call of a lesson (GET /api/calls/:id `lesson.calls`). */
+@Serializable
+data class CallLessonCallDto(
+    val id: String,
+    val status: String = "ended",
+    val created_by: String = "",
+    val started_at: Long? = null,
+    val ended_at: Long? = null,
+    val created_at: String = "",
+)
+
+/** The lesson a call is part of: its calls in order; the transcript, board, chat, pieces and report cover all of them. */
+@Serializable
+data class CallLessonDto(
+    val id: String,
+    val started_at: Long = 0,
+    val last_ended_at: Long? = null,
+    val processing_status: String = "none",
+    val calls: List<CallLessonCallDto> = emptyList(),
+)
+
 @Serializable
 data class CallDetailDto(
     val call: CallInfoDto,
+    /** The whole lesson (null from an older server, or a call without a lesson). */
+    val lesson: CallLessonDto? = null,
     val participants: List<CallParticipantDto> = emptyList(),
     /** Whiteboard items (shared/calls/board.ts) — parsed with core CallBoard.parseItems. */
     val board: JsonArray = JsonArray(emptyList()),
@@ -151,8 +178,9 @@ data class CallHomeworkRequest(val priority: String = "core", val auto_share: Bo
 @Serializable
 private data class CallJobsDto(val jobs: List<SessionJobDto> = emptyList())
 
+/** 202 `{ job }` new; 200 `{ job, jobs, existing: true }` when the lesson's homework is already made. */
 @Serializable
-private data class CallJobDto(val job: SessionJobDto)
+data class CallHomeworkResultDto(val job: SessionJobDto, val jobs: List<SessionJobDto>? = null, val existing: Boolean = false)
 
 @Serializable
 data class RegisterPieceBody(val id: String, val piece_index: Int, val started_at: Long, val mime_type: String)
@@ -189,7 +217,8 @@ data class BoardGlossDto(val pinyin: String = "", val english: String = "")
 /** The text board's tab-complete (Haiku, cached server-side); 503 without a key / 429 when asked too often. */
 suspend fun Api.glossBoardText(id: String, text: String): BoardGlossDto = post("${callPath(id)}/gloss", BoardGlossBody(text))
 
-suspend fun Api.makeCallHomework(id: String): SessionJobDto = post<CallHomeworkRequest, CallJobDto>("${callPath(id)}/homework", CallHomeworkRequest()).job
+/** Homework is made once per LESSON: an existing (not failed / cancelled) job for any of its calls comes back with `existing`. */
+suspend fun Api.makeCallHomework(id: String): CallHomeworkResultDto = post("${callPath(id)}/homework", CallHomeworkRequest())
 
 /** Upload paths (queued through the Outbox by data/calls/CallUploads.kt). */
 object CallPaths {

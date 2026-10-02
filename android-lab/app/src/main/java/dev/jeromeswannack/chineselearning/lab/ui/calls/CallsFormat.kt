@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.calls
 
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.Pinyin
+import dev.jeromeswannack.chineselearning.lab.core.calls.CallLessons
 import dev.jeromeswannack.chineselearning.lab.data.api.CallDetailDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CallListItemDto
 import java.time.Instant
@@ -63,11 +64,67 @@ object CallsFormat {
             (d.call.status == "ended" && s == "none" && d.pieces.any { it.status != "done" && it.status != "failed" })
     }
 
+    /** A lesson of several calls: from the first call's start to the last one's end (web: durationText). */
     fun durationText(d: CallDetailDto): String {
-        val s = d.call.started_at ?: return ""
-        val e = d.call.ended_at ?: return ""
+        val calls = d.lesson?.calls.orEmpty()
+        val s = (if (calls.size > 1) calls.first().started_at else d.call.started_at) ?: return ""
+        val e = (if (calls.size > 1) calls.last().ended_at else d.call.ended_at) ?: return ""
         return "${minutes(s, e)} min"
     }
+
+    /** How many calls the lesson was (1 without a lesson). */
+    fun lessonCallCount(d: CallDetailDto): Int = d.lesson?.calls?.size?.takeIf { it > 0 } ?: 1
+
+    /** `toLocaleTimeString(undefined, { timeStyle: 'short' })`. */
+    fun timeText(epochMs: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
+        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale).format(Instant.ofEpochMilli(epochMs).atZone(zone))
+
+    /** One call of a lesson: "12:31–12:53", "13:32 (live)" (web: the review page's lesson box / the list's call line). */
+    fun callSpan(status: String, startedAt: Long?, endedAt: Long?, createdAt: String, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String {
+        val from = timeText(startedAt ?: createdMs(createdAt), zone, locale)
+        return from + when {
+            status == "live" -> " (live)"
+            endedAt != null -> "–" + timeText(endedAt, zone, locale)
+            else -> ""
+        }
+    }
+
+    /** The Past calls list's entries: one per lesson, newest first (port of groupCallsByLesson). */
+    fun groupByLesson(calls: List<CallListItemDto>): List<CallLessons.Group<CallListItemDto>> =
+        CallLessons.groupCallsByLesson(calls, { it.id }, { it.lesson_id }, { it.created_at })
+
+    /** The call a lesson entry opens: the live one, else the latest. */
+    fun lessonHead(group: List<CallListItemDto>): CallListItemDto = group.firstOrNull { it.status == "live" } ?: group.last()
+
+    fun lessonTitle(group: List<CallListItemDto>): String {
+        val head = lessonHead(group)
+        return group.firstNotNullOfOrNull { it.title?.takeIf { t -> t.isNotEmpty() } } ?: head.other_user_name?.let { "Lesson with $it" } ?: "Test call"
+    }
+
+    fun lessonIcon(group: List<CallListItemDto>): String = if (group.any { it.status == "live" }) "🔴" else if (group.any { it.has_summary }) "📝" else "📼"
+
+    /** "Oct 2, 2026, 12:31 · 57 min · 4 calls · notes ready" (web: lessonMeta); a one-call lesson reads like before. */
+    fun lessonMeta(group: List<CallListItemDto>, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String {
+        val first = group.first()
+        val last = group.last()
+        if (group.size == 1) return meta(first, zone, locale)
+        val w = whenText(first.started_at ?: createdMs(first.created_at), zone, locale)
+        val live = group.any { it.status == "live" }
+        val span = if (!live && first.started_at != null && last.ended_at != null) " · ${minutes(first.started_at, last.ended_at)} min" else ""
+        val notes = if (group.any { it.has_summary }) " · notes ready" else ""
+        return "$w$span · ${group.size} calls$notes"
+    }
+
+    /** The calls under a lesson entry: "1. 12:31–12:53", "2. 12:54–13:11", … */
+    fun lessonCallLines(group: List<CallListItemDto>, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): List<String> =
+        group.mapIndexed { i, c ->
+            val from = timeText(c.started_at ?: createdMs(c.created_at), zone, locale)
+            "${i + 1}. $from" + when {
+                c.status == "live" -> " (live)"
+                c.started_at != null && c.ended_at != null -> "–" + timeText(c.ended_at, zone, locale)
+                else -> ""
+            }
+        }
 
     fun title(d: CallDetailDto, myId: String?): String {
         val other = d.participants.firstOrNull { it.id != myId }

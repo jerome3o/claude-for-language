@@ -222,6 +222,18 @@ class WebRtcMedia(private val context: Context, val mic: MicTap = MicTap()) : Ca
     override fun createPeer(iceServers: List<IceServerDto>, polite: Boolean, listener: PeerListener): PeerSession =
         PeerLink(factory, iceServers, polite, audioTrack, cameraTrack, screenTrack, listener)
 
+    /** Leave: the camera, mic and screen close; the factory stays so [open] works again on a rejoin. */
+    override fun stopDevices() {
+        if (released) return
+        mic.setConsumer(null)
+        disposeScreen()
+        disposeCamera()
+        runCatching { audioTrack?.dispose() }
+        runCatching { audioSource?.dispose() }
+        audioTrack = null
+        audioSource = null
+    }
+
     override fun release() {
         if (released) return
         released = true

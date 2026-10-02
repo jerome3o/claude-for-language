@@ -36,7 +36,8 @@ import kotlinx.coroutines.launch
 /** An opaque video to show (an org.webrtc.VideoTrack on the phone; anything in tests and screenshots). */
 typealias VideoHandle = Any
 
-enum class CallPhase { PREJOIN, JOINING, LIVE, ENDED, ERROR }
+/** LEFT = I left; the call goes on for the other person ([CallController.rejoin] brings me back). */
+enum class CallPhase { PREJOIN, JOINING, LIVE, LEFT, ENDED, ERROR }
 
 /**
  * The other person. [connection] = the PeerConnection state; [tile] = the badge on their tile
@@ -238,6 +239,8 @@ interface CallMedia {
     fun stopScreenShare()
     fun createPeer(iceServers: List<IceServerDto>, polite: Boolean, listener: PeerListener): PeerSession
     fun release()
+    /** Closes the camera, mic and screen but keeps the engine, so a rejoin can open them again (Leave). */
+    fun stopDevices() = release()
 }
 
 /** Records this participant's mic into the upload queue (data/calls/MicRecorder.kt; a fake in tests). */
@@ -680,7 +683,8 @@ class CallController(
         closeLink()
         room?.close()
         room = null
-        media.release()
+        // Left: the devices close, the engine stays for a rejoin (released when the screen goes).
+        if (next == CallPhase.LEFT) media.stopDevices() else media.release()
         deps.keepAlive(false)
         _state.update { it.copy(remote = null, localVideo = null, screenVideo = null, mediaReady = false, pages = it.pages.copy(following = false)) }
         runCatching { deps.drainUploads() }
@@ -826,8 +830,19 @@ class CallController(
         finish(CallPhase.ENDED)
     }
 
-    /** Leave without ending the call (the web's page unmount): the other person stays; you can rejoin. */
-    fun leave() = scope.launch { finish(CallPhase.ENDED, "You left the call. It goes on for the other person — rejoin it from the calls page.") }
+    /**
+     * Leave (web: leave): the room hears `leave`, the call goes on for the other person and the
+     * screen offers Rejoin. A call nobody is in ends by itself after 10 minutes (the server).
+     */
+    fun leave() = scope.launch { finish(CallPhase.LEFT) }
+
+    /** Back into a call I left (web: rejoin): a fresh room socket and link; mic / camera restored as I left them. */
+    fun rejoin() = scope.launch {
+        if (_state.value.phase != CallPhase.LEFT) return@launch
+        finished = false
+        opening = null
+        join(wantRecord).join()
+    }
 
     /**
      * The app is being removed (swiped away from recents): tell the room at once, before anything
