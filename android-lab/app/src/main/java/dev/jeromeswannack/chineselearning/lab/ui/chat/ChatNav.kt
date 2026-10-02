@@ -80,6 +80,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
     val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     fun has(p: String) = androidx.core.content.ContextCompat.checkSelfPermission(context, p) == android.content.pm.PackageManager.PERMISSION_GRANTED
     val call = dev.jeromeswannack.chineselearning.lab.ui.calls.relationshipCallBanner(nav, relId, Routes.chat(relId, convId))
+    val wordActions = rememberChatWordActions(nav.app)
     ChatScreen(
         ui,
         ChatActions(
@@ -92,7 +93,6 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onReact = vm::react,
             onViewCheck = vm::viewCheck,
             onWord = vm::openWord,
-            onGenerateCard = vm::generateCard,
             onDismissNotice = vm::dismissNotice,
             onJoinCall = { nav.open(Routes.call(it)) },
             onRetry = { nav.back(); nav.open(Routes.chat(relId, convId)) },
@@ -118,6 +118,20 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onToggleTranslation = vm::toggleTranslation,
             loadImage = vm::image,
             loadLocalImage = vm::localImage,
+            onRequestWords = vm::requestWords,
+            onChip = vm::openChip,
+            onTogglePinyin = vm::togglePinyin,
+            onStartSelecting = vm::startSelecting,
+            onCancelSelecting = vm::cancelSelecting,
+            onToggleSelect = vm::toggleSelect,
+            onSelectToday = vm::selectToday,
+            onSelectLast = vm::selectLast,
+            onPropose = vm::proposeSelected,
+            onCorrectionCard = vm::proposeCorrection,
+            onCheckDraft = vm::checkDraft,
+            onUseCheck = vm::useCheck,
+            onSendAsIs = vm::sendAsIs,
+            onDismissCheck = vm::dismissCheck,
         ),
         callBanner = call?.let { b ->
             {
@@ -162,7 +176,49 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onDiscardPhoto = vm::discardPhoto,
                 onJump = vm::jumpTo,
                 loadLocalImage = vm::localImage,
+                wordActions = wordActions,
+                onWordAdded = vm::wordAdded,
+                onMakeFlashcards = vm::startSelecting,
+                onPinyinAll = vm::setPinyinAll,
+                onTranslationAll = vm::setTranslationAll,
+                review = ReviewActions(
+                    onClose = vm::closeReview,
+                    onToggle = vm::reviewToggle,
+                    onEdit = vm::reviewEdit,
+                    onOpenEdit = vm::reviewOpenEdit,
+                    onPickDeck = vm::reviewPickDeck,
+                    onNewDeck = vm::reviewNewDeck,
+                    onSave = vm::saveReview,
+                ),
+                onSaveCorrection = vm::saveCorrection,
+                onRemoveCorrection = vm::removeCorrection,
             ),
+        )
+    }
+}
+
+/**
+ * The reader word sheet's actions for a chat word chip (docs/CHAT.md PR 3): ▶ through the shared
+ * TTS, "More about this word" cache-first (`/api/reader-words/explain`), + Add as card with the
+ * deck picker and duplicate warning.
+ */
+@Composable
+private fun rememberChatWordActions(app: dev.jeromeswannack.chineselearning.lab.LabApp): dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordActions {
+    val runtime = remember(app) { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app) }
+    val tools = remember(app) { dev.jeromeswannack.chineselearning.lab.ui.study.CardTools(app) }
+    DisposableEffect(Unit) { onDispose { runtime.audio.stop() } }
+    return remember(app) {
+        dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordActions(
+            online = { app.online.value },
+            play = { text -> runtime.audio.speak(text) },
+            cachedExplanation = { word, s -> runtime.readers.cachedExplanation(word.text, s) },
+            explain = { word, s -> runtime.readers.explainWord(word.text, s, word.pinyin, word.gloss) },
+            decks = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.repo.dao.decks() }.sortedBy { it.name.lowercase() }
+                    .map { dev.jeromeswannack.chineselearning.lab.ui.readers.DeckChoice(it.id, it.name, it.description) }
+            },
+            isDuplicate = { deckId, hanzi -> tools.deckHas(deckId, hanzi) },
+            add = { deckId, word, ex -> tools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.ui.readers.readerWordNote(word, ex)) },
         )
     }
 }

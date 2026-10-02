@@ -83,6 +83,7 @@ import boardPagesRoutes from './routes/board-pages';
 import pushRoutes from './routes/push';
 import chatLiveRoutes, { mountLiveSocket } from './routes/chat-live';
 import chatMessagesRoutes from './routes/chat-messages';
+import chatLearningRoutes from './routes/chat-learning';
 import profileRoutes from './routes/profile';
 import { handleCallQueueMessage } from './services/calls/processing';
 import type { CallProcessingMessage } from './types';
@@ -502,6 +503,8 @@ app.route('/api', pushRoutes);
 app.route('/api', chatLiveRoutes);
 // Rich messages: photo / voice upload + serving, edit, delete, pin, reactions (docs/CHAT.md PR 2)
 app.route('/api', chatMessagesRoutes);
+// Learning tools in the chat (docs/CHAT.md PR 3): word chips, corrections, flashcards from the chat.
+app.route('/api', chatLearningRoutes);
 
 // Server-side card search: the fallback behind the Decks tab search (routes/note-search.ts)
 app.route('/api', noteSearchRoutes);

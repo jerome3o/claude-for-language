@@ -6,7 +6,6 @@ import { createAudioPlayer } from '../utils/audioPlayback';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getRelationship,
-  generateFlashcardFromChat,
   generateResponseOptions,
   createNote,
   createConversation,
@@ -19,6 +18,8 @@ import {
   getConversations,
   markNotificationsReadByConversation,
   toggleMessageReaction,
+  translateMessageSegmented,
+  coachSentence,
 } from '../api/client';
 import type { TranslateFlashcardResponse, VocabularyDefinition } from '../api/client';
 import {
@@ -34,7 +35,7 @@ import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
 import { MessageActionSheet } from '../components/chat/MessageActionSheet';
-import { toolsForMessage, manageToolsForMessage } from '../components/chat/messageTools';
+import { toolsForMessage, manageToolsForMessage, learningToolsForMessage, looksLikeChinese } from '../components/chat/messageTools';
 import type { MessageToolId } from '../components/chat/messageTools';
 import { InlineNotice, describeError } from '../components/chat/InlineNotice';
 import type { Notice } from '../components/chat/InlineNotice';
@@ -44,14 +45,33 @@ import { newestCreatedAt, useChatReadMarker } from '../services/chatNotification
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
-import { DeckSelector, DeckSelectorWithCreate } from '../components/chat/DeckSelectors';
+import { DeckSelectorWithCreate } from '../components/chat/DeckSelectors';
 import { FULL_EMOJI_LIST, getQuickEmojis, getRecentEmojis, saveRecentEmoji } from '../components/chat/emojis';
 import { useChatThread, type ChatMessage } from '../hooks/useChatThread';
 import { useChatScroll } from '../hooks/useChatScroll';
 import { firstUnreadId, receiptFor, shouldSendTyping } from '../services/chatThread';
 import { compressPhoto } from '../services/chatMedia';
 import { searchMessages } from '@shared/chats/search';
-import { editChatMessage, deleteChatMessage, pinChatMessage } from '../api/chat';
+import { editChatMessage, deleteChatMessage, pinChatMessage, setMessageCorrection, clearMessageCorrection } from '../api/chat';
+import { ChatWordsText, type TappedWord } from '../components/chat/ChatWords';
+import { CorrectionBlock, CorrectMessageSheet } from '../components/chat/ChatCorrection';
+import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
+import { CheckDraftPanel, type DraftCheck } from '../components/chat/CheckDraftPanel';
+import { ReaderWordSheet } from '../components/reader/ReaderWordSheet';
+import { useKnownHanzi } from '../components/reader/ReaderWords';
+import { useLazyMessageWords } from '../hooks/useLazyMessageWords';
+import {
+  isShown,
+  loadDisplayPrefs,
+  saveDisplayPrefs,
+  setShownForAll,
+  toggleShown,
+  usableWords,
+  wordsTextOf,
+  type ChatDisplayPrefs,
+  type DisplayKind,
+  type FlashcardScope,
+} from '../services/chatLearning';
 import { PhotoBubble, PhotoViewer } from '../components/chat/PhotoBubble';
 import { VoiceBubble } from '../components/chat/VoiceBubble';
 import { VoiceComposer } from '../components/chat/VoiceComposer';
@@ -68,6 +88,7 @@ import {
 } from '../components/chat/ChatBits';
 import './ChatPage.css';
 import '../components/chat/chat-rich.css';
+import '../components/chat/chat-learning.css';
 
 const LONG_PRESS_MS = 500;
 
@@ -102,16 +123,21 @@ export function ChatPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchIndex, setSearchIndex] = useState(0);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedCard, setGeneratedCard] = useState<{
-    hanzi: string;
-    pinyin: string;
-    english: string;
-    fun_facts?: string;
-    context?: string;
-  } | null>(null);
-  const [showSaveModal, setShowSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Learning tools (docs/CHAT.md PR 3)
+  const [displayPrefs, setDisplayPrefs] = useState<ChatDisplayPrefs>(() => loadDisplayPrefs(convId || ''));
+  const [tappedWord, setTappedWord] = useState<TappedWord | null>(null);
+  const [knownVersion, setKnownVersion] = useState(0);
+  const known = useKnownHanzi(knownVersion);
+  const [fetchedTranslations, setFetchedTranslations] = useState<Map<string, string | null>>(new Map());
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [cardScope, setCardScope] = useState<FlashcardScope | null>(null);
+  const [correcting, setCorrecting] = useState<ChatMessage | null>(null);
+  const [correctBusy, setCorrectBusy] = useState(false);
+  const [correctError, setCorrectError] = useState<string | null>(null);
+  const [draftCheck, setDraftCheck] = useState<DraftCheck | null>(null);
 
   // Inline notices: one under the composer, one inside whichever modal is open.
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -195,6 +221,12 @@ export function ChatPage() {
     setPendingPhoto(null);
     setCheckResults(new Map());
     setWordByWord(new Set());
+    setDisplayPrefs(loadDisplayPrefs(convId || ''));
+    setFetchedTranslations(new Map());
+    setSelecting(false);
+    setSelectedIds(new Set());
+    setCardScope(null);
+    setDraftCheck(null);
     setNotice(null);
     setSheet(null);
     setShowHeaderMenu(false);
@@ -326,6 +358,62 @@ export function ChatPage() {
     [serverMessages],
   );
 
+  // Word chips for older messages: asked for once they scroll into view (docs/CHAT.md PR 3).
+  const serverMessagesRef = useRef(serverMessages);
+  serverMessagesRef.current = serverMessages;
+  useLazyMessageWords(scroll.containerRef, serverMessages, isOnline && thread.openedAt !== null, (id, words, source) => {
+    const m = serverMessagesRef.current.find((x) => x.id === id);
+    if (m) thread.applyMessage({ ...m, words, words_source: source });
+  });
+
+  // Pinyin / translation toggles, remembered per conversation on this device.
+  const updateDisplay = (fn: (p: ChatDisplayPrefs) => ChatDisplayPrefs) => {
+    setDisplayPrefs((prev) => {
+      const next = fn(prev);
+      if (convId) saveDisplayPrefs(convId, next);
+      return next;
+    });
+  };
+
+  const translationOf = (msg: MessageWithSender): string | null => {
+    if (msg.attachment?.kind === 'voice') return msg.attachment.translation || null;
+    return msg.translation || fetchedTranslations.get(msg.id) || null;
+  };
+
+  // A text message without a stored translation gets one on demand (the server caches it).
+  const ensureTranslation = (msg: MessageWithSender) => {
+    if (msg.attachment || msg.translation || fetchedTranslations.has(msg.id)) return;
+    setFetchedTranslations((prev) => new Map(prev).set(msg.id, null));
+    translateMessageSegmented(msg.id)
+      .then((r) => setFetchedTranslations((prev) => new Map(prev).set(msg.id, r.translation || '')))
+      .catch((error) => {
+        setFetchedTranslations((prev) => {
+          const next = new Map(prev);
+          next.delete(msg.id);
+          return next;
+        });
+        showError("Couldn't translate that message.", error);
+      });
+  };
+
+  const toggleDisplay = (msg: MessageWithSender, kind: DisplayKind) => {
+    const turningOn = !isShown(displayPrefs, kind, msg.id);
+    if (kind === 'translate' && turningOn) ensureTranslation(msg);
+    updateDisplay((p) => toggleShown(p, kind, msg.id));
+  };
+
+  const setDisplayForAll = (kind: DisplayKind, on: boolean) => updateDisplay((p) => setShownForAll(p, kind, on));
+
+  // With "translations for all" on, fetch the visible ones that are missing (online only).
+  useEffect(() => {
+    if (!displayPrefs.translateAll || !isOnline) return;
+    const missing = serverMessages.filter(
+      (m) => !m.deleted_at && !m.attachment && !m.translation && !fetchedTranslations.has(m.id) && looksLikeChinese(m.content) && m.sender_id !== myId,
+    );
+    for (const m of missing.slice(-10)) ensureTranslation(m);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayPrefs.translateAll, isOnline, serverMessages.length]);
+
   // Typing frames: at most every 2.5 s while the box is non-empty and changing.
   const lastTypingSent = useRef(0);
   const noteTyping = (text: string) => {
@@ -346,6 +434,7 @@ export function ChatPage() {
     const text = newMessage.trim();
     if (!text || isWaitingForAI || !convId) return;
     setNotice(null);
+    setDraftCheck(null);
     void thread.sendText(text, replyingTo).catch((error) => showError("Couldn't queue your message.", error));
     setNewMessage('');
     setReplyingTo(null);
@@ -524,44 +613,85 @@ export function ChatPage() {
   const deckNameFor = (deckId: string) =>
     queryClient.getQueryData<Array<{ id: string; name: string }>>(['decks'])?.find((d) => d.id === deckId)?.name;
 
-  const handleGenerateFlashcard = async () => {
-    if (!convId) return;
-    setIsGenerating(true);
-    setGeneratedCard(null);
+  // ----- Make flashcards from this chat (docs/CHAT.md PR 3) -----
+  const startSelecting = () => {
+    setShowHeaderMenu(false);
+    setSearchOpen(false);
+    setSelectedIds(new Set());
+    setSelecting(true);
     setNotice(null);
+  };
+
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const openCards = (scope: FlashcardScope) => {
+    setSelecting(false);
+    setCardScope(scope);
+  };
+
+  const messageTextFor = (id: string): string | null => {
+    const m = serverMessages.find((x) => x.id === id);
+    if (!m || m.deleted_at) return null;
+    return wordsTextOf(m)?.text ?? (m.content || null);
+  };
+
+  // ----- Corrections (the tutor) -----
+  const saveCorrection = async (text: string, note: string) => {
+    if (!correcting) return;
+    const msg = correcting;
+    setCorrectBusy(true);
+    setCorrectError(null);
     try {
-      const result = await generateFlashcardFromChat(convId);
-      setGeneratedCard(result.flashcard);
-      setModalNotice(null);
-      setShowSaveModal(true);
+      const updated = await setMessageCorrection(msg.id, text, note || null);
+      thread.applyMessage(
+        isMessageWithSender(updated)
+          ? updated
+          : { ...msg, correction: { text, note: note || null, by: myId, at: new Date().toISOString() } },
+      );
+      setCorrecting(null);
+      void thread.pollNow();
     } catch (error) {
-      console.error('Failed to generate flashcard:', error);
-      showError("Couldn't make a card from this conversation — it needs some Chinese vocabulary to work from.", error);
+      setCorrectError(describeError(error, "Couldn't save the correction."));
     } finally {
-      setIsGenerating(false);
+      setCorrectBusy(false);
     }
   };
 
-  const handleSaveFlashcard = async (deckId: string) => {
-    if (!generatedCard) return;
-    setIsSaving(true);
-    setModalNotice(null);
+  const removeCorrection = async (msg: MessageWithSender) => {
     try {
-      await createNote(deckId, {
-        hanzi: generatedCard.hanzi,
-        pinyin: generatedCard.pinyin,
-        english: generatedCard.english,
-        fun_facts: generatedCard.fun_facts,
-        context: generatedCard.context,
-      });
-      setShowSaveModal(false);
-      setGeneratedCard(null);
-      showSuccess(`Saved ${generatedCard.hanzi} to ${deckNameFor(deckId) || 'your deck'}.`);
+      const updated = await clearMessageCorrection(msg.id);
+      thread.applyMessage(isMessageWithSender(updated) ? updated : { ...msg, correction: null });
+      void thread.pollNow();
     } catch (error) {
-      console.error('Failed to save flashcard:', error);
-      showModalError("Couldn't save the flashcard.", error);
-    } finally {
-      setIsSaving(false);
+      showError("Couldn't remove the correction.", error);
+    }
+  };
+
+  // ----- Check my Chinese before sending -----
+  const runDraftCheck = async (draft: string) => {
+    if (!isOnline) {
+      setDraftCheck({ kind: 'error', draft, text: 'Checking needs a connection — you can still send it as is.' });
+      return;
+    }
+    setDraftCheck({ kind: 'loading', draft });
+    try {
+      const result = await coachSentence(draft);
+      setDraftCheck((cur) => (cur && cur.draft === draft ? { kind: 'ready', draft, result } : cur));
+    } catch (error) {
+      setDraftCheck((cur) =>
+        cur && cur.draft === draft ? { kind: 'error', draft, text: describeError(error, "Couldn't check that just now.") } : cur,
+      );
     }
   };
 
@@ -861,6 +991,19 @@ export function ChatPage() {
       case 'delete':
         setDeleting(msg);
         break;
+      case 'make_cards':
+        openCards({ kind: 'message', id: msg.id });
+        break;
+      case 'correction_card':
+        openCards({ kind: 'correction', id: msg.id });
+        break;
+      case 'correct':
+        setCorrectError(null);
+        setCorrecting(msg);
+        break;
+      case 'remove_correction':
+        void removeCorrection(msg);
+        break;
       case 'react':
         break;
     }
@@ -936,19 +1079,50 @@ export function ChatPage() {
     return local ? { ...msg, check_status: local.status } : msg;
   };
 
-  const sheetTools = sheet
-    ? [
-        ...toolsForMessage(withCheckStatus(sheet.message), viewerRole, isAIConversation, user!.id).menu,
-        ...manageToolsForMessage(sheet.message, isAIConversation, user!.id),
-      ]
-    : [];
+  const learningFor = (msg: ChatMessage) =>
+    learningToolsForMessage(
+      {
+        sender_id: msg.sender_id,
+        content: msg.content,
+        deleted_at: msg.deleted_at,
+        attachment: msg.attachment
+          ? { kind: msg.attachment.kind, transcript: msg.attachment.kind === 'voice' ? msg.attachment.transcript : null }
+          : null,
+        correction: msg.correction,
+        pending: !!msg.outbox,
+      },
+      viewerRole,
+      isAIConversation,
+      user!.id,
+    );
+
+  const sheetTools = (() => {
+    if (!sheet) return [];
+    const learn = learningFor(sheet.message as ChatMessage);
+    const base = toolsForMessage(withCheckStatus(sheet.message), viewerRole, isAIConversation, user!.id).menu.filter(
+      (t) => !learn.replaces.includes(t.id),
+    );
+    const react = base.filter((t) => t.id === 'react');
+    return [
+      ...react,
+      ...learn.menu,
+      ...base.filter((t) => t.id !== 'react'),
+      ...manageToolsForMessage(sheet.message, isAIConversation, user!.id),
+    ];
+  })();
+
+  const isLearner = viewerRole === 'student' || isAIConversation;
+  const otherFirst = (otherUser.name || 'Your tutor').split(' ')[0];
+  const suppressWordTap = () => selecting || Date.now() - pressFiredAt.current < 800;
 
   const chatToolsBlocked = !isOnline;
   const receipt = isAIConversation ? null : receiptFor(serverMessages, myId, thread.readState.other);
   const hitSet = new Set(searchHits);
   const composerEmpty = !newMessage.trim();
+  // ✓ "Check my Chinese" on the compose box: the learner, a draft with Chinese (same rule as the message tool).
+  const canCheckDraft = isLearner && !composerEmpty && looksLikeChinese(newMessage);
 
-  const renderBody = (msg: ChatMessage, isMe: boolean, hasChinese: boolean) => {
+  const renderBody = (msg: ChatMessage, isMe: boolean, hasChinese: boolean, pinyinOn: boolean, translateOn: boolean) => {
     if (msg.deleted_at) {
       return <span className="chat-deleted-text">Message deleted</span>;
     }
@@ -978,14 +1152,21 @@ export function ChatPage() {
           transcriptStatus={msg.outbox ? undefined : att.transcript_status}
           transcript={att.transcript}
           translation={att.translation}
+          words={usableWords(msg)}
+          showPinyin={pinyinOn}
+          showTranslation={translateOn}
+          known={known}
+          onTapWord={setTappedWord}
+          suppressTap={suppressWordTap}
         />
       );
     }
-    if (!isMe && hasChinese) {
+    // The Claude practice chat keeps its word-by-word view.
+    if (isAIConversation && !isMe && hasChinese && wordByWord.has(msg.id)) {
       return (
         <InteractiveMessage
           message={msg}
-          showTranslation={wordByWord.has(msg.id)}
+          showTranslation
           onSaveWord={handleSaveWordFromChat}
           onError={(text) => setNotice({ kind: 'error', text })}
         />
@@ -1002,7 +1183,23 @@ export function ChatPage() {
             <Link to={`/calls/${callId}`} className="chat-call-link" onClick={(e) => e.stopPropagation()}>📹 Join the call</Link>
           </>
         ) : (
-          msg.content
+          <ChatWordsText
+            text={msg.content}
+            words={usableWords(msg)}
+            showPinyin={pinyinOn}
+            known={known}
+            onTapWord={setTappedWord}
+            suppressTap={suppressWordTap}
+          />
+        )}
+        {translateOn && (
+          <span className="chat-translation" data-testid="chat-translation">
+            {translationOf(msg) ?? (
+              <span className="chat-translation-pending">
+                <span className="chat-spinner" aria-hidden="true" /> Translating…
+              </span>
+            )}
+          </span>
         )}
         {isMe && checkStatus && (
           <button
@@ -1032,9 +1229,20 @@ export function ChatPage() {
     const tools = toolsForMessage(msg, viewerRole, isAIConversation, user!.id);
     const canPlay = !kind && !isDeleted && tools.inline.some((t) => t.id === 'play');
     const interactive = !pending && !isDeleted;
+    // 拼音 / EN toggles: any message whose text (or voice transcript) has Chinese.
+    const wordsText = isDeleted ? null : wordsTextOf(msg);
+    const hasZh = !!wordsText && looksLikeChinese(wordsText.text) && !(kind === 'image');
+    const pinyinOn = hasZh && isShown(displayPrefs, 'pinyin', msg.id);
+    const canTranslate = hasZh && !pending && (kind === 'voice' ? !!translationOf(msg) : true);
+    const translateOn = canTranslate && isShown(displayPrefs, 'translate', msg.id);
+    const selectable = selecting && interactive && !!wordsText;
+    const selected = selectable && selectedIds.has(msg.id);
     const classes = [
       'chat-message',
       isMe ? 'sent' : 'received',
+      selecting ? 'selecting' : '',
+      selectable ? 'selectable' : '',
+      selected ? 'selected' : '',
       hitSet.has(msg.id) ? 'search-hit' : '',
       currentHit === msg.id ? 'search-current' : '',
       scroll.flashId === msg.id ? 'flash' : '',
@@ -1050,7 +1258,17 @@ export function ChatPage() {
             <span>New messages</span>
           </div>
         )}
-        <div className={classes} data-msg-id={msg.id} data-testid="chat-message">
+        <div
+          className={classes}
+          data-msg-id={msg.id}
+          data-testid="chat-message"
+          onClick={selectable ? () => toggleSelected(msg.id) : undefined}
+        >
+          {selecting && (
+            <span className={`chat-select-box${selected ? ' on' : ''}${selectable ? '' : ' hidden'}`} aria-hidden="true">
+              {selected ? '✓' : ''}
+            </span>
+          )}
           {!isMe && (
             <div className="chat-message-avatar">
               {msg.sender.picture_url ? (
@@ -1075,7 +1293,7 @@ export function ChatPage() {
             )}
             <div
               className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}`}
-              onPointerDown={interactive ? startPress(msg) : undefined}
+              onPointerDown={interactive && !selecting ? startPress(msg) : undefined}
               onPointerMove={movePress}
               onPointerUp={clearPress}
               onPointerCancel={clearPress}
@@ -1085,8 +1303,23 @@ export function ChatPage() {
                 if (pressTimer.current || Date.now() - pressFiredAt.current < 1000) e.preventDefault();
               }}
             >
-              {renderBody(msg, isMe, tools.hasChinese)}
+              {renderBody(msg, isMe, tools.hasChinese, pinyinOn, translateOn)}
             </div>
+            {msg.correction && !isDeleted && (
+              <CorrectionBlock
+                original={msg.content}
+                correction={msg.correction}
+                tutorName={isMe ? otherFirst : 'Your correction'}
+                canEdit={viewerRole === 'tutor' && !isMe && !isAIConversation && !selecting}
+                canMakeCard={isMe && !selecting}
+                onEdit={() => {
+                  setCorrectError(null);
+                  setCorrecting(msg);
+                }}
+                onRemove={() => void removeCorrection(msg)}
+                onMakeCard={() => openCards({ kind: 'correction', id: msg.id })}
+              />
+            )}
             {!isDeleted && msg.reactions && msg.reactions.length > 0 && (
               <div className="message-reactions">
                 {msg.reactions.map((r) => (
@@ -1125,8 +1358,33 @@ export function ChatPage() {
                   <span className="chat-spinner" aria-hidden="true" /> Translating…
                 </span>
               )}
-              {interactive && (
+              {interactive && !selecting && (
                 <div className="chat-message-actions">
+                  {hasZh && (
+                    <button
+                      type="button"
+                      className={`msg-action-btn chat-toggle-btn${pinyinOn ? ' on' : ''}`}
+                      onClick={() => toggleDisplay(msg, 'pinyin')}
+                      aria-pressed={pinyinOn}
+                      aria-label={pinyinOn ? 'Hide pinyin' : 'Show pinyin'}
+                      title={pinyinOn ? 'Hide pinyin' : 'Show pinyin'}
+                    >
+                      拼
+                    </button>
+                  )}
+                  {canTranslate && (
+                    <button
+                      type="button"
+                      className={`msg-action-btn chat-toggle-btn${translateOn ? ' on' : ''}`}
+                      onClick={() => toggleDisplay(msg, 'translate')}
+                      disabled={!translateOn && !translationOf(msg) && chatToolsBlocked}
+                      aria-pressed={translateOn}
+                      aria-label={translateOn ? 'Hide translation' : 'Show translation'}
+                      title={translateOn ? 'Hide translation' : 'Show translation'}
+                    >
+                      EN
+                    </button>
+                  )}
                   <button type="button" className="msg-action-btn" onClick={() => setReplyingTo(msg)} title="Reply" aria-label="Reply">
                     ↩
                   </button>
@@ -1201,16 +1459,16 @@ export function ChatPage() {
           >
             🔍
           </button>
-          <SpinnerButton
+          <button
             type="button"
-            className="btn btn-sm btn-secondary chat-card-btn"
-            busy={isGenerating}
-            onClick={handleGenerateFlashcard}
-            disabled={chatToolsBlocked || messages.length === 0}
-            title={chatToolsBlocked ? 'Needs internet' : 'Make a flashcard from this conversation'}
+            className={`btn btn-sm btn-secondary chat-card-btn${selecting ? ' active' : ''}`}
+            onClick={() => (selecting ? stopSelecting() : startSelecting())}
+            disabled={!selecting && (chatToolsBlocked || serverMessages.length === 0)}
+            title={chatToolsBlocked ? 'Needs internet' : 'Make flashcards from this chat'}
+            aria-pressed={selecting}
           >
-            + Card
-          </SpinnerButton>
+            + Cards
+          </button>
           <button
             type="button"
             className="btn btn-sm btn-secondary chat-menu-btn"
@@ -1242,7 +1500,13 @@ export function ChatPage() {
         />
       )}
 
-      {!searchOpen && <PinnedBar pinned={pinned} onJump={(id) => scroll.jumpTo(id)} />}
+      {selecting ? (
+        <div className="chat-select-hint" role="status">
+          Tap the messages to make cards from — or pick a quick option below.
+        </div>
+      ) : (
+        !searchOpen && <PinnedBar pinned={pinned} onJump={(id) => scroll.jumpTo(id)} />
+      )}
 
       {!isAIConversation && <ChatNotifyNudge />}
 
@@ -1281,6 +1545,40 @@ export function ChatPage() {
               }}
             >
               <span aria-hidden="true">✏️</span> {conversation?.title ? 'Rename conversation' : 'Add a title'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="chat-header-menu-item"
+              disabled={!isOnline || serverMessages.length === 0}
+              onClick={startSelecting}
+            >
+              <span aria-hidden="true">🃏</span> Make flashcards
+              {!isOnline && <span className="msg-sheet-action-hint">Needs internet</span>}
+            </button>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={displayPrefs.pinyinAll}
+              className="chat-header-menu-item"
+              onClick={() => {
+                setShowHeaderMenu(false);
+                setDisplayForAll('pinyin', !displayPrefs.pinyinAll);
+              }}
+            >
+              <span aria-hidden="true">拼</span> {displayPrefs.pinyinAll ? 'Hide pinyin for all' : 'Show pinyin for all'}
+            </button>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={displayPrefs.translateAll}
+              className="chat-header-menu-item"
+              onClick={() => {
+                setShowHeaderMenu(false);
+                setDisplayForAll('translate', !displayPrefs.translateAll);
+              }}
+            >
+              <span aria-hidden="true">EN</span> {displayPrefs.translateAll ? 'Hide translations for all' : 'Show translations for all'}
             </button>
             {isAIConversation && (
               <button
@@ -1367,8 +1665,36 @@ export function ChatPage() {
         </div>
       )}
 
+      {/* Picking messages for flashcards replaces the composer */}
+      {selecting && (
+        <div className="chat-select-bar" data-testid="chat-select-bar">
+          <div className="chat-select-quick">
+            <button type="button" className="chat-chip-btn" onClick={() => openCards({ kind: 'today' })}>
+              Today
+            </button>
+            <button type="button" className="chat-chip-btn" onClick={() => openCards({ kind: 'last50' })}>
+              Last 50 messages
+            </button>
+          </div>
+          <div className="chat-select-row">
+            <button type="button" className="btn btn-secondary" onClick={stopSelecting}>
+              Cancel
+            </button>
+            <span className="chat-select-count">{selectedIds.size} selected</span>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={selectedIds.size === 0}
+              onClick={() => openCards({ kind: 'selected', ids: serverMessages.filter((m) => selectedIds.has(m.id)).map((m) => m.id) })}
+            >
+              Make cards
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Composer */}
-      <div className="chat-composer">
+      <div className="chat-composer" style={selecting ? { display: 'none' } : undefined}>
         <div className="chat-composer-tools">
           <SpinnerButton
             type="button"
@@ -1384,6 +1710,19 @@ export function ChatPage() {
         </div>
         <OfflineWarning message="You're offline. Messages you send now wait here and go out when you're back online." />
         <InlineNotice notice={notice} onDismiss={clearNotice} className="chat-composer-notice" />
+        {draftCheck && !recording && (
+          <CheckDraftPanel
+            check={draftCheck}
+            onUse={(text) => {
+              setNewMessage(text);
+              setDraftCheck(null);
+              inputRef.current?.focus();
+            }}
+            onSendAsIs={() => handleSend()}
+            onRetry={() => void runDraftCheck(draftCheck.draft)}
+            onClose={() => setDraftCheck(null)}
+          />
+        )}
         {recording ? (
           <VoiceComposer
             onSend={sendVoice}
@@ -1419,6 +1758,7 @@ export function ChatPage() {
               value={newMessage}
               onChange={(e) => {
                 setNewMessage(e.target.value);
+                if (draftCheck && e.target.value.trim() !== draftCheck.draft) setDraftCheck(null);
                 noteTyping(e.target.value);
                 e.target.style.height = 'auto';
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
@@ -1434,6 +1774,18 @@ export function ChatPage() {
               rows={1}
               aria-label="Message"
             />
+            {canCheckDraft && (
+              <button
+                type="button"
+                className={`chat-round-btn chat-check-btn${draftCheck ? ' active' : ''}`}
+                onClick={() => void runDraftCheck(newMessage.trim())}
+                disabled={draftCheck?.kind === 'loading'}
+                aria-label="Check my Chinese"
+                title={isOnline ? 'Check my Chinese before sending' : 'Checking needs internet'}
+              >
+                ✓
+              </button>
+            )}
             {composerEmpty && !isAIConversation ? (
               <button
                 type="button"
@@ -1491,31 +1843,43 @@ export function ChatPage() {
         />
       )}
 
-      {/* Save Flashcard Modal */}
-      {showSaveModal && generatedCard && (
-        <div className="modal-overlay" onClick={() => { setShowSaveModal(false); setModalNotice(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Generated Flashcard</h3>
-            <div className="generated-card-preview">
-              <div className="preview-hanzi">{generatedCard.hanzi}</div>
-              <div className="preview-pinyin">{generatedCard.pinyin}</div>
-              <div className="preview-english">{generatedCard.english}</div>
-              {generatedCard.fun_facts && (
-                <div className="preview-funfacts">{generatedCard.fun_facts}</div>
-              )}
-            </div>
-            <DeckSelector
-              onSelect={(deckId) => handleSaveFlashcard(deckId)}
-              isSaving={isSaving}
-            />
-            <InlineNotice notice={modalNotice} onDismiss={clearModalNotice} className="chat-modal-notice" />
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => { setShowSaveModal(false); setModalNotice(null); }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Make flashcards from this chat */}
+      {cardScope && convId && (
+        <MakeFlashcardsSheet
+          conversationId={convId}
+          scope={cardScope}
+          sourceText={messageTextFor}
+          onClose={() => setCardScope(null)}
+          onAdded={(summary) => {
+            setCardScope(null);
+            setSelectedIds(new Set());
+            setKnownVersion((v) => v + 1);
+            showSuccess(summary);
+          }}
+        />
+      )}
+
+      {correcting && (
+        <CorrectMessageSheet
+          original={correcting.content}
+          initial={correcting.correction?.text ?? correcting.content}
+          initialNote={correcting.correction?.note ?? ''}
+          studentName={(correcting.sender.name || 'their').split(' ')[0]}
+          busy={correctBusy}
+          error={correctError}
+          onSave={(text, note) => void saveCorrection(text, note)}
+          onCancel={() => setCorrecting(null)}
+        />
+      )}
+
+      {tappedWord && (
+        <ReaderWordSheet
+          word={tappedWord.word}
+          sentence={tappedWord.sentence}
+          known={known.has(tappedWord.word.text.trim())}
+          onClose={() => setTappedWord(null)}
+          onAdded={() => setKnownVersion((v) => v + 1)}
+        />
       )}
 
       {/* "Help me say it" Input Dialog */}

@@ -129,6 +129,8 @@ object ChatRich {
         deletedAt = m.deleted_at,
         transcript = m.attachment?.transcript,
         attachmentTranslation = m.attachment?.translation,
+        // PR 3: pinyin search (with or without tones) once the message has words.
+        words = m.words?.map { ChatSearch.Word(it.text, it.pinyin) },
     )
 
     /** The conversation list's one-line preview — the worker's wording (📷 Photo[: caption] / 🎤 Voice message / Message deleted). */

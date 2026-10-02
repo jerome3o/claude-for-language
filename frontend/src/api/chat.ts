@@ -4,7 +4,7 @@
  */
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
-import type { MessageWithSender } from '../types';
+import type { ChatWord, MessageWithSender, ProposedChatCard } from '../types';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -97,4 +97,36 @@ export async function fetchChatMediaBlob(mediaUrl: string): Promise<Blob> {
   const res = await fetch(url, { credentials: 'include', headers: getAuthHeaders() });
   if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
   return res.blob();
+}
+
+// ---------- Learning tools (docs/CHAT.md PR 3) ----------
+
+/** The message's word chips, made now when missing (null = no Chinese / not transcribed yet). */
+export function requestMessageWords(
+  messageId: string,
+): Promise<{ words: ChatWord[] | null; source: 'content' | 'transcript' | null; cached: boolean }> {
+  return request(`/messages/${messageId}/words`, { method: 'POST', body: '{}' });
+}
+
+export interface ProposeFlashcardsBody {
+  message_ids?: string[];
+  since?: string;
+  focus?: 'correction';
+}
+
+/** Claude's proposed cards from some of the chat (nothing is saved). */
+export function proposeChatFlashcards(conversationId: string, body: ProposeFlashcardsBody): Promise<{ cards: ProposedChatCard[] }> {
+  return request(`/conversations/${conversationId}/flashcards/propose`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** The tutor's correction of the other person's message → the message. */
+export function setMessageCorrection(messageId: string, text: string, note?: string | null): Promise<MessageWithSender> {
+  return request(`/messages/${messageId}/correction`, {
+    method: 'PUT',
+    body: JSON.stringify({ text, ...(note ? { note } : {}) }),
+  });
+}
+
+export function clearMessageCorrection(messageId: string): Promise<MessageWithSender> {
+  return request(`/messages/${messageId}/correction`, { method: 'DELETE' });
 }

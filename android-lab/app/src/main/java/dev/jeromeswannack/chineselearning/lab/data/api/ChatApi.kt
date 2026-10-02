@@ -49,6 +49,13 @@ data class ChatMessageDto(
     val media_url: String? = null,
     val pinned_at: String? = null,
     val pinned_by: String? = null,
+    // ---- PR 3 (docs/CHAT.md): learning tools ----
+    /** Word chips (`{ text, pinyin, gloss }`) concatenating to the text — null until split / when stale. */
+    val words: List<ReaderWordDto>? = null,
+    /** content | transcript (the words split `attachment.transcript`). */
+    val words_source: String? = null,
+    /** The tutor's correction of this (the student's text) message. */
+    val correction: ChatCorrectionDto? = null,
 ) {
     val isDeleted: Boolean get() = !deleted_at.isNullOrEmpty()
     val isImage: Boolean get() = !isDeleted && attachment?.kind == "image"
@@ -131,15 +138,6 @@ data class ChatBreakdownDto(val hanzi: String = "", val pinyin: String = "", val
 data class SegmentedDto(val translation: String = "", val segmentation: ChatBreakdownDto)
 
 suspend fun Api.translateSegmented(messageId: String): SegmentedDto = post("/api/messages/${enc(messageId)}/translate-segmented")
-
-@Serializable
-data class FlashcardFromChatBody(val message_ids: List<String>? = null)
-
-@Serializable
-data class FlashcardFromChatDto(val flashcard: SuggestedCard)
-
-suspend fun Api.flashcardFromChat(conversationId: String): FlashcardFromChatDto =
-    post("/api/conversations/${enc(conversationId)}/generate-flashcard", FlashcardFromChatBody())
 
 @Serializable
 data class ResponseOptionsBody(val intendedMeaning: String, val guess: String? = null)
@@ -274,3 +272,69 @@ val MINIMAX_VOICES: List<Pair<String, String>> = listOf(
     "Chinese (Mandarin)_News_Anchor" to "News Anchor",
     "Chinese (Mandarin)_Radio_Host" to "Radio Host",
 )
+
+// ---------------- PR 3: learning tools in the chat (docs/CHAT.md) ----------------
+
+/** `{ text, note, by, at }` — the tutor's corrected version of a message. */
+@Serializable
+data class ChatCorrectionDto(val text: String = "", val note: String? = null, val by: String = "", val at: String = "")
+
+@Serializable
+data class MessageWordsDto(val words: List<ReaderWordDto>? = null, val source: String? = null, val cached: Boolean = false)
+
+/** `POST /api/messages/:id/words` — the message's word chips, made now when missing (null = no Chinese / not transcribed). */
+suspend fun Api.messageWords(messageId: String): MessageWordsDto = post("/api/messages/${enc(messageId)}/words")
+
+@Serializable
+data class ProposeFlashcardsBody(val message_ids: List<String>? = null, val since: String? = null, val focus: String? = null)
+
+@Serializable
+data class ProposedCardDto(
+    val hanzi: String = "",
+    val pinyin: String = "",
+    val english: String = "",
+    val fun_facts: String = "",
+    val sentence_clue: String? = null,
+    val sentence_clue_pinyin: String? = null,
+    val sentence_clue_translation: String? = null,
+    val already_have: Boolean = false,
+    val source_message_id: String? = null,
+)
+
+@Serializable
+data class ProposedCardsDto(val cards: List<ProposedCardDto> = emptyList())
+
+/** `POST /api/conversations/:id/flashcards/propose` — Claude's cards from these messages (nothing saved). */
+suspend fun Api.proposeChatFlashcards(conversationId: String, body: ProposeFlashcardsBody): ProposedCardsDto =
+    post("/api/conversations/${enc(conversationId)}/flashcards/propose", body)
+
+@Serializable
+data class CorrectionBody(val text: String, val note: String? = null)
+
+/** `PUT /api/messages/:id/correction` — the tutor's correction (returns the message). */
+suspend fun Api.setMessageCorrection(messageId: String, text: String, note: String?): ChatMessageDto =
+    exchange("PUT", "/api/messages/${enc(messageId)}/correction", encode(CorrectionBody(text, note)), ChatMessageDto.serializer())
+
+suspend fun Api.clearMessageCorrection(messageId: String): ChatMessageDto =
+    exchange("DELETE", "/api/messages/${enc(messageId)}/correction", null, ChatMessageDto.serializer())
+
+@Serializable
+data class BatchNotesBody(val notes: List<NewNoteBody>)
+
+@Serializable
+data class BatchFailureDto(val index: Int = 0, val hanzi: String = "", val error: String = "")
+
+@Serializable
+data class BatchCreatedDto(val id: String = "")
+
+@Serializable
+data class BatchNotesDto(val created: List<BatchCreatedDto> = emptyList(), val failed: List<BatchFailureDto> = emptyList())
+
+/** `POST /api/decks/:id/notes/batch` — every row stands alone; failures come back by index. */
+suspend fun Api.addNotesBatch(deckId: String, notes: List<NewNoteBody>): BatchNotesDto = post("/api/decks/${enc(deckId)}/notes/batch", BatchNotesBody(notes))
+
+@Serializable
+data class CoachSentenceBody(val sentence: String)
+
+/** `POST /api/sentence/coach` — the composer's ✓ "Check my Chinese" (correction + short critique). */
+suspend fun Api.coachDraft(sentence: String): CoachResultDto = post("/api/sentence/coach", CoachSentenceBody(sentence))

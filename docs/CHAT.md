@@ -221,3 +221,19 @@ ALTER TABLE messages ADD COLUMN correction TEXT;   -- JSON { text, note, by, at 
   push "✏️ <tutor> corrected your message".
 - **Check my Chinese before sending**: a ✓ button on the compose box (when the draft has Chinese) → existing
   `POST /api/sentence/coach` → corrected sentence as a diff + short critique → "Use this" replaces the draft.
+
+### PR 3 — as implemented (exact shapes)
+- Message JSON: `words: [{ text, pinyin, gloss }] | null`, `words_source: 'content' | 'transcript' | null`
+  (transcript = words concatenate to `attachment.transcript`), `correction: { text, note|null, by, at } | null`.
+  Stale words come back null; all three are null on a deleted message.
+- `POST /api/messages/:id/words` → `{ words | null, source, cached }` (null = no Chinese / not transcribed yet);
+  403/404/409(deleted)/400(>1500 chars)/503 retryable/502.
+- `POST /api/conversations/:id/flashcards/propose { message_ids? (≤80), since?, focus?: 'correction' }` →
+  `{ cards: [{ hanzi, pinyin, english, fun_facts, sentence_clue?, sentence_clue_pinyin?, sentence_clue_translation?,
+  already_have, source_message_id|null }] }` (≤ 15; neither ids nor since = last 50 messages);
+  400 nothing usable / 503 `{error, retryable:true}` / 502 `{error, retryable:false}`.
+- `PUT /api/messages/:id/correction { text, note? }` / `DELETE` → the message. Tutor of the relationship only, on the
+  other person's text message (403 / 404 / 409 deleted / 400 media). A new correction pushes the student:
+  FCM `{ type:'chat_correction', conversation_id, relationship_id, message_id, sender_name, content, url }`,
+  Web Push `{ type:'chat_correction', title, body, url, tag:'chat-<convId>', conversation_id, relationship_id, message_id }`.
+- Editing keeps the correction; deleting clears it.

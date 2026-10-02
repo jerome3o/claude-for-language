@@ -190,3 +190,72 @@ export async function notifyChatRead(
     }),
   ]);
 }
+
+// ---------- Corrections (docs/CHAT.md PR 3) ----------
+
+export function correctionLine(tutorName: string | null | undefined): string {
+  return `✏️ ${tutorName || 'Your tutor'} corrected your message`;
+}
+
+/** The FCM data payload telling the student their message was corrected. */
+export function chatCorrectionFcmData(
+  message: Pick<MessageWithSender, 'id' | 'conversation_id'>,
+  relationshipId: string,
+  tutorName: string | null | undefined,
+): Record<string, string> {
+  return {
+    type: 'chat_correction',
+    conversation_id: message.conversation_id,
+    relationship_id: relationshipId,
+    message_id: message.id,
+    sender_name: tutorName || 'Your tutor',
+    content: correctionLine(tutorName),
+    url: chatUrl(relationshipId, message.conversation_id),
+  };
+}
+
+export function chatCorrectionWebPush(
+  message: Pick<MessageWithSender, 'id' | 'conversation_id'>,
+  relationshipId: string,
+  tutorName: string | null | undefined,
+) {
+  return {
+    type: 'chat_correction' as const,
+    title: tutorName || 'Your tutor',
+    body: correctionLine(tutorName),
+    url: chatUrl(relationshipId, message.conversation_id),
+    tag: `chat-${message.conversation_id}`,
+    conversation_id: message.conversation_id,
+    relationship_id: relationshipId,
+    message_id: message.id,
+  };
+}
+
+/**
+ * The tutor corrected the student's message: FCM to the student's native apps
+ * and Web Push to their browsers (no e-mail; the live `message_updated` goes
+ * out separately). Never throws.
+ */
+export async function notifyChatCorrection(
+  env: Env,
+  input: { message: Pick<MessageWithSender, 'id' | 'conversation_id'>; studentId: string; relationshipId: string; tutorId: string },
+  deps: Pick<ChatNotifyDeps, 'fetcher' | 'webPush'> = {},
+): Promise<void> {
+  const { message, studentId, relationshipId } = input;
+  if (!studentId || studentId === CLAUDE_AI_USER_ID || studentId === input.tutorId) return;
+  let tutorName: string | null = null;
+  try {
+    const row = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(input.tutorId).first<{ name: string | null }>();
+    tutorName = row?.name ?? null;
+  } catch (err) {
+    console.error('[chat-notify] tutor name lookup failed:', err);
+  }
+  await Promise.all([
+    step('fcm correction', () =>
+      pushToDevices(env, [studentId], chatCorrectionFcmData(message, relationshipId, tutorName), { collapseKey: `correction-${message.id}`, ttlSeconds: 86400 }, deps.fetcher),
+    ),
+    step('web push correction', () =>
+      (deps.webPush ?? pushToUsers)(env, [studentId], chatCorrectionWebPush(message, relationshipId, tutorName), { ttl: 86400, urgency: 'normal' }),
+    ),
+  ]);
+}

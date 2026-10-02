@@ -10,7 +10,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * FCM (only when configured — PushRegistration): `chat_message` → the conversation's
- * notification (and a nudge for an open chat); `chat_read` → drop that conversation's
+ * notification (and a nudge for an open chat); `chat_correction` (PR 3) → a "✏️ <tutor> corrected
+ * your message" line in that conversation's notification; `chat_read` → drop that conversation's
  * notification (read on another device). Data-only messages, so this runs for every push.
  */
 class LabMessagingService : FirebaseMessagingService() {
@@ -32,6 +33,15 @@ class LabMessagingService : FirebaseMessagingService() {
                 }
             }
             is PushEvent.Read -> ChatNotifier.cancel(app, event.conversationId)
+            is PushEvent.Correction -> {
+                // The open chat gets the corrected message over the socket (message_updated); nudge it anyway.
+                app.chatLive.nudge(event.chat.conversationId)
+                runBlocking {
+                    withTimeoutOrNull(8_000) {
+                        runCatching { ChatNotifier.notifyIncoming(app, event.chat, Connections.myId(app.cache)) }
+                    }
+                }
+            }
             null -> Unit
         }
     }

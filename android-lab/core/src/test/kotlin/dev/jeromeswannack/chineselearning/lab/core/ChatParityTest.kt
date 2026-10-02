@@ -27,6 +27,32 @@ class ChatParityTest {
     private fun toolsJson(arr: JsonElement) = arr.jsonArray.map { val o = it.jsonObject; listOf(o["id"]!!.str, o["label"]!!.str, o["icon"]!!.str, o["needsInternet"]!!.jsonPrimitive.boolean.toString()) }
 
     @Test
+    fun learningToolsMatchTypeScript() {
+        val cases = fixture("chat.json")["learning"]!!.jsonArray
+        for ((i, c) in cases.withIndex()) {
+            val o = c.jsonObject
+            val m = o["message"]!!.jsonObject
+            val a = m["attachment"]?.takeIf { it !is JsonNull }?.jsonObject
+            val actual = MessageTools.learningToolsForMessage(
+                senderId = m["sender_id"]!!.str!!,
+                content = m["content"]!!.str!!,
+                deleted = m["deleted_at"]?.str != null,
+                attachmentKind = a?.get("kind")?.str,
+                transcript = a?.get("transcript")?.str,
+                hasCorrection = m["correction"]?.let { it !is JsonNull } ?: false,
+                pending = m["pending"]!!.jsonPrimitive.boolean,
+                viewerRole = o["role"]!!.str!!,
+                isAiConversation = o["ai"]!!.jsonPrimitive.boolean,
+                viewerId = "me",
+            )
+            val r = o["result"]!!.jsonObject
+            assertEquals(toolsJson(r["menu"]!!), toolsJson(actual.menu), "learning[$i] menu")
+            assertEquals(r["replaces"]!!.jsonArray.map { it.str }, actual.replaces, "learning[$i] replaces")
+        }
+        assertTrue(cases.size >= 960)
+    }
+
+    @Test
     fun messageToolsMatchTypeScript() {
         val cases = fixture("chat.json")["tools"]!!.jsonArray
         for ((i, c) in cases.withIndex()) {

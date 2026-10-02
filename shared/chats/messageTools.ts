@@ -33,7 +33,12 @@ export type MessageToolId =
   | 'pin'
   | 'unpin'
   | 'edit'
-  | 'delete';
+  | 'delete'
+  // PR 3 (learningToolsForMessage only):
+  | 'make_cards'
+  | 'correct'
+  | 'remove_correction'
+  | 'correction_card';
 
 export interface MessageToolInput {
   sender_id: string;
@@ -147,4 +152,62 @@ export function manageToolsForMessage(message: ManageToolInput, isAiConversation
   }
   if (isMine) out.push({ id: 'delete', label: 'Delete', icon: '🗑', needsInternet: true });
   return out;
+}
+
+/** What `learningToolsForMessage` needs to know about a message (docs/CHAT.md PR 3). */
+export interface LearningToolInput {
+  sender_id: string;
+  content: string;
+  deleted_at?: string | null;
+  attachment?: { kind: string; transcript?: string | null } | null;
+  correction?: { text: string } | null;
+  /** A send still in the outbox. */
+  pending?: boolean;
+}
+
+export interface LearningToolSet {
+  /** Appended to the ⋯ sheet after `toolsForMessage(...).menu`. */
+  menu: MessageTool[];
+  /**
+   * Tools of `toolsForMessage` these supersede in a tutor–student chat: the word
+   * chips + 拼音 / EN toggles replace "Word by word", and "Make cards from this
+   * message" replaces "Translate & make flashcard". The Claude practice chat keeps them.
+   */
+  replaces: MessageToolId[];
+}
+
+/**
+ * Learning tools for the ⋯ sheet (docs/CHAT.md PR 3), kept apart from
+ * `toolsForMessage` so its Lab parity vectors stay as they were:
+ *   - "Make cards from this message" on any message with text (or a voice transcript).
+ *   - "Correct this" / "Edit correction" + "Remove correction": the tutor of the
+ *     relationship, on the other person's text message (not a photo / voice).
+ *   - "Make a card from the correction": the person who was corrected.
+ * Nothing on a deleted or pending message; no corrections in the Claude practice chat.
+ */
+export function learningToolsForMessage(
+  message: LearningToolInput,
+  viewerRole: RelationshipRole,
+  isAiConversation: boolean,
+  viewerId: string
+): LearningToolSet {
+  const replaces: MessageToolId[] = isAiConversation ? [] : ['word_by_word', 'translate'];
+  if (message.deleted_at || message.pending) return { menu: [], replaces };
+  const isMine = message.sender_id === viewerId;
+  const kind = message.attachment?.kind ?? null;
+  const text = kind === 'voice' ? (message.attachment?.transcript || '').trim() : message.content.trim();
+  const menu: MessageTool[] = [];
+  if (text) {
+    menu.push({ id: 'make_cards', label: 'Make cards from this message', icon: '🃏', needsInternet: true });
+  }
+  if (!isAiConversation && message.correction && isMine) {
+    menu.push({ id: 'correction_card', label: 'Make a card from the correction', icon: '✏️', needsInternet: true });
+  }
+  if (!isAiConversation && viewerRole === 'tutor' && !isMine && !kind && message.content.trim()) {
+    menu.push({ id: 'correct', label: message.correction ? 'Edit correction' : 'Correct this', icon: '✏️', needsInternet: true });
+    if (message.correction) {
+      menu.push({ id: 'remove_correction', label: 'Remove correction', icon: '✖', needsInternet: true });
+    }
+  }
+  return { menu, replaces };
 }

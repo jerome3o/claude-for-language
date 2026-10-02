@@ -12,6 +12,8 @@
  * A chat message (docs/CHAT.md §3) carries
  *   { type: 'chat_message', title: sender name, body: preview, url, tag: 'chat-<convId>',
  *     conversation_id, relationship_id, sender_picture_url? }
+ * A `chat_correction` ("✏️ <tutor> corrected your message", same fields + message_id) is shown
+ * by the same rules.
  * It is skipped only when a focused, visible tab is on that very chat; otherwise one
  * notification per conversation (the tag replaces the previous one, renotify buzzes again).
  */
@@ -66,7 +68,7 @@ function pushShowChat(data, list) {
     icon: data.sender_picture_url || '/icon-192.png',
     badge: '/badge-72.png',
     vibrate: [200],
-    data: { url: data.url || '/', conversation_id: data.conversation_id || null, type: 'chat_message' },
+    data: { url: data.url || '/', conversation_id: data.conversation_id || null, type: data.type || 'chat_message' },
   });
 }
 
@@ -82,7 +84,8 @@ self.addEventListener('push', function (event) {
       list.forEach(function (c) {
         c.postMessage({ type: 'push', data: data });
       });
-      if (data.type === 'chat_message') return pushShowChat(data, list);
+      // A tutor's correction (docs/CHAT.md PR 3) follows the same rules as a chat message.
+      if (data.type === 'chat_message' || data.type === 'chat_correction') return pushShowChat(data, list);
       var inFront = list.some(function (c) {
         if (!c.focused || c.visibilityState !== 'visible') return false;
         var path = pushPathOf(c.url);

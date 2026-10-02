@@ -109,6 +109,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
+import dev.jeromeswannack.chineselearning.lab.core.MessageTools
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaSizing
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Avatar
@@ -136,7 +137,6 @@ class ChatActions(
     val onReact: (ChatMessageDto, String) -> Unit = { _, _ -> },
     val onViewCheck: (ChatMessageDto) -> Unit = {},
     val onWord: (hanzi: String, context: String) -> Unit = { _, _ -> },
-    val onGenerateCard: () -> Unit = {},
     val onDismissNotice: () -> Unit = {},
     val onJoinCall: (String) -> Unit = {},
     val onRetry: () -> Unit = {},
@@ -164,6 +164,24 @@ class ChatActions(
     /** A photo for a bubble ([maxSide] px) — the media cache (null = not available). */
     val loadImage: suspend (ChatMessageDto, Int) -> ImageBitmap? = { _, _ -> null },
     val loadLocalImage: suspend (String, Int) -> ImageBitmap? = { _, _ -> null },
+    // ---- PR 3: learning tools ----
+    /** A Chinese message without words came on screen (the VM asks once). */
+    val onRequestWords: (ChatMessageDto) -> Unit = {},
+    /** A word chip (message, index into its words). */
+    val onChip: (ChatMessageDto, Int) -> Unit = { _, _ -> },
+    val onTogglePinyin: (String) -> Unit = {},
+    val onStartSelecting: () -> Unit = {},
+    val onCancelSelecting: () -> Unit = {},
+    val onToggleSelect: (String) -> Unit = {},
+    val onSelectToday: () -> Unit = {},
+    val onSelectLast: () -> Unit = {},
+    val onPropose: () -> Unit = {},
+    /** The student's "🃏 Make a card from this" on a correction. */
+    val onCorrectionCard: (ChatMessageDto) -> Unit = {},
+    val onCheckDraft: () -> Unit = {},
+    val onUseCheck: () -> Unit = {},
+    val onSendAsIs: () -> Unit = {},
+    val onDismissCheck: () -> Unit = {},
 )
 
 /**
@@ -175,9 +193,13 @@ class ChatActions(
 fun ChatScreen(ui: ChatUi, actions: ChatActions, callBanner: (@Composable () -> Unit)? = null, sheets: @Composable () -> Unit = {}) {
     var viewer by remember { mutableStateOf<ViewerTarget?>(null) }
     LabScreenFrame { Column(Modifier.fillMaxSize()) {
-        if (ui.search != null) SearchBar(ui.search, actions) else ChatHeader(ui, actions)
+        when {
+            ui.selection != null -> SelectionHeader(ui, actions)
+            ui.search != null -> SearchBar(ui.search, actions)
+            else -> ChatHeader(ui, actions)
+        }
         val pinned = ui.pinned
-        AnimatedVisibility(pinned.isNotEmpty() && ui.search == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(pinned.isNotEmpty() && ui.search == null && ui.selection == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             pinned.firstOrNull()?.let { PinnedBar(it, pinned.size, actions) }
         }
         if (ui.isAi && !ui.conversation?.scenario.isNullOrBlank()) ScenarioBanner(ui)
@@ -190,9 +212,12 @@ fun ChatScreen(ui: ChatUi, actions: ChatActions, callBanner: (@Composable () -> 
                 else -> MessageList(ui, actions) { viewer = it }
             }
         }
-        EditBar(ui.editing, actions)
-        ReplyBar(ui.replyingTo, actions)
-        Composer(ui, actions)
+        if (ui.selection != null) SelectionFooter(ui, actions)
+        else {
+            EditBar(ui.editing, actions)
+            ReplyBar(ui.replyingTo, actions)
+            Composer(ui, actions)
+        }
     } }
     viewer?.let { ImageViewer(it, actions) { viewer = null } }
     sheets()
@@ -219,7 +244,8 @@ private fun ChatHeader(ui: ChatUi, actions: ChatActions) {
             if (ui.typing) Text("typing…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
             else ui.conversation?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
-        SmallButton(if (ui.generatingCard) "…" else "+ Card", enabled = ui.online && ui.messages.isNotEmpty() && !ui.generatingCard, busy = ui.generatingCard, onClick = actions.onGenerateCard)
+        // PR 3: the one way to make cards from the chat — pick messages, Claude proposes, review, add.
+        SmallButton("🃏 Cards", enabled = ui.messages.isNotEmpty() && !ui.proposingCards, busy = ui.proposingCards, modifier = Modifier.testTag("chat-make-cards"), onClick = actions.onStartSelecting)
         IconButton(onClick = actions.onOpenSearch, modifier = Modifier.testTag("chat-search-open")) { Icon(Icons.Filled.Search, "Search this chat", tint = Lab.colors.muted) }
         IconButton(onClick = { actions.onOpenSheet(ChatSheet.Menu) }) { Icon(Icons.Filled.MoreVert, "Conversation menu", tint = Lab.colors.muted) }
     }
@@ -271,9 +297,9 @@ private fun PinnedBar(m: ChatMessageDto, count: Int, actions: ChatActions) {
 fun previewOf(m: ChatMessageDto): String = ChatRich.preview(m.content, m.attachment?.kind, m.deleted_at, max = 90)
 
 @Composable
-private fun SmallButton(label: String, enabled: Boolean, busy: Boolean = false, onClick: () -> Unit) {
+private fun SmallButton(label: String, enabled: Boolean, busy: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(20.dp))
+        modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(20.dp))
             .bouncyClickable(enabled = enabled, onClick = onClick).alpha(if (enabled || busy) 1f else 0.45f).padding(horizontal = 12.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -338,7 +364,17 @@ private fun MessageList(ui: ChatUi, actions: ChatActions, onView: (ViewerTarget)
                 when (row) {
                     is ChatRow.Day -> DateDivider(row.label)
                     ChatRow.Unread -> UnreadDivider()
-                    is ChatRow.Msg -> MessageRow(row.message, row.receipt, ui, actions, onView)
+                    is ChatRow.Msg -> if (ui.selection == null) MessageRow(row.message, row.receipt, ui, actions, onView) else {
+                        val m = row.message
+                        val ok = ui.pickable().firstOrNull { it.id == m.id }?.eligible == true
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = ok, onClickLabel = "Select") { actions.onToggleSelect(m.id) }.testTag("chat-select-row"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SelectCircle(m.id in ui.selection.selected, ok)
+                            Box(Modifier.weight(1f)) { MessageRow(m, null, ui, actions, onView) }
+                        }
+                    }
                     is ChatRow.Pending -> PendingRow(row.bubble, ui, actions, onView)
                 }
             }
@@ -412,6 +448,8 @@ private fun MessageRow(m: ChatMessageDto, receipt: ChatRich.Receipt?, ui: ChatUi
     val bubbleColor = if (m.isDeleted) Lab.colors.faint else if (isMe) Lab.colors.accent else Lab.colors.card
     val textColor = if (m.isDeleted) Lab.colors.muted else if (isMe) Color.White else Lab.colors.ink
     val searchQuery = ui.search?.query?.takeIf { it.isNotBlank() && highlighted }
+    val selecting = ui.selection != null
+    RequestWordsOnScreen(m, actions)
     BubbleColumn(isMe, m.sender.name, m.sender_id == CLAUDE_USER_ID) {
         m.reply_to?.let { r ->
             Column(Modifier.padding(bottom = 2.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).clickable { actions.onJumpTo(r.id) }.padding(horizontal = 10.dp, vertical = 5.dp)) {
@@ -426,8 +464,8 @@ private fun MessageRow(m: ChatMessageDto, receipt: ChatRich.Receipt?, ui: ChatUi
                 .background(bubbleColor)
                 .combinedClickable(
                     enabled = !m.isDeleted,
-                    onClick = { if (m.isImage) onView(ViewerTarget(m, null)) },
-                    onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); actions.onOpenSheet(ChatSheet.Actions(m)) },
+                    onClick = { if (selecting) actions.onToggleSelect(m.id) else if (m.isImage) onView(ViewerTarget(m, null)) },
+                    onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); if (selecting) actions.onToggleSelect(m.id) else actions.onOpenSheet(ChatSheet.Actions(m)) },
                 ),
         ) {
             when {
@@ -442,6 +480,17 @@ private fun MessageRow(m: ChatMessageDto, receipt: ChatRich.Receipt?, ui: ChatUi
             }
         }
         if (m.isVoice) Transcript(m, isMe, ui, actions)
+        // PR 3: the tutor's correction under the student's message.
+        m.correction?.takeIf { !m.isDeleted }?.let { c ->
+            CorrectionCard(
+                m, c,
+                tutorView = !isMe && ui.viewerRole == "tutor" && !ui.isAi && !selecting,
+                learnerView = isMe && !selecting,
+                by = ui.otherName.ifEmpty { "Your tutor" },
+                onEdit = { actions.onOpenSheet(ChatSheet.Correct(m)) },
+                onCard = { actions.onCorrectionCard(m) },
+            )
+        }
         if (m.reactions.isNotEmpty() && !m.isDeleted) {
             Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 m.reactions.forEach { r ->
@@ -463,7 +512,11 @@ private fun MessageRow(m: ChatMessageDto, receipt: ChatRich.Receipt?, ui: ChatUi
             if (m.recording_url != null) Text(" 🎤", fontSize = 12.sp)
             if (ui.checkingId == m.id) Status("Checking…")
             if (ui.translatingId == m.id) Status("Translating…")
-            if (!m.isDeleted) {
+            if (!m.isDeleted && !selecting) {
+                // PR 3: 拼 / EN — pinyin and the translation of this message, remembered per conversation.
+                val chinese = MessageTools.looksLikeChinese(if (m.isVoice) m.attachment?.transcript.orEmpty() else m.content)
+                if (chinese) AidToggle("拼", ui.aids.pinyin(m.id), if (ui.aids.pinyin(m.id)) "Hide pinyin" else "Show pinyin", "chat-toggle-pinyin") { actions.onTogglePinyin(m.id) }
+                if (ui.translationOf(m) != null) AidToggle("EN", ui.aids.translation(m.id), if (ui.aids.translation(m.id)) "Hide the translation" else "Show the translation", "chat-toggle-translation") { actions.onToggleTranslation(m.id) }
                 ToolButton("↩", "Reply") { actions.onReply(m) }
                 if (canPlay) ToolButton(if (ui.playingId == m.id) "⏹" else "🔊", if (ui.playingId == m.id) "Stop audio" else "Play audio", enabled = ui.online || ui.playingId == m.id) { actions.onPlay(m) }
                 ToolButton("⋯", "More actions") { actions.onOpenSheet(ChatSheet.Actions(m)) }
@@ -495,7 +548,15 @@ private fun TextBody(m: ChatMessageDto, isMe: Boolean, textColor: Color, query: 
             val invite = ChatLogic.callInvite(m.content)
             Column {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(highlight(invite?.first ?: m.content, query), color = textColor, fontSize = 17.sp, lineHeight = 24.sp, modifier = Modifier.weight(1f, fill = false))
+                    Column(Modifier.weight(1f, fill = false)) {
+                        val shown = invite?.first ?: m.content
+                        ChineseText(
+                            m, shown, if (invite == null && query == null) ui.words(m) else null, isMe, textColor, ui,
+                            onChip = { i -> actions.onChip(m, i) },
+                            plain = { Text(highlight(shown, query), color = textColor, fontSize = 17.sp, lineHeight = 24.sp) },
+                        )
+                        ui.translationOf(m)?.takeIf { ui.aids.translation(m.id) && ui.selection == null }?.let { TranslationLine(it, isMe) }
+                    }
                     val status = ui.checkStatus(m)
                     if (isMe && status != null) {
                         Spacer(Modifier.width(6.dp))
@@ -642,16 +703,17 @@ private fun Transcript(m: ChatMessageDto, isMe: Boolean, ui: ChatUi, actions: Ch
             "done" -> {
                 val t = a.transcript?.trim().orEmpty()
                 if (t.isEmpty()) Text("No speech heard", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, fontStyle = FontStyle.Italic)
-                else Text(highlight(t, ui.search?.query?.takeIf { ui.highlightId == m.id }), fontSize = 17.sp, lineHeight = 24.sp, color = Lab.colors.ink)
-                val tr = a.translation?.takeIf { it.isNotBlank() }
-                if (tr != null) {
-                    val open = m.id in ui.translationsShown
-                    AnimatedVisibility(open) { Text(tr, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.padding(top = 4.dp)) }
-                    Text(
-                        if (open) "Hide translation" else "Translate", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.accent,
-                        modifier = Modifier.padding(top = 2.dp).heightIn(min = 36.dp).clip(RoundedCornerShape(8.dp)).clickable { actions.onToggleTranslation(m.id) }.wrapContentHeight(Alignment.CenterVertically).testTag("chat-voice-translate"),
+                else {
+                    val q = ui.search?.query?.takeIf { ui.highlightId == m.id && it.isNotBlank() }
+                    // PR 3: the transcript's word chips (words_source = transcript), pinyin with 拼.
+                    ChineseText(
+                        m, t, if (q == null && m.words_source == "transcript") ui.words(m) else null, false, Lab.colors.ink, ui,
+                        onChip = { i -> actions.onChip(m, i) },
+                        plain = { Text(highlight(t, q), fontSize = 17.sp, lineHeight = 24.sp, color = Lab.colors.ink) },
                     )
                 }
+                val tr = a.translation?.takeIf { it.isNotBlank() }
+                AnimatedVisibility(tr != null && ui.aids.translation(m.id) && ui.selection == null) { TranslationLine(tr.orEmpty(), false) }
             }
             "failed" -> Text("Couldn't transcribe this one", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, fontStyle = FontStyle.Italic)
             else -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -739,6 +801,8 @@ private fun Composer(ui: ChatUi, actions: ChatActions) {
         }
         if (!ui.online && ui.isAi) InlineNotice("You're offline. Messages to Claude can't be sent until you're back online.", kind = NoticeKind.Offline)
         ui.notice?.let { InlineNotice(it.text, kind = if (it.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice) }
+        if (ui.proposingCards) ProposingRow()
+        DraftCheckPanel(ui.draftCheck, actions)
         if (ui.preparingPhoto) Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = Lab.colors.accent)
             Text("  Preparing the photo…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
@@ -761,6 +825,11 @@ private fun Composer(ui: ChatUi, actions: ChatActions) {
                         modifier = Modifier.weight(1f).testTag("chat-input"),
                     )
                 }
+            }
+            // PR 3: ✓ Check my Chinese before sending (the learner's draft has Chinese).
+            if (ui.recorder is RecorderUi.Idle && dev.jeromeswannack.chineselearning.lab.core.ChatLearning.canCheckDraft(ui.draft, ui.viewerRole, ui.isAi, ui.editing != null)) {
+                Spacer(Modifier.width(2.dp))
+                CheckDraftButton(busy = ui.draftCheck?.loading == true, enabled = ui.online, onClick = actions.onCheckDraft)
             }
             Spacer(Modifier.width(8.dp))
             val showMic = rich && ui.editing == null && ui.draft.isBlank() && ui.recorder !is RecorderUi.Preview

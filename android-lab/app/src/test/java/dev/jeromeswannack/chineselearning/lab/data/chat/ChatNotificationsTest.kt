@@ -69,6 +69,38 @@ class ChatNotificationsTest {
         assertNull(ChatPushData.parse(emptyMap()))
     }
 
+    // ---------------- PR 3: chat_correction ----------------
+
+    private val correctionPush = mapOf(
+        "type" to "chat_correction", "conversation_id" to "c1", "relationship_id" to "r1", "message_id" to "m7",
+        "sender_name" to "Minghui", "content" to "✏️ Minghui corrected your message", "url" to "/connections/r1/chat/c1",
+    )
+
+    @Test fun parsesACorrectionPush() {
+        val e = ChatPushData.parse(correctionPush) as PushEvent.Correction
+        assertEquals("m7", e.messageId)
+        assertEquals(ChatPushData.correctionKey("m7"), e.chat.messageId)
+        assertEquals("✏️ Minghui corrected your message", e.chat.content)
+        assertEquals("Minghui", e.chat.senderName)
+        assertEquals("/connections/r1/chat/c1", e.chat.route)
+        // No relationship id → from the url; no content → the worker's wording; incomplete → ignored.
+        val bare = ChatPushData.parse(mapOf("type" to "chat_correction", "conversation_id" to "c2", "message_id" to "m", "url" to "/connections/r2/chat/c2")) as PushEvent.Correction
+        assertEquals("r2", bare.chat.relationshipId)
+        assertEquals("✏️ Your tutor corrected your message", bare.chat.content)
+        assertNull(ChatPushData.parse(mapOf("type" to "chat_correction", "conversation_id" to "c2")))
+    }
+
+    @Test fun aCorrectionIsALineInTheConversationsNotification() {
+        post(chat("m1", "你好！我昨天去商店买东西了。", "2026-01-02T10:00:00.000Z"))
+        val e = ChatPushData.parse(correctionPush) as PushEvent.Correction
+        assertTrue(post(e.chat))
+        val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification("c1")!!)!!
+        assertEquals(2, style.messages.size)
+        assertEquals("✏️ Minghui corrected your message", style.messages.last().text.toString())
+        assertEquals("Minghui", style.messages.last().person?.name.toString())
+        assertFalse(post(e.chat), "the same correction pushed twice shows once")
+    }
+
     @Test fun pinyinLineOnlyForHanzi() {
         assertEquals("nǐ hǎo!", ChatPinyin.line("你好！"))
         assertEquals("OK, míng tiān jiàn", ChatPinyin.line("OK，明天见"))

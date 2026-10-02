@@ -1947,6 +1947,17 @@ The app supports many-to-many tutor-student relationships where users can be tut
   (`updated_at`) and every change is a `message_updated` event, search in the chat (`shared/chats/search.ts`
   `searchMessages`, Lab `ChatSearch.kt` parity-tested), "New messages" divider + "↓ N new" pill, unread badges on the
   conversation lists. Web: `services/chatLive.ts`, `hooks/useChatThread.ts`, `components/chat/*Bubble.tsx`; Lab: `ui/chat/ChatRich.kt`, `data/chat/ChatMedia.kt`.
+- **Learning tools in the chat** (docs/CHAT.md "PR 3", migration 0091): every Chinese message (and voice transcript)
+  gets reader-style word chips in the background (`messages.words`, `segmentReaderText`; lazily
+  `POST /api/messages/:id/words`) → the reader word sheet (+ Add as card); per-message 拼 / EN toggles (remembered per
+  conversation); **Make flashcards** (select messages / Today / Last 50 → `POST /api/conversations/:id/flashcards/propose`,
+  structuredCall + CARD_STANDARD + FLASHCARD_ITEM_SCHEMA, `already_have` per card → review sheet → one
+  `POST /api/decks/:id/notes/batch`) replaces the old single "+ Card"; **Correct this** (the relationship's tutor,
+  `PUT|DELETE /api/messages/:id/correction`, shown as a `diffHanzi` red-pen diff, push `chat_correction`, the student's
+  "Make a card from this" = propose with `focus: 'correction'`); **Check my Chinese** on the compose box (`/api/sentence/coach`).
+  Which ⋯ tools show is `learningToolsForMessage` in `shared/chats/messageTools.ts` (Lab `MessageTools.kt`, parity-tested).
+  Web: `components/chat/ChatWords.tsx`, `MakeFlashcardsSheet.tsx`, `ChatCorrection.tsx`, `CheckDraftPanel.tsx`,
+  `services/chatLearning.ts`; Lab: `ui/chat/ChatLearningViews.kt`, `ChatCardsSheet.kt`, core `ChatLearning.kt`.
 - **Flashcard Generation**: AI generates flashcards from chat context
 - **Deck Sharing**: Tutors can copy decks to students (auto-added)
 - **Student Progress**: Tutors can view student study statistics

@@ -1,25 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { pinyin } from 'pinyin-pro';
+import { useEffect, useRef, useState } from 'react';
 import { useChatMedia } from '../../services/chatMedia';
 import { formatDuration } from '../../services/chatThread';
-import { looksLikeChinese } from './messageTools';
-
-/** "shì “ qǐng … ”， bú" → "shì “qǐng …”，bú": no spaces inside quotes or before punctuation. */
-function tidyPinyin(s: string): string {
-  return s
-    .replace(/\s+([，。！？、：；”’）」』,.!?;:)])/g, '$1')
-    .replace(/([“‘（「『(])\s+/g, '$1')
-    .replace(/([，。！？、：；])\s*/g, '$1 ')
-    .trim();
-}
+import { ChatWordsText, type TappedWord } from './ChatWords';
+import type { ChatWord } from '../../types';
 
 /** Only one voice message plays at a time across the page. */
 let current: HTMLAudioElement | null = null;
 
 /**
  * A voice message: ▶ / ⏸, a progress bar you can tap to seek, the duration;
- * under it the transcript (hanzi) once the server has it ("Transcribing…"
- * meanwhile) with pinyin (made on the device) and translation toggles.
+ * under it the transcript once the server has it ("Transcribing…" meanwhile)
+ * as word chips, with pinyin / the translation when the message's 拼音 / EN
+ * toggles (in the message's meta row, like a text message) are on.
  */
 export function VoiceBubble({
   messageId,
@@ -29,6 +21,12 @@ export function VoiceBubble({
   transcriptStatus,
   transcript,
   translation,
+  words = null,
+  showPinyin = false,
+  showTranslation = false,
+  known,
+  onTapWord,
+  suppressTap,
 }: {
   messageId: string;
   mediaUrl: string | null | undefined;
@@ -37,14 +35,19 @@ export function VoiceBubble({
   transcriptStatus?: 'pending' | 'done' | 'failed';
   transcript?: string | null;
   translation?: string | null;
+  /** Word chips over the transcript (null until they arrive). */
+  words?: ChatWord[] | null;
+  showPinyin?: boolean;
+  showTranslation?: boolean;
+  known: Set<string>;
+  onTapWord: (tapped: TappedWord) => void;
+  suppressTap?: () => boolean;
 }) {
   const { url, error, retry } = useChatMedia(messageId, mediaUrl, localBlob);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [wantPlay, setWantPlay] = useState(false);
-  const [showPinyin, setShowPinyin] = useState(false);
-  const [showTranslation, setShowTranslation] = useState(false);
   const total = Math.max(durationMs / 1000, 0.1);
 
   useEffect(() => {
@@ -115,8 +118,6 @@ export function VoiceBubble({
 
   const progress = Math.min(1, position / total);
   const text = (transcript || '').trim();
-  const hasChinese = looksLikeChinese(text);
-  const py = useMemo(() => (showPinyin && hasChinese ? tidyPinyin(pinyin(text, { type: 'string', nonZh: 'consecutive' })) : ''), [showPinyin, hasChinese, text]);
 
   return (
     <div className="chat-voice" data-testid="chat-voice">
@@ -151,37 +152,17 @@ export function VoiceBubble({
       )}
       {transcriptStatus === 'done' && text && (
         <div className="chat-voice-transcript">
-          <div className="chat-voice-text" lang={hasChinese ? 'zh' : undefined}>{text}</div>
-          {py && <div className="chat-voice-pinyin">{py}</div>}
-          {showTranslation && translation && <div className="chat-voice-translation">{translation}</div>}
-          <div className="chat-voice-toggles">
-            {hasChinese && (
-              <button
-                type="button"
-                className={`chat-voice-toggle${showPinyin ? ' on' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowPinyin((v) => !v);
-                }}
-                aria-pressed={showPinyin}
-              >
-                拼音
-              </button>
-            )}
-            {translation && (
-              <button
-                type="button"
-                className={`chat-voice-toggle${showTranslation ? ' on' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowTranslation((v) => !v);
-                }}
-                aria-pressed={showTranslation}
-              >
-                EN
-              </button>
-            )}
+          <div className="chat-voice-text">
+            <ChatWordsText
+              text={transcript || ''}
+              words={words}
+              showPinyin={showPinyin}
+              known={known}
+              onTapWord={onTapWord}
+              suppressTap={suppressTap}
+            />
           </div>
+          {showTranslation && translation && <div className="chat-translation">{translation}</div>}
         </div>
       )}
     </div>
