@@ -36,6 +36,7 @@ import {
 } from '../services/calls/store';
 import { closePiece, forceClosePieces, listPieces, registerPiece, storeChunk } from '../services/calls/recording';
 import { advanceCallProcessing, reprocessCall } from '../services/calls/processing';
+import { advanceLessonProcessing, afterCallDeleted, lessonMaterial, lessonProcessingStatus, reportIsCurrent } from '../services/calls/lessons';
 import { createJoinTicket, verifyJoinTicket } from '../services/calls/ticket';
 import { getIceServers } from '../services/calls/ice';
 import { alertCallStarted } from '../services/calls/alerts';
@@ -119,27 +120,56 @@ calls.post('/calls', async (c) => {
 calls.get('/calls/:id', async (c) => {
   try {
     const call = await requireCall(c.env.DB, c.req.param('id'), c.get('user').id);
+    // The review page shows the whole LESSON this call is part of (calls within 20 minutes of each
+    // other, shared/calls/lessons.ts): transcript, recordings, board, chat and the one report.
+    const material = call.lesson_id ? await lessonMaterial(c.env.DB, call.lesson_id) : null;
+    const lessonCallIds = material ? material.calls.map((x) => x.id) : [call.id];
     const [participants, pieces, segments] = await Promise.all([
       getParticipants(c.env.DB, call),
-      listPieces(c.env.DB, call.id),
-      c.env.DB
-        .prepare('SELECT id, piece_id, user_id, start_ms, end_ms, text, language, pinyin, translation FROM call_transcript_segments WHERE call_id = ? ORDER BY start_ms')
-        .bind(call.id)
-        .all(),
+      listPieces(c.env.DB, ...lessonCallIds),
+      material
+        ? Promise.resolve({ results: material.segments })
+        : c.env.DB
+            .prepare('SELECT id, piece_id, user_id, start_ms, end_ms, text, language, pinyin, translation FROM call_transcript_segments WHERE call_id = ? ORDER BY start_ms')
+            .bind(call.id)
+            .all(),
     ]);
     const { board_json, chat_json, summary_json, board_text, diagnostics_json, ...rest } = call;
+    const lessonReport = material?.lesson.summary_json ?? null;
+    let processing = call.processing_status;
+    if (material) {
+      processing = lessonProcessingStatus(material.lesson, material.calls);
+      // A lesson of several calls from before lessons existed gets its combined report on first view.
+      if (material.lesson.processing_status === 'none' && material.calls.every((x) => x.status === 'ended') && !reportIsCurrent(material.lesson, material.calls)) {
+        const kick = advanceLessonProcessing(c.env, material.lesson.id).catch((err) => console.error('[calls] lesson kick failed:', err));
+        const bg = bgContext(c);
+        if (bg) bg.waitUntil(kick);
+        else await kick;
+      }
+    }
     return c.json({
-      call: rest,
+      call: { ...rest, processing_status: processing },
+      /** The lesson: its calls in order (one entry for a lesson of one call). */
+      lesson: material
+        ? {
+            id: material.lesson.id,
+            started_at: material.lesson.started_at,
+            last_ended_at: material.lesson.last_ended_at,
+            processing_status: processing,
+            calls: material.calls.map((x) => ({ id: x.id, status: x.status, created_by: x.created_by, started_at: x.started_at, ended_at: x.ended_at, created_at: x.created_at })),
+          }
+        : null,
       participants,
-      board: board_json ? (JSON.parse(board_json) as BoardItem[]) : [],
-      /** What was typed on the shared text board. */
-      board_text: board_text ?? '',
-      chat: chat_json ? (JSON.parse(chat_json) as CallChatMessage[]) : [],
-      /** Connection events both sides reported (ICE / socket changes, restarts, the route used). */
-      diagnostics: diagnostics_json ? (JSON.parse(diagnostics_json) as CallDiagEntry[]) : [],
-      report: summary_json ? (JSON.parse(summary_json) as CallReport) : null,
+      board: material ? material.board : board_json ? (JSON.parse(board_json) as BoardItem[]) : [],
+      /** What was typed on the shared text board (the lesson's pages). */
+      board_text: material ? material.boardText : board_text ?? '',
+      chat: material ? material.chat : chat_json ? (JSON.parse(chat_json) as CallChatMessage[]) : [],
+      /** Connection events both sides reported (ICE / socket changes, restarts, the route used) + the room's own lines. */
+      diagnostics: material ? material.diagnostics : diagnostics_json ? (JSON.parse(diagnostics_json) as CallDiagEntry[]) : [],
+      report: lessonReport ? (JSON.parse(lessonReport) as CallReport) : summary_json ? (JSON.parse(summary_json) as CallReport) : null,
       pieces: pieces.map((p) => ({
         id: p.id,
+        call_id: p.call_id,
         user_id: p.user_id,
         piece_index: p.piece_index,
         started_at: p.started_at,
@@ -166,6 +196,7 @@ calls.delete('/calls/:id', async (c) => {
       await c.env.CALL_ROOM.get(c.env.CALL_ROOM.idFromName(call.id)).end(call.id, user.id, 'deleted the call');
     }
     const keys = await deleteCallRows(c.env.DB, call.id);
+    await afterCallDeleted(c.env.DB, call.lesson_id);
     for (let i = 0; i < keys.length; i += 500) await c.env.AUDIO_BUCKET.delete(keys.slice(i, i + 500));
     return c.json({ ok: true });
   } catch (error) {
@@ -243,7 +274,12 @@ calls.post('/calls/:id/process', async (c) => {
     const user = c.get('user');
     const call = await requireCall(c.env.DB, c.req.param('id'), user.id);
     if (call.status === 'live') throw new CallError(409, 'End the call first');
-    const closed = await forceClosePieces(c.env.DB, call.id);
+    let closed = await forceClosePieces(c.env.DB, call.id);
+    // The whole lesson: its other ended calls' stale pieces too.
+    if (call.lesson_id) {
+      const others = await c.env.DB.prepare(`SELECT id FROM calls WHERE lesson_id = ? AND id <> ? AND status = 'ended'`).bind(call.lesson_id, call.id).all<{ id: string }>();
+      for (const o of others.results ?? []) closed += await forceClosePieces(c.env.DB, o.id);
+    }
     await reprocessCall(c.env, call.id, { pieces: true, report: true });
     return c.json({ ok: true, closed });
   } catch (error) {

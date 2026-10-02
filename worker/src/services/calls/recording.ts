@@ -53,10 +53,12 @@ export async function getPiece(db: D1Database, pieceId: string): Promise<PieceRo
   return db.prepare('SELECT * FROM call_recording_pieces WHERE id = ?').bind(pieceId).first<PieceRow>();
 }
 
-export async function listPieces(db: D1Database, callId: string): Promise<PieceRow[]> {
+/** The pieces of one call — or of several (a lesson's calls), in call order. */
+export async function listPieces(db: D1Database, ...callIds: string[]): Promise<PieceRow[]> {
+  if (callIds.length === 0) return [];
   const rows = await db
-    .prepare('SELECT * FROM call_recording_pieces WHERE call_id = ? ORDER BY user_id, piece_index')
-    .bind(callId)
+    .prepare(`SELECT * FROM call_recording_pieces WHERE call_id IN (${callIds.map(() => '?').join(',')}) ORDER BY started_at, user_id, piece_index`)
+    .bind(...callIds)
     .all<PieceRow>();
   return rows.results ?? [];
 }

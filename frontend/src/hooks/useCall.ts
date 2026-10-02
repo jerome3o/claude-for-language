@@ -53,7 +53,8 @@ import {
   type MediaProblem,
 } from '../services/calls/mediaAccess';
 
-export type CallPhase = 'prejoin' | 'joining' | 'live' | 'ended' | 'error';
+/** 'left' = I left; the call goes on for the other person (Rejoin brings me back). */
+export type CallPhase = 'prejoin' | 'joining' | 'live' | 'left' | 'ended' | 'error';
 
 export interface RemoteParticipant {
   peer: CallPeer;
@@ -366,7 +367,7 @@ export function useCall(callId: string, myUserId: string) {
     wakeLockRef.current = null;
   }, []);
 
-  const finish = useCallback(async (next: 'ended' | 'error', message?: string) => {
+  const finish = useCallback(async (next: 'ended' | 'error' | 'left', message?: string) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
     if (message) setError(message);
@@ -537,6 +538,19 @@ export function useCall(callId: string, myUserId: string) {
     roomRef.current = room;
     await room.connect();
   }, [callId, onMessage, finish, diag, flushDiag, startPreview]);
+
+  /** Leave (the call goes on for the other person): the room hears `leave`, the page offers Rejoin. */
+  const leave = useCallback(async () => {
+    await finish('left');
+  }, [finish]);
+
+  /** Back into a call I left (same page: a fresh room socket and link; devices restored as I left them). */
+  const rejoin = useCallback(async () => {
+    finishedRef.current = false;
+    setPhase('prejoin');
+    await startPreview();
+    await join({ record: wantRecordRef.current });
+  }, [startPreview, join]);
 
   const endForEveryone = useCallback(async () => {
     const sent = roomRef.current?.send({ type: 'end' });
@@ -758,7 +772,7 @@ export function useCall(callId: string, myUserId: string) {
     devicePrefs, chooseDevice, requestMedia,
     micOn, camOn, facing, recording, pendingUploads, startedAt,
     board, liveStrokes: Object.values(liveStrokes), chat,
-    startPreview, join, endForEveryone, toggleMic, toggleCam, flipCamera,
+    startPreview, join, leave, rejoin, endForEveryone, toggleMic, toggleCam, flipCamera,
     startScreenShare, stopScreenShare, startRecording, stopRecording,
     commitBoard, sendLiveStroke, sendChat,
     textBoard: textRef.current,

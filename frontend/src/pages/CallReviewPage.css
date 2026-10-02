@@ -171,3 +171,9 @@
 .cr-board-page + .cr-board-page { margin-top: 0.9rem; }
 .cr-board-page-title { margin: 0 0 0.35rem; font-size: 0.9rem; font-weight: 600; color: var(--text-secondary, #6b7280); }
 .cr-diag-row.kind-call { font-weight: 600; }
+/* Past calls: one lesson per entry, its calls listed small underneath. */
+.calls-lesson { display: flex; flex-direction: column; }
+.calls-lesson-calls { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; padding: 0 0.75rem 0.6rem 3.1rem; font-size: 0.78rem; color: var(--color-text-muted, #6b7280); }
+.cr-lesson-calls { margin: 0.5rem 0 0.75rem; padding: 0.6rem 0.8rem; border-radius: 10px; background: var(--color-surface-alt, #f3f4f6); font-size: 0.9rem; }
+.cr-lesson-call.is-current { font-weight: 600; }
+.cr-lesson-note { margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted, #6b7280); }

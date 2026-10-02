@@ -19,8 +19,9 @@ import { Hono } from 'hono';
 import type { Env, TutorRelationship } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
 import * as jobs from '../db/tutor-notes-queries';
-import { submitSessionNotes, SubmitError, callNotesFor } from '../services/tutor-notes-submit';
+import { submitSessionNotes, SubmitError, callNotesFor, lessonNotesFor } from '../services/tutor-notes-submit';
 import { requireCall, getParticipants, CallError } from '../services/calls/store';
+import { lessonMaterial } from '../services/calls/lessons';
 
 const tutorNotes = new Hono<{ Bindings: Env }>();
 
@@ -108,31 +109,37 @@ tutorNotes.post('/calls/:id/homework', async (c) => {
     const call = await requireCall(c.env.DB, c.req.param('id'), tutor.id);
     if (!call.relationship_id) throw new HttpError(400, 'This call is not part of a tutor–student connection');
     const { studentId } = await requireTutor(c.env.DB, call.relationship_id, tutor.id);
-    if (call.status === 'live') throw new HttpError(409, 'The call is still live — end it first');
-    if (call.processing_status === 'waiting_uploads' || call.processing_status === 'transcribing' || call.processing_status === 'summarizing') {
+    // The LESSON (every call between the two of them within 20 minutes, shared/calls/lessons.ts)
+    // gets its homework once: on 2 Oct 2026 one lesson of four calls became three homework decks.
+    const material = call.lesson_id ? await lessonMaterial(c.env.DB, call.lesson_id) : null;
+    const calls = material ? material.calls : [call];
+    if (calls.some((x) => x.status === 'live')) throw new HttpError(409, 'The call is still live — end it first');
+    const busy = (s: string) => s === 'waiting_uploads' || s === 'transcribing' || s === 'summarizing';
+    if (calls.some((x) => busy(x.processing_status)) || material?.lesson.processing_status === 'summarizing') {
       throw new HttpError(409, 'The recording is still being transcribed — try again in a minute');
     }
-    const existing = (await jobs.listJobsForCall(c.env.DB, call.id)).find((j) => j.status === 'queued' || j.status === 'running');
-    if (existing) return c.json({ job: jobJson(existing), existing: true }, 200);
+    const made = (await jobs.listJobsForCall(c.env.DB, ...calls.map((x) => x.id))).filter((j) => j.status !== 'failed' && j.status !== 'cancelled');
+    if (made.length > 0) return c.json({ job: jobJson(made[0]), jobs: made.map(jobJson), existing: true }, 200);
 
     const participants = await getParticipants(c.env.DB, call);
-    const { notes } = await callNotesFor(c.env, call, participants);
-    if (!notes) throw new HttpError(400, 'Nothing was transcribed or written in this call yet');
+    const { notes } = material ? await lessonNotesFor(c.env, material, participants) : await callNotesFor(c.env, call, participants);
+    if (!notes) throw new HttpError(400, 'Nothing was transcribed or written in this lesson yet');
 
     const body = await c.req.json<SubmitBody>().catch(() => ({} as SubmitBody));
     const other = participants.find((p) => p.id !== tutor.id);
-    const title = call.title || (other ? `Lesson with ${other.name || other.email.split('@')[0]}` : 'Video lesson');
+    const title = (material?.title ?? call.title) || (other ? `Lesson with ${other.name || other.email.split('@')[0]}` : 'Video lesson');
+    const startedAt = material?.startedAt ?? call.started_at;
     const job = await submitSessionNotes(c.env, {
       relationshipId: call.relationship_id,
       tutor,
       studentId,
       notes,
       title: title.slice(0, 120),
-      lessonAt: call.started_at ? new Date(call.started_at).toISOString() : null,
+      lessonAt: startedAt ? new Date(startedAt).toISOString() : null,
       priority: body.priority === 'non_urgent' ? 'non_urgent' : 'core',
       autoShare: body.auto_share !== false,
       logLesson: body.log_lesson !== false,
-      sourceCallId: call.id,
+      sourceCallId: calls[0].id,
     });
     return c.json({ job: jobJson(job) }, 202);
   } catch (error) {
@@ -140,10 +147,14 @@ tutorNotes.post('/calls/:id/homework', async (c) => {
   }
 });
 
+/** The homework jobs made from this call's LESSON (any of its calls). */
 tutorNotes.get('/calls/:id/homework', async (c) => {
   try {
     const call = await requireCall(c.env.DB, c.req.param('id'), c.get('user').id);
-    const list = await jobs.listJobsForCall(c.env.DB, call.id);
+    const ids = call.lesson_id
+      ? ((await c.env.DB.prepare('SELECT id FROM calls WHERE lesson_id = ?').bind(call.lesson_id).all<{ id: string }>()).results ?? []).map((r) => r.id)
+      : [call.id];
+    const list = await jobs.listJobsForCall(c.env.DB, ...(ids.length ? ids : [call.id]));
     return c.json({ jobs: list.map(jobJson) });
   } catch (error) {
     return errorResponse(c, error, 'Failed to list homework for the call');

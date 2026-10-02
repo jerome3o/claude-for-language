@@ -15,6 +15,8 @@ export interface CallListItem {
   started_at: number | null;
   ended_at: number | null;
   created_at: string;
+  /** The lesson it belongs to (calls within 20 minutes of each other, shared/calls/lessons.ts). */
+  lesson_id?: string | null;
   other_user_name: string | null;
   segment_count: number;
   has_summary: boolean;
@@ -42,8 +44,19 @@ export interface CallParticipant {
   picture_url: string | null;
 }
 
+/** The lesson a call is part of: its calls in order (GET /api/calls/:id). */
+export interface CallLessonInfo {
+  id: string;
+  started_at: number;
+  last_ended_at: number | null;
+  processing_status: CallProcessingStatus;
+  calls: Array<{ id: string; status: CallStatus; created_by: string; started_at: number | null; ended_at: number | null; created_at: string }>;
+}
+
 export interface CallPieceInfo {
   id: string;
+  /** Which call of the lesson it was recorded in. */
+  call_id?: string;
   user_id: string;
   piece_index: number;
   started_at: number;
@@ -77,6 +90,8 @@ export interface CallReport {
 
 export interface CallDetail {
   call: CallInfo;
+  /** The whole lesson: transcript, board, chat, pieces and report below cover all its calls. */
+  lesson?: CallLessonInfo | null;
   participants: CallParticipant[];
   board: BoardItem[];
   /** What was typed on the shared text board. */

@@ -45,7 +45,10 @@ function isBusy(detail: CallDetail | undefined): boolean {
 }
 
 function durationText(detail: CallDetail): string {
-  const { started_at, ended_at } = detail.call;
+  const calls = detail.lesson?.calls ?? [];
+  // A lesson of several calls: from the first call's start to the last one's end.
+  const started_at = calls.length > 1 ? calls[0].started_at : detail.call.started_at;
+  const ended_at = calls.length > 1 ? calls[calls.length - 1].ended_at : detail.call.ended_at;
   if (!started_at || !ended_at) return '';
   const min = Math.max(1, Math.round((ended_at - started_at) / 60_000));
   return `${min} min`;
@@ -270,6 +273,23 @@ export function CallReviewPage() {
           {durationText(detail) && ` · ${durationText(detail)}`}
           <span className="call-beta cr-beta">Beta</span>
         </div>
+        {detail.lesson && detail.lesson.calls.length > 1 && (
+          <div className="cr-lesson-calls" data-testid="lesson-calls">
+            <span>One lesson, {detail.lesson.calls.length} calls in a row:</span>{' '}
+            {detail.lesson.calls.map((c, i) => {
+              const t = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { timeStyle: 'short' });
+              const from = c.started_at ?? Date.parse(c.created_at.replace(' ', 'T') + 'Z');
+              const label = `${t(from)}${c.status === 'live' ? ' (live)' : c.ended_at ? `–${t(c.ended_at)}` : ''}`;
+              return (
+                <span key={c.id} className={`cr-lesson-call${c.id === callId ? ' is-current' : ''}`}>
+                  {i > 0 && ' · '}
+                  {c.status === 'live' ? <Link to={`/calls/${c.id}`}>{label}</Link> : label}
+                </span>
+              );
+            })}
+            <div className="cr-lesson-note">The transcript, board, report and homework below cover all of them.</div>
+          </div>
+        )}
 
         {call.status === 'live' && (
           <div className="cr-banner">
@@ -339,7 +359,8 @@ export function CallReviewPage() {
             callId={callId}
             relId={relId}
             studentName={other?.name || other?.email.split('@')[0] || 'the student'}
-            ready={call.status === 'ended' && !isBusy(detail)}
+            ready={call.status === 'ended' && !isBusy(detail) && !(detail.lesson?.calls.some((c) => c.status === 'live') ?? false)}
+            callCount={detail.lesson?.calls.length ?? 1}
           />
         )}
 

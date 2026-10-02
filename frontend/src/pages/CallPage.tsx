@@ -121,6 +121,7 @@ export function CallPage() {
   }, [layout, user]);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [endConfirm, setEndConfirm] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   // A device problem in the call is shown until dismissed (a new problem shows again).
   const [dismissedProblem, setDismissedProblem] = useState('');
@@ -226,6 +227,23 @@ export function CallPage() {
   if (detail.call.status === 'ended' && call.phase === 'prejoin') return <Navigate to={`/calls/${callId}/review`} replace />;
 
   // ------------------------------------------------ ended
+  if (call.phase === 'left') {
+    return (
+      <div className="call-page call-center" data-testid="call-left">
+        <div className="call-ended-card">
+          <div className="call-ended-emoji" aria-hidden="true">🚪</div>
+          <h1>You left the call</h1>
+          <p className="call-muted">
+            It goes on for {detail.participants.find((p) => p.id !== call.myUserId)?.name?.split(' ')[0] ?? 'the other person'} — rejoin from here or from another device. A call nobody is in ends by itself after 10 minutes.
+          </p>
+          <div className="call-ended-actions">
+            <button type="button" className="btn btn-primary" onClick={() => void call.rejoin()} data-testid="rejoin-call">Rejoin</button>
+            <Link to="/calls" className="btn btn-secondary">All calls</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (call.phase === 'ended' || call.phase === 'error') {
     return (
       <div className="call-page call-center" data-testid="call-ended">
@@ -560,6 +578,7 @@ export function CallPage() {
           {moreOpen && (
             <div className="call-more-menu" role="menu" onClick={() => setMoreOpen(false)}>
               <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
+              <button type="button" role="menuitem" onClick={() => void call.leave()} data-testid="menu-leave">🚪 Leave — the call goes on</button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}
               {CallRecorder.supported() && (
                 <button type="button" role="menuitem" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())}>
@@ -572,16 +591,39 @@ export function CallPage() {
         </div>
         <button
           type="button"
+          className="call-btn leave"
+          onClick={() => void call.leave()}
+          aria-label="Leave — the call continues"
+          title="Leave — the call continues (rejoin any time, e.g. from another device)"
+          data-testid="leave-call"
+        >
+          <span aria-hidden="true">🚪</span>
+          <span className="call-btn-label">Leave</span>
+        </button>
+        <button
+          type="button"
           className="call-btn end"
-          onClick={() => {
-            if (confirm('End the call for everyone?')) void call.endForEveryone();
-          }}
-          aria-label="End call"
-          title="End call"
+          onClick={() => setEndConfirm(true)}
+          aria-label="End the call for everyone"
+          title="End the call for everyone"
           data-testid="end-call"
         >
           📞
         </button>
+        {endConfirm && (
+          <div className="call-end-confirm" role="alertdialog" aria-label="End the call?" data-testid="end-confirm">
+            <p>
+              <strong>End the call for everyone?</strong>
+              <br />
+              To switch device or step away, <em>Leave</em> instead — the call goes on.
+            </p>
+            <div className="call-end-confirm-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => { setEndConfirm(false); void call.leave(); }} data-testid="end-confirm-leave">Just leave</button>
+              <button type="button" className="btn btn-danger" onClick={() => { setEndConfirm(false); void call.endForEveryone(); }} data-testid="end-confirm-end">End for everyone</button>
+              <button type="button" className="btn btn-link" onClick={() => setEndConfirm(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

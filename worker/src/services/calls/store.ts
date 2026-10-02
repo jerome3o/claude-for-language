@@ -10,6 +10,7 @@ import { createConversation, sendMessage } from '../conversations';
 import { fetchLastConversationId } from '../../db/tutor-dashboard-queries';
 import type { BoardItem, CallChatMessage, CallDiagEntry } from '@shared/calls';
 import { CLAUDE_AI_USER_ID } from '../../types';
+import { lessonForNewCall, refreshLessonEnd } from './lessons';
 
 export class CallError extends Error {
   constructor(public status: 400 | 403 | 404 | 409 | 503, message: string) {
@@ -36,6 +37,8 @@ export interface CallRow {
   diagnostics_json?: string | null;
   chat_json: string | null;
   summary_json: string | null;
+  /** The lesson this call is part of (migration 0089; services/calls/lessons.ts). */
+  lesson_id?: string | null;
   created_at: string;
 }
 
@@ -111,6 +114,8 @@ export async function createCall(
   }
   const id = generateId();
   const title = (input.title || '').trim().slice(0, 120) || null;
+  // Within 20 minutes of the last call between these people: the same lesson.
+  const lessonId = await lessonForNewCall(db, relId, userId);
   if (relId) {
     // Both people pressing "Video call" at the same moment used to make two calls: each joined
     // one, and the other stayed "live" with nobody in it. One statement, so the check and the
@@ -118,11 +123,11 @@ export async function createCall(
     // is returned instead (both end up in the same room).
     const res = await db
       .prepare(
-        `INSERT INTO calls (id, relationship_id, created_by, title, status)
-         SELECT ?, ?, ?, ?, 'live'
+        `INSERT INTO calls (id, relationship_id, created_by, title, status, lesson_id)
+         SELECT ?, ?, ?, ?, 'live', ?
           WHERE NOT EXISTS (SELECT 1 FROM calls WHERE relationship_id = ? AND status = 'live' AND created_at >= datetime('now', ?))`,
       )
-      .bind(id, relId, userId, title, relId, `-${REUSE_LIVE_CALL_MINUTES} minutes`)
+      .bind(id, relId, userId, title, lessonId, relId, `-${REUSE_LIVE_CALL_MINUTES} minutes`)
       .run();
     if ((res.meta?.changes ?? 0) === 0) {
       const existing = await db
@@ -131,12 +136,12 @@ export async function createCall(
         .first<CallRow>();
       if (existing) return Object.assign(existing, { reused: true });
       // It ended in between: make a new one after all.
-      await db.prepare(`INSERT INTO calls (id, relationship_id, created_by, title, status) VALUES (?, ?, ?, ?, 'live')`).bind(id, relId, userId, title).run();
+      await db.prepare(`INSERT INTO calls (id, relationship_id, created_by, title, status, lesson_id) VALUES (?, ?, ?, ?, 'live', ?)`).bind(id, relId, userId, title, lessonId).run();
     }
   } else {
     await db
-      .prepare(`INSERT INTO calls (id, relationship_id, created_by, title, status) VALUES (?, ?, ?, ?, 'live')`)
-      .bind(id, relId, userId, title)
+      .prepare(`INSERT INTO calls (id, relationship_id, created_by, title, status, lesson_id) VALUES (?, ?, ?, ?, 'live', ?)`)
+      .bind(id, relId, userId, title, lessonId)
       .run();
   }
   if (relId && opts.joinUrl) {
@@ -161,6 +166,10 @@ export interface CallListItem {
   started_at: number | null;
   ended_at: number | null;
   created_at: string;
+  /** The lesson it is part of: the Past calls list shows one entry per lesson (groupCallsByLesson). */
+  lesson_id: string | null;
+  /** The lesson has a report (the lesson's, or this call's from before lessons). */
+  lesson_has_summary?: boolean;
   other_user_name: string | null;
   segment_count: number;
   has_summary: boolean;
@@ -187,8 +196,8 @@ export async function listCalls(
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const rows = await db
     .prepare(
-      `SELECT c.id, c.relationship_id, c.created_by, c.title, c.status, c.processing_status, c.started_at, c.ended_at, c.created_at,
-              (c.summary_json IS NOT NULL) AS has_summary,
+      `SELECT c.id, c.relationship_id, c.created_by, c.title, c.status, c.processing_status, c.started_at, c.ended_at, c.created_at, c.lesson_id,
+              (c.summary_json IS NOT NULL OR EXISTS (SELECT 1 FROM call_lessons l WHERE l.id = c.lesson_id AND l.summary_json IS NOT NULL)) AS has_summary,
               (SELECT COUNT(*) FROM call_transcript_segments s WHERE s.call_id = c.id) AS segment_count,
               (SELECT COALESCE(u.name, u.email) FROM tutor_relationships r
                  JOIN users u ON u.id = CASE WHEN r.requester_id = ? THEN r.recipient_id ELSE r.requester_id END
@@ -231,7 +240,12 @@ export async function markCallEnded(db: D1Database, callId: string, endedAt = Da
     .prepare(`UPDATE calls SET status = 'ended', ended_at = ? WHERE id = ? AND status = 'live'`)
     .bind(endedAt, callId)
     .run();
-  return (res.meta?.changes ?? 0) > 0;
+  const changed = (res.meta?.changes ?? 0) > 0;
+  if (changed) {
+    const row = await db.prepare('SELECT lesson_id FROM calls WHERE id = ?').bind(callId).first<{ lesson_id: string | null }>();
+    if (row?.lesson_id) await refreshLessonEnd(db, row.lesson_id);
+  }
+  return changed;
 }
 
 export async function deleteCallRows(db: D1Database, callId: string): Promise<string[]> {
