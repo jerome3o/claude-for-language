@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,7 +39,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -60,8 +64,18 @@ import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-/** One tile's content; [content] gets the tile's role (a floating camera is drawn compactly). */
-class TileSpec(val label: String, val closable: Boolean = false, val content: @Composable (Role) -> Unit)
+/**
+ * One tile's content; [content] gets the tile's role (a floating camera is drawn compactly).
+ * [onLongPress]: a long-press on the tile on the stage (round 4: the shared screen / the board → the
+ * "board beside the screen" menu).
+ */
+class TileSpec(val label: String, val closable: Boolean = false, val onLongPress: (() -> Unit)? = null, val content: @Composable (Role) -> Unit)
+
+/** Round 4: the room the text board leaves at its top for the faces box (core `layoutRects(…).textInsetTop`), for the TEXT tile's content. */
+val LocalTextInsetTop = compositionLocalOf { 0.dp }
+
+/** The split divider's touch target across its line (the drawn gap stays [CallLayout.DIVIDER]). */
+internal val DIVIDER_TOUCH = 44.dp
 
 private val SPRING = spring<IntOffset>(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
 private val SIZE_SPRING = spring<androidx.compose.ui.unit.Dp>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
@@ -73,7 +87,10 @@ private val VIDEO_TILES = setOf(TileId.REMOTE, TileId.SELF, TileId.SCREEN)
  * and the board keeps its caret when the layout changes.
  *
  * - Double-tap a video tile (or tap its ⤢) to focus it; a rail tile focuses on a single tap.
- * - Split: drag the divider.
+ * - Split: drag the divider (a ≥ 44 dp handle). Phones split only a shared screen with a board
+ *   (round 4): stacked in portrait, side by side in landscape.
+ * - Round 4: a long-press on the shared screen / the board ([TileSpec.onLongPress]) opens the
+ *   "board beside the screen" menu; the text board leaves [LocalTextInsetTop] for the faces box.
  * - Floating cameras: drag anywhere, they spring to the nearest corner; my own camera has a resize handle.
  * - Faces together (content on the stage): both cameras in ONE box — drag it and it springs to a corner
  *   (a light haptic), resize it with its grip, tap it for Speaker. The camera tiles stay the same
@@ -108,11 +125,13 @@ fun CallTiles(
             val r = rects.tiles.getValue(id)
             if (r.role == Role.HIDDEN) continue
             key(id) {
+                CompositionLocalProvider(LocalTextInsetTop provides if (id == TileId.TEXT) rects.textInsetTop.dp else 0.dp) {
                 TileFrame(
                     id, spec, r, rects.stage, focused = focusedTile == id, narrow = narrow, layout = layout, available = available,
                     onAction = onAction, onReplace = onReplace, onTick = onTick, onSnap = onSnap,
                     pairDrag = { pairDrag.value },
                 )
+                }
             }
         }
         rects.divider?.let { d -> SplitDivider(d, rects.stage, onAction) }
@@ -196,8 +215,14 @@ private fun TileFrame(
                 onDrag = { change, amount -> change.consume(); drag += amount },
             )
         }
-    if (floating || (r.role == Role.STAGE && id in VIDEO_TILES)) m = m.pointerInput(id, "double-tap") {
-        detectTapGestures(onDoubleTap = { onAction(Action.Focus(id)); onTick() })
+    val doubleTap = floating || (r.role == Role.STAGE && id in VIDEO_TILES)
+    val longPress = spec.onLongPress?.takeIf { r.role == Role.STAGE }
+    val haptic = LocalHapticFeedback.current
+    if (doubleTap || longPress != null) m = m.pointerInput(id, "taps", longPress != null) {
+        detectTapGestures(
+            onDoubleTap = if (doubleTap) { _ -> onAction(Action.Focus(id)); onTick() } else null,
+            onLongPress = if (longPress != null) { _ -> haptic.performHapticFeedback(HapticFeedbackType.LongPress); longPress() } else null,
+        )
     }
     // Phones: swipe left / right on the stage between tiles.
     if (narrow && r.role == Role.STAGE) m = m.pointerInput(id, "swipe") {
@@ -390,16 +415,22 @@ private fun SplitDivider(d: CallLayout.Divider, stage: CallLayout.Box, onAction:
     val stageBox by rememberUpdatedState(stage)
     val div by rememberUpdatedState(d)
     val row = d.dir == CallLayout.Dir.ROW
+    // The touch target is ≥ 44 dp across the line; the gap drawn between the panes stays 12 dp.
+    val pad = ((DIVIDER_TOUCH.value - CallLayout.DIVIDER) / 2).coerceAtLeast(0.0)
     Box(
         Modifier
-            .offset { with(density) { IntOffset(d.x.dp.roundToPx(), d.y.dp.roundToPx()) } }
-            .size(d.w.dp, d.h.dp)
+            .offset { with(density) { IntOffset((d.x - if (row) pad else 0.0).dp.roundToPx(), (d.y - if (row) 0.0 else pad).dp.roundToPx()) } }
+            .size(if (row) DIVIDER_TOUCH else d.w.dp, if (row) d.h.dp else DIVIDER_TOUCH)
             .zIndex(2f)
             .testTag("split-divider")
+            .semantics { contentDescription = if (row) "Drag to resize the two panes" else "Drag to resize the two panes (up / down)" }
             .pointerInput(Unit) {
                 var at = 0.0
                 detectDragGestures(
-                    onDragStart = { o -> at = if (div.dir == CallLayout.Dir.ROW) div.x + o.x / density.density else div.y + o.y / density.density },
+                    onDragStart = { o ->
+                        val p = pad
+                        at = if (div.dir == CallLayout.Dir.ROW) div.x - p + o.x / density.density else div.y - p + o.y / density.density
+                    },
                     onDrag = { change, amount ->
                         change.consume()
                         val s = stageBox
@@ -410,7 +441,12 @@ private fun SplitDivider(d: CallLayout.Divider, stage: CallLayout.Box, onAction:
             },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(if (row) 4.dp else 40.dp, if (row) 40.dp else 4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x99FFFFFF)))
+        // A grip pill on the line, so it reads as something to drag.
+        Box(
+            Modifier.size(if (row) 8.dp else 48.dp, if (row) 48.dp else 8.dp).clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF374151)).border(1.dp, Color(0x66FFFFFF), RoundedCornerShape(4.dp)),
+            contentAlignment = Alignment.Center,
+        ) { Box(Modifier.size(if (row) 2.dp else 24.dp, if (row) 24.dp else 2.dp).clip(RoundedCornerShape(1.dp)).background(Color(0xCCFFFFFF))) }
     }
 }
 

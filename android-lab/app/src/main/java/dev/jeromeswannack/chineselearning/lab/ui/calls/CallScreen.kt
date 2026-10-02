@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -201,6 +203,8 @@ fun CallScreen(
     layout: CallLayoutHolder? = null,
     /** Screenshots: End's confirm already open. */
     initialEndConfirm: Boolean = false,
+    /** Screenshots: the long-press "board beside the screen" menu already open for this tile. */
+    initialSplitMenu: CallLayout.TileId? = null,
 ) {
     when {
         info.loading -> Center { Text("Loading the call…", color = OnDark) }
@@ -212,7 +216,7 @@ fun CallScreen(
         s.phase == CallPhase.LEFT -> Left(s, info, actions)
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu)
     }
 }
 
@@ -452,11 +456,16 @@ fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
 }
 
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false) {
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
     var layoutSheet by remember { mutableStateOf(false) }
     var confirmEnd by remember { mutableStateOf(initialEndConfirm) }
+    // Round 4: the long-press menu on the shared screen / the board ("Show the board beside the screen" …).
+    var splitMenu by remember { mutableStateOf(initialSplitMenu) }
+    // The tiles box (dp), for the menu's wording (beside / below) and the chip's default.
+    var tilesW by remember { mutableStateOf(0.0) }
+    var tilesH by remember { mutableStateOf(0.0) }
     var now by remember { mutableLongStateOf(nowMs()) }
     LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1_000); now = nowMs() } }
     val remote = s.remote
@@ -489,11 +498,17 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         LaunchedEffect(chatVisible, s.chat.size) { if (chatVisible) seenChat = s.chat.size }
         val boardOnStage = CallLayout.boardOnStage(layout)
         val dispatch: (CallLayout.Action) -> Unit = { h.dispatch(it) }
+        val applySplit: (ScreenBoardSplit.Choice, CallLayout.TileId) -> Unit = { choice, board ->
+            splitMenu = null
+            if (h.applySplit(choice, board)) actions.onTick()
+        }
 
         val boardSwitch: @Composable (CallLayout.TileId) -> Unit = { current ->
             Row(Modifier.padding(start = 8.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Tab("Board", current == CallLayout.TileId.TEXT) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.DRAW, CallLayout.TileId.TEXT)); actions.onTick() }
                 Tab("Draw", current == CallLayout.TileId.DRAW) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.TEXT, CallLayout.TileId.DRAW)); actions.onTick() }
+                // Round 4: something is shared — the board with the screen (the same menu as a long-press).
+                if (available.screen) Tab(if (ScreenBoardSplit.isSplit(layout)) "🖥️ ⋯" else "+ 🖥️", false) { splitMenu = current }
             }
         }
         val tiles = buildMap<CallLayout.TileId, TileSpec> {
@@ -535,7 +550,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     else Text(if (s.micOn && s.hasMic) "You" else "🔇 You", color = OnDark, fontSize = 13.sp)
                 }
             })
-            if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen") { _ ->
+            if (available.screen) put(CallLayout.TileId.SCREEN, TileSpec(if (remoteSharing) "$first’s screen" else "Your screen", onLongPress = { splitMenu = CallLayout.TileId.SCREEN }) { _ ->
                 Box(Modifier.fillMaxSize().background(Color.Black)) {
                     // Their shared screen — or MY own, as big as any tile: either person can draw on it
                     // (circle a character); a tap is a "look here" ping. Strokes show on both sides.
@@ -552,15 +567,23 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                         onToggle = { annotating = !annotating; actions.onTick() }, onColor = { annotColor = it; actions.onTick() },
                         onClear = actions.onClearAnnotations, onKeep = actions.onAnnotationsKept,
                     )
+                    // Round 4: the board is open → one tap puts it beside / below the screen (and back).
+                    val split = ScreenBoardSplit.isSplit(layout)
+                    if (split || CallLayout.TileId.TEXT in layout.open || CallLayout.TileId.DRAW in layout.open) SplitChip(
+                        split, Modifier.align(Alignment.TopStart).padding(8.dp),
+                        onClick = { applySplit(ScreenBoardSplit.toggle(layout, tilesW, tilesH), ScreenBoardSplit.boardOf(layout)) },
+                        onLongClick = { splitMenu = CallLayout.TileId.SCREEN },
+                    )
                 }
             })
-            put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true) { _ ->
+            put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true, onLongPress = if (available.screen) ({ splitMenu = CallLayout.TileId.TEXT }) else null) { _ ->
                 Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
                     boardSwitch(CallLayout.TileId.TEXT)
                     TextBoardPanel(
                         s.textBoard, actions.onTextChanged, actions.onTextSelected, actions.onTextBlurred, Modifier.fillMaxWidth().weight(1f),
                         explain = actions.explain, gloss = actions.gloss, glossOn = info.boardGlossOn, onGlossOn = actions.onBoardGlossOn,
                         previewSuggestion = info.boardGlossPreview,
+                        topInset = LocalTextInsetTop.current,
                     )
                     // Board pages (an older room has none): the strip, where they are, following.
                     if (s.pages.current != null) BoardPagesStrip(
@@ -572,7 +595,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     )
                 }
             })
-            put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true) { _ ->
+            put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true, onLongPress = if (available.screen) ({ splitMenu = CallLayout.TileId.DRAW }) else null) { _ ->
                 Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
                     boardSwitch(CallLayout.TileId.DRAW)
                     Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
@@ -599,9 +622,13 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 if (s.roomStatus == RoomStatus.RECONNECTING) Chip("Reconnecting…", Palette.Hard)
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
+                val density = LocalDensity.current
                 CallTiles(
                     layout, dispatch, h::replace, available, tiles, aspects,
-                    Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                    Modifier.fillMaxSize().padding(horizontal = 8.dp).onSizeChanged {
+                        tilesW = kotlin.math.floor(it.width / density.density.toDouble())
+                        tilesH = kotlin.math.floor(it.height / density.density.toDouble())
+                    },
                     onTick = actions.onTick, onSnap = actions.onSnap,
                 )
                 // "Minghui brought you to page 3" / "… deleted page 2".
@@ -663,6 +690,27 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 onCancel = { confirmEnd = false },
             )
         }
+        // Round 4: the long-press menu — a scrim and a card above the controls (in the tree, like End's confirm).
+        val menuFor = splitMenu?.takeIf { available.screen }
+        androidx.compose.animation.AnimatedVisibility(menuFor != null, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+            Box(
+                Modifier.fillMaxSize().background(Color(0x99000000))
+                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { splitMenu = null },
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            menuFor != null,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = (if (wide) 52.dp else 48.dp) + 36.dp, start = 16.dp, end = 16.dp),
+            enter = androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(dampingRatio = 0.75f, stiffness = 500f)) { it / 3 } + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            val pressed = menuFor ?: CallLayout.TileId.SCREEN
+            ScreenBoardMenu(
+                ScreenBoardSplit.menu(layout, available, tilesW, tilesH, pressed),
+                onPick = { applySplit(it, ScreenBoardSplit.boardOf(layout, pressed)) },
+                onCancel = { splitMenu = null },
+            )
+        }
         if (layoutSheet) LabBottomSheet(onDismiss = { layoutSheet = false }, title = "Layout") {
             CallLayoutMenu(layout, available, first, onAction = { dispatch(it); actions.onTick() }, close = { layoutSheet = false })
         }
@@ -671,6 +719,77 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         CallMoreMenu(s, info, actions, close = { more = false })
     }
     androidx.activity.compose.BackHandler(enabled = confirmEnd) { confirmEnd = false }
+    androidx.activity.compose.BackHandler(enabled = splitMenu != null) { splitMenu = null }
+}
+
+/** Round 4: the shared screen's "📝 + 🖥️" chip — the board beside / below the screen, or (split) the screen alone. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun SplitChip(split: Boolean, modifier: Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Row(
+        modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xD1111827))
+            .border(1.dp, Color(0x47FFFFFF), RoundedCornerShape(12.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick, role = androidx.compose.ui.semantics.Role.Button)
+            .semantics { contentDescription = if (split) "Show the screen only" else "Show the board with the screen" }
+            .testTag("split-chip")
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(if (split) "🖥️ only" else "📝 + 🖥️", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Round 4: the long-press menu (web: the drop zones / "Move to …"), as a card. */
+@Composable
+fun ScreenBoardMenu(items: List<ScreenBoardSplit.Item>, onPick: (ScreenBoardSplit.Choice) -> Unit, onCancel: () -> Unit) {
+    Column(
+        Modifier.widthIn(max = 420.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).padding(vertical = 10.dp).testTag("split-menu"),
+    ) {
+        Text(
+            "Screen and board", color = Color(0xFF6B7280), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+        )
+        items.forEach { item ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    .bouncyClickable(pressedScale = 0.98f, role = androidx.compose.ui.semantics.Role.Button) { onPick(item.choice) }
+                    .padding(horizontal = 18.dp, vertical = 8.dp)
+                    .testTag("split-menu-${item.choice.name.lowercase()}"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                SplitIcon(item.choice, if (item.current) Lab.colors.accent else Color(0xFF6B7280))
+                Text(item.label, color = Color(0xFF111827), fontSize = 16.sp, modifier = Modifier.weight(1f))
+                if (item.current) Text("✓", color = Lab.colors.accent, fontWeight = FontWeight.Bold)
+            }
+        }
+        Box(
+            Modifier.fillMaxWidth().height(44.dp).bouncyClickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onCancel),
+            contentAlignment = Alignment.Center,
+        ) { Text("Cancel", color = Color(0xFF4B5563), fontSize = 15.sp) }
+    }
+}
+
+/** A small diagram of the choice: the screen (filled) and the board (outlined). */
+@Composable
+private fun SplitIcon(choice: ScreenBoardSplit.Choice, color: Color) {
+    Box(
+        Modifier.size(30.dp, 22.dp).border(2.dp, color, RoundedCornerShape(3.dp)).drawBehind {
+            val w = size.width
+            val h = size.height
+            when (choice) {
+                ScreenBoardSplit.Choice.BESIDE -> drawRect(color, size = androidx.compose.ui.geometry.Size(w / 2, h))
+                ScreenBoardSplit.Choice.BELOW -> drawRect(color, size = androidx.compose.ui.geometry.Size(w, h / 2))
+                ScreenBoardSplit.Choice.ABOVE -> drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(0f, h / 2), size = androidx.compose.ui.geometry.Size(w, h / 2))
+                ScreenBoardSplit.Choice.SCREEN_ONLY -> drawRect(color, size = androidx.compose.ui.geometry.Size(w, h))
+                ScreenBoardSplit.Choice.BOARD_ONLY -> {
+                    val s = 2.dp.toPx()
+                    for (i in 1..3) drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(w * 0.2f, h * i / 4.5f), size = androidx.compose.ui.geometry.Size(w * 0.6f, s))
+                }
+            }
+        },
+    )
 }
 
 /**

@@ -19,6 +19,12 @@ import {
   PAIR_PAD,
   PAIR_GAP,
   TILE_HEADER,
+  dropZoneAt,
+  dropZoneBox,
+  layoutForDrop,
+  narrowSplitAllowed,
+  splitDirFor,
+  type TileId,
 } from './layout';
 
 const NO_SCREEN = { screen: false };
@@ -315,5 +321,76 @@ describe('rectangles', () => {
     expect(s.h).toBeLessThanOrEqual(350);
     const big = floatingSize({ x: 0, y: 0, w: 1440, h: 800 }, 16 / 9, 2, false);
     expect(big.w).toBeLessThanOrEqual(720);
+  });
+});
+
+describe('round 4: drag and drop onto the stage', () => {
+  it('a point near an edge is that half; the middle is the whole stage', () => {
+    expect(dropZoneAt(0.05, 0.5)).toBe('left');
+    expect(dropZoneAt(0.95, 0.4)).toBe('right');
+    expect(dropZoneAt(0.5, 0.1)).toBe('top');
+    expect(dropZoneAt(0.5, 0.9)).toBe('bottom');
+    expect(dropZoneAt(0.5, 0.5)).toBe('full');
+    expect(dropZoneAt(0.31, 0.5)).toBe('full');
+    // A corner: the nearer edge wins.
+    expect(dropZoneAt(0.05, 0.2)).toBe('left');
+    expect(dropZoneAt(-1, 2)).toBe('left');
+  });
+
+  it('highlights the half the tile will take', () => {
+    const stage = { x: 0, y: 0, w: 1000, h: 600 };
+    expect(dropZoneBox('left', stage)).toEqual({ x: 0, y: 0, w: 500, h: 600 });
+    expect(dropZoneBox('right', stage)).toEqual({ x: 500, y: 0, w: 500, h: 600 });
+    expect(dropZoneBox('bottom', stage)).toEqual({ x: 0, y: 300, w: 1000, h: 300 });
+    expect(dropZoneBox('full', stage)).toEqual(stage);
+  });
+
+  it('dropping a tile on a half splits it with what was on the stage; full focuses it', () => {
+    const shared = { ...DEFAULT_LAYOUT, mode: 'focus' as const, main: 'screen' as const };
+    const right = layoutForDrop(shared, 'text', 'right');
+    expect(right).toMatchObject({ mode: 'split', main: 'screen', second: 'text', dir: 'row', ratio: 0.5 });
+    expect(right.open).toContain('text');
+    expect(layoutForDrop(shared, 'text', 'top')).toMatchObject({ mode: 'split', main: 'text', second: 'screen', dir: 'column' });
+    expect(layoutForDrop(right, 'chat', 'full')).toMatchObject({ mode: 'focus', main: 'chat' });
+    // Already focused + dropped on a half: nothing to pair it with.
+    expect(layoutForDrop(shared, 'screen', 'left')).toMatchObject({ mode: 'focus', main: 'screen' });
+  });
+
+  it('in a split, a half replaces that side and keeps the other; same direction keeps the divider', () => {
+    const split = { ...DEFAULT_LAYOUT, mode: 'split' as const, main: 'screen' as const, second: 'text' as const, dir: 'row' as const, ratio: 0.7 };
+    expect(layoutForDrop(split, 'draw', 'left')).toMatchObject({ main: 'draw', second: 'text', ratio: 0.7 });
+    expect(layoutForDrop(split, 'draw', 'right')).toMatchObject({ main: 'screen', second: 'draw', ratio: 0.7 });
+    // Moving a pane to the other side swaps them.
+    expect(layoutForDrop(split, 'text', 'left')).toMatchObject({ main: 'text', second: 'screen' });
+    expect(layoutForDrop(split, 'draw', 'bottom')).toMatchObject({ main: 'screen', second: 'draw', dir: 'column', ratio: 0.5 });
+    expect(layoutReducer(split, { type: 'drop', tile: 'chat', zone: 'full' })).toMatchObject({ mode: 'focus', main: 'chat' });
+  });
+
+  it('phones split a shared screen with a board — stacked in portrait, side by side in landscape — and nothing else', () => {
+    const l = { ...DEFAULT_LAYOUT, mode: 'split' as const, main: 'screen' as const, second: 'text' as const, open: ['remote', 'self', 'text'] as TileId[] };
+    expect(narrowSplitAllowed(l)).toBe(true);
+    expect(narrowSplitAllowed({ ...l, second: 'chat' })).toBe(false);
+    const arr = arrangeTiles(l, { screen: true }, 412);
+    expect(arr.mode).toBe('split');
+    expect(arr.stage).toEqual(['screen', 'text']);
+    expect(arr.pair).toBe(l.pairCorner); // faces float over them
+    const portrait = layoutRects(l, arr, { w: 412, h: 800 });
+    expect(portrait.divider?.dir).toBe('column');
+    const landscape = layoutRects(l, arrangeTiles(l, { screen: true }, 600), { w: 600, h: 380 });
+    expect(landscape.divider?.dir).toBe('row');
+    // Without a screen: the board alone, as before.
+    expect(arrangeTiles(l, { screen: false }, 412).mode).toBe('focus');
+    expect(splitDirFor({ dir: 'column' }, { w: 1200, h: 800 })).toBe('column');
+  });
+
+  it('the text board leaves room at its top for the faces box in a top corner', () => {
+    const l = { ...DEFAULT_LAYOUT, mode: 'focus' as const, main: 'text' as const, open: ['remote', 'self', 'text'] as TileId[] };
+    const box = { w: 1280, h: 680 };
+    const r = layoutRects(l, arrangeTiles(l, { screen: false }, box.w), box);
+    expect(r.pair).not.toBeNull();
+    expect(r.textInsetTop).toBe(r.pair!.y + r.pair!.h + 4 - r.tiles.text.y - TILE_HEADER.text!);
+    expect(r.textInsetTop).toBeGreaterThan(0);
+    const bottom = layoutRects({ ...l, pairCorner: 'br' }, arrangeTiles({ ...l, pairCorner: 'br' }, { screen: false }, box.w), box);
+    expect(bottom.textInsetTop).toBe(0);
   });
 });

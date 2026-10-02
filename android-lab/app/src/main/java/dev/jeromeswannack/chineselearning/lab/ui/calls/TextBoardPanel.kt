@@ -75,6 +75,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.calls.BoardField
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallGloss
@@ -154,6 +155,11 @@ fun TextBoardPanel(
     previewSuggestion: GlossSuggestion? = null,
     /** Screenshots: this person's chip already lit up (as after a tap near their caret). */
     previewHighlight: String? = null,
+    /**
+     * Room left at the top for the faces box floating in a top corner over the board (core
+     * `layoutRects(…).textInsetTop`, round 4), so it never covers the first lines.
+     */
+    topInset: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     var value by remember { mutableStateOf(TextFieldValue(board.text, TextRange(if (previewSuggestion != null) board.text.length else 0))) }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -263,7 +269,7 @@ fun TextBoardPanel(
     val showHelper = selected.isNotEmpty() && selected.length <= 60 && HAN.containsMatchIn(selected)
 
     Column(modifier.background(BoardPaper.Paper)) {
-        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(remember(board.page) { androidx.compose.foundation.ScrollState(0) }).onSizeChanged { fieldWidth = it.width }) {
+        Box(Modifier.fillMaxWidth().weight(1f).padding(top = topInset).testTag("board-text-area").verticalScroll(remember(board.page) { androidx.compose.foundation.ScrollState(0) }).onSizeChanged { fieldWidth = it.width }) {
             val tapSlop = with(density) { 16.dp.toPx() }
             BasicTextField(
                 value = value,

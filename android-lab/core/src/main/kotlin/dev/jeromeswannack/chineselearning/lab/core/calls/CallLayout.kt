@@ -193,6 +193,8 @@ object CallLayout {
         data object PairTap : Action
         /** The other person starts sharing: their screen on the stage; the cameras float as the user chose. */
         data object ShareStarted : Action
+        /** A tile dragged (or moved from its menu) onto a drop zone of the stage ([layoutForDrop]). */
+        data class Drop(val tile: TileId, val zone: DropZone) : Action
     }
 
     /** `layoutReducer`. */
@@ -234,6 +236,7 @@ object CallLayout {
         is Action.PairScale -> l.copy(pairScale = clamp(action.scale, MIN_PAIR_SCALE, MAX_PAIR_SCALE))
         Action.PairTap -> reduce(l, Action.Preset(PresetId.SPEAKER))
         Action.ShareStarted -> reduce(l, Action.Preset(PresetId.SCREEN))
+        is Action.Drop -> layoutForDrop(l, action.tile, action.zone)
         is Action.Close -> {
             if (action.tile == TileId.REMOTE || action.tile == TileId.SELF) l // cameras can't be closed
             else {
@@ -259,11 +262,28 @@ object CallLayout {
     /** `present`: the tile a missing one falls back to (a screen share that ended → the camera). */
     private fun present(t: TileId, a: Availability): TileId = if (isAvailable(t, a)) t else TileId.REMOTE
 
+    /**
+     * `narrowSplitAllowed`: phones keep one tile on the stage — except a shared screen with a board
+     * (round 4: read the slide and write about it at once), which may split: stacked in portrait,
+     * side by side in landscape ([splitDirFor]).
+     */
+    fun narrowSplitAllowed(l: Layout): Boolean {
+        if (l.mode != Mode.SPLIT) return false
+        val pair = listOf(l.main, l.second)
+        return TileId.SCREEN in pair && (TileId.TEXT in pair || TileId.DRAW in pair)
+    }
+
+    /** `splitDirFor`: the direction a split is drawn in — the user's on wide screens; on a phone by its orientation. */
+    fun splitDirFor(dir: Dir, w: Double, h: Double): Dir {
+        if (w >= NARROW_WIDTH) return dir
+        return if (w > h) Dir.ROW else Dir.COLUMN
+    }
+
     /** `arrangeTiles`. */
     fun arrangeTiles(l: Layout, a: Availability, width: Double): Arrangement {
         val narrow = width < NARROW_WIDTH
         val openTiles = ALL_TILES.filter { isAvailable(it, a) && (it in l.open || it == TileId.REMOTE || it == TileId.SELF || it == TileId.SCREEN) }
-        var mode = if (narrow) Mode.FOCUS else l.mode
+        var mode = if (narrow) (if (narrowSplitAllowed(l) && a.screen) Mode.SPLIT else Mode.FOCUS) else l.mode
         val stage: List<TileId>
         if (mode == Mode.GRID) {
             stage = openTiles
@@ -402,8 +422,11 @@ object CallLayout {
     /** `LayoutRects.pair`: the faces box (both cameras inside it). */
     data class PairBox(val x: Double, val y: Double, val w: Double, val h: Double, val corner: Corner)
 
-    /** `LayoutRects`. */
-    data class Rects(val tiles: Map<TileId, Rect>, val divider: Divider?, val stage: Box, val pair: PairBox? = null)
+    /**
+     * `LayoutRects`. [textInsetTop]: room the text board leaves at its top so the faces box in a top
+     * corner over it never hides its first lines (round 4) — from the tile's top edge, 0 = none.
+     */
+    data class Rects(val tiles: Map<TileId, Rect>, val divider: Divider?, val stage: Box, val pair: PairBox? = null, val textInsetTop: Double = 0.0)
 
     const val TILE_GAP = 8.0
     const val DIVIDER = 12.0
@@ -507,7 +530,7 @@ object CallLayout {
         var divider: Divider? = null
         if (arr.mode == Mode.SPLIT && arr.stage.size == 2) {
             val (a, b) = arr.stage
-            if (l.dir == Dir.ROW) {
+            if (splitDirFor(l.dir, w, h) == Dir.ROW) {
                 val aw = Js.round((stage.w - DIVIDER) * l.ratio)
                 tiles[a] = Rect(stage.x, stage.y, aw, stage.h, Role.STAGE, 1)
                 tiles[b] = Rect(stage.x + aw + DIVIDER, stage.y, stage.w - aw - DIVIDER, stage.h, Role.STAGE, 1)
@@ -557,6 +580,89 @@ object CallLayout {
             tiles[TileId.REMOTE] = Rect(at.x + PAIR_PAD, y + PAIR_PAD, s.remoteW, s.faceH, Role.PAIR, 3)
             tiles[TileId.SELF] = Rect(at.x + PAIR_PAD + s.remoteW + PAIR_GAP, y + PAIR_PAD, s.selfW, s.faceH, Role.PAIR, 3)
         }
-        return Rects(tiles, divider, stage, pair)
+        var textInsetTop = 0.0
+        val text = tiles.getValue(TileId.TEXT)
+        val p = pair
+        if (p != null && (p.corner == Corner.TL || p.corner == Corner.TR) && text.role == Role.STAGE) {
+            val overlapsX = p.x < text.x + text.w && p.x + p.w > text.x
+            val overlapsY = p.y < text.y + text.h && p.y + p.h > text.y
+            // Below the box, minus the tabs the board draws itself.
+            if (overlapsX && overlapsY) textInsetTop = Math.max(0.0, Js.round(p.y + p.h + 4 - text.y - (TILE_HEADER[TileId.TEXT] ?: 0.0)))
+        }
+        return Rects(tiles, divider, stage, pair, textInsetTop)
     }
+
+    // ------------------------------------------------------------------ drag and drop (round 4)
+
+    /**
+     * `DropZone`: the stage's left / right / top / bottom half and the whole of it. Dropping a tile on
+     * one arranges a split (or a focus) with it ([layoutForDrop]); the Lab's long-press menu dispatches
+     * the same [Action.Drop].
+     */
+    enum class DropZone(val wire: String) {
+        LEFT("left"), RIGHT("right"), TOP("top"), BOTTOM("bottom"), FULL("full");
+
+        companion object {
+            fun of(wire: String?): DropZone? = entries.firstOrNull { it.wire == wire }
+        }
+    }
+
+    /** `DROP_ZONES`. */
+    val DROP_ZONES: List<DropZone> = listOf(DropZone.LEFT, DropZone.RIGHT, DropZone.TOP, DropZone.BOTTOM, DropZone.FULL)
+
+    /** `DROP_EDGE`: within this share of the stage from an edge, a point is in that edge's half; further in, FULL. */
+    const val DROP_EDGE = 0.3
+
+    /** `dropZoneAt`: the zone under a point given as fractions (0–1) of the stage. */
+    fun dropZoneAt(fx: Double, fy: Double): DropZone {
+        val x = clamp(fx, 0.0, 1.0)
+        val y = clamp(fy, 0.0, 1.0)
+        val edges = listOf(DropZone.LEFT to x, DropZone.RIGHT to 1 - x, DropZone.TOP to y, DropZone.BOTTOM to 1 - y)
+        var best = edges[0]
+        for (e in edges) if (e.second < best.second) best = e
+        return if (best.second < DROP_EDGE) best.first else DropZone.FULL
+    }
+
+    /** `dropZoneBox`: the area a zone highlights (where the tile will go), inside the stage. */
+    fun dropZoneBox(zone: DropZone, stage: Box): Box {
+        val hw = Js.round(stage.w / 2)
+        val hh = Js.round(stage.h / 2)
+        return when (zone) {
+            DropZone.LEFT -> Box(stage.x, stage.y, hw, stage.h)
+            DropZone.RIGHT -> Box(stage.x + stage.w - hw, stage.y, hw, stage.h)
+            DropZone.TOP -> Box(stage.x, stage.y, stage.w, hh)
+            DropZone.BOTTOM -> Box(stage.x, stage.y + stage.h - hh, stage.w, hh)
+            DropZone.FULL -> stage.copy()
+        }
+    }
+
+    /**
+     * `layoutForDrop`: the layout after dropping [tile] on [zone]. FULL focuses it. A half puts it on that
+     * side and keeps, beside it, the tile that was on the stage — in a split, the pane on the OTHER side
+     * (so dropping on the left replaces the left pane). A fresh split starts at half / half; one in the
+     * same direction keeps its divider.
+     */
+    fun layoutForDrop(l: Layout, tile: TileId, zone: DropZone): Layout {
+        if (zone == DropZone.FULL) return reduce(l, Action.Focus(tile)).copy(mode = Mode.FOCUS, main = tile)
+        val first = zone == DropZone.LEFT || zone == DropZone.TOP
+        val dir = if (zone == DropZone.LEFT || zone == DropZone.RIGHT) Dir.ROW else Dir.COLUMN
+        var keep: TileId
+        if (l.mode == Mode.SPLIT) {
+            keep = if (first) l.second else l.main
+            if (keep == tile) keep = if (first) l.main else l.second
+        } else keep = l.main
+        if (keep == tile) return reduce(l, Action.Focus(tile)).copy(mode = Mode.FOCUS, main = tile)
+        val ratio = if (l.mode == Mode.SPLIT && l.dir == dir) l.ratio else 0.5
+        val next = reduce(l, Action.Split(if (first) tile else keep, if (first) keep else tile))
+        return next.copy(dir = dir, ratio = ratio)
+    }
+
+    /** `DROP_ZONE_LABELS`: the keyboard / menu fallback's labels. */
+    val DROP_ZONE_LABELS: Map<DropZone, String> = mapOf(
+        DropZone.LEFT to "Left half",
+        DropZone.RIGHT to "Right half",
+        DropZone.TOP to "Top half",
+        DropZone.BOTTOM to "Bottom half",
+        DropZone.FULL to "Whole stage",
+    )
 }

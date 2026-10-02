@@ -539,7 +539,8 @@
   position: absolute;
   inset: 0;
   margin: 0;
-  padding: 0.9rem 1rem 2rem;
+  /* --text-inset-top: room for the faces box floating in a top corner over the board (layoutRects). */
+  padding: calc(0.9rem + var(--text-inset-top, 0px)) 1rem 2rem;
   border: 0;
   box-sizing: border-box;
   font-family: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
@@ -891,3 +892,59 @@
 .call-end-confirm-actions .btn { min-height: 44px; }
 .btn-danger { background: #dc2626; color: #fff; border: none; border-radius: 10px; padding: 0 1rem; font-weight: 600; cursor: pointer; }
 .btn-link { background: transparent; border: none; color: #4b5563; cursor: pointer; }
+
+/* Round 4 — drag a tile onto the stage: its grip, the five drop zones, the ghost chip, the keyboard menu. */
+.call-tile-grip { cursor: grab; touch-action: none; }
+.call-tile.role-rail { cursor: grab; }
+.call-drop-layer { position: absolute; z-index: 30; pointer-events: none; }
+.call-drop-zone {
+  position: absolute;
+  border: 2px dashed rgba(96, 165, 250, 0.55);
+  border-radius: 14px;
+  transition: background 90ms, border-color 90ms;
+}
+.call-drop-zone.is-hot { background: rgba(37, 99, 235, 0.28); border: 3px solid #60a5fa; }
+.call-drop-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.call-drag-ghost {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  transform: translate(12px, 12px);
+}
+.call-move-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 0.3rem;
+  border-radius: 12px;
+  background: #111827;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+.call-move-menu > span { padding: 0.3rem 0.6rem; font-size: 0.75rem; color: #9ca3af; }
+.call-move-menu button { min-height: 40px; padding: 0 0.6rem; border: 0; border-radius: 8px; background: transparent; color: #fff; text-align: left; font-size: 0.9rem; cursor: pointer; }
+.call-move-menu button:hover, .call-move-menu button:focus-visible { background: #1f2937; }
+.call-tile-chrome .call-move-wrap { position: relative; pointer-events: auto; }

@@ -136,7 +136,9 @@ export type LayoutAction =
   /** A tap (not a drag) on the faces box: the other person on the stage. */
   | { type: 'pairTap' }
   /** The other person starts sharing: their screen on the stage; the cameras float as the user chose (`pip`). */
-  | { type: 'shareStarted' };
+  | { type: 'shareStarted' }
+  /** A tile dragged (or moved from its menu) onto a drop zone of the stage (`layoutForDrop`). */
+  | { type: 'drop'; tile: TileId; zone: DropZone };
 
 export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
   switch (action.type) {
@@ -194,6 +196,8 @@ export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
       return layoutReducer(l, { type: 'preset', preset: 'speaker' });
     case 'shareStarted':
       return layoutReducer(l, { type: 'preset', preset: 'screen' });
+    case 'drop':
+      return layoutForDrop(l, action.tile, action.zone);
     case 'close': {
       if (action.tile === 'remote' || action.tile === 'self') return l; // cameras can't be closed
       const open = l.open.filter((t) => t !== action.tile);
@@ -228,10 +232,27 @@ function present(t: TileId, a: TileAvailability): TileId {
   return isAvailable(t, a) ? t : 'remote';
 }
 
+/**
+ * Phones keep one tile on the stage — except a shared screen with a board
+ * (round 4: read the slide and write about it at once), which may split:
+ * stacked in portrait, side by side in landscape (`splitDirFor`).
+ */
+export function narrowSplitAllowed(l: Pick<CallLayout, 'mode' | 'main' | 'second'>): boolean {
+  if (l.mode !== 'split') return false;
+  const pair = [l.main, l.second];
+  return pair.includes('screen') && (pair.includes('text') || pair.includes('draw'));
+}
+
+/** The direction a split is drawn in: the user's on wide screens; on a phone by its orientation. */
+export function splitDirFor(l: Pick<CallLayout, 'dir'>, box: { w: number; h: number }): 'row' | 'column' {
+  if (box.w >= NARROW_WIDTH) return l.dir;
+  return box.w > box.h ? 'row' : 'column';
+}
+
 export function arrangeTiles(l: CallLayout, a: TileAvailability, width: number): Arrangement {
   const narrow = width < NARROW_WIDTH;
   const openTiles = ALL_TILES.filter((t) => isAvailable(t, a) && (l.open.includes(t) || t === 'remote' || t === 'self' || t === 'screen'));
-  let mode: LayoutMode = narrow ? 'focus' : l.mode;
+  let mode: LayoutMode = narrow ? (narrowSplitAllowed(l) && a.screen ? 'split' : 'focus') : l.mode;
   let stage: TileId[];
   if (mode === 'grid') {
     stage = openTiles;
@@ -372,6 +393,12 @@ export interface LayoutRects {
   stage: TileBox;
   /** The faces box (both cameras inside it), or null. */
   pair: (TileBox & { corner: Corner }) | null;
+  /**
+   * Room the text board leaves at its top so the faces box in a top corner over
+   * it never hides its first lines (round 4: it covered the start of the text
+   * in the default layout). Pixels from the tile's top edge, 0 = none.
+   */
+  textInsetTop: number;
 }
 
 export const TILE_GAP = 8;
@@ -493,7 +520,7 @@ export function layoutRects(
   let divider: LayoutRects['divider'] = null;
   if (arr.mode === 'split' && arr.stage.length === 2) {
     const [a, b] = arr.stage;
-    if (l.dir === 'row') {
+    if (splitDirFor(l, box) === 'row') {
       const aw = Math.round((stage.w - DIVIDER) * l.ratio);
       tiles[a] = { x: stage.x, y: stage.y, w: aw, h: stage.h, role: 'stage', z: 1 };
       tiles[b] = { x: stage.x + aw + DIVIDER, y: stage.y, w: stage.w - aw - DIVIDER, h: stage.h, role: 'stage', z: 1 };
@@ -542,5 +569,91 @@ export function layoutRects(
     tiles.remote = { x: at.x + PAIR_PAD, y: at.y + PAIR_PAD, w: s.remoteW, h: s.faceH, role: 'pair', z: 3 };
     tiles.self = { x: at.x + PAIR_PAD + s.remoteW + PAIR_GAP, y: at.y + PAIR_PAD, w: s.selfW, h: s.faceH, role: 'pair', z: 3 };
   }
-  return { tiles, divider, stage, pair };
+  let textInsetTop = 0;
+  const text = tiles.text;
+  if (pair && (pair.corner === 'tl' || pair.corner === 'tr') && text.role === 'stage') {
+    const overlapsX = pair.x < text.x + text.w && pair.x + pair.w > text.x;
+    const overlapsY = pair.y < text.y + text.h && pair.y + pair.h > text.y;
+    // Below the box, minus the tabs the board draws itself.
+    if (overlapsX && overlapsY) textInsetTop = Math.max(0, Math.round(pair.y + pair.h + 4 - text.y - (TILE_HEADER.text ?? 0)));
+  }
+  return { tiles, divider, stage, pair, textInsetTop };
 }
+
+// ------------------------------------------------------------------ drag and drop (round 4)
+
+/**
+ * Desktop: drag a tile (from the rail, or a tile's header) onto the stage. The
+ * stage shows five drop zones — its left / right / top / bottom half and the
+ * whole of it — and dropping arranges a split (or a focus) with that tile; the
+ * faces float as usual. The keyboard / menu fallback dispatches the same
+ * `drop` action.
+ */
+export type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'full';
+export const DROP_ZONES: DropZone[] = ['left', 'right', 'top', 'bottom', 'full'];
+/** Within this share of the stage from an edge, a point is in that edge's half-zone; further in, `full`. */
+export const DROP_EDGE = 0.3;
+
+/** The zone under a point given as fractions (0–1) of the stage. */
+export function dropZoneAt(fx: number, fy: number): DropZone {
+  const x = clamp(fx, 0, 1);
+  const y = clamp(fy, 0, 1);
+  const edges: [DropZone, number][] = [
+    ['left', x],
+    ['right', 1 - x],
+    ['top', y],
+    ['bottom', 1 - y],
+  ];
+  let best = edges[0];
+  for (const e of edges) if (e[1] < best[1]) best = e;
+  return best[1] < DROP_EDGE ? best[0] : 'full';
+}
+
+/** The area a zone highlights (where the tile will go), inside the stage. */
+export function dropZoneBox(zone: DropZone, stage: TileBox): TileBox {
+  const hw = Math.round(stage.w / 2);
+  const hh = Math.round(stage.h / 2);
+  switch (zone) {
+    case 'left':
+      return { x: stage.x, y: stage.y, w: hw, h: stage.h };
+    case 'right':
+      return { x: stage.x + stage.w - hw, y: stage.y, w: hw, h: stage.h };
+    case 'top':
+      return { x: stage.x, y: stage.y, w: stage.w, h: hh };
+    case 'bottom':
+      return { x: stage.x, y: stage.y + stage.h - hh, w: stage.w, h: hh };
+    default:
+      return { ...stage };
+  }
+}
+
+/**
+ * The layout after dropping `tile` on `zone`. `full` focuses it. A half puts
+ * it on that side and keeps, beside it, the tile that was on the stage — in a
+ * split, the pane on the OTHER side (so dropping on the left replaces the left
+ * pane). A fresh split starts at half / half; one in the same direction keeps
+ * its divider.
+ */
+export function layoutForDrop(l: CallLayout, tile: TileId, zone: DropZone): CallLayout {
+  if (zone === 'full') return { ...layoutReducer(l, { type: 'focus', tile }), mode: 'focus', main: tile };
+  const first = zone === 'left' || zone === 'top';
+  const dir: 'row' | 'column' = zone === 'left' || zone === 'right' ? 'row' : 'column';
+  let keep: TileId;
+  if (l.mode === 'split') {
+    keep = first ? l.second : l.main;
+    if (keep === tile) keep = first ? l.main : l.second;
+  } else keep = l.main;
+  if (keep === tile) return { ...layoutReducer(l, { type: 'focus', tile }), mode: 'focus', main: tile };
+  const ratio = l.mode === 'split' && l.dir === dir ? l.ratio : 0.5;
+  const next = layoutReducer(l, { type: 'split', a: first ? tile : keep, b: first ? keep : tile });
+  return { ...next, dir, ratio };
+}
+
+/** Keyboard / menu fallback: the zones offered for a tile ("Move to: left half …"), with their labels. */
+export const DROP_ZONE_LABELS: Record<DropZone, string> = {
+  left: 'Left half',
+  right: 'Right half',
+  top: 'Top half',
+  bottom: 'Bottom half',
+  full: 'Whole stage',
+};
