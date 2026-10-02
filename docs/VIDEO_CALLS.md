@@ -35,9 +35,22 @@ test call), and the **Join the call** button that appears in the relationship's 
   `<user id>:<random per page load>` and the room refuses inserts whose site isn't the sender's.
   The room applies ops in arrival order, keeps the document in its storage, sends it in `welcome`
   and relays `text` / `text_cursor` messages; edits made while the socket was down are replayed on
-  the rejoin (idempotent). **IME**: nothing is sent between `compositionstart` and
-  `compositionend`, and the other person's edits wait until the composition ends, so pinyin input
-  is never disturbed (E2E drives a real composition over CDP). Selecting Chinese shows its pinyin
+  the rejoin (idempotent). **IME**: nothing of a composition is sent between `compositionstart` and
+  `compositionend`, and the textarea is not rewritten while it is open (that would break the IME),
+  but **the other person's edits always go into the document at once**. The field shows a
+  `TextView` of the document (`shared/calls/textDoc.ts`; Lab `CallTextView`): my edits are diffed
+  against what the field showed and applied by character id, so neither side's typing is lost, and
+  the field catches up when the composition ends — or when it has been idle `COMPOSE_IDLE_MS`
+  (1.5 s) with edits waiting, or on blur. That matters because Gboard keeps a composing span on the
+  last word for as long as you don't type a space: before round 4 the other person's edits waited
+  behind it until a page switch (2 Oct 2026). The Lab app also sends text Gboard commits outside the
+  span at once and keeps the composition range (transformed) when the field is rewritten (E2E drives
+  a real composition over CDP; unit tests use a span that never closes).
+- **Carets** — the other person's caret is a thin line in their colour with a small dot on top;
+  nothing is drawn over the text (round 3's opaque name flag hid the line above). Their name — and,
+  while they compose, the pinyin they are typing — shows in the strip under the board ("● Minghui ·
+  wo ba", "● Minghui is here"); hovering near the dot (web) or tapping it (Lab) lights their name up
+  there in their colour. The dot breathes while they compose. Selecting Chinese shows its pinyin
   (`pinyin-pro`, on the device) and, online, a word-by-word **Meaning**
   (`/api/sentences/explain-text`). **Draw** is the second tab (the old whiteboard). The text of the
   pages written in the call is saved with the call (`calls.board_text`, migration 0081), shown on the
@@ -54,11 +67,13 @@ test call), and the **Join the call** button that appears in the relationship's 
   trailing run of Chinese characters / Chinese punctuation on the caret's line, ≤ 40 characters, only
   at the end of a line that has no ` - …` after it yet; `formatGloss`: always one line), ported to the
   Lab app as `CallGloss.kt` and parity-tested. `POST /api/calls/:id/gloss { text }` (members of the
-  call only) asks Haiku through `structuredCall` (forced tool, thinking off, 200 tokens, 4 s, one
+  call only) asks Haiku through `structuredCall` (forced tool, thinking off, 500 tokens, 6 s, one
   retry when the reply is unusable) and returns `{ pinyin, english }` cleaned by `cleanGloss` (tone
-  marks, ≤ 8 English words, no line breaks); answers are cached per text in the worker isolate and
+  marks, ≤ 30 English words (a whole sentence), no line breaks); answers are cached per text in the worker isolate and
   in a 300-entry LRU on each device (a repeat is instant and free), and each user may make 30
-  uncached requests a minute (429). No key / offline / an error → simply no offer (the client stays
+  uncached requests a minute (429). A sentence gets its **whole** translation (the prompt asks for
+it, 500 tokens, 6 s; `GLOSS_MAX_ENGLISH_WORDS` is a 30-word safety net — it was 8, which cut
+Minghui's sentences off), and the touch chip wraps to up to four lines instead of an ellipsis. No key / offline / an error → simply no offer (the client stays
   quiet for a minute after 503 / 429). A request in flight is aborted on new input and a reply for
   text that has changed since is ignored. Off switch: the board's ⋯ (web, remembered per user on the
   device) / "⇥ Pinyin hints" (Lab). Web: `components/calls/useBoardGloss.ts`,
@@ -245,7 +260,12 @@ shows the exact steps for that browser and OS plus **Try again** (a tap, which a
 suppressed prompt); a permission switched to Allow in site settings is picked up without a reload
 (`navigator.permissions` change). The Join button says what you'll join with ("Join with audio only",
 "Join without camera & mic"). **Devices** (⚙️ before joining, ⋯ → Camera, mic & speaker in the call):
-camera / microphone / speaker (`setSinkId`), remembered per device (`call-devices-v1`).
+camera / microphone / speaker (`setSinkId`), remembered per device (`call-devices-v1`), together
+with whether the mic / camera were **on or off** (`micOff` / `camOff`): a rejoin — a reload, the
+next call of the lesson — comes back as you left it, and Join waits up to 4 s for a camera / mic
+request still in flight instead of joining with nothing (Minghui's rejoins on 2 Oct 2026 logged
+"joining with no mic, no camera" with no device error: she pressed Join before the preview had
+its devices). The join line in the connection log says "mic / mic muted / no mic".
 
 Our side sends no `Permissions-Policy` header (the Pages site and the worker were checked), and the
 preview's `getUserMedia` runs on page load, which Chrome allows; so a missing prompt comes from the
@@ -277,10 +297,22 @@ in `shared/calls/connection.ts` (Lab: `CallConnection.kt`, parity-tested):
 - **TURN** — Cloudflare Realtime TURN when `TURN_KEY_ID` / `TURN_KEY_API_TOKEN` are set; every URL it
   returns is offered except port 53, i.e. UDP 3478, TCP 3478/80 and **TLS 443** (gets through
   firewalls that only allow HTTPS).
+- **A failed link is renegotiated, never kept** (round 4) — `shouldAdoptPeer` keeps a link
+  through a reconnect only while it can still carry the call (`connecting` / `connected` /
+  `disconnected`, `linkWorthKeeping`); a `failed`, `closed` or never-started (`new`) one is replaced.
+  Every link has an id sent with each signal (`link`) and opens with `hello`; a signal from a new link
+  id of theirs makes mine start over too (`linkSignalAction`: apply / replace / ignore leftovers of a
+  replaced link), a hello makes an unanswered offer go out again, and a kept link re-sends its
+  unanswered offer when they come back (`resume`). On 2 Oct 2026 Minghui's network froze, ICE
+  restarts failed, and the reconnect "kept" a link whose offer had gone to her dead socket: a minute
+  with no media.
 - **Connection log** — each side sends `diag` events (pc / ICE state changes, restarts, socket status,
   the route in use — host / srflx / relay and its protocol + RTT —, device problems, whether TURN was
   offered, peer away / back); the room keeps the newest 600 and copies them to
   `calls.diagnostics_json` (migration 0085); the review page has a collapsed **Connection log**.
+  The room adds its own lines (kind `call`, bold): who entered, left (Leave / closed the page),
+  timed out, and **who ended the call and how** (End for everyone, End over HTTP, deleted, or
+  automatically when nobody was in it) — before round 4 the log didn't say who ended a lesson.
 
 ## Typing latency on the board
 

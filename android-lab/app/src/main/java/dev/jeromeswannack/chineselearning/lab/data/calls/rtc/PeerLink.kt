@@ -50,6 +50,11 @@ import kotlin.coroutines.resume
  * video m-line: then [screenChannel] is false, a share replaces the camera like before and their
  * screen arrives on the camera stream.
  *
+ * Round 4: every signal carries this link's id (added by the CallController, which also sends the
+ * `hello` a fresh link opens with and decides by `link` whether a signal belongs to this link —
+ * core CallConnection.linkSignalAction); a `hello` from their side re-sends an offer of mine still
+ * waiting for an answer ([resendPendingOffer] does the same when my link is kept on a reconnect).
+ *
  * Round 2: the CallController drives ICE restarts ([restartIce], from the link's health and
  * backoff — this class never restarts on its own), a mic or camera that appears mid-call goes
  * onto the existing transceiver ([setAudio] / [setVideo]), the video sender's encoding follows the
@@ -162,10 +167,22 @@ class PeerLink(
                     if (!ok && !ignoreOffer) Log.w(TAG, "ICE candidate refused")
                 }
                 CallSignal.EndOfCandidates -> Unit
+                // Their (new) link is listening: an offer of mine still unanswered may never have reached it.
+                CallSignal.Hello -> resendOfferNow()
             }
         } catch (e: Exception) {
             Log.e(TAG, "signal handling failed", e)
         }
+    }
+
+    /** Round 4 (web PeerLink.resume): my link was kept across a reconnect — an unanswered offer of mine goes out again. */
+    override fun resendPendingOffer() {
+        if (!closed) scope.launch { resendOfferNow() }
+    }
+
+    private fun resendOfferNow() {
+        if (closed || pc.signalingState() != PeerConnection.SignalingState.HAVE_LOCAL_OFFER) return
+        pc.localDescription?.let { listener.sendSignal(CallSignal.Description(it.type.canonicalForm(), it.description)) }
     }
 
     /** A video track arrived: remembered by its receiver, shown as their camera or their screen. */

@@ -21,6 +21,7 @@ import {
   newInstanceId,
   PEER_AWAY_GRACE_MS,
   shouldAdoptPeer,
+  linkSignalAction,
   type BoardItem,
   type BoardOp,
   type CallChatMessage,
@@ -29,6 +30,7 @@ import {
   type CallPeer,
   type LinkHealth,
   type LiveStroke,
+  type PcState,
   type PeerMediaState,
   type ServerMessage,
 } from '@shared/calls';
@@ -74,6 +76,8 @@ export interface MediaProblems {
 
 /** After this long with no answer to the permission request, explain where the prompt is. */
 const PROMPT_WAIT_MS = 6000;
+/** Join waits this long at most for a camera / mic request still in flight. */
+const JOIN_MEDIA_WAIT_MS = 4000;
 
 export function canShareScreen(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function';
@@ -87,8 +91,9 @@ export function useCall(callId: string, myUserId: string) {
   const [mediaAsked, setMediaAsked] = useState(false);
   const [mediaPending, setMediaPending] = useState(false);
   const [devicePrefs, setDevicePrefs] = useState<DevicePrefs>(() => loadDevicePrefs());
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
+  // On / off as I last left them (a muted mic stays muted; a camera that was on comes back on).
+  const [micOn, setMicOn] = useState(() => !devicePrefs.micOff);
+  const [camOn, setCamOn] = useState(() => !devicePrefs.camOff);
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remote, setRemote] = useState<RemoteParticipant | null>(null);
@@ -120,12 +125,23 @@ export function useCall(callId: string, myUserId: string) {
   const remotePeerRef = useRef<CallPeer | null>(null);
   const awayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const diagQueueRef = useRef<CallDiagEvent[]>([]);
+  /** Their link ids already replaced (late signals from them are ignored). */
+  const retiredLinksRef = useRef<string[]>([]);
   const prefsRef = useRef<DevicePrefs>(devicePrefs);
   prefsRef.current = devicePrefs;
+  /** Remember a mic / camera switched on or off (restored on the next join). */
+  const rememberOnOff = useCallback((kind: 'mic' | 'cam', on: boolean) => {
+    const next = { ...prefsRef.current, [kind === 'mic' ? 'micOff' : 'camOff']: !on };
+    prefsRef.current = next;
+    setDevicePrefs(next);
+    saveDevicePrefs(next);
+  }, []);
   const facingRef = useRef<'user' | 'environment'>('user');
   const phaseRef = useRef<CallPhase>('prejoin');
   phaseRef.current = phase;
   const mediaPendingRef = useRef(false);
+  /** The preview's camera / mic request in flight (join waits for it). */
+  const previewRef = useRef<Promise<MediaStream | null> | null>(null);
   const turnRef = useRef<boolean | null>(null);
   // The shared text board: this page's replica, alive for the whole page (reconnects replay into it).
   const textRef = useRef<TextBoardSession | null>(null);
@@ -174,7 +190,7 @@ export function useCall(callId: string, myUserId: string) {
    * and again from a tap (Try again / turning a device on), which is also what
    * brings back a prompt the browser suppressed.
    */
-  const requestMedia = useCallback(async (want: { audio: boolean; video: boolean } = { audio: true, video: true }) => {
+  const requestMedia = useCallback(async (want: { audio: boolean; video: boolean } = { audio: true, video: true }, opts: { restore?: boolean } = {}) => {
     setMediaAsked(true);
     setMediaPending(true);
     const waiting = setTimeout(() => {
@@ -190,17 +206,20 @@ export function useCall(callId: string, myUserId: string) {
     }
     for (const track of result.stream?.getTracks() ?? []) {
       await installTrack(track);
+      // The preview / a rejoin restores what I had (a tap to turn a device on always turns it on).
+      const on = opts.restore ? !(track.kind === 'audio' ? prefsRef.current.micOff : prefsRef.current.camOff) : true;
+      if (!opts.restore) rememberOnOff(track.kind === 'audio' ? 'mic' : 'cam', true);
       if (track.kind === 'audio') {
-        track.enabled = true;
-        setMicOn(true);
+        track.enabled = on;
+        setMicOn(on);
         if (phaseRef.current === 'live') {
-          broadcastStateRef.current({ mic: true });
+          broadcastStateRef.current({ mic: on });
           if (wantRecordRef.current && !recorderRef.current?.recording) void startRecordingRef.current();
         }
       } else {
-        track.enabled = true;
-        setCamOn(true);
-        if (phaseRef.current === 'live') broadcastStateRef.current({ cam: true });
+        track.enabled = on;
+        setCamOn(on);
+        if (phaseRef.current === 'live') broadcastStateRef.current({ cam: on });
       }
     }
     setMediaProblems((p) => ({
@@ -213,13 +232,14 @@ export function useCall(callId: string, myUserId: string) {
   }, [installTrack, diag]);
 
   const startPreview = useCallback(async () => {
-    if (localRef.current || mediaPendingRef.current) return localRef.current;
+    if (localRef.current) return localRef.current;
+    if (previewRef.current) return previewRef.current;
     mediaPendingRef.current = true;
-    try {
-      return await requestMedia({ audio: true, video: true });
-    } finally {
+    previewRef.current = requestMedia({ audio: true, video: true }, { restore: true }).finally(() => {
       mediaPendingRef.current = false;
-    }
+      previewRef.current = null;
+    });
+    return previewRef.current;
   }, [requestMedia]);
 
   const audioTrack = () => localRef.current?.getAudioTracks()[0] ?? null;
@@ -247,9 +267,11 @@ export function useCall(callId: string, myUserId: string) {
     remotePeerRef.current = null;
   }, []);
 
-  const openLink = useCallback((peer: CallPeer) => {
-    // The same page load coming back (their socket or mine reconnected): keep the link and the picture.
-    if (linkRef.current && shouldAdoptPeer(remotePeerRef.current, peer)) {
+  const openLink = useCallback((peer: CallPeer, opts: { fresh?: string } = {}) => {
+    // The same page load coming back (their socket or mine reconnected): keep the link and the picture —
+    // unless the link failed / never got going: then a brand-new one (both sides start over).
+    const pcState = linkRef.current?.pc.connectionState as PcState | undefined;
+    if (!opts.fresh && linkRef.current && shouldAdoptPeer(remotePeerRef.current, peer, pcState)) {
       clearAwayTimer();
       const wasAway = remoteIdRef.current !== peer.client_id;
       remoteIdRef.current = peer.client_id;
@@ -257,12 +279,18 @@ export function useCall(callId: string, myUserId: string) {
       setRemote((r) => (r ? { ...r, peer, away: false } : r));
       if (wasAway) diag('peer', `${peer.name} back (same session, link kept, ${linkRef.current.pc.connectionState})`);
       linkRef.current.signallingChanged();
+      linkRef.current.resume();
       return;
     }
+    const old = linkRef.current;
+    const prevPeer = remotePeerRef.current;
+    if (old?.remoteLink) retiredLinksRef.current = [...retiredLinksRef.current.slice(-20), old.remoteLink];
     closeLink();
     remoteIdRef.current = peer.client_id;
     remotePeerRef.current = peer;
-    diag('peer', `${peer.name} joined — new link`);
+    if (opts.fresh) diag('peer', `${peer.name} started a new link — renegotiating`);
+    else if (old && prevPeer?.instance && prevPeer.instance === peer.instance) diag('peer', `${peer.name} back — link was ${pcState}, renegotiating`);
+    else diag('peer', `${peer.name} joined — new link`);
     setRemote({ peer, stream: null, connection: 'new', away: false, health: null, screenStream: null, screenChannel: true });
     // Updates from this link only (a newer link may have replaced it).
     let link: PeerLink | null = null;
@@ -282,6 +310,7 @@ export function useCall(callId: string, myUserId: string) {
       onHealth: (health) => setRemote((r) => (mine(r) ? { ...r, health } : r)),
       onDiag: diag,
     });
+    if (opts.fresh) link.remoteLink = opts.fresh;
     linkRef.current = link;
   }, [closeLink, diag]);
 
@@ -388,9 +417,16 @@ export function useCall(callId: string, myUserId: string) {
       case 'peer_state':
         setRemote((r) => (r && r.peer.client_id === msg.client_id ? { ...r, peer: { ...r.peer, state: msg.state } } : r));
         return;
-      case 'signal':
-        if (remoteIdRef.current === msg.from) void linkRef.current?.handleSignal(msg.data as SignalData);
+      case 'signal': {
+        if (remoteIdRef.current !== msg.from) return;
+        const data = msg.data as SignalData;
+        const action = linkSignalAction(linkRef.current?.remoteLink ?? null, retiredLinksRef.current, data.link);
+        if (action === 'ignore') return;
+        // Their side started a fresh link (their old one failed): mine starts over too.
+        if (action === 'replace' && remotePeerRef.current && data.link) openLink(remotePeerRef.current, { fresh: data.link });
+        void linkRef.current?.handleSignal(data);
         return;
+      }
       case 'board':
         setBoard((items) => applyBoardOp(items, msg.op));
         if (msg.op.type === 'stroke') setLiveStrokes(({ [msg.op.by]: _drop, ...rest }) => rest);
@@ -464,9 +500,16 @@ export function useCall(callId: string, myUserId: string) {
     wantRecordRef.current = opts.record;
     finishedRef.current = false;
     setPhase('joining');
+    // Joined before the camera / mic answered (or the preview never started): wait a little for them,
+    // so a rejoin doesn't come in with everything off.
+    if (!localRef.current?.getTracks().length) {
+      const preview = previewRef.current ?? startPreview();
+      await Promise.race([preview, new Promise((r) => setTimeout(r, JOIN_MEDIA_WAIT_MS))]);
+    }
     // No camera / no microphone is fine: join with what there is, turn the rest on later.
-    stateRef.current = { mic: micOn && !!audioTrack(), cam: camOn && !!cameraTrack(), screen: false, recording: false };
-    diag('join', `joining with ${[audioTrack() ? 'mic' : 'no mic', cameraTrack() ? 'camera' : 'no camera'].join(', ')}; ${navigator.userAgent.slice(0, 120)}`);
+    // (The tracks' `enabled` is the on / off — the state captured by this closure may predate the preview.)
+    stateRef.current = { mic: !!audioTrack()?.enabled, cam: !!cameraTrack()?.enabled, screen: false, recording: false };
+    diag('join', `joining with ${[audioTrack() ? (audioTrack()!.enabled ? 'mic' : 'mic muted') : 'no mic', cameraTrack() ? (cameraTrack()!.enabled ? 'camera' : 'camera off') : 'no camera'].join(', ')}; ${navigator.userAgent.slice(0, 120)}`);
     try {
       const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
       wakeLockRef.current = (await nav.wakeLock?.request('screen')) ?? null;
@@ -493,7 +536,7 @@ export function useCall(callId: string, myUserId: string) {
     }, instanceRef.current);
     roomRef.current = room;
     await room.connect();
-  }, [callId, micOn, camOn, onMessage, finish, diag, flushDiag]);
+  }, [callId, onMessage, finish, diag, flushDiag, startPreview]);
 
   const endForEveryone = useCallback(async () => {
     const sent = roomRef.current?.send({ type: 'end' });
@@ -512,8 +555,9 @@ export function useCall(callId: string, myUserId: string) {
     const next = !micOn;
     if (track) track.enabled = next;
     setMicOn(next);
+    rememberOnOff('mic', next);
     broadcastState({ mic: next });
-  }, [micOn, broadcastState, requestMedia]);
+  }, [micOn, broadcastState, requestMedia, rememberOnOff]);
 
   const toggleCam = useCallback(() => {
     const track = cameraTrack();
@@ -524,8 +568,9 @@ export function useCall(callId: string, myUserId: string) {
     const next = !camOn;
     track.enabled = next;
     setCamOn(next);
+    rememberOnOff('cam', next);
     broadcastState({ cam: next });
-  }, [camOn, broadcastState, requestMedia]);
+  }, [camOn, broadcastState, requestMedia, rememberOnOff]);
 
   const flipCamera = useCallback(async () => {
     const stream = localRef.current;

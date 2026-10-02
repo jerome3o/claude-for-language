@@ -132,8 +132,11 @@ describe('cleanGloss — Claude reply → board text', () => {
   it('strips stray leading / trailing dashes', () => {
     expect(cleanGloss({ pinyin: '- nǐ hǎo', english: '- hello -' })).toEqual({ pinyin: 'nǐ hǎo', english: 'hello' });
   });
-  it('cuts the English to 8 words', () => {
-    expect(cleanGloss({ pinyin: 'a', english: 'one two three four five six seven eight, nine ten' })?.english).toBe('one two three four five six seven eight');
+  it('keeps a whole sentence translation; only a runaway reply is cut (at 30 words)', () => {
+    const sentence = 'I would like to order a cup of hot coffee with milk and no sugar, please';
+    expect(cleanGloss({ pinyin: 'a', english: sentence })?.english).toBe(sentence.replace(/, please$/, ', please'));
+    const long = Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ');
+    expect(cleanGloss({ pinyin: 'a', english: long })?.english.split(' ')).toHaveLength(30);
   });
   it('rejects bad shapes', () => {
     expect(cleanGloss(null)).toBeNull();

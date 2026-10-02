@@ -17,7 +17,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
 import calls from '../calls';
-import { resetBoardGlossState, BOARD_GLOSS_RATE_PER_MIN, glossBoardText } from '../../services/calls/gloss';
+import { resetBoardGlossState, BOARD_GLOSS_RATE_PER_MIN, BOARD_GLOSS_MAX_TOKENS, glossBoardText } from '../../services/calls/gloss';
 import type { Env } from '../../types';
 
 const toolReply = (input: unknown, stop_reason = 'tool_use') => ({
@@ -60,7 +60,7 @@ describe('POST /api/calls/:id/gloss', () => {
     expect(params.model).toMatch(/haiku/);
     expect(params.thinking).toEqual({ type: 'disabled' });
     expect(params.tool_choice).toEqual({ type: 'tool', name: 'gloss' });
-    expect(params.max_tokens).toBeLessThanOrEqual(300);
+    expect(params.max_tokens).toBeLessThanOrEqual(BOARD_GLOSS_MAX_TOKENS);
     expect(params.messages[0].content).toBe('我想喝咖啡');
 
     // Same text again (the other member, too): from the cache, no Claude call.

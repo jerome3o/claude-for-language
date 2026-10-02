@@ -342,7 +342,9 @@ fun CallReviewScreen(ui: CallReviewUi, actions: CallReviewActions) {
     )
 }
 
-/** "Connection log" — ICE / socket changes, restarts, the route used (collapsed until tapped). */
+private const val ROOM_KIND = dev.jeromeswannack.chineselearning.lab.core.calls.CallConnection.ROOM_DIAG_KIND
+
+/** "Connection log" — ICE / socket changes, restarts, the route used, and the room's own lines: who entered, left, timed out, ended the call (collapsed until tapped). Any kind shows. */
 @Composable
 fun ConnectionLog(events: List<dev.jeromeswannack.chineselearning.lab.data.api.CallDiagDto>, initiallyOpen: Boolean = false) {
     var open by remember { mutableStateOf(initiallyOpen) }
@@ -361,8 +363,13 @@ fun ConnectionLog(events: List<dev.jeromeswannack.chineselearning.lab.data.api.C
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(r.time, color = Lab.colors.muted, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, modifier = Modifier.width(44.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("${r.who} · ${r.kind}", color = Lab.colors.muted, fontSize = 12.sp)
-                        Text(r.detail, color = Lab.colors.ink, fontSize = 13.sp)
+                        Text("${r.who} · ${r.kind}", color = Lab.colors.muted, fontSize = 12.sp, fontWeight = if (r.kind == ROOM_KIND) FontWeight.SemiBold else FontWeight.Normal)
+                        // The room's own lines (who entered / left / ended the call) stand out; restarts and peer changes in amber, like the web.
+                        Text(
+                            r.detail, fontSize = 13.sp,
+                            color = if (r.kind == "restart" || r.kind == "peer") Palette.Hard else Lab.colors.ink,
+                            fontWeight = if (r.kind == ROOM_KIND) FontWeight.SemiBold else FontWeight.Normal,
+                        )
                     }
                 }
             }

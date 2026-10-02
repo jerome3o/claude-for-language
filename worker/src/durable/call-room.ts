@@ -38,6 +38,7 @@ import {
   sanitizeCompose,
   sanitizeDiagEvents,
   appendDiag,
+  PRESENCE_TIMEOUT_MS,
   planRoom,
   isSocketPresent,
   shouldAlertMissed,
@@ -262,6 +263,17 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   /** Persist soon (coalesced), without holding back the messages already relayed. */
+  /**
+   * The room's own line in the connection log (kind 'call'): who entered, left,
+   * timed out and who ended the call — and how (2 Oct 2026: nothing said who
+   * ended a lesson for both). `who` null = the room itself.
+   */
+  private async logRoom(detail: string, who: { userId: string; name: string } | null): Promise<void> {
+    await this.load();
+    this.diag = appendDiag(this.diag!, [{ t: Date.now(), kind: 'call', detail, user_id: who?.userId ?? '', name: who?.name ?? 'Room' }]);
+    this.markDirty('diag');
+  }
+
   private markDirty(what: 'board' | 'diag' | 'pages'): void {
     this.dirty.add(what);
     if (this.persistTimer) return;
@@ -410,6 +422,7 @@ export class CallRoom extends DurableObject<Env> {
     });
     for (const i of plan.stale) {
       const { ws, a } = all[i];
+      await this.logRoom(`${a.name} timed out (no answer for ${Math.round(PRESENCE_TIMEOUT_MS / 1000)} s)`, a);
       this.markLeft(ws, a);
       this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
       try {
@@ -420,7 +433,7 @@ export class CallRoom extends DurableObject<Env> {
     }
     if (plan.stale.length) await this.snapshot();
     if (plan.end) {
-      await this.endCall(null);
+      await this.endCall(null, (joined ?? []).length > 0 ? 'automatically: nobody in it' : 'automatically: nobody joined');
       return { present: [], ended: true };
     }
     await this.ctx.storage.put('emptySince', plan.emptySince);
@@ -488,6 +501,7 @@ export class CallRoom extends DurableObject<Env> {
     };
     this.ctx.acceptWebSocket(server, [userId]);
     server.serializeAttachment(attachment);
+    await this.logRoom(`${attachment.name} entered${existing.some(({ a }) => a.userId === userId) ? ' again (reconnect / another device)' : ''}`, attachment);
     // Who ever joined: a member who never did gets a "missed call" notification at the end.
     const joined = (await this.ctx.storage.get<string[]>('joined')) ?? [];
     if (!joined.includes(userId)) await this.ctx.storage.put('joined', [...joined, userId]);
@@ -732,17 +746,18 @@ export class CallRoom extends DurableObject<Env> {
         this.send(ws, { type: 'pong', t: Number(msg.t) || 0, server_time: Date.now() });
         return;
       case 'leave':
-        await this.leaveSocket(ws, a);
+        await this.leaveSocket(ws, a, 'Leave');
         return;
       case 'end':
-        await this.endCall(a.userId);
+        await this.endCall(a, 'End for everyone');
         return;
     }
   }
 
   /** Someone left on purpose (Leave, closing the tab): not present from now on; the call goes on. */
-  private async leaveSocket(ws: WebSocket, a: Attachment): Promise<void> {
+  private async leaveSocket(ws: WebSocket, a: Attachment, how: string): Promise<void> {
     if (!a.left) {
+      await this.logRoom(`${a.name} left (${how}) — the call goes on`, a);
       this.markLeft(ws, a);
       this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
     }
@@ -758,7 +773,7 @@ export class CallRoom extends DurableObject<Env> {
   async leave(clientId: string, token: string): Promise<boolean> {
     const hit = this.sockets().find(({ a }) => a.clientId === clientId && !!a.leaveToken && a.leaveToken === token);
     if (!hit) return false;
-    await this.leaveSocket(hit.ws, hit.a);
+    await this.leaveSocket(hit.ws, hit.a, 'closed the page');
     return true;
   }
 
@@ -780,7 +795,10 @@ export class CallRoom extends DurableObject<Env> {
       /* already closed */
     }
     const a = ws.deserializeAttachment() as Attachment | null;
-    if (a && !a.left) this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
+    if (a && !a.left) {
+      await this.logRoom(`${a.name}'s connection closed`, a);
+      this.broadcast({ type: 'peer_left', client_id: a.clientId }, ws);
+    }
     await this.afterLeave(ws);
   }
 
@@ -817,11 +835,12 @@ export class CallRoom extends DurableObject<Env> {
     }
   }
 
-  private async endCall(by: string | null): Promise<void> {
+  private async endCall(by: { userId: string; name: string } | null, how: string): Promise<void> {
     const callId = await this.ctx.storage.get<string>('callId');
     await this.ctx.storage.put('ended', true);
     await this.ctx.storage.deleteAlarm();
-    this.broadcast({ type: 'ended', by: by ?? '' });
+    await this.logRoom(by ? `${by.name} ended the call for everyone (${how})` : `Call ended ${how}`, by);
+    this.broadcast({ type: 'ended', by: by?.userId ?? '' });
     await this.snapshot();
     if (callId) {
       const endedAt = Date.now();
@@ -847,8 +866,9 @@ export class CallRoom extends DurableObject<Env> {
   }
 
   /** RPC from the worker when a call is ended over HTTP (e.g. nobody is in the room). */
-  async end(callId: string, by: string): Promise<void> {
+  async end(callId: string, by: string, how = 'from the app'): Promise<void> {
     await this.remember(callId);
-    await this.endCall(by);
+    const here = this.sockets().find(({ a }) => a.userId === by)?.a;
+    await this.endCall({ userId: by, name: here?.name ?? 'Someone' }, how);
   }
 }

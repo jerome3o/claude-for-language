@@ -89,6 +89,8 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
             prepareScreenShare = { CallService.prepareScreenShare(app, callId) },
             teardown = app.scope,
             userId = { _myId.value },
+            devicePrefs = dev.jeromeswannack.chineselearning.lab.data.calls.CallDevicePrefsStore(app.getSharedPreferences("lab-calls", Context.MODE_PRIVATE)),
+            device = "Android ${Build.VERSION.RELEASE}; ${Build.MANUFACTURER} ${Build.MODEL}; Lab app",
         ),
         viewModelScope,
     )
@@ -171,6 +173,8 @@ fun CallRoute(nav: LabNav, id: String) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     var askedOnce by rememberSaveable { mutableStateOf(false) }
+    // The next permission result comes from a tap (Allow / the mic or camera button): those devices come on.
+    var tappedAsk by remember { mutableStateOf(false) }
     var askedMic by rememberSaveable { mutableStateOf(false) }
     var askedCam by rememberSaveable { mutableStateOf(false) }
     // Bumped on every resume (back from Settings / the permission page) so permissions are re-read.
@@ -198,7 +202,9 @@ fun CallRoute(nav: LabNav, id: String) {
         if (Manifest.permission.RECORD_AUDIO in result) askedMic = true
         if (Manifest.permission.CAMERA in result) askedCam = true
         // Whatever was allowed opens now; the rest is explained on the screen (and can be added later).
-        vm.controller.refreshDevices()
+        // The first ask (the page opening) restores mic / camera as I last left them; a tap turns them on.
+        vm.controller.refreshDevices(restore = !tappedAsk)
+        tappedAsk = false
     }
     fun openAppSettings() {
         runCatching {
@@ -208,7 +214,8 @@ fun CallRoute(nav: LabNav, id: String) {
     /** Ask for the devices that are missing (or send the person to Settings when Android won't ask again). */
     fun askFor(vararg wanted: String) {
         val missing = wanted.filter { !context.granted(it) }
-        if (missing.isEmpty()) { vm.controller.refreshDevices(); return }
+        if (missing.isEmpty()) { vm.controller.refreshDevices(restore = false); return }
+        tappedAsk = true
         val settingsOnly = missing.all { access(it, if (it == Manifest.permission.RECORD_AUDIO) askedMic else askedCam) == DeviceAccess.SETTINGS }
         if (settingsOnly) openAppSettings() else askMedia.launch(missing.toTypedArray())
     }
@@ -217,7 +224,7 @@ fun CallRoute(nav: LabNav, id: String) {
         if (!s.mediaReady) return@LaunchedEffect
         val micNow = context.granted(Manifest.permission.RECORD_AUDIO) && !s.hasMic
         val camNow = context.granted(Manifest.permission.CAMERA) && !s.hasCamera && s.camProblem == MediaProblem.BLOCKED
-        if (micNow || camNow) vm.controller.refreshDevices()
+        if (micNow || camNow) vm.controller.refreshDevices(restore = false)
     }
     val askScreen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         if (r.resultCode == Activity.RESULT_OK && r.data != null) vm.controller.startScreenShare(r.data!!)
@@ -292,7 +299,9 @@ fun CallRoute(nav: LabNav, id: String) {
             onCommitBoard = vm.controller::commitBoard,
             onLive = vm.controller::sendLiveStroke,
             onSendChat = vm.controller::sendChat,
-            onTextChanged = { t, a, b, composing, compose -> vm.controller.textChanged(t, a, b, composing, compose) },
+            onTextChanged = { t, a, b, comp ->
+                vm.controller.textChanged(t, a, b, comp != null, comp?.let { t.substring(it.min.coerceIn(0, t.length), it.max.coerceIn(0, t.length)) }, comp?.min ?: -1, comp?.max ?: -1)
+            },
             onAnnotate = vm.controller::sendAnnotation,
             onPing = vm.controller::sendPing,
             onClearAnnotations = vm.controller::clearAnnotations,

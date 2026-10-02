@@ -12,6 +12,8 @@ import {
   sanitizeDiagEvents,
   sanitizeInstance,
   shouldAdoptPeer,
+  linkSignalAction,
+  linkWorthKeeping,
   tileStatus,
   videoEncodingFor,
   type CallDiagEntry,
@@ -76,6 +78,27 @@ describe('adopting a returning peer', () => {
     expect(shouldAdoptPeer(cur, { user_id: 'u1' })).toBe(false);
     expect(shouldAdoptPeer({ user_id: 'u1' }, { user_id: 'u1', instance: undefined })).toBe(false);
     expect(shouldAdoptPeer(null, { user_id: 'u1', instance: 'abc123' })).toBe(false);
+  });
+
+  it('never adopts a link that failed, closed or never got going — those are renegotiated', () => {
+    const cur = { user_id: 'u1', instance: 'abc123' };
+    const back = { user_id: 'u1', instance: 'abc123' };
+    expect(shouldAdoptPeer(cur, back, 'connected')).toBe(true);
+    expect(shouldAdoptPeer(cur, back, 'disconnected')).toBe(true);
+    expect(shouldAdoptPeer(cur, back, 'connecting')).toBe(true);
+    expect(shouldAdoptPeer(cur, back, 'failed')).toBe(false);
+    expect(shouldAdoptPeer(cur, back, 'closed')).toBe(false);
+    expect(shouldAdoptPeer(cur, back, 'new')).toBe(false);
+    expect(linkWorthKeeping('failed')).toBe(false);
+  });
+
+  it('a signal from a new link of theirs makes mine start over; leftovers of a replaced link are ignored', () => {
+    expect(linkSignalAction(null, [], undefined)).toBe('apply'); // an older app without link ids
+    expect(linkSignalAction(null, [], 'L1')).toBe('apply'); // first contact binds
+    expect(linkSignalAction('L1', [], 'L1')).toBe('apply');
+    expect(linkSignalAction('L1', [], 'L2')).toBe('replace');
+    expect(linkSignalAction('L2', ['L1'], 'L1')).toBe('ignore');
+    expect(linkSignalAction('L2', ['L1'], undefined)).toBe('apply');
   });
 
   it('accepts only short alphanumeric instance ids', () => {

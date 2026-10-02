@@ -581,18 +581,21 @@
   margin-left: -1px;
   margin-right: -1px;
 }
-.tb-flag {
+/* The other person's caret: a thin line and a small dot on top — never a label over the text
+   (their name lights up in the strip under the board when the pointer is near the dot). */
+.tb-caret-dot {
   position: absolute;
-  left: -2px;
-  bottom: 100%;
-  padding: 0 0.35rem;
-  border-radius: 4px 4px 4px 0;
-  color: #fff;
-  font-size: 0.7rem;
-  line-height: 1.5;
-  white-space: nowrap;
-  font-weight: 600;
+  top: -3px;
+  left: -4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
 }
+.tb-caret.is-hover .tb-caret-dot { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 0 4px currentColor; }
+/* Composing (pinyin in progress): the dot breathes — what they type shows beside their name below. */
+.tb-caret.is-composing .tb-caret-dot { animation: tb-dot-breathe 1.2s ease-in-out infinite; }
+@keyframes tb-dot-breathe { 50% { transform: scale(1.6); } }
+@media (prefers-reduced-motion: reduce) { .tb-caret.is-composing .tb-caret-dot { animation: none; } }
 .tb-helper {
   display: flex;
   flex-wrap: wrap;
@@ -617,9 +620,12 @@
   font-size: 0.9rem;
   cursor: pointer;
 }
-/* Their pinyin composition in progress, in their name flag (never in the text, so nothing moves). */
-.tb-flag-compose { font-weight: 500; opacity: 0.95; }
-.tb-flag-compose u { text-decoration-style: dotted; text-underline-offset: 2px; }
+/* Their pinyin composition in progress, beside their name under the board (never in the text, so nothing moves). */
+.tb-person { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.5rem; border-radius: 999px; transition: background 120ms, color 120ms; }
+.tb-person.is-hover { color: #fff; }
+.tb-person.is-hover .tb-dot { background: #fff !important; }
+.tb-person-compose { font-weight: 500; }
+.tb-person-compose u { text-decoration-style: dotted; text-underline-offset: 2px; }
 .tb-people { display: flex; align-items: center; gap: 0.75rem; padding: 0.3rem 0.75rem; font-size: 0.8rem; color: #6b7280; border-top: 1px solid #f3f4f6; }
 /* Tab-complete: grey ghost text after the caret (a layer above the textarea), the touch chip, the ⋯ setting. */
 .tb-ghost-layer { z-index: 1; }
@@ -648,9 +654,17 @@
   background: #eef2ff;
   color: #3730a3;
   font-size: 0.95rem;
-  white-space: nowrap;
+  /* A sentence's whole translation: wrap (up to 4 lines) rather than cut it off. */
+  white-space: normal;
+  text-align: left;
+  line-height: 1.35;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  border-radius: 18px;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
   box-shadow: 0 2px 8px rgba(17, 24, 39, 0.15);
   cursor: pointer;
   touch-action: manipulation;
