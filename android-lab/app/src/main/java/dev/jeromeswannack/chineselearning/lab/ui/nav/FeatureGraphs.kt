@@ -25,6 +25,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.quests.questsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.coach.coachGraph
 import dev.jeromeswannack.chineselearning.lab.ui.analyze.analyzeGraph
 import dev.jeromeswannack.chineselearning.lab.ui.calls.callsGraph
+import dev.jeromeswannack.chineselearning.lab.ui.materials.materialsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.profile.profileGraph
 import dev.jeromeswannack.chineselearning.lab.ui.picturehunt.pictureHuntGraph
 
@@ -60,6 +61,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     profileGraph(nav)       // "/profile"     D
     pictureHuntGraph(nav)   // "/picture-hunt", "/picture-hunt/:id"  H
     todayGraph(nav)         // "/today/lessons[/:id]", "/today/reader" — Lab-only today split
+    materialsGraph(nav)     // "/materials", "/materials/:id"  J (calls round 4 PR 5)
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }

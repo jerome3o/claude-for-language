@@ -195,7 +195,7 @@ for (let i = 0; i < 200; i++) {
   pairs.push({ stage, remote: enc(remote), self: enc(self), scale, narrow, size: pairSize(stage, aspects, scale, narrow) });
 }
 const boardButtons = sequences.flatMap((seq) => seq.steps.map((st) => st.layout)).slice(0, 120).flatMap((l) => [false, true].map((narrow) => ({ layout: l, narrow, on_stage: boardOnStage(l), action: boardButton(l, narrow) })));
-const shortcuts = ['1', '2', '3', '4', '5', '6', 'b', 'B', 'd', 'D', 'c', 'v', 'V', 's', 'S', 'x', 'Enter', ' '].map((key) => ({ key, action: layoutShortcut(key) }));
+const shortcuts = ['1', '2', '3', '4', '5', '6', 'b', 'B', 'd', 'D', 'c', 'v', 'V', 's', 'S', 'm', 'M', 'x', 'Enter', ' '].map((key) => ({ key, action: layoutShortcut(key) }));
 
 const rawLayouts: unknown[] = [
   null,
@@ -280,8 +280,68 @@ for (let s = 0; s < 24; s++) {
   dropSequences.push({ steps });
 }
 
+// ---- round 4 PR 5: a presented lesson material (own RNG). Snapshots over every screen × material availability.
+const r5 = rng(20261005);
+const pick5 = <T>(xs: readonly T[]): T => xs[Math.floor(r5() * xs.length)];
+const avails = [
+  { screen: false, material: false },
+  { screen: false, material: true },
+  { screen: true, material: false },
+  { screen: true, material: true },
+];
+const widthsM = [412, 639, 640, 1024];
+function snapshotM(l: CallLayout) {
+  const arrangements = avails.flatMap((a) => widthsM.map((width) => ({ ...a, width, arr: arrangeTiles(l, a, width) })));
+  // Rectangles only where a material exists (the screen-only ones are the walks above).
+  const rects = avails
+    .filter((a) => a.material)
+    .flatMap((a) => boxes.map((box) => ({ ...a, w: box.w, h: box.h, aspects: 1, rects: layoutRects(l, arrangeTiles(l, a, box.w), box, aspectSets[1]) })));
+  return { layout: l, swipe_order: avails.map((a) => swipeOrder(l, a)), arrangements, rects };
+}
+type StepM = LayoutAction | { type: 'swipe'; delta: 1 | -1; screen: boolean; material: boolean };
+const materialSequences = [];
+const materialScripts: StepM[][] = [
+  [{ type: 'materialStarted' }],
+  [{ type: 'materialStarted' }, { type: 'drop', tile: 'text', zone: 'bottom' }],
+  [{ type: 'materialStarted' }, { type: 'drop', tile: 'draw', zone: 'right' }, { type: 'ratio', ratio: 0.7 }],
+  [{ type: 'focus', tile: 'text' }, { type: 'materialStarted' }, { type: 'pairTap' }],
+  [{ type: 'pip', pip: 'separate' }, { type: 'materialStarted' }, { type: 'drop', tile: 'material', zone: 'left' }],
+  [{ type: 'shareStarted' }, { type: 'materialStarted' }, { type: 'swipe', delta: 1, screen: true, material: true }, { type: 'swipe', delta: -1, screen: true, material: true }],
+  [{ type: 'materialStarted' }, { type: 'close', tile: 'material' }],
+  [{ type: 'materialStarted' }, { type: 'preset', preset: 'grid' }],
+  [{ type: 'focus', tile: 'material' }, { type: 'focus', tile: 'material' }],
+];
+for (let s = 0; s < 30; s++) {
+  const steps: StepM[] = [];
+  const n = 3 + Math.floor(r5() * 5);
+  for (let i = 0; i < n; i++) {
+    const roll = r5();
+    steps.push(
+      roll < 0.25
+        ? { type: 'materialStarted' }
+        : roll < 0.5
+          ? { type: 'drop', tile: pick5(ALL_TILES), zone: pick5(DROP_ZONES) as DropZone }
+          : roll < 0.6
+            ? { type: 'swipe', delta: r5() < 0.5 ? 1 : -1, screen: r5() < 0.5, material: r5() < 0.7 }
+            : pick5<LayoutAction>([{ type: 'focus', tile: pick5(ALL_TILES) }, { type: 'split', a: pick5(ALL_TILES), b: pick5(ALL_TILES) }, { type: 'close', tile: pick5(ALL_TILES) }, { type: 'shareStarted' }, { type: 'pairCorner', corner: pick5(corners) }, { type: 'preset', preset: pick5(presets) }, { type: 'swap', from: pick5(ALL_TILES), to: pick5(ALL_TILES) }]),
+    );
+  }
+  materialScripts.push(steps);
+}
+for (const script of materialScripts) {
+  let l = DEFAULT_LAYOUT;
+  const steps = [];
+  for (const a of script) {
+    l = a.type === 'swipe' ? swipeFocus(l, { screen: a.screen, material: a.material }, a.delta) : layoutReducer(l, a);
+    steps.push({ action: a, ...snapshotM(l) });
+  }
+  materialSequences.push({ steps });
+}
+const materialSplitAllowed = materialSequences.flatMap((seq) => seq.steps.map((st) => ({ layout: st.layout, allowed: narrowSplitAllowed(st.layout) })));
+
 writeFileSync(
   join(OUT, 'calls-layout.json'),
   JSON.stringify({ default: DEFAULT_LAYOUT, presets: PRESETS, all_tiles: ALL_TILES, tile_header: TILE_HEADER, pair_pad: PAIR_PAD, pair_gap: PAIR_GAP, sequences, floating, grid, snaps, others, shortcuts, sanitized, pairs, board_buttons: boardButtons,
-    drop_edge: DROP_EDGE, drop_zones: DROP_ZONES, drop_zone_labels: DROP_ZONE_LABELS, drop_zone_ats: dropZoneAts, drop_zone_boxes: dropZoneBoxes, drops, split_allowed: splitAllowed, split_dirs: splitDirs, drop_sequences: dropSequences }),
+    drop_edge: DROP_EDGE, drop_zones: DROP_ZONES, drop_zone_labels: DROP_ZONE_LABELS, drop_zone_ats: dropZoneAts, drop_zone_boxes: dropZoneBoxes, drops, split_allowed: splitAllowed, split_dirs: splitDirs, drop_sequences: dropSequences,
+    material_sequences: materialSequences, material_split_allowed: materialSplitAllowed }),
 );

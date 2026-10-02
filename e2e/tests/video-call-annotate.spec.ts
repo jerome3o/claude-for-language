@@ -66,8 +66,22 @@ async function settledBox(page: Page, testId: string) {
   return (await page.getByTestId(testId).boundingBox())!;
 }
 
+/** Wait until the start point really hits the (interactive) canvas — not a tile still sliding, not a layer that ignores the pointer. */
+async function settledTarget(page: Page, testId: string, at: [number, number]) {
+  for (let i = 0; i < 50; i++) {
+    const box = await settledBox(page, testId);
+    const hit = await page.getByTestId(testId).evaluate((c: HTMLElement, p: { x: number; y: number }) => {
+      const el = document.elementFromPoint(p.x, p.y);
+      return el === c && getComputedStyle(c).pointerEvents !== 'none';
+    }, { x: box.x + box.width * at[0], y: box.y + box.height * at[1] });
+    if (hit) return box;
+    await page.waitForTimeout(100);
+  }
+  throw new Error(`${testId} never became the target under the pointer`);
+}
+
 async function drawLine(page: Page, testId: string, from: [number, number], to: [number, number]) {
-  const box = await settledBox(page, testId);
+  const box = await settledTarget(page, testId, from);
   await page.mouse.move(box.x + box.width * from[0], box.y + box.height * from[1]);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * to[0], box.y + box.height * to[1], { steps: 12 });

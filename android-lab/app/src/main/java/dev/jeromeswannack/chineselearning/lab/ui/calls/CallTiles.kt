@@ -79,7 +79,7 @@ internal val DIVIDER_TOUCH = 44.dp
 
 private val SPRING = spring<IntOffset>(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
 private val SIZE_SPRING = spring<androidx.compose.ui.unit.Dp>(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
-private val VIDEO_TILES = setOf(TileId.REMOTE, TileId.SELF, TileId.SCREEN)
+private val VIDEO_TILES = setOf(TileId.REMOTE, TileId.SELF, TileId.SCREEN, TileId.MATERIAL)
 
 /**
  * The call's tiles (web components/calls/CallTiles.tsx, rules in core CallLayout): every tile is ONE

@@ -131,6 +131,9 @@ data class CallScreenInfo(
     val boardGlossOn: Boolean = true,
     /** Screenshots only: a tab-complete offer already showing. */
     val boardGlossPreview: GlossSuggestion? = null,
+    /** Round 4 PR 5: where a presented material's pages come from (cache-first), and the "📑 Present material" sheet. */
+    val materialSource: MaterialPageSource? = null,
+    val presentSheet: PresentSheetUi = PresentSheetUi(),
 )
 
 data class CallActions(
@@ -181,6 +184,12 @@ data class CallActions(
     val onToggleScreenOverlay: () -> Unit = {},
     val onReview: () -> Unit = {},
     val onAllCalls: () -> Unit = {},
+    /** Round 4 PR 5: the material tile (turn pages, stop, draw / type on the page). */
+    val material: MaterialActions = MaterialActions(),
+    /** ⋯ → 📑 Present material: the sheet opened (load the list), a material picked, "+ Add a PDF…" (the file picker). */
+    val onOpenPresent: () -> Unit = {},
+    val onPresent: (String) -> Unit = {},
+    val onAddMaterial: () -> Unit = {},
     /** Haptics: a light tick (focus, preset, swipe) / a snap (a floating camera lands in its corner). */
     val onTick: () -> Unit = {},
     val onSnap: () -> Unit = {},
@@ -213,6 +222,9 @@ fun CallScreen(
     initialSplitMenu: CallLayout.TileId? = null,
     /** Screenshots: the drawing tool, a text field open on the shared screen, a text selected (round 4). */
     initialAnnot: AnnotUiSeed = AnnotUiSeed(),
+    /** Screenshots: the material tile's tools (round 4 PR 5) / the "Present a material" sheet already open. */
+    initialMaterial: MaterialUiSeed = MaterialUiSeed(),
+    initialPresentSheet: Boolean = false,
 ) {
     when {
         info.loading -> Center { Text("Loading the call…", color = OnDark) }
@@ -224,7 +236,7 @@ fun CallScreen(
         s.phase == CallPhase.LEFT -> Left(s, info, actions)
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu, initialAnnot)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu, initialAnnot, initialMaterial, initialPresentSheet)
     }
 }
 
@@ -464,9 +476,11 @@ fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
 }
 
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null, initialAnnot: AnnotUiSeed = AnnotUiSeed()) {
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null, initialAnnot: AnnotUiSeed = AnnotUiSeed(), initialMaterial: MaterialUiSeed = MaterialUiSeed(), initialPresentSheet: Boolean = false) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
+    // Round 4 PR 5: ⋯ → 📑 Present material.
+    var presentOpen by remember { mutableStateOf(initialPresentSheet) }
     var layoutSheet by remember { mutableStateOf(false) }
     var confirmEnd by remember { mutableStateOf(initialEndConfirm) }
     // Round 4: the long-press menu on the shared screen / the board ("Show the board beside the screen" …).
@@ -494,7 +508,10 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     val remoteSharing = rs?.screen == true
     val sharing = remoteSharing || s.sharingScreen
     val pen = annotPen(annotColor, s)
-    val available = CallLayout.Availability(screen = sharing)
+    val presenting = s.presenting
+    val available = CallLayout.Availability(screen = sharing, material = presenting != null)
+    // Something was presented: the sheet has done its job.
+    LaunchedEffect(presenting?.materialId) { if (presenting != null && !initialPresentSheet) presentOpen = false }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Dark).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         val wide = maxWidth >= 640.dp
@@ -502,15 +519,17 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         val h = holder ?: remember { CallLayoutHolder(initial = layoutForPanel(initialPanel, wide)) }
         val layout by h.layout.collectAsState()
         LaunchedEffect(remoteSharing) { h.setRemoteSharing(remoteSharing) }
+        // A material someone starts presenting comes onto the stage (like a shared screen; web CallPage).
+        LaunchedEffect(presenting?.materialId) { h.setPresenting(presenting?.materialId) }
         LaunchedEffect(sharing) { if (!sharing) annotating = false }
         val arrangement = CallLayout.arrangeTiles(layout, available, maxWidth.value.toDouble())
         val chatVisible = CallLayout.TileId.CHAT in arrangement.stage || (CallLayout.TileId.CHAT in layout.open && layout.mode == CallLayout.Mode.GRID)
         LaunchedEffect(chatVisible, s.chat.size) { if (chatVisible) seenChat = s.chat.size }
         val boardOnStage = CallLayout.boardOnStage(layout)
         val dispatch: (CallLayout.Action) -> Unit = { h.dispatch(it) }
-        val applySplit: (ScreenBoardSplit.Choice, CallLayout.TileId) -> Unit = { choice, board ->
+        val applySplit: (ScreenBoardSplit.Choice, CallLayout.TileId, CallLayout.TileId) -> Unit = { choice, board, content ->
             splitMenu = null
-            if (h.applySplit(choice, board)) actions.onTick()
+            if (h.applySplit(choice, board, content)) actions.onTick()
         }
 
         val boardSwitch: @Composable (CallLayout.TileId) -> Unit = { current ->
@@ -518,7 +537,10 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                 Tab("Board", current == CallLayout.TileId.TEXT) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.DRAW, CallLayout.TileId.TEXT)); actions.onTick() }
                 Tab("Draw", current == CallLayout.TileId.DRAW) { dispatch(CallLayout.Action.Swap(CallLayout.TileId.TEXT, CallLayout.TileId.DRAW)); actions.onTick() }
                 // Round 4: something is shared — the board with the screen (the same menu as a long-press).
-                if (available.screen) Tab(if (ScreenBoardSplit.isSplit(layout)) "🖥️ ⋯" else "+ 🖥️", false) { splitMenu = current }
+                if (available.screen || available.material) {
+                    val icon = if (ScreenBoardSplit.contentOf(layout, available) == CallLayout.TileId.MATERIAL) "📑" else "🖥️"
+                    Tab(if (ScreenBoardSplit.isSplit(layout)) "$icon ⋯" else "+ $icon", false) { splitMenu = current }
+                }
             }
         }
         val tiles = buildMap<CallLayout.TileId, TileSpec> {
@@ -584,12 +606,22 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     val split = ScreenBoardSplit.isSplit(layout)
                     if (split || CallLayout.TileId.TEXT in layout.open || CallLayout.TileId.DRAW in layout.open) SplitChip(
                         split, Modifier.align(Alignment.TopStart).padding(8.dp),
-                        onClick = { applySplit(ScreenBoardSplit.toggle(layout, tilesW, tilesH), ScreenBoardSplit.boardOf(layout)) },
+                        onClick = { applySplit(ScreenBoardSplit.toggle(layout, tilesW, tilesH), ScreenBoardSplit.boardOf(layout), CallLayout.TileId.SCREEN) },
                         onLongClick = { splitMenu = CallLayout.TileId.SCREEN },
                     )
                 }
             })
-            put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true, onLongPress = if (available.screen) ({ splitMenu = CallLayout.TileId.TEXT }) else null) { _ ->
+            if (presenting != null) put(CallLayout.TileId.MATERIAL, TileSpec("📑 ${presenting.title}", onLongPress = { splitMenu = CallLayout.TileId.MATERIAL }) { role ->
+                // Room for the tile's ⤢ at the bar's end where the tiles chrome shows it (a wide layout, not focused).
+                val focusedHere = arrangement.mode == CallLayout.Mode.FOCUS && arrangement.stage.firstOrNull() == CallLayout.TileId.MATERIAL
+                MaterialTile(
+                    presenting, s.materialAnnotations, info.materialSource, pen, actions.material,
+                    onKeep = actions.onAnnotationsKept, onTick = actions.onTick, nowMs = nowMs,
+                    endInset = if (wide && role == CallLayout.Role.STAGE && !focusedHere) 40.dp else 0.dp,
+                    seed = initialMaterial,
+                )
+            })
+            put(CallLayout.TileId.TEXT, TileSpec("Board", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.TEXT }) else null) { _ ->
                 Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
                     boardSwitch(CallLayout.TileId.TEXT)
                     TextBoardPanel(
@@ -608,7 +640,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     )
                 }
             })
-            put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true, onLongPress = if (available.screen) ({ splitMenu = CallLayout.TileId.DRAW }) else null) { _ ->
+            put(CallLayout.TileId.DRAW, TileSpec("Draw", closable = true, onLongPress = if (available.screen || available.material) ({ splitMenu = CallLayout.TileId.DRAW }) else null) { _ ->
                 Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
                     boardSwitch(CallLayout.TileId.DRAW)
                     Whiteboard(s.board, s.liveStrokes.values.toList(), s.myUserId, actions.onCommitBoard, actions.onLive, Modifier.fillMaxWidth().weight(1f))
@@ -704,7 +736,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             )
         }
         // Round 4: the long-press menu — a scrim and a card above the controls (in the tree, like End's confirm).
-        val menuFor = splitMenu?.takeIf { available.screen }
+        val menuFor = splitMenu?.takeIf { available.screen || available.material }
         androidx.compose.animation.AnimatedVisibility(menuFor != null, enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
             Box(
                 Modifier.fillMaxSize().background(Color(0x99000000))
@@ -718,9 +750,11 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
             exit = androidx.compose.animation.fadeOut(),
         ) {
             val pressed = menuFor ?: CallLayout.TileId.SCREEN
+            val content = ScreenBoardSplit.contentOf(layout, available, pressed) ?: CallLayout.TileId.SCREEN
             ScreenBoardMenu(
                 ScreenBoardSplit.menu(layout, available, tilesW, tilesH, pressed),
-                onPick = { applySplit(it, ScreenBoardSplit.boardOf(layout, pressed)) },
+                onPick = { applySplit(it, ScreenBoardSplit.boardOf(layout, pressed), content) },
+                title = if (content == CallLayout.TileId.MATERIAL) "Material and board" else "Screen and board",
                 onCancel = { splitMenu = null },
             )
         }
@@ -729,7 +763,10 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
         }
     }
     if (more) LabBottomSheet(onDismiss = { more = false }, title = "Call") {
-        CallMoreMenu(s, info, actions, close = { more = false })
+        CallMoreMenu(s, info, actions.copy(onOpenPresent = { presentOpen = true; actions.onOpenPresent() }), close = { more = false })
+    }
+    if (presentOpen) LabBottomSheet(onDismiss = { presentOpen = false }, title = "Present a material") {
+        PresentMaterialSheet(info.presentSheet, onPick = { id -> actions.onPresent(id); actions.onTick(); presentOpen = false }, onAdd = actions.onAddMaterial)
     }
     androidx.activity.compose.BackHandler(enabled = confirmEnd) { confirmEnd = false }
     androidx.activity.compose.BackHandler(enabled = splitMenu != null) { splitMenu = null }
@@ -755,12 +792,12 @@ private fun SplitChip(split: Boolean, modifier: Modifier, onClick: () -> Unit, o
 
 /** Round 4: the long-press menu (web: the drop zones / "Move to …"), as a card. */
 @Composable
-fun ScreenBoardMenu(items: List<ScreenBoardSplit.Item>, onPick: (ScreenBoardSplit.Choice) -> Unit, onCancel: () -> Unit) {
+fun ScreenBoardMenu(items: List<ScreenBoardSplit.Item>, onPick: (ScreenBoardSplit.Choice) -> Unit, onCancel: () -> Unit, title: String = "Screen and board") {
     Column(
         Modifier.widthIn(max = 420.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).padding(vertical = 10.dp).testTag("split-menu"),
     ) {
         Text(
-            "Screen and board", color = Color(0xFF6B7280), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            title, color = Color(0xFF6B7280), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
         )
         items.forEach { item ->
@@ -887,6 +924,9 @@ private fun ToggleRow(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
 @Composable
 fun CallMoreMenu(s: CallState, info: CallScreenInfo, actions: CallActions, close: () -> Unit) {
     val check: @Composable (Boolean) -> Unit = { on -> if (on) Text("✓", color = Lab.colors.accent, fontWeight = FontWeight.Bold) }
+    // Round 4 PR 5: a PDF / PowerPoint / picture on the stage for both of you (web: first in the ⋯ menu).
+    NavRow("📑", "Present material", desc = if (s.presenting != null) "Now: ${s.presenting.title}" else "A PDF, slides or a picture — you both see it", onClick = { close(); actions.onOpenPresent() })
+    RowDivider()
     if (s.screenShareSupported) NavRow("🖥️", if (s.sharingScreen) "Stop sharing your screen" else "Share your screen", onClick = { close(); if (s.sharingScreen) actions.onStopShare() else actions.onShareScreen() })
     if (s.recordSupported && s.hasMic) { RowDivider(); NavRow(if (s.recording) "⏹" else "⏺", if (s.recording) "Stop recording my mic" else "Record my mic", onClick = { close(); actions.onToggleRecording() }) }
     DeviceHeader("Camera")
@@ -928,14 +968,16 @@ private fun TileBadge(text: String, modifier: Modifier, compact: Boolean = false
 /** Draw toggle, pens, Clear (both sides) and Keep (both people) — web CallPage's `.annot-tools`. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun AnnotateTools(
+internal fun AnnotateTools(
     modifier: Modifier, label: String, on: Boolean, color: String, keep: Boolean, tool: AnnotTool,
     onToggle: () -> Unit, onColor: (String) -> Unit, onTool: (AnnotTool) -> Unit, onClear: () -> Unit, onKeep: (Boolean) -> Unit,
+    /** Round 4 PR 5: the material tile has its own Draw toggle in its bar — the row is then only the tools. */
+    showToggle: Boolean = true,
 ) {
     androidx.compose.foundation.layout.FlowRow(
         modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
+        if (showToggle) Text(
             if (on) "✓ Done" else label, color = Color.White, fontSize = 14.sp,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) Color(0xFFF43F5E) else Color(0xD9111827)).bouncyClickable(onClick = onToggle).heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 10.dp),
         )

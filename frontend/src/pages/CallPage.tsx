@@ -38,6 +38,8 @@ import { CallTiles, type TileSpec } from '../components/calls/CallTiles';
 import { CallVideo } from '../components/calls/CallVideo';
 import { MediaProblemCard } from '../components/calls/MediaProblemCard';
 import { DevicesSheet } from '../components/calls/DevicesSheet';
+import { MaterialTile } from '../components/calls/MaterialTile';
+import { PresentMaterialSheet } from '../components/calls/PresentMaterialSheet';
 import './CallPage.css';
 
 function Initials({ name }: { name: string }) {
@@ -123,6 +125,7 @@ export function CallPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [endConfirm, setEndConfirm] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
+  const [presentOpen, setPresentOpen] = useState(false);
   // A device problem in the call is shown until dismissed (a new problem shows again).
   const [dismissedProblem, setDismissedProblem] = useState('');
   const [seenChat, setSeenChat] = useState(0);
@@ -201,7 +204,12 @@ export function CallPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.call.status]);
 
-  const available = { screen: remoteSharing || !!call.screenStream };
+  const available = { screen: remoteSharing || !!call.screenStream, material: !!call.presenting };
+  // A material someone starts presenting comes onto the stage (like a shared screen).
+  const presentingId = call.presenting?.material_id ?? null;
+  useEffect(() => {
+    if (presentingId) dispatch({ type: 'materialStarted' });
+  }, [presentingId]);
   const chatVisible = arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('chat') || (layout.open.includes('chat') && layout.mode === 'grid');
   useEffect(() => {
     if (chatVisible) setSeenChat(call.chat.length);
@@ -430,6 +438,22 @@ export function CallPage() {
         </div>
       ) : null,
     },
+    material: {
+      label: call.presenting ? `📑 ${call.presenting.title}` : 'Material',
+      content: call.presenting ? (
+        <MaterialTile
+          presenting={call.presenting}
+          store={call.materialAnnotations}
+          persist={call.annotPersist}
+          onPersist={call.setAnnotationsKept}
+          myColor={pen}
+          onTurn={call.turnMaterialPage}
+          onStop={() => void call.stopPresenting()}
+          annot={call.materialAnnot}
+          active={arrangeTiles(layout, available, typeof window !== 'undefined' ? window.innerWidth : 1024).stage.includes('material')}
+        />
+      ) : null,
+    },
     text: {
       label: 'Board',
       closable: true,
@@ -525,6 +549,15 @@ export function CallPage() {
           <button type="button" className="call-panel-close" aria-label="Dismiss" onClick={() => setDismissedProblem(problemKey)}>✕</button>
         </div>
       )}
+      {presentOpen && (
+        <PresentMaterialSheet
+          onPick={(id) => {
+            call.presentMaterial(id);
+            setPresentOpen(false);
+          }}
+          onClose={() => setPresentOpen(false)}
+        />
+      )}
       {devicesSheet}
 
       <div className="call-controls" role="toolbar" aria-label="Call controls">
@@ -586,6 +619,7 @@ export function CallPage() {
           <button type="button" className="call-btn" onClick={() => setMoreOpen((v) => !v)} aria-label="More" aria-expanded={moreOpen}>⋯</button>
           {moreOpen && (
             <div className="call-more-menu" role="menu" onClick={() => setMoreOpen(false)}>
+              <button type="button" role="menuitem" onClick={() => setPresentOpen(true)} data-testid="menu-present-material">📑 Present material</button>
               <button type="button" role="menuitem" onClick={() => setDevicesOpen(true)} data-testid="menu-devices">🎛️ Camera, mic &amp; speaker</button>
               <button type="button" role="menuitem" onClick={() => void call.leave()} data-testid="menu-leave">🚪 Leave — the call goes on</button>
               {call.hasCamera && <button type="button" role="menuitem" onClick={() => void call.flipCamera()}>🔄 Flip camera</button>}

@@ -25,6 +25,7 @@ import { registerHomeworkTools } from './tools/homework.js';
 import { registerAdminTools } from './tools/admin.js';
 import { registerDebugTools } from './tools/debug.js';
 import { registerPictureHuntTools } from './tools/picture-hunts.js';
+import { registerMaterialTools } from './tools/materials.js';
 import { registerTutorApps } from './tools/apps.js';
 
 interface User {
@@ -1924,6 +1925,7 @@ ${LESSON_AUTHORING_RULES} Invalid specs are rejected with a list of problems —
     // Study-state debug reports from the web + Lab apps and their server-side diff.
     registerDebugTools(ctx);
     registerPictureHuntTools(ctx);
+    registerMaterialTools(ctx);
   }
 }
 

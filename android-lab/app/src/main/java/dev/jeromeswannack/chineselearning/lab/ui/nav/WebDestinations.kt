@@ -90,6 +90,8 @@ object WebDestinations {
         WebDestination("/calls/:id/review", "Call review", "📹", "Transcript, lesson report and flashcards.", 'J'),
         WebDestination("/calls/:id", "Video call", "📹", "A live lesson with a whiteboard.", 'J'),
         WebDestination("/calls", "Video calls", "📹", "Lessons with a whiteboard, then a transcript.", 'J'),
+        WebDestination("/materials/:id", "Lesson material", "📑", "A PDF, slides or a picture, page by page.", 'J'),
+        WebDestination("/materials", "Lesson materials", "📑", "PDFs, slides and pictures to present in a call.", 'J'),
         // web / MCP only
         WebDestination("/admin", "Admin", "🛠️", "Users, invites, feature requests.", '-'),
         WebDestination("/join/:token", "Invite", "✉️", "Accept an invite link.", '-'),

@@ -114,6 +114,7 @@ export function MorePage() {
               <NavRow icon="🧭" label="Exercise catalogue" desc="All exercise types · try a sample" to="/library/catalogue" />
               <NavRow icon="📚" label="Readers" desc="Graded stories to share with students" to="/readers" />
               <NavRow icon="📹" label="Video calls (beta)" desc="Lessons with a whiteboard, then a transcript" to="/calls" />
+              <NavRow icon="📑" label="Lesson materials" desc="PDFs, slides and pictures to present in a call" to="/materials" />
             </NavSection>
             <NavSection title="Tools">
               <NavRow icon="🧑‍🏫" label="Sentence Coach" desc="Check or translate a sentence" to="/coach" />
@@ -135,6 +136,7 @@ export function MorePage() {
           <NavRow icon="🎮" label="Quests" desc="Carry out instructions in a tiny world" to="/quests" />
           <NavRow icon="🔎" label="Picture hunt" desc="看图找词 · Name what you see in a picture" to="/picture-hunt" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
+          <NavRow icon="📑" label="Lesson materials" desc="PDFs and slides from lessons" to="/materials" />
         </NavSection>
 
         {!role.isTutorOnly && (

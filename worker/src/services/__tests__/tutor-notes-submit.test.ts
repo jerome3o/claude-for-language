@@ -14,6 +14,24 @@ function seg(id: string, user_id: string, start: number, text: string, translati
 }
 
 describe('composeCallNotes', () => {
+  it('includes the text of the lesson materials presented, with the pages shown (round 4)', () => {
+    const notes = composeCallNotes({
+      title: 'L5',
+      startedAt: 0,
+      names,
+      transcript: [],
+      board: [],
+      chat: [],
+      report: null,
+      materials: [{ title: '第五课 把字句', page_count: 12, pages_shown: [0, 3], text: '— Page 1 —\n第五课\n\n— Page 4 —\n我把作业做完了。' }],
+    });
+    expect(notes).toContain('LESSON MATERIALS PRESENTED');
+    expect(notes).toContain('"第五课 把字句" — pages shown: 1, 4 of 12');
+    expect(notes).toContain('我把作业做完了。');
+    // Materials alone are enough to work from.
+    expect(composeCallNotes({ title: null, startedAt: 0, names, transcript: [], board: [], chat: [], report: null, materials: [] })).toBe('');
+  });
+
   it('lays out report, whiteboard, chat and transcript with roles and times', () => {
     const notes = composeCallNotes({
       title: 'Restaurant role-play',

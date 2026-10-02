@@ -124,6 +124,9 @@ class CallViewModel(private val app: LabApp, val callId: String) : ViewModel() {
 
     fun selectRoute(r: AudioRoute) = audio.choose(r)
 
+    /** Round 4 PR 5: lesson materials in the call — the material tile's pages and the "📑 Present material" sheet. */
+    val materials = dev.jeromeswannack.chineselearning.lab.ui.materials.CallMaterials(app, viewModelScope)
+
     /**
      * While I share my screen: the drawings on it (theirs and my own, kept or fading) over every other
      * app. Driven from here, not the composition, so it keeps updating while another app is in front;
@@ -226,6 +229,11 @@ fun CallRoute(nav: LabNav, id: String) {
         val camNow = context.granted(Manifest.permission.CAMERA) && !s.hasCamera && s.camProblem == MediaProblem.BLOCKED
         if (micNow || camNow) vm.controller.refreshDevices(restore = false)
     }
+    // ⋯ → 📑 Present material → "+ Add": the system file picker (PDF, PowerPoint, pictures); rendered here, uploaded, presented.
+    val pickMaterial = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.materials.add(context, uri) { mid -> vm.controller.presentMaterial(mid) }
+    }
+    val presentSheet by vm.materials.sheet.collectAsStateWithLifecycle()
     val askScreen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         if (r.resultCode == Activity.RESULT_OK && r.data != null) vm.controller.startScreenShare(r.data!!)
     }
@@ -277,6 +285,8 @@ fun CallRoute(nav: LabNav, id: String) {
             audioRoutes = if (s.phase == CallPhase.LIVE) vm.audio.routes() else listOf(route),
             screenOverlayOn = overlayOn,
             boardGlossOn = glossOn,
+            materialSource = vm.materials,
+            presentSheet = presentSheet,
         ),
         CallActions(
             onBack = nav::back,
@@ -336,6 +346,18 @@ fun CallRoute(nav: LabNav, id: String) {
             onAllCalls = { nav.back(); nav.open(Routes.calls()) },
             onTick = { nav.app.haptics.tick() },
             onSnap = { nav.app.haptics.flip() },
+            material = MaterialActions(
+                onTurn = vm.controller::turnMaterialPage,
+                onStop = { vm.controller.stopPresenting(); nav.app.haptics.tick() },
+                onStroke = vm.controller::sendMaterialStroke,
+                onPing = vm.controller::sendMaterialPing,
+                onText = vm.controller::sendMaterialText,
+                onTextDelete = vm.controller::deleteMaterialText,
+                onClear = vm.controller::clearMaterialAnnotations,
+            ),
+            onOpenPresent = { vm.materials.openSheet() },
+            onPresent = { mid -> vm.controller.presentMaterial(mid) },
+            onAddMaterial = { runCatching { pickMaterial.launch(dev.jeromeswannack.chineselearning.lab.data.materials.MaterialUploader.ACCEPT) } },
         ),
         video = { handle, mirror, contain, overlay, onFrameSize, modifier -> RtcVideo(handle as? VideoTrack, eglContext, mirror, contain, overlay, onFrameSize, modifier) },
         layout = vm.layout,

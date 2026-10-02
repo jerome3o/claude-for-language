@@ -65,6 +65,7 @@ class CallsLayoutParityTest {
         "pairScale" -> Action.PairScale(o.d("scale"))
         "pairTap" -> Action.PairTap
         "shareStarted" -> Action.ShareStarted
+        "materialStarted" -> Action.MaterialStarted
         "drop" -> Action.Drop(tile(o["tile"]!!), zone(o["zone"]!!))
         else -> fail("action $o")
     }
@@ -140,6 +141,21 @@ class CallsLayoutParityTest {
     /** Round 4: walks with drops and the phone screen + board split (portrait stacked, landscape side by side). */
     @Test fun dropSequencesMatch() = checkSequences("drop_sequences", 30, 1000)
 
+    /** Round 4 PR 5: a presented lesson material — walks snapshotted over every screen × material availability. */
+    @Test fun materialSequencesMatch() {
+        checkSequences("material_sequences", 30, 1000)
+        for (s in root["material_split_allowed"]!!.jsonArray) {
+            val o = s.jsonObject
+            val l = layout(o["layout"]!!.jsonObject)
+            assertEquals(o["allowed"]!!.jsonPrimitive.boolean, CallLayout.narrowSplitAllowed(l), "narrowSplitAllowed $l")
+        }
+    }
+
+    private fun avail(o: JsonObject) = Availability(o["screen"]!!.jsonPrimitive.boolean, o["material"]?.jsonPrimitive?.boolean ?: false)
+
+    private val swipeAvails = listOf(Availability(false), Availability(true))
+    private val swipeAvailsM = listOf(Availability(false, false), Availability(false, true), Availability(true, false), Availability(true, true))
+
     private fun checkSequences(key: String, minSeqs: Int, minRects: Int) {
         val seqs = root[key]!!.jsonArray
         assertTrue(seqs.size > minSeqs)
@@ -149,22 +165,22 @@ class CallsLayoutParityTest {
             for ((k, stepEl) in seq.jsonObject["steps"]!!.jsonArray.withIndex()) {
                 val step = stepEl.jsonObject
                 val a = step["action"]!!.jsonObject
-                l = if (a.s("type") == "swipe") CallLayout.swipeFocus(l, Availability(a["screen"]!!.jsonPrimitive.boolean), a["delta"]!!.jsonPrimitive.int)
+                l = if (a.s("type") == "swipe") CallLayout.swipeFocus(l, avail(a), a["delta"]!!.jsonPrimitive.int)
                 else CallLayout.reduce(l, action(a))
                 val label = "seq $i step $k ($a)"
                 assertEquals(layout(step["layout"]!!.jsonObject), l, "$label layout")
                 val orders = step["swipe_order"]!!.jsonArray
-                assertEquals(orders[0].jsonArray.map(::tile), CallLayout.swipeOrder(l, Availability(false)), "$label swipe order")
-                assertEquals(orders[1].jsonArray.map(::tile), CallLayout.swipeOrder(l, Availability(true)), "$label swipe order (screen)")
+                val avs = if (orders.size == 4) swipeAvailsM else swipeAvails
+                for ((oi, av) in avs.withIndex()) assertEquals(orders[oi].jsonArray.map(::tile), CallLayout.swipeOrder(l, av), "$label swipe order $av")
                 for (arrEl in step["arrangements"]!!.jsonArray) {
                     val o = arrEl.jsonObject
-                    val av = Availability(o["screen"]!!.jsonPrimitive.boolean)
+                    val av = avail(o)
                     val w = o.d("width")
                     assertEquals(arrangement(o["arr"]!!.jsonObject), CallLayout.arrangeTiles(l, av, w), "$label arrangement w=$w screen=${av.screen}")
                 }
                 for (rEl in step["rects"]!!.jsonArray) {
                     val o = rEl.jsonObject
-                    val av = Availability(o["screen"]!!.jsonPrimitive.boolean)
+                    val av = avail(o)
                     val w = o.d("w")
                     val h = o.d("h")
                     val aspects = aspectSets[o["aspects"]!!.jsonPrimitive.int]

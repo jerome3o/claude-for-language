@@ -983,3 +983,52 @@
   line-height: 1;
   cursor: pointer;
 }
+
+/* ---- Lesson material presented in the call (round 4) ---- */
+.call-tile-body.mt { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; background: #f3f4f6; color: #111827; }
+.mt-bar {
+  display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem 3.5rem 0.3rem 0.5rem; /* right: the tile's ⠿ grip */
+  background: #fff; border-bottom: 1px solid #e5e7eb; min-height: 44px; flex: none;
+}
+.mt-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 0.9rem; }
+.mt-page { font-variant-numeric: tabular-nums; font-size: 0.85rem; color: #374151; min-width: 3.5em; text-align: center; }
+.mt-btn {
+  min-width: 44px; min-height: 40px; border: 1px solid #d1d5db; border-radius: 8px;
+  background: #fff; color: #111827; font-size: 1rem; padding: 0 0.6rem; cursor: pointer;
+}
+.mt-btn:disabled { opacity: 0.4; cursor: default; }
+.mt-btn.mt-draw { font-size: 0.85rem; }
+.mt-btn.mt-draw.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+.mt-btn.mt-stop { color: #b91c1c; }
+.mt-tools.annot-tools { position: static; padding: 0.3rem 0.5rem; background: #fff; border-top: 1px solid #e5e7eb; flex: none; right: auto; }
+.mt-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.mt-img { width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.mt-loading { color: #6b7280; font-size: 0.9rem; }
+.mt-stage .annot-over-material { position: absolute; inset: 0; }
+.mt-notes {
+  flex: none; max-height: 4.5em; overflow: auto; padding: 0.35rem 0.6rem; font-size: 0.8rem;
+  background: #fffbeb; border-top: 1px solid #fde68a; color: #78350f; white-space: pre-wrap;
+}
+@media (max-width: 639px) {
+  .mt-bar { gap: 0.25rem; padding: 0.3rem 0.35rem; }
+  .mt-btn { min-width: 40px; padding: 0 0.4rem; }
+  .mt-page { min-width: 3em; }
+  .mt-btn.mt-draw { font-size: 0; padding: 0; }
+  .mt-btn.mt-draw::before { content: '✏️'; font-size: 1rem; }
+  .mt-btn.mt-draw.on::before { content: '✓'; }
+}
+
+.pm-sheet { max-height: 85vh; display: flex; flex-direction: column; gap: 0.5rem; }
+.pm-head { display: flex; align-items: center; justify-content: space-between; }
+.pm-head h2 { font-size: 1.1rem; margin: 0; }
+.pm-list { display: flex; flex-direction: column; gap: 0.4rem; overflow: auto; min-height: 0; }
+.pm-row {
+  display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.5rem 0.7rem;
+  border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; color: #111827; text-align: left; cursor: pointer;
+}
+.pm-row:hover { border-color: #2563eb; }
+.pm-icon { font-size: 1.4rem; }
+.pm-main { display: flex; flex-direction: column; min-width: 0; }
+.pm-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-meta { font-size: 0.8rem; color: #6b7280; }
+.pm-add { min-height: 44px; }

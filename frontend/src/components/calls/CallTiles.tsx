@@ -323,7 +323,7 @@ export function CallTiles({
     if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6 && Date.now() - s.at < 1200) replace(swipeFocus(layout, available, dx < 0 ? 1 : -1));
   };
 
-  const order: TileId[] = ['remote', 'screen', 'text', 'draw', 'chat', 'self'];
+  const order: TileId[] = ['remote', 'screen', 'material', 'text', 'draw', 'chat', 'self'];
   return (
     <div className="call-tiles" ref={setRef} data-testid="call-tiles" data-mode={arr.mode} data-stage={arr.stage.join(',')}>
       {rects &&

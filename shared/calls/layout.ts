@@ -25,8 +25,9 @@
  * layout stored before round 3 has no `pip` and reads as 'pair'.
  */
 
-export type TileId = 'remote' | 'self' | 'screen' | 'text' | 'draw' | 'chat';
-export const ALL_TILES: TileId[] = ['remote', 'screen', 'text', 'draw', 'chat', 'self'];
+/** `material` (round 4): a lesson material being presented — like a shared screen, while one is open. */
+export type TileId = 'remote' | 'self' | 'screen' | 'material' | 'text' | 'draw' | 'chat';
+export const ALL_TILES: TileId[] = ['remote', 'screen', 'material', 'text', 'draw', 'chat', 'self'];
 export type Corner = 'tl' | 'tr' | 'bl' | 'br';
 export type LayoutMode = 'focus' | 'split' | 'grid';
 export type PresetId = 'speaker' | 'board' | 'screen' | 'side' | 'grid';
@@ -101,11 +102,16 @@ export const PRESETS: PresetInfo[] = [
 /** What exists right now (a screen tile only while someone shares). */
 export interface TileAvailability {
   screen: boolean;
+  /** A lesson material is being presented (absent = no). */
+  material?: boolean;
 }
 
 export function isAvailable(t: TileId, a: TileAvailability): boolean {
-  return t === 'screen' ? a.screen : true;
+  return t === 'screen' ? a.screen : t === 'material' ? a.material === true : true;
 }
+
+/** Tiles that show only while they exist and are always "open" then: a shared screen, a presented material. */
+const isTransient = (t: TileId) => t === 'screen' || t === 'material';
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
@@ -137,6 +143,8 @@ export type LayoutAction =
   | { type: 'pairTap' }
   /** The other person starts sharing: their screen on the stage; the cameras float as the user chose (`pip`). */
   | { type: 'shareStarted' }
+  /** A lesson material is now presented (by either person): it goes on the stage, the cameras float. */
+  | { type: 'materialStarted' }
   /** A tile dragged (or moved from its menu) onto a drop zone of the stage (`layoutForDrop`). */
   | { type: 'drop'; tile: TileId; zone: DropZone };
 
@@ -198,6 +206,8 @@ export function layoutReducer(l: CallLayout, action: LayoutAction): CallLayout {
       return layoutReducer(l, { type: 'preset', preset: 'screen' });
     case 'drop':
       return layoutForDrop(l, action.tile, action.zone);
+    case 'materialStarted':
+      return { ...l, mode: 'focus', main: 'material', remoteFloat: true };
     case 'close': {
       if (action.tile === 'remote' || action.tile === 'self') return l; // cameras can't be closed
       const open = l.open.filter((t) => t !== action.tile);
@@ -240,7 +250,7 @@ function present(t: TileId, a: TileAvailability): TileId {
 export function narrowSplitAllowed(l: Pick<CallLayout, 'mode' | 'main' | 'second'>): boolean {
   if (l.mode !== 'split') return false;
   const pair = [l.main, l.second];
-  return pair.includes('screen') && (pair.includes('text') || pair.includes('draw'));
+  return (pair.includes('screen') || pair.includes('material')) && (pair.includes('text') || pair.includes('draw'));
 }
 
 /** The direction a split is drawn in: the user's on wide screens; on a phone by its orientation. */
@@ -251,8 +261,9 @@ export function splitDirFor(l: Pick<CallLayout, 'dir'>, box: { w: number; h: num
 
 export function arrangeTiles(l: CallLayout, a: TileAvailability, width: number): Arrangement {
   const narrow = width < NARROW_WIDTH;
-  const openTiles = ALL_TILES.filter((t) => isAvailable(t, a) && (l.open.includes(t) || t === 'remote' || t === 'self' || t === 'screen'));
-  let mode: LayoutMode = narrow ? (narrowSplitAllowed(l) && a.screen ? 'split' : 'focus') : l.mode;
+  const openTiles = ALL_TILES.filter((t) => isAvailable(t, a) && (l.open.includes(t) || t === 'remote' || t === 'self' || isTransient(t)));
+  const content = l.main === 'screen' || l.second === 'screen' ? a.screen : a.material === true;
+  let mode: LayoutMode = narrow ? (narrowSplitAllowed(l) && content ? 'split' : 'focus') : l.mode;
   let stage: TileId[];
   if (mode === 'grid') {
     stage = openTiles;
@@ -295,7 +306,7 @@ export function snapCorner(cx: number, cy: number): Corner {
 
 /** Phones: the order a swipe walks through (only what is open and exists). */
 export function swipeOrder(l: CallLayout, a: TileAvailability): TileId[] {
-  return ALL_TILES.filter((t) => t !== 'self' && isAvailable(t, a) && (t === 'remote' || t === 'screen' || l.open.includes(t)));
+  return ALL_TILES.filter((t) => t !== 'self' && isAvailable(t, a) && (t === 'remote' || isTransient(t) || l.open.includes(t)));
 }
 
 /** Phones: swipe left (+1) / right (-1) from the focused tile. */
@@ -337,6 +348,8 @@ export function layoutShortcut(key: string): LayoutAction | null {
       return { type: 'focus', tile: 'remote' };
     case 's':
       return { type: 'focus', tile: 'screen' };
+    case 'm':
+      return { type: 'focus', tile: 'material' };
     default:
       return null;
   }
@@ -412,7 +425,7 @@ export const PAIR_GAP = 4;
  * the drawing also its tool row (+56), on a shared screen the "✏️ Draw on it"
  * row (56): in a top corner the faces box sits below them, never over them.
  */
-export const TILE_HEADER: Partial<Record<TileId, number>> = { text: 48, draw: 104, screen: 56 };
+export const TILE_HEADER: Partial<Record<TileId, number>> = { text: 48, draw: 104, screen: 56, material: 56 };
 
 /** A face's shape in the pair: the camera's, kept between portrait 3:4 and 16:9. */
 function faceAspect(a: number | undefined): number {
