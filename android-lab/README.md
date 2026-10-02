@@ -40,6 +40,10 @@ as `chinese-learning-lab-v0.N.aab` (attached to each pre-release too). Setup, th
 first upload, and why a Play install can't update an Obtainium install (Google re-signs it):
 [PLAY.md](PLAY.md). `versionCode` is the workflow run number for both channels.
 
+**Chat notifications** (instant pings + Reply from the notification) need a one-time Firebase
+setup — two GitHub secrets: [PUSH.md](PUSH.md). Without it the app still notifies while open
+(live socket) and every ~15 minutes in the background.
+
 Branch / PR builds upload a debug APK as the `chinese-learning-lab-debug-apk` workflow
 artifact (debug-signed: uninstall before switching between debug and release).
 

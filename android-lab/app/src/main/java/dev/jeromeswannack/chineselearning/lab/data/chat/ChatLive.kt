@@ -92,8 +92,8 @@ class ChatLive(private val app: LabApp) {
             } catch (e: UnauthorizedException) {
                 LONG_BACKOFF_MS
             } catch (e: HttpException) {
-                // 404 until the worker has the ChatHub; 5xx: try again later.
-                if (e.code in 400..499) LONG_BACKOFF_MS else backoff
+                // 404 / 503 until the worker has the ChatHub ("not set up"); other 5xx: try again soon.
+                if (e.code in 400..499 || e.code == 503) LONG_BACKOFF_MS else backoff
             } catch (e: Exception) {
                 backoff
             } finally {

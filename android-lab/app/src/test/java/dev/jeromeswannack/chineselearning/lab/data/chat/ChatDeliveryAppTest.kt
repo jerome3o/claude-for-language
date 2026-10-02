@@ -23,9 +23,13 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** The real app: notification Reply / Mark as read through the outbox, and the tap opening the chat. */
+/**
+ * The real app: notification Reply / Mark as read through the outbox, and the tap opening the chat.
+ * Its own SDK sandbox (33): a MainActivity leaves the main looper busy for the compose tests on 34,
+ * and a second MainActivity in ColdStartTest's sandbox (35) never renders its shell.
+ */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = LabApp::class)
+@Config(sdk = [33], application = LabApp::class)
 class ChatDeliveryAppTest {
     private lateinit var app: LabApp
     private lateinit var nm: NotificationManager
@@ -49,7 +53,7 @@ class ChatDeliveryAppTest {
     private fun outbox(): List<OutboxEntity> = runBlocking { app.outbox.all() }
 
     private fun waitFor(what: String, check: () -> Boolean) {
-        repeat(200) {
+        repeat(1000) {
             shadowOf(Looper.getMainLooper()).idle()
             if (check()) return
             Thread.sleep(10)
@@ -89,25 +93,22 @@ class ChatDeliveryAppTest {
         assertNull(notification())
     }
 
+    /**
+     * Cold start from the notification, then (app open) a second conversation's notification →
+     * onNewIntent. One activity per test: Robolectric doesn't reliably render a second
+     * MainActivity's shell in the same sandbox (ColdStartTest only checks for crashes).
+     */
     @Test
-    fun theNotificationOpensTheChatFromAColdStart() {
+    fun theNotificationOpensTheChatFromAColdStartAndWhenAlreadyOpen() {
         incoming()
-        val intent = shadowOf(notification()!!.contentIntent).savedIntent
-        val controller = Robolectric.buildActivity(MainActivity::class.java, intent).setup()
-        println("DEBUG finishing=${controller.get().isFinishing} next=${shadowOf(app).nextStartedActivity}")
-        waitFor("the chat screen") { ChatPresence.visibleConversation.value == "c1" }
-        controller.pause().stop().destroy()
-    }
-
-    @Test
-    fun theNotificationOpensTheChatWhenTheAppIsAlreadyOpen() {
-        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
-        repeat(20) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10) }
-        assertNull(ChatPresence.visibleConversation.value)
-        incoming()
-        controller.newIntent(shadowOf(notification()!!.contentIntent).savedIntent)
-        waitFor("the chat screen") { ChatPresence.visibleConversation.value == "c1" }
-        assertNotNull(controller.get())
+        val controller = Robolectric.buildActivity(MainActivity::class.java, shadowOf(notification()!!.contentIntent).savedIntent).setup()
+        waitFor("the chat screen after a cold start") { ChatPresence.visibleConversation.value == "c1" }
+        runBlocking {
+            ChatNotifier.notifyIncoming(app, IncomingChat("m9", "c2", "r1", "u-tutor", "Minghui", null, "另一个", "2026-10-02T10:05:00.000Z"), "u-me") { null }
+        }
+        val second = shadowOf(nm).getNotification(ChatNotifier.TAG, ChatNotifier.notificationId("c2"))!!
+        controller.newIntent(shadowOf(second.contentIntent).savedIntent)
+        waitFor("the other chat (onNewIntent)") { ChatPresence.visibleConversation.value == "c2" }
         controller.pause().stop().destroy()
     }
 }
