@@ -54,6 +54,8 @@ class CallControllerTest {
 
     class FakePeer(val polite: Boolean, val listener: PeerListener, var sending: VideoHandle? = "camera", var sendingAudio: VideoHandle? = "mic", override var screenChannel: Boolean = true) : PeerSession {
         var sendingScreen: VideoHandle? = null
+        var offerResends = 0
+        override fun resendPendingOffer() { offerResends++ }
         val signals = ArrayList<CallSignal>()
         var closed = false
         var restarts = 0
@@ -83,8 +85,10 @@ class CallControllerTest {
         override val cameraVideo: VideoHandle? get() = if (hasCamera) "camera" else null
         override var screenVideo: VideoHandle? = null
         override val screenShareSupported = true
+        var openDelayMs = 0L
         override suspend fun open(): MediaOpen {
             opens++
+            if (openDelayMs > 0) kotlinx.coroutines.delay(openDelayMs)
             if (result.mic) hasMic = true
             if (result.camera) hasCamera = true
             return result
@@ -108,7 +112,7 @@ class CallControllerTest {
         override suspend fun stop() { if (recording) stops++; recording = false }
     }
 
-    private class Rig(scope: TestScope, media: FakeMedia = FakeMedia(), recorder: FakeRecorder = FakeRecorder()) {
+    private class Rig(scope: TestScope, media: FakeMedia = FakeMedia(), recorder: FakeRecorder = FakeRecorder(), val prefs: MemoryCallDevicePrefs = MemoryCallDevicePrefs()) {
         val room = FakeRoom()
         val media = media
         val recorder = recorder
@@ -131,6 +135,7 @@ class CallControllerTest {
                 uploadEveryMs = 60_000,
                 now = { scope.testScheduler.currentTime },
                 log = {},
+                devicePrefs = prefs,
             ),
             scope.backgroundScope,
         )
@@ -487,6 +492,8 @@ class CallControllerTest {
     @Test fun ourOwnReconnectAdoptsTheLinkAndANewJoinGetsANewInstance() = runTest(UnconfinedTestDispatcher()) {
         val rig = liveRig(listOf(peer("c-a", instance = "tab1")))
         val link = rig.media.peers.single()
+        link.listener.onConnectionState("connecting") // a link still `new` is never kept (round 4)
+        runCurrent()
         val instance = rig.room.instance!!
         assertEquals(instance, CallConnection.sanitizeInstance(instance))
         // Our socket drops and comes back: a new welcome (new client id for us), they're still there.
@@ -902,5 +909,185 @@ class CallControllerTest {
         rig.room.handlers.onMessage(ServerMessage.Text("c-a", listOf(op)))
         runCurrent()
         assertTrue(rig.controller.state.value.textBoard.text.contains("X"))
+    }
+
+    // ---- round 4: a fresh link after a failed one (shared/calls/connection.ts linkSignalAction)
+
+    private fun Rig.signalsTo(): List<JsonObject> = sentOf("signal").map { it["data"]!!.jsonObject }
+
+    @Test fun everyLinkSaysHelloAndTagsItsSignals() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a", instance = "tab1")))
+        val link = rig.media.peers.single()
+        val hello = rig.signalsTo().single()
+        assertEquals("true", hello["hello"]!!.jsonPrimitive.content)
+        val mine = hello["link"]!!.jsonPrimitive.content
+        link.listener.sendSignal(CallSignal.Candidate("candidate:1", "0", 0))
+        runCurrent()
+        assertEquals(mine, rig.signalsTo().last()["link"]!!.jsonPrimitive.content)
+        // Their hello reaches the link (it re-sends an unanswered offer); signals with odd extra fields never trip anything.
+        val theirs = Json.parseToJsonElement("""{"hello":true,"link":"T1"}""")
+        rig.room.handlers.onMessage(ServerMessage.Signal("c-a", theirs))
+        rig.room.handlers.onMessage(ServerMessage.Signal("c-a", Json.parseToJsonElement("""{"link":"T1","what":[1]}""")))
+        runCurrent()
+        assertEquals(listOf<CallSignal>(CallSignal.Hello), link.signals)
+    }
+
+    @Test fun aSignalFromTheirNewLinkMakesMineStartOverAndLeftoversAreIgnored() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a", instance = "tab1")))
+        val first = rig.media.peers.single()
+        rig.room.handlers.onMessage(ServerMessage.Signal("c-a", CallSignal.Description("offer", "v=1").toJson("T1")))
+        runCurrent()
+        assertEquals(1, rig.media.peers.size)
+        // Their old link failed and they started over: T2.
+        rig.room.handlers.onMessage(ServerMessage.Signal("c-a", CallSignal.Hello.toJson("T2")))
+        runCurrent()
+        assertEquals(2, rig.media.peers.size)
+        assertTrue(first.closed)
+        val second = rig.media.peers.last()
+        assertEquals(listOf<CallSignal>(CallSignal.Hello), second.signals)
+        // My new link said hello with a new id.
+        val ids = rig.signalsTo().filter { it["hello"] != null }.map { it["link"]!!.jsonPrimitive.content }
+        assertEquals(2, ids.toSet().size)
+        // A late candidate from T1 is dropped; T2's go through; an older app (no id) still applies.
+        rig.room.handlers.onMessage(ServerMessage.Signal("c-a", CallSignal.Candidate("candidate:old", "0", 0).toJson("T1")))
+        rig.room.handlers.onMessage(ServerMessage.Signal("c-a", CallSignal.Candidate("candidate:new", "0", 0).toJson("T2")))
+        rig.room.handlers.onMessage(ServerMessage.Signal("c-a", CallSignal.Candidate("candidate:legacy", "0", 0).toJson()))
+        runCurrent()
+        assertEquals(2, rig.media.peers.size)
+        assertEquals(listOf("candidate:new", "candidate:legacy"), second.signals.filterIsInstance<CallSignal.Candidate>().map { it.candidate })
+        val details = rig.sentOf("diag").flatMap { it["events"]!!.jsonArray.map { e -> e.jsonObject["detail"]!!.jsonPrimitive.content } }
+        assertTrue(details.toString(), details.any { "started a new link" in it })
+    }
+
+    @Test fun aFailedOrNeverStartedLinkIsRenegotiatedNotAdopted() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(listOf(peer("c-a", instance = "tab1")))
+        val first = rig.media.peers.single()
+        first.listener.onConnectionState("connected")
+        first.listener.onConnectionState("failed")
+        runCurrent()
+        rig.room.handlers.onMessage(ServerMessage.PeerLeft("c-a"))
+        rig.room.handlers.onMessage(ServerMessage.PeerJoined(peer("c-b", instance = "tab1")))
+        runCurrent()
+        assertEquals(2, rig.media.peers.size)
+        assertTrue(first.closed)
+        val details = rig.sentOf("diag").flatMap { it["events"]!!.jsonArray.map { e -> e.jsonObject["detail"]!!.jsonPrimitive.content } }
+        assertTrue(details.toString(), details.any { "link was failed, renegotiating" in it })
+        // A link that is kept (connected) says hello again and re-sends an unanswered offer.
+        val second = rig.media.peers.last()
+        second.listener.onConnectionState("connected")
+        runCurrent()
+        val hellos = rig.signalsTo().count { it["hello"] != null }
+        rig.room.handlers.onMessage(ServerMessage.PeerLeft("c-b"))
+        rig.room.handlers.onMessage(ServerMessage.PeerJoined(peer("c-c", instance = "tab1")))
+        runCurrent()
+        assertEquals(2, rig.media.peers.size)
+        assertEquals(hellos + 1, rig.signalsTo().count { it["hello"] != null })
+        assertEquals(1, second.offerResends)
+    }
+
+    // ---- round 4: mic / camera come back as I left them
+
+    @Test fun micAndCameraAreRememberedAndRestoredOnTheNextJoin() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        rig.controller.toggleMic()
+        rig.controller.toggleCam()
+        assertTrue(rig.prefs.micOff && rig.prefs.camOff)
+        // The next join on this phone (same prefs): the mic comes back muted, the camera off.
+        val again = Rig(this, prefs = rig.prefs)
+        assertFalse(again.controller.state.value.micOn)
+        again.controller.join(record = false)
+        runCurrent()
+        var s = again.controller.state.value
+        assertTrue(s.hasMic && s.hasCamera)
+        assertFalse(s.micOn)
+        assertFalse(s.camOn)
+        assertFalse(again.media.mic) // the tracks themselves
+        assertFalse(again.media.cam)
+        again.room.handlers.onStatus(RoomStatus.OPEN)
+        again.room.handlers.onMessage(welcome())
+        runCurrent()
+        val lines = again.sentOf("diag").flatMap { it["events"]!!.jsonArray }.map { it.jsonObject["detail"]!!.jsonPrimitive.content }
+        assertTrue(lines.toString(), lines.any { it.startsWith("joining with mic muted, camera off; instance ") })
+        val state = again.sentOf("state").first()["state"]!!.jsonObject
+        assertEquals("false", state["mic"]!!.jsonPrimitive.content)
+        assertEquals("false", state["cam"]!!.jsonPrimitive.content)
+        // Turned back on: remembered as on.
+        again.controller.toggleMic()
+        assertFalse(rig.prefs.micOff)
+        s = again.controller.state.value
+        assertTrue(s.micOn)
+        // A phone with nothing remembered joins with both on, and says so.
+        val fresh = Rig(this)
+        fresh.controller.join(record = false)
+        runCurrent()
+        fresh.room.handlers.onStatus(RoomStatus.OPEN)
+        runCurrent()
+        val first = fresh.sentOf("diag").flatMap { it["events"]!!.jsonArray }.map { it.jsonObject["detail"]!!.jsonPrimitive.content }
+        assertTrue(first.toString(), first.any { it.startsWith("joining with mic, camera; instance ") })
+    }
+
+    @Test fun joinWaitsAtMostFourSecondsForDevicesStillOpening() = runTest(UnconfinedTestDispatcher()) {
+        val rig = Rig(this, media = FakeMedia().apply { openDelayMs = 10_000 })
+        rig.controller.join(record = false)
+        runCurrent()
+        assertEquals(0, rig.room.connects)
+        advanceTimeBy(CallController.JOIN_MEDIA_WAIT_MS + 1)
+        runCurrent()
+        assertEquals(1, rig.room.connects)
+        assertFalse(rig.controller.state.value.hasMic) // joined with nothing yet…
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertTrue(rig.controller.state.value.hasMic) // …and the devices come in when they open
+    }
+
+    // ---- round 4: the board never waits on an open IME span for good
+
+    @Test fun anIdleCompositionCatchesUpWithTheirEditsAndBlurEndsIt() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        rig.controller.textChanged("今天", 2, 2, composing = false)
+        runCurrent()
+        val other = dev.jeromeswannack.chineselearning.lab.core.calls.CallTextDoc("u2:zz", null)
+        rig.sentOf("text").flatMap { it["ops"]!!.jsonArray }.forEach { other.apply(dev.jeromeswannack.chineselearning.lab.core.calls.CallTextDoc.sanitizeOp(it)!!) }
+        rig.room.sent.clear()
+        // Gboard: "hao" composing after 今天 — and the span never closes.
+        rig.controller.textChanged("今天hao", 5, 5, composing = true, compose = "hao", compStart = 2, compEnd = 5)
+        runCurrent()
+        assertTrue(rig.sentOf("text").isEmpty())
+        // They type meanwhile: into my document, not into my field yet.
+        val op = other.localInsert(2, "天气")!!
+        rig.room.handlers.onMessage(ServerMessage.Text("c-a", listOf(op)))
+        runCurrent()
+        var tb = rig.controller.state.value.textBoard
+        assertEquals("今天", tb.text)
+        val before = tb.rewrite
+        advanceTimeBy(CallController.COMPOSE_IDLE_MS - 100)
+        runCurrent()
+        assertEquals(before, rig.controller.state.value.textBoard.rewrite)
+        advanceTimeBy(200)
+        runCurrent()
+        tb = rig.controller.state.value.textBoard
+        assertEquals(before + 1, tb.rewrite)
+        val f = tb.field!!
+        assertEquals("今天hao天气", f.text) // my composition is spliced back in at its anchor, theirs after it
+        assertEquals(2 to 5, f.compStart to f.compEnd)
+        assertTrue(rig.sentOf("text").isEmpty()) // the composition itself never went out
+        // Then the board loses focus: what was composed counts as typed.
+        rig.controller.textBlurred()
+        runCurrent()
+        assertEquals("今天hao天气", rig.controller.state.value.textBoard.text)
+        assertEquals(1, rig.sentOf("text").size)
+        // The field's own late "composition over" report of the old text is not an edit.
+        rig.controller.textChanged("今天hao天气", 5, 5, composing = false)
+        runCurrent()
+        assertEquals(1, rig.sentOf("text").size)
+    }
+
+    @Test fun textCommittedOutsideTheCompositionGoesOutAtOnce() = runTest(UnconfinedTestDispatcher()) {
+        val rig = liveRig(emptyList())
+        rig.controller.textChanged("hello wor", 9, 9, composing = true, compose = "wor", compStart = 6, compEnd = 9)
+        runCurrent()
+        val ins = rig.sentOf("text").single()["ops"]!!.jsonArray.single().jsonObject
+        assertEquals("hello ", ins["text"]!!.jsonPrimitive.content)
+        assertEquals("wor", rig.sentOf("text_cursor").last()["compose"]!!.jsonPrimitive.content)
     }
 }

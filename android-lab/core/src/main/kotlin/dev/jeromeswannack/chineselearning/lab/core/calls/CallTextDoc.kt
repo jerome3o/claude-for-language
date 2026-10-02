@@ -201,6 +201,30 @@ class CallTextDoc(val site: String, snapshot: List<TextRun>? = null) {
         return op
     }
 
+    /** Port of visibleIds: the ids of the visible characters, in order. */
+    fun visibleIds(): List<CharId> = nodes.filter { !it.del }.map { CharId(it.c, it.s) }
+
+    /**
+     * Port of localInsertAfter: type [text] right after the character [after] (null = the start) — an
+     * edit made against an older view of the text ([CallTextView]). A deleted [after] is fine (the
+     * text goes where it stood). Returns the op (already applied here).
+     */
+    fun localInsertAfter(after: CharId?, text: String): TextOp.Ins? {
+        if (text.isEmpty() || !has(after)) return null
+        val op = TextOp.Ins(CharId(clock + 1, site), after, text)
+        applyNow(op)
+        return op
+    }
+
+    /** Port of localDeleteIds: delete these characters (those still visible; the rest are already gone). */
+    fun localDeleteIds(ids: List<CharId>): TextOp.Del? {
+        val live = ids.filter { id -> byKey[key(id.c, id.s)]?.let { !it.del } == true }
+        if (live.isEmpty()) return null
+        val op = TextOp.Del(live)
+        applyNow(op)
+        return op
+    }
+
     /** Port of replaceText: the field now says [next] → one delete + one insert. [caret] is a UTF-16 offset in [next]. */
     fun replaceText(next: String, caret: Int? = null): List<TextOp> {
         val edit = diffChars(splitChars(text()), splitChars(next), caret?.let { codeUnitToCharIndex(next, it) })
@@ -342,5 +366,70 @@ class CallTextDoc(val site: String, snapshot: List<TextRun>? = null) {
             for (ch in userId) h = h * 31 + ch.code
             return PRESENCE_COLORS[(Math.abs(h.toLong()) % PRESENCE_COLORS.size).toInt()]
         }
+    }
+}
+
+/**
+ * Port of TextView in shared/calls/textDoc.ts — what the text field shows of a [CallTextDoc]: the
+ * visible characters with their ids as of the last time the field was rewritten. The field may lag
+ * the document: the other person's edits keep arriving while an IME composition is open, and the
+ * field must not be rewritten mid-composition (Gboard keeps a composing span on the last word for
+ * as long as you don't type a space). So their edits always go into the document at once, and an
+ * edit in the field is diffed against the VIEW and applied to the document by character id
+ * ([edit]): nothing they typed in the meantime is lost or duplicated. [sync] brings the view up to
+ * the document when the field may be rewritten.
+ */
+class CallTextView(doc: CallTextDoc? = null) {
+    private var ids = ArrayList<CharId>()
+    private var chars = ArrayList<String>()
+
+    init {
+        if (doc != null) sync(doc)
+    }
+
+    fun sync(doc: CallTextDoc) {
+        ids = ArrayList(doc.visibleIds())
+        chars = ArrayList(CallTextDoc.splitChars(doc.text()))
+    }
+
+    val text: String get() = chars.joinToString("")
+
+    val length: Int get() = chars.size
+
+    /** Is the view exactly the document's visible text (same characters, same ids)? */
+    fun inSync(doc: CallTextDoc): Boolean = doc.visibleIds() == ids
+
+    /** The id of the character just before view index [index] (null = the start). */
+    fun anchorAt(index: Int): CharId? {
+        if (index <= 0 || ids.isEmpty()) return null
+        return ids[minOf(index, ids.size) - 1]
+    }
+
+    /** The view index just after [anchor], or -1 when the view doesn't hold it. */
+    fun indexOf(anchor: CharId?): Int {
+        if (anchor == null) return 0
+        val i = ids.indexOf(anchor)
+        return if (i < 0) -1 else i + 1
+    }
+
+    /**
+     * The field now says [next] (its text outside any open composition); [caret] is the UTF-16
+     * caret in [next]. Returns the ops to send (already applied to [doc]).
+     */
+    fun edit(doc: CallTextDoc, next: String, caret: Int? = null): List<TextOp> {
+        val want = CallTextDoc.splitChars(next)
+        val e = CallTextDoc.diffChars(chars, want, caret?.let { CallTextDoc.codeUnitToCharIndex(next, it) })
+        val ops = ArrayList<TextOp>()
+        val del = if (e.remove > 0) doc.localDeleteIds(ids.subList(e.index, e.index + e.remove).toList()) else null
+        del?.let(ops::add)
+        val ins = doc.localInsertAfter(if (e.index > 0) ids[e.index - 1] else null, e.insert)
+        ins?.let(ops::add)
+        val insChars = if (ins != null) CallTextDoc.splitChars(e.insert) else emptyList()
+        repeat(e.remove) { ids.removeAt(e.index); chars.removeAt(e.index) }
+        if (ins != null) {
+            ids.addAll(e.index, insChars.indices.map { CharId(ins.id.c + it, ins.id.s) })
+            chars.addAll(e.index, insChars)
+        }
+        return ops
     }
 }

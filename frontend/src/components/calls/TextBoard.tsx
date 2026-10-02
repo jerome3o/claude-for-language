@@ -6,8 +6,15 @@
  * How it's drawn: a normal <textarea> (so every keyboard, IME, spell checker
  * and paste works) over a "mirror" with exactly the same text layout, whose
  * text is invisible and which paints the other person's selection and caret.
- * During a pinyin composition nothing is sent and incoming edits wait
- * (compositionstart → compositionend), so the IME window is never disturbed.
+ * During a pinyin composition nothing of it is sent and the textarea is not
+ * rewritten (compositionstart → compositionend), so the IME window is never
+ * disturbed; the other person's edits go into the document meanwhile and show
+ * when it ends — or after COMPOSE_IDLE_MS without an update, or on blur
+ * (Gboard keeps a composing span on the last word until you type a space).
+ *
+ * The other person's caret is a thin line in their colour with a small dot on
+ * top — nothing over the text. Hovering near the dot lights their name (and
+ * what they are composing) up in the strip under the board.
  *
  * Select Chinese text to see its pinyin (on the device) and, online, a
  * word-by-word meaning.
@@ -20,7 +27,7 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { charToCodeUnitIndex, codeUnitToCharIndex, glossChipLabel, type CharId } from '@shared/calls';
-import type { RemoteCaret, TextBoardSession } from '../../services/calls/textBoard';
+import { COMPOSE_IDLE_MS, type RemoteCaret, type TextBoardSession } from '../../services/calls/textBoard';
 import { boardGlossEnabled, fetchBoardGloss, setBoardGlossEnabled } from '../../services/calls/boardGloss';
 import { explainSentenceText } from '../../api/client';
 import type { SentenceBriefExplanation } from '../../types';
@@ -42,7 +49,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 /** The mirror's content: the text in segments, other people's selections tinted, their carets as flags. */
-function MirrorContent({ text, decorations }: { text: string; decorations: Decoration[] }) {
+function MirrorContent({ text, decorations, hovered }: { text: string; decorations: Decoration[]; hovered: string | null }) {
   const chars = Array.from(text);
   const points = new Set<number>([0, chars.length]);
   for (const d of decorations) {
@@ -57,16 +64,14 @@ function MirrorContent({ text, decorations }: { text: string; decorations: Decor
     for (const d of decorations) {
       if (d.head === at) {
         out.push(
-          <span key={`c-${d.caret.clientId}-${at}`} className="tb-caret" style={{ borderColor: d.caret.color }} data-testid="remote-caret">
-            <span className="tb-flag" style={{ background: d.caret.color }}>
-              {d.caret.name}
-              {d.caret.compose && (
-                <span className="tb-flag-compose" lang="zh" data-testid="remote-compose">
-                  {' · '}
-                  <u>{d.caret.compose}</u>
-                </span>
-              )}
-            </span>
+          <span
+            key={`c-${d.caret.clientId}-${at}`}
+            className={`tb-caret${d.caret.compose ? ' is-composing' : ''}${hovered === d.caret.clientId ? ' is-hover' : ''}`}
+            style={{ borderColor: d.caret.color }}
+            data-testid="remote-caret"
+            data-client={d.caret.clientId}
+          >
+            <span className="tb-caret-dot" style={{ background: d.caret.color }} />
           </span>,
         );
       }
@@ -191,6 +196,10 @@ export function TextBoard({
   const composeStart = useRef(0);
   const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownPage = useRef(session.page);
+  const lastComposeAt = useRef(0);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The other person whose caret dot (or name) the pointer is on: their name lights up below. */
+  const [hovered, setHovered] = useState<string | null>(null);
 
   /** Remember my selection as anchors (stable while the other person edits). */
   const captureSelection = useCallback(() => {
@@ -276,6 +285,7 @@ export function TextBoard({
         ta.scrollTop = scroll;
         if (focused) pokeRef.current(); // a suggestion for text that moved is dropped
       }
+      if (reason === 'held') scheduleIdleRef.current();
       setVersion(session.version);
     });
     if (taRef.current && taRef.current.value !== session.text) taRef.current.value = session.text;
@@ -286,6 +296,7 @@ export function TextBoard({
 
   useEffect(() => () => {
     if (sendTimer.current) clearTimeout(sendTimer.current);
+    if (idleTimer.current) clearTimeout(idleTimer.current);
   }, []);
 
   useLayoutEffect(() => {
@@ -313,6 +324,41 @@ export function TextBoard({
     setChipPos((old) => (old && old.left === left && old.top === top ? old : { left, top }));
   }, [suggestion, touch, session.version]);
 
+  /** End an open composition from our side (idle with their edits waiting, or blur): the textarea catches up. */
+  const endCompositionNow = () => {
+    const ta = taRef.current;
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = null;
+    if (!ta || !session.isComposing) return;
+    session.endComposition(ta.value, caretOf(ta));
+    if (document.activeElement === ta) captureSelection();
+  };
+  const scheduleIdle = () => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    if (!session.hasHeld) return;
+    const wait = Math.max(0, lastComposeAt.current + COMPOSE_IDLE_MS - Date.now());
+    idleTimer.current = setTimeout(() => {
+      idleTimer.current = null;
+      if (!session.hasHeld) return;
+      // Still being typed into: look again later.
+      if (Date.now() - lastComposeAt.current < COMPOSE_IDLE_MS) scheduleIdle();
+      else endCompositionNow();
+    }, wait);
+  };
+  const scheduleIdleRef = useRef(scheduleIdle);
+  scheduleIdleRef.current = scheduleIdle;
+
+  /** Pointer within ~10 px of someone's caret dot → their name lights up below. */
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') return;
+    let hit: string | null = null;
+    mirrorRef.current?.querySelectorAll<HTMLElement>('[data-testid="remote-caret"]').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (e.clientX >= r.left - 10 && e.clientX <= r.right + 10 && e.clientY >= r.top - 10 && e.clientY <= r.bottom + 4) hit = el.dataset.client ?? null;
+    });
+    if (hit !== hovered) setHovered(hit);
+  };
+
   const text = session.text;
   const decorations: Decoration[] = useMemo(
     () =>
@@ -334,9 +380,9 @@ export function TextBoard({
 
   return (
     <div className="tb">
-      <div className="tb-paper" ref={paperRef}>
+      <div className="tb-paper" ref={paperRef} onPointerMove={onPointerMove} onPointerLeave={() => setHovered(null)}>
         <div className="tb-mirror" ref={mirrorRef} aria-hidden="true" lang="zh">
-          <MirrorContent text={text} decorations={decorations} />
+          <MirrorContent text={text} decorations={decorations} hovered={hovered} />
         </div>
         <textarea
           ref={taRef}
@@ -351,21 +397,32 @@ export function TextBoard({
           defaultValue={text}
           onInput={(e) => {
             const ta = e.currentTarget;
-            if ((e.nativeEvent as InputEvent).isComposing || session.isComposing) return;
+            if ((e.nativeEvent as InputEvent).isComposing) {
+              // A composition we ended (idle / blur) that the IME carries on with: composing again.
+              if (!session.isComposing) session.setComposing(true);
+              lastComposeAt.current = Date.now();
+              return;
+            }
+            if (session.isComposing) return;
             session.localEdit(ta.value, caretOf(ta));
             onCaret();
           }}
           onCompositionStart={(e) => {
             composeStart.current = codeUnitToCharIndex(e.currentTarget.value, e.currentTarget.selectionStart);
+            lastComposeAt.current = Date.now();
             session.setComposing(true);
             suggest.clear(); // never while the IME is open
           }}
           onCompositionUpdate={(e) => {
-            // The other person sees my pinyin as I type it (in my name flag), before I commit.
+            // The other person sees my pinyin as I type it (beside my name), before I commit.
+            lastComposeAt.current = Date.now();
+            if (!session.isComposing) session.setComposing(true);
             session.sendComposing(e.data ?? '', composeStart.current);
           }}
           onCompositionEnd={(e) => {
             const ta = e.currentTarget;
+            if (idleTimer.current) clearTimeout(idleTimer.current);
+            idleTimer.current = null;
             session.setComposing(false, ta.value, caretOf(ta));
             captureSelection(); // my caret, after my composed text…
             session.flushHeld(); // …then the other person's edits that waited (the caret stays put)
@@ -387,6 +444,7 @@ export function TextBoard({
           onMouseUp={onCaret}
           onFocus={onCaret}
           onBlur={() => {
+            endCompositionNow(); // a composing span left open must not hold the other person's edits back
             session.clearSelection();
             suggest.clear();
           }}
@@ -422,8 +480,23 @@ export function TextBoard({
       {(session.remoteCarets.length > 0 || gloss) && (
         <div className="tb-people">
           {session.remoteCarets.map((c) => (
-            <span key={c.clientId} className="tb-person">
-              <span className="tb-dot" style={{ background: c.color }} /> {c.name} is here
+            <span
+              key={c.clientId}
+              className={`tb-person${hovered === c.clientId ? ' is-hover' : ''}`}
+              style={hovered === c.clientId ? { background: c.color } : undefined}
+              data-testid="remote-person"
+              onPointerEnter={() => setHovered(c.clientId)}
+              onPointerLeave={() => setHovered(null)}
+            >
+              <span className="tb-dot" style={{ background: c.color }} /> {c.name}
+              {c.compose ? (
+                <span className="tb-person-compose" lang="zh" data-testid="remote-compose">
+                  {' · '}
+                  <u>{c.compose}</u>
+                </span>
+              ) : (
+                ' is here'
+              )}
             </span>
           ))}
           {gloss && (

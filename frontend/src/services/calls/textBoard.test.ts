@@ -55,6 +55,53 @@ describe('TextBoardSession', () => {
     expect(a.text).toBe('!你好你们');
   });
 
+  it('a composing span that never closes (Gboard) never holds the other person back for good', () => {
+    const { a, b, deliver } = pair();
+    a.localEdit('今天', 2);
+    deliver();
+    // b's IME opens a span on the last word and keeps it open: the textarea says "今天hao".
+    b.setComposing(true);
+    // a keeps typing — all of it goes into b's document at once…
+    a.localEdit('今天天气', 4);
+    deliver();
+    a.localEdit('今天天气很好', 6);
+    deliver();
+    expect(b.doc.text()).toBe('今天天气很好');
+    expect(b.hasHeld).toBe(true);
+    expect(b.text).toBe('今天'); // …while the textarea (the view) is left alone mid-composition
+    // Idle / blur: b ends the composition from our side. What was composed counts as typed, after 今天.
+    b.endComposition('今天hao', 5);
+    deliver();
+    expect(b.hasHeld).toBe(false);
+    expect(b.isComposing).toBe(false);
+    expect(b.text).toBe('今天hao天气很好');
+    expect(a.text).toBe('今天hao天气很好');
+  });
+
+  it('an edit typed against an older view keeps what the other person added and removed meanwhile', () => {
+    const { a, b, deliver } = pair();
+    a.localEdit('abc def', 7);
+    deliver();
+    b.setComposing(true);
+    a.localEdit('Xabc', 1); // a adds X at the start and deletes " def"
+    deliver();
+    // b's textarea still shows the old text with the composition committed in the middle.
+    b.setComposing(false, 'abc 你 def', 5);
+    b.flushHeld();
+    deliver();
+    expect(b.text).toBe('Xabc 你');
+    expect(a.text).toBe('Xabc 你');
+  });
+
+  it('nothing waits when nobody composes; flushHeld is a no-op then', () => {
+    const { a, b, deliver } = pair();
+    a.localEdit('好', 1);
+    deliver();
+    expect(b.hasHeld).toBe(false);
+    b.flushHeld();
+    expect(b.text).toBe('好');
+  });
+
   it('replays edits made while the socket was down after rejoining', () => {
     const { a, b, room, deliver, setAOnline } = pair();
     a.localEdit('上课', 2);

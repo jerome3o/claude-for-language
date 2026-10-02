@@ -27,6 +27,9 @@ import {
   sanitizeDiagEvents,
   sanitizeInstance,
   shouldAdoptPeer,
+  linkSignalAction,
+  linkWorthKeeping,
+  newLinkId,
   tileStatus,
   videoEncodingFor,
   type CallDiagEntry,
@@ -108,6 +111,20 @@ const adopt: unknown[] = [];
 const currents = [null, { user_id: 'u1' }, { user_id: 'u1', instance: 'abc123' }, { user_id: 'u2', instance: 'abc123' }, { user_id: 'u1', instance: '' }];
 const incomings = [{ user_id: 'u1' }, { user_id: 'u1', instance: 'abc123' }, { user_id: 'u1', instance: 'zzz999' }, { user_id: 'u2', instance: 'abc123' }, { user_id: 'u1', instance: '' }];
 for (const c of currents) for (const i of incomings) adopt.push({ current: c, incoming: i, adopt: shouldAdoptPeer(c, i) });
+// Round 4: a failed / closed / never-started link is never adopted (renegotiated instead).
+const adoptPc: unknown[] = [];
+for (const c of currents) for (const i of incomings) for (const pc of states) adoptPc.push({ current: c, incoming: i, pc, adopt: shouldAdoptPeer(c, i, pc) });
+const worth = states.map((pc) => ({ pc, keep: linkWorthKeeping(pc) }));
+
+// ---- round 4: link ids on signals
+const linkIds = [undefined, 'L1', 'L2', 'L3', ''];
+const bounds = [null, 'L1', 'L2'];
+const retireds = [[], ['L1'], ['L1', 'L3'], ['L2']];
+const linkActions: unknown[] = [];
+for (const bound of bounds) for (const retired of retireds) for (const incoming of linkIds) {
+  linkActions.push({ bound, retired, incoming: incoming ?? null, action: linkSignalAction(bound, retired, incoming) });
+}
+const linkGenerated = Array.from({ length: 20 }, () => newLinkId());
 
 // ---- instances
 const instanceInputs: unknown[] = ['abc1', 'abc', 'ABCdef123', 'a'.repeat(32), 'a'.repeat(33), 'ab-12', 'ab 12', '', 'κλμν', '１２３４', 12345, null, true];
@@ -181,5 +198,5 @@ const compose = composeInputs.map((raw) => ({ raw, out: sanitizeCompose(raw) }))
 
 writeFileSync(
   join(OUT, 'calls-connection.json'),
-  JSON.stringify({ constants, sequences, backoff, adopt, instances, generated, encodings, diag, append, compose }),
+  JSON.stringify({ constants, sequences, backoff, adopt, adoptPc, worth, linkActions, linkGenerated, instances, generated, encodings, diag, append, compose }),
 );

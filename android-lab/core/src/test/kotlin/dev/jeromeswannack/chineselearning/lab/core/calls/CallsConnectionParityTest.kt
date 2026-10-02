@@ -101,6 +101,37 @@ class CallsConnectionParityTest {
         repeat(50) { val id = CallConnection.newInstanceId(); assertEquals(id, CallConnection.sanitizeInstance(id), id) }
     }
 
+    @Test fun round4FailedLinksAreRenegotiatedAndLinkIdsDecide() {
+        val adoptPc = root["adoptPc"]!!.jsonArray
+        assertTrue(adoptPc.size > 100)
+        for (c in adoptPc) {
+            val o = c.jsonObject
+            val cur = o["current"]!!.let { if (it is JsonNull) null else it.jsonObject }
+            val inc = o["incoming"]!!.jsonObject
+            val pc = PcState.of(o["pc"]!!.jsonPrimitive.content)!!
+            val got = CallConnection.shouldAdoptPeer(
+                cur?.get("user_id")?.jsonPrimitive?.content, cur?.get("instance")?.jsonPrimitive?.content,
+                inc["user_id"]!!.jsonPrimitive.content, inc["instance"]?.jsonPrimitive?.content, pc,
+            )
+            assertEquals(o["adopt"]!!.jsonPrimitive.boolean, got, "adopt with pc $o")
+        }
+        for (c in root["worth"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["keep"]!!.jsonPrimitive.boolean, CallConnection.linkWorthKeeping(PcState.of(o["pc"]!!.jsonPrimitive.content)!!), "worth $o")
+        }
+        val actions = root["linkActions"]!!.jsonArray
+        assertTrue(actions.size >= 60)
+        for (c in actions) {
+            val o = c.jsonObject
+            val got = CallConnection.linkSignalAction(o["bound"]!!.stringOrNull(), o["retired"]!!.jsonArray.map { it.jsonPrimitive.content }, o["incoming"]!!.stringOrNull())
+            assertEquals(o["action"]!!.jsonPrimitive.content, got.wire, "link action $o")
+        }
+        // Ids made by either app are short alphanumeric strings the other carries as is.
+        val ok = Regex("^[a-z0-9]{1,8}$")
+        for (g in root["linkGenerated"]!!.jsonArray) assertTrue(ok.matches(g.jsonPrimitive.content), g.toString())
+        repeat(50) { val id = CallConnection.newLinkId(); assertTrue(ok.matches(id), id) }
+    }
+
     @Test fun encodingsMatch() {
         val cases = root["encodings"]!!.jsonArray
         assertTrue(cases.size > 300)

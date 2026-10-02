@@ -15,8 +15,9 @@ import { cleanGloss, glossCacheKey, isHanChar, GLOSS_MAX_SEGMENT, type Gloss } f
 import { structuredCall } from '../structured-call';
 import { GLOSS_MODEL } from '../gloss-words';
 
-export const BOARD_GLOSS_TIMEOUT_MS = 4_000;
-export const BOARD_GLOSS_MAX_TOKENS = 200;
+export const BOARD_GLOSS_TIMEOUT_MS = 6_000;
+/** A 40-character sentence's pinyin + its whole translation fit with room to spare (200 cut long ones off). */
+export const BOARD_GLOSS_MAX_TOKENS = 500;
 /** Requests per user per minute (a pause after typing Chinese → one request; 30/min is far above real use). */
 export const BOARD_GLOSS_RATE_PER_MIN = 30;
 const CACHE_SIZE = 2_000;
@@ -24,7 +25,7 @@ const CACHE_SIZE = 2_000;
 const SYSTEM = `You gloss Chinese that a tutor or student just typed on a shared lesson whiteboard.
 Return the pinyin and a short English meaning of EXACTLY the text given, via the gloss tool.
 - pinyin: standard Hanyu Pinyin with TONE MARKS (nǐ hǎo, never ni3 hao3), spaces between words not syllables (wǒ xiǎng hē kāfēi, zhège, xǐshǒujiān), no characters, no punctuation except what the Chinese has (，→ , 。→ nothing). Use the reading that fits this context.
-- english: one short natural meaning — at most 8 words, no alternatives, no slashes, no explanation, no trailing full stop. For a sentence, a natural translation.
+- english: for a word or phrase, one short natural meaning (at most 8 words); for a sentence, its COMPLETE natural translation — never cut it short. No alternatives, no slashes, no explanation, no trailing full stop.
 Both fields are ONE line: never a line break.`;
 
 const TOOL = {
@@ -34,7 +35,7 @@ const TOOL = {
     type: 'object' as const,
     properties: {
       pinyin: { type: 'string', description: 'Tone marks, words spaced, one line' },
-      english: { type: 'string', description: 'At most 8 words, one line' },
+      english: { type: 'string', description: 'A word / phrase: at most 8 words. A sentence: its whole translation. One line.' },
     },
     required: ['pinyin', 'english'],
   },

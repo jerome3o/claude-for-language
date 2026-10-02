@@ -80,7 +80,28 @@ data class TextBoardUi(
     val lastChange: String = "load",
     /** The board page this text is (null from an older room): a new page resets the field. */
     val page: String? = null,
+    /**
+     * Bumped when the field must be rewritten to [field] (the other person's edits shown, a load, a
+     * catch-up). The screen applies it when no composition is open — or at once when [field] carries
+     * the composition (a catch-up splices it back in).
+     */
+    val rewrite: Int = 0,
+    val field: dev.jeromeswannack.chineselearning.lab.core.calls.BoardField? = null,
+    /** While I compose: where the composition starts in [text] (character index) — their carets past it move along. */
+    val compIndex: Int? = null,
 )
+
+/**
+ * Mic / camera switched off when I last left a call, remembered per device (web DevicePrefs
+ * micOff / camOff): a rejoin comes back the same way instead of with everything on.
+ */
+interface CallDevicePrefs {
+    var micOff: Boolean
+    var camOff: Boolean
+}
+
+/** In memory (tests, screenshots); the app uses the SharedPreferences one (data/calls/CallDevicePrefsStore). */
+class MemoryCallDevicePrefs(override var micOff: Boolean = false, override var camOff: Boolean = false) : CallDevicePrefs
 
 /** A short notice over the call ("Minghui brought you to page 3"); [id] makes the same text show again. */
 data class BoardNotice(val id: Long, val text: String)
@@ -187,6 +208,8 @@ interface PeerSession {
     val screenChannel: Boolean get() = true
     /** Sends [audio] (a mic that appeared mid-call) on the existing transceiver — no renegotiation. */
     fun setAudio(audio: VideoHandle?) {}
+    /** Their (new) link is listening, or mine was kept across a reconnect: an offer of mine still unanswered goes out again. */
+    fun resendPendingOffer() {}
     fun restartIce() {}
     suspend fun stats(): PeerStats? = null
     fun setVideoEncoding(encoding: CallConnection.VideoEncoding) {}
@@ -247,6 +270,10 @@ class CallDeps(
     val uploadEveryMs: Long = 5_000,
     /** My user id: the text board's site prefix, which the room checks. */
     val userId: () -> String = { "" },
+    /** Mic / camera on or off as I last left them (restored on the next join). */
+    val devicePrefs: CallDevicePrefs = MemoryCallDevicePrefs(),
+    /** "Android 15; Google Pixel 9 Pro Fold" for the join line of the connection log. */
+    val device: String = "",
     val now: () -> Long = System::currentTimeMillis,
     /** Every connection transition, for logcat (the connection log goes to the room too). */
     val log: (String) -> Unit = { runCatching { android.util.Log.i("CallController", it) } },
@@ -270,7 +297,9 @@ class CallController(
     private val deps: CallDeps,
     private val scope: CoroutineScope,
 ) {
-    private val _state = MutableStateFlow(CallState(myUserId = myUserId, recordSupported = deps.recorder.supported, screenShareSupported = deps.media.screenShareSupported))
+    private val prefs = deps.devicePrefs
+    // On / off as I last left them (a muted mic stays muted; a camera that was on comes back on).
+    private val _state = MutableStateFlow(CallState(myUserId = myUserId, recordSupported = deps.recorder.supported, screenShareSupported = deps.media.screenShareSupported, micOn = !prefs.micOff, camOn = !prefs.camOff))
     val state: StateFlow<CallState> = _state.asStateFlow()
 
     private val media = deps.media
@@ -283,6 +312,12 @@ class CallController(
     @Volatile private var remoteId: String? = null
     /** Bumped for every new link: callbacks from a closed link are ignored. */
     @Volatile private var linkGen = 0
+    /** My link's id, on every signal it sends (core CallConnection.linkSignalAction). */
+    private var myLinkId: String? = null
+    /** Their link mine talks to (bound by the first signal that carries an id). */
+    private var remoteLink: String? = null
+    /** Their link ids already replaced: late signals from them are ignored. */
+    private val retiredLinks = ArrayList<String>()
     private var health = CallConnection.initialLinkHealth(0)
     private var away = false
     private var awayJob: Job? = null
@@ -341,19 +376,21 @@ class CallController(
 
     // ---------------------------------------------------------------- media
 
-    /** Opens the camera + mic for the preview (whatever is allowed). */
+    /** Opens the camera + mic for the preview (whatever is allowed), on / off as I last left them. */
     fun startPreview(): Job {
         // A run in flight (or one that opened the media) is reused.
         opening?.let { if (it.isActive || _state.value.mediaReady) return it }
-        return refreshDevices()
+        return refreshDevices(restore = true)
     }
 
     /**
      * Opens whatever is allowed now and isn't open yet — after a permission is granted (on the
      * pre-join screen, or mid-call from the mic / camera button). A new mic or camera is put on the
      * existing link (no renegotiation), and a recording that was wanted starts once there is a mic.
+     * [restore]: a device that opens comes on or off as I last left it (the preview, a rejoin); a
+     * tap to turn a device on ([restore] false) always turns it on.
      */
-    fun refreshDevices(): Job = scope.launch {
+    fun refreshDevices(restore: Boolean = true): Job = scope.launch {
         val hadMic = media.hasMic
         val hadCam = media.hasCamera
         val r = media.open()
@@ -366,12 +403,16 @@ class CallController(
                 hasCamera = media.hasCamera,
                 micProblem = if (media.hasMic) null else r.micProblem ?: MediaProblem.NO_DEVICE,
                 camProblem = if (media.hasCamera) null else r.cameraProblem ?: MediaProblem.NO_DEVICE,
-                micOn = if (gotMic) true else it.micOn,
-                camOn = if (gotCam) true else if (!media.hasCamera) false else it.camOn,
+                micOn = if (gotMic) !restore || !prefs.micOff else it.micOn,
+                camOn = if (gotCam) !restore || !prefs.camOff else if (!media.hasCamera) false else it.camOn,
                 localVideo = media.cameraVideo,
                 frontCamera = media.frontCamera,
                 mediaError = null,
             )
+        }
+        if (!restore) {
+            if (gotMic) prefs.micOff = false
+            if (gotCam) prefs.camOff = false
         }
         if (!media.hasMic) diag("media", "microphone: ${(r.micProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
         if (!media.hasCamera) diag("media", "camera: ${(r.cameraProblem ?: MediaProblem.NO_DEVICE).name.lowercase()}")
@@ -383,16 +424,15 @@ class CallController(
         if (gotMic) {
             link?.setAudio(media.micAudio)
             deps.recorder.muted = !_state.value.micOn
-            if (_state.value.phase == CallPhase.LIVE) {
-                broadcastState { it.copy(mic = _state.value.micOn) }
-                if (wantRecord && !deps.recorder.recording) startRecording()
-            }
+            // Joined while the mic was still opening: the state the room has (or gets with the welcome) says so.
+            if (_state.value.phase == CallPhase.LIVE || _state.value.phase == CallPhase.JOINING) broadcastState { it.copy(mic = _state.value.micOn) }
+            if (_state.value.phase == CallPhase.LIVE && wantRecord && !deps.recorder.recording) startRecording()
         }
         if (gotCam) {
             link?.setVideo(media.cameraVideo) // a legacy share in progress keeps the screen (PeerLink)
             lastEncoding = null
             applyEncoding()
-            if (_state.value.phase == CallPhase.LIVE) broadcastState { it.copy(cam = _state.value.camOn) }
+            if (_state.value.phase == CallPhase.LIVE || _state.value.phase == CallPhase.JOINING) broadcastState { it.copy(cam = _state.value.camOn) }
         }
     }.also { opening = it }
 
@@ -420,9 +460,17 @@ class CallController(
         lastEncoding = null
     }
 
-    private fun openLink(peer: CallPeer) {
+    /**
+     * A new link to [peer]. [fresh] = their new link's id when their side started over (their old
+     * link failed): mine is bound to it at once. Every link announces itself with `hello`.
+     */
+    private fun openLink(peer: CallPeer, fresh: String? = null) {
+        remoteLink?.let { old -> retiredLinks += old; while (retiredLinks.size > 20) retiredLinks.removeAt(0) }
         closeLink()
         val gen = ++linkGen
+        val linkId = CallConnection.newLinkId()
+        myLinkId = linkId
+        remoteLink = fresh
         remoteId = peer.clientId
         linkPeer = peer
         health = CallConnection.initialLinkHealth(now())
@@ -431,7 +479,7 @@ class CallController(
         link = media.createPeer(ice, polite = polite, listener = object : PeerListener {
             override fun sendSignal(signal: CallSignal) {
                 val to = remoteId
-                if (gen == linkGen && to != null) room?.send(CallProtocol.signal(to, signal.toJson()))
+                if (gen == linkGen && to != null) room?.send(CallProtocol.signal(to, signal.toJson(linkId)))
             }
 
             override fun onRemoteVideo(video: VideoHandle?) {
@@ -451,6 +499,8 @@ class CallController(
             }
         })
         diag("peer", "link to ${peer.name.ifBlank { "the other person" }} (${if (polite) "answerer" else "offerer"})")
+        // A fresh link announces itself: the other side's link, if it is an older one, starts over too.
+        sendLinkSignal(CallSignal.Hello)
         if (_state.value.sharingScreen) link?.setScreen(media.screenVideo)
         applyEncoding()
         statsJob = scope.launch {
@@ -459,6 +509,30 @@ class CallController(
                 pollStats()
             }
         }
+    }
+
+    private fun sendLinkSignal(signal: CallSignal) {
+        val to = remoteId ?: return
+        room?.send(CallProtocol.signal(to, signal.toJson(myLinkId)))
+    }
+
+    /**
+     * A signal from the person my link talks to, sorted by its link id: their new link makes mine
+     * start over; leftovers of a replaced link are dropped; no id (an older app) applies as before.
+     */
+    private fun onSignal(data: kotlinx.serialization.json.JsonElement) {
+        val incoming = CallSignal.linkOf(data)
+        when (CallConnection.linkSignalAction(remoteLink, retiredLinks, incoming)) {
+            CallConnection.LinkSignalAction.IGNORE -> return
+            CallConnection.LinkSignalAction.REPLACE -> {
+                val p = linkPeer ?: return
+                diag("peer", "${p.name.ifBlank { "They" }} started a new link — renegotiating")
+                openLink(p, fresh = incoming)
+            }
+            CallConnection.LinkSignalAction.APPLY -> if (remoteLink == null && incoming != null) remoteLink = incoming
+        }
+        val signal = CallSignal.parse(data) ?: return
+        link?.handleSignal(signal)
     }
 
     private fun publishRemote() {
@@ -520,7 +594,8 @@ class CallController(
 
     /** Someone is in the room (welcome / peer_joined): the same session keeps the link, anyone else gets a new one. */
     private fun peerAnnounced(peer: CallPeer) {
-        if (link != null && CallConnection.shouldAdoptPeer(linkPeer, peer)) {
+        // A link that failed / closed / never got going is never kept: both sides start over.
+        if (link != null && CallConnection.shouldAdoptPeer(linkPeer, peer, health.pc)) {
             awayJob?.cancel(); awayJob = null
             val wasAway = away
             away = false
@@ -531,8 +606,15 @@ class CallController(
             diag("peer", "${peer.name.ifBlank { "They" }} ${if (wasAway) "came back" else "reconnected"} (same session) — link kept" + if (movedFrom != peer.clientId) ", signals → new client" else "")
             publishRemote()
             scheduleRestart()
+            // Say hello again (they re-send an offer of theirs I may have missed) and re-send mine if unanswered.
+            sendLinkSignal(CallSignal.Hello)
+            link?.resendPendingOffer()
         } else {
-            if (link != null) diag("peer", "${peer.name.ifBlank { "They" }} joined from a new session — new link")
+            val prev = linkPeer
+            if (link != null) {
+                if (prev?.instance != null && prev.instance == peer.instance && prev.userId == peer.userId) diag("peer", "${peer.name.ifBlank { "They" }} back — link was ${health.pc.wire}, renegotiating")
+                else diag("peer", "${peer.name.ifBlank { "They" }} joined from a new session — new link")
+            }
             openLink(peer)
         }
     }
@@ -638,7 +720,7 @@ class CallController(
                 if (step.loadWelcomeText) text().load(msg.text, msg.textCursors, msg.page, resendOthers = true)
                 else { endCompose(); text().resendAll() }
                 applyPages(step)
-                publishText("load")
+                publishText("load", rewrite = true)
                 room?.send(CallProtocol.state(mediaState))
                 if (rejoin) diag("room", "rejoined the room")
                 val p = msg.peers.firstOrNull()
@@ -658,7 +740,12 @@ class CallController(
                 if (remoteId == msg.clientId) peerAway()
             }
             // Only the page on my board (others come back whole in a page_doc when I open them).
-            is ServerMessage.Text -> if (onMyPage(msg.page)) { text().applyRemote(msg.ops); publishText("remote") }
+            // Always into the document; into the field now, or after my composition (or its idle catch-up).
+            is ServerMessage.Text -> if (onMyPage(msg.page)) when (text().applyRemote(msg.ops)) {
+                dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard.Remote.SHOWN -> publishText("remote", rewrite = true)
+                dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard.Remote.HELD -> { publishText("held"); scheduleComposeIdle() }
+                dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard.Remote.NONE -> Unit
+            }
             is ServerMessage.TextCursorMsg -> if (onMyPage(msg.page)) { text().setCursor(msg.cursor); publishText("cursor") }
             is ServerMessage.Pages -> _state.update { it.copy(pages = BoardPages.pagesChanged(it.pages, msg.pages)) }
             is ServerMessage.PageDoc -> {
@@ -666,7 +753,7 @@ class CallController(
                 if (b.page != msg.page) endCompose() // a composition on the old page is dropped with it
                 b.load(msg.text, msg.textCursors, msg.page, resendOthers = false)
                 _state.update { it.copy(pages = BoardPages.docLoaded(it.pages, msg.page)) }
-                publishText("load")
+                publishText("load", rewrite = true)
             }
             is ServerMessage.PageView -> {
                 // Their caret leaves my board with them.
@@ -687,7 +774,7 @@ class CallController(
             is ServerMessage.AnnotPingMsg -> addPing(msg.from, msg.x, msg.y, msg.name)
             is ServerMessage.AnnotMode -> _state.update { it.copy(annotations = it.annotations.withPersist(msg.persist, now())) }
             is ServerMessage.PeerState -> _state.update { s -> if (remoteId == msg.clientId && s.remote != null) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
-            is ServerMessage.Signal -> if (remoteId == msg.from) CallSignal.parse(msg.data)?.let { link?.handleSignal(it) }
+            is ServerMessage.Signal -> if (remoteId == msg.from) onSignal(msg.data)
             is ServerMessage.Board -> _state.update { s ->
                 s.copy(board = CallBoard.apply(s.board, msg.op), liveStrokes = if (msg.op is BoardItem.Stroke) s.liveStrokes - msg.op.by else s.liveStrokes)
             }
@@ -715,13 +802,21 @@ class CallController(
         wantRecord = record
         finished = false
         _state.update { it.copy(phase = CallPhase.JOINING) }
-        startPreview().join()
+        // Wait a little for a camera / mic still opening (never for good), so a rejoin doesn't come in with everything off.
+        kotlinx.coroutines.withTimeoutOrNull(JOIN_MEDIA_WAIT_MS) { startPreview().join() }
         val s = _state.value
         mediaState = PeerMediaState(mic = s.micOn && s.hasMic, cam = s.camOn && s.hasCamera, screen = false, recording = false)
         instance = CallConnection.newInstanceId()
-        diag("join", "joining (mic ${if (s.hasMic) "on" else s.micProblem?.name?.lowercase() ?: "off"}, camera ${if (s.hasCamera) "on" else s.camProblem?.name?.lowercase() ?: "off"}, instance $instance)")
+        diag("join", "joining with ${joinDevices(s)}; instance $instance${if (deps.device.isNotBlank()) "; ${deps.device}" else ""}")
         deps.keepAlive(true)
         room = deps.openRoom(handlers, instance).also { it.connect() }
+    }
+
+    /** "mic muted, camera" — what I join with (web: the join line of the connection log). */
+    private fun joinDevices(s: CallState): String {
+        val mic = if (!s.hasMic) "no mic" + (s.micProblem?.let { " (${it.name.lowercase()})" } ?: "") else if (s.micOn) "mic" else "mic muted"
+        val cam = if (!s.hasCamera) "no camera" + (s.camProblem?.let { " (${it.name.lowercase()})" } ?: "") else if (s.camOn) "camera" else "camera off"
+        return "$mic, $cam"
     }
 
     /** End for everyone (web: endForEveryone). */
@@ -747,19 +842,21 @@ class CallController(
 
     /** Mute / unmute. Without a mic (not allowed yet / failed) it tries to add one (the screen asks for the permission first). */
     fun toggleMic() {
-        if (!media.hasMic) { refreshDevices(); return }
+        if (!media.hasMic) { refreshDevices(restore = false); return }
         val next = !_state.value.micOn
         media.setMicEnabled(next)
         deps.recorder.muted = !next
+        prefs.micOff = !next
         _state.update { it.copy(micOn = next) }
         broadcastState { it.copy(mic = next) }
     }
 
     /** Camera on / off. Without a camera it tries to add one. */
     fun toggleCam() {
-        if (!media.hasCamera) { refreshDevices(); return }
+        if (!media.hasCamera) { refreshDevices(restore = false); return }
         val next = !_state.value.camOn
         media.setCameraEnabled(next)
+        prefs.camOff = !next
         _state.update { it.copy(camOn = next) }
         broadcastState { it.copy(cam = next) }
     }
@@ -857,9 +954,15 @@ class CallController(
     private fun text(): dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard =
         textBoard ?: dev.jeromeswannack.chineselearning.lab.core.calls.CallTextBoard(deps.userId(), { m -> room?.send(m) ?: false }).also { textBoard = it }
 
-    private fun publishText(change: String) {
+    private var textRewrite = 0
+
+    /** [rewrite]: the field must show the board's text now (their edits, a load, a catch-up). */
+    private fun publishText(change: String, rewrite: Boolean = false) {
         val b = textBoard ?: return
-        _state.update { it.copy(textBoard = TextBoardUi(b.text, b.version, b.remoteCarets, b.mySelection(), change, b.page)) }
+        if (rewrite) textRewrite++
+        _state.update {
+            it.copy(textBoard = TextBoardUi(b.text, b.version, b.remoteCarets, b.mySelection(), change, b.page, textRewrite, b.field(), b.compositionIndex()))
+        }
     }
 
     // IME composition preview (≤ ~12 messages a second, the latest wins).
@@ -891,38 +994,97 @@ class CallController(
         composeSent = null
     }
 
+    /** The field as last reported (blur ends a composition with it). */
+    private var fieldText = ""
+    private var fieldEnd = 0
+    /** A field text I ended a composition with from our side: the field's own late "composition over" report of it is not an edit. */
+    private var endedWith: String? = null
+    private var lastComposeAt = Long.MIN_VALUE / 2
+    private var idleJob: Job? = null
+
     /**
      * The field changed: [text] with the selection [start]..[end] (UTF-16); [composing] while an IME
-     * composition is open — then no edit is sent (the other person's edits wait) but [compose], the
-     * text being composed, goes out as a preview in my name flag.
+     * composition is open, [compStart] ..< [compEnd] its range. While composing, the text OUTSIDE the
+     * composition is committed and goes out at once (Gboard commits "hello " while the next word is
+     * composing); the composition itself only goes out as a preview beside my name ([compose]). The
+     * other person's edits meanwhile wait in the document until the composition ends or idles
+     * ([COMPOSE_IDLE_MS]).
      */
-    fun textChanged(text: String, start: Int, end: Int, composing: Boolean, compose: String? = null) {
+    fun textChanged(text: String, start: Int, end: Int, composing: Boolean, compose: String? = null, compStart: Int = -1, compEnd: Int = -1) {
         val b = text()
+        fieldText = text; fieldEnd = end
         if (composing) {
-            if (!b.composing) b.setComposing(true)
+            endedWith = null
+            lastComposeAt = now()
+            var sentNow = false
+            if (compStart in 0..compEnd && compEnd <= text.length) {
+                sentNow = b.composingEdit(text, start, end, compStart, compEnd)
+                b.select(compStart, compStart, notify = false) // the preview sits where the composition starts
+            } else if (!b.composing) b.setComposing(true)
             sendCompose(compose)
+            if (sentNow) publishText("local")
+            scheduleComposeIdle()
             return
         }
+        idleJob?.cancel(); idleJob = null
         if (b.composing) {
             endCompose()
             b.setComposing(false, text, end)
             b.select(start, end) // the cursor message without `compose` ends the preview on their side
             b.flushHeld()
-            publishText(if (b.text == text) "local" else "remote")
+            publishText(if (b.text == text) "local" else "remote", rewrite = b.text != text)
             return
         }
+        val stale = endedWith
+        endedWith = null
+        // The field reporting the composition I already ended (blur) — the board was rewritten since: not an edit.
+        if (stale != null && text == stale) { publishText("local"); return }
         if (text != b.text) b.localEdit(text, end)
         b.select(start, end)
         publishText("local")
+    }
+
+    /**
+     * Their edits wait for my open composition: after [COMPOSE_IDLE_MS] without a composing keystroke
+     * the field catches up — the document's text with my composition spliced back in (it stays open).
+     */
+    private fun scheduleComposeIdle() {
+        idleJob?.cancel()
+        idleJob = null
+        val b = textBoard ?: return
+        if (!b.hasHeld) return
+        val wait = maxOf(0L, lastComposeAt + COMPOSE_IDLE_MS - now())
+        idleJob = scope.launch {
+            delay(wait)
+            val bb = textBoard ?: return@launch
+            if (!bb.hasHeld) return@launch
+            if (now() - lastComposeAt < COMPOSE_IDLE_MS) { scheduleComposeIdle(); return@launch }
+            if (bb.catchUp()) {
+                bb.field().let { f -> fieldText = f.text; fieldEnd = f.selEnd }
+                publishText("catchup", rewrite = true)
+            }
+        }
     }
 
     fun textSelected(start: Int, end: Int) {
         textBoard?.let { if (!it.composing) it.select(start, end) }
     }
 
+    /** The board lost focus: a composing span left open must not hold the other person's edits back — what was composed counts as typed. */
     fun textBlurred() {
+        idleJob?.cancel(); idleJob = null
         endCompose()
-        textBoard?.clearSelection()
+        val b = textBoard ?: return
+        if (b.composing) {
+            // The field as it stands: the board's view with my composition at its anchor (it may have
+            // been rebuilt by a catch-up since the last report), else the last report.
+            val f = b.field()
+            val (t, e) = if (f.composing) f.text to f.selEnd else fieldText to fieldEnd
+            b.endComposition(t, e)
+            endedWith = t
+            publishText("remote", rewrite = true)
+        }
+        b.clearSelection()
     }
 
     // ------------------------------------------------------------ board pages
@@ -1012,5 +1174,12 @@ class CallController(
         const val COMPOSE_MIN_GAP_MS = 84L
         /** A room `error` this soon after a page action is shown as a notice. */
         const val PAGE_ERROR_WINDOW_MS = 5_000L
+        /** Join waits this long at most for a camera / mic still opening (web JOIN_MEDIA_WAIT_MS). */
+        const val JOIN_MEDIA_WAIT_MS = 4_000L
+        /**
+         * A composition with no update for this long, while the other person's edits wait, is caught
+         * up (web COMPOSE_IDLE_MS — Gboard keeps a composing span on the last word until a space).
+         */
+        const val COMPOSE_IDLE_MS = 1_500L
     }
 }

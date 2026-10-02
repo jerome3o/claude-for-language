@@ -1,6 +1,15 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.calls.BoardField
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallGloss
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTextDoc
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
@@ -104,24 +114,33 @@ private fun checkAt(v: TextFieldValue): CallGloss.Check = CallGloss.findSegment(
 
 /**
  * The call's shared text board (web: components/calls/TextBoard.tsx): both people type into one
- * document; the other person's caret and selection show in their colour with their name. While an
- * IME composition is open (pinyin) nothing is sent and incoming edits wait. Select Chinese text for
- * its pinyin, and (online) a word-by-word meaning.
+ * document; the other person's selection shows in their colour and their caret as a thin line in
+ * their colour with a small dot on top — nothing is ever drawn over the text (an opaque name flag
+ * hid what the tutor had just typed). Their name sits in the people row under the board ("● Minghui
+ * is here", or "● Minghui · 你hao" while they compose); a tap near their dot lights that chip up in
+ * their colour for a few seconds.
+ *
+ * While an IME composition is open (pinyin) the field is never rewritten under it: the text outside
+ * the composition goes out at once, the other person's edits wait in the document and come in when
+ * the composition ends — or, since Gboard keeps a composing span on the last word, after
+ * CallController.COMPOSE_IDLE_MS idle, rebuilt with my composition spliced back in (the controller
+ * sends a `rewrite` whose field carries the composition range). Select Chinese text for its pinyin,
+ * and (online) a word-by-word meaning.
  *
  * Tab-complete (web: useBoardGloss): after typing Chinese and pausing CallGloss.DEBOUNCE_MS with no
  * composition open, " - pīnyīn - meaning" shows grey after the caret with a "⇥ …" chip under it;
  * a tap on the chip (or Tab on a hardware keyboard) types it in like any edit, so the other person
  * gets it through the CRDT. Typing on moves past it; Esc dismisses. Only I see the offer.
  *
- * While I compose (pinyin IME), the composing text goes to the other person as a preview in my name
- * flag; theirs shows in their flag above their caret as "Name · 你hao" — drawn over the text, never
- * laid out in it, so nothing shifts. The board is always light paper ([BoardPaper]) in both themes.
+ * While I compose (pinyin IME), the composing text goes to the other person as a preview beside my
+ * name in their people row; theirs shows beside their name in mine, and their caret's dot pulses.
+ * The board is always light paper ([BoardPaper]) in both themes.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TextBoardPanel(
     board: TextBoardUi,
-    onChange: (text: String, start: Int, end: Int, composing: Boolean, compose: String?) -> Unit,
+    onChange: (text: String, start: Int, end: Int, composition: TextRange?) -> Unit,
     onSelect: (start: Int, end: Int) -> Unit,
     onBlur: () -> Unit,
     modifier: Modifier = Modifier,
@@ -133,6 +152,8 @@ fun TextBoardPanel(
     onGlossOn: (Boolean) -> Unit = {},
     /** Screenshots: an offer already on screen (caret at the end of the text). */
     previewSuggestion: GlossSuggestion? = null,
+    /** Screenshots: this person's chip already lit up (as after a tap near their caret). */
+    previewHighlight: String? = null,
 ) {
     var value by remember { mutableStateOf(TextFieldValue(board.text, TextRange(if (previewSuggestion != null) board.text.length else 0))) }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -145,20 +166,48 @@ fun TextBoardPanel(
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val currentValue by rememberUpdatedState(value)
+    // Their caret dot pulses while they compose (only then is the animation running).
+    val pulse = if (board.remote.any { !it.compose.isNullOrEmpty() }) {
+        rememberInfiniteTransition(label = "caret-pulse").animateFloat(
+            1f, 1.5f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "caret-pulse-scale",
+        ).value
+    } else 1f
     var shownPage by remember { mutableStateOf(board.page) }
-    // The other person's edit (or a rejoin) rewrites the field, my caret moved along with it.
-    LaunchedEffect(board.version) {
+    var appliedRewrite by remember { mutableStateOf(board.rewrite) }
+    // The person whose chip is lit up (a tap near their caret dot), for a few seconds.
+    var highlighted by remember { mutableStateOf(previewHighlight) }
+    LaunchedEffect(highlighted) {
+        if (highlighted != null && previewHighlight == null) { delay(HIGHLIGHT_MS); highlighted = null }
+    }
+    val composeChars = remember(value.text, value.composition) {
+        value.composition?.let { c -> CallTextDoc.splitChars(value.text.substring(c.min.coerceIn(0, value.text.length), c.max.coerceIn(0, value.text.length))).size } ?: 0
+    }
+    /** A character index in the board's text → in the field (my open composition sits in the field but not in the board's text). */
+    fun fieldIndex(i: Int): Int {
+        val at = board.compIndex
+        return if (value.composition != null && at != null && i > at) i + composeChars else i
+    }
+    // The other person's edit (or a load / a catch-up) rewrites the field, my caret moved along with it —
+    // never under an open composition unless the rewrite carries it (a catch-up splices it back in).
+    LaunchedEffect(board.version, board.rewrite, value.composition == null) {
         if (board.page != shownPage) {
             // Another board page: its text, from the top; a composition on the old page is dropped with it.
             shownPage = board.page
             suggestion = null
+            appliedRewrite = board.rewrite
             value = TextFieldValue(board.text, TextRange(0))
             return@LaunchedEffect
         }
-        if ((board.lastChange == "remote" || board.lastChange == "load") && value.composition == null && value.text != board.text) {
-            val (s, e) = board.mySelection
-            value = TextFieldValue(board.text, TextRange(s.coerceIn(0, board.text.length), e.coerceIn(0, board.text.length)))
-        }
+        if (board.rewrite == appliedRewrite) return@LaunchedEffect
+        val f = board.field ?: BoardField(board.text, board.mySelection.first, board.mySelection.second)
+        if (value.composition != null && !f.composing) return@LaunchedEffect // after the composition
+        appliedRewrite = board.rewrite
+        if (f.text == value.text && !f.composing) return@LaunchedEffect
+        val len = f.text.length
+        value = TextFieldValue(
+            f.text, TextRange(f.selStart.coerceIn(0, len), f.selEnd.coerceIn(0, len)),
+            if (f.composing) TextRange(f.compStart, f.compEnd) else null,
+        )
     }
     // Tab-complete: any change drops an offer that no longer fits; after a quiet pause, ask. The
     // effect restarts on every change, which cancels a wait or a request in flight.
@@ -187,16 +236,35 @@ fun TextBoardPanel(
         val next = value.text.substring(0, pos) + ins + value.text.substring(pos)
         val v = TextFieldValue(next, TextRange(pos + ins.length))
         value = v
-        onChange(v.text, v.selection.min, v.selection.max, false, null)
+        onChange(v.text, v.selection.min, v.selection.max, null)
         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+    val padX = 16.dp
+    val padY = 14.dp
+    // The grey offer laid out here (not while drawing) so the chip can sit below all of it.
+    val ghostStyle = TextStyle(fontSize = 19.sp, lineHeight = 30.sp, color = BoardPaper.Ghost)
+    val ghost: GhostLayout? = run {
+        val s = suggestion ?: return@run null
+        val l = layout ?: return@run null
+        val inner = fieldWidth - with(density) { (padX * 2).toPx() }.toInt()
+        if (inner <= 0) return@run null
+        val at = CallTextDoc.charToCodeUnitIndex(value.text, s.end).coerceIn(0, value.text.length)
+        val r = l.getCursorRect(at)
+        val (first, rest) = ghostSplit(s.text, (inner - r.left).toInt(), inner) { t, w ->
+            measurer.measure(t, ghostStyle, maxLines = 1, softWrap = false).size.width <= w
+        }
+        GhostLayout(
+            r,
+            first.takeIf { it.isNotEmpty() }?.let { measurer.measure(it, ghostStyle, maxLines = 1, softWrap = false) },
+            rest.takeIf { it.isNotEmpty() }?.let { measurer.measure(it, ghostStyle, constraints = androidx.compose.ui.unit.Constraints(maxWidth = inner)) },
+        )
     }
     val selected = value.text.substring(value.selection.min.coerceAtMost(value.text.length), value.selection.max.coerceAtMost(value.text.length))
     val showHelper = selected.isNotEmpty() && selected.length <= 60 && HAN.containsMatchIn(selected)
-    val padX = 16.dp
-    val padY = 14.dp
 
     Column(modifier.background(BoardPaper.Paper)) {
         Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(remember(board.page) { androidx.compose.foundation.ScrollState(0) }).onSizeChanged { fieldWidth = it.width }) {
+            val tapSlop = with(density) { 16.dp.toPx() }
             BasicTextField(
                 value = value,
                 onValueChange = { v ->
@@ -205,14 +273,28 @@ fun TextBoardPanel(
                     val selChanged = v.selection != value.selection
                     value = v
                     when {
-                        textChanged || v.composition != null || wasComposing -> onChange(
-                            v.text, v.selection.min, v.selection.max, v.composition != null,
-                            v.composition?.let { c -> v.text.substring(c.min.coerceIn(0, v.text.length), c.max.coerceIn(0, v.text.length)) },
-                        )
+                        textChanged || v.composition != null || wasComposing -> onChange(v.text, v.selection.min, v.selection.max, v.composition)
                         selChanged -> onSelect(v.selection.min, v.selection.max)
                     }
                 },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 320.dp)
+                    // A tap near someone's caret dot lights their name up below (observed, never consumed: the tap still places my caret).
+                    .pointerInput(board.remote) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            val l = layout ?: return@awaitEachGesture
+                            val text = currentValue.text
+                            val pad = Offset(padX.toPx(), padY.toPx())
+                            val hit = board.remote.minByOrNull { c ->
+                                val r = l.getCursorRect(CallTextDoc.charToCodeUnitIndex(text, fieldIndex(c.head)).coerceIn(0, text.length))
+                                (Offset(r.left, r.top) + pad - down.position).getDistance()
+                            }?.takeIf { c ->
+                                val r = l.getCursorRect(CallTextDoc.charToCodeUnitIndex(text, fieldIndex(c.head)).coerceIn(0, text.length))
+                                (Offset(r.left, r.top) + pad - down.position).getDistance() <= tapSlop
+                            }
+                            if (hit != null) highlighted = hit.clientId
+                        }
+                    }
                     .onFocusChanged { focused = it.isFocused; if (!it.isFocused) onBlur() }
                     .onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown || suggestion == null || value.composition != null) false
@@ -231,38 +313,29 @@ fun TextBoardPanel(
                             val l = layout
                             if (l == null) { drawContent(); return@drawWithContent }
                             val text = value.text
-                            // Their selection under the text; their caret and name flag over it (the flag is opaque).
+                            // Their selection under the text; their caret a thin line with a small dot on top —
+                            // nothing over the text (the name is in the people row below).
                             for (c in board.remote) {
-                                val start = CallTextDoc.charToCodeUnitIndex(text, c.start).coerceIn(0, text.length)
-                                val end = CallTextDoc.charToCodeUnitIndex(text, c.end).coerceIn(0, text.length)
+                                val start = CallTextDoc.charToCodeUnitIndex(text, fieldIndex(c.start)).coerceIn(0, text.length)
+                                val end = CallTextDoc.charToCodeUnitIndex(text, fieldIndex(c.end)).coerceIn(0, text.length)
                                 if (end > start) drawPath(l.getPathForRange(start, end), parseColor(c.color).copy(alpha = 0.22f))
                             }
                             drawContent()
                             for (c in board.remote) {
                                 val color = parseColor(c.color)
-                                val head = CallTextDoc.charToCodeUnitIndex(text, c.head).coerceIn(0, text.length)
+                                val head = CallTextDoc.charToCodeUnitIndex(text, fieldIndex(c.head)).coerceIn(0, text.length)
                                 val r = l.getCursorRect(head)
                                 drawLine(color, Offset(r.left, r.top), Offset(r.left, r.bottom), strokeWidth = 2.dp.toPx())
-                                val label = measurer.measure(caretFlag(c.name, c.compose), TextStyle(fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold))
-                                val px = 4.dp.toPx()
-                                val top = r.top - label.size.height - 1.dp.toPx()
-                                drawRoundRect(color, Offset(r.left - 1.dp.toPx(), top), Size(label.size.width + px * 2, label.size.height.toFloat()), androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
-                                translate(r.left - 1.dp.toPx() + px, top) { drawText(label) }
+                                // The dot gently pulses while they compose; it grows a little while their chip is lit.
+                                val radius = 3.dp.toPx() * (if (!c.compose.isNullOrEmpty()) pulse else 1f) * (if (highlighted == c.clientId) 1.35f else 1f)
+                                drawCircle(color, radius, Offset(r.left, r.top))
                             }
-                            // The offer, grey, right after my caret (the rest of the line is empty).
-                            val s = suggestion
-                            if (s != null) {
-                                val at = CallTextDoc.charToCodeUnitIndex(text, s.end).coerceIn(0, text.length)
-                                val r = l.getCursorRect(at)
-                                val room = (size.width - r.left).toInt()
-                                if (room > 24) {
-                                    val ghost = measurer.measure(
-                                        s.text, TextStyle(fontSize = 19.sp, lineHeight = 30.sp, color = BoardPaper.Ghost),
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        constraints = androidx.compose.ui.unit.Constraints(maxWidth = room),
-                                    )
-                                    translate(r.left, r.top + (r.height - ghost.size.height) / 2f) { drawText(ghost) }
-                                }
+                            // The offer, grey, right after my caret (the rest of the line is empty): what fits there
+                            // on the caret's line, the rest wrapped below it across the field — never cut off.
+                            val g = ghost
+                            if (g != null) {
+                                g.first?.let { first -> translate(g.caret.left, g.caret.top + (g.caret.height - first.size.height) / 2f) { drawText(first) } }
+                                g.rest?.let { rest -> translate(0f, g.caret.bottom) { drawText(rest) } }
                             }
                         },
                     ) {
@@ -279,17 +352,17 @@ fun TextBoardPanel(
                 val r = l.getCursorRect(at)
                 val margin = with(density) { 8.dp.toPx() }
                 val x = (r.left + with(density) { padX.toPx() }).coerceAtMost(fieldWidth - chipWidth - margin).coerceAtLeast(margin)
-                val y = r.bottom + with(density) { (padY + 6.dp).toPx() }
+                val y = r.bottom + (ghost?.rest?.size?.height ?: 0) + with(density) { (padY + 6.dp).toPx() }
                 Text(
                     CallGloss.chipLabel(s.gloss.pinyin, s.gloss.english),
-                    color = BoardPaper.ChipText, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = BoardPaper.ChipText, fontSize = 16.sp, lineHeight = 21.sp, maxLines = 4, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
                         .widthIn(max = with(density) { (fieldWidth - 2 * margin).coerceAtLeast(0f).toDp() })
                         .onSizeChanged { chipWidth = it.width }
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(22.dp))
                         .background(BoardPaper.ChipBg)
-                        .border(1.dp, BoardPaper.ChipBorder, RoundedCornerShape(999.dp))
+                        .border(1.dp, BoardPaper.ChipBorder, RoundedCornerShape(22.dp))
                         .bouncyClickable { accept() }
                         .heightIn(min = 44.dp)
                         .padding(horizontal = 16.dp, vertical = 11.dp),
@@ -301,13 +374,25 @@ fun TextBoardPanel(
             Modifier.fillMaxWidth().drawBehind { drawLine(BoardPaper.Border, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }.padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
-            board.remote.forEach { c ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(parseColor(c.color)))
-                    Text("${c.name} is here", color = BoardPaper.Muted, fontSize = 13.sp)
+            // The people (their chips share the room left of the hints switch; a long compose preview ellipsizes).
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                board.remote.forEach { c ->
+                    val lit = highlighted == c.clientId
+                    val color = parseColor(c.color)
+                    Row(
+                        Modifier.weight(1f, fill = false).clip(RoundedCornerShape(999.dp)).background(if (lit) color else Color.Transparent)
+                            .bouncyClickable { highlighted = if (lit) null else c.clientId }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(if (lit) Color.White else color))
+                        Text(
+                            personChip(c.name, c.compose, lit), color = if (lit) Color.White else BoardPaper.Muted, fontSize = 13.sp,
+                            fontWeight = if (lit) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.weight(1f))
             if (gloss != null) Row(
                 Modifier.clip(RoundedCornerShape(12.dp)).bouncyClickable { onGlossOn(!glossOn) }.padding(start = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -323,13 +408,37 @@ fun TextBoardPanel(
     }
 }
 
-/** Their name flag: "Name", or "Name · 你hao" while they compose (the composing part underlined, a little faded). */
-internal fun caretFlag(name: String, compose: String?): AnnotatedString = buildAnnotatedString {
+/** The grey offer: [first] on the caret's line after [caret], [rest] wrapped across the field below it. */
+private class GhostLayout(val caret: androidx.compose.ui.geometry.Rect, val first: TextLayoutResult?, val rest: TextLayoutResult?)
+
+/** A tap near a caret dot lights that person's chip up for this long (web: while hovered). */
+private const val HIGHLIGHT_MS = 3_000L
+
+/** Their chip under the board: "Name is here", or "Name · 你hao" while they compose (the composing part underlined). */
+internal fun personChip(name: String, compose: String?, lit: Boolean = false): AnnotatedString = buildAnnotatedString {
     append(name)
     if (!compose.isNullOrEmpty()) {
         append(" · ")
-        withStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = Color.White.copy(alpha = 0.85f))) { append(compose) }
+        withStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = if (lit) Color.White else BoardPaper.Ink)) { append(compose) }
+    } else append(" is here")
+}
+
+/**
+ * The grey tab-complete offer after the caret: the words that fit in [firstRoom] px (the rest of the
+ * caret's line), then the remainder, which wraps across the field ([fullWidth]) below. Splits at a
+ * space (a whole word never splits unless one alone is wider than a line). [fits] measures.
+ */
+internal fun ghostSplit(text: String, firstRoom: Int, fullWidth: Int, fits: (String, Int) -> Boolean): Pair<String, String> {
+    if (firstRoom <= 24) return "" to text.trimStart()
+    if (fits(text, firstRoom)) return text to ""
+    var cut = 0
+    var i = text.indexOf(' ', 1)
+    while (i > 0 && fits(text.substring(0, i), firstRoom)) { cut = i; i = text.indexOf(' ', i + 1) }
+    if (cut == 0) {
+        // Not even the first word fits beside the caret: everything goes below (unless no line could hold it).
+        return if (fullWidth > firstRoom) "" to text.trimStart() else text to ""
     }
+    return text.substring(0, cut) to text.substring(cut).trimStart()
 }
 
 @OptIn(ExperimentalLayoutApi::class)

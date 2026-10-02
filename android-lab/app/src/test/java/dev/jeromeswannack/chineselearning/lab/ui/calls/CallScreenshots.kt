@@ -234,7 +234,7 @@ class CallScreenshots : LabScreenshotTest() {
 
     @Test fun connectionLog() = shoot("calls-39-review-connection-log") {
         val ev = listOf(
-            Triple(0L, "join", "joining (mic on, camera on, instance k3j9x0ab12cd)") to "Jerome",
+            Triple(0L, "join", "joining with mic, camera; instance k3j9x0ab12cd") to "Jerome",
             Triple(900L, "room", "open") to "Jerome",
             Triple(2_100L, "pc", "connected") to "Jerome",
             Triple(2_600L, "route", "relay/udp via turn") to "Jerome",
