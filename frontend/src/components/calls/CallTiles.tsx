@@ -12,11 +12,21 @@
  *   it snaps to a corner; resize with its handle; a tap (or Enter) → Speaker.
  *   The two camera tiles stay the same elements, only moved into the box.
  * - Phones: swipe left / right on the stage to move between tiles.
+ * - Desktop (round 4): drag a tile — a rail tile itself, or a stage tile by its
+ *   ⠿ grip — onto the stage: five drop zones light up (left / right / top /
+ *   bottom half, the whole stage) and dropping arranges a split with the
+ *   divider (`layoutForDrop`). Keyboard / no-drag fallback: the grip is also a
+ *   button opening "Move to: Left half …".
  */
 
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   arrangeTiles,
+  dropZoneAt,
+  dropZoneBox,
+  DROP_ZONES,
+  DROP_ZONE_LABELS,
+  type DropZone,
   layoutRects,
   snapCorner,
   swipeFocus,
@@ -63,6 +73,16 @@ export function CallTiles({
   const lastTap = useRef<{ tile: TileId; at: number } | null>(null);
   const els = useRef<Partial<Record<TileId | 'pair' | 'pairBg', HTMLDivElement | null>>>({});
   const swipe = useRef<{ x: number; y: number; at: number; lx: number; ly: number } | null>(null);
+  /** A tile being dragged onto the stage: where the pointer is, and the zone under it. */
+  const [drag, setDrag] = useState<{ tile: TileId; x: number; y: number; zone: DropZone | null } | null>(null);
+  /** The keyboard / no-drag fallback menu ("Move to …") open on this tile. */
+  const [moveMenu, setMoveMenu] = useState<TileId | null>(null);
+  useEffect(() => {
+    if (!moveMenu) return;
+    const close = (e: KeyboardEvent) => e.key === 'Escape' && setMoveMenu(null);
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [moveMenu]);
 
   const setRef = (el: HTMLDivElement | null) => {
     boxEl.current = el;
@@ -226,6 +246,44 @@ export function CallTiles({
     el.addEventListener('pointerup', up);
   };
 
+  // ---- drag a tile onto the stage (desktop): rail tiles by themselves, stage tiles by their grip
+  const startTileDrag = (tile: TileId, opts: { onTap?: () => void }) => (e: React.PointerEvent) => {
+    if (!rects || narrow || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('button:not(.call-tile-grip), textarea, input')) return;
+    // Listened to on the window (not with pointer capture): the board inside a tile re-renders while dragging.
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY };
+    let moved = false;
+    const zoneAt = (ev: PointerEvent): DropZone | null => {
+      const origin = boxEl.current?.getBoundingClientRect();
+      if (!origin) return null;
+      const st = rects.stage;
+      const fx = (ev.clientX - origin.left - st.x) / st.w;
+      const fy = (ev.clientY - origin.top - st.y) / st.h;
+      return fx < 0 || fx > 1 || fy < 0 || fy > 1 ? null : dropZoneAt(fx, fy);
+    };
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 6) return;
+      moved = true;
+      setDrag({ tile, x: ev.clientX, y: ev.clientY, zone: zoneAt(ev) });
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      setDrag(null);
+      if (!moved) {
+        if (ev.type === 'pointerup') opts.onTap?.();
+        return;
+      }
+      const zone = ev.type === 'pointerup' ? zoneAt(ev) : null;
+      if (zone) dispatch({ type: 'drop', tile, zone });
+    };
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+  };
+
   /** Double-tap → focus (single tap for a rail tile). */
   const tap = (tile: TileId) => {
     const role = rects?.tiles[tile].role;
@@ -276,7 +334,13 @@ export function CallTiles({
           const style: CSSProperties =
             r.role === 'hidden'
               ? { display: 'none' }
-              : { transform: `translate(${r.x}px, ${r.y}px)`, width: r.w, height: r.h, zIndex: r.z };
+              : ({
+                  transform: `translate(${r.x}px, ${r.y}px)`,
+                  width: r.w,
+                  height: r.h,
+                  zIndex: r.z,
+                  ...(id === 'text' && rects.textInsetTop > 0 ? { '--text-inset-top': `${rects.textInsetTop}px` } : {}),
+                } as CSSProperties);
           const focused = arr.mode === 'focus' && arr.stage[0] === id;
           return (
             <div
@@ -288,17 +352,60 @@ export function CallTiles({
               style={style}
               data-testid={`tile-${id}`}
               data-role={r.role}
-              onPointerDown={r.role === 'floating' ? onFloatDown(id) : undefined}
+              onPointerDown={r.role === 'floating' ? onFloatDown(id) : r.role === 'rail' ? startTileDrag(id, { onTap: () => tap(id) }) : undefined}
               onTouchStart={r.role === 'stage' ? onStageTouchStart : undefined}
               onTouchMove={r.role === 'stage' ? onStageTouchMove : undefined}
               onTouchEnd={r.role === 'stage' ? onStageTouchEnd : undefined}
               onDoubleClick={r.role === 'stage' && (id === 'remote' || id === 'self' || id === 'screen') ? () => dispatch({ type: 'focus', tile: id }) : undefined}
-              onClick={r.role === 'rail' ? () => tap(id) : undefined}
+              onKeyDown={r.role === 'rail' ? (e) => { if (e.key === 'Enter') tap(id); } : undefined}
+              tabIndex={r.role === 'rail' ? 0 : undefined}
             >
               {spec.content}
               {r.role !== 'floating' && r.role !== 'pair' && (
                 <div className="call-tile-chrome">
                   <span className="call-tile-name">{spec.label}</span>
+                  {!narrow && (
+                    <span className="call-move-wrap">
+                      <button
+                        type="button"
+                        className="call-tile-btn call-tile-grip"
+                        onPointerDown={startTileDrag(id, { onTap: () => setMoveMenu((m) => (m === id ? null : id)) })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setMoveMenu((m) => (m === id ? null : id));
+                          }
+                        }}
+                        aria-label={`Move ${spec.label} — drag onto the stage, or press Enter for a menu`}
+                        aria-haspopup="menu"
+                        aria-expanded={moveMenu === id}
+                        title="Drag onto the stage (left / right / top / bottom / whole) — or click for a menu"
+                        data-testid={`drag-${id}`}
+                      >
+                        ⠿
+                      </button>
+                      {moveMenu === id && (
+                        <span className="call-move-menu" role="menu" data-testid={`move-menu-${id}`}>
+                          <span>Move {spec.label} to</span>
+                          {DROP_ZONES.map((z) => (
+                            <button
+                              key={z}
+                              type="button"
+                              role="menuitem"
+                              autoFocus={z === 'left'}
+                              onClick={() => {
+                                setMoveMenu(null);
+                                dispatch({ type: 'drop', tile: id, zone: z });
+                              }}
+                              data-testid={`move-${id}-${z}`}
+                            >
+                              {DROP_ZONE_LABELS[z]}
+                            </button>
+                          ))}
+                        </span>
+                      )}
+                    </span>
+                  )}
                   {r.role === 'stage' && !focused && (
                     <button type="button" className="call-tile-btn" onClick={() => dispatch({ type: 'focus', tile: id })} aria-label={`Focus ${spec.label}`} title="Focus (double-click)">⤢</button>
                   )}
@@ -356,6 +463,28 @@ export function CallTiles({
           data-testid="split-divider"
         >
           <span />
+        </div>
+      )}
+      {drag && rects && (
+        <div className="call-drop-layer" style={{ left: 0, top: 0, width: '100%', height: '100%' }} data-testid="drop-zones">
+          {(drag.zone ? [drag.zone] : DROP_ZONES).map((z) => {
+            const b = dropZoneBox(z, rects.stage);
+            return (
+              <div
+                key={z}
+                className={`call-drop-zone${drag.zone === z ? ' is-hot' : ''}`}
+                style={{ transform: `translate(${b.x + 6}px, ${b.y + 6}px)`, width: b.w - 12, height: b.h - 12 }}
+                data-testid={`drop-zone-${z}`}
+              >
+                {drag.zone === z && <span className="call-drop-label">{tiles[drag.tile]?.label} · {DROP_ZONE_LABELS[z]}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {drag && (
+        <div className="call-drag-ghost" style={{ left: drag.x, top: drag.y }} aria-hidden="true">
+          {tiles[drag.tile]?.label}
         </div>
       )}
     </div>

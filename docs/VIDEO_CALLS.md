@@ -142,6 +142,18 @@ Minghui's sentences off), and the touch chip wraps to up to four lines instead o
   focus only — the tile fills the screen, both cameras float small, a sideways swipe moves between
   tiles (touch events; horizontal overscroll "back" is disabled on the call page), 📝 / 💬 jump to
   the board / chat. The layout is remembered per user on the device (`call-layout-v1:<user>`).
+- **Drag and drop (round 4, desktop)** — drag a tile (a rail tile itself, or a stage tile by its ⠿
+  grip) onto the stage: five drop zones show — left / right / top / bottom half and the whole stage —
+  and the one under the pointer lights up ("Board · Right half"); dropping arranges a split (a
+  resizable divider; the tile that was on the stage stays beside it — in a split, the pane on the other
+  side) or focuses it (`dropZoneAt`, `dropZoneBox`, `layoutForDrop`, the `drop` action in
+  `shared/calls/layout.ts`; Lab parity-tested). Keyboard / no-drag fallback: the grip is a button —
+  Enter or a click opens "Move <tile> to: Left half · Right half · Top half · Bottom half · Whole
+  stage". **Phones** keep one tile on the stage except a **shared screen with a board**, which may split
+  (`narrowSplitAllowed`): stacked in portrait, side by side in landscape (`splitDirFor`) — the Lab app's
+  "Show the board beside / above the screen". **The board leaves room for the faces box**: when the
+  faces float in a top corner over the text board, `layoutRects` returns `textInsetTop` and the board's
+  text starts below the box (it used to cover the first lines).
 - **Faces together (round 3, like Preply)** — when content is on the stage (the board, the drawing,
   a shared screen, the chat — neither camera on the stage, not a grid) the two cameras float as ONE
   compact box with both faces side by side, **theirs first**, instead of two separate floating
