@@ -14,7 +14,7 @@ import { useCall, canShareScreen } from '../hooks/useCall';
 import { CallRecorder } from '../services/calls/recorder';
 import { Whiteboard } from '../components/calls/Whiteboard';
 import { TextBoard } from '../components/calls/TextBoard';
-import { AnnotationLayer } from '../components/calls/AnnotationLayer';
+import { AnnotationLayer, type AnnotTool } from '../components/calls/AnnotationLayer';
 import { annotationPipSupported, openAnnotationPip, type AnnotationPip } from '../services/calls/annotationPip';
 import { ANNOT_COLORS, defaultAnnotColor } from '@shared/calls';
 import {
@@ -135,6 +135,8 @@ export function CallPage() {
   const [remoteSize, setRemoteSize] = useState<VideoSize | null>(null);
   const [annotating, setAnnotating] = useState(false);
   const [annotColor, setAnnotColor] = useState<string | null>(null); // null = my default for this role
+  /** Pen or Text (round 4: type on the shared screen too). */
+  const [annotTool, setAnnotTool] = useState<AnnotTool>('pen');
   const [myScreenSize, setMyScreenSize] = useState<VideoSize | null>(null);
   const [annotPip, setAnnotPip] = useState<AnnotationPip | null>(null);
   const [theyDrawAt, setTheyDrawAt] = useState(0);
@@ -398,23 +400,30 @@ export function CallPage() {
             color={pen}
             onStroke={call.sendAnnotation}
             onPing={call.sendPing}
+            tool={annotTool}
+            onText={call.sendAnnotText}
+            onTextDelete={call.deleteAnnotText}
             className={remoteSharing ? 'annot-over-remote' : 'annot-over-mine'}
             testId={remoteSharing ? 'annot-remote' : 'annot-self'}
           />
           <div className="annot-tools" data-testid="annot-tools">
             <button type="button" className={`annot-toggle${annotating ? ' on' : ''}`} onClick={() => setAnnotating((v) => !v)} data-testid="annot-toggle">
-              {annotating ? '✓ Done' : remoteSharing ? `✏️ Draw on ${first}’s screen` : '✏️ Draw on your screen'}
+              {annotating ? '✓ Done' : remoteSharing ? `✏️ Draw or type on ${first}’s screen` : '✏️ Draw or type on your screen'}
             </button>
             {annotating && (
               <>
+                <span className="annot-toolset" role="radiogroup" aria-label="Tool">
+                  <button type="button" role="radio" aria-checked={annotTool === 'pen'} className={`annot-tool${annotTool === 'pen' ? ' on' : ''}`} onClick={() => setAnnotTool('pen')} data-testid="annot-tool-pen" title="Pen: drag to circle, tap to point">✏️ Pen</button>
+                  <button type="button" role="radio" aria-checked={annotTool === 'text'} className={`annot-tool${annotTool === 'text' ? ' on' : ''}`} onClick={() => setAnnotTool('text')} data-testid="annot-tool-text" title="Text: tap to type; tap a text to select, drag to move">T Text</button>
+                </span>
                 {ANNOT_COLORS.map((c) => (
                   <button key={c} type="button" className={`annot-swatch${c === pen ? ' active' : ''}`} style={{ background: c }} onClick={() => setAnnotColor(c)} aria-label={`Colour ${c}`} />
                 ))}
                 <button type="button" className="annot-clear" onClick={call.clearAnnotations} data-testid="annot-clear">Clear</button>
-                <label className="annot-keep" title="Keep drawings until cleared (for both of you)">
+                <label className="annot-keep" title="Keep drawings and text until cleared (for both of you) — off: they fade after a few seconds">
                   <input type="checkbox" checked={call.annotPersist} onChange={(e) => call.setAnnotationsKept(e.target.checked)} data-testid="annot-keep" /> Keep
                 </label>
-                <span className="annot-hint">Drag to circle · tap to point</span>
+                <span className="annot-hint">{annotTool === 'text' ? 'Tap to type · drag a text to move · tap it again to edit' : 'Drag to circle · tap to point'}</span>
               </>
             )}
           </div>

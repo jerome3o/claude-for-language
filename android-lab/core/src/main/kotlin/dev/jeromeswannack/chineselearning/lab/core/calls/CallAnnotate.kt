@@ -28,6 +28,31 @@ data class ShownStroke(val stroke: AnnotStroke, val from: String, val doneAt: Lo
 data class AnnotPing(val id: String, val from: String, val x: Double, val y: Double, val at: Long)
 
 /**
+ * A text box on a shared screen (round 4, web `AnnotText`): top-left at ([x], [y]) on the shared picture
+ * (0..1), [size] = font size as a fraction of the picture's shorter side, in the writer's colour.
+ * [done] = the writer finished it (Enter / tapped away): it fades unless drawings are kept.
+ */
+data class AnnotText(val id: String, val color: String, val x: Double, val y: Double, val text: String, val size: Double = CallAnnotate.ANNOT_TEXT_SIZE, val done: Boolean) {
+    fun toJson() = buildJsonObject {
+        put("id", id); put("color", color); put("x", x); put("y", y); put("text", text); put("size", size); put("done", done)
+    }
+}
+
+/** A text as shown: who last wrote / moved it, when it was finished (local clock, null while typed). */
+data class ShownText(val text: AnnotText, val from: String, val doneAt: Long?)
+
+/** Port of KeptAnnotations: what the room keeps while drawings are kept (sent in `welcome.annots`). */
+data class KeptAnnotations(val strokes: List<KeptStroke> = emptyList(), val texts: List<KeptText> = emptyList()) {
+    data class KeptStroke(val key: String, val from: String, val name: String, val stroke: AnnotStroke)
+    data class KeptText(val from: String, val name: String, val text: AnnotText)
+
+    fun toJson() = buildJsonObject {
+        putJsonArray("strokes") { strokes.forEach { s -> add(buildJsonObject { put("key", s.key); put("from", s.from); put("name", s.name); put("stroke", s.stroke.toJson()) }) } }
+        putJsonArray("texts") { texts.forEach { t -> add(buildJsonObject { put("from", t.from); put("name", t.name); put("text", t.text.toJson()) }) } }
+    }
+}
+
+/**
  * Port of shared/calls/annotate.ts — drawing on a shared screen: normalised points on the shared
  * picture (so they land on the same spot in any window), fading after the pen lifts (or kept while
  * "Keep" is on — `annot_mode`, one setting for both people), pings, and the per-role default pen
@@ -120,6 +145,82 @@ object CallAnnotate {
         val y = num(o["y"] ?: JsonPrimitive(Double.NaN)) ?: return null
         if (!x.isFinite() || !y.isFinite()) return null
         return round4(clamp01(x)) to round4(clamp01(y))
+    }
+
+    // ------------------------------------------------------------ text boxes (round 4)
+
+    const val ANNOT_TEXT_SIZE = 0.032
+    const val MAX_ANNOT_TEXT_CHARS = 200
+    /** The room keeps at most this many strokes / texts while drawings are kept. */
+    const val MAX_KEPT_STROKES = 300
+    const val MAX_KEPT_TEXTS = 100
+    /** Keep drawings (and texts) until cleared: the default when the room never said otherwise. */
+    const val DEFAULT_ANNOT_PERSIST = true
+
+    /** Port of annotPersistOf: the room's stored setting → whether drawings are kept (null = never set = the default). */
+    fun annotPersistOf(stored: Boolean?): Boolean = stored ?: DEFAULT_ANNOT_PERSIST
+
+    private val CRLF = Regex("\r\n?")
+
+    /** Port of sanitizeAnnotText: text kept as typed (Chinese, emoji), lines joined by \n, ≤ 200 characters (code points). */
+    fun sanitizeText(raw: JsonElement?): AnnotText? {
+        val o = raw as? JsonObject ?: return null
+        val id = (o["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val color = (o["color"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val rawText = (o["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        if (id.isEmpty() || id.length > 64 || !COLOR.matches(color)) return null
+        val x = num(o["x"]) ?: return null
+        val y = num(o["y"]) ?: return null
+        if (!x.isFinite() || !y.isFinite()) return null
+        val size = num(o["size"]) ?: Double.NaN
+        val unix = CRLF.replace(rawText, "\n")
+        val sb = StringBuilder()
+        unix.codePoints().limit(MAX_ANNOT_TEXT_CHARS.toLong()).forEach { sb.appendCodePoint(it) }
+        return AnnotText(
+            id = id, color = color,
+            x = round4(clamp01(x)), y = round4(clamp01(y)),
+            text = sb.toString(),
+            size = if (size.isFinite() && size >= 0.01 && size <= 0.12) round4(size) else ANNOT_TEXT_SIZE,
+            done = (o["done"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true,
+        )
+    }
+
+    /** Port of moveAnnotText: a text's top-left after dragging it by (dx, dy) of the picture, kept on the picture. */
+    fun moveAnnotText(x: Double, y: Double, dx: Double, dy: Double): Pair<Double, Double> =
+        round4(minOf(0.98, clamp01(x + dx))) to round4(minOf(0.98, clamp01(y + dy)))
+
+    /** Port of textAlpha (same rule as strokes). */
+    fun textAlpha(doneAt: Long?, now: Long, persist: Boolean = false): Double = strokeAlpha(doneAt, now, persist)
+
+    /** Port of keepStroke: finished strokes only, by `from:id`, newest last, ≤ [MAX_KEPT_STROKES]. */
+    fun keepStroke(k: KeptAnnotations, from: String, name: String, stroke: AnnotStroke): KeptAnnotations {
+        if (!stroke.done) return k
+        val key = "$from:${stroke.id}"
+        return k.copy(strokes = (k.strokes.filter { it.key != key } + KeptAnnotations.KeptStroke(key, from, name, stroke)).takeLast(MAX_KEPT_STROKES))
+    }
+
+    /** Port of keepText: the latest of each text (by id), newest last, ≤ [MAX_KEPT_TEXTS]. */
+    fun keepText(k: KeptAnnotations, from: String, name: String, text: AnnotText): KeptAnnotations =
+        k.copy(texts = (k.texts.filter { it.text.id != text.id } + KeptAnnotations.KeptText(from, name, text)).takeLast(MAX_KEPT_TEXTS))
+
+    fun dropText(k: KeptAnnotations, id: String): KeptAnnotations = k.copy(texts = k.texts.filter { it.text.id != id })
+
+    /** `welcome.annots` off the wire (each stroke / text sanitized; null when absent). */
+    fun parseKept(raw: JsonElement?): KeptAnnotations? {
+        val o = raw as? JsonObject ?: return null
+        fun str(e: JsonElement?) = (e as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val strokes = (o["strokes"] as? JsonArray).orEmpty().mapNotNull { el ->
+            val s = el as? JsonObject ?: return@mapNotNull null
+            val from = str(s["from"]) ?: return@mapNotNull null
+            val stroke = sanitizeStroke(s["stroke"]) ?: return@mapNotNull null
+            KeptAnnotations.KeptStroke(str(s["key"]) ?: "$from:${stroke.id}", from, str(s["name"]).orEmpty(), stroke)
+        }
+        val texts = (o["texts"] as? JsonArray).orEmpty().mapNotNull { el ->
+            val t = el as? JsonObject ?: return@mapNotNull null
+            val text = sanitizeText(t["text"]) ?: return@mapNotNull null
+            KeptAnnotations.KeptText(str(t["from"]).orEmpty(), str(t["name"]).orEmpty(), text)
+        }
+        return KeptAnnotations(strokes, texts)
     }
 
     /** Port of simplifyPoints. */

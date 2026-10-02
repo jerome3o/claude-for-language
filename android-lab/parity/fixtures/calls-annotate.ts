@@ -14,7 +14,23 @@ import {
   sanitizePing,
   simplifyPoints,
   strokeAlpha,
+  sanitizeAnnotText,
+  moveAnnotText,
+  annotPersistOf,
+  textAlpha,
+  emptyKept,
+  keepStroke,
+  keepText,
+  dropText,
+  ANNOT_TEXT_SIZE,
+  MAX_ANNOT_TEXT_CHARS,
+  MAX_KEPT_STROKES,
+  MAX_KEPT_TEXTS,
+  DEFAULT_ANNOT_PERSIST,
   type AnnotPoint,
+  type AnnotStroke,
+  type AnnotText,
+  type KeptAnnotations,
 } from '../../../shared/calls/annotate';
 
 const OUT = process.argv[2];
@@ -92,4 +108,92 @@ for (let i = 0; i < 60; i++) {
   simplify.push({ points: pts, result: simplifyPoints(pts) });
 }
 
-writeFileSync(join(OUT, 'calls-annotate.json'), JSON.stringify({ normalize, alphas, alphasKept, prune, pruneSet, pens, pings, strokes, pingSan, simplify }));
+// ---- round 4: text boxes on a shared screen, Keep by default, what the room keeps
+
+const textRaws: unknown[] = [
+  null, 5, 'x', {}, [],
+  { id: 't', color: '#22c55e', x: 1.4, y: -0.2, text: '你好\r\nworld 😀', size: 0.5, done: true },
+  { id: 't', color: 'red', x: 0, y: 0, text: 'a' },
+  { id: '', color: '#22c55e', x: 0, y: 0, text: 'a' },
+  { id: 'x'.repeat(64), color: '#22c55e', x: 0, y: 0, text: 'a' },
+  { id: 'x'.repeat(65), color: '#22c55e', x: 0, y: 0, text: 'a' },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: '字'.repeat(300) },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: '😀'.repeat(250) },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a'.repeat(199) + '😀😀' },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'line1\rline2\r\n\nline3\n\r' },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: '' },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 5 },
+  { id: 't', color: '#22c55e', x: 0, y: 0 },
+  { id: 't', color: '#22c55e', y: 0, text: 'a' },
+  { id: 't', color: '#22c55e', x: null, y: true, text: 'a' },
+  { id: 't', color: '#22c55e', x: '0.25', y: ' 0.75 ', text: 'a' },
+  { id: 't', color: '#22c55e', x: 'abc', y: 0, text: 'a' },
+  { id: 't', color: '#22c55e', x: 0.123456, y: 0.987654, text: 'a', size: 0.01 },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', size: 0.12 },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', size: 0.0099 },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', size: 0.1201 },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', size: 0.045678 },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', size: '0.05' },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', size: null },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', done: 'true' },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', done: 1 },
+  { id: 't', color: '#22c55e', x: 0, y: 0, text: 'a', done: false },
+];
+for (let i = 0; i < 150; i++) {
+  textRaws.push({
+    id: pick(['t', 'b1', '', 'id-' + i]),
+    color: pick(['#f43f5e', '#FACC15', '#fff', 'blue', '#38bdf8']),
+    x: pick([r(), r() * 3 - 1, 0, 1, '0.5']),
+    y: pick([r(), -0.5, 0.5]),
+    text: pick(['你好', 'hello\r\nworld', '这个字读什么？', '', '🙂'.repeat(Math.floor(r() * 220)), '中'.repeat(Math.floor(r() * 260))]),
+    size: pick([ANNOT_TEXT_SIZE, r() * 0.15, undefined, 0]),
+    done: pick([true, false, undefined]),
+  });
+}
+const texts = textRaws.map((raw) => ({ raw, result: sanitizeAnnotText(raw) }));
+
+const moves: unknown[] = [];
+for (let i = 0; i < 200; i++) {
+  const t = { x: pick([0, 0.5, 0.9, 0.98, 1, r()]), y: pick([0, 0.1, 0.97, r()]) };
+  const dx = pick([0, 0.1, -0.2, 0.5, -1, r() - 0.5, (r() - 0.5) * 3]);
+  const dy = pick([0, 0.1, -0.2, -0.5, 2, r() - 0.5]);
+  moves.push({ t, dx, dy, result: moveAnnotText(t, dx, dy) });
+}
+
+const persistOf = [
+  { stored: 'absent', result: annotPersistOf(undefined) },
+  { stored: null, result: annotPersistOf(null) },
+  { stored: true, result: annotPersistOf(true) },
+  { stored: false, result: annotPersistOf(false) },
+];
+const textAlphas = [null, 0, 1000].flatMap((doneAt) => [0, 3999, 4600, 5201, 10000].flatMap((now) => [false, true].map((persist) => ({ doneAt, now, persist, alpha: textAlpha(doneAt, now, persist) }))));
+
+// A random run of keep / drop operations through the room's kept lists (bounded).
+const keptOps: unknown[] = [];
+let kept: KeptAnnotations = emptyKept();
+const keptAfter: unknown[] = [];
+for (let i = 0; i < 900; i++) {
+  const roll = r();
+  const from = pick(['c1', 'c2']);
+  const name = from === 'c1' ? '王老师' : 'Jerome';
+  if (roll < 0.6) {
+    const stroke: AnnotStroke = { id: 's' + Math.floor(r() * 380), color: pick(['#f43f5e', '#38bdf8']), width: 0.006, points: [[Math.round(r() * 1e4) / 1e4, 0.5]], done: r() < 0.85 };
+    keptOps.push({ op: 'stroke', from, name, stroke });
+    kept = keepStroke(kept, from, name, stroke);
+  } else if (roll < 0.93) {
+    const text: AnnotText = { id: 't' + Math.floor(r() * 140), color: '#f43f5e', x: Math.round(r() * 1e4) / 1e4, y: 0.25, text: pick(['你好', 'a', '这个字']), size: ANNOT_TEXT_SIZE, done: r() < 0.7 };
+    keptOps.push({ op: 'text', from, name, text });
+    kept = keepText(kept, from, name, text);
+  } else {
+    const id = 't' + Math.floor(r() * 140);
+    keptOps.push({ op: 'drop', id });
+    kept = dropText(kept, id);
+  }
+  keptAfter.push([kept.strokes.length, kept.texts.length]);
+}
+const constants = { ANNOT_TEXT_SIZE, MAX_ANNOT_TEXT_CHARS, MAX_KEPT_STROKES, MAX_KEPT_TEXTS, DEFAULT_ANNOT_PERSIST };
+
+writeFileSync(join(OUT, 'calls-annotate.json'), JSON.stringify({
+  normalize, alphas, alphasKept, prune, pruneSet, pens, pings, strokes, pingSan, simplify,
+  texts, moves, persistOf, textAlphas, keptOps, keptAfter, kept, constants,
+}));

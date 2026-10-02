@@ -14,6 +14,17 @@ import {
   defaultAnnotColor,
   SHARER_ANNOT_COLOR,
   VIEWER_ANNOT_COLOR,
+  sanitizeAnnotText,
+  ANNOT_TEXT_SIZE,
+  MAX_ANNOT_TEXT_CHARS,
+  moveAnnotText,
+  annotPersistOf,
+  textAlpha,
+  emptyKept,
+  keepStroke,
+  keepText,
+  dropText,
+  MAX_KEPT_STROKES,
 } from './annotate';
 
 const screen = { width: 1920, height: 1080 };
@@ -100,5 +111,42 @@ describe('kept drawings and pen colours', () => {
     expect(defaultAnnotColor(true)).toBe(SHARER_ANNOT_COLOR);
     expect(defaultAnnotColor(false)).toBe(VIEWER_ANNOT_COLOR);
     expect(SHARER_ANNOT_COLOR).not.toBe(VIEWER_ANNOT_COLOR);
+  });
+});
+
+describe('round 4: text on a shared screen, kept by default', () => {
+  it('validates text boxes: position on the picture, colour, size, ≤ 200 characters, any script', () => {
+    expect(sanitizeAnnotText({ id: 't', color: '#22c55e', x: 1.4, y: -0.2, text: '你好\r\nworld 😀', size: 0.5, done: true })).toEqual({
+      id: 't', color: '#22c55e', x: 1, y: 0, text: '你好\nworld 😀', size: ANNOT_TEXT_SIZE, done: true,
+    });
+    expect(sanitizeAnnotText({ id: 't', color: 'red', x: 0, y: 0, text: 'a' })).toBeNull();
+    expect(sanitizeAnnotText({ id: '', color: '#22c55e', x: 0, y: 0, text: 'a' })).toBeNull();
+    expect(Array.from(sanitizeAnnotText({ id: 't', color: '#22c55e', x: 0, y: 0, text: '字'.repeat(300) })!.text)).toHaveLength(MAX_ANNOT_TEXT_CHARS);
+  });
+
+  it('moving keeps the box on the picture', () => {
+    expect(moveAnnotText({ x: 0.5, y: 0.5 }, 0.1, -0.2)).toEqual({ x: 0.6, y: 0.3 });
+    expect(moveAnnotText({ x: 0.9, y: 0.1 }, 0.5, -0.5)).toEqual({ x: 0.98, y: 0 });
+  });
+
+  it('Keep is the default for a room that never said; an explicit choice wins', () => {
+    expect(annotPersistOf(undefined)).toBe(true);
+    expect(annotPersistOf(null)).toBe(true);
+    expect(annotPersistOf(false)).toBe(false);
+    expect(textAlpha(0, 10_000, true)).toBe(1);
+    expect(textAlpha(0, 10_000, false)).toBe(0);
+  });
+
+  it('the room keeps finished strokes and the latest of each text, bounded', () => {
+    let k = emptyKept();
+    k = keepStroke(k, 'c1', 'A', { id: 's', color: '#f43f5e', width: 0.006, points: [[0, 0]], done: false });
+    expect(k.strokes).toHaveLength(0);
+    for (let i = 0; i < MAX_KEPT_STROKES + 5; i++) k = keepStroke(k, 'c1', 'A', { id: `s${i}`, color: '#f43f5e', width: 0.006, points: [[0, 0]], done: true });
+    expect(k.strokes).toHaveLength(MAX_KEPT_STROKES);
+    expect(k.strokes[0].key).toBe('c1:s5');
+    const t = { id: 't', color: '#f43f5e', x: 0, y: 0, text: 'a', size: ANNOT_TEXT_SIZE, done: true };
+    k = keepText(keepText(k, 'c1', 'A', t), 'c2', 'B', { ...t, text: 'b' });
+    expect(k.texts).toEqual([{ from: 'c2', name: 'B', text: { ...t, text: 'b' } }]);
+    expect(dropText(k, 't').texts).toEqual([]);
   });
 });

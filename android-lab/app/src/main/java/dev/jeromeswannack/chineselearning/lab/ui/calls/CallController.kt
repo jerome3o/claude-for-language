@@ -109,26 +109,39 @@ data class BoardNotice(val id: Long, val text: String)
 
 /**
  * Drawings on a shared screen (shared/calls/annotate.ts, web AnnotationStore): mine ("me") and theirs,
- * fading after the pen lifts — or kept while [persist] ("Keep", `annot_mode`, one setting for both people).
+ * strokes and (round 4) text boxes — kept until Clear while [persist] ("Keep", `annot_mode`, one setting
+ * for both people; ON by default since round 4), else fading after the pen lifts / the text is finished.
  */
 data class Annotations(
     val strokes: Map<String, dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke> = emptyMap(),
+    /** Text boxes by id (anyone may move / edit / delete any of them). */
+    val texts: Map<String, dev.jeromeswannack.chineselearning.lab.core.calls.ShownText> = emptyMap(),
     val pings: List<dev.jeromeswannack.chineselearning.lab.core.calls.AnnotPing> = emptyList(),
     /** When the other person last drew or pinged, and their name ("… is drawing on your screen"). */
     val lastRemoteAt: Long = 0,
     val lastRemoteName: String = "",
-    /** Keep finished strokes instead of fading them (shared by both people). */
-    val persist: Boolean = false,
+    /** Keep finished strokes and texts instead of fading them (shared by both people; on by default). */
+    val persist: Boolean = dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.DEFAULT_ANNOT_PERSIST,
 ) {
     /**
      * Port of AnnotationStore.setPersist: keep / fade. Switching back to fading starts every finished
-     * stroke's fade at [now].
+     * stroke's and text's fade at [now].
      */
     fun withPersist(persist: Boolean, now: Long): Annotations {
         if (persist == this.persist) return this
         return copy(
             persist = persist,
             strokes = if (persist) strokes else strokes.mapValues { (_, s) -> if (s.doneAt != null) s.copy(doneAt = now) else s },
+            texts = if (persist) texts else texts.mapValues { (_, t) -> if (t.doneAt != null) t.copy(doneAt = now) else t },
+        )
+    }
+
+    /** Port of AnnotationStore.loadKept: what the room kept (a rejoin), drawn at once, as finished. */
+    fun withKept(k: dev.jeromeswannack.chineselearning.lab.core.calls.KeptAnnotations?, now: Long): Annotations {
+        if (k == null) return this
+        return copy(
+            strokes = strokes + k.strokes.associate { "${it.from}:${it.stroke.id}" to dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke(it.stroke, it.from, now) },
+            texts = texts + k.texts.associate { it.text.id to dev.jeromeswannack.chineselearning.lab.core.calls.ShownText(it.text, it.from, now) },
         )
     }
 }
@@ -718,7 +731,7 @@ class CallController(
             is ServerMessage.Welcome -> {
                 val rejoin = selfId != null
                 selfId = msg.clientId
-                _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap(), annotations = it.annotations.withPersist(msg.annotPersist, now())) }
+                _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap(), annotations = it.annotations.withPersist(msg.annotPersist, now()).withKept(msg.annots, now())) }
                 // Board pages: a first join shows the opening page; a rejoin goes back to mine (its text comes as a page_doc).
                 val step = BoardPages.welcome(_state.value.pages, msg.pages, msg.page, msg.pageViews, rejoin, msg.peers.firstOrNull()?.clientId)
                 if (step.loadWelcomeText) text().load(msg.text, msg.textCursors, msg.page, resendOthers = true)
@@ -774,7 +787,9 @@ class CallController(
             // The room refuses a page action (the last page, too many pages): say why.
             is ServerMessage.Error -> if (now() - pageActionAt < PAGE_ERROR_WINDOW_MS) notice(msg.message)
             is ServerMessage.Annot -> upsertAnnot(msg.stroke, msg.from, msg.name)
-            is ServerMessage.AnnotClear -> _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
+            is ServerMessage.AnnotClear -> _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList())) }
+            is ServerMessage.AnnotTextMsg -> upsertText(msg.text, msg.from, msg.name)
+            is ServerMessage.AnnotTextDelete -> _state.update { it.copy(annotations = it.annotations.copy(texts = it.annotations.texts - msg.id)) }
             is ServerMessage.AnnotPingMsg -> addPing(msg.from, msg.x, msg.y, msg.name)
             is ServerMessage.AnnotMode -> _state.update { it.copy(annotations = it.annotations.withPersist(msg.persist, now())) }
             is ServerMessage.PeerState -> _state.update { s -> if (remoteId == msg.clientId && s.remote != null) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
@@ -951,8 +966,37 @@ class CallController(
         room?.send(CallProtocol.annotPing(x, y))
     }
 
+    /** Port of AnnotationStore.upsertText: a finished text keeps the moment it was first finished. */
+    private fun upsertText(text: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText, from: String, name: String? = null) {
+        val now = this.now()
+        _state.update { s ->
+            val a = s.annotations
+            val prev = a.texts[text.id]
+            // What has faded away goes (web prune), never the one being written.
+            val live = a.texts.filter { (k, t) -> k == text.id || dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.textAlpha(t.doneAt, now, a.persist) > 0 }
+            val shown = dev.jeromeswannack.chineselearning.lab.core.calls.ShownText(text, from, if (text.done) prev?.doneAt ?: now else null)
+            s.copy(annotations = a.copy(
+                texts = live + (text.id to shown),
+                lastRemoteAt = if (from != "me") now else a.lastRemoteAt,
+                lastRemoteName = if (from != "me" && name != null) name else a.lastRemoteName,
+            ))
+        }
+    }
+
+    /** A text box on the shared screen: placed, typed into, moved (round 4, web sendAnnotText). */
+    fun sendAnnotText(text: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText) {
+        upsertText(text, "me")
+        room?.send(CallProtocol.annotText(text))
+    }
+
+    /** ✕ on a selected text, or a text left empty: gone for both people. */
+    fun deleteAnnotText(id: String) {
+        _state.update { it.copy(annotations = it.annotations.copy(texts = it.annotations.texts - id)) }
+        room?.send(CallProtocol.annotTextDelete(id))
+    }
+
     fun clearAnnotations() {
-        _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), pings = emptyList())) }
+        _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList())) }
         room?.send(CallProtocol.annotClear())
     }
 

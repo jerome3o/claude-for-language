@@ -948,3 +948,38 @@
 .call-move-menu button { min-height: 40px; padding: 0 0.6rem; border: 0; border-radius: 8px; background: transparent; color: #fff; text-align: left; font-size: 0.9rem; cursor: pointer; }
 .call-move-menu button:hover, .call-move-menu button:focus-visible { background: #1f2937; }
 .call-tile-chrome .call-move-wrap { position: relative; pointer-events: auto; }
+
+/* Round 4 — typing on a shared screen. */
+.annot-toolset { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: rgba(17, 24, 39, 0.8); }
+.annot-tool { min-height: 32px; padding: 0 0.7rem; border: 0; border-radius: 999px; background: transparent; color: #e5e7eb; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+.annot-tool.on { background: #fff; color: #111827; }
+.annot-text-editor {
+  position: absolute;
+  z-index: 6;
+  min-width: 120px;
+  margin: 0;
+  padding: 2px 4px;
+  border: 2px dashed currentColor;
+  border-radius: 6px;
+  background: rgba(17, 24, 39, 0.55);
+  font-family: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+  font-weight: 600;
+  line-height: 1.25;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+  field-sizing: content;
+}
+.annot-text-delete {
+  position: absolute;
+  z-index: 6;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+}

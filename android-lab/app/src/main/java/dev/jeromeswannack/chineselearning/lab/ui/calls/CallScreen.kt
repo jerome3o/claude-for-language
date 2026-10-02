@@ -172,6 +172,9 @@ data class CallActions(
     val onAnnotate: (dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke) -> Unit = {},
     val onPing: (Double, Double) -> Unit = { _, _ -> },
     val onClearAnnotations: () -> Unit = {},
+    /** Round 4: a text box on the shared screen placed / typed into / moved, and deleted (both people see it). */
+    val onAnnotText: (dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText) -> Unit = {},
+    val onAnnotTextDelete: (String) -> Unit = {},
     /** "Keep" on the drawing tools: drawings stay until cleared, for both people (`annot_mode`). */
     val onAnnotationsKept: (Boolean) -> Unit = {},
     /** Show / hide the drawings over other apps while sharing (asks for the permission first). */
@@ -182,6 +185,9 @@ data class CallActions(
     val onTick: () -> Unit = {},
     val onSnap: () -> Unit = {},
 )
+
+/** Screenshots: where the shared-screen drawing tools start (round 4). */
+data class AnnotUiSeed(val tool: AnnotTool = AnnotTool.PEN, val editor: AnnotTextEditor? = null, val selected: String? = null)
 
 private val Dark = Color(0xFF111418)
 private val DarkCard = Color(0xFF1E232A)
@@ -205,6 +211,8 @@ fun CallScreen(
     initialEndConfirm: Boolean = false,
     /** Screenshots: the long-press "board beside the screen" menu already open for this tile. */
     initialSplitMenu: CallLayout.TileId? = null,
+    /** Screenshots: the drawing tool, a text field open on the shared screen, a text selected (round 4). */
+    initialAnnot: AnnotUiSeed = AnnotUiSeed(),
 ) {
     when {
         info.loading -> Center { Text("Loading the call…", color = OnDark) }
@@ -216,7 +224,7 @@ fun CallScreen(
         s.phase == CallPhase.LEFT -> Left(s, info, actions)
         s.phase == CallPhase.ENDED || s.phase == CallPhase.ERROR -> Ended(s, actions)
         s.phase == CallPhase.PREJOIN || s.phase == CallPhase.JOINING -> PreJoin(s, info, actions, video)
-        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu)
+        else -> Live(s, info, actions, video, nowMs, initialPanel, layout, initialAnnotating, initialEndConfirm, initialSplitMenu, initialAnnot)
     }
 }
 
@@ -456,7 +464,7 @@ fun layoutForPanel(panel: CallPanel, wide: Boolean): CallLayout.Layout {
 }
 
 @Composable
-private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null) {
+private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video: VideoSlot, nowMs: () -> Long, initialPanel: CallPanel, holder: CallLayoutHolder?, initialAnnotating: Boolean = false, initialEndConfirm: Boolean = false, initialSplitMenu: CallLayout.TileId? = null, initialAnnot: AnnotUiSeed = AnnotUiSeed()) {
     var seenChat by rememberSaveable { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
     var layoutSheet by remember { mutableStateOf(false) }
@@ -481,6 +489,8 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
     var annotating by rememberSaveable(initialAnnotating) { mutableStateOf(initialAnnotating) }
     // null = my role's default pen (blue while I share, red on their screen) until I pick one.
     var annotColor by rememberSaveable { mutableStateOf<String?>(null) }
+    // Round 4: ✏️ Pen or T Text on the shared screen.
+    var annotTool by rememberSaveable { mutableStateOf(initialAnnot.tool) }
     val remoteSharing = rs?.screen == true
     val sharing = remoteSharing || s.sharingScreen
     val pen = annotPen(annotColor, s)
@@ -558,13 +568,16 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     else s.screenVideo?.let { mine -> FittedVideo(mine, false, screen = true, overlay = false, slot = video, modifier = Modifier.fillMaxSize(), onFrameSize = { f -> myScreenFrame = f }) }
                     AnnotationCanvas(
                         s.annotations, if (remoteSharing) remoteScreenFrame else myScreenFrame, Modifier.fillMaxSize(), interactive = annotating, color = pen,
-                        onStroke = actions.onAnnotate, onPing = actions.onPing, nowMs = nowMs,
+                        onStroke = actions.onAnnotate, onPing = actions.onPing,
+                        tool = annotTool, onText = actions.onAnnotText, onTextDelete = actions.onAnnotTextDelete, onTick = actions.onTick,
+                        nowMs = nowMs, initialEditor = initialAnnot.editor, initialSelected = initialAnnot.selected,
                     )
                     AnnotateTools(
                         Modifier.align(Alignment.BottomStart).padding(10.dp),
-                        if (remoteSharing) "✏️ Draw on $first’s screen" else "✏️ Draw on your screen",
-                        annotating, pen, s.annotations.persist,
+                        if (remoteSharing) "✏️ Draw or type on $first’s screen" else "✏️ Draw or type on your screen",
+                        annotating, pen, s.annotations.persist, annotTool,
                         onToggle = { annotating = !annotating; actions.onTick() }, onColor = { annotColor = it; actions.onTick() },
+                        onTool = { annotTool = it; actions.onTick() },
                         onClear = actions.onClearAnnotations, onKeep = actions.onAnnotationsKept,
                     )
                     // Round 4: the board is open → one tap puts it beside / below the screen (and back).
@@ -916,8 +929,8 @@ private fun TileBadge(text: String, modifier: Modifier, compact: Boolean = false
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun AnnotateTools(
-    modifier: Modifier, label: String, on: Boolean, color: String, keep: Boolean,
-    onToggle: () -> Unit, onColor: (String) -> Unit, onClear: () -> Unit, onKeep: (Boolean) -> Unit,
+    modifier: Modifier, label: String, on: Boolean, color: String, keep: Boolean, tool: AnnotTool,
+    onToggle: () -> Unit, onColor: (String) -> Unit, onTool: (AnnotTool) -> Unit, onClear: () -> Unit, onKeep: (Boolean) -> Unit,
 ) {
     androidx.compose.foundation.layout.FlowRow(
         modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -927,6 +940,22 @@ private fun AnnotateTools(
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (on) Color(0xFFF43F5E) else Color(0xD9111827)).bouncyClickable(onClick = onToggle).heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 10.dp),
         )
         if (on) {
+            // Round 4: ✏️ Pen / T Text — one pill, the chosen one white (web .annot-toolset).
+            Row(
+                Modifier.align(Alignment.CenterVertically).clip(RoundedCornerShape(999.dp)).background(Color(0xCC111827)).padding(2.dp)
+                    .semantics { contentDescription = "Tool" },
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                listOf(AnnotTool.PEN to "✏️ Pen", AnnotTool.TEXT to "T Text").forEach { (t, label) ->
+                    val chosen = tool == t
+                    Text(
+                        label, color = if (chosen) Color(0xFF111827) else Color(0xFFE5E7EB), fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (chosen) Color.White else Color.Transparent)
+                            .bouncyClickable(role = androidx.compose.ui.semantics.Role.RadioButton) { onTool(t) }
+                            .heightIn(min = 36.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
             dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.ANNOT_COLORS.forEach { c ->
                 Box(
                     Modifier.align(Alignment.CenterVertically).size(32.dp).clip(CircleShape).background(Color(0xFF000000 or c.removePrefix("#").toLong(16)))
@@ -934,7 +963,7 @@ private fun AnnotateTools(
                 )
             }
             Text("Clear", color = Color.White, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xD9111827)).bouncyClickable(onClick = onClear).heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 10.dp))
-            // Keep drawings until cleared (for both of you).
+            // Keep drawings and text until cleared (for both of you) — on by default; off: they fade after a few seconds.
             Row(
                 Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xD9111827)).bouncyClickable { onKeep(!keep) }.heightIn(min = 40.dp).padding(start = 4.dp, end = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -945,7 +974,7 @@ private fun AnnotateTools(
                 )
                 Text("Keep", color = Color.White, fontSize = 14.sp)
             }
-            Text("Drag to circle · tap to point", color = Color(0xFFE5E7EB), fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterVertically).clip(RoundedCornerShape(999.dp)).background(Color(0xB3111827)).padding(horizontal = 8.dp, vertical = 3.dp))
+            Text(if (tool == AnnotTool.TEXT) "Tap to type · drag a text to move · tap it again to edit" else "Drag to circle · tap to point", color = Color(0xFFE5E7EB), fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterVertically).clip(RoundedCornerShape(999.dp)).background(Color(0xB3111827)).padding(horizontal = 8.dp, vertical = 3.dp))
         }
     }
 }

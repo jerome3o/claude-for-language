@@ -84,10 +84,22 @@ Minghui's sentences off), and the touch chip wraps to up to four lines instead o
   same way the viewer does on theirs. Strokes go both ways over the same `annot` messages and show
   on both views; each person's pen starts in their own colour (sharer blue `#38bdf8`, viewer red
   `#f43f5e`; `defaultAnnotColor`), any swatch can be picked. **Keep** (`annot_mode`, one setting for
-  both, remembered by the room and sent in `welcome.annot_persist`) stops strokes fading until
-  **Clear**; turning it off starts every stroke's fade. Strokes themselves are never stored, so
-  someone who (re)joins sees only new ones. The Document PiP mini window (below) shows both people's
+  both, remembered by the room and sent in `welcome.annot_persist`; on by default since round 4) stops
+  strokes fading until **Clear**; turning it off starts every stroke's fade. While kept the room
+  remembers them for a rejoin (see "Typing on a shared screen"). The Document PiP mini window (below) shows both people's
   strokes; the Lab app's overlay too.
+- **Typing on a shared screen (round 4)** — next to ✏️ Pen, a **T Text** tool: tap the picture to
+  place a text box and type (a real `<textarea>` there, so every IME works; Lab: a TextField over the
+  picture); Enter or tapping away finishes it, Esc cancels; tap a text to select it (✕ deletes it for
+  both), drag it to move it, tap it again to edit. Texts are anchored to the shared picture (0–1) and
+  sized by its shorter side (`AnnotText`, `sanitizeAnnotText`, `moveAnnotText` in
+  `shared/calls/annotate.ts`; Lab `CallAnnotate.kt`, parity-tested), in the writer's colour, and reach
+  the other person as they are typed (outside a composition, ≤ ~7/s) through `annot_text` /
+  `annot_text_delete` room messages; the mini window and the Lab overlay draw them too. **Keep is now ON
+  by default** (`DEFAULT_ANNOT_PERSIST`; a room that never set it keeps), so drawings and texts don't
+  fade unexpectedly — turning Keep off makes them fade as before. While kept, the room remembers
+  finished strokes (≤ 300) and texts (≤ 100) in its storage and sends them in `welcome.annots`, so a
+  reconnect or a rejoin shows them again; Clear or switching to fading forgets them.
 - **Drawing on a shared screen** — when one person shares their screen, the other taps
   **✏️ Draw on …'s screen** over it: a drag is a stroke (circle a character), a quick tap a "look
   here" ping; strokes fade ~3 s after the pen lifts, **Clear** clears. Points are normalised to the

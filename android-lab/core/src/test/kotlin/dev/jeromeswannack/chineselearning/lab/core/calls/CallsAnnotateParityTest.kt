@@ -100,4 +100,65 @@ class CallsAnnotateParityTest {
             assertEquals(o["result"]!!.jsonArray.map { pair(it)!! }, CallAnnotate.simplifyPoints(pts), "simplify $i")
         }
     }
+    // ------------------------------------------------------------ round 4: text, Keep by default, the room's kept lists
+
+    @Test
+    fun textBoxes() {
+        val c = root["constants"]!!.jsonObject
+        assertEquals(c["ANNOT_TEXT_SIZE"]!!.jsonPrimitive.double, CallAnnotate.ANNOT_TEXT_SIZE)
+        assertEquals(c["MAX_ANNOT_TEXT_CHARS"]!!.jsonPrimitive.content.toInt(), CallAnnotate.MAX_ANNOT_TEXT_CHARS)
+        assertEquals(c["MAX_KEPT_STROKES"]!!.jsonPrimitive.content.toInt(), CallAnnotate.MAX_KEPT_STROKES)
+        assertEquals(c["MAX_KEPT_TEXTS"]!!.jsonPrimitive.content.toInt(), CallAnnotate.MAX_KEPT_TEXTS)
+        assertEquals(c["DEFAULT_ANNOT_PERSIST"]!!.jsonPrimitive.content == "true", CallAnnotate.DEFAULT_ANNOT_PERSIST)
+        val cases = root["texts"]!!.jsonArray
+        assertTrue(cases.size > 150)
+        var clean = 0
+        for ((i, t) in cases.withIndex()) {
+            val o = t.jsonObject
+            val got = CallAnnotate.sanitizeText(o["raw"])
+            if (got != null) clean++
+            assertEquals(canon(o["result"]), canon(got?.toJson()), "text $i ${o["raw"].toString().take(120)}")
+        }
+        assertTrue(clean > 20, "enough clean texts to mean something ($clean)")
+        for ((i, m) in root["moves"]!!.jsonArray.withIndex()) {
+            val o = m.jsonObject
+            val t = o["t"]!!.jsonObject
+            val want = o["result"]!!.jsonObject
+            val got = CallAnnotate.moveAnnotText(t["x"]!!.jsonPrimitive.double, t["y"]!!.jsonPrimitive.double, o["dx"]!!.jsonPrimitive.double, o["dy"]!!.jsonPrimitive.double)
+            assertEquals(want["x"]!!.jsonPrimitive.double to want["y"]!!.jsonPrimitive.double, got, "move $i $o")
+        }
+        for (p in root["persistOf"]!!.jsonArray) {
+            val o = p.jsonObject
+            val stored = o["stored"]!!.let { if (it is JsonNull || it.jsonPrimitive.content == "absent") null else it.jsonPrimitive.content == "true" }
+            assertEquals(o["result"]!!.jsonPrimitive.content == "true", CallAnnotate.annotPersistOf(stored), "persistOf $o")
+        }
+        for (a in root["textAlphas"]!!.jsonArray) {
+            val o = a.jsonObject
+            val doneAt = o["doneAt"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.long }
+            assertEquals(o["alpha"]!!.jsonPrimitive.double, CallAnnotate.textAlpha(doneAt, o["now"]!!.jsonPrimitive.long, o["persist"]!!.jsonPrimitive.content == "true"), "text alpha $o")
+        }
+    }
+
+    @Test
+    fun keptByTheRoom() {
+        val ops = root["keptOps"]!!.jsonArray
+        val after = root["keptAfter"]!!.jsonArray
+        var k = KeptAnnotations()
+        var sawFull = false
+        for ((i, op) in ops.withIndex()) {
+            val o = op.jsonObject
+            k = when (o["op"]!!.jsonPrimitive.content) {
+                "stroke" -> CallAnnotate.keepStroke(k, o["from"]!!.jsonPrimitive.content, o["name"]!!.jsonPrimitive.content, CallAnnotate.sanitizeStroke(o["stroke"])!!)
+                "text" -> CallAnnotate.keepText(k, o["from"]!!.jsonPrimitive.content, o["name"]!!.jsonPrimitive.content, CallAnnotate.sanitizeText(o["text"])!!)
+                else -> CallAnnotate.dropText(k, o["id"]!!.jsonPrimitive.content)
+            }
+            val want = after[i].jsonArray
+            assertEquals(want[0].jsonPrimitive.content.toInt() to want[1].jsonPrimitive.content.toInt(), k.strokes.size to k.texts.size, "kept sizes after op $i")
+            if (k.strokes.size == CallAnnotate.MAX_KEPT_STROKES) sawFull = true
+        }
+        assertTrue(sawFull, "the run reaches the stroke bound")
+        assertEquals(canon(root["kept"]), canon(k.toJson()), "kept lists")
+        // …and the room's lists survive the wire (welcome.annots).
+        assertEquals(canon(root["kept"]), canon(CallAnnotate.parseKept(root["kept"])!!.toJson()))
+    }
 }

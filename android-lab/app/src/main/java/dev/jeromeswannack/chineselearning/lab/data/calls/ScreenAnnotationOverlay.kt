@@ -15,6 +15,8 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate
 import dev.jeromeswannack.chineselearning.lab.core.calls.VideoFit
 import dev.jeromeswannack.chineselearning.lab.ui.calls.Annotations
 import dev.jeromeswannack.chineselearning.lab.ui.calls.annotationsActive
+import dev.jeromeswannack.chineselearning.lab.ui.calls.drawAnnotTexts
+import dev.jeromeswannack.chineselearning.lab.ui.calls.layoutAnnotTexts
 import kotlin.math.max
 import kotlin.math.min
 
@@ -22,7 +24,8 @@ import kotlin.math.min
  * The drawings on my shared screen — theirs and my own — on top of MY real screen while I share it
  * (Android can do what a browser can't): a see-through, untouchable window over every app ("Display
  * over other apps" permission). Screen sharing captures the whole display, so the shared picture's
- * 0..1 points map straight onto this full-screen window. Kept drawings ("Keep") stay; others fade.
+ * 0..1 points map straight onto this full-screen window. Kept drawings ("Keep", on by default) stay;
+ * others fade. Texts typed on the shared screen (round 4) are drawn here too.
  * Shown only while the call screen is in the background: in the call the screen tile shows them.
  */
 class ScreenAnnotationOverlay(private val context: Context) {
@@ -90,6 +93,10 @@ class ScreenAnnotationOverlay(private val context: Context) {
                 canvas.drawPath(path, paint)
                 paint.color = color(s.stroke.color); paint.alpha = (255 * alpha).toInt(); paint.strokeWidth = w
                 canvas.drawPath(path, paint)
+            }
+            // Round 4: the texts typed on my screen, as the call screen draws them.
+            if (annotations.texts.isNotEmpty()) {
+                drawAnnotTexts(canvas, layoutAnnotTexts(annotations.texts.values, width.toFloat(), height.toFloat(), box, density), now, annotations.persist, density)
             }
             for (p in annotations.pings) {
                 val t = CallAnnotate.pingProgress(p.at, now) ?: continue
