@@ -66,6 +66,13 @@ data class IncomingChat(
 sealed interface PushEvent {
     data class Message(val chat: IncomingChat) : PushEvent
     data class Read(val conversationId: String, val lastReadAt: String?) : PushEvent
+
+    /**
+     * `chat_correction` (docs/CHAT.md PR 3): the tutor corrected my message — a line
+     * "✏️ Minghui corrected your message" in that conversation's notification. [chat]'s
+     * messageId is [correctionKey] (so it never clashes with the message's own line).
+     */
+    data class Correction(val chat: IncomingChat, val messageId: String) : PushEvent
 }
 
 object ChatPushData {
@@ -91,8 +98,30 @@ object ChatPushData {
             )
         }
         "chat_read" -> data["conversation_id"]?.takeIf { it.isNotEmpty() }?.let { PushEvent.Read(it, data["last_read_at"]) }
+        "chat_correction" -> {
+            val conv = data["conversation_id"].orEmpty()
+            val id = data["message_id"].orEmpty()
+            val rel = data["relationship_id"].orEmpty().ifEmpty { relFromUrl(data["url"]).orEmpty() }
+            val name = data["sender_name"]?.takeIf { it.isNotBlank() } ?: "Your tutor"
+            if (conv.isEmpty() || id.isEmpty() || rel.isEmpty()) null
+            else PushEvent.Correction(
+                IncomingChat(
+                    messageId = correctionKey(id),
+                    conversationId = conv,
+                    relationshipId = rel,
+                    senderId = "",
+                    senderName = name,
+                    content = data["content"]?.takeIf { it.isNotBlank() } ?: "✏️ $name corrected your message",
+                    createdAt = "",
+                ),
+                id,
+            )
+        }
         else -> null
     }
+
+    /** The notification line's dedupe key for a correction of message [messageId] (one line per message). */
+    fun correctionKey(messageId: String) = "correction:$messageId"
 
     private fun relFromUrl(url: String?): String? =
         url?.let { Regex("^/connections/([^/]+)/chat/").find(it)?.groupValues?.get(1) }

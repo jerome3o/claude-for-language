@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toolsForMessage, looksLikeChinese } from './messageTools';
+import { toolsForMessage, looksLikeChinese, learningToolsForMessage } from './messageTools';
 
 const ME = 'user-me';
 const OTHER = 'user-other';
@@ -112,5 +112,38 @@ describe('manageToolsForMessage (PR 2)', () => {
     expect(manageToolsForMessage({ sender_id: 'me', deleted_at: 'x' }, false, 'me')).toEqual([]);
     expect(manageToolsForMessage({ sender_id: 'me', pending: true }, false, 'me')).toEqual([]);
     expect(manageToolsForMessage({ sender_id: 'me' }, true, 'me')).toEqual([]);
+  });
+});
+
+describe('learningToolsForMessage (PR 3)', () => {
+  it('a tutor can correct the student\'s text message, and edit / remove a correction', () => {
+    expect(ids(learningToolsForMessage(zhOther, 'tutor', false, ME).menu)).toEqual(['make_cards', 'correct']);
+    const corrected = { ...zhOther, correction: { text: '这个句子很地道！' } };
+    const t = learningToolsForMessage(corrected, 'tutor', false, ME).menu;
+    expect(ids(t)).toEqual(['make_cards', 'correct', 'remove_correction']);
+    expect(t[1].label).toBe('Edit correction');
+  });
+  it('never on my own message, a photo / voice message, or for a student', () => {
+    expect(ids(learningToolsForMessage(zhMine, 'tutor', false, ME).menu)).toEqual(['make_cards']);
+    expect(ids(learningToolsForMessage({ ...zhOther, attachment: { kind: 'image' } }, 'tutor', false, ME).menu)).toEqual(['make_cards']);
+    expect(ids(learningToolsForMessage(zhOther, 'student', false, ME).menu)).toEqual(['make_cards']);
+  });
+  it('the corrected person can make a card from the correction', () => {
+    const mine = { ...zhMine, correction: { text: '我把作业做完了！' } };
+    expect(ids(learningToolsForMessage(mine, 'student', false, ME).menu)).toEqual(['make_cards', 'correction_card']);
+  });
+  it('voice messages make cards from the transcript once there is one', () => {
+    const voice = { sender_id: OTHER, content: '', attachment: { kind: 'voice', transcript: null } };
+    expect(ids(learningToolsForMessage(voice, 'student', false, ME).menu)).toEqual([]);
+    const done = { ...voice, attachment: { kind: 'voice', transcript: '你好' } };
+    expect(ids(learningToolsForMessage(done, 'student', false, ME).menu)).toEqual(['make_cards']);
+  });
+  it('nothing on deleted or pending messages; the tutor chat replaces word-by-word and translate', () => {
+    expect(learningToolsForMessage({ ...zhOther, deleted_at: 'x' }, 'tutor', false, ME).menu).toEqual([]);
+    expect(learningToolsForMessage({ ...zhOther, pending: true }, 'tutor', false, ME).menu).toEqual([]);
+    expect(learningToolsForMessage(zhOther, 'student', false, ME).replaces).toEqual(['word_by_word', 'translate']);
+    const ai = learningToolsForMessage({ ...zhOther, sender_id: CLAUDE }, 'student', true, ME);
+    expect(ai.replaces).toEqual([]);
+    expect(ids(ai.menu)).toEqual(['make_cards']);
   });
 });

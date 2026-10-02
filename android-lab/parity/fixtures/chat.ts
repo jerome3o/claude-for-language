@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { toolsForMessage, looksLikeChinese, groupQuestionThreads, sqliteToIso } from '../../../shared/chats';
+import { toolsForMessage, learningToolsForMessage, looksLikeChinese, groupQuestionThreads, sqliteToIso } from '../../../shared/chats';
 
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
@@ -21,6 +21,24 @@ for (const content of texts)
             const msg = { sender_id: mine ? 'me' : 'other', content, check_status: check, has_discussion: disc };
             tools.push({ message: msg, role, ai, result: toolsForMessage(msg, role, ai, 'me') });
           }
+// PR 3: learningToolsForMessage over kinds × correction × deleted / pending × roles × AI.
+const learning: unknown[] = [];
+const attachments = [null, { kind: 'image' }, { kind: 'voice', transcript: '好可爱' }, { kind: 'voice', transcript: '  ' }, { kind: 'voice', transcript: null }];
+for (const content of ['我昨天去商店买东西了', '  ', '', 'See you!'])
+  for (const attachment of attachments)
+    for (const mine of [true, false])
+      for (const corrected of [false, true])
+        for (const state of ['live', 'deleted', 'pending'] as const)
+          for (const role of ['student', 'tutor'] as const)
+            for (const ai of [false, true]) {
+              const msg = {
+                sender_id: mine ? 'me' : 'other', content, attachment,
+                correction: corrected ? { text: '我昨天去商店买了东西' } : null,
+                deleted_at: state === 'deleted' ? '2026-10-02T10:00:00Z' : null,
+                pending: state === 'pending',
+              };
+              learning.push({ message: msg, role, ai, result: learningToolsForMessage(msg, role, ai, 'me') });
+            }
 const chinese = texts.map((t) => ({ text: t, chinese: looksLikeChinese(t) }));
 
 function rng(seed: number) {
@@ -43,4 +61,4 @@ const threads = Array.from({ length: 60 }, (_, c) => {
 });
 const sqlite = ['2026-09-25 10:01:02', '2026-09-25T10:01:02Z', '', '2026-09-25 10:01:02Z'].map((v) => ({ in: v, out: sqliteToIso(v) }));
 
-writeFileSync(join(OUT, 'chat.json'), JSON.stringify({ tools, chinese, threads, sqlite }));
+writeFileSync(join(OUT, 'chat.json'), JSON.stringify({ tools, learning, chinese, threads, sqlite }));

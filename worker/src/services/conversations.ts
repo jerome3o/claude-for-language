@@ -22,6 +22,7 @@ import { verifyRelationshipAccess, getOtherUserId, getMyRole } from './relations
 import { DEFAULT_MINIMAX_VOICE, DEFAULT_TTS_SPEED } from './audio';
 import { generateId } from './cards';
 import { chatMediaUrl, parseStoredAttachment, publicAttachment, type StoredAttachment } from './chat/media';
+import { parseCorrection, parseStoredWords } from './chat/words';
 
 type UserSummary = Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 
@@ -210,6 +211,8 @@ type MessageRow = {
   attachment: string | null;
   pinned_at: string | null;
   pinned_by: string | null;
+  words: string | null;
+  correction: string | null;
   u_id: string;
   u_name: string | null;
   u_picture: string | null;
@@ -234,6 +237,7 @@ async function queryMessages(
            m.check_status, m.check_feedback, m.recording_url, m.reply_to_message_id,
            m.translation, m.segmentation, m.client_id,
            m.updated_at, m.edited_at, m.deleted_at, m.attachment, m.pinned_at, m.pinned_by,
+           m.words, m.correction,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.deleted_at as reply_deleted_at, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -255,6 +259,9 @@ async function queryMessages(
   return result.results.map(row => {
     const deleted = !!row.deleted_at;
     const attachment = deleted ? null : publicAttachment(parseStoredAttachment(row.attachment));
+    const content = deleted ? '' : row.content;
+    // Word chips only while they still match the text (an edit makes them stale).
+    const words = deleted ? null : parseStoredWords(row.words, { content, attachment });
     return {
       id: row.id,
       conversation_id: row.conversation_id,
@@ -275,6 +282,9 @@ async function queryMessages(
       media_url: attachment ? chatMediaUrl(row.id) : null,
       pinned_at: row.pinned_at ?? null,
       pinned_by: row.pinned_by ?? null,
+      words: words?.words ?? null,
+      words_source: words?.source ?? null,
+      correction: deleted ? null : parseCorrection(row.correction),
       sender: {
         id: row.u_id,
         name: row.u_name,
@@ -455,6 +465,9 @@ export async function sendMessage(
     media_url: opts.attachment ? chatMediaUrl(id) : null,
     pinned_at: null,
     pinned_by: null,
+    words: null,
+    words_source: null,
+    correction: null,
     sender: { id: userId, name: null, picture_url: null },
     reply_to: null,
     reactions: [],

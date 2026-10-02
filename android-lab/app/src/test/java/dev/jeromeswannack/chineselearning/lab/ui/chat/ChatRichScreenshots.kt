@@ -69,7 +69,7 @@ class ChatRichScreenshots : LabScreenshotTest() {
     }
 
     @Test fun photoAndVoice() = shoot("chat-live-01-photo-voice") {
-        ChatScreen(base.copy(otherReadAt = at(34), translationsShown = setOf("v1"), voice = VoicePlayback("v1", 2_900, 7_400, playing = true), scrollTo = ScrollRequest("p1", 1, animate = false)), actions)
+        ChatScreen(base.copy(otherReadAt = at(34), aids = dev.jeromeswannack.chineselearning.lab.core.ChatLearning.Aids(translationFlipped = setOf("v1")), voice = VoicePlayback("v1", 2_900, 7_400, playing = true), scrollTo = ScrollRequest("p1", 1, animate = false)), actions)
     }
 
     @Test fun typingAndSeen() = shoot("chat-live-02-typing-seen") {
@@ -113,7 +113,7 @@ class ChatRichScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("chat-live-10-unfolded") {
-        ChatScreen(base.copy(otherReadAt = at(34), typing = true, translationsShown = setOf("v1"), scrollTo = ScrollRequest("p1", 1, animate = false)), actions)
+        ChatScreen(base.copy(otherReadAt = at(34), typing = true, aids = dev.jeromeswannack.chineselearning.lab.core.ChatLearning.Aids(translationFlipped = setOf("v1")), scrollTo = ScrollRequest("p1", 1, animate = false)), actions)
     }
 
     @Test fun conversationList() = shoot("chat-live-11-conversation-list") {

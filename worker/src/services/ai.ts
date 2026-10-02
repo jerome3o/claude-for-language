@@ -307,7 +307,7 @@ function getTimeAgo(isoDate: string): string {
  * card standard: a word card needs its explanation AND an example sentence;
  * a sentence card (hanzi is a full sentence) glosses every word instead.
  */
-const FLASHCARD_ITEM_SCHEMA = {
+export const FLASHCARD_ITEM_SCHEMA = {
   properties: {
     hanzi: { type: 'string', description: 'Chinese characters (simplified). ONE clean form: no slashes, parentheses, brackets, ellipses or blanks (the server rejects them).' },
     pinyin: { type: 'string', description: 'Pinyin with tone marks (e.g., nǐ hǎo). Use tone marks, NOT tone numbers. Spaces between words, not syllables.' },

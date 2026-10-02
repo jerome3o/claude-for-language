@@ -286,6 +286,30 @@ export async function createNote(
   });
 }
 
+/** One note in a batch create (`POST /api/decks/:deckId/notes/batch`). */
+export interface BatchNoteInput {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  fun_facts?: string;
+  sentence_clue?: string;
+  sentence_clue_pinyin?: string;
+  sentence_clue_translation?: string;
+}
+
+export interface BatchNotesResult {
+  created: Array<{ id: string; hanzi: string }>;
+  failed: Array<{ index: number; hanzi: string; error: string }>;
+}
+
+/** Many notes in one call (≤ 500); per-row failures come back in `failed`. Audio is queued. */
+export async function createNotesBatch(deckId: string, notes: BatchNoteInput[]): Promise<BatchNotesResult> {
+  return fetchJSON<BatchNotesResult>(`/decks/${deckId}/notes/batch`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
 export async function updateNote(
   id: string,
   updates: { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string | null; sentence_clue_pinyin?: string | null; sentence_clue_translation?: string | null; sentence_clue_audio_url?: string | null; pinyin_only?: number; alternatives?: string | null }

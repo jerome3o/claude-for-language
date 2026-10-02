@@ -48,4 +48,40 @@ object MessageTools {
         menu += MessageTool("copy", "Copy text", "📋", false)
         return MessageToolSet(inline, menu, isMine, hasChinese)
     }
+
+    /** What `learningToolsForMessage` returns: tools appended to the ⋯ sheet, and the menu tool ids they replace. */
+    data class LearningToolSet(val menu: List<MessageTool>, val replaces: List<String>)
+
+    /**
+     * Port of learningToolsForMessage (docs/CHAT.md PR 3): "Make cards from this message" on any
+     * message with text (or a voice transcript); "Correct this" / "Edit correction" + "Remove
+     * correction" for the tutor on the other person's text message; "Make a card from the
+     * correction" for the person corrected. Nothing on a deleted / pending message; no corrections
+     * in the Claude practice chat. In a tutor–student chat they replace Word by word + Translate.
+     */
+    fun learningToolsForMessage(
+        senderId: String,
+        content: String,
+        deleted: Boolean,
+        attachmentKind: String?,
+        transcript: String?,
+        hasCorrection: Boolean,
+        pending: Boolean,
+        viewerRole: String,
+        isAiConversation: Boolean,
+        viewerId: String,
+    ): LearningToolSet {
+        val replaces = if (isAiConversation) emptyList() else listOf("word_by_word", "translate")
+        if (deleted || pending) return LearningToolSet(emptyList(), replaces)
+        val isMine = senderId == viewerId
+        val text = NoteSearch.jsTrim(if (attachmentKind == "voice") transcript.orEmpty() else content)
+        val menu = mutableListOf<MessageTool>()
+        if (text.isNotEmpty()) menu += MessageTool("make_cards", "Make cards from this message", "🃏", true)
+        if (!isAiConversation && hasCorrection && isMine) menu += MessageTool("correction_card", "Make a card from the correction", "✏️", true)
+        if (!isAiConversation && viewerRole == "tutor" && !isMine && attachmentKind == null && NoteSearch.jsTrim(content).isNotEmpty()) {
+            menu += MessageTool("correct", if (hasCorrection) "Edit correction" else "Correct this", "✏️", true)
+            if (hasCorrection) menu += MessageTool("remove_correction", "Remove correction", "✖", true)
+        }
+        return LearningToolSet(menu, replaces)
+    }
 }

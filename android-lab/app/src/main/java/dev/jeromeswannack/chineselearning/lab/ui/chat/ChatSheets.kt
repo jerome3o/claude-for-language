@@ -56,6 +56,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.RowDivider
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.ToggleRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardTools
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -93,13 +94,23 @@ class ChatSheetActions(
     val onDiscardPhoto: () -> Unit = {},
     val onJump: (String) -> Unit = {},
     val loadLocalImage: suspend (String, Int) -> androidx.compose.ui.graphics.ImageBitmap? = { _, _ -> null },
+    // ---- PR 3: learning tools ----
+    /** The reader word sheet's actions (▶, More about this word, + Add as card). */
+    val wordActions: dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordActions = dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordActions(),
+    val onWordAdded: () -> Unit = {},
+    val onMakeFlashcards: () -> Unit = {},
+    val onPinyinAll: (Boolean) -> Unit = {},
+    val onTranslationAll: (Boolean) -> Unit = {},
+    val review: ReviewActions = ReviewActions(),
+    val onSaveCorrection: (ChatMessageDto, text: String, note: String) -> Unit = { _, _, _ -> },
+    val onRemoveCorrection: (ChatMessageDto) -> Unit = {},
 )
 
 @Composable
 fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
     when (val s = ui.sheet) {
         null -> {}
-        is ChatSheet.Actions -> MessageActionSheet(s.message, ui.tools(s.message).menu, ui.online, ChatLogic.quickEmojis(ui.recentEmojis), ui.recentEmojis, actions, mine = s.message.sender_id == ui.myId, rich = !ui.isAi)
+        is ChatSheet.Actions -> MessageActionSheet(s.message, ui.menuTools(s.message), ui.online, ChatLogic.quickEmojis(ui.recentEmojis), ui.recentEmojis, actions, mine = s.message.sender_id == ui.myId, rich = !ui.isAi)
         ChatSheet.Attach -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Send a photo") {
             NavRow("📷", "Take a photo", trailing = {}, onClick = actions.onCamera)
             RowDivider()
@@ -125,6 +136,13 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             danger = true,
         )
         ChatSheet.Menu -> LabBottomSheet(onDismiss = actions.onDismiss) {
+            // PR 3: make cards from the chat; pinyin / translations for every message.
+            NavRow("🃏", "Make flashcards", desc = "Pick messages — Claude suggests cards", enabled = ui.messages.isNotEmpty(), onClick = actions.onMakeFlashcards)
+            RowDivider()
+            ToggleRow("拼", "Show pinyin for all", ui.aids.pinyinAll) { actions.onPinyinAll(it) }
+            RowDivider()
+            ToggleRow("EN", "Show translations for all", ui.aids.translationAll) { actions.onTranslationAll(it) }
+            RowDivider()
             NavRow("＋", "New conversation", desc = if (!ui.online) "Needs internet" else null, enabled = ui.online, onClick = actions.onNewConversation)
             RowDivider()
             NavRow("✏️", if (ui.conversation?.title.isNullOrBlank()) "Add a title" else "Rename conversation", enabled = ui.online, onClick = actions.onOpenRename)
@@ -133,7 +151,6 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
             NavRow("☰", "All conversations", onClick = actions.onAllConversations)
             Spacer(Modifier.height(16.dp))
         }
-        is ChatSheet.Card -> CardSheet("Generated Flashcard", listOf(s.card), ui, actions, null)
         is ChatSheet.Translate -> CardSheet("Translation", listOf(s.result.flashcard), ui, actions, s.result.translation)
         is ChatSheet.Check -> LabBottomSheet(onDismiss = actions.onDismiss, title = "Check Result") {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -164,6 +181,16 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         ChatSheet.Rename -> RenameSheet(ui, actions)
         ChatSheet.Voice -> VoiceSheet(ui, actions)
         is ChatSheet.Discuss -> DiscussSheet(s.message, ui, actions)
+        is ChatSheet.ChatWord -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderWordSheet(
+            s.word, s.sentence, known = s.word.text.trim() in ui.known, actions = actions.wordActions,
+            onDismiss = actions.onDismiss, onAdded = actions.onWordAdded,
+        )
+        ChatSheet.Review -> ui.review?.let { r ->
+            LabBottomSheet(onDismiss = actions.review.onClose) { ReviewPanel(r, ui.decks, ui.online, actions.review) }
+        }
+        is ChatSheet.Correct -> LabBottomSheet(onDismiss = actions.onDismiss, title = if (s.message.correction == null) "Correct this" else "Edit correction") {
+            CorrectPanel(ui.messages.firstOrNull { it.id == s.message.id } ?: s.message, ui, actions)
+        }
     }
 }
 

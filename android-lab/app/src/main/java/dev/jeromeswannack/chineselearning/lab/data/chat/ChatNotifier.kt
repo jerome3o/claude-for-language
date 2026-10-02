@@ -68,7 +68,8 @@ object ChatNotifier {
         val c = ChatNotificationStore.Conversation(
             conversationId = chat.conversationId,
             relationshipId = chat.relationshipId.ifEmpty { prev?.relationshipId.orEmpty() },
-            senderId = chat.senderId,
+            // A correction push carries no sender id: keep the conversation's.
+            senderId = chat.senderId.ifEmpty { prev?.senderId.orEmpty() },
             senderName = chat.senderName,
             senderPicture = chat.senderPicture ?: prev?.senderPicture,
             lines = (prev?.lines.orEmpty().filter { it.id != line.id } + line).sortedBy { it.timeMs }.takeLast(ChatNotificationStore.MAX_LINES),

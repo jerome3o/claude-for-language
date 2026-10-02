@@ -35,8 +35,8 @@ import {
   loadMessageForMember,
   pinMessage,
   touchMessage,
+  enrichMessageInBackground,
   transcribeVoiceMessage,
-  translateMessageInBackground,
 } from '../services/chat/messages';
 import { background, deliverSentMessage } from './chat-live';
 import { stripJpegMetadata } from './picture-hunts';
@@ -126,7 +126,11 @@ chatMessages.post('/conversations/:id/media', async (c) => {
   await background(c, deliverSentMessage(env, convId, userId, message));
   if (attachment.kind === 'voice') {
     const audio = bytes;
+    // Transcript → translation + the transcript's word chips.
     await background(c, transcribeVoiceMessage(env, id, audio, attachment.mime));
+  } else if (caption) {
+    // A photo's Chinese caption gets a translation and word chips like a text message.
+    await background(c, enrichMessageInBackground(env, id, caption));
   }
   return c.json(message, 201);
 });
@@ -161,7 +165,8 @@ chatMessages.patch('/messages/:id', async (c) => {
     const env = c.env;
     await background(c, (async () => {
       await broadcastMessageUpdated(env, message.id);
-      await translateMessageInBackground(env, message.id, message.content);
+      // Re-translated and re-split into words (the old ones were cleared with the edit).
+      await enrichMessageInBackground(env, message.id, message.content);
     })());
     return c.json(message);
   } catch (err) {

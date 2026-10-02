@@ -358,6 +358,40 @@ export interface Message {
   media_url?: string | null;
   pinned_at?: string | null;
   pinned_by?: string | null;
+  // Learning tools (docs/CHAT.md PR 3).
+  /** Word chips; they concatenate to `content` ('content') or to the voice transcript ('transcript'). */
+  words?: ChatWord[] | null;
+  words_source?: 'content' | 'transcript' | null;
+  /** The tutor's correction of this message. */
+  correction?: ChatCorrection | null;
+}
+
+/** One word chip of a chat message (same shape as a reader page's words). */
+export interface ChatWord {
+  text: string;
+  pinyin: string;
+  gloss: string;
+}
+
+export interface ChatCorrection {
+  text: string;
+  note: string | null;
+  /** The tutor's user id. */
+  by: string;
+  at: string;
+}
+
+/** A card Claude proposes from chat messages (POST /api/conversations/:id/flashcards/propose). */
+export interface ProposedChatCard {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  fun_facts: string;
+  sentence_clue?: string;
+  sentence_clue_pinyin?: string;
+  sentence_clue_translation?: string;
+  already_have: boolean;
+  source_message_id: string | null;
 }
 
 export type ChatAttachment =

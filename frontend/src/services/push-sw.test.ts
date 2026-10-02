@@ -83,6 +83,28 @@ describe('push-sw.js chat_message', () => {
   });
 });
 
+describe('push-sw.js chat_correction (docs/CHAT.md PR 3)', () => {
+  const correction = {
+    type: 'chat_correction',
+    title: '✏️ 王老师 corrected your message',
+    body: '我昨天去了商店',
+    url: '/connections/rel1/chat/conv1',
+    tag: 'chat-conv1',
+    conversation_id: 'conv1',
+    relationship_id: 'rel1',
+    message_id: 'm1',
+  };
+  it('is shown like a chat message, in the same per-conversation slot', async () => {
+    const shown = await push(correction, [client('/decks')]);
+    expect(shown).toHaveLength(1);
+    expect(shown[0].title).toBe('✏️ 王老师 corrected your message');
+    expect(shown[0].options).toMatchObject({ tag: 'chat-conv1', renotify: true, data: { url: '/connections/rel1/chat/conv1', type: 'chat_correction' } });
+  });
+  it('is skipped when that chat is open in front', async () => {
+    expect(await push(correction, [client('/connections/rel1/chat/conv1')])).toHaveLength(0);
+  });
+});
+
 describe('push-sw.js calls (unchanged)', () => {
   const call = { type: 'call', call_id: 'c1', title: '📹 王老师 is calling', body: 'Tap to join', url: '/calls/c1', tag: 'call-c1' };
   it('rings with a Join action when nothing is in front', async () => {

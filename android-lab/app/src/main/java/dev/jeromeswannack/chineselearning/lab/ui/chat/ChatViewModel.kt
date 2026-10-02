@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.MessageTools
+import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
 import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatNoteBody
@@ -27,7 +28,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.chatConversations
 import dev.jeromeswannack.chineselearning.lab.data.api.createDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.discussMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.displayName
-import dev.jeromeswannack.chineselearning.lab.data.api.flashcardFromChat
 import dev.jeromeswannack.chineselearning.lab.data.api.messageDiscussion
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.relationship
@@ -49,6 +49,16 @@ import dev.jeromeswannack.chineselearning.lab.data.api.chatMessagesPath
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteChatMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.editChatMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.pinChatMessage
+import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
+import dev.jeromeswannack.chineselearning.lab.data.api.ProposeFlashcardsBody
+import dev.jeromeswannack.chineselearning.lab.data.api.ProposedCardDto
+import dev.jeromeswannack.chineselearning.lab.data.api.addNotesBatch
+import dev.jeromeswannack.chineselearning.lab.data.api.clearMessageCorrection
+import dev.jeromeswannack.chineselearning.lab.data.api.coachDraft
+import dev.jeromeswannack.chineselearning.lab.data.api.messageWords
+import dev.jeromeswannack.chineselearning.lab.data.api.proposeChatFlashcards
+import dev.jeromeswannack.chineselearning.lab.data.api.setMessageCorrection
+import kotlinx.coroutines.sync.withPermit
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto
@@ -79,7 +89,6 @@ data class DeckChoice(val id: String, val name: String, val pinned: Boolean)
 sealed interface ChatSheet {
     data class Actions(val message: ChatMessageDto) : ChatSheet
     data object Menu : ChatSheet
-    data class Card(val card: SuggestedCard) : ChatSheet
     data class Check(val messageId: String, val result: CheckResultDto) : ChatSheet
     data object HelpMeSayIt : ChatSheet
     data class Options(val explanation: String?, val options: List<SuggestedCard>, val selected: Set<Int>) : ChatSheet
@@ -96,7 +105,40 @@ sealed interface ChatSheet {
     /** ⋯ on the pinned bar: every pinned message. */
     data object Pins : ChatSheet
     data class ConfirmDelete(val message: ChatMessageDto) : ChatSheet
+    // ---- PR 3: learning tools ----
+    /** A tapped word chip → the reader word sheet. */
+    data class ChatWord(val word: dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto, val sentence: String) : ChatSheet
+    /** "Make flashcards": the review sheet (its state is [ChatUi.review]). */
+    data object Review : ChatSheet
+    /** The tutor's "✏️ Correct this" / "Edit correction". */
+    data class Correct(val message: ChatMessageDto) : ChatSheet
 }
+
+/** "Make flashcards" selection mode: the picked message ids; [proposing] while Claude picks cards. */
+data class SelectionUi(val selected: Set<String> = emptySet())
+
+/** The review sheet of proposed cards (docs/CHAT.md PR 3). */
+data class ReviewUi(
+    val review: dev.jeromeswannack.chineselearning.lab.core.FlashcardReview,
+    /** Source message id → a one-line preview ("From: …"). */
+    val sources: Map<String, String> = emptyMap(),
+    val title: String = "Cards from this chat",
+    val deckId: String? = null,
+    /** Non-null while "+ New deck" is open: the name typed so far. */
+    val newDeck: String? = null,
+    /** The card whose fields are open for editing. */
+    val editing: Int? = null,
+    val saving: Boolean = false,
+    val error: String? = null,
+)
+
+/** The composer's ✓ "Check my Chinese": the draft it checked and Claude's answer. */
+data class DraftCheckUi(
+    val draft: String,
+    val loading: Boolean = true,
+    val result: dev.jeromeswannack.chineselearning.lab.data.api.CoachResultDto? = null,
+    val error: String? = null,
+)
 
 /** The voice message being recorded / previewed in the composer. */
 sealed interface RecorderUi {
@@ -154,7 +196,6 @@ data class ChatUi(
     val checkStatuses: Map<String, String> = emptyMap(),
     val wordByWord: Set<String> = emptySet(),
     val segmentations: Map<String, SegmentedDto> = emptyMap(),
-    val generatingCard: Boolean = false,
     val generatingOptions: Boolean = false,
     val notice: Notice? = null,
     val sheet: ChatSheet? = null,
@@ -181,9 +222,20 @@ data class ChatUi(
     val scrollTo: ScrollRequest? = null,
     val voice: VoicePlayback? = null,
     val recorder: RecorderUi = RecorderUi.Idle,
-    /** Voice messages whose translation is open. */
-    val translationsShown: Set<String> = emptySet(),
     val preparingPhoto: Boolean = false,
+    // ---- PR 3: learning tools ----
+    /** Pinyin / translation toggles, remembered per conversation on this phone. */
+    val aids: ChatLearning.Aids = ChatLearning.Aids(),
+    /** Hanzi already in my decks (the quieter chip, "Already in your decks"). */
+    val known: Set<String> = emptySet(),
+    /** Non-null = "Make flashcards" selection mode. */
+    val selection: SelectionUi? = null,
+    val review: ReviewUi? = null,
+    val draftCheck: DraftCheckUi? = null,
+    /** A correction being saved / removed (its message id). */
+    val correcting: String? = null,
+    /** Claude is picking cards (from the selection or one message). */
+    val proposingCards: Boolean = false,
 ) {
     val pinned: List<ChatMessageDto> get() = ChatRich.pinned(messages)
 
@@ -195,6 +247,43 @@ data class ChatUi(
     fun checkStatus(m: ChatMessageDto): String? = checkStatuses[m.id] ?: m.check_status
 
     fun tools(m: ChatMessageDto) = MessageTools.toolsForMessage(m.sender_id, m.content, checkStatus(m), m.has_discussion, viewerRole, isAi, myId ?: "")
+
+    /** The message's word chips when they still match its text (stale ones are never shown). */
+    fun words(m: ChatMessageDto): List<dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto>? {
+        val w = m.words?.takeIf { it.isNotEmpty() } ?: return null
+        if (m.isDeleted) return null
+        val text = ChatLearning.wordsText(m.content, m.attachment?.transcript, m.words_source)
+        return w.takeIf { dev.jeromeswannack.chineselearning.lab.core.ReaderWords.matches(it.map { x -> x.text }, text) }
+    }
+
+    /** What a message's translation toggle shows: the text's translation, or the voice transcript's. */
+    fun translationOf(m: ChatMessageDto): String? =
+        (if (m.isVoice) m.attachment?.translation else m.translation)?.takeIf { it.isNotBlank() }
+
+    /**
+     * The ⋯ sheet's tools: MessageTools' set + PR 3's learning tools (shared
+     * `learningToolsForMessage`, parity-tested) — which, in a tutor–student chat, replace Word by
+     * word and Translate (the chips, 拼 / EN and "Make cards from this message" do that now).
+     */
+    fun menuTools(m: ChatMessageDto): List<dev.jeromeswannack.chineselearning.lab.core.MessageTool> {
+        val l = MessageTools.learningToolsForMessage(
+            m.sender_id, m.content, m.isDeleted, m.attachment?.kind, m.attachment?.transcript, m.correction != null,
+            pending = false, viewerRole = viewerRole, isAiConversation = isAi, viewerId = myId ?: "",
+        )
+        return tools(m).menu.filter { it.id !in l.replaces } + l.menu
+    }
+
+    /** The messages as the selection sees them. */
+    fun pickable(): List<ChatLearning.Pickable> = messages.map { m ->
+        ChatLearning.Pickable(m.id, dev.jeromeswannack.chineselearning.lab.ui.connections.Fmt.parse(m.created_at)?.toEpochMilli() ?: 0, ChatLearning.eligible(m.content, m.attachment?.kind, m.attachment?.transcript_status, m.attachment?.transcript, m.isDeleted))
+    }
+
+    companion object {
+        const val TOOL_MAKE_CARDS = "make_cards"
+        const val TOOL_CORRECT = "correct"
+        const val TOOL_REMOVE_CORRECTION = "remove_correction"
+        const val TOOL_CORRECTION_CARD = "correction_card"
+    }
 }
 
 /**
@@ -273,6 +362,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             }
         }
         viewModelScope.launch { loadDecks() }
+        viewModelScope.launch { loadAids(); loadKnown() }
         viewModelScope.launch {
             val recent = app.cache.get<List<String>>(RECENT_KEY).orEmpty()
             _ui.update { it.copy(recentEmojis = recent) }
@@ -467,7 +557,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     // ---------------- composer ----------------
 
     fun setDraft(text: String) {
-        _ui.update { it.copy(draft = text) }
+        _ui.update { it.copy(draft = text, draftCheck = it.draftCheck?.takeIf { c -> c.draft == text.trim() }) }
         val s = _ui.value
         if (!s.isAi && s.editing == null && typingOut.shouldSend(text, System.currentTimeMillis())) app.chatLive.sendTyping(convId)
     }
@@ -829,7 +919,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    fun toggleTranslation(id: String) = _ui.update { it.copy(translationsShown = if (id in it.translationsShown) it.translationsShown - id else it.translationsShown + id) }
 
     // ---------------- per-message tools ----------------
 
@@ -846,6 +935,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             "word_by_word" -> toggleWordByWord(m)
             "discuss" -> openDiscussion(m)
             "copy" -> copy(m)
+            ChatUi.TOOL_MAKE_CARDS -> proposeFor(m)
+            ChatUi.TOOL_CORRECT -> openSheet(ChatSheet.Correct(m))
+            ChatUi.TOOL_REMOVE_CORRECTION -> removeCorrection(m)
+            ChatUi.TOOL_CORRECTION_CARD -> proposeCorrection(m)
         }
     }
 
@@ -974,19 +1067,6 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     // ---------------- header tools ----------------
 
-    fun generateCard() {
-        _ui.update { it.copy(generatingCard = true, notice = null) }
-        viewModelScope.launch {
-            try {
-                openSheet(ChatSheet.Card(api.flashcardFromChat(convId).flashcard))
-            } catch (e: Exception) {
-                error("Couldn't make a card from this conversation — it needs some Chinese vocabulary to work from.")
-            } finally {
-                _ui.update { it.copy(generatingCard = false) }
-            }
-        }
-    }
-
     fun helpMeSayIt(intended: String, guess: String) {
         _ui.update { it.copy(sheet = null, generatingOptions = true) }
         viewModelScope.launch {
@@ -1107,6 +1187,292 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
+
+    // ---------------- PR 3: learning tools (docs/CHAT.md) ----------------
+
+    private val aidsKey = "chat/$convId/aids"
+    /** Messages whose words were asked for this session (once each). */
+    private val wordsAsked = HashSet<String>()
+    private val wordsGate = kotlinx.coroutines.sync.Semaphore(2)
+
+    private suspend fun loadAids() {
+        app.cache.get<ChatAidsDto>(aidsKey)?.let { d -> _ui.update { it.copy(aids = d.toAids()) } }
+    }
+
+    private fun setAids(a: ChatLearning.Aids) {
+        _ui.update { it.copy(aids = a) }
+        viewModelScope.launch { runCatching { app.cache.put(aidsKey, KIND, ChatAidsDto.of(a)) } }
+    }
+
+    /** The 拼 toggle under a message. */
+    fun togglePinyin(id: String) { app.haptics.tick(); setAids(_ui.value.aids.togglePinyin(id)) }
+
+    /** The EN toggle under a message (text or voice). */
+    fun toggleTranslation(id: String) { app.haptics.tick(); setAids(_ui.value.aids.toggleTranslation(id)) }
+
+    /** Header ⋯ → "Show pinyin for all". */
+    fun setPinyinAll(on: Boolean) { _ui.update { it.copy(sheet = null) }; app.haptics.tick(); setAids(_ui.value.aids.setPinyinAll(on)) }
+
+    fun setTranslationAll(on: Boolean) { _ui.update { it.copy(sheet = null) }; app.haptics.tick(); setAids(_ui.value.aids.setTranslationAll(on)) }
+
+    private suspend fun loadKnown() {
+        val known = withContext(Dispatchers.IO) { app.repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }
+        _ui.update { it.copy(known = known) }
+    }
+
+    /**
+     * A Chinese message without word chips came on screen: `POST /api/messages/:id/words` once per
+     * message per session (two at a time). The answer — and the `message_updated` it causes — fill
+     * the chips in.
+     */
+    fun requestWords(m: ChatMessageDto) {
+        if (!app.online.value) return
+        val a = m.attachment
+        if (!ChatLearning.needsWords(m.content, a?.kind, a?.transcript_status, a?.transcript, m.isDeleted, _ui.value.words(m) != null)) return
+        if (!wordsAsked.add(m.id)) return
+        viewModelScope.launch {
+            wordsGate.withPermit {
+                runCatching { api.messageWords(m.id) }.onSuccess { r ->
+                    val w = r.words
+                    if (!w.isNullOrEmpty()) replaceLocal(m.id) { it.copy(words = w, words_source = r.source ?: it.words_source) }
+                }
+            }
+        }
+    }
+
+    /** A word chip: the reader word sheet with the sentence it was said in. */
+    fun openChip(m: ChatMessageDto, index: Int) {
+        val words = _ui.value.words(m) ?: return
+        val w = words.getOrNull(index) ?: return
+        val text = ChatLearning.wordsText(m.content, m.attachment?.transcript, m.words_source)
+        val start = dev.jeromeswannack.chineselearning.lab.core.ReaderWords.offsets(words.map { it.text })[index]
+        app.haptics.tick()
+        openSheet(ChatSheet.ChatWord(w, dev.jeromeswannack.chineselearning.lab.core.ReaderWords.sentenceAround(text, start, start + w.text.length)))
+    }
+
+    /** The word sheet added a card: its chips go quiet. */
+    fun wordAdded() {
+        app.haptics.correct()
+        viewModelScope.launch { loadKnown() }
+    }
+
+    // ---- "Make flashcards": selection → propose → review → batch ----
+
+    fun startSelecting() {
+        _ui.update { it.copy(sheet = null, search = null, highlightId = null, selection = SelectionUi(), draftCheck = null) }
+        app.haptics.tick()
+    }
+
+    fun cancelSelecting() = _ui.update { it.copy(selection = null) }
+
+    fun toggleSelect(id: String) {
+        val sel = _ui.value.selection ?: return
+        val next = ChatLearning.toggle(sel.selected, id, _ui.value.pickable())
+        if (next == sel.selected) return
+        app.haptics.tick()
+        _ui.update { it.copy(selection = sel.copy(selected = next)) }
+    }
+
+    /** Quick picks: "Today" / "Last 50 messages" (a second tap clears that pick). */
+    fun selectToday() {
+        val sel = _ui.value.selection ?: return
+        val zone = java.time.ZoneId.systemDefault()
+        val dayStart = java.time.LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val picked = ChatLearning.today(_ui.value.pickable(), dayStart)
+        app.haptics.tick()
+        _ui.update { it.copy(selection = sel.copy(selected = if (picked.isNotEmpty() && picked == sel.selected) emptySet() else picked)) }
+    }
+
+    fun selectLast() {
+        val sel = _ui.value.selection ?: return
+        val picked = ChatLearning.lastN(_ui.value.pickable())
+        app.haptics.tick()
+        _ui.update { it.copy(selection = sel.copy(selected = if (picked.isNotEmpty() && picked == sel.selected) emptySet() else picked)) }
+    }
+
+    fun proposeSelected() {
+        val sel = _ui.value.selection ?: return
+        val ids = ChatLearning.requestIds(sel.selected, _ui.value.pickable())
+        if (ids.isEmpty()) return
+        propose(ProposeFlashcardsBody(message_ids = ids), "Cards from ${ids.size} message${if (ids.size == 1) "" else "s"}")
+    }
+
+    /** ⋯ → "Make cards from this message". */
+    fun proposeFor(m: ChatMessageDto) = propose(ProposeFlashcardsBody(message_ids = listOf(m.id)), "Cards from this message")
+
+    /** The student's "Make a card from the correction" (focus 'correction'). */
+    fun proposeCorrection(m: ChatMessageDto) = propose(ProposeFlashcardsBody(message_ids = listOf(m.id), focus = "correction"), "From ${_ui.value.otherName.ifEmpty { "your tutor" }}'s correction")
+
+    private fun propose(body: ProposeFlashcardsBody, title: String) {
+        if (_ui.value.proposingCards) return
+        if (!app.online.value) { error("You're offline — making cards needs a connection."); return }
+        _ui.update { it.copy(proposingCards = true, sheet = null, notice = null) }
+        viewModelScope.launch {
+            try {
+                val r = api.proposeChatFlashcards(convId, body)
+                if (r.cards.isEmpty()) {
+                    error("Claude found nothing new to make cards from in those messages.")
+                    return@launch
+                }
+                val cards = r.cards.map(::proposed)
+                val byId = _ui.value.messages.associateBy { it.id }
+                val sources = cards.mapNotNull { it.sourceMessageId }.distinct().mapNotNull { id -> byId[id]?.let { id to sourcePreview(it) } }.toMap()
+                val last = app.cache.get<String>(LAST_DECK_KEY)
+                val decks = _ui.value.decks
+                val deckId = last?.takeIf { id -> decks.any { it.id == id } } ?: decks.firstOrNull()?.id
+                app.haptics.tick()
+                app.sounds.play(Sounds.Sfx.FLIP, 0.5f)
+                _ui.update {
+                    it.copy(
+                        selection = null,
+                        review = ReviewUi(dev.jeromeswannack.chineselearning.lab.core.FlashcardReview.of(cards), sources, title, deckId, newDeck = if (decks.isEmpty()) "" else null),
+                        sheet = ChatSheet.Review,
+                    )
+                }
+            } catch (e: Exception) {
+                error("Couldn't make cards. ${e.userMessage()}")
+            } finally {
+                _ui.update { it.copy(proposingCards = false) }
+            }
+        }
+    }
+
+    private fun sourcePreview(m: ChatMessageDto): String {
+        val text = if (m.isVoice) "🎤 " + m.attachment?.transcript.orEmpty() else m.content
+        return ChatLogic.truncate(text.trim().replace('\n', ' '), 70)
+    }
+
+    private fun updateReview(f: (ReviewUi) -> ReviewUi) = _ui.update { s -> s.review?.let { s.copy(review = f(it)) } ?: s }
+
+    fun reviewToggle(i: Int) { app.haptics.tick(); updateReview { it.copy(review = it.review.toggle(i), error = null) } }
+    fun reviewEdit(i: Int, card: dev.jeromeswannack.chineselearning.lab.core.ProposedCard) = updateReview { it.copy(review = it.review.edit(i, card)) }
+    fun reviewOpenEdit(i: Int?) = updateReview { it.copy(editing = if (it.editing == i) null else i) }
+    fun reviewPickDeck(id: String) { app.haptics.tick(); updateReview { it.copy(deckId = id, newDeck = null, error = null) } }
+    fun reviewNewDeck(name: String?) = updateReview { it.copy(newDeck = name, error = null) }
+
+    fun closeReview() = _ui.update { it.copy(review = null, sheet = if (it.sheet == ChatSheet.Review) null else it.sheet) }
+
+    /** "Add N cards": the checked cards in one `POST /api/decks/:id/notes/batch`. */
+    fun saveReview() {
+        val r = _ui.value.review ?: return
+        if (r.saving) return
+        val chosen = r.review.chosen()
+        if (chosen.isEmpty()) return
+        val local = r.review.localProblems()
+        if (local.isNotEmpty()) {
+            app.haptics.wrong()
+            updateReview { it.copy(review = it.review.copy(problems = local), editing = local.keys.first(), error = "Fix the marked card first.") }
+            return
+        }
+        if (!app.online.value) { updateReview { it.copy(error = "You're offline — adding cards needs a connection. Your picks stay here.") }; return }
+        val newName = r.newDeck?.trim()
+        if (r.deckId == null && newName.isNullOrEmpty()) { updateReview { it.copy(error = "Pick a deck (or name a new one).") }; return }
+        updateReview { it.copy(saving = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val deckId: String
+                val deckName: String
+                if (!newName.isNullOrEmpty()) {
+                    val d = api.createDeck(newName, null)
+                    deckId = d.id
+                    deckName = d.name.ifEmpty { newName }
+                    updateReview { it.copy(deckId = d.id, newDeck = null) }
+                    loadDecks()
+                } else {
+                    deckId = r.deckId!!
+                    deckName = _ui.value.decks.firstOrNull { it.id == deckId }?.name ?: "your deck"
+                }
+                app.cache.put(LAST_DECK_KEY, KIND, deckId)
+                val res = api.addNotesBatch(deckId, chosen.map { noteOf(it.second) })
+                val failed = res.failed.associate { it.index to it.error.ifBlank { "Couldn't add this card." } }
+                val added = res.created.size
+                if (added > 0) {
+                    app.haptics.celebrate()
+                    app.sounds.play(Sounds.Sfx.MILESTONE, 0.7f)
+                }
+                val msg = "Added $added card${if (added == 1) "" else "s"} to $deckName ✓"
+                if (failed.isEmpty()) {
+                    _ui.update { it.copy(review = null, sheet = if (it.sheet == ChatSheet.Review) null else it.sheet, notice = Notice(msg, false)) }
+                } else {
+                    val next = r.review.afterBatch(chosen.map { it.first }, failed)
+                    updateReview { it.copy(review = next, saving = false, editing = next.problems.keys.firstOrNull(), error = (if (added > 0) "$msg " else "") + "${failed.size} couldn't be added — fix and try again.") }
+                }
+                loadKnown()
+                app.scope.launch { runCatching { app.repo.sync() } }
+            } catch (e: Exception) {
+                updateReview { it.copy(saving = false, error = "Couldn't add the cards. ${e.userMessage()}") }
+            }
+        }
+    }
+
+    // ---- corrections (the tutor) ----
+
+    fun saveCorrection(m: ChatMessageDto, text: String, note: String) {
+        val t = text.trim()
+        if (t.isEmpty() || _ui.value.correcting != null) return
+        if (!app.online.value) { _ui.update { it.copy(modalNotice = Notice("You're offline — corrections need a connection.", true)) }; return }
+        _ui.update { it.copy(correcting = m.id, modalNotice = null) }
+        viewModelScope.launch {
+            try {
+                val updated = api.setMessageCorrection(m.id, t, note.trim().ifEmpty { null })
+                addMessages(listOf(updated))
+                app.haptics.correct()
+                app.sounds.play(Sounds.Sfx.POP, 0.5f)
+                _ui.update { it.copy(sheet = null) }
+            } catch (e: Exception) {
+                _ui.update { it.copy(modalNotice = Notice("Couldn't save the correction. ${e.userMessage()}", true)) }
+            } finally {
+                _ui.update { it.copy(correcting = null) }
+            }
+        }
+    }
+
+    fun removeCorrection(m: ChatMessageDto) {
+        _ui.update { it.copy(sheet = null) }
+        if (!app.online.value) { error("You're offline — corrections need a connection."); return }
+        val before = _ui.value.messages.firstOrNull { it.id == m.id } ?: m
+        replaceLocal(m.id) { it.copy(correction = null) }
+        app.haptics.tick()
+        viewModelScope.launch {
+            runCatching { api.clearMessageCorrection(m.id) }.onSuccess { addMessages(listOf(it)) }
+                .onFailure { e -> replaceLocal(m.id) { before }; error("Couldn't remove the correction. ${e.userMessage()}") }
+        }
+    }
+
+    // ---- ✓ Check my Chinese before sending ----
+
+    fun checkDraft() {
+        val d = _ui.value.draft.trim()
+        if (d.isEmpty() || _ui.value.draftCheck?.loading == true) return
+        if (!app.online.value) { error("You're offline — checking needs a connection."); return }
+        app.haptics.tick()
+        _ui.update { it.copy(draftCheck = DraftCheckUi(d), notice = null) }
+        viewModelScope.launch {
+            try {
+                val r = api.coachDraft(d)
+                if (_ui.value.draftCheck?.draft != d) return@launch
+                _ui.update { it.copy(draftCheck = DraftCheckUi(d, loading = false, result = r)) }
+                if (r.isCorrect) { app.haptics.correct(); app.sounds.play(Sounds.Sfx.CORRECT, 0.5f) } else app.haptics.tick()
+            } catch (e: Exception) {
+                if (_ui.value.draftCheck?.draft == d) _ui.update { it.copy(draftCheck = DraftCheckUi(d, loading = false, error = "Couldn't check it. ${e.userMessage()}")) }
+            }
+        }
+    }
+
+    /** "Use this": the corrected sentence replaces the draft. */
+    fun useCheck() {
+        val c = _ui.value.draftCheck?.result?.corrected?.hanzi?.takeIf { it.isNotBlank() } ?: return
+        app.haptics.correct()
+        _ui.update { it.copy(draft = c, draftCheck = null) }
+    }
+
+    fun sendAsIs() {
+        _ui.update { it.copy(draftCheck = null) }
+        send()
+    }
+
+    fun dismissCheck() = _ui.update { it.copy(draftCheck = null) }
+
     // ---------------- new conversation ----------------
 
     override fun onCleared() {
@@ -1120,6 +1486,26 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         const val KIND = "chat"
         const val PINNED_KEY = "chat/pinned-decks"
         const val RECENT_KEY = "chat/recent-emojis"
+        /** The deck the last "Make flashcards" went to (preselected next time). */
+        const val LAST_DECK_KEY = "chat/last-deck"
+
+        fun proposed(c: ProposedCardDto) = dev.jeromeswannack.chineselearning.lab.core.ProposedCard(
+            hanzi = c.hanzi, pinyin = c.pinyin, english = c.english, funFacts = c.fun_facts,
+            sentenceClue = c.sentence_clue.orEmpty(), sentenceCluePinyin = c.sentence_clue_pinyin.orEmpty(), sentenceClueTranslation = c.sentence_clue_translation.orEmpty(),
+            alreadyHave = c.already_have, sourceMessageId = c.source_message_id,
+        )
+
+        /** A reviewed card → the content service's note input (blank optional fields left out). */
+        fun noteOf(c: dev.jeromeswannack.chineselearning.lab.core.ProposedCard): NewNoteBody {
+            val clue = c.sentenceClue.trim().ifEmpty { null }
+            return NewNoteBody(
+                hanzi = c.hanzi.trim(), pinyin = c.pinyin.trim(), english = c.english.trim(),
+                fun_facts = c.funFacts.trim().ifEmpty { null },
+                sentence_clue = clue,
+                sentence_clue_pinyin = clue?.let { c.sentenceCluePinyin.trim().ifEmpty { null } },
+                sentence_clue_translation = clue?.let { c.sentenceClueTranslation.trim().ifEmpty { null } },
+            )
+        }
         const val CACHE_LIMIT = 300
         /** ScrollRequest id for "the end of the list". */
         const val END = "\u0000end"
@@ -1128,5 +1514,22 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
         /** `?new=1` / `chat/new`: a fresh untitled conversation; returns its id. */
         suspend fun newConversation(app: LabApp, relId: String): String = app.repo.api.startConversation(relId, PracticeConversationBody()).id
+    }
+}
+
+/** The toggles as stored on the phone (JsonCache `chat/<conv>/aids`). */
+@kotlinx.serialization.Serializable
+data class ChatAidsDto(
+    val pinyin_all: Boolean = false,
+    val translation_all: Boolean = false,
+    val pinyin: List<String> = emptyList(),
+    val translation: List<String> = emptyList(),
+) {
+    fun toAids() = ChatLearning.Aids(pinyin_all, translation_all, pinyin.toSet(), translation.toSet())
+
+    companion object {
+        /** At most this many per-message flips are kept (the newest). */
+        private const val MAX = 500
+        fun of(a: ChatLearning.Aids) = ChatAidsDto(a.pinyinAll, a.translationAll, a.pinyinFlipped.toList().takeLast(MAX), a.translationFlipped.toList().takeLast(MAX))
     }
 }

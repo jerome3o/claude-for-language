@@ -29,7 +29,7 @@ import {
 import { notifyChatRead, notifyNewChatMessage } from '../services/chat/notify';
 import { deleteDeviceToken, DeviceTokenError, saveDeviceToken } from '../services/push/devices';
 import { createPurposeTicket, verifyPurposeTicket } from '../services/chat/ticket';
-import { translateMessageInBackground } from '../services/chat/messages';
+import { enrichMessageInBackground } from '../services/chat/messages';
 
 const chat = new Hono<{ Bindings: Env }>();
 
@@ -85,8 +85,8 @@ chat.post('/conversations/:id/messages', async (c) => {
 
     const env = c.env;
     await background(c, deliverSentMessage(env, convId, userId, message));
-    // Auto-translate Chinese messages (non-blocking); `message_updated` when it lands.
-    await background(c, translateMessageInBackground(env, message.id, content));
+    // Chinese messages: translation + word chips (non-blocking); `message_updated` when they land.
+    await background(c, enrichMessageInBackground(env, message.id, content));
 
     return c.json(message, 201);
   } catch (error) {

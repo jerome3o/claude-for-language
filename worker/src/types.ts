@@ -563,6 +563,32 @@ export interface Message {
   media_url?: string | null;
   pinned_at?: string | null;
   pinned_by?: string | null;
+  /**
+   * Learning tools (docs/CHAT.md PR 3): the text split into word chips
+   * (shared/reader/words.ts), concatenating exactly to `content` — or, for a
+   * voice message, to `attachment.transcript` (`words_source`). Null until
+   * made, and whenever the text changed since.
+   */
+  words?: ChatWord[] | null;
+  words_source?: 'content' | 'transcript' | null;
+  /** The tutor's corrected version of this (student's) message. */
+  correction?: ChatCorrection | null;
+}
+
+/** One segment of a chat message's text (same shape as a reader page's word chip). */
+export interface ChatWord {
+  text: string;
+  pinyin: string;
+  gloss: string;
+}
+
+/** The tutor's correction of a message (docs/CHAT.md PR 3). */
+export interface ChatCorrection {
+  text: string;
+  note: string | null;
+  /** The tutor's user id. */
+  by: string;
+  at: string;
 }
 
 /** A photo or voice message (docs/CHAT.md PR 2) as clients see it — the R2 key is never sent. */
