@@ -41,6 +41,10 @@ test('opening a chat marks it read, and the notifications nudge shows and dismis
   const sent = await api<{ created_at: string }>(request, `/api/conversations/${convId}/messages`, { method: 'POST', token: tutor.token, data: { content: '你今天学习了吗？' } });
   expect(sent.status).toBe(201);
 
+  // Headless shells answer 'denied' for notifications; pretend this browser has never been asked.
+  await page.addInitScript(() => {
+    if ('Notification' in window) Object.defineProperty(Notification, 'permission', { get: () => 'default' });
+  });
   await page.goto(`/?session_token=${student.token}`);
   await page.locator('.header').waitFor({ timeout: 30000 });
   // Start from a browser that has never dismissed the nudge.
@@ -55,7 +59,7 @@ test('opening a chat marks it read, and the notifications nudge shows and dismis
   const req = await readRequest;
   expect(req.postDataJSON()).toEqual({ up_to: sent.body.created_at });
 
-  // Headless Chromium starts with permission 'default' → push state 'off' → the nudge.
+  // Permission 'default' → push state 'off' → the nudge.
   const nudge = page.getByTestId('chat-notify-nudge');
   await expect(nudge).toBeVisible({ timeout: 10000 });
   await expect(nudge).toContainText('Get notified of new messages');
