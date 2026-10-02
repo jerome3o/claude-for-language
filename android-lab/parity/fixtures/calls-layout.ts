@@ -1,5 +1,6 @@
 /**
- * Video calls round 2 (PR B) + round 3 (faces together): the call's tile layout (shared/calls/layout.ts).
+ * Video calls round 2 (PR B) + round 3 (faces together) + round 4 (drag and drop, phone screen + board split,
+ * the board's room for the faces box): the call's tile layout (shared/calls/layout.ts).
  * Writes calls-layout.json; checked by core/…/calls/CallsLayoutParityTest.kt.
  *
  * Random action sequences from DEFAULT_LAYOUT (plus phone swipes), and after every step the layout,
@@ -15,6 +16,15 @@ import {
   arrangeTiles,
   boardButton,
   boardOnStage,
+  DROP_EDGE,
+  DROP_ZONES,
+  DROP_ZONE_LABELS,
+  dropZoneAt,
+  dropZoneBox,
+  layoutForDrop,
+  narrowSplitAllowed,
+  splitDirFor,
+  type DropZone,
   floatingSize,
   pairSize,
   PAIR_GAP,
@@ -106,6 +116,8 @@ const boxes = [
   { w: 840, h: 880 },
   { w: 1024, h: 700 },
   { w: 1440, h: 800 },
+  // Round 4: a phone in landscape (the screen + board split goes side by side).
+  { w: 600, h: 380 },
 ];
 const aspectSets: Partial<Record<TileId, number>>[] = [{}, { remote: 16 / 9, self: 3 / 4 }, { remote: 9 / 16, self: 4 / 3 }, { remote: 1, self: 0 }];
 
@@ -204,7 +216,72 @@ const rawLayouts: unknown[] = [
 ];
 const sanitized = rawLayouts.map((raw) => ({ raw, layout: sanitizeLayout(raw) }));
 
+// ---- round 4: drag and drop, phone split, text inset (own RNG, so the vectors above stay put)
+const r4 = rng(20261002);
+const pick4 = <T>(xs: readonly T[]): T => xs[Math.floor(r4() * xs.length)];
+const dropZoneAts = [];
+for (let i = 0; i < 400; i++) {
+  const fx = r4() * 1.4 - 0.2;
+  const fy = r4() * 1.4 - 0.2;
+  dropZoneAts.push({ fx, fy, zone: dropZoneAt(fx, fy) });
+}
+for (const [fx, fy] of [[0.3, 0.5], [0.29999, 0.5], [0.7, 0.5], [0.70001, 0.5], [0.5, 0.3], [0.5, 0.7], [0.1, 0.1], [0.9, 0.9], [0.2, 0.2], [0, 0], [1, 1], [0.5, 0.5]]) {
+  dropZoneAts.push({ fx, fy, zone: dropZoneAt(fx, fy) });
+}
+const dropZoneBoxes = [];
+for (let i = 0; i < 120; i++) {
+  const stage = { x: Math.floor(r4() * 40), y: Math.floor(r4() * 40), w: Math.floor(100 + r4() * 1500) + (r4() < 0.5 ? 0.5 : 0), h: Math.floor(100 + r4() * 900) + (r4() < 0.5 ? 0.5 : 0) };
+  for (const zone of DROP_ZONES) dropZoneBoxes.push({ stage, zone, box: dropZoneBox(zone, stage) });
+}
+// layoutForDrop over many layouts (every step of the walks above) × every tile × every zone.
+const dropLayouts = sequences.flatMap((seq) => seq.steps.map((st) => st.layout));
+const drops = [];
+for (const l of dropLayouts) for (const tile of ALL_TILES) for (const zone of DROP_ZONES) drops.push({ layout: l, tile, zone, result: layoutForDrop(l, tile, zone) });
+const splitAllowed = dropLayouts.concat(drops.slice(0, 400).map((d) => d.result)).map((l) => ({ layout: l, allowed: narrowSplitAllowed(l) }));
+const splitDirs = [];
+for (const dir of ['row', 'column'] as const)
+  for (const box of [{ w: 412, h: 800 }, { w: 600, h: 380 }, { w: 639, h: 639 }, { w: 639, h: 640 }, { w: 640, h: 380 }, { w: 1200, h: 800 }, { w: 320, h: 319 }])
+    splitDirs.push({ dir, w: box.w, h: box.h, result: splitDirFor({ dir }, box) });
+// Walks with drops (and the phone screen + board split) — snapshots like the walks above.
+const dropSequences = [];
+const phoneScripts: LayoutAction[][] = [
+  [{ type: 'focus', tile: 'screen' }, { type: 'drop', tile: 'text', zone: 'bottom' }],
+  [{ type: 'focus', tile: 'screen' }, { type: 'drop', tile: 'text', zone: 'right' }, { type: 'ratio', ratio: 0.7 }],
+  [{ type: 'shareStarted' }, { type: 'drop', tile: 'draw', zone: 'top' }, { type: 'drop', tile: 'text', zone: 'top' }],
+  [{ type: 'focus', tile: 'text' }, { type: 'drop', tile: 'screen', zone: 'left' }, { type: 'pairCorner', corner: 'tr' }],
+  [{ type: 'focus', tile: 'screen' }, { type: 'drop', tile: 'chat', zone: 'bottom' }],
+  [{ type: 'focus', tile: 'screen' }, { type: 'drop', tile: 'text', zone: 'bottom' }, { type: 'drop', tile: 'screen', zone: 'full' }],
+  [{ type: 'focus', tile: 'text' }],
+  [{ type: 'focus', tile: 'text' }, { type: 'pairCorner', corner: 'br' }],
+  [{ type: 'pip', pip: 'separate' }, { type: 'focus', tile: 'screen' }, { type: 'drop', tile: 'text', zone: 'bottom' }],
+];
+for (const script of phoneScripts) {
+  let l = DEFAULT_LAYOUT;
+  const steps = [];
+  for (const a of script) {
+    l = layoutReducer(l, a);
+    steps.push({ action: a, ...snapshot(l) });
+  }
+  dropSequences.push({ steps });
+}
+const dropTiles: TileId[] = ['screen', 'text', 'draw', 'chat', 'remote', 'self'];
+for (let s = 0; s < 24; s++) {
+  let l = DEFAULT_LAYOUT;
+  const steps = [];
+  const n = 3 + Math.floor(r4() * 5);
+  for (let i = 0; i < n; i++) {
+    const a: LayoutAction =
+      r4() < 0.6
+        ? { type: 'drop', tile: pick4(dropTiles), zone: pick4(DROP_ZONES) as DropZone }
+        : pick4<LayoutAction>([{ type: 'focus', tile: pick4(dropTiles) }, { type: 'ratio', ratio: r4() }, { type: 'dir', dir: r4() < 0.5 ? 'row' : 'column' }, { type: 'pairCorner', corner: pick4(corners) }, { type: 'shareStarted' }, { type: 'close', tile: pick4(dropTiles) }]);
+    l = layoutReducer(l, a);
+    steps.push({ action: a, ...snapshot(l) });
+  }
+  dropSequences.push({ steps });
+}
+
 writeFileSync(
   join(OUT, 'calls-layout.json'),
-  JSON.stringify({ default: DEFAULT_LAYOUT, presets: PRESETS, all_tiles: ALL_TILES, tile_header: TILE_HEADER, pair_pad: PAIR_PAD, pair_gap: PAIR_GAP, sequences, floating, grid, snaps, others, shortcuts, sanitized, pairs, board_buttons: boardButtons }),
+  JSON.stringify({ default: DEFAULT_LAYOUT, presets: PRESETS, all_tiles: ALL_TILES, tile_header: TILE_HEADER, pair_pad: PAIR_PAD, pair_gap: PAIR_GAP, sequences, floating, grid, snaps, others, shortcuts, sanitized, pairs, board_buttons: boardButtons,
+    drop_edge: DROP_EDGE, drop_zones: DROP_ZONES, drop_zone_labels: DROP_ZONE_LABELS, drop_zone_ats: dropZoneAts, drop_zone_boxes: dropZoneBoxes, drops, split_allowed: splitAllowed, split_dirs: splitDirs, drop_sequences: dropSequences }),
 );

@@ -24,7 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/** Video calls round 2 (PR B) + round 3 (faces together): CallLayout reproduces shared/calls/layout.ts exactly (parity/fixtures/calls-layout.ts). */
+/** Video calls round 2 (PR B) + round 3 (faces together) + round 4 (drag and drop, phone split, text inset): CallLayout reproduces shared/calls/layout.ts exactly (parity/fixtures/calls-layout.ts). */
 class CallsLayoutParityTest {
     private val root: JsonObject by lazy {
         val dir = System.getProperty("parity.dir") ?: fail("parity.dir not set — run through Gradle")
@@ -36,6 +36,8 @@ class CallsLayoutParityTest {
     private fun JsonObject.d(k: String) = this[k]!!.jsonPrimitive.double
     private fun tile(e: JsonElement) = TileId.of(e.str()) ?: fail("tile ${e.str()}")
     private fun corner(e: JsonElement) = Corner.of(e.str()) ?: fail("corner ${e.str()}")
+    private fun zone(e: JsonElement) = CallLayout.DropZone.of(e.str()) ?: fail("zone ${e.str()}")
+    private fun box(o: JsonObject) = CallLayout.Box(o.d("x"), o.d("y"), o.d("w"), o.d("h"))
 
     private fun layout(o: JsonObject) = Layout(
         mode = Mode.of(o.s("mode"))!!, main = tile(o["main"]!!), second = tile(o["second"]!!), ratio = o.d("ratio"),
@@ -63,6 +65,7 @@ class CallsLayoutParityTest {
         "pairScale" -> Action.PairScale(o.d("scale"))
         "pairTap" -> Action.PairTap
         "shareStarted" -> Action.ShareStarted
+        "drop" -> Action.Drop(tile(o["tile"]!!), zone(o["zone"]!!))
         else -> fail("action $o")
     }
 
@@ -87,6 +90,7 @@ class CallsLayoutParityTest {
             div?.let { CallLayout.Divider(it.d("x"), it.d("y"), it.d("w"), it.d("h"), Dir.of(it.s("dir"))!!) },
             CallLayout.Box(st.d("x"), st.d("y"), st.d("w"), st.d("h")),
             pair?.let { CallLayout.PairBox(it.d("x"), it.d("y"), it.d("w"), it.d("h"), corner(it["corner"]!!)) },
+            o.d("textInsetTop"),
         )
     }
 
@@ -131,9 +135,14 @@ class CallsLayoutParityTest {
         }
     }
 
-    @Test fun reducerArrangementsAndRectsMatch() {
-        val seqs = root["sequences"]!!.jsonArray
-        assertTrue(seqs.size > 50)
+    @Test fun reducerArrangementsAndRectsMatch() = checkSequences("sequences", 50, 1000)
+
+    /** Round 4: walks with drops and the phone screen + board split (portrait stacked, landscape side by side). */
+    @Test fun dropSequencesMatch() = checkSequences("drop_sequences", 30, 1000)
+
+    private fun checkSequences(key: String, minSeqs: Int, minRects: Int) {
+        val seqs = root[key]!!.jsonArray
+        assertTrue(seqs.size > minSeqs)
         var checkedRects = 0
         for ((i, seq) in seqs.withIndex()) {
             var l = CallLayout.DEFAULT_LAYOUT
@@ -165,7 +174,49 @@ class CallsLayoutParityTest {
                 }
             }
         }
-        assertTrue(checkedRects > 1000)
+        assertTrue(checkedRects > minRects)
+    }
+
+    @Test fun dropZonesMatch() {
+        assertEquals(root.d("drop_edge"), CallLayout.DROP_EDGE)
+        assertEquals(root["drop_zones"]!!.jsonArray.map(::zone), CallLayout.DROP_ZONES)
+        val labels = root["drop_zone_labels"]!!.jsonObject.entries.associate { (k, v) -> CallLayout.DropZone.of(k)!! to v.str() }
+        assertEquals(labels, CallLayout.DROP_ZONE_LABELS)
+        val ats = root["drop_zone_ats"]!!.jsonArray
+        assertTrue(ats.size >= 400)
+        for (a in ats) {
+            val o = a.jsonObject
+            assertEquals(zone(o["zone"]!!), CallLayout.dropZoneAt(o.d("fx"), o.d("fy")), "dropZoneAt $o")
+        }
+        val boxes = root["drop_zone_boxes"]!!.jsonArray
+        assertTrue(boxes.size >= 600)
+        for (b in boxes) {
+            val o = b.jsonObject
+            assertEquals(box(o["box"]!!.jsonObject), CallLayout.dropZoneBox(zone(o["zone"]!!), box(o["stage"]!!.jsonObject)), "dropZoneBox $o")
+        }
+    }
+
+    @Test fun layoutForDropMatches() {
+        val drops = root["drops"]!!.jsonArray
+        assertTrue(drops.size > 5000)
+        for (d in drops) {
+            val o = d.jsonObject
+            val l = layout(o["layout"]!!.jsonObject)
+            val t = tile(o["tile"]!!)
+            val z = zone(o["zone"]!!)
+            val want = layout(o["result"]!!.jsonObject)
+            assertEquals(want, CallLayout.layoutForDrop(l, t, z), "layoutForDrop $l $t $z")
+            assertEquals(want, CallLayout.reduce(l, Action.Drop(t, z)), "drop action $l $t $z")
+        }
+        for (s in root["split_allowed"]!!.jsonArray) {
+            val o = s.jsonObject
+            val l = layout(o["layout"]!!.jsonObject)
+            assertEquals(o["allowed"]!!.jsonPrimitive.boolean, CallLayout.narrowSplitAllowed(l), "narrowSplitAllowed $l")
+        }
+        for (s in root["split_dirs"]!!.jsonArray) {
+            val o = s.jsonObject
+            assertEquals(Dir.of(o.s("result")), CallLayout.splitDirFor(Dir.of(o.s("dir"))!!, o.d("w"), o.d("h")), "splitDirFor $o")
+        }
     }
 
     @Test fun helpersMatch() {

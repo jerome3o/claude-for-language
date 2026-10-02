@@ -17,3 +17,26 @@ Keyboard / no-drag fallback: the ⠿ grip opens "Move Screen to …".
 
 ![Stacked](05-desktop-stacked.png)
 Bottom half: the two stack.
+
+## Lab app (Android)
+
+![Folded: screen above board](lab-10-screen-above-board-folded.png)
+Folded (portrait): their shared screen on top, the board below, the faces floating over the screen; the divider has a ≥ 44 dp grip.
+
+![Unfolded: side by side](lab-11-screen-beside-board-unfolded.png)
+Unfolded: the screen and the board side by side; "🖥️ only" on the screen goes back to the screen alone.
+
+![Long-press menu, folded](lab-12-long-press-menu-folded.png)
+Long-press the shared screen (or the board, or its "🖥️ ⋯" tab): show the board below / above the screen, board only, screen only.
+
+![Long-press menu, unfolded](lab-13-long-press-menu-unfolded.png)
+Unfolded the menu offers beside / below; the current arrangement is ticked.
+
+![Split chip](lab-14-split-chip-folded.png)
+Their screen alone with the board open: the "📝 + 🖥️" chip splits them in one tap (a light haptic).
+
+![Board room for the faces, folded](lab-15-board-room-for-faces-folded.png)
+The text board starts below the faces box in its top corner (`textInsetTop`), so the first lines are never covered.
+
+![Board room for the faces, unfolded](lab-16-board-room-for-faces-unfolded.png)
+The same on the unfolded screen.

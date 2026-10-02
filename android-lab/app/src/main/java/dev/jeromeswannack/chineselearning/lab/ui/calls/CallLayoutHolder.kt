@@ -47,6 +47,18 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
     fun replace(layout: CallLayout.Layout) = set(layout)
 
     /**
+     * Round 4: the long-press menu / the "📝 + 🖥️" chip — the shared screen and a board together (or
+     * either alone), as the web's `drop` actions ([ScreenBoardSplit.actions]). Saved once. Returns
+     * whether the layout changed (the screen gives a light haptic then).
+     */
+    fun applySplit(choice: ScreenBoardSplit.Choice, board: CallLayout.TileId): Boolean {
+        val before = _layout.value
+        val next = ScreenBoardSplit.actions(before, choice, board).fold(before) { l, a -> CallLayout.reduce(l, a) }
+        set(next)
+        return next != before
+    }
+
+    /**
      * Their screen share starts: put it on the stage, both faces over it (or the two cameras separately,
      * when the user chose that — a remembered explicit choice wins). Only on the change.
      */
