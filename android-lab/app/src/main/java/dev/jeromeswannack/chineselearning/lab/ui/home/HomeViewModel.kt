@@ -47,7 +47,8 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
-            _ui.value = withContext(Dispatchers.IO) { load() }
+            // Never crash Home: on a failure the last numbers stay (logged + reported, CrashLog).
+            app.safely("home load") { withContext(Dispatchers.IO) { load() } }?.let { _ui.value = it }
         }
     }
 

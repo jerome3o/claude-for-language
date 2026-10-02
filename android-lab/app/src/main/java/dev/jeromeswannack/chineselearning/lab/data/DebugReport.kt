@@ -266,6 +266,7 @@ class DebugReporter(
     private val http: OkHttpClient = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build(),
 ) {
     private val sp = context.getSharedPreferences("lab_debug", Context.MODE_PRIVATE)
+    private val appContext: Context = context.applicationContext ?: context
     private val busy = Mutex()
     private val _status = MutableStateFlow<String?>(null)
     /** What the last send did, for the settings sheet. */
@@ -278,7 +279,15 @@ class DebugReporter(
     /** Build + upload now. Throws on failure. */
     suspend fun send(nowMs: Long = System.currentTimeMillis()): Sent = withContext(Dispatchers.IO) {
         val token = repo.prefs.sessionToken ?: throw UnauthorizedException()
-        val report = DebugReportBuilder.build(repo.db, repo.prefs, appVersion, nowMs, lastRun = repo.status.value.lastRun)
+        val built = DebugReportBuilder.build(repo.db, repo.prefs, appVersion, nowMs, lastRun = repo.status.value.lastRun)
+        // Crashes / ANRs since the last report (CrashLog.kt): the only way we see them.
+        val crashes = CrashLog.pending(appContext)
+        val rt = Runtime.getRuntime()
+        val runtime = buildJsonObject {
+            put("max_heap_mb", rt.maxMemory() / 1_048_576)
+            put("used_heap_mb", (rt.totalMemory() - rt.freeMemory()) / 1_048_576)
+        }
+        val report = JsonObject(built + ("runtime" to runtime) + (if (crashes.isEmpty()) emptyMap() else mapOf("crashes" to crashes)))
         val body = buildJsonObject {
             put("client", "lab")
             put("app_version", appVersion)
@@ -300,6 +309,7 @@ class DebugReporter(
             }
             val id = Json.parseToJsonElement(text).jsonObject["report"]!!.jsonObject["id"]!!.jsonPrimitive.content
             sp.edit().putLong(LAST_UPLOAD, System.currentTimeMillis()).apply()
+            if (crashes.isNotEmpty()) CrashLog.clear(appContext)
             Sent(id, DebugReportBuilder.describe(report), Math.round(zipped.size / 102.4) / 10.0)
         }
     }
@@ -319,16 +329,20 @@ class DebugReporter(
         }
     }
 
-    /** After a sync: upload at most every 30 minutes. Never throws. */
+    /** After a sync: upload at most every 30 minutes (at once when a crash is waiting to be told). Never throws. */
     suspend fun sendIfDue(nowMs: Long = System.currentTimeMillis()) {
         if (repo.prefs.sessionToken == null) return
-        if (nowMs - sp.getLong(LAST_UPLOAD, 0) < AUTO_INTERVAL_MS) return
+        val crashWaiting = CrashLog.hasPendingUncaught(appContext)
+        if (!crashWaiting && nowMs - sp.getLong(LAST_UPLOAD, 0) < AUTO_INTERVAL_MS) return
         if (!busy.tryLock()) return
         // Stamp before trying: a failing upload waits for the next window too.
         sp.edit().putLong(LAST_UPLOAD, nowMs).apply()
         try {
             send(nowMs)
-        } catch (_: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            // Never a crash from a report (an OutOfMemoryError building one included).
         } finally {
             busy.unlock()
         }

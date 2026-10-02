@@ -130,7 +130,7 @@ class TodayViewModel(private val app: LabApp) : ViewModel() {
     }
 
     fun refresh() {
-        viewModelScope.launch { _ui.value = TodayHomeLoader.load(app) }
+        viewModelScope.launch { app.safely("today load") { TodayHomeLoader.load(app) }?.let { _ui.value = it } }
     }
 }
 

@@ -206,6 +206,12 @@ Jerome wants it at **full feature parity with the web app, to the same standard*
   **parity-tested against the TypeScript**: `./gradlew :core:test` regenerates golden vectors by
   running `shared/scheduler`, `shared/decks/budget.ts` and `frontend/src/utils/numberHanzi.ts`.
   Changing those TS files without the matching Kotlin change turns the Lab build red.
+- **Crashes are reported**: `data/CrashLog.kt` writes an uncaught exception's stack trace before the
+  process dies, records caught background failures (`LabApp.scope`'s handler, `app.safely { }`) and
+  reads Android's exit records (crash / ANR with its thread dump / low memory); all ride along in the
+  next debug report (`crashes`, summary visible in the MCP `list_debug_reports`). Non-critical
+  start-up work (Home / Today / Progress loads, landing counts, widget, audio fixer, "new characters
+  first") must go through `app.safely` / `app.scope` so a failure is reported, never a crash.
 - Native sign-in: `/api/auth/login?client=lab&nonce=…` → callback redirects to
   `chineselearning-lab://auth?session_token=…&nonce=…` (`NATIVE_AUTH_CLIENTS`, `services/auth.ts`).
 - **Google Play internal testing**: each `main` build also runs `:app:bundleRelease` (same key = the

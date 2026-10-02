@@ -140,6 +140,23 @@ export interface DebugReport {
   event_hashes: string[];
   /** Anything else worth knowing (free-form). */
   notes?: Record<string, unknown>;
+  /**
+   * Crashes since the last report (Lab: CrashLog.kt): uncaught exceptions written before the
+   * process died, non-fatal background failures, and the system's exit records (crash / ANR).
+   */
+  crashes?: DebugCrash[];
+}
+
+export interface DebugCrash {
+  /** 'uncaught' (our handler, thread "non-fatal: …" = caught background failure) | 'exit_info' (Android ApplicationExitInfo). */
+  source: string;
+  at: string;
+  app_version?: string;
+  thread?: string;
+  /** exit_info: crash | crash_native | anr | initialization_failure. */
+  reason?: string;
+  description?: string;
+  trace?: string;
 }
 
 /** The small summary stored in the D1 index row. */
@@ -154,6 +171,8 @@ export interface DebugReportSummary {
   events: number;
   unsynced_events: number;
   latest_reviewed_at: string | null;
+  /** Present when the report carried crashes: when, what, and the top of each trace. */
+  crashes?: Array<{ at: string; source: string; reason?: string; app_version?: string; head: string }>;
 }
 
 export function summarizeDebugReport(r: DebugReport): DebugReportSummary {
@@ -168,6 +187,17 @@ export function summarizeDebugReport(r: DebugReport): DebugReportSummary {
     events: r.totals?.events ?? 0,
     unsynced_events: r.totals?.unsynced_events ?? 0,
     latest_reviewed_at: r.totals?.latest_reviewed_at ?? null,
+    ...(Array.isArray(r.crashes) && r.crashes.length
+      ? {
+          crashes: r.crashes.slice(0, 10).map((c) => ({
+            at: String(c?.at ?? ''),
+            source: String(c?.source ?? ''),
+            ...(c?.reason ? { reason: String(c.reason) } : {}),
+            ...(c?.app_version ? { app_version: String(c.app_version) } : {}),
+            head: String(c?.trace || c?.description || '').slice(0, 1500),
+          })),
+        }
+      : {}),
   };
 }
 

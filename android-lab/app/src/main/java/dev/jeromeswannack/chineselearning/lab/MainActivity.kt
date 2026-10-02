@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (signedIn && app.online.value) lifecycleScope.launch { app.repo.sync() }
+        if (signedIn && app.online.value) lifecycleScope.launch { app.safely("sync on resume") { app.repo.sync() } }
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 authError = null
                 signedIn = true
                 notificationPermission.maybeAsk()
-                lifecycleScope.launch { app.repo.sync(forceFull = true) }
+                lifecycleScope.launch { app.safely("sync after sign-in") { app.repo.sync(forceFull = true) } }
             }
         }
     }

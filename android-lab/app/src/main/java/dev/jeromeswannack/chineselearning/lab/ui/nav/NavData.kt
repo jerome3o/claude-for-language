@@ -53,9 +53,9 @@ class ShellViewModel(private val app: LabApp) : ViewModel() {
                 // Deck / due counts only matter to an account with students (isTutorOnly, the
                 // automatic landing) — skip the queue build for everyone else.
                 val needsCounts = app.prefs.accountRole != "tutor" && rel?.students?.any { it.status == "active" } == true
-                val counts = if (!needsCounts) 1 to 1 else withContext(Dispatchers.IO) {
-                    app.repo.dao.decks().size to TodayCounts.compute(app).total
-                }
+                val counts = if (!needsCounts) 1 to 1 else app.safely("landing counts") {
+                    withContext(Dispatchers.IO) { app.repo.dao.decks().size to TodayCounts.compute(app).total }
+                } ?: (1 to 1)
                 val role = NavRules.deriveNavRole(rel, counts.first, counts.second, countsLoading = false, accountRole = app.prefs.accountRole)
                 val landing = _state.value?.landing ?: NavRules.LANDING_PATHS.getValue(
                     NavRules.resolveLanding(LandingPage.fromWire(app.prefs.landingPage), role.hasStudents, counts.second, countsLoading = false, isTutorAccount = role.isTutorAccount),
