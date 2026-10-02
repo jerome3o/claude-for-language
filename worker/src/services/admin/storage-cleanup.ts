@@ -98,6 +98,14 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     protectedReason: PERSON_MADE,
   },
   {
+    prefix: 'chat-media/',
+    what: 'Chat photos and voice messages (`chat-media/<conversationId>/<messageId>.<ext>`; the key is kept inside messages.attachment)',
+    writtenBy: 'routes/chat-messages.ts POST /api/conversations/:id/media (chatMediaKey)',
+    referencedBy: ['messages.attachment'],
+    collectable: false,
+    protectedReason: PERSON_MADE + ' (removed when the message is deleted, and by account deletion)',
+  },
+  {
     prefix: 'recordings/lessons/',
     what: 'Spoken answers in mini lessons',
     writtenBy: 'routes/lesson-attempts.ts',
@@ -182,6 +190,7 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'note_audio_recordings.audio_url', sql: 'SELECT audio_url AS v FROM note_audio_recordings WHERE audio_url IS NOT NULL' },
   { source: 'review_events.recording_url', sql: 'SELECT recording_url AS v FROM review_events WHERE recording_url IS NOT NULL' },
   { source: 'messages.recording_url', sql: 'SELECT recording_url AS v FROM messages WHERE recording_url IS NOT NULL' },
+  { source: 'messages.attachment', sql: 'SELECT attachment AS v FROM messages WHERE attachment IS NOT NULL' },
   { source: 'reader_pages.image_url', sql: 'SELECT image_url AS v FROM reader_pages WHERE image_url IS NOT NULL' },
   { source: 'roleplay_messages.image_url', sql: 'SELECT image_url AS v FROM roleplay_messages WHERE image_url IS NOT NULL' },
   { source: 'lesson_images.image_key', sql: 'SELECT image_key AS v FROM lesson_images WHERE image_key IS NOT NULL' },

@@ -41,6 +41,7 @@ import { Avatar } from '../components/tutor/StudentCard';
 import { dayLabel, minutes, percent, plural, relativeDay, shortDate, shortDateTime } from '../components/tutor/format';
 import '../components/tutor/tutor-dashboard.css';
 import './ConnectionDetailPage.css';
+import { lastMessagePreview } from '../services/chatThread';
 
 function formatConversationDate(dateStr: string) {
   const date = new Date(dateStr);
@@ -66,22 +67,38 @@ function ConversationsList({ relId, conversations, isLoading, onStart }: { relId
   }
   return (
     <div className="conversations-list">
-      {conversations.map((conv) => (
-        <Link key={conv.id} to={`/connections/${relId}/chat/${conv.id}`} className="conversation-item">
-          <div className="conversation-info">
-            <span className="conversation-title">{conv.title || 'Chat'}</span>
-            {conv.last_message && (
-              <span className="conversation-preview">
-                {conv.last_message.content.slice(0, 50)}
-                {conv.last_message.content.length > 50 ? '...' : ''}
+      {conversations.map((conv) => {
+        const preview = lastMessagePreview(conv.last_message);
+        const unread = conv.unread ?? 0;
+        return (
+          <Link
+            key={conv.id}
+            to={`/connections/${relId}/chat/${conv.id}`}
+            className={`conversation-item${unread > 0 ? ' has-unread' : ''}`}
+            data-testid="conversation-item"
+          >
+            <div className="conversation-info">
+              <span className="conversation-title">{conv.title || 'Chat'}</span>
+              {preview && (
+                <span className="conversation-preview">
+                  {preview.slice(0, 60)}
+                  {preview.length > 60 ? '…' : ''}
+                </span>
+              )}
+            </div>
+            <span className="conversation-side">
+              <span className="conversation-time">
+                {conv.last_message_at ? formatConversationDate(conv.last_message_at) : formatConversationDate(conv.created_at)}
               </span>
-            )}
-          </div>
-          <span className="conversation-time">
-            {conv.last_message_at ? formatConversationDate(conv.last_message_at) : formatConversationDate(conv.created_at)}
-          </span>
-        </Link>
-      ))}
+              {unread > 0 && (
+                <span className="conversation-unread" aria-label={`${unread} unread`} data-testid="conversation-unread">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </span>
+          </Link>
+        );
+      })}
     </div>
   );
 }

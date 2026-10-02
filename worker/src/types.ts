@@ -529,7 +529,9 @@ export interface Conversation {
 }
 
 export interface ConversationWithLastMessage extends Conversation {
-  last_message?: Message;
+  last_message?: Message & { attachment_kind?: ChatAttachment['kind'] | null };
+  /** Messages from the other person after my read marker (not deleted). */
+  unread?: number;
   other_user: Pick<User, 'id' | 'email' | 'name' | 'picture_url'>;
 }
 
@@ -551,7 +553,30 @@ export interface Message {
   segmentation: string | null; // JSON-stringified SentenceBreakdown
   /** The sender's idempotency key (docs/CHAT.md §2), when the client sent one. */
   client_id?: string | null;
+  /** Rich messages (docs/CHAT.md PR 2): set on ANY change after creation. */
+  updated_at?: string | null;
+  edited_at?: string | null;
+  /** Soft delete: content '' and attachment null. */
+  deleted_at?: string | null;
+  attachment?: ChatAttachment | null;
+  /** `/api/chat-media/<messageId>` when there is an attachment, else null. */
+  media_url?: string | null;
+  pinned_at?: string | null;
+  pinned_by?: string | null;
 }
+
+/** A photo or voice message (docs/CHAT.md PR 2) as clients see it — the R2 key is never sent. */
+export type ChatAttachment =
+  | { kind: 'image'; width: number; height: number; bytes: number; mime: string }
+  | {
+      kind: 'voice';
+      duration_ms: number;
+      bytes: number;
+      mime: string;
+      transcript_status: 'pending' | 'done' | 'failed';
+      transcript?: string | null;
+      translation?: string | null;
+    };
 
 export interface MessageReaction {
   emoji: string;
@@ -561,7 +586,7 @@ export interface MessageReaction {
 
 export interface MessageWithSender extends Message {
   sender: Pick<User, 'id' | 'name' | 'picture_url'>;
-  reply_to?: Pick<MessageWithSender, 'id' | 'content' | 'sender'> | null;
+  reply_to?: (Pick<MessageWithSender, 'id' | 'content' | 'sender'> & { deleted_at?: string | null }) | null;
   reactions?: MessageReaction[];
   has_discussion?: boolean;
 }

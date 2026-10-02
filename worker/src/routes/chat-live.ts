@@ -14,7 +14,7 @@
  */
 
 import { Hono } from 'hono';
-import type { Env, SendMessageRequest } from '../types';
+import type { Env, MessageWithSender, SendMessageRequest } from '../types';
 import * as db from '../db/queries';
 import { getConversationById, getMessages, normalizeClientId, sendMessage } from '../services/conversations';
 import {
@@ -29,11 +29,12 @@ import {
 import { notifyChatRead, notifyNewChatMessage } from '../services/chat/notify';
 import { deleteDeviceToken, DeviceTokenError, saveDeviceToken } from '../services/push/devices';
 import { createPurposeTicket, verifyPurposeTicket } from '../services/chat/ticket';
+import { translateMessageInBackground } from '../services/chat/messages';
 
 const chat = new Hono<{ Bindings: Env }>();
 
 /** `c.executionCtx` throws outside a real request (tests): then work is awaited inline. */
-async function background(c: { executionCtx: { waitUntil(p: Promise<unknown>): void } }, work: Promise<unknown>): Promise<void> {
+export async function background(c: { executionCtx: { waitUntil(p: Promise<unknown>): void } }, work: Promise<unknown>): Promise<void> {
   let ctx: { waitUntil(p: Promise<unknown>): void } | undefined;
   try {
     ctx = c.executionCtx;
@@ -83,40 +84,9 @@ chat.post('/conversations/:id/messages', async (c) => {
     if (duplicate) return c.json(message, 200);
 
     const env = c.env;
-    await background(c, (async () => {
-      try {
-        // Writing a message means I've read everything before it.
-        const unreadBefore = await countUnread(env.DB, convId, userId);
-        const read = await markConversationRead(env.DB, convId, userId, message.created_at);
-        const participants = await getConversationParticipants(env.DB, convId);
-        if (!participants) return;
-        const work: Promise<unknown>[] = [notifyNewChatMessage(env, message, { id: convId, relationship_id: participants.relationship_id })];
-        if (unreadBefore > 0 && read.moved && read.last_read_at) {
-          await db.markNotificationsReadByConversation(env.DB, userId, convId);
-          work.push(notifyChatRead(env, userId, participants, read.last_read_at));
-        }
-        await Promise.all(work);
-      } catch (err) {
-        console.error('[Notifications] Failed to send message notification:', err);
-      }
-    })());
-
-    // Auto-translate Chinese messages (non-blocking)
-    if (/[一-鿿]/.test(content) && env.ANTHROPIC_API_KEY) {
-      await background(c, (async () => {
-        try {
-          const { translateAndSegment } = await import('../services/translation');
-          const result = await translateAndSegment(env.ANTHROPIC_API_KEY, content);
-          await env.DB
-            .prepare('UPDATE messages SET translation = ?, segmentation = ? WHERE id = ?')
-            .bind(result.translation, JSON.stringify(result.segmentation), message.id)
-            .run();
-          console.log('[Translation] Auto-translated message', message.id);
-        } catch (err) {
-          console.error('[Translation] Auto-translate failed for message', message.id, err);
-        }
-      })());
-    }
+    await background(c, deliverSentMessage(env, convId, userId, message));
+    // Auto-translate Chinese messages (non-blocking); `message_updated` when it lands.
+    await background(c, translateMessageInBackground(env, message.id, content));
 
     return c.json(message, 201);
   } catch (error) {
@@ -124,6 +94,29 @@ chat.post('/conversations/:id/messages', async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+
+/**
+ * After a message (text, photo or voice) is stored: the sender has read
+ * everything before it, the recipient is notified (live, FCM, Web Push, the
+ * bell, e-mail, ntfy). Never throws.
+ */
+export async function deliverSentMessage(env: Env, convId: string, userId: string, message: MessageWithSender): Promise<void> {
+  try {
+    // Writing a message means I've read everything before it.
+    const unreadBefore = await countUnread(env.DB, convId, userId);
+    const read = await markConversationRead(env.DB, convId, userId, message.created_at);
+    const participants = await getConversationParticipants(env.DB, convId);
+    if (!participants) return;
+    const work: Promise<unknown>[] = [notifyNewChatMessage(env, message, { id: convId, relationship_id: participants.relationship_id })];
+    if (unreadBefore > 0 && read.moved && read.last_read_at) {
+      await db.markNotificationsReadByConversation(env.DB, userId, convId);
+      work.push(notifyChatRead(env, userId, participants, read.last_read_at));
+    }
+    await Promise.all(work);
+  } catch (err) {
+    console.error('[Notifications] Failed to send message notification:', err);
+  }
+}
 
 // ---------- Read markers ----------
 

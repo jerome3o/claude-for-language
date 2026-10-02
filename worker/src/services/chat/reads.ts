@@ -7,6 +7,7 @@
  */
 
 import { CLAUDE_AI_USER_ID } from '../../types';
+import { messagePreviewText, parseStoredAttachment, type ChatMediaKind } from './media';
 
 export interface ChatParticipants {
   conversation_id: string;
@@ -62,7 +63,7 @@ export async function getLastReadAt(db: D1Database, conversationId: string, user
 export async function countUnread(db: D1Database, conversationId: string, userId: string, lastReadAt?: string | null): Promise<number> {
   const marker = lastReadAt === undefined ? await getLastReadAt(db, conversationId, userId) : lastReadAt;
   const row = await db
-    .prepare('SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND sender_id != ? AND created_at > ?')
+    .prepare('SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND sender_id != ? AND deleted_at IS NULL AND created_at > ?')
     .bind(conversationId, userId, marker ?? '')
     .first<{ n: number }>();
   return Number(row?.n ?? 0);
@@ -138,6 +139,10 @@ export interface ChatInboxMessage {
   content: string;
   created_at: string;
   sender: InboxSender;
+  /** 'image' | 'voice' for a photo / voice message, else null. */
+  attachment_kind: ChatMediaKind | null;
+  /** What a notification shows: the text, or "📷 Photo" / "🎤 Voice message" (+ caption). */
+  preview: string;
 }
 
 export interface ChatInboxConversation {
@@ -178,24 +183,25 @@ export async function getChatInbox(db: D1Database, userId: string, since?: strin
   const from = since ?? new Date(now.getTime() - INBOX_DEFAULT_DAYS * 86_400_000).toISOString();
   const messages = await db
     .prepare(
-      `SELECT m.id, m.conversation_id, c.relationship_id, m.content, m.created_at,
+      `SELECT m.id, m.conversation_id, c.relationship_id, m.content, m.created_at, m.attachment,
               u.id AS sender_id, u.name AS sender_name, u.picture_url AS sender_picture
        ${MY_CHATS.replace('WHERE', 'JOIN messages m ON m.conversation_id = c.id JOIN users u ON u.id = m.sender_id WHERE')}
          AND m.sender_id != ?1
+         AND m.deleted_at IS NULL
          AND m.created_at > ?2
          AND m.created_at > COALESCE(cr.last_read_at, '')
        ORDER BY m.created_at ASC
        LIMIT ${INBOX_MESSAGE_LIMIT}`,
     )
     .bind(userId, from)
-    .all<{ id: string; conversation_id: string; relationship_id: string; content: string; created_at: string; sender_id: string; sender_name: string | null; sender_picture: string | null }>();
+    .all<{ id: string; conversation_id: string; relationship_id: string; content: string; created_at: string; attachment: string | null; sender_id: string; sender_name: string | null; sender_picture: string | null }>();
 
   const convs = await db
     .prepare(
       `SELECT * FROM (
          SELECT c.id AS conversation_id, c.relationship_id, c.title, cr.last_read_at,
                 CASE WHEN r.requester_id = ?1 THEN r.recipient_id ELSE r.requester_id END AS other_id,
-                (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.sender_id != ?1
+                (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.sender_id != ?1 AND m.deleted_at IS NULL
                     AND m.created_at > COALESCE(cr.last_read_at, '')) AS unread,
                 COALESCE((SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id), c.last_message_at) AS last_message_at
          ${MY_CHATS}
@@ -218,14 +224,19 @@ export async function getChatInbox(db: D1Database, userId: string, since?: strin
 
   return {
     server_time: now.toISOString(),
-    messages: (messages.results ?? []).map((m) => ({
-      id: m.id,
-      conversation_id: m.conversation_id,
-      relationship_id: m.relationship_id,
-      content: m.content,
-      created_at: m.created_at,
-      sender: { id: m.sender_id, name: m.sender_name, picture_url: m.sender_picture },
-    })),
+    messages: (messages.results ?? []).map((m) => {
+      const attachment = parseStoredAttachment(m.attachment);
+      return {
+        id: m.id,
+        conversation_id: m.conversation_id,
+        relationship_id: m.relationship_id,
+        content: m.content,
+        created_at: m.created_at,
+        sender: { id: m.sender_id, name: m.sender_name, picture_url: m.sender_picture },
+        attachment_kind: attachment?.kind ?? null,
+        preview: messagePreviewText({ content: m.content, attachment, deleted_at: null }),
+      };
+    }),
     conversations: convRows.map((r) => ({
       conversation_id: r.conversation_id,
       relationship_id: r.relationship_id,

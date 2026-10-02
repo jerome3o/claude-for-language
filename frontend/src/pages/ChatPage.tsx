@@ -1,19 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LiveCallBanner } from '../components/calls/CallBanner';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { base64ToBlob } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getRelationship,
-  getMessages,
-  sendMessage,
   generateFlashcardFromChat,
   generateResponseOptions,
   createNote,
-  createDeck,
   createConversation,
-  getDecks,
   getAIResponse,
   generateConversationTTS,
   checkMessage,
@@ -38,7 +34,7 @@ import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
 import { MessageActionSheet } from '../components/chat/MessageActionSheet';
-import { toolsForMessage } from '../components/chat/messageTools';
+import { toolsForMessage, manageToolsForMessage } from '../components/chat/messageTools';
 import type { MessageToolId } from '../components/chat/messageTools';
 import { InlineNotice, describeError } from '../components/chat/InlineNotice';
 import type { Notice } from '../components/chat/InlineNotice';
@@ -48,71 +44,32 @@ import { newestCreatedAt, useChatReadMarker } from '../services/chatNotification
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
-import { usePinnedDecks } from '../hooks/usePinnedDecks';
+import { DeckSelector, DeckSelectorWithCreate } from '../components/chat/DeckSelectors';
+import { FULL_EMOJI_LIST, getQuickEmojis, getRecentEmojis, saveRecentEmoji } from '../components/chat/emojis';
+import { useChatThread, type ChatMessage } from '../hooks/useChatThread';
+import { useChatScroll } from '../hooks/useChatScroll';
+import { firstUnreadId, receiptFor, shouldSendTyping } from '../services/chatThread';
+import { compressPhoto } from '../services/chatMedia';
+import { searchMessages } from '@shared/chats/search';
+import { editChatMessage, deleteChatMessage, pinChatMessage } from '../api/chat';
+import { PhotoBubble, PhotoViewer } from '../components/chat/PhotoBubble';
+import { VoiceBubble } from '../components/chat/VoiceBubble';
+import { VoiceComposer } from '../components/chat/VoiceComposer';
+import { PhotoComposeSheet } from '../components/chat/PhotoComposeSheet';
+import { PinnedBar } from '../components/chat/PinnedBar';
+import { ChatSearchBar } from '../components/chat/ChatSearchBar';
+import {
+  ConfirmDeleteSheet,
+  EditMessageSheet,
+  NewMessagesPill,
+  OutboxState,
+  ReceiptLine,
+  TypingIndicator,
+} from '../components/chat/ChatBits';
 import './ChatPage.css';
+import '../components/chat/chat-rich.css';
 
-const POLL_INTERVAL = 3000; // 3 seconds
 const LONG_PRESS_MS = 500;
-
-const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '👏', '🔥'];
-const FULL_EMOJI_LIST = [
-  // Smileys
-  '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😊',
-  '😇', '🥰', '😍', '🤩', '😘', '😗', '😋', '😛', '😜', '🤪',
-  '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '😐', '😑', '😶', '😏',
-  '😒', '🙄', '😬', '😮‍💨', '🤥', '😌', '😔', '😪', '🤤', '😴',
-  '😷', '🤒', '🤕', '🤢', '🤮', '🥵', '🥶', '🥴', '😵', '🤯',
-  '🤠', '🥳', '🥸', '😎', '🤓', '🧐', '😕', '😟', '🙁', '😮',
-  '😯', '😲', '😳', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬',
-  // Gestures & People
-  '👋', '🤚', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟',
-  '🤘', '🤙', '👈', '👉', '👆', '👇', '☝️', '👍', '👎', '✊',
-  '👊', '🤛', '🤜', '👏', '🙌', '🤲', '🤝', '🙏', '💪', '🦾',
-  // Hearts & Symbols
-  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔',
-  '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '♥️',
-  '💯', '💢', '💥', '💫', '💦', '💨', '🕳️', '💣', '💬', '💭',
-  // Objects & Nature
-  '🔥', '⭐', '🌟', '✨', '⚡', '🎉', '🎊', '🎈', '🎁', '🏆',
-  '🥇', '🥈', '🥉', '🏅', '🎯', '🎵', '🎶', '🔔', '📣', '📢',
-  '🌈', '☀️', '🌤️', '⛅', '🌙', '🌸', '🌺', '🌻', '🌹', '🍀',
-  // Food & Animals
-  '🐶', '🐱', '🐭', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁',
-  '🍎', '🍕', '🍔', '🍣', '🍜', '🍦', '🍰', '🧁', '☕', '🍵',
-];
-
-const RECENT_EMOJIS_KEY = 'chat-recent-emojis';
-const MAX_RECENT = 5;
-
-function getRecentEmojis(): string[] {
-  try {
-    const stored = localStorage.getItem(RECENT_EMOJIS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentEmoji(emoji: string) {
-  try {
-    const recent = getRecentEmojis().filter((e) => e !== emoji);
-    recent.unshift(emoji);
-    localStorage.setItem(RECENT_EMOJIS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
-  } catch {
-    // localStorage unavailable — recents are a convenience only
-  }
-}
-
-function getQuickEmojis(): string[] {
-  const recent = getRecentEmojis();
-  if (recent.length === 0) return DEFAULT_EMOJIS;
-  // Merge: recent first, then fill with defaults that aren't in recent
-  const merged = [...recent];
-  for (const e of DEFAULT_EMOJIS) {
-    if (!merged.includes(e) && merged.length < 6) merged.push(e);
-  }
-  return merged.slice(0, 6);
-}
 
 export function ChatPage() {
   const { relId, convId } = useParams<{ relId: string; convId: string }>();
@@ -120,7 +77,6 @@ export function ChatPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { isOnline } = useNetwork();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
   // `?new=1` (or `/chat/new`) opens a fresh, untitled conversation for the
@@ -129,9 +85,23 @@ export function ChatPage() {
   const creatingRef = useRef(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const [newMessages, setNewMessages] = useState<MessageWithSender[]>([]);
-  const [lastTimestamp, setLastTimestamp] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Rich messages (docs/CHAT.md PR 2)
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<{ blob: Blob; width: number; height: number } | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [viewer, setViewer] = useState<{ url: string; caption: string | null } | null>(null);
+  const [editing, setEditing] = useState<ChatMessage | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<ChatMessage | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedCard, setGeneratedCard] = useState<{
     hanzi: string;
@@ -218,8 +188,11 @@ export function ChatPage() {
 
   // Reset state when conversation changes
   useEffect(() => {
-    setNewMessages([]);
-    setLastTimestamp(null);
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchIndex(0);
+    setRecording(false);
+    setPendingPhoto(null);
     setCheckResults(new Map());
     setWordByWord(new Set());
     setNotice(null);
@@ -281,133 +254,189 @@ export function ChatPage() {
   const conversation = conversationsQuery.data?.find((c) => c.id === convId);
   const isAIConversation = conversation?.is_ai_conversation ?? false;
 
-  // Initial messages load
-  const initialMessagesQuery = useQuery({
-    queryKey: ['messages', convId],
-    queryFn: () => getMessages(convId!),
-    enabled: !!convId && !wantsNew,
-    staleTime: 0, // Always refetch when navigating back
-  });
+  const me = useMemo(
+    () => (user ? { id: user.id, name: user.name ?? null, picture_url: user.picture_url ?? null } : null),
+    [user],
+  );
+  const myId = user?.id ?? '';
 
-  // Set lastTimestamp when initial messages load
-  useEffect(() => {
-    if (initialMessagesQuery.data) {
-      setLastTimestamp(initialMessagesQuery.data.latest_timestamp);
-    }
-  }, [initialMessagesQuery.data]);
-
-  // Polling for new messages
-  const pollMessages = useCallback(async () => {
-    if (!convId || !lastTimestamp) return;
+  // Claude's practice chat answers each message of mine once the server has it.
+  const askAI = async () => {
+    setIsWaitingForAI(true);
     try {
-      const result = await getMessages(convId, lastTimestamp);
-      if (result.messages.length > 0) {
-        // Deduplicate: only add messages not already in state
-        // This prevents duplicates when polls race with sendMutation
-        setNewMessages((prev) => {
-          const existingIds = new Set(prev.map((m) => m.id));
-          const uniqueNew = result.messages.filter((m) => !existingIds.has(m.id));
-          if (uniqueNew.length === 0) return prev; // No change, avoid re-render
-          return [...prev, ...uniqueNew];
-        });
-        setLastTimestamp(result.latest_timestamp);
+      const response = await getAIResponse(convId!);
+      thread.applyMessage(response.message);
+      if (response.audio_base64 && response.audio_content_type) {
+        playBase64Audio(response.audio_base64, response.audio_content_type, response.message.id);
       }
     } catch (error) {
-      console.error('Polling error:', error);
+      console.error('Failed to get AI response:', error);
+      showError("Claude couldn't reply. Your message was sent — try sending another to retry.", error);
+    } finally {
+      setIsWaitingForAI(false);
     }
-  }, [convId, lastTimestamp]);
+  };
+  const askAIRef = useRef(askAI);
+  askAIRef.current = askAI;
 
-  useEffect(() => {
-    if (!convId || !lastTimestamp) return;
-    const interval = setInterval(pollMessages, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [convId, lastTimestamp, pollMessages]);
-
-  // Combine initial messages with new messages from polling, deduplicated by ID
-  // Deduplication is necessary because:
-  // 1. In-flight polls may return messages that were just sent (race condition)
-  // 2. For AI conversations, polling may fetch AI response before getAIResponse returns
-  // 3. initialMessagesQuery refetches (staleTime: 0) may overlap with newMessages
-  const allMessages = [...(initialMessagesQuery.data?.messages || []), ...newMessages];
-  const seenIds = new Set<string>();
-  const messages = allMessages.filter((msg) => {
-    if (seenIds.has(msg.id)) return false;
-    seenIds.add(msg.id);
-    return true;
+  const thread = useChatThread(wantsNew ? undefined : convId, me, {
+    onDelivered: () => {
+      if (isAIConversation) void askAIRef.current();
+    },
   });
+  const messages = thread.messages;
+  const serverMessages = thread.serverMessages;
 
   // Open + visible: close this chat's notifications and move the read marker (docs/CHAT.md).
-  useChatReadMarker(wantsNew ? undefined : convId, newestCreatedAt(messages));
+  useChatReadMarker(wantsNew ? undefined : convId, newestCreatedAt(serverMessages));
 
-  // A push for this chat arrived (the service worker tells every tab): fetch at once
-  // instead of waiting for the next poll.
-  useEffect(() => {
-    if (!convId || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data?.type === 'push' ? event.data.data : null;
-      if (data?.type === 'chat_message' && data.conversation_id === convId) void pollMessages();
-    };
-    navigator.serviceWorker.addEventListener('message', onMessage);
-    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
-  }, [convId, pollMessages]);
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
-
-  const sendMutation = useMutation({
-    mutationFn: ({ content, replyToId }: { content: string; replyToId?: string }) =>
-      sendMessage(convId!, content, replyToId),
-    onSuccess: async (newMsg) => {
-      // Add user's message, deduplicating in case poll already added it
-      setNewMessages((prev) => {
-        if (prev.some((m) => m.id === newMsg.id)) return prev;
-        return [...prev, newMsg];
-      });
-      setLastTimestamp(newMsg.created_at);
-      setNewMessage('');
-      setReplyingTo(null);
-
-      // If AI conversation, auto-trigger AI response
-      if (isAIConversation) {
-        setIsWaitingForAI(true);
-        try {
-          const response = await getAIResponse(convId!);
-          // Add AI's message, deduplicating in case poll already added it
-          setNewMessages((prev) => {
-            if (prev.some((m) => m.id === response.message.id)) return prev;
-            return [...prev, response.message];
-          });
-          setLastTimestamp(response.message.created_at);
-
-          // Play audio if available
-          if (response.audio_base64 && response.audio_content_type) {
-            playBase64Audio(response.audio_base64, response.audio_content_type, response.message.id);
-          }
-        } catch (error) {
-          console.error('Failed to get AI response:', error);
-          showError("Claude couldn't reply. Your message was sent — try sending another to retry.", error);
-        } finally {
-          setIsWaitingForAI(false);
-        }
-      }
-    },
-    onError: (error) => {
-      console.error('Failed to send message:', error);
-      showError("Couldn't send your message. It's still in the box below — try again.", error);
-    },
+  const otherUserForTyping = relationshipQuery.data && user ? getOtherUserInRelationship(relationshipQuery.data, user.id) : null;
+  const dividerId = useMemo(
+    () => (isAIConversation ? null : firstUnreadId(serverMessages, myId, thread.readMarkerAtOpen)),
+    // The divider stays where it was when the chat opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [thread.openedAt, isAIConversation, myId, thread.readMarkerAtOpen, serverMessages.length > 0],
+  );
+  const showTyping = thread.otherTyping && !isAIConversation;
+  const scroll = useChatScroll({
+    messages,
+    myId,
+    ready: thread.openedAt !== null,
+    dividerId,
+    resetKey: convId,
+    followKey: `${showTyping}-${isWaitingForAI}`,
   });
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim() || sendMutation.isPending || isWaitingForAI) return;
-    if (!isOnline) {
-      setNotice({ kind: 'error', text: "You're offline. Messages can't be sent until you're back online." });
-      return;
+  // Search inside the chat (shared rules: shared/chats/search.ts).
+  const searchHits = useMemo(
+    () => (searchOpen && searchQuery.trim() ? searchMessages(serverMessages, searchQuery) : []),
+    [searchOpen, searchQuery, serverMessages],
+  );
+  const currentHit = searchHits.length ? searchHits[Math.min(searchIndex, searchHits.length - 1)] : null;
+  useEffect(() => {
+    if (currentHit) scroll.jumpTo(currentHit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentHit]);
+
+  const pinned = useMemo(
+    () =>
+      serverMessages
+        .filter((m) => m.pinned_at && !m.deleted_at)
+        .sort((a, b) => ((a.pinned_at || '') < (b.pinned_at || '') ? 1 : -1)),
+    [serverMessages],
+  );
+
+  // Typing frames: at most every 2.5 s while the box is non-empty and changing.
+  const lastTypingSent = useRef(0);
+  const noteTyping = (text: string) => {
+    if (isAIConversation) return;
+    const now = Date.now();
+    if (shouldSendTyping(text, lastTypingSent.current, now)) {
+      lastTypingSent.current = now;
+      thread.sendTyping();
     }
+  };
+
+  const resetInputHeight = () => {
+    if (inputRef.current) inputRef.current.style.height = 'auto';
+  };
+
+  const handleSend = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const text = newMessage.trim();
+    if (!text || isWaitingForAI || !convId) return;
     setNotice(null);
-    sendMutation.mutate({ content: newMessage.trim(), replyToId: replyingTo?.id });
+    void thread.sendText(text, replyingTo).catch((error) => showError("Couldn't queue your message.", error));
+    setNewMessage('');
+    setReplyingTo(null);
+    lastTypingSent.current = 0;
+    resetInputHeight();
+  };
+
+  // Photos: pick → compress on the device → caption sheet → outbox.
+  const handlePhotoPicked = async (file: File | undefined) => {
+    if (!file) return;
+    setNotice(null);
+    setPreparingPhoto(true);
+    try {
+      setPendingPhoto(await compressPhoto(file));
+    } catch (error) {
+      showError("Couldn't read that picture.", error);
+    } finally {
+      setPreparingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const sendPhoto = (caption: string) => {
+    if (!pendingPhoto) return;
+    void thread
+      .sendMedia({ kind: 'image', blob: pendingPhoto.blob, width: pendingPhoto.width, height: pendingPhoto.height, caption, replyTo: replyingTo })
+      .catch((error) => showError("Couldn't queue the photo.", error));
+    setPendingPhoto(null);
+    setReplyingTo(null);
+  };
+
+  const sendVoice = (blob: Blob, durationMs: number) => {
+    setRecording(false);
+    void thread
+      .sendMedia({ kind: 'voice', blob, duration_ms: durationMs, replyTo: replyingTo })
+      .catch((error) => showError("Couldn't queue the voice message.", error));
+    setReplyingTo(null);
+  };
+
+  // Edit / delete / pin: shown at once, the server's copy replaces it.
+  const isMessageWithSender = (m: unknown): m is MessageWithSender => !!m && typeof (m as { id?: unknown }).id === 'string';
+
+  const saveEdit = async (text: string) => {
+    if (!editing) return;
+    const msg = editing;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const updated = await editChatMessage(msg.id, text);
+      thread.applyMessage(isMessageWithSender(updated) ? updated : { ...msg, content: text, edited_at: new Date().toISOString() });
+      setEditing(null);
+      void thread.pollNow();
+    } catch (error) {
+      setEditError(describeError(error, "Couldn't save the edit."));
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    const msg = deleting;
+    setDeleteBusy(true);
+    try {
+      const res = await deleteChatMessage(msg.id);
+      thread.applyMessage(
+        isMessageWithSender(res) ? res : { ...msg, content: '', attachment: null, media_url: null, deleted_at: new Date().toISOString() },
+      );
+      setDeleting(null);
+      void thread.pollNow();
+    } catch (error) {
+      setDeleting(null);
+      showError("Couldn't delete the message.", error);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  const togglePin = async (msg: MessageWithSender) => {
+    const pinnedNow = !msg.pinned_at;
+    try {
+      const res = await pinChatMessage(msg.id, pinnedNow);
+      thread.applyMessage(
+        isMessageWithSender(res)
+          ? res
+          : { ...msg, pinned_at: pinnedNow ? new Date().toISOString() : null, pinned_by: pinnedNow ? myId : null },
+      );
+      void thread.pollNow();
+    } catch (error) {
+      showError(pinnedNow ? "Couldn't pin the message." : "Couldn't unpin the message.", error);
+    }
   };
 
   const handleReaction = async (messageId: string, emoji: string) => {
@@ -821,6 +850,17 @@ export function ChatPage() {
       case 'copy':
         handleCopy(msg);
         break;
+      case 'pin':
+      case 'unpin':
+        void togglePin(msg);
+        break;
+      case 'edit':
+        setEditError(null);
+        setEditing(msg);
+        break;
+      case 'delete':
+        setDeleting(msg);
+        break;
       case 'react':
         break;
     }
@@ -845,17 +885,18 @@ export function ChatPage() {
     return <Loading message="Starting a new conversation..." />;
   }
 
-  if (initialMessagesQuery.isLoading || relationshipQuery.isLoading) {
+  if (thread.isLoading || relationshipQuery.isLoading) {
     return <Loading />;
   }
 
-  if (initialMessagesQuery.error || relationshipQuery.error) {
+  if (thread.error || relationshipQuery.error) {
     return <ErrorMessage message="Failed to load chat" />;
   }
 
   const relationship = relationshipQuery.data!;
   const otherUser = getOtherUserInRelationship(relationship, user!.id);
   const viewerRole = getMyRoleInRelationship(relationship, user!.id);
+  const otherFirstName = (otherUserForTyping?.name || 'They').split(' ')[0];
 
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -877,7 +918,7 @@ export function ChatPage() {
   };
 
   // Group messages by date
-  const messagesByDate: { date: string; messages: MessageWithSender[] }[] = [];
+  const messagesByDate: { date: string; messages: ChatMessage[] }[] = [];
   let currentDate = '';
   for (const msg of messages) {
     const msgDate = new Date(msg.created_at).toDateString();
@@ -890,16 +931,235 @@ export function ChatPage() {
   }
 
   // A message's check status is whatever we learnt locally, else what the server stored.
-  const withCheckStatus = (msg: MessageWithSender): MessageWithSender => {
+  const withCheckStatus = <T extends MessageWithSender>(msg: T): T => {
     const local = checkResults.get(msg.id);
     return local ? { ...msg, check_status: local.status } : msg;
   };
 
   const sheetTools = sheet
-    ? toolsForMessage(withCheckStatus(sheet.message), viewerRole, isAIConversation, user!.id).menu
+    ? [
+        ...toolsForMessage(withCheckStatus(sheet.message), viewerRole, isAIConversation, user!.id).menu,
+        ...manageToolsForMessage(sheet.message, isAIConversation, user!.id),
+      ]
     : [];
 
   const chatToolsBlocked = !isOnline;
+  const receipt = isAIConversation ? null : receiptFor(serverMessages, myId, thread.readState.other);
+  const hitSet = new Set(searchHits);
+  const composerEmpty = !newMessage.trim();
+
+  const renderBody = (msg: ChatMessage, isMe: boolean, hasChinese: boolean) => {
+    if (msg.deleted_at) {
+      return <span className="chat-deleted-text">Message deleted</span>;
+    }
+    const att = msg.attachment;
+    if (att?.kind === 'image') {
+      return (
+        <>
+          <PhotoBubble
+            messageId={msg.id}
+            mediaUrl={msg.media_url}
+            width={att.width}
+            height={att.height}
+            localBlob={msg.outbox?.blob}
+            onOpen={(url) => setViewer({ url, caption: msg.content || null })}
+          />
+          {msg.content && <div className="chat-photo-caption">{msg.content}</div>}
+        </>
+      );
+    }
+    if (att?.kind === 'voice') {
+      return (
+        <VoiceBubble
+          messageId={msg.id}
+          mediaUrl={msg.media_url}
+          durationMs={att.duration_ms}
+          localBlob={msg.outbox?.blob}
+          transcriptStatus={msg.outbox ? undefined : att.transcript_status}
+          transcript={att.transcript}
+          translation={att.translation}
+        />
+      );
+    }
+    if (!isMe && hasChinese) {
+      return (
+        <InteractiveMessage
+          message={msg}
+          showTranslation={wordByWord.has(msg.id)}
+          onSaveWord={handleSaveWordFromChat}
+          onError={(text) => setNotice({ kind: 'error', text })}
+        />
+      );
+    }
+    const checkStatus = msg.check_status;
+    // A video-call invite ("join here: …/calls/<id>") shows a Join button instead of the raw link.
+    const callId = /https?:\/\/\S+\/calls\/([A-Za-z0-9_-]{8,})/.exec(msg.content)?.[1];
+    return (
+      <>
+        {callId ? (
+          <>
+            {msg.content.replace(/\s*(—\s*join here:)?\s*https?:\/\/\S+\/calls\/\S+/, '')}
+            <Link to={`/calls/${callId}`} className="chat-call-link" onClick={(e) => e.stopPropagation()}>📹 Join the call</Link>
+          </>
+        ) : (
+          msg.content
+        )}
+        {isMe && checkStatus && (
+          <button
+            type="button"
+            className={`check-status ${checkStatus}`}
+            onClick={() => openCheckResult(msg)}
+            title={checkStatus === 'correct' ? 'Checked — looks good' : 'View corrections'}
+            aria-label={checkStatus === 'correct' ? 'Checked — looks good' : 'View corrections'}
+          >
+            {checkStatus === 'correct' ? '✓' : '⚠'}
+          </button>
+        )}
+      </>
+    );
+  };
+
+  const renderMessage = (rawMsg: ChatMessage) => {
+    const msg = withCheckStatus(rawMsg);
+    const isMe = msg.sender_id === user!.id;
+    const isAI = isClaudeUser(msg.sender_id);
+    const isPlaying = playingAudioMessageId === msg.id;
+    const isChecking = checkingMessageId === msg.id;
+    const isTranslating = translatingMessageId === msg.id;
+    const isDeleted = !!msg.deleted_at;
+    const pending = msg.outbox;
+    const kind = msg.attachment?.kind ?? null;
+    const tools = toolsForMessage(msg, viewerRole, isAIConversation, user!.id);
+    const canPlay = !kind && !isDeleted && tools.inline.some((t) => t.id === 'play');
+    const interactive = !pending && !isDeleted;
+    const classes = [
+      'chat-message',
+      isMe ? 'sent' : 'received',
+      hitSet.has(msg.id) ? 'search-hit' : '',
+      currentHit === msg.id ? 'search-current' : '',
+      scroll.flashId === msg.id ? 'flash' : '',
+      pending ? `outbox-${pending.status}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    return (
+      <div key={msg.id}>
+        {dividerId === msg.id && (
+          <div className="chat-unread-divider" data-unread-divider data-testid="chat-unread-divider">
+            <span>New messages</span>
+          </div>
+        )}
+        <div className={classes} data-msg-id={msg.id} data-testid="chat-message">
+          {!isMe && (
+            <div className="chat-message-avatar">
+              {msg.sender.picture_url ? (
+                <img src={msg.sender.picture_url} alt="" />
+              ) : (
+                <div className="placeholder">{isAI ? '🤖' : (msg.sender.name || '?')[0].toUpperCase()}</div>
+              )}
+            </div>
+          )}
+          <div className="chat-message-content">
+            {msg.reply_to && !isDeleted && (
+              <button type="button" className="reply-preview" onClick={() => scroll.jumpTo(msg.reply_to!.id)}>
+                <span className="reply-preview-name">{msg.reply_to.sender.name || 'Unknown'}</span>
+                <span className="reply-preview-text">
+                  {msg.reply_to.deleted_at
+                    ? 'Message deleted'
+                    : msg.reply_to.content.length > 60
+                      ? msg.reply_to.content.slice(0, 60) + '...'
+                      : msg.reply_to.content || '📎 Attachment'}
+                </span>
+              </button>
+            )}
+            <div
+              className={`chat-bubble${isDeleted ? ' deleted' : ''}${kind ? ` has-${kind}` : ''}${kind === 'image' && !msg.content ? ' photo-only' : ''}`}
+              onPointerDown={interactive ? startPress(msg) : undefined}
+              onPointerMove={movePress}
+              onPointerUp={clearPress}
+              onPointerCancel={clearPress}
+              onPointerLeave={clearPress}
+              onContextMenu={(e) => {
+                // A touch long-press also fires contextmenu; keep the native menu out of the way.
+                if (pressTimer.current || Date.now() - pressFiredAt.current < 1000) e.preventDefault();
+              }}
+            >
+              {renderBody(msg, isMe, tools.hasChinese)}
+            </div>
+            {!isDeleted && msg.reactions && msg.reactions.length > 0 && (
+              <div className="message-reactions">
+                {msg.reactions.map((r) => (
+                  <button
+                    key={r.emoji}
+                    className={`reaction-badge ${r.users.some((u) => u.id === user!.id) ? 'mine' : ''}`}
+                    onClick={() => handleReaction(msg.id, r.emoji)}
+                    title={r.users.map((u) => u.name || 'Unknown').join(', ')}
+                  >
+                    {r.emoji} {r.count > 1 ? r.count : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="chat-message-meta">
+              {pending ? (
+                <OutboxState
+                  status={pending.status}
+                  onRetry={() => thread.retry(pending.client_id)}
+                  onDiscard={() => thread.discard(pending.client_id)}
+                />
+              ) : (
+                <span className="chat-time">{formatTime(msg.created_at)}</span>
+              )}
+              {msg.edited_at && !isDeleted && <span className="chat-edited">edited</span>}
+              {msg.pinned_at && !isDeleted && <span className="chat-pinned-mark" title="Pinned">📌</span>}
+              {receipt?.messageId === msg.id && <ReceiptLine kind={receipt.kind} />}
+              {msg.recording_url && <span className="has-recording" title="Has recording">🎤</span>}
+              {isChecking && (
+                <span className="msg-status" role="status">
+                  <span className="chat-spinner" aria-hidden="true" /> Checking…
+                </span>
+              )}
+              {isTranslating && (
+                <span className="msg-status" role="status">
+                  <span className="chat-spinner" aria-hidden="true" /> Translating…
+                </span>
+              )}
+              {interactive && (
+                <div className="chat-message-actions">
+                  <button type="button" className="msg-action-btn" onClick={() => setReplyingTo(msg)} title="Reply" aria-label="Reply">
+                    ↩
+                  </button>
+                  {canPlay && (
+                    <button
+                      type="button"
+                      className={`msg-action-btn ${isPlaying ? 'playing' : ''}`}
+                      onClick={() => handlePlayMessageAudio(msg)}
+                      disabled={chatToolsBlocked && !isPlaying}
+                      title={chatToolsBlocked ? 'Play needs internet' : isPlaying ? 'Stop' : 'Play audio'}
+                      aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
+                    >
+                      {isPlaying ? '⏹' : '🔊'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="msg-action-btn msg-more-btn"
+                    onClick={(e) => openSheet(msg, e.currentTarget.getBoundingClientRect())}
+                    title="More actions"
+                    aria-label="More actions"
+                    aria-haspopup="dialog"
+                  >
+                    ⋯
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="chat-page">
@@ -919,10 +1179,28 @@ export function ChatPage() {
               {otherUser.name || 'Unknown'}
               {isAIConversation && <span className="ai-badge">AI</span>}
             </span>
-            {conversation?.title && <span className="chat-header-title">{conversation.title}</span>}
+            {showTyping ? (
+              <span className="chat-header-title chat-header-typing">typing…</span>
+            ) : (
+              conversation?.title && <span className="chat-header-title">{conversation.title}</span>
+            )}
           </div>
         </div>
         <div className="chat-header-actions">
+          <button
+            type="button"
+            className={`btn btn-sm btn-secondary chat-search-btn${searchOpen ? ' active' : ''}`}
+            onClick={() => {
+              setSearchOpen((v) => !v);
+              setSearchQuery('');
+              setSearchIndex(0);
+            }}
+            aria-label="Search messages"
+            aria-pressed={searchOpen}
+            title="Search this chat"
+          >
+            🔍
+          </button>
           <SpinnerButton
             type="button"
             className="btn btn-sm btn-secondary chat-card-btn"
@@ -945,6 +1223,26 @@ export function ChatPage() {
           </button>
         </div>
       </div>
+
+      {searchOpen && (
+        <ChatSearchBar
+          query={searchQuery}
+          onQuery={(q) => {
+            setSearchQuery(q);
+            setSearchIndex(0);
+          }}
+          count={searchHits.length}
+          index={Math.min(searchIndex, Math.max(0, searchHits.length - 1))}
+          onOlder={() => setSearchIndex((i) => Math.min(i + 1, Math.max(0, searchHits.length - 1)))}
+          onNewer={() => setSearchIndex((i) => Math.max(0, i - 1))}
+          onClose={() => {
+            setSearchOpen(false);
+            setSearchQuery('');
+          }}
+        />
+      )}
+
+      {!searchOpen && <PinnedBar pinned={pinned} onJump={(id) => scroll.jumpTo(id)} />}
 
       {!isAIConversation && <ChatNotifyNudge />}
 
@@ -1015,187 +1313,39 @@ export function ChatPage() {
       )}
 
       {/* Messages */}
-      <div className="chat-messages">
-        {messages.length === 0 ? (
-          <div className="chat-empty">
-            <p>{isAIConversation ? 'Start practicing Chinese!' : 'Start the conversation!'}</p>
-          </div>
-        ) : (
-          messagesByDate.map((group, i) => (
-            <div key={i} className="chat-date-group">
-              <div className="chat-date-divider">
-                <span>{formatDate(group.date)}</span>
+      <div className="chat-messages-wrap">
+        <div className="chat-messages" ref={scroll.containerRef} onScroll={scroll.onScroll}>
+          {messages.length === 0 ? (
+            <div className="chat-empty">
+              <p>{isAIConversation ? 'Start practicing Chinese!' : 'Start the conversation!'}</p>
+            </div>
+          ) : (
+            messagesByDate.map((group) => (
+              <div key={group.date.slice(0, 10) + group.messages[0].id} className="chat-date-group">
+                <div className="chat-date-divider">
+                  <span>{formatDate(group.date)}</span>
+                </div>
+                {group.messages.map(renderMessage)}
               </div>
-              {group.messages.map((rawMsg) => {
-                const msg = withCheckStatus(rawMsg);
-                const isMe = msg.sender_id === user!.id;
-                const isAI = isClaudeUser(msg.sender_id);
-                const isPlaying = playingAudioMessageId === msg.id;
-                const isChecking = checkingMessageId === msg.id;
-                const isTranslating = translatingMessageId === msg.id;
-                const tools = toolsForMessage(msg, viewerRole, isAIConversation, user!.id);
-                const canPlay = tools.inline.some((t) => t.id === 'play');
-                const checkStatus = msg.check_status;
-
-                return (
-                  <div key={msg.id} className={`chat-message ${isMe ? 'sent' : 'received'}`}>
-                    {!isMe && (
-                      <div className="chat-message-avatar">
-                        {msg.sender.picture_url ? (
-                          <img src={msg.sender.picture_url} alt="" />
-                        ) : (
-                          <div className="placeholder">
-                            {isAI ? '🤖' : (msg.sender.name || '?')[0].toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <div className="chat-message-content">
-                      {/* Reply preview */}
-                      {msg.reply_to && (
-                        <div className="reply-preview">
-                          <span className="reply-preview-name">{msg.reply_to.sender.name || 'Unknown'}</span>
-                          <span className="reply-preview-text">
-                            {msg.reply_to.content.length > 60 ? msg.reply_to.content.slice(0, 60) + '...' : msg.reply_to.content}
-                          </span>
-                        </div>
-                      )}
-                      <div
-                        className="chat-bubble"
-                        onPointerDown={startPress(msg)}
-                        onPointerMove={movePress}
-                        onPointerUp={clearPress}
-                        onPointerCancel={clearPress}
-                        onPointerLeave={clearPress}
-                        onContextMenu={(e) => {
-                          // A touch long-press also fires contextmenu; keep the native menu out of the way.
-                          if (pressTimer.current || Date.now() - pressFiredAt.current < 1000) e.preventDefault();
-                        }}
-                      >
-                        {!isMe && tools.hasChinese ? (
-                          <InteractiveMessage
-                            message={msg}
-                            showTranslation={wordByWord.has(msg.id)}
-                            onSaveWord={handleSaveWordFromChat}
-                            onError={(text) => setNotice({ kind: 'error', text })}
-                          />
-                        ) : (
-                          <>
-                            {/* A video-call invite ("join here: …/calls/<id>") shows a Join button instead of the raw link. */}
-                            {(() => {
-                              const callId = /https?:\/\/\S+\/calls\/([A-Za-z0-9_-]{8,})/.exec(msg.content)?.[1];
-                              if (!callId) return msg.content;
-                              return (
-                                <>
-                                  {msg.content.replace(/\s*(—\s*join here:)?\s*https?:\/\/\S+\/calls\/\S+/, '')}
-                                  <Link to={`/calls/${callId}`} className="chat-call-link" onClick={(e) => e.stopPropagation()}>📹 Join the call</Link>
-                                </>
-                              );
-                            })()}
-                            {/* Check status indicator */}
-                            {isMe && checkStatus && (
-                              <button
-                                type="button"
-                                className={`check-status ${checkStatus}`}
-                                onClick={() => openCheckResult(msg)}
-                                title={checkStatus === 'correct' ? 'Checked — looks good' : 'View corrections'}
-                                aria-label={checkStatus === 'correct' ? 'Checked — looks good' : 'View corrections'}
-                              >
-                                {checkStatus === 'correct' ? '✓' : '⚠'}
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      {/* Reactions display */}
-                      {msg.reactions && msg.reactions.length > 0 && (
-                        <div className="message-reactions">
-                          {msg.reactions.map((r) => (
-                            <button
-                              key={r.emoji}
-                              className={`reaction-badge ${r.users.some((u) => u.id === user!.id) ? 'mine' : ''}`}
-                              onClick={() => handleReaction(msg.id, r.emoji)}
-                              title={r.users.map((u) => u.name || 'Unknown').join(', ')}
-                            >
-                              {r.emoji} {r.count > 1 ? r.count : ''}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      <div className="chat-message-meta">
-                        <span className="chat-time">{formatTime(msg.created_at)}</span>
-                        {/* Recording indicator */}
-                        {msg.recording_url && (
-                          <span className="has-recording" title="Has recording">🎤</span>
-                        )}
-                        {/* Inline progress for the AI tools */}
-                        {isChecking && (
-                          <span className="msg-status" role="status">
-                            <span className="chat-spinner" aria-hidden="true" /> Checking…
-                          </span>
-                        )}
-                        {isTranslating && (
-                          <span className="msg-status" role="status">
-                            <span className="chat-spinner" aria-hidden="true" /> Translating…
-                          </span>
-                        )}
-                        {/* Message actions: Reply, Play, ⋯ */}
-                        <div className="chat-message-actions">
-                          <button
-                            type="button"
-                            className="msg-action-btn"
-                            onClick={() => setReplyingTo(msg)}
-                            title="Reply"
-                            aria-label="Reply"
-                          >
-                            ↩
-                          </button>
-                          {canPlay && (
-                            <button
-                              type="button"
-                              className={`msg-action-btn ${isPlaying ? 'playing' : ''}`}
-                              onClick={() => handlePlayMessageAudio(msg)}
-                              disabled={chatToolsBlocked && !isPlaying}
-                              title={chatToolsBlocked ? 'Play needs internet' : isPlaying ? 'Stop' : 'Play audio'}
-                              aria-label={isPlaying ? 'Stop audio' : 'Play audio'}
-                            >
-                              {isPlaying ? '⏹' : '🔊'}
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="msg-action-btn msg-more-btn"
-                            onClick={(e) => openSheet(msg, e.currentTarget.getBoundingClientRect())}
-                            title="More actions"
-                            aria-label="More actions"
-                            aria-haspopup="dialog"
-                          >
-                            ⋯
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))
-        )}
-        {isWaitingForAI && (
-          <div className="chat-message received">
-            <div className="chat-message-avatar">
-              <div className="placeholder">🤖</div>
-            </div>
-            <div className="chat-message-content">
-              <div className="chat-bubble typing">
-                <span className="dot"></span>
-                <span className="dot"></span>
-                <span className="dot"></span>
+            ))
+          )}
+          {showTyping && <TypingIndicator name={otherFirstName} />}
+          {isWaitingForAI && (
+            <div className="chat-message received">
+              <div className="chat-message-avatar">
+                <div className="placeholder">🤖</div>
+              </div>
+              <div className="chat-message-content">
+                <div className="chat-bubble typing">
+                  <span className="dot"></span>
+                  <span className="dot"></span>
+                  <span className="dot"></span>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+          )}
+        </div>
+        {scroll.pillCount > 0 && <NewMessagesPill count={scroll.pillCount} onClick={() => scroll.scrollToBottom(true)} />}
       </div>
 
       {/* Reply preview bar */}
@@ -1204,7 +1354,13 @@ export function ChatPage() {
           <div className="reply-bar-content">
             <span className="reply-bar-name">{replyingTo.sender.name || 'Unknown'}</span>
             <span className="reply-bar-text">
-              {replyingTo.content.length > 80 ? replyingTo.content.slice(0, 80) + '...' : replyingTo.content}
+              {replyingTo.content
+                ? replyingTo.content.length > 80
+                  ? replyingTo.content.slice(0, 80) + '...'
+                  : replyingTo.content
+                : replyingTo.attachment?.kind === 'voice'
+                  ? '🎤 Voice message'
+                  : '📷 Photo'}
             </span>
           </div>
           <button className="reply-bar-close" onClick={() => setReplyingTo(null)} aria-label="Cancel reply">×</button>
@@ -1226,38 +1382,98 @@ export function ChatPage() {
           </SpinnerButton>
           {chatToolsBlocked && <span className="chat-offline-hint">Chat tools need internet</span>}
         </div>
-        <OfflineWarning message="You're offline. Messages can't be sent until you're back online (nothing is queued)." />
+        <OfflineWarning message="You're offline. Messages you send now wait here and go out when you're back online." />
         <InlineNotice notice={notice} onDismiss={clearNotice} className="chat-composer-notice" />
-        <form className="chat-input-form" onSubmit={handleSend}>
-          <textarea
-            value={newMessage}
-            onChange={(e) => {
-              setNewMessage(e.target.value);
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend(e);
-              }
-            }}
-            placeholder={isAIConversation ? 'Type in Chinese...' : 'Type a message...'}
-            className="chat-input"
-            rows={1}
-            aria-label="Message"
+        {recording ? (
+          <VoiceComposer
+            onSend={sendVoice}
+            onCancel={() => setRecording(false)}
+            onError={(text) => setNotice({ kind: 'error', text })}
           />
-          <SpinnerButton
-            type="submit"
-            className="btn btn-primary chat-send"
-            busy={sendMutation.isPending || isWaitingForAI}
-            disabled={!isOnline || !newMessage.trim()}
-            title={!isOnline ? "You're offline" : undefined}
-          >
-            Send
-          </SpinnerButton>
-        </form>
+        ) : (
+          <form className="chat-input-form" onSubmit={handleSend}>
+            {!isAIConversation && (
+              <>
+                <button
+                  type="button"
+                  className="chat-round-btn chat-attach-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={preparingPhoto}
+                  aria-label="Send a photo"
+                  title="Send a photo"
+                >
+                  {preparingPhoto ? <span className="chat-spinner" aria-hidden="true" /> : '📎'}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="chat-file-input"
+                  data-testid="chat-photo-input"
+                  onChange={(e) => void handlePhotoPicked(e.target.files?.[0])}
+                />
+              </>
+            )}
+            <textarea
+              ref={inputRef}
+              value={newMessage}
+              onChange={(e) => {
+                setNewMessage(e.target.value);
+                noteTyping(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  handleSend(e);
+                }
+              }}
+              placeholder={isAIConversation ? 'Type in Chinese...' : 'Message'}
+              className="chat-input"
+              rows={1}
+              aria-label="Message"
+            />
+            {composerEmpty && !isAIConversation ? (
+              <button
+                type="button"
+                className="chat-round-btn chat-mic-btn"
+                onClick={() => {
+                  setNotice(null);
+                  setRecording(true);
+                }}
+                aria-label="Record a voice message"
+                title="Record a voice message"
+              >
+                🎤
+              </button>
+            ) : (
+              <SpinnerButton
+                type="submit"
+                className="btn btn-primary chat-send"
+                busy={isWaitingForAI}
+                disabled={composerEmpty}
+              >
+                Send
+              </SpinnerButton>
+            )}
+          </form>
+        )}
       </div>
+
+      {pendingPhoto && <PhotoComposeSheet blob={pendingPhoto.blob} onSend={sendPhoto} onCancel={() => setPendingPhoto(null)} />}
+      {viewer && <PhotoViewer url={viewer.url} caption={viewer.caption} onClose={() => setViewer(null)} />}
+      {editing && (
+        <EditMessageSheet
+          initial={editing.content}
+          isCaption={editing.attachment?.kind === 'image'}
+          busy={editBusy}
+          error={editError}
+          onSave={(text) => void saveEdit(text)}
+          onCancel={() => setEditing(null)}
+        />
+      )}
+      {deleting && <ConfirmDeleteSheet busy={deleteBusy} onConfirm={() => void confirmDelete()} onCancel={() => setDeleting(null)} />}
 
       {/* Per-message action sheet */}
       {sheet && (
@@ -1587,173 +1803,6 @@ export function ChatPage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// Deck selector component
-function DeckSelector({
-  onSelect,
-  isSaving,
-}: {
-  onSelect: (deckId: string) => void;
-  isSaving: boolean;
-}) {
-  const { isPinned, togglePin, sortWithPinnedFirst } = usePinnedDecks();
-  const decksQuery = useQuery({
-    queryKey: ['decks'],
-    queryFn: () => getDecks(),
-  });
-
-  if (decksQuery.isLoading) {
-    return <Loading message="Loading decks..." />;
-  }
-
-  const decks = sortWithPinnedFirst(decksQuery.data || []);
-
-  if (decks.length === 0) {
-    return (
-      <p className="text-light">No decks available. Create a deck first.</p>
-    );
-  }
-
-  return (
-    <div className="deck-selector">
-      <label>Save to deck:</label>
-      <div className="deck-options">
-        {decks.map((deck) => (
-          <div key={deck.id} className="deck-option-row">
-            <button
-              className="deck-option"
-              onClick={() => onSelect(deck.id)}
-              disabled={isSaving}
-            >
-              {isPinned(deck.id) && <span className="deck-pin-mark">📌</span>}
-              {deck.name}
-            </button>
-            <button
-              onClick={() => togglePin(deck.id)}
-              title={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              aria-label={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              disabled={isSaving}
-              className={`deck-pin-btn ${isPinned(deck.id) ? 'pinned' : ''}`}
-            >
-              📌
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Deck selector with create new deck option
-function DeckSelectorWithCreate({
-  onSelect,
-  isSaving,
-  selectedCount,
-}: {
-  onSelect: (deckId: string) => void;
-  isSaving: boolean;
-  selectedCount: number;
-}) {
-  const [showNewDeckInput, setShowNewDeckInput] = useState(false);
-  const [newDeckName, setNewDeckName] = useState('');
-  const [isCreatingDeck, setIsCreatingDeck] = useState(false);
-  const [createError, setCreateError] = useState<Notice | null>(null);
-  const { isPinned, togglePin, sortWithPinnedFirst } = usePinnedDecks();
-
-  const decksQuery = useQuery({
-    queryKey: ['decks'],
-    queryFn: () => getDecks(),
-  });
-
-  const handleCreateAndSelect = async () => {
-    if (!newDeckName.trim()) return;
-    setIsCreatingDeck(true);
-    setCreateError(null);
-    try {
-      const newDeck = await createDeck(newDeckName.trim());
-      // Refresh decks list
-      decksQuery.refetch();
-      onSelect(newDeck.id);
-    } catch (error) {
-      console.error('Failed to create deck:', error);
-      setCreateError({ kind: 'error', text: describeError(error, "Couldn't create the deck.") });
-      setIsCreatingDeck(false);
-    }
-  };
-
-  if (decksQuery.isLoading) {
-    return <Loading message="Loading decks..." />;
-  }
-
-  const decks = sortWithPinnedFirst(decksQuery.data || []);
-
-  return (
-    <div className="deck-selector">
-      <label>Save {selectedCount} card{selectedCount !== 1 ? 's' : ''} to:</label>
-      <div className="deck-options">
-        {decks.map((deck) => (
-          <div key={deck.id} className="deck-option-row">
-            <button
-              className="deck-option"
-              onClick={() => onSelect(deck.id)}
-              disabled={isSaving || isCreatingDeck}
-            >
-              {isPinned(deck.id) && <span className="deck-pin-mark">📌</span>}
-              {deck.name}
-            </button>
-            <button
-              onClick={() => togglePin(deck.id)}
-              title={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              aria-label={isPinned(deck.id) ? 'Unpin deck' : 'Pin deck to top'}
-              disabled={isSaving || isCreatingDeck}
-              className={`deck-pin-btn ${isPinned(deck.id) ? 'pinned' : ''}`}
-            >
-              📌
-            </button>
-          </div>
-        ))}
-        {!showNewDeckInput ? (
-          <button
-            className="deck-option deck-option-new"
-            onClick={() => setShowNewDeckInput(true)}
-            disabled={isSaving || isCreatingDeck}
-          >
-            + Create new deck
-          </button>
-        ) : (
-          <div className="new-deck-input-row">
-            <input
-              type="text"
-              value={newDeckName}
-              onChange={(e) => setNewDeckName(e.target.value)}
-              placeholder="Deck name..."
-              className="new-deck-input"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newDeckName.trim()) {
-                  handleCreateAndSelect();
-                } else if (e.key === 'Escape') {
-                  setShowNewDeckInput(false);
-                  setNewDeckName('');
-                }
-              }}
-            />
-            <SpinnerButton
-              type="button"
-              className="btn btn-primary btn-sm"
-              busy={isCreatingDeck}
-              onClick={handleCreateAndSelect}
-              disabled={!newDeckName.trim()}
-            >
-              Create & Save
-            </SpinnerButton>
-          </div>
-        )}
-        <InlineNotice notice={createError} onDismiss={() => setCreateError(null)} className="chat-modal-notice" />
-      </div>
     </div>
   );
 }

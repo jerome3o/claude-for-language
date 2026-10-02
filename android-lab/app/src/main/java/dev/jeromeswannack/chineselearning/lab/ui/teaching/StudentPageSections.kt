@@ -571,9 +571,12 @@ fun ConversationsCard(relId: String, conversations: List<ConversationDto>?, onSt
                     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).bouncyClickable(pressedScale = 0.98f) { open(Routes.chat(relId, c.id)) }, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(c.title ?: "Chat", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink)
-                            c.last_message?.content?.let { MutedLine(it.take(50) + if (it.length > 50) "..." else "") }
+                            c.last_message?.let { MutedLine(dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(it.content, it.attachment_kind, it.deleted_at)) }
                         }
-                        MutedLine(conversationDate(c.last_message_at ?: c.created_at, now))
+                        Column(horizontalAlignment = Alignment.End) {
+                            MutedLine(conversationDate(c.last_message_at ?: c.created_at, now))
+                            if (c.unread > 0) dev.jeromeswannack.chineselearning.lab.ui.kit.CountBadge(if (c.unread > 99) "99+" else c.unread.toString())
+                        }
                     }
                 }
             }

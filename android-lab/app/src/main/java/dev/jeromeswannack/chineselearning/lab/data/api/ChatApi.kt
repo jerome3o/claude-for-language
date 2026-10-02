@@ -11,7 +11,7 @@ import kotlinx.serialization.builtins.serializer
 data class ChatSenderDto(val id: String = "", val name: String? = null, val picture_url: String? = null)
 
 @Serializable
-data class ChatReplyToDto(val id: String, val content: String = "", val sender: ChatSenderDto = ChatSenderDto())
+data class ChatReplyToDto(val id: String, val content: String = "", val sender: ChatSenderDto = ChatSenderDto(), val deleted_at: String? = null)
 
 @Serializable
 data class ReactionUserDto(val id: String, val name: String? = null)
@@ -36,10 +36,46 @@ data class ChatMessageDto(
     val reply_to: ChatReplyToDto? = null,
     val reactions: List<ReactionDto> = emptyList(),
     val has_discussion: Boolean = false,
+    // ---- PR 2 (docs/CHAT.md): rich messages ----
+    /** The sender's idempotency key: a pending bubble with this client id is replaced by this message. */
+    val client_id: String? = null,
+    /** Set on any change after creation (the `?since=` cursor covers it). */
+    val updated_at: String? = null,
+    val edited_at: String? = null,
+    /** Soft delete: content '' and no attachment — rendered "Message deleted". */
+    val deleted_at: String? = null,
+    val attachment: ChatAttachmentDto? = null,
+    /** `/api/chat-media/<messageId>` when there is an attachment (authenticated GET). */
+    val media_url: String? = null,
+    val pinned_at: String? = null,
+    val pinned_by: String? = null,
+) {
+    val isDeleted: Boolean get() = !deleted_at.isNullOrEmpty()
+    val isImage: Boolean get() = !isDeleted && attachment?.kind == "image"
+    val isVoice: Boolean get() = !isDeleted && attachment?.kind == "voice"
+}
+
+/** `ChatAttachment` (docs/CHAT.md PR 2): a photo or a voice message. */
+@Serializable
+data class ChatAttachmentDto(
+    val kind: String = "",
+    val width: Int = 0,
+    val height: Int = 0,
+    val bytes: Long = 0,
+    val mime: String = "",
+    val duration_ms: Long = 0,
+    /** pending | done | failed (voice). */
+    val transcript_status: String? = null,
+    val transcript: String? = null,
+    val translation: String? = null,
 )
 
+/** How far each side has read (`last_read_at`, ISO); `other` drives "Seen". */
 @Serializable
-data class MessagesDto(val messages: List<ChatMessageDto> = emptyList(), val latest_timestamp: String? = null)
+data class ReadStateDto(val me: String? = null, val other: String? = null)
+
+@Serializable
+data class MessagesDto(val messages: List<ChatMessageDto> = emptyList(), val latest_timestamp: String? = null, val read_state: ReadStateDto? = null)
 
 suspend fun Api.chatMessages(conversationId: String, since: String? = null): MessagesDto =
     get("/api/conversations/${enc(conversationId)}/messages" + (since?.let { "?since=${enc(it)}" } ?: ""))
@@ -168,6 +204,47 @@ data class ChatNoteBody(val hanzi: String, val pinyin: String, val english: Stri
 data class CreatedNoteDto(val id: String = "")
 
 suspend fun Api.addChatNote(deckId: String, card: ChatNoteBody): CreatedNoteDto = post("/api/decks/${enc(deckId)}/notes", card)
+
+// ---------------- PR 2: edit / delete / pin / media ----------------
+
+@Serializable
+data class EditMessageBody(val content: String)
+
+/** `PATCH /api/messages/:id` — sender only; returns the updated message. */
+suspend fun Api.editChatMessage(messageId: String, content: String): ChatMessageDto = patch("/api/messages/${enc(messageId)}", EditMessageBody(content))
+
+/** `DELETE /api/messages/:id` — sender only; soft delete (idempotent); returns the deleted message. */
+suspend fun Api.deleteChatMessage(messageId: String): ChatMessageDto = exchange("DELETE", "/api/messages/${enc(messageId)}", null, ChatMessageDto.serializer())
+
+@Serializable
+data class PinBody(val pinned: Boolean)
+
+/** `POST /api/messages/:id/pin` — either participant; returns the updated message. */
+suspend fun Api.pinChatMessage(messageId: String, pinned: Boolean): ChatMessageDto = post("/api/messages/${enc(messageId)}/pin", PinBody(pinned))
+
+/**
+ * `POST /api/conversations/:id/media?kind=image|voice&client_id=&caption=&reply_to_message_id=&duration_ms=` —
+ * the raw body is the photo / recording. Queued through the outbox (enqueueRaw), so the path carries everything.
+ */
+fun chatMediaUploadPath(conversationId: String, kind: String, clientId: String, caption: String? = null, replyTo: String? = null, durationMs: Long? = null): String =
+    buildString {
+        append("/api/conversations/${enc(conversationId)}/media?kind=${enc(kind)}&client_id=${enc(clientId)}")
+        if (!caption.isNullOrBlank()) append("&caption=${enc(caption)}")
+        if (replyTo != null) append("&reply_to_message_id=${enc(replyTo)}")
+        if (durationMs != null) append("&duration_ms=$durationMs")
+    }
+
+/** Downloads `GET /api/chat-media/:id` (or the message's [mediaUrl]) into [dest] with the session's auth. */
+suspend fun Api.downloadChatMedia(mediaUrl: String, dest: java.io.File): Unit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    http.newCall(request(mediaUrl).get().build()).execute().use { res ->
+        if (res.code == 401) throw dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException()
+        if (!res.isSuccessful) throw dev.jeromeswannack.chineselearning.lab.data.HttpException(res.code, "media ${res.code}", null)
+        dest.parentFile?.mkdirs()
+        val tmp = java.io.File(dest.parentFile, dest.name + ".part")
+        res.body!!.byteStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+        if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true); tmp.delete() }
+    }
+}
 
 // A new deck from the picker: Api.createDeck (DecksApi.kt, package C).
 

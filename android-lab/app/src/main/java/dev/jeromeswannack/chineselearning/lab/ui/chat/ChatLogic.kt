@@ -10,9 +10,8 @@ import java.util.Locale
 
 /** The chat page's pure rules (web: pages/ChatPage.tsx), unit-tested in ChatLogicTest. */
 object ChatLogic {
+    /** Polling runs only while the live socket is down (docs/CHAT.md PR 2), every 3 s. */
     const val POLL_MS = 3_000L
-    /** While the live socket is up the poll is only a safety net (docs/CHAT.md §4). */
-    const val LIVE_POLL_MS = 20_000L
     val DEFAULT_EMOJIS = listOf("👍", "❤️", "😂", "😮", "👏", "🔥")
     const val MAX_RECENT = 5
 
@@ -30,10 +29,15 @@ object ChatLogic {
         "🐶", "🐱", "🐭", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🍎", "🍕", "🍔", "🍣", "🍜", "🍦", "🍰", "🧁", "☕", "🍵",
     )
 
-    /** Initial page + polled/sent messages, first occurrence of each id wins (web: the dedupe in ChatPage). */
+    /**
+     * Merge by id (docs/CHAT.md PR 2): a later list's copy REPLACES the earlier one (`?since=` also
+     * returns edited / deleted / pinned / transcribed messages, and `message_updated` carries the new
+     * copy), then oldest first by created_at (stable, so equal times keep their order).
+     */
     fun merge(vararg lists: List<ChatMessageDto>): List<ChatMessageDto> {
-        val seen = HashSet<String>()
-        return lists.flatMap { it }.filter { seen.add(it.id) }
+        val byId = LinkedHashMap<String, ChatMessageDto>()
+        for (list in lists) for (m in list) byId[m.id] = m
+        return byId.values.sortedBy { Fmt.parse(it.created_at) ?: Instant.EPOCH }
     }
 
     /** Replaces messages by id (a reaction / check refresh) keeping the order. */

@@ -42,6 +42,17 @@ import dev.jeromeswannack.chineselearning.lab.data.api.translateMessageCard
 import dev.jeromeswannack.chineselearning.lab.data.api.translateSegmented
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.markChatRead
+import dev.jeromeswannack.chineselearning.lab.core.ChatSearch
+import dev.jeromeswannack.chineselearning.lab.data.api.SendMessageBody
+import dev.jeromeswannack.chineselearning.lab.data.api.chatMediaUploadPath
+import dev.jeromeswannack.chineselearning.lab.data.api.chatMessagesPath
+import dev.jeromeswannack.chineselearning.lab.data.api.deleteChatMessage
+import dev.jeromeswannack.chineselearning.lab.data.api.editChatMessage
+import dev.jeromeswannack.chineselearning.lab.data.api.pinChatMessage
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatActions as ChatWrites
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatMediaStore
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPhoto
+import dev.jeromeswannack.chineselearning.lab.data.chat.ChatVoiceRecorder
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatNotifier
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPresence
 import dev.jeromeswannack.chineselearning.lab.data.chat.LiveEvent
@@ -77,7 +88,38 @@ sealed interface ChatSheet {
     data object Rename : ChatSheet
     data object Voice : ChatSheet
     data class Discuss(val message: ChatMessageDto) : ChatSheet
+    // ---- PR 2 ----
+    /** 📎 → Take a photo / Choose from gallery. */
+    data object Attach : ChatSheet
+    /** A prepared photo with an optional caption, before it goes. */
+    data class Photo(val path: String, val width: Int, val height: Int) : ChatSheet
+    /** ⋯ on the pinned bar: every pinned message. */
+    data object Pins : ChatSheet
+    data class ConfirmDelete(val message: ChatMessageDto) : ChatSheet
 }
+
+/** The voice message being recorded / previewed in the composer. */
+sealed interface RecorderUi {
+    data object Idle : RecorderUi
+    /** [locked] = tapped (or slid up): it keeps recording without a finger on the mic. */
+    data class Recording(val elapsedMs: Long, val locked: Boolean, val level: Float) : RecorderUi
+    data class Preview(val path: String, val durationMs: Long) : RecorderUi
+}
+
+/** A voice message (or the preview, id [PREVIEW_ID]) playing. */
+data class VoicePlayback(val id: String, val positionMs: Long, val durationMs: Long, val playing: Boolean, val loading: Boolean = false)
+
+const val PREVIEW_ID = "preview"
+
+/** 🔍 in the header: the query, the matches (newest first, shared ChatSearch) and which one is shown. */
+data class ChatSearchUi(val query: String = "", val results: List<String> = emptyList(), val index: Int = 0) {
+    val current: String? get() = results.getOrNull(index)
+    /** "3 of 12" (1 = the newest match). */
+    val label: String get() = if (query.isBlank()) "" else if (results.isEmpty()) "No results" else "${index + 1} of ${results.size}"
+}
+
+/** Ask the list to bring a message into view ([nonce] makes a repeat request count). */
+data class ScrollRequest(val id: String, val nonce: Int, val animate: Boolean = true)
 
 data class DiscussState(
     val loading: Boolean = true,
@@ -121,7 +163,32 @@ data class ChatUi(
     val decks: List<DeckChoice> = emptyList(),
     val recentEmojis: List<String> = emptyList(),
     val discuss: DiscussState = DiscussState(),
+    // ---- PR 2: live chat & rich messages ----
+    /** My sends the server hasn't confirmed (from the outbox; failed ones say "Not sent"). */
+    val pending: List<PendingBubble> = emptyList(),
+    /** The other person's read marker ("Seen"). */
+    val otherReadAt: String? = null,
+    /** "<name> is typing…". */
+    val typing: Boolean = false,
+    /** The "New messages" divider sits above this message (fixed when the chat opened). */
+    val unreadId: String? = null,
+    /** New messages that arrived while scrolled up (the "↓ N new" pill). */
+    val newBelow: Int = 0,
+    val editing: ChatMessageDto? = null,
+    val search: ChatSearchUi? = null,
+    /** A message flashed after a jump (search / pinned bar). */
+    val highlightId: String? = null,
+    val scrollTo: ScrollRequest? = null,
+    val voice: VoicePlayback? = null,
+    val recorder: RecorderUi = RecorderUi.Idle,
+    /** Voice messages whose translation is open. */
+    val translationsShown: Set<String> = emptySet(),
+    val preparingPhoto: Boolean = false,
 ) {
+    val pinned: List<ChatMessageDto> get() = ChatRich.pinned(messages)
+
+    fun rows(): List<ChatRow> = ChatRows.build(messages, pending, unreadId, ChatRich.receipt(messages, myId, otherReadAt, pending))
+
     val isAi: Boolean get() = conversation?.is_ai_conversation ?: false
 
     /** A message's check status: what we learnt here, else what the server stored. */
@@ -131,29 +198,46 @@ data class ChatUi(
 }
 
 /**
- * `/connections/:relId/chat/:convId` (web: ChatPage). New messages arrive over the live socket
- * (data/chat/ChatLive.kt) with a poll as fallback (3 s, 20 s while the socket is up); the last copy
- * is cached so the history opens offline. Sending and every tool need a connection — like
- * the web, nothing is queued (the composer says so).
+ * `/connections/:relId/chat/:convId` (web: ChatPage). Live (docs/CHAT.md PR 2): the ChatHub socket
+ * (data/chat/ChatLive.kt) delivers `message` / `message_updated` / `read` / `typing`; REST polling
+ * (`?since=`, which also returns edited messages — merged by id) runs only while the socket is down
+ * (3 s) and once after every reconnect. Sends are optimistic and go through the Outbox with a
+ * client_id (text, photos, voice), so they survive leaving the chat, offline and process death;
+ * the server's copy replaces the bubble by client_id. The last copy is cached so the history
+ * opens offline.
  */
 class ChatViewModel(private val app: LabApp, private val relId: String, private val convId: String) : ViewModel() {
     private val _ui = MutableStateFlow(ChatUi())
     val ui: StateFlow<ChatUi> = _ui
     private val api get() = app.repo.api
     private val cards = CardTools(app)
+    private val media = ChatMediaStore.of(app)
     private var lastTimestamp: String? = null
     private var pollJob: Job? = null
     private var player: MediaPlayer? = null
+    private var progressJob: Job? = null
     private val checkResults = HashMap<String, CheckResultDto>()
+    private val typingIn = TypingIndicator()
+    private val typingOut = TypingThrottle()
+    private var typingJob: Job? = null
+    private var highlightJob: Job? = null
+    private var scrollNonce = 0
+    private var atBottom = true
+    private var recorder: ChatVoiceRecorder? = null
+    private var recordJob: Job? = null
+
+    /** Outbox rows for this chat, and the ones it delivered whose server copy hasn't arrived yet. */
+    private var outboxPending: List<PendingBubble> = emptyList()
+    private val delivered = LinkedHashMap<String, PendingBubble>()
+    private val discarded = HashSet<String>()
 
     private val messagesKey = "chat/$convId/messages"
 
     init {
-        viewModelScope.launch { app.online.collect { o -> _ui.update { it.copy(online = o) } } }
+        viewModelScope.launch { app.online.collect { o -> _ui.update { it.copy(online = o) }; if (o) flushOutbox() } }
         viewModelScope.launch { load() }
         viewModelScope.launch { Connections.markConversationRead(app, convId) }
-        viewModelScope.launch { readHere() }
-        // The live socket (data/chat/ChatLive.kt): a new message shows at once, not at the next poll.
+        // The live socket (data/chat/ChatLive.kt): new / changed messages, read receipts, typing.
         viewModelScope.launch { app.chatLive.events.collect(::onLive) }
         // Back from the background onto this chat: drop its notification, fetch what came meanwhile.
         viewModelScope.launch {
@@ -164,11 +248,43 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 }
             }
         }
+        // Reconnected: one catch-up (?since=), then the socket carries it again.
+        viewModelScope.launch {
+            var first = true
+            app.chatLive.connected.collect { up -> if (up && !first) fetchNew(); first = false }
+        }
+        // Pending bubbles are the outbox (survive process death), delivered ones until the server copy shows.
+        viewModelScope.launch {
+            app.outbox.observe().collect { items ->
+                val now = ChatRich.pendingFromOutbox(items, convId, api.json, ChatMediaStore::dims)
+                val ids = now.mapTo(HashSet()) { it.clientId }
+                for (p in outboxPending) if (p.clientId !in ids && p.clientId !in discarded && !p.failed) delivered[p.clientId] = p.copy(delivered = true)
+                outboxPending = now
+                refreshPending()
+                if (delivered.isNotEmpty()) fetchNew()
+            }
+        }
+        viewModelScope.launch { app.outbox.completed.collect { item -> if (item.kind == ChatWrites.KIND_SEND || item.kind == ChatWrites.KIND_MEDIA) fetchNew() } }
+        // Pending sends retry while the chat is open (the outbox stops at the first network error).
+        viewModelScope.launch {
+            while (isActive) {
+                delay(RETRY_MS)
+                if (outboxPending.any { !it.failed } && app.online.value) flushOutbox()
+            }
+        }
         viewModelScope.launch { loadDecks() }
         viewModelScope.launch {
             val recent = app.cache.get<List<String>>(RECENT_KEY).orEmpty()
             _ui.update { it.copy(recentEmojis = recent) }
         }
+    }
+
+    private fun refreshPending() {
+        val messages = _ui.value.messages
+        val confirmed = messages.mapNotNullTo(HashSet()) { it.client_id }
+        delivered.keys.removeAll(confirmed)
+        val all = outboxPending.filter { it.clientId !in discarded } + delivered.values.filter { d -> outboxPending.none { it.clientId == d.clientId } }
+        _ui.update { it.copy(pending = ChatRich.visiblePending(all, it.messages)) }
     }
 
     private suspend fun load() {
@@ -178,21 +294,39 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         val cachedConvs = cache.get<List<ChatConversationDto>>(ConnectionsKeys.conversations(relId))
         val cachedMsgs = cache.get<List<ChatMessageDto>>(messagesKey)
         applyHeader(cachedRel, cachedConvs, me)
-        if (cachedMsgs != null) _ui.update { it.copy(loading = false, messages = cachedMsgs) }
+        if (cachedMsgs != null) {
+            _ui.update { it.copy(loading = false, messages = cachedMsgs) }
+            refreshPending()
+        }
         try {
             val rel = api.relationship(relId).also { cache.put(ConnectionsKeys.relationship(relId), ConnectionsKeys.KIND, it) }
             val convs = api.chatConversations(relId).also { cache.put(ConnectionsKeys.conversations(relId), ConnectionsKeys.KIND, it) }
             applyHeader(rel, convs, me)
             val page = api.chatMessages(convId)
-            lastTimestamp = page.latest_timestamp
-            cache.put(messagesKey, KIND, page.messages)
-            _ui.update { it.copy(loading = false, loadError = null, offlineHistory = false, messages = page.messages) }
+            lastTimestamp = ChatRich.nextCursor(lastTimestamp, page.latest_timestamp)
+            cache.put(messagesKey, KIND, page.messages.takeLast(CACHE_LIMIT))
+            val myId = _ui.value.myId
+            // The divider uses my read marker as it was BEFORE this visit (read below, after the page).
+            val unread = ChatRich.firstUnreadId(page.messages, myId, page.read_state?.me)
+            _ui.update {
+                it.copy(
+                    loading = false, loadError = null, offlineHistory = false,
+                    messages = ChatLogic.merge(page.messages, it.messages.filter { m -> page.messages.none { p -> p.id == m.id } && (lastTimestamp == null || m.created_at > lastTimestamp!!) }),
+                    otherReadAt = ChatRich.laterOf(it.otherReadAt, page.read_state?.other),
+                    unreadId = unread,
+                    scrollTo = if (unread != null) ScrollRequest(unread, ++scrollNonce, animate = false) else it.scrollTo,
+                )
+            }
+            refreshPending()
+            readHere()
             startPolling()
         } catch (e: Exception) {
+            ChatNotifier.cancel(app, convId)
             _ui.update {
                 if (cachedMsgs != null || it.messages.isNotEmpty()) it.copy(loading = false, offlineHistory = true)
                 else it.copy(loading = false, loadError = e.userMessage())
             }
+            startPolling()
         }
     }
 
@@ -211,43 +345,76 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
     }
 
-    /** Polls every 3 s, or every 20 s while the live socket is connected (it's the doorbell then). */
+    /** Polls `?since=` every 3 s, but only while the live socket is down (it's the doorbell otherwise). */
     private fun startPolling() {
         if (pollJob?.isActive == true) return
         pollJob = viewModelScope.launch {
             while (isActive) {
-                delay(if (app.chatLive.connected.value) ChatLogic.LIVE_POLL_MS else ChatLogic.POLL_MS)
-                fetchNew()
+                delay(ChatLogic.POLL_MS)
+                if (!app.chatLive.connected.value) fetchNew()
             }
         }
     }
 
     private suspend fun fetchNew() {
         if (!app.online.value) return
-        val since = lastTimestamp ?: return
+        val since = lastTimestamp
+        if (since == null) {
+            // Never loaded (offline at open): the full page instead.
+            runCatching { api.chatMessages(convId) }.onSuccess { page ->
+                lastTimestamp = ChatRich.nextCursor(lastTimestamp, page.latest_timestamp)
+                // The history, not news: no haptics / "new" counts for it.
+                _ui.update { it.copy(offlineHistory = false, loadError = null, loading = false, messages = ChatLogic.merge(it.messages, page.messages), otherReadAt = ChatRich.laterOf(it.otherReadAt, page.read_state?.other)) }
+                refreshPending()
+                app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT))
+                readHere()
+            }
+            return
+        }
         runCatching { api.chatMessages(convId, since) }.onSuccess { r ->
+            r.read_state?.other?.let { o -> _ui.update { it.copy(otherReadAt = ChatRich.laterOf(it.otherReadAt, o)) } }
+            lastTimestamp = ChatRich.nextCursor(lastTimestamp, r.latest_timestamp)
             if (r.messages.isEmpty()) return@onSuccess
-            val known = _ui.value.messages.mapTo(HashSet()) { it.id }
-            val fresh = r.messages.filter { it.id !in known }
             addMessages(r.messages)
-            lastTimestamp = r.latest_timestamp ?: lastTimestamp
-            if (fresh.any { m -> m.sender_id != _ui.value.myId }) onIncomingWhileOpen()
         }
     }
 
-    /** docs/CHAT.md §4: a `message` event for this chat (null = a push said so: fetch). */
+    /** docs/CHAT.md §4 + PR 2: the hub's events for this chat. */
     private suspend fun onLive(e: LiveEvent) {
-        if (e !is LiveEvent.Message || e.conversationId != convId) return
-        val m = e.message ?: return fetchNew()
-        if (_ui.value.messages.any { it.id == m.id }) return
-        // lastTimestamp stays: the next poll re-reads from there (deduped), so nothing in between is skipped.
-        addMessages(listOf(m))
-        if (lastTimestamp == null) lastTimestamp = m.created_at
-        if (m.sender_id != _ui.value.myId) onIncomingWhileOpen()
+        when (e) {
+            is LiveEvent.Message -> {
+                if (e.conversationId != convId) return
+                val m = e.message ?: return fetchNew()
+                // lastTimestamp stays: a catch-up re-reads from there (merged by id), so nothing in between is skipped.
+                addMessages(listOf(m))
+            }
+            is LiveEvent.Updated -> if (e.conversationId == convId) addMessages(listOf(e.message))
+            is LiveEvent.Read -> if (e.conversationId == convId && e.userId != _ui.value.myId && e.userId.isNotEmpty()) {
+                _ui.update { it.copy(otherReadAt = ChatRich.laterOf(it.otherReadAt, e.lastReadAt)) }
+            }
+            is LiveEvent.Typing -> if (e.conversationId == convId && e.userId != _ui.value.myId) showTyping()
+        }
     }
 
-    private suspend fun onIncomingWhileOpen() {
+    private fun showTyping() {
+        typingIn.onTyping(System.currentTimeMillis())
+        _ui.update { it.copy(typing = true) }
+        typingJob?.cancel()
+        typingJob = viewModelScope.launch {
+            while (true) {
+                val left = typingIn.remaining(System.currentTimeMillis())
+                if (left <= 0) break
+                delay(left)
+            }
+            _ui.update { it.copy(typing = false) }
+        }
+    }
+
+    private suspend fun onIncomingWhileOpen(count: Int) {
         app.haptics.tick()
+        typingIn.onMessage()
+        typingJob?.cancel()
+        _ui.update { it.copy(typing = false, newBelow = if (atBottom) 0 else it.newBelow + count) }
         Connections.markConversationRead(app, convId)
         readHere()
     }
@@ -255,18 +422,36 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     /** This chat is read (docs/CHAT.md §2 `POST …/read`): its notification goes, on every device. */
     private suspend fun readHere() {
         ChatNotifier.cancel(app, convId)
+        // The conversation list's badge clears at once (its next refresh agrees).
+        runCatching {
+            val key = ConnectionsKeys.conversations(relId)
+            app.cache.get<List<ChatConversationDto>>(key)?.takeIf { l -> l.any { it.id == convId && it.unread > 0 } }?.let { l ->
+                app.cache.put(key, ConnectionsKeys.KIND, l.map { if (it.id == convId) it.copy(unread = 0) else it })
+            }
+        }
         if (app.online.value) runCatching { api.markChatRead(convId) }
     }
 
-    private fun addMessages(list: List<ChatMessageDto>) {
+    /** Merges [list] by id (new copies replace old ones); counts what's new from the other person. */
+    private suspend fun addMessages(list: List<ChatMessageDto>) {
+        if (list.isEmpty()) return
+        val before = _ui.value.messages.mapTo(HashSet()) { it.id }
+        val myId = _ui.value.myId
         _ui.update { it.copy(messages = ChatLogic.merge(it.messages, list)) }
+        refreshPending()
+        // Keep the open search / edit in step with the new copies.
+        _ui.value.search?.let { s -> if (s.query.isNotBlank()) setSearchResults(s.query, keepCurrent = true) }
+        _ui.value.editing?.let { ed -> _ui.value.messages.firstOrNull { it.id == ed.id }?.takeIf { it.isDeleted }?.let { cancelEdit() } }
         viewModelScope.launch { app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT)) }
+        val fresh = list.filter { it.id !in before && it.sender_id != myId }
+        if (fresh.isNotEmpty()) onIncomingWhileOpen(fresh.size)
     }
 
     /** Re-reads the whole page (reactions, has_discussion changed on the server). */
     private suspend fun refreshAll() {
         runCatching { api.chatMessages(convId) }.onSuccess { page ->
-            _ui.update { it.copy(messages = ChatLogic.merge(ChatLogic.replace(it.messages, page.messages), page.messages)) }
+            _ui.update { it.copy(messages = ChatLogic.merge(it.messages, page.messages)) }
+            refreshPending()
             app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT))
         }
     }
@@ -281,7 +466,12 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     // ---------------- composer ----------------
 
-    fun setDraft(text: String) = _ui.update { it.copy(draft = text) }
+    fun setDraft(text: String) {
+        _ui.update { it.copy(draft = text) }
+        val s = _ui.value
+        if (!s.isAi && s.editing == null && typingOut.shouldSend(text, System.currentTimeMillis())) app.chatLive.sendTyping(convId)
+    }
+
     fun reply(m: ChatMessageDto?) = _ui.update { it.copy(replyingTo = m, sheet = null) }
     fun dismissNotice() = _ui.update { it.copy(notice = null) }
     private fun error(text: String) = _ui.update { it.copy(notice = Notice(text, true)) }
@@ -289,9 +479,47 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun send() {
         val s = _ui.value
+        if (s.editing != null) return saveEdit()
         val content = s.draft.trim()
         if (content.isEmpty() || s.sending || s.waitingForAi) return
-        if (!s.online) { error("You're offline. Messages can't be sent until you're back online."); return }
+        if (s.isAi) return sendToClaude(content)
+        // Optimistic: the bubble is the outbox row (it shows at once, offline too, and survives a restart).
+        val clientId = java.util.UUID.randomUUID().toString()
+        _ui.update { it.copy(draft = "", replyingTo = null, notice = null) }
+        typingOut.reset()
+        app.sounds.play(Sounds.Sfx.POP, 0.5f)
+        app.haptics.tick()
+        app.scope.launch {
+            app.outbox.enqueueJson(ChatWrites.KIND_SEND, "POST", chatMessagesPath(convId), SendMessageBody(content, s.replyingTo?.id, clientId), id = clientId)
+            flushOutbox()
+        }
+        requestScrollToEnd()
+    }
+
+    /** The outbox now (when online), the upload worker as the backstop. */
+    private fun flushOutbox() {
+        runCatching { app.scheduleBackgroundUpload() }
+        if (app.online.value) app.scope.launch { runCatching { app.outbox.drain() } }
+    }
+
+    /** "Not sent · Tap to retry". */
+    fun retryPending(clientId: String) {
+        app.haptics.tick()
+        app.scope.launch { app.outbox.retry(clientId); flushOutbox() }
+    }
+
+    /** Drops a message that couldn't be sent. */
+    fun discardPending(clientId: String) {
+        discarded += clientId
+        delivered.remove(clientId)
+        refreshPending()
+        app.scope.launch { app.outbox.discard(clientId) }
+    }
+
+    /** Claude role-play conversations reply to the sent message, so that send stays direct (online). */
+    private fun sendToClaude(content: String) {
+        val s = _ui.value
+        if (!s.online) { error("You're offline. Messages to Claude can't be sent until you're back online."); return }
         _ui.update { it.copy(sending = true, notice = null) }
         val clientId = java.util.UUID.randomUUID().toString()
         viewModelScope.launch {
@@ -300,10 +528,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 app.sounds.play(Sounds.Sfx.POP, 0.5f)
                 app.haptics.tick()
                 addMessages(listOf(msg))
-                lastTimestamp = msg.created_at
+                lastTimestamp = ChatRich.nextCursor(lastTimestamp, msg.created_at)
                 _ui.update { it.copy(sending = false, draft = "", replyingTo = null) }
-                if (_ui.value.isAi) aiReply()
-                else startPolling()
+                aiReply()
             } catch (e: Exception) {
                 _ui.update { it.copy(sending = false) }
                 error("Couldn't send your message. It's still in the box below — try again.")
@@ -316,7 +543,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         try {
             val r = api.aiRespond(convId)
             addMessages(listOf(r.message))
-            lastTimestamp = r.message.created_at
+            lastTimestamp = ChatRich.nextCursor(lastTimestamp, r.message.created_at)
             if (r.audio_base64 != null) playBase64(r.audio_base64, r.message.id)
         } catch (e: Exception) {
             error("Claude couldn't reply. Your message was sent — try sending another to retry.")
@@ -325,6 +552,284 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             startPolling()
         }
     }
+
+    // ---------------- list position ----------------
+
+    /** The list reports whether its end is on screen (the "↓ N new" pill). */
+    fun setAtBottom(value: Boolean) {
+        atBottom = value
+        if (value && _ui.value.newBelow != 0) _ui.update { it.copy(newBelow = 0) }
+    }
+
+    fun scrollToEnd() {
+        _ui.update { it.copy(newBelow = 0) }
+        requestScrollToEnd()
+    }
+
+    private fun requestScrollToEnd() = _ui.update { it.copy(scrollTo = ScrollRequest(END, ++scrollNonce)) }
+
+    /** Bring [id] into view and flash it (search, pinned bar). */
+    fun jumpTo(id: String) {
+        _ui.update { it.copy(sheet = if (it.sheet == ChatSheet.Pins) null else it.sheet, highlightId = id, scrollTo = ScrollRequest(id, ++scrollNonce)) }
+        highlightJob?.cancel()
+        highlightJob = viewModelScope.launch {
+            delay(HIGHLIGHT_MS)
+            _ui.update { if (it.highlightId == id && it.search == null) it.copy(highlightId = null) else it }
+        }
+    }
+
+    // ---------------- search ----------------
+
+    fun openSearch() = _ui.update { it.copy(search = ChatSearchUi(), sheet = null) }
+
+    fun closeSearch() = _ui.update { it.copy(search = null, highlightId = null) }
+
+    fun setSearchQuery(q: String) = setSearchResults(q, keepCurrent = false)
+
+    private fun setSearchResults(q: String, keepCurrent: Boolean) {
+        val results = ChatSearch.search(_ui.value.messages.map(ChatRich::searchable), q)
+        val old = _ui.value.search
+        val index = if (keepCurrent && old?.current != null) results.indexOf(old.current).coerceAtLeast(0) else 0
+        _ui.update { it.copy(search = ChatSearchUi(q, results, index)) }
+        val target = results.getOrNull(index)
+        if (!keepCurrent) {
+            if (target != null) _ui.update { it.copy(highlightId = target, scrollTo = ScrollRequest(target, ++scrollNonce)) }
+            else _ui.update { it.copy(highlightId = null) }
+        }
+    }
+
+    /** ↑ = older (+1), ↓ = newer (−1); wraps around. */
+    fun searchStep(delta: Int) {
+        val s = _ui.value.search ?: return
+        if (s.results.isEmpty()) return
+        val i = Math.floorMod(s.index + delta, s.results.size)
+        val id = s.results[i]
+        app.haptics.tick()
+        _ui.update { it.copy(search = s.copy(index = i), highlightId = id, scrollTo = ScrollRequest(id, ++scrollNonce)) }
+    }
+
+    // ---------------- edit / delete / pin ----------------
+
+    fun startEdit(m: ChatMessageDto) = _ui.update { it.copy(sheet = null, editing = m, draft = m.content, replyingTo = null) }
+
+    fun cancelEdit() = _ui.update { it.copy(editing = null, draft = "") }
+
+    private fun saveEdit() {
+        val s = _ui.value
+        val m = s.editing ?: return
+        val content = s.draft.trim()
+        if (content == m.content.trim()) { cancelEdit(); return }
+        if (content.isEmpty() && !m.isImage) return
+        if (!s.online) { error("You're offline — edits need a connection."); return }
+        val now = java.time.Instant.now().toString()
+        replaceLocal(m.id) { it.copy(content = content, edited_at = now, translation = null) }
+        _ui.update { it.copy(editing = null, draft = "") }
+        viewModelScope.launch {
+            runCatching { api.editChatMessage(m.id, content) }
+                .onSuccess { addMessages(listOf(it)) }
+                .onFailure { e -> replaceLocal(m.id) { m }; error("Couldn't edit that message. ${e.userMessage()}") }
+        }
+    }
+
+    fun askDelete(m: ChatMessageDto) = _ui.update { it.copy(sheet = ChatSheet.ConfirmDelete(m)) }
+
+    fun delete(m: ChatMessageDto) {
+        _ui.update { it.copy(sheet = null) }
+        if (!_ui.value.online) { error("You're offline — deleting needs a connection."); return }
+        val now = java.time.Instant.now().toString()
+        replaceLocal(m.id) { it.copy(deleted_at = now, content = "", attachment = null, media_url = null, pinned_at = null) }
+        app.haptics.tick()
+        viewModelScope.launch {
+            runCatching { api.deleteChatMessage(m.id) }.onSuccess { addMessages(listOf(it)) }.onFailure { e -> replaceLocal(m.id) { m }; error("Couldn't delete that message. ${e.userMessage()}") }
+        }
+    }
+
+    fun setPinned(m: ChatMessageDto, pinned: Boolean) {
+        _ui.update { it.copy(sheet = null) }
+        if (!_ui.value.online) { error("You're offline — pinning needs a connection."); return }
+        replaceLocal(m.id) { it.copy(pinned_at = if (pinned) java.time.Instant.now().toString() else null, pinned_by = if (pinned) _ui.value.myId else null) }
+        app.haptics.tick()
+        viewModelScope.launch {
+            runCatching { api.pinChatMessage(m.id, pinned) }.onSuccess { addMessages(listOf(it)) }.onFailure { e -> replaceLocal(m.id) { m }; error("Couldn't ${if (pinned) "pin" else "unpin"} that message. ${e.userMessage()}") }
+        }
+    }
+
+    private fun replaceLocal(id: String, f: (ChatMessageDto) -> ChatMessageDto) {
+        _ui.update { s -> s.copy(messages = s.messages.map { if (it.id == id) f(it) else it }) }
+        viewModelScope.launch { app.cache.put(messagesKey, KIND, _ui.value.messages.takeLast(CACHE_LIMIT)) }
+    }
+
+    // ---------------- photos ----------------
+
+    /** A photo from the camera / picker: shrunk on the phone, then the caption sheet. */
+    fun preparePhoto(context: android.content.Context, uri: android.net.Uri) {
+        _ui.update { it.copy(sheet = null, preparingPhoto = true) }
+        viewModelScope.launch {
+            try {
+                val file = app.outbox.stageFile("chat-photo.jpg")
+                val (w, h) = withContext(Dispatchers.IO) { ChatPhoto.prepare(context, uri, file) }
+                _ui.update { it.copy(preparingPhoto = false, sheet = ChatSheet.Photo(file.absolutePath, w, h)) }
+            } catch (e: Exception) {
+                _ui.update { it.copy(preparingPhoto = false) }
+                error(e.message ?: "This photo couldn't be opened.")
+            }
+        }
+    }
+
+    fun sendPhoto(caption: String) {
+        val sheet = _ui.value.sheet as? ChatSheet.Photo ?: return
+        val clientId = java.util.UUID.randomUUID().toString()
+        val replyTo = _ui.value.replyingTo?.id
+        _ui.update { it.copy(sheet = null, replyingTo = null) }
+        app.sounds.play(Sounds.Sfx.POP, 0.5f)
+        app.haptics.tick()
+        app.scope.launch {
+            val file = java.io.File(sheet.path)
+            media.adopt(clientId, file, "jpg")
+            app.outbox.enqueueRaw(ChatWrites.KIND_MEDIA, "POST", chatMediaUploadPath(convId, "image", clientId, caption.trim().ifEmpty { null }, replyTo), file, "image/jpeg", id = clientId)
+            flushOutbox()
+        }
+        requestScrollToEnd()
+    }
+
+    fun discardPhoto() {
+        (_ui.value.sheet as? ChatSheet.Photo)?.let { java.io.File(it.path).delete() }
+        _ui.update { it.copy(sheet = null) }
+    }
+
+    suspend fun image(m: ChatMessageDto, maxSide: Int) = media.image(m, maxSide)
+    suspend fun localImage(path: String, maxSide: Int) = media.localImage(path, maxSide)
+
+    // ---------------- voice messages ----------------
+
+    /** Hold / tap the mic (the route has checked RECORD_AUDIO). */
+    fun startRecording(locked: Boolean = false) {
+        if (_ui.value.recorder !is RecorderUi.Idle) return
+        stopAudio()
+        val r = recorder ?: ChatVoiceRecorder(app).also { recorder = it }
+        val file = java.io.File(app.cacheDir, "chat-rec").apply { mkdirs() }.let { java.io.File(it, "voice-${System.currentTimeMillis()}.m4a") }
+        try {
+            r.start(file)
+        } catch (e: Exception) {
+            error("Couldn't start recording. Is another app using the microphone?")
+            return
+        }
+        app.haptics.tick()
+        _ui.update { it.copy(recorder = RecorderUi.Recording(0, locked, 0f)) }
+        recordJob?.cancel()
+        recordJob = viewModelScope.launch {
+            while (isActive) {
+                delay(100)
+                val el = r.elapsedMs()
+                _ui.update { s -> (s.recorder as? RecorderUi.Recording)?.let { s.copy(recorder = it.copy(elapsedMs = el, level = r.level())) } ?: s }
+                if (el >= ChatVoiceRecorder.MAX_MS) { finishRecording(); break }
+            }
+        }
+    }
+
+    /** Slid up (or a quick tap): keep recording hands-free. */
+    fun lockRecording() {
+        val rec = _ui.value.recorder as? RecorderUi.Recording ?: return
+        if (rec.locked) return
+        app.haptics.tick()
+        _ui.update { it.copy(recorder = rec.copy(locked = true)) }
+    }
+
+    /** Slid left (or 🗑): nothing is kept. */
+    fun cancelRecording() {
+        if (_ui.value.recorder is RecorderUi.Idle) return
+        recordJob?.cancel()
+        recorder?.cancel()
+        (_ui.value.recorder as? RecorderUi.Preview)?.let { java.io.File(it.path).delete() }
+        if (_ui.value.voice?.id == PREVIEW_ID) stopAudio()
+        app.haptics.wrong()
+        _ui.update { it.copy(recorder = RecorderUi.Idle) }
+    }
+
+    /** Released / ■: the preview (▶ to listen, Send, 🗑). */
+    fun finishRecording() {
+        if (_ui.value.recorder !is RecorderUi.Recording) return
+        recordJob?.cancel()
+        val result = recorder?.stop()
+        if (result == null) {
+            _ui.update { it.copy(recorder = RecorderUi.Idle, notice = Notice("Hold the mic to record — that was too short.", true)) }
+            return
+        }
+        app.haptics.tick()
+        _ui.update { it.copy(recorder = RecorderUi.Preview(result.first.absolutePath, result.second)) }
+    }
+
+    fun sendRecording() {
+        val p = _ui.value.recorder as? RecorderUi.Preview ?: return
+        if (_ui.value.voice?.id == PREVIEW_ID) stopAudio()
+        val clientId = java.util.UUID.randomUUID().toString()
+        val replyTo = _ui.value.replyingTo?.id
+        _ui.update { it.copy(recorder = RecorderUi.Idle, replyingTo = null) }
+        app.sounds.play(Sounds.Sfx.POP, 0.5f)
+        app.haptics.tick()
+        app.scope.launch {
+            val staged = app.outbox.stageFile("voice.m4a")
+            val src = java.io.File(p.path)
+            if (!src.renameTo(staged)) { src.copyTo(staged, overwrite = true); src.delete() }
+            media.adopt(clientId, staged, "m4a")
+            app.outbox.enqueueRaw(ChatWrites.KIND_MEDIA, "POST", chatMediaUploadPath(convId, "voice", clientId, null, replyTo, p.durationMs), staged, "audio/mp4", id = clientId)
+            flushOutbox()
+        }
+        requestScrollToEnd()
+    }
+
+    /** ▶ / ⏸ on a voice bubble, a pending one ([localPath]) or the preview. */
+    fun toggleVoice(id: String, m: ChatMessageDto?, localPath: String?, durationMs: Long) {
+        val v = _ui.value.voice
+        if (v != null && v.id == id) {
+            val mp = player ?: return
+            if (v.playing) { runCatching { mp.pause() }; _ui.update { it.copy(voice = v.copy(playing = false)) } }
+            else { runCatching { mp.start() }; _ui.update { it.copy(voice = v.copy(playing = true)) }; trackProgress(id) }
+            return
+        }
+        stopAudio()
+        _ui.update { it.copy(voice = VoicePlayback(id, 0, durationMs, playing = false, loading = true)) }
+        viewModelScope.launch {
+            val file = localPath?.let { java.io.File(it) }?.takeIf { it.exists() } ?: m?.let { media.file(it) }
+            if (file == null) {
+                _ui.update { it.copy(voice = null) }
+                error(if (_ui.value.online) "Couldn't load that voice message." else "That voice message isn't on this phone yet — it downloads when you're online.")
+                return@launch
+            }
+            if (_ui.value.voice?.id != id) return@launch
+            val mp = MediaPlayer()
+            player = mp
+            runCatching {
+                mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                mp.setDataSource(file.absolutePath)
+                mp.setOnPreparedListener {
+                    it.start()
+                    val d = it.duration.toLong().takeIf { d -> d > 0 } ?: durationMs
+                    _ui.update { s -> s.copy(voice = VoicePlayback(id, 0, d, playing = true)) }
+                    trackProgress(id)
+                }
+                mp.setOnCompletionListener { if (player === it) stopAudio() }
+                mp.setOnErrorListener { _, _, _ -> stopAudio(); true }
+                mp.prepareAsync()
+            }.onFailure { stopAudio() }
+        }
+    }
+
+    private fun trackProgress(id: String) {
+        progressJob?.cancel()
+        progressJob = viewModelScope.launch {
+            while (isActive) {
+                val mp = player ?: break
+                val v = _ui.value.voice ?: break
+                if (v.id != id || !v.playing) break
+                val pos = runCatching { mp.currentPosition.toLong() }.getOrDefault(v.positionMs)
+                _ui.update { it.copy(voice = v.copy(positionMs = pos)) }
+                delay(50)
+            }
+        }
+    }
+
+    fun toggleTranslation(id: String) = _ui.update { it.copy(translationsShown = if (id in it.translationsShown) it.translationsShown - id else it.translationsShown + id) }
 
     // ---------------- per-message tools ----------------
 
@@ -392,9 +897,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     }
 
     fun stopAudio() {
+        progressJob?.cancel()
         player?.runCatching { release() }
         player = null
-        _ui.update { it.copy(playingId = null) }
+        _ui.update { it.copy(playingId = null, voice = null) }
     }
 
     private fun check(m: ChatMessageDto) {
@@ -605,6 +1111,8 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     override fun onCleared() {
         stopAudio()
+        recordJob?.cancel()
+        recorder?.cancel()
         super.onCleared()
     }
 
@@ -613,6 +1121,10 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         const val PINNED_KEY = "chat/pinned-decks"
         const val RECENT_KEY = "chat/recent-emojis"
         const val CACHE_LIMIT = 300
+        /** ScrollRequest id for "the end of the list". */
+        const val END = "\u0000end"
+        const val RETRY_MS = 5_000L
+        const val HIGHLIGHT_MS = 2_500L
 
         /** `?new=1` / `chat/new`: a fresh untitled conversation; returns its id. */
         suspend fun newConversation(app: LabApp, relId: String): String = app.repo.api.startConversation(relId, PracticeConversationBody()).id

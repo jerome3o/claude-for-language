@@ -64,6 +64,9 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO conversations (id, relationship_id, title) VALUES ('conv-1', 'rel-1', 'Chat')");
   exec(db, "INSERT INTO messages (id, conversation_id, sender_id, content, recording_url) VALUES ('m-1', 'conv-1', ?, '你好', 'recordings/msg.webm')", TUTOR);
   exec(db, "INSERT INTO messages (id, conversation_id, sender_id, content, reply_to_message_id) VALUES ('m-2', 'conv-1', ?, 'hi', 'm-1')", STUDENT);
+  // Chat photo (tutor) and voice message (student): the R2 key lives in the attachment JSON (docs/CHAT.md PR 2).
+  exec(db, `INSERT INTO messages (id, conversation_id, sender_id, content, attachment, pinned_at, pinned_by) VALUES ('m-3', 'conv-1', ?, '', '{"kind":"image","width":4,"height":3,"bytes":10,"mime":"image/jpeg","key":"chat-media/conv-1/m-3.jpg"}', '2026-09-01', ?)`, TUTOR, STUDENT);
+  exec(db, `INSERT INTO messages (id, conversation_id, sender_id, content, attachment) VALUES ('m-4', 'conv-1', ?, '', '{"kind":"voice","duration_ms":900,"bytes":10,"mime":"audio/webm","transcript_status":"done","key":"chat-media/conv-1/m-4.webm"}')`, STUDENT);
   exec(db, "INSERT INTO message_reactions (id, message_id, user_id, emoji) VALUES ('r-1', 'm-1', ?, '👍')", STUDENT);
   exec(db, "INSERT INTO card_flags (id, relationship_id, student_id, tutor_id, note_id, message) VALUES ('f-1', 'rel-1', ?, ?, 's-note', 'help')", STUDENT, TUTOR);
   exec(db, "INSERT INTO tutor_lesson_log (id, relationship_id, tutor_id, student_id, lesson_at) VALUES ('ll-1', 'rel-1', ?, ?, '2026-09-20')", TUTOR, STUDENT);
@@ -139,7 +142,7 @@ describe('deleteUserAccount', () => {
   it('previews what goes and what stays', async () => {
     const preview = await previewUserDeletion(db, TUTOR, { actorId: ADMIN });
     expect(preview.blockers).toEqual([]);
-    expect(preview.will_delete).toMatchObject({ decks: 1, notes: 1, cards: 1, review_events: 1, recordings: 1, readers: 1, relationships: 2, messages: 2, calls: 1, sessions: 1 });
+    expect(preview.will_delete).toMatchObject({ decks: 1, notes: 1, cards: 1, review_events: 1, recordings: 1, readers: 1, relationships: 2, messages: 4, calls: 1, sessions: 1 });
     expect(preview.will_keep).toEqual({ deck_copies_in_other_accounts: 1, reader_copies_in_other_accounts: 1, lessons_assigned_to_others: 1 });
     expect(preview.r2_objects).toBeGreaterThan(0);
   });
@@ -171,6 +174,7 @@ describe('deleteUserAccount', () => {
     expect(deleted).toEqual(expect.arrayContaining([
       'generated/tutor-only-clue.mp3', 'generated/tutor-sentence.mp3', 'recordings/t-ev.webm', 'recordings/msg.webm',
       'reader-images/tutor-only.png', 'calls/piece-1.webm', 'calls/piece-1/0', 'homework/hwr-1.webm', 'screenshots/tutor-1/x.png',
+      'chat-media/conv-1/m-3.jpg', 'chat-media/conv-1/m-4.webm',
     ]));
     expect(deleted).not.toContain('generated/shared.mp3');
     expect(deleted).not.toContain('reader-images/shared.png');

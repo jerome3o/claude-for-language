@@ -1,0 +1,100 @@
+/**
+ * API client for the live chat & rich messages (docs/CHAT.md PR 2): the live
+ * ticket, idempotent text / media sends, edit / delete / pin, and the media bytes.
+ */
+
+import { API_BASE, getAuthHeaders, authEvents } from './client';
+import type { MessageWithSender } from '../types';
+
+const API_PATH = `${API_BASE}/api`;
+
+/** An error with the HTTP status (undefined for a network failure). */
+export type ChatApiError = Error & { status?: number };
+
+async function request<T>(url: string, options?: RequestInit & { rawBody?: boolean }): Promise<T> {
+  const headers: Record<string, string> = {
+    ...(options?.rawBody ? {} : { 'Content-Type': 'application/json' }),
+    ...getAuthHeaders(),
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  const response = await fetch(`${API_PATH}${url}`, { ...options, credentials: 'include', headers });
+  if (response.status === 401) {
+    authEvents.onUnauthorized();
+    throw Object.assign(new Error('Unauthorized'), { status: 401 });
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw Object.assign(new Error(error.error || `HTTP ${response.status}`), { status: response.status });
+  }
+  return response.json();
+}
+
+export function getLiveTicket(): Promise<{ ticket: string; ws_path: string }> {
+  return request('/live/ticket', { method: 'POST', body: '{}' });
+}
+
+/** The WebSocket URL for a live ticket (dev: the worker on :8787, like the call room). */
+export function liveSocketUrl(wsPath: string, ticket: string): string {
+  const base = API_BASE || (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:8787` : window.location.origin);
+  const url = new URL(wsPath, base);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('ticket', ticket);
+  return url.toString();
+}
+
+export function sendChatText(
+  conversationId: string,
+  input: { content: string; client_id: string; reply_to_message_id?: string | null },
+): Promise<MessageWithSender> {
+  return request(`/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({
+      content: input.content,
+      client_id: input.client_id,
+      ...(input.reply_to_message_id ? { reply_to_message_id: input.reply_to_message_id } : {}),
+    }),
+  });
+}
+
+export function sendChatMedia(
+  conversationId: string,
+  input: {
+    kind: 'image' | 'voice';
+    blob: Blob;
+    client_id: string;
+    caption?: string | null;
+    reply_to_message_id?: string | null;
+    duration_ms?: number | null;
+  },
+): Promise<MessageWithSender> {
+  const q = new URLSearchParams({ kind: input.kind, client_id: input.client_id });
+  if (input.caption) q.set('caption', input.caption);
+  if (input.reply_to_message_id) q.set('reply_to_message_id', input.reply_to_message_id);
+  if (input.duration_ms != null) q.set('duration_ms', String(Math.round(input.duration_ms)));
+  return request(`/conversations/${conversationId}/media?${q.toString()}`, {
+    method: 'POST',
+    rawBody: true,
+    headers: { 'Content-Type': input.blob.type || 'application/octet-stream' },
+    body: input.blob,
+  });
+}
+
+export function editChatMessage(messageId: string, content: string): Promise<MessageWithSender> {
+  return request(`/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify({ content }) });
+}
+
+export function deleteChatMessage(messageId: string): Promise<MessageWithSender | { ok: boolean }> {
+  return request(`/messages/${messageId}`, { method: 'DELETE' });
+}
+
+export function pinChatMessage(messageId: string, pinned: boolean): Promise<MessageWithSender | { ok: boolean }> {
+  return request(`/messages/${messageId}/pin`, { method: 'POST', body: JSON.stringify({ pinned }) });
+}
+
+/** The media bytes of a message (auth needed: the R2 key never reaches the client). */
+export async function fetchChatMediaBlob(mediaUrl: string): Promise<Blob> {
+  const url = /^https?:/.test(mediaUrl) ? mediaUrl : `${API_BASE}${mediaUrl}`;
+  const res = await fetch(url, { credentials: 'include', headers: getAuthHeaders() });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.blob();
+}

@@ -20,6 +20,7 @@ import { notifyNewChatMessage as ntfyNewChatMessage } from '../notifications';
 import { pushToUsers } from '../push';
 import { pushToDevices } from '../push/devices';
 import { broadcastToUsers, broadcastToUser } from './hub';
+import { messagePreviewText } from './media';
 import { getConversationParticipants, otherParticipant, type ChatParticipants } from './reads';
 
 /** FCM data values are capped well below FCM's 4 KB payload limit. */
@@ -51,14 +52,21 @@ export function chatMessageFcmData(message: MessageWithSender, relationshipId: s
     sender_id: message.sender_id,
     sender_name: message.sender.name || 'Someone',
     sender_picture_url: message.sender.picture_url || '',
-    content: message.content.length > FCM_CONTENT_MAX ? message.content.slice(0, FCM_CONTENT_MAX) : message.content,
+    // A photo / voice message: "📷 Photo" / "🎤 Voice message" (+ caption).
+    content: previewOf(message).slice(0, FCM_CONTENT_MAX),
+    attachment_kind: message.attachment?.kind ?? '',
     created_at: message.created_at,
     url: chatUrl(relationshipId, message.conversation_id),
   };
 }
 
+function previewOf(message: MessageWithSender): string {
+  return messagePreviewText(message);
+}
+
 export function chatMessageWebPush(message: MessageWithSender, relationshipId: string) {
-  const preview = message.content.length > PREVIEW_MAX ? message.content.slice(0, PREVIEW_MAX) + '…' : message.content;
+  const text = previewOf(message);
+  const preview = text.length > PREVIEW_MAX ? text.slice(0, PREVIEW_MAX) + '…' : text;
   return {
     type: 'chat_message' as const,
     title: message.sender.name || 'New message',
@@ -97,7 +105,7 @@ export async function notifyNewChatMessage(
   const relationshipId = participants.relationship_id;
   const recipientIsHuman = !!recipientId && recipientId !== CLAUDE_AI_USER_ID && recipientId !== senderId;
   const senderName = message.sender.name || 'Someone';
-  const content = message.content;
+  const content = previewOf(message);
   const truncated = content.length > PREVIEW_MAX ? content.slice(0, PREVIEW_MAX) + '...' : content;
 
   await Promise.all([

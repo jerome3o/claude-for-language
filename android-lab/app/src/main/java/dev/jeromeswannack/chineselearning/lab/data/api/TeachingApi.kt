@@ -214,7 +214,7 @@ suspend fun Api.revokeInvite(id: String) = delete<Unit>("/api/invites/${enc(id)}
 // ---------------- conversations / lessons / lesson log ----------------
 
 @Serializable
-data class LastMessageDto(val content: String = "")
+data class LastMessageDto(val content: String = "", val attachment_kind: String? = null, val deleted_at: String? = null)
 
 @Serializable
 data class ConversationDto(
@@ -223,6 +223,8 @@ data class ConversationDto(
     val created_at: String = "",
     val last_message_at: String? = null,
     val last_message: LastMessageDto? = null,
+    /** PR 2 (docs/CHAT.md): messages from the other person after my read marker. */
+    val unread: Int = 0,
 )
 
 suspend fun Api.conversations(relId: String): List<ConversationDto> = get("${rel(relId)}/conversations")

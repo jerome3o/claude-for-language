@@ -27,6 +27,9 @@ data class InboxMessageDto(
     val content: String = "",
     val created_at: String = "",
     val sender: ChatSenderDto = ChatSenderDto(),
+    /** PR 2: image | voice | null, and the notification text ("📷 Photo: caption", "🎤 Voice message"). */
+    val attachment_kind: String? = null,
+    val preview: String? = null,
 )
 
 @Serializable

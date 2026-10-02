@@ -53,6 +53,8 @@ class ChatActionReceiver : BroadcastReceiver() {
 object ChatActions {
     const val KIND_SEND = "chat_message"
     const val KIND_READ = "chat_read"
+    /** A photo / voice message: raw `POST /api/conversations/:id/media?…&client_id=` (docs/CHAT.md PR 2). */
+    const val KIND_MEDIA = "chat_media"
 
     /** Queues [text] for [conversationId]; returns the client id (null for an empty reply). */
     suspend fun reply(app: LabApp, conversationId: String, text: String): String? {
