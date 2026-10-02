@@ -8,6 +8,12 @@
  * for the next poll). The notification is skipped only when a tab is in front
  * and can show the call itself (a normal page, not a full-screen one such as a
  * study session — the app's banner doesn't show there).
+ *
+ * A chat message (docs/CHAT.md §3) carries
+ *   { type: 'chat_message', title: sender name, body: preview, url, tag: 'chat-<convId>',
+ *     conversation_id, relationship_id, sender_picture_url? }
+ * It is skipped only when a focused, visible tab is on that very chat; otherwise one
+ * notification per conversation (the tag replaces the previous one, renotify buzzes again).
  */
 
 /* Keep in step with IMMERSIVE in frontend/src/components/nav/tabs.ts. */
@@ -33,6 +39,37 @@ function pushPathOf(url) {
   }
 }
 
+/* Keep in step with chatOpenInFront in frontend/src/services/chatNotifications.ts (tested there). */
+function pushChatPath(url) {
+  try {
+    return new URL(url, 'https://app.invalid').pathname.replace(/\/+$/, '') || '/';
+  } catch (e) {
+    return null;
+  }
+}
+
+function pushChatOpenInFront(data, list) {
+  var target = data && data.url ? pushChatPath(data.url) : null;
+  if (!target) return false;
+  return list.some(function (c) {
+    return !!c.focused && c.visibilityState === 'visible' && pushChatPath(c.url) === target;
+  });
+}
+
+function pushShowChat(data, list) {
+  if (pushChatOpenInFront(data, list)) return undefined;
+  var tag = data.tag || (data.conversation_id ? 'chat-' + data.conversation_id : undefined);
+  return self.registration.showNotification(data.title || 'New message', {
+    body: data.body || '',
+    tag: tag,
+    renotify: !!tag,
+    icon: data.sender_picture_url || '/icon-192.png',
+    badge: '/badge-72.png',
+    vibrate: [200],
+    data: { url: data.url || '/', conversation_id: data.conversation_id || null, type: 'chat_message' },
+  });
+}
+
 self.addEventListener('push', function (event) {
   var data = {};
   try {
@@ -45,6 +82,7 @@ self.addEventListener('push', function (event) {
       list.forEach(function (c) {
         c.postMessage({ type: 'push', data: data });
       });
+      if (data.type === 'chat_message') return pushShowChat(data, list);
       var inFront = list.some(function (c) {
         if (!c.focused || c.visibilityState !== 'visible') return false;
         var path = pushPathOf(c.url);
