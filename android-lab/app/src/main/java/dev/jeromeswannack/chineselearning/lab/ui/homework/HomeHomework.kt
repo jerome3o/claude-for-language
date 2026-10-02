@@ -71,6 +71,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -223,6 +224,11 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
     )
 
     val ui: StateFlow<HomeHomeworkUi> = combine(card, notesLine) { c, line -> c.copy(notesLine = line) }
+        // Never crash Home over the homework card: a failure leaves it empty (logged + reported).
+        .catch { e ->
+            android.util.Log.e("HomeHomework", "homework card failed", e)
+            dev.jeromeswannack.chineselearning.lab.data.CrashLog.recordNonFatal(app, "home", e)
+        }
         .stateIn(viewModelScope, SharingStarted.Eagerly, HomeHomeworkUi())
 
     /** The legacy "From <tutor>" pick (newest shared deck / lesson + unread message), web useHomework. */

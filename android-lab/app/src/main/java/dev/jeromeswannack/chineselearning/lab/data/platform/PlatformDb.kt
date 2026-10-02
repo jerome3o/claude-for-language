@@ -29,6 +29,9 @@ data class JsonCacheEntity(
     val updatedAt: Long,
 )
 
+/** A json_cache row without its document: what JsonCache sizes before reading. */
+data class JsonCacheMeta(val key: String, val kind: String, val updatedAt: Long, val bytes: Long)
+
 /**
  * One queued API write. Drained oldest first ([seq]); [id] is the client-generated id
  * (also the idempotency key the server dedupes on). A multipart upload carries a
@@ -57,6 +60,15 @@ data class OutboxEntity(
 @Dao
 interface PlatformDao {
     // ---- json_cache ----
+    // Reads go through JsonCache, which never selects a whole row it hasn't sized first: a row
+    // over Android's 2 MB CursorWindow throws SQLiteBlobTooBigException on read (it crashed
+    // the app on open for an account with a 2.2 MB readers list).
+    @Query("SELECT `key`, kind, updatedAt, length(CAST(json AS BLOB)) AS bytes FROM json_cache WHERE `key` = :key") suspend fun cacheMeta(key: String): JsonCacheMeta?
+    @Query("SELECT `key`, kind, updatedAt, length(CAST(json AS BLOB)) AS bytes FROM json_cache WHERE `key` = :key") fun observeCacheMeta(key: String): Flow<JsonCacheMeta?>
+    @Query("SELECT `key`, kind, updatedAt, length(CAST(json AS BLOB)) AS bytes FROM json_cache WHERE kind = :kind ORDER BY `key`") suspend fun cacheMetas(kind: String): List<JsonCacheMeta>
+    @Query("SELECT `key`, kind, updatedAt, length(CAST(json AS BLOB)) AS bytes FROM json_cache WHERE kind = :kind ORDER BY `key`") fun observeCacheMetas(kind: String): Flow<List<JsonCacheMeta>>
+    @Query("SELECT length(json) FROM json_cache WHERE `key` = :key") suspend fun cacheChars(key: String): Int?
+    @Query("SELECT substr(json, :start, :count) FROM json_cache WHERE `key` = :key") suspend fun cacheSlice(key: String, start: Int, count: Int): String?
     @Query("SELECT * FROM json_cache WHERE `key` = :key") suspend fun cacheEntry(key: String): JsonCacheEntity?
     @Query("SELECT * FROM json_cache WHERE `key` = :key") fun observeCacheEntry(key: String): Flow<JsonCacheEntity?>
     @Query("SELECT * FROM json_cache WHERE kind = :kind ORDER BY `key`") suspend fun cacheEntries(kind: String): List<JsonCacheEntity>

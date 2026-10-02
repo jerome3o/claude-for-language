@@ -330,9 +330,12 @@ object CrashLog {
         return am.getHistoricalProcessExitReasons(context.packageName, 0, 3).any { it.timestamp > shown && it.reason in FATAL_EXITS }
     }
 
-    /** Pending crash / freeze files (not the non-fatal ones), newest first: (time, text). */
+    /**
+     * Pending crash files (not the non-fatal ones, not freezes — a freeze the app recovered from
+     * isn't worth a screen; one it died in stays in LAST_FILE), newest first: (time, text).
+     */
     private fun fatalFiles(context: Context): List<Pair<Long, String>> =
-        File(context.filesDir, DIR).listFiles().orEmpty().mapNotNull { f ->
+        File(context.filesDir, DIR).listFiles().orEmpty().filter { !it.name.startsWith("freeze") }.mapNotNull { f ->
             runCatching {
                 val text = f.readText()
                 val lines = text.split('\n', limit = 4)
@@ -411,17 +414,20 @@ object CrashLog {
                 Thread.sleep(FREEZE_MS)
                 if (ran.get()) continue
                 val started = System.currentTimeMillis() - FREEZE_MS
+                var written: String? = null
                 if (reported < 3) {
                     reported++
                     try {
-                        val text = writeText(File(app.filesDir, DIR), "freeze", appVersion, "main (no response for ${FREEZE_MS / 1000}s+)", freezeDump())
-                        if (text != null) writeLast(app, text)
+                        written = writeText(File(app.filesDir, DIR), "freeze", appVersion, "main (no response for ${FREEZE_MS / 1000}s+)", freezeDump())
+                        written?.let { writeLast(app, it) }
                         uploadNow(app, appVersion)
                     } catch (_: Throwable) {
                     }
                 }
                 // One report per freeze: wait for the main thread to come back.
                 while (!ran.get()) Thread.sleep(250)
+                // It recovered: no "froze last time" screen for this one (it has been reported).
+                runCatching { File(app.filesDir, LAST_FILE).takeIf { written != null && it.exists() && it.readText() == written }?.delete() }
                 Log.w(TAG, "main thread was frozen for ${System.currentTimeMillis() - started} ms")
             }
         }, "lab-freeze-watchdog")
