@@ -374,7 +374,7 @@ export function CallReviewPage() {
           </div>
           {turns.length === 0 ? (
             <p className="td-muted">
-              {call.status === 'live' ? 'The transcript appears after the call.' : isBusy(detail) ? 'Working on it…' : 'No speech was transcribed for this call.'}
+              {call.status === 'live' ? 'The transcript appears after the call.' : isBusy(detail) ? 'Working on it…' : `No speech was transcribed in this ${(detail.lesson?.calls.length ?? 1) > 1 ? 'lesson' : 'call'}.`}
             </p>
           ) : (
             <div className="cr-transcript" data-testid="call-transcript">
@@ -490,7 +490,7 @@ export function CallReviewPage() {
               {report ? 'Transcribe & summarise again' : 'Process now'}
             </button>
             {call.created_by === user?.id && (
-              <button type="button" className="btn btn-danger-outline" disabled={actionBusy} onClick={() => void remove()}>Delete call</button>
+              <button type="button" className="btn btn-danger-outline" disabled={actionBusy} onClick={() => void remove()}>{(detail.lesson?.calls.length ?? 1) > 1 ? 'Delete this call (not the others)' : 'Delete call'}</button>
             )}
           </section>
         )}
