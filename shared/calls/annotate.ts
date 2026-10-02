@@ -8,6 +8,14 @@
  * seconds after they're finished, or stay while "Keep drawings" is on (one
  * setting for both people, `annot_mode`).
  *
+ * Text (round 4): either person can also place TEXT boxes on the shared
+ * picture (`AnnotText`: anchored at its top-left, sized as a fraction of the
+ * picture's shorter side, in the writer's colour), type in them with any IME,
+ * move and delete them. "Keep" is now ON by default (a room that never set it
+ * keeps), so nothing fades unexpectedly; fading stays an option. While kept,
+ * the room remembers the strokes and texts so a reconnect shows them again
+ * (`welcome.annots`).
+ *
  * Points are 0..1 of the shared picture (not of any element), so they land on
  * the same spot whatever size either window is. Strokes fade a few seconds
  * after they're finished. The Lab app's CallAnnotate.kt is a port,
@@ -147,4 +155,98 @@ export function simplifyPoints(points: readonly AnnotPoint[], minStep = 0.002): 
     if (!last || i === points.length - 1 || Math.hypot(p[0] - last[0], p[1] - last[1]) >= minStep) out.push(p);
   }
   return out.slice(0, MAX_ANNOT_POINTS);
+}
+
+// ------------------------------------------------------------------ text boxes (round 4)
+
+export interface AnnotText {
+  id: string;
+  color: string;
+  /** Top-left of the box, 0..1 of the shared picture. */
+  x: number;
+  y: number;
+  text: string;
+  /** Font size as a fraction of the picture's shorter side. */
+  size: number;
+  /** The writer has finished (Enter / tapped away): it starts fading unless kept. */
+  done: boolean;
+}
+
+/** A text as shown, with who last wrote / moved it and when it was finished (local clock). */
+export interface ShownText extends AnnotText {
+  from: string;
+  doneAt: number | null;
+}
+
+export const ANNOT_TEXT_SIZE = 0.032;
+export const MAX_ANNOT_TEXT_CHARS = 200;
+/** The room keeps at most this many strokes / texts while drawings are kept. */
+export const MAX_KEPT_STROKES = 300;
+export const MAX_KEPT_TEXTS = 100;
+/** Keep drawings (and texts) until cleared: the default when the room never said otherwise. */
+export const DEFAULT_ANNOT_PERSIST = true;
+
+/** The room's stored setting → whether drawings are kept (undefined = never set = the default). */
+export function annotPersistOf(stored: boolean | undefined | null): boolean {
+  return typeof stored === 'boolean' ? stored : DEFAULT_ANNOT_PERSIST;
+}
+
+/** Validate a text box off the wire. Text is kept as typed (Chinese, emoji), one or more lines, ≤ 200 characters. */
+export function sanitizeAnnotText(raw: unknown): AnnotText | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.id !== 'string' || !t.id || t.id.length > 64 || !isColor(t.color) || typeof t.text !== 'string') return null;
+  const x = Number(t.x);
+  const y = Number(t.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const size = Number(t.size);
+  const text = Array.from(t.text.replace(/\r\n?/g, '\n')).slice(0, MAX_ANNOT_TEXT_CHARS).join('');
+  return {
+    id: t.id,
+    color: t.color,
+    x: round4(clamp01(x)),
+    y: round4(clamp01(y)),
+    text,
+    size: Number.isFinite(size) && size >= 0.01 && size <= 0.12 ? round4(size) : ANNOT_TEXT_SIZE,
+    done: t.done === true,
+  };
+}
+
+/** A text's top-left after dragging it by (dx, dy) of the picture, kept on the picture. */
+export function moveAnnotText(t: Pick<AnnotText, 'x' | 'y'>, dx: number, dy: number): { x: number; y: number } {
+  return { x: round4(Math.min(0.98, clamp01(t.x + dx))), y: round4(Math.min(0.98, clamp01(t.y + dy))) };
+}
+
+/** A text's opacity (same rule as strokes): 1 while written and kept, fading after it's finished otherwise. */
+export function textAlpha(doneAt: number | null, now: number, persist = false): number {
+  return strokeAlpha(doneAt, now, persist);
+}
+
+/**
+ * The strokes and texts a room keeps while drawings are kept (a reconnect gets
+ * them in `welcome`): finished strokes only, newest last, bounded.
+ */
+export interface KeptAnnotations {
+  strokes: { key: string; from: string; name: string; stroke: AnnotStroke }[];
+  texts: { from: string; name: string; text: AnnotText }[];
+}
+
+export function emptyKept(): KeptAnnotations {
+  return { strokes: [], texts: [] };
+}
+
+export function keepStroke(k: KeptAnnotations, from: string, name: string, stroke: AnnotStroke): KeptAnnotations {
+  if (!stroke.done) return k;
+  const key = `${from}:${stroke.id}`;
+  const strokes = [...k.strokes.filter((s) => s.key !== key), { key, from, name, stroke }];
+  return { ...k, strokes: strokes.slice(-MAX_KEPT_STROKES) };
+}
+
+export function keepText(k: KeptAnnotations, from: string, name: string, text: AnnotText): KeptAnnotations {
+  const texts = [...k.texts.filter((t) => t.text.id !== text.id), { from, name, text }];
+  return { ...k, texts: texts.slice(-MAX_KEPT_TEXTS) };
+}
+
+export function dropText(k: KeptAnnotations, id: string): KeptAnnotations {
+  return { ...k, texts: k.texts.filter((t) => t.text.id !== id) };
 }

@@ -71,6 +71,7 @@ function makeRoom() {
     setAlarm: async (t: number) => {
       alarm = t;
     },
+    delete: async (k: string) => store.delete(k),
     deleteAlarm: async () => {
       alarm = null;
     },
@@ -229,5 +230,43 @@ describe('CallRoom presence and auto-end', () => {
       `minghui timed out (no answer for ${PRESENCE_TIMEOUT_MS / 1000} s)`,
       'Call ended automatically: nobody in it',
     ]);
+  });
+});
+
+describe('CallRoom: text on a shared screen and kept drawings (round 4)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  it('relays text boxes, keeps them (Keep is the default) with finished strokes, forgets them on Clear or fade', async () => {
+    const r = makeRoom();
+    await r.room.presence('call-1', T0);
+    const jerome = r.add('jerome', T0);
+    const minghui = r.add('minghui', T0);
+    const text = { id: 't1', color: '#f43f5e', x: 0.2, y: 0.3, text: '把字句', size: 0.032, done: true };
+    await r.room.webSocketMessage(minghui as never, JSON.stringify({ type: 'annot_text', text }));
+    expect(jerome.sent).toContainEqual({ type: 'annot_text', from: 'c-minghui-1', name: 'minghui', text });
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot', stroke: { id: 's1', color: '#38bdf8', width: 0.006, points: [[0.1, 0.1], [0.2, 0.2]], done: false } }));
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot', stroke: { id: 's1', color: '#38bdf8', width: 0.006, points: [[0.1, 0.1], [0.2, 0.2]], done: true } }));
+    const kept = r.store.get('annots') as { strokes: { key: string }[]; texts: { text: { id: string; text: string } }[] };
+    expect(kept.texts.map((t) => t.text.text)).toEqual(['把字句']);
+    expect(kept.strokes.map((s) => s.key)).toEqual(['c-jerome-0:s1']);
+    // Moved: the same id, one entry.
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot_text', text: { ...text, x: 0.5 } }));
+    expect((r.store.get('annots') as typeof kept).texts).toHaveLength(1);
+    // Deleted.
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot_text_delete', id: 't1' }));
+    expect(minghui.sent).toContainEqual({ type: 'annot_text_delete', from: 'c-jerome-0', id: 't1' });
+    expect((r.store.get('annots') as typeof kept).texts).toHaveLength(0);
+    // Clear forgets everything; so does switching to fading.
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot_clear' }));
+    expect(r.store.get('annots')).toBeUndefined();
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot_text', text }));
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot_mode', persist: false }));
+    expect(r.store.get('annots')).toBeUndefined();
+    // While fading, nothing is kept.
+    await r.room.webSocketMessage(jerome as never, JSON.stringify({ type: 'annot_text', text }));
+    expect(r.store.get('annots')).toBeUndefined();
   });
 });

@@ -42,7 +42,7 @@ import { endCall as endCallApi } from '../api/calls';
 import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
-import type { AnnotStroke } from '@shared/calls';
+import { DEFAULT_ANNOT_PERSIST, type AnnotStroke, type AnnotText } from '@shared/calls';
 import {
   acquireMedia,
   loadDevicePrefs,
@@ -107,7 +107,7 @@ export function useCall(callId: string, myUserId: string) {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [turn, setTurn] = useState(false);
   /** Drawings on a shared screen stay (true) or fade (false) — one setting for both people. */
-  const [annotPersist, setAnnotPersist] = useState(false);
+  const [annotPersist, setAnnotPersist] = useState(DEFAULT_ANNOT_PERSIST);
 
   const roomRef = useRef<CallRoomSocket | null>(null);
   const linkRef = useRef<PeerLink | null>(null);
@@ -397,8 +397,10 @@ export function useCall(callId: string, myUserId: string) {
         setLiveStrokes({});
         textRef.current?.resetPeers(msg.peers);
         textRef.current?.welcome(msg);
-        annotRef.current?.setPersist(msg.annot_persist === true);
-        setAnnotPersist(msg.annot_persist === true);
+        // Keep is the default (round 4); an older room that never says counts as kept too.
+        annotRef.current?.setPersist(msg.annot_persist ?? DEFAULT_ANNOT_PERSIST);
+        setAnnotPersist(msg.annot_persist ?? DEFAULT_ANNOT_PERSIST);
+        annotRef.current?.loadKept(msg.annots);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
         flushDiag();
         if (msg.peers.length > 0) openLink(msg.peers[0]);
@@ -474,6 +476,12 @@ export function useCall(callId: string, myUserId: string) {
         return;
       case 'annot_clear':
         annotRef.current?.clear();
+        return;
+      case 'annot_text':
+        annotRef.current?.upsertText(msg.text, msg.from, Date.now(), msg.name);
+        return;
+      case 'annot_text_delete':
+        annotRef.current?.deleteText(msg.id);
         return;
       case 'annot_ping':
         annotRef.current?.ping(msg.from, msg.x, msg.y, Date.now(), msg.name);
@@ -672,6 +680,17 @@ export function useCall(callId: string, myUserId: string) {
     roomRef.current?.send({ type: 'annot_ping', x, y });
   }, []);
 
+  /** A text box on the shared screen: placed, typed into, moved (round 4). */
+  const sendAnnotText = useCallback((text: AnnotText) => {
+    annotRef.current?.upsertText(text, 'me');
+    roomRef.current?.send({ type: 'annot_text', text });
+  }, []);
+
+  const deleteAnnotText = useCallback((id: string) => {
+    annotRef.current?.deleteText(id);
+    roomRef.current?.send({ type: 'annot_text_delete', id });
+  }, []);
+
   const clearAnnotations = useCallback(() => {
     annotRef.current?.clear();
     roomRef.current?.send({ type: 'annot_clear' });
@@ -777,7 +796,7 @@ export function useCall(callId: string, myUserId: string) {
     commitBoard, sendLiveStroke, sendChat,
     textBoard: textRef.current,
     annotations: annotRef.current,
-    sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept,
+    sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept, sendAnnotText, deleteAnnotText,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,

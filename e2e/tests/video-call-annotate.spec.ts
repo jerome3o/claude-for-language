@@ -53,8 +53,21 @@ function inkCount(page: Page, testId: string, hex: string) {
   }, hex);
 }
 
+/** The canvas's box once it has stopped moving (a tile slides onto the stage with a transition). */
+async function settledBox(page: Page, testId: string) {
+  let last = '';
+  for (let i = 0; i < 40; i++) {
+    const b = (await page.getByTestId(testId).boundingBox())!;
+    const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`;
+    if (key === last) return b;
+    last = key;
+    await page.waitForTimeout(100);
+  }
+  return (await page.getByTestId(testId).boundingBox())!;
+}
+
 async function drawLine(page: Page, testId: string, from: [number, number], to: [number, number]) {
-  const box = (await page.getByTestId(testId).boundingBox())!;
+  const box = await settledBox(page, testId);
   await page.mouse.move(box.x + box.width * from[0], box.y + box.height * from[1]);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * to[0], box.y + box.height * to[1], { steps: 12 });
@@ -90,8 +103,8 @@ test('the sharer and the viewer both draw on the shared screen; keep and clear a
   await expect.poll(() => tp.getByTestId('my-screen').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 20000 }).toBeGreaterThan(0);
   await expect.poll(() => sp.getByTestId('remote-screen').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30000 }).toBeGreaterThan(0);
 
-  // Keep drawings (for both), then the tutor circles something in blue.
-  await tp.getByTestId('annot-keep').check();
+  // Keep drawings is ON by default (round 4) — nothing fades unexpectedly. The tutor circles something in blue.
+  await expect(tp.getByTestId('annot-keep')).toBeChecked();
   await expect(tp.getByTestId('annot-toggle')).toHaveText('✓ Done');
   await drawLine(tp, 'annot-self', [0.3, 0.3], [0.6, 0.5]);
   await expect.poll(() => inkCount(tp, 'annot-self', SHARER), { timeout: 5000 }).toBeGreaterThan(50);
@@ -111,5 +124,34 @@ test('the sharer and the viewer both draw on the shared screen; keep and clear a
   // Clear clears both sides.
   await sp.getByTestId('annot-clear').click();
   await expect.poll(() => inkCount(tp, 'annot-self', SHARER), { timeout: 10000 }).toBe(0);
+  await expect.poll(() => inkCount(sp, 'annot-remote', VIEWER), { timeout: 5000 }).toBe(0);
+
+  // ---- Round 4: TEXT on the shared screen. The student types Chinese (a real IME composition) in red.
+  await sp.getByTestId('annot-tool-text').click();
+  const canvas = (await sp.getByTestId('annot-remote').boundingBox())!;
+  await sp.mouse.click(canvas.x + canvas.width * 0.35, canvas.y + canvas.height * 0.4);
+  const editor = sp.getByTestId('annot-text-editor');
+  await expect(editor).toBeFocused();
+  const cdp = await sp.context().newCDPSession(sp);
+  await cdp.send('Input.imeSetComposition', { selectionStart: 2, selectionEnd: 2, text: 'ba' });
+  await cdp.send('Input.insertText', { text: '把字句' });
+  await sp.keyboard.press('Enter');
+  await expect(editor).toHaveCount(0);
+  // It reaches the tutor's screen, in the student's colour.
+  await expect.poll(() => inkCount(tp, 'annot-self', VIEWER), { timeout: 10000 }).toBeGreaterThan(30);
+  await expect.poll(() => inkCount(sp, 'annot-remote', VIEWER), { timeout: 5000 }).toBeGreaterThan(30);
+
+  // Kept: the student reloads and rejoins — the room gives the text back.
+  await joinCall(sp, call.id);
+  await expect.poll(() => sp.getByTestId('remote-screen').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30000 }).toBeGreaterThan(0);
+  await expect.poll(() => inkCount(sp, 'annot-remote', VIEWER), { timeout: 10000 }).toBeGreaterThan(30);
+
+  // Tap the text: selected (✕); ✕ deletes it for both.
+  await sp.getByTestId('annot-toggle').click();
+  await sp.getByTestId('annot-tool-text').click();
+  const c2 = (await sp.getByTestId('annot-remote').boundingBox())!;
+  await sp.mouse.click(c2.x + c2.width * 0.35 + 12, c2.y + c2.height * 0.4 - 4);
+  await sp.getByTestId('annot-text-delete').click();
+  await expect.poll(() => inkCount(tp, 'annot-self', VIEWER), { timeout: 10000 }).toBe(0);
   await expect.poll(() => inkCount(sp, 'annot-remote', VIEWER), { timeout: 5000 }).toBe(0);
 });

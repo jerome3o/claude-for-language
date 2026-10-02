@@ -31,6 +31,13 @@ import {
   capBoardSize,
   sanitizeBoardOp,
   sanitizeAnnotStroke,
+  sanitizeAnnotText,
+  annotPersistOf,
+  keepStroke,
+  keepText,
+  dropText,
+  emptyKept,
+  type KeptAnnotations,
   sanitizePing,
   sanitizeSelection,
   sanitizeTextOp,
@@ -272,6 +279,16 @@ export class CallRoom extends DurableObject<Env> {
     await this.load();
     this.diag = appendDiag(this.diag!, [{ t: Date.now(), kind: 'call', detail, user_id: who?.userId ?? '', name: who?.name ?? 'Room' }]);
     this.markDirty('diag');
+  }
+
+  /** Drawings on a shared screen are kept (round 4: the default for a room that never set it). */
+  private async annotPersist(): Promise<boolean> {
+    return annotPersistOf(await this.ctx.storage.get<boolean>('annotPersist'));
+  }
+
+  private async updateKept(fn: (k: KeptAnnotations) => KeptAnnotations): Promise<void> {
+    const k = (await this.ctx.storage.get<KeptAnnotations>('annots')) ?? emptyKept();
+    await this.ctx.storage.put('annots', fn(k), { allowUnconfirmed: true });
   }
 
   private markDirty(what: 'board' | 'diag' | 'pages'): void {
@@ -523,7 +540,8 @@ export class CallRoom extends DurableObject<Env> {
       chat: this.chat!,
       text: (await this.getDoc(this.opening)).snapshot(),
       text_cursors: this.cursorsExcept(server, this.opening),
-      annot_persist: (await this.ctx.storage.get<boolean>('annotPersist')) === true,
+      annot_persist: await this.annotPersist(),
+      ...((await this.annotPersist()) ? { annots: (await this.ctx.storage.get<KeptAnnotations>('annots')) ?? emptyKept() } : {}),
       pages: this.pageMetas(),
       page: this.opening,
       page_views: Object.fromEntries(others.map(({ a }) => [a.clientId, this.viewOf(a)])),
@@ -696,17 +714,37 @@ export class CallRoom extends DurableObject<Env> {
       }
       case 'annot': {
         const stroke = sanitizeAnnotStroke(msg.stroke);
-        if (stroke) this.broadcast({ type: 'annot', from: a.clientId, name: a.name, stroke }, ws);
+        if (!stroke) return;
+        this.broadcast({ type: 'annot', from: a.clientId, name: a.name, stroke }, ws);
+        // Kept (round 4: the default): a reconnect gets it back in `welcome`.
+        if (stroke.done && (await this.annotPersist())) await this.updateKept((k) => keepStroke(k, a.clientId, a.name, stroke));
+        return;
+      }
+      case 'annot_text': {
+        const text = sanitizeAnnotText(msg.text);
+        if (!text) return;
+        this.broadcast({ type: 'annot_text', from: a.clientId, name: a.name, text }, ws);
+        if (await this.annotPersist()) await this.updateKept((k) => keepText(k, a.clientId, a.name, text));
+        return;
+      }
+      case 'annot_text_delete': {
+        const id = typeof msg.id === 'string' ? msg.id.slice(0, 64) : '';
+        if (!id) return;
+        this.broadcast({ type: 'annot_text_delete', from: a.clientId, id }, ws);
+        await this.updateKept((k) => dropText(k, id));
         return;
       }
       case 'annot_mode': {
         const persist = msg.persist === true;
         this.broadcast({ type: 'annot_mode', from: a.clientId, name: a.name, persist }, ws);
         await this.ctx.storage.put('annotPersist', persist, { allowUnconfirmed: true });
+        // Fading from now on: what was kept fades on screen, so the room forgets it too.
+        if (!persist) await this.ctx.storage.delete('annots');
         return;
       }
       case 'annot_clear':
         this.broadcast({ type: 'annot_clear', from: a.clientId }, ws);
+        await this.ctx.storage.delete('annots');
         return;
       case 'annot_ping': {
         const p = sanitizePing(msg);
