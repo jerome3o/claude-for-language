@@ -57,6 +57,32 @@ class CallProtocolTest {
         assertNull(CallSignal.parse(Json.parseToJsonElement("""{"description":{"type":"weird","sdp":""}}""")))
     }
 
+    @Test fun round4LinkIdsAndHelloNeverTripTheParser() {
+        // The web (round 4) sends `link` on every signal and `{ hello: true, link }` first.
+        val hello = Json.parseToJsonElement("""{"hello":true,"link":"k3j9x0ab"}""")
+        assertEquals(CallSignal.Hello, CallSignal.parse(hello))
+        assertEquals("k3j9x0ab", CallSignal.linkOf(hello))
+        val offer = Json.parseToJsonElement("""{"description":{"type":"offer","sdp":"v=0"},"link":"L1","extra":{"x":[1,2]}}""")
+        assertEquals(CallSignal.Description("offer", "v=0"), CallSignal.parse(offer))
+        assertEquals("L1", CallSignal.linkOf(offer))
+        assertEquals(CallSignal.EndOfCandidates, CallSignal.parse(Json.parseToJsonElement("""{"candidate":null,"link":"L1"}""")))
+        // Older apps: no id. Odd shapes: no signal, no crash.
+        assertNull(CallSignal.linkOf(Json.parseToJsonElement("""{"candidate":null}""")))
+        assertNull(CallSignal.linkOf(Json.parseToJsonElement("""{"hello":true,"link":7}""")))
+        assertNull(CallSignal.parse(Json.parseToJsonElement("""{"hello":"yes"}""")))
+        assertNull(CallSignal.parse(Json.parseToJsonElement("""{"link":"L1"}""")))
+        assertNull(CallSignal.parse(Json.parseToJsonElement("""[1,2]""")))
+        assertNull(CallSignal.linkOf(Json.parseToJsonElement("\"str\"")))
+        // Mine go out with my link id, and round-trip.
+        val out = CallSignal.Hello.toJson("abc")
+        assertEquals("""{"hello":true,"link":"abc"}""", out.toString())
+        val cand = CallSignal.Candidate("candidate:1", "0", 0)
+        assertEquals(cand, CallSignal.parse(cand.toJson("abc")))
+        assertEquals("abc", CallSignal.linkOf(cand.toJson("abc")))
+        val msg = CallProtocol.parseServer("""{"type":"signal","from":"c1","data":{"hello":true,"link":"L9"}}""")
+        assertEquals(CallSignal.Hello, CallSignal.parse((msg as ServerMessage.Signal).data))
+    }
+
     @Test fun roundTwoFieldsInstanceComposeAndDiag() {
         val joined = CallProtocol.parseServer("""{"type":"peer_joined","peer":{"client_id":"c2","user_id":"u2","name":"王老师","picture_url":null,"state":{},"instance":"k3j9x0ab12cd"}}""")
         assertEquals("k3j9x0ab12cd", (joined as ServerMessage.PeerJoined).peer.instance)

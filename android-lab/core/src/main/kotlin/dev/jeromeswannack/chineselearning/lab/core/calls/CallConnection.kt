@@ -41,7 +41,9 @@ object CallConnection {
     const val MAX_DIAG_EVENTS = 600
     const val MAX_COMPOSE_CHARS = 40
 
+    /** What a client may send. The room's own lines are kind "call" (entered / left / timed out / who ended the call). */
     val DIAG_KINDS = listOf("pc", "ice", "room", "restart", "route", "media", "join", "peer")
+    const val ROOM_DIAG_KIND = "call"
 
     enum class PcState(val wire: String) {
         NEW("new"), CONNECTING("connecting"), CONNECTED("connected"), DISCONNECTED("disconnected"), FAILED("failed"), CLOSED("closed");
@@ -107,12 +109,42 @@ object CallConnection {
 
     fun tileStatus(h: LinkHealth, peerAway: Boolean) = tileStatus(h.pc, h.everConnected, peerAway)
 
-    /** A (re)announced peer is the same connection when it is the same person from the same app session. */
-    fun shouldAdoptPeer(currentUserId: String?, currentInstance: String?, incomingUserId: String, incomingInstance: String?): Boolean =
-        currentUserId != null && !incomingInstance.isNullOrEmpty() && currentInstance == incomingInstance && currentUserId == incomingUserId
+    /**
+     * A (re)announced peer is the same connection when it is the same person from the same app
+     * session — and the link we have is worth keeping ([pc], when known): a `failed` / `closed` one
+     * can't come back, and one still `new` never got going (its offer may have gone to their old
+     * socket, so it would wait forever). Those are renegotiated from scratch.
+     */
+    fun shouldAdoptPeer(currentUserId: String?, currentInstance: String?, incomingUserId: String, incomingInstance: String?, pc: PcState? = null): Boolean {
+        if (pc != null && !linkWorthKeeping(pc)) return false
+        return currentUserId != null && !incomingInstance.isNullOrEmpty() && currentInstance == incomingInstance && currentUserId == incomingUserId
+    }
 
-    fun shouldAdoptPeer(current: CallPeer?, incoming: CallPeer): Boolean =
-        shouldAdoptPeer(current?.userId, current?.instance, incoming.userId, incoming.instance)
+    fun shouldAdoptPeer(current: CallPeer?, incoming: CallPeer, pc: PcState? = null): Boolean =
+        shouldAdoptPeer(current?.userId, current?.instance, incoming.userId, incoming.instance, pc)
+
+    /** Port of linkWorthKeeping: a media link in this state can still carry the call (an ICE restart may heal it). */
+    fun linkWorthKeeping(pc: PcState): Boolean = pc == PcState.CONNECTING || pc == PcState.CONNECTED || pc == PcState.DISCONNECTED
+
+    /** What to do with a signal, by the link id it carries (port of LinkSignalAction). */
+    enum class LinkSignalAction(val wire: String) { APPLY("apply"), REPLACE("replace"), IGNORE("ignore") }
+
+    /**
+     * Port of linkSignalAction. Every link has an id, sent with each of its signals (`link`), and a
+     * fresh link says `hello` first. A signal from a link id other than the one mine is talking to
+     * ([bound]) means the other side started over (their old link failed): mine starts over too
+     * (REPLACE). Signals from a link already replaced ([retired]) are late leftovers (IGNORE);
+     * signals without an id come from an app before link ids (APPLY, as before).
+     */
+    fun linkSignalAction(bound: String?, retired: Collection<String>, incoming: String?): LinkSignalAction {
+        if (incoming.isNullOrEmpty()) return LinkSignalAction.APPLY
+        if (incoming in retired) return LinkSignalAction.IGNORE
+        if (bound == null || bound == incoming) return LinkSignalAction.APPLY
+        return LinkSignalAction.REPLACE
+    }
+
+    /** A random id for one media link (web newLinkId: 8 base-36 characters). */
+    fun newLinkId(): String = java.lang.Long.toString((Math.random() * 2.8e12).toLong(), 36).padStart(8, '0').takeLast(8)
 
     /** A random instance id for this app session (web: newInstanceId). */
     fun newInstanceId(): String {

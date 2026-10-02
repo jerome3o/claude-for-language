@@ -151,7 +151,8 @@ data class CallActions(
     val onLive: (LiveStroke?) -> Unit = {},
     val onSendChat: (String) -> Boolean = { false },
     /** [compose] = the IME composition's text while [composing] (shown to the other person in my name flag). */
-    val onTextChanged: (text: String, start: Int, end: Int, composing: Boolean, compose: String?) -> Unit = { _, _, _, _, _ -> },
+    /** The board's field changed: text, selection (UTF-16), and the IME composition range while one is open. */
+    val onTextChanged: (text: String, start: Int, end: Int, composition: androidx.compose.ui.text.TextRange?) -> Unit = { _, _, _, _ -> },
     val onTextSelected: (Int, Int) -> Unit = { _, _ -> },
     val onTextBlurred: () -> Unit = {},
     /** Word-by-word meaning of a selection on the board (online). */
