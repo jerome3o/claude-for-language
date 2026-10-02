@@ -75,6 +75,7 @@ import cardFlagsRoutes from './routes/card-flags';
 import claudeChatsRoutes from './routes/claude-chats';
 import tutorDashboardRoutes from './routes/tutor-dashboard';
 import sharedReadersRoutes from './routes/shared-readers';
+import materialsRoutes from './routes/materials';
 import readerWordsRoutes from './routes/reader-words';
 import { segmentReader } from './services/reader-words';
 import wordImportRoutes from './routes/word-import';
@@ -538,6 +539,8 @@ app.route('/api', pictureHuntRoutes);
 app.route('/api', studyTimeRoutes);
 // Reader word chips: POST /api/reader-words/backfill, /explain (routes/reader-words.ts)
 app.route('/api', readerWordsRoutes);
+// Lesson materials: a tutor's PDFs / PowerPoints / pictures, shared, presented in calls (routes/materials.ts)
+app.route('/api', materialsRoutes);
 
 // ============ Admin Routes ============
 

@@ -122,6 +122,14 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     protectedReason: PERSON_MADE,
   },
   {
+    prefix: 'materials/',
+    what: 'Lesson materials: the original file (`materials/<owner>/<id>/original.<ext>`) and its pages rendered on the uploader’s device (`p<N>.jpg`)',
+    writtenBy: 'services/materials (originalKey, pageKey)',
+    referencedBy: ['materials.original_key', 'material_pages.image_key'],
+    collectable: false,
+    protectedReason: PERSON_MADE,
+  },
+  {
     prefix: 'avatars/',
     what: 'Uploaded profile pictures',
     writtenBy: 'services/profile.ts (AVATAR_PREFIX)',
@@ -205,6 +213,8 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'debug_reports.r2_key', sql: 'SELECT r2_key AS v FROM debug_reports WHERE r2_key IS NOT NULL' },
   { source: 'picture_hunts.image_key', sql: 'SELECT image_key AS v FROM picture_hunts WHERE image_key IS NOT NULL' },
   { source: 'users.picture_key', sql: 'SELECT picture_key AS v FROM users WHERE picture_key IS NOT NULL' },
+  { source: 'materials.original_key', sql: 'SELECT original_key AS v FROM materials WHERE original_key IS NOT NULL' },
+  { source: 'material_pages.image_key', sql: 'SELECT image_key AS v FROM material_pages WHERE image_key IS NOT NULL' },
   { source: 'feature_requests.screenshot_url', sql: 'SELECT screenshot_url AS v FROM feature_requests WHERE screenshot_url IS NOT NULL' },
   { source: 'homework_recordings.audio_url', sql: 'SELECT audio_url AS v FROM homework_recordings WHERE audio_url IS NOT NULL' },
   { source: 'homework_feedback.audio_feedback_url', sql: 'SELECT audio_feedback_url AS v FROM homework_feedback WHERE audio_feedback_url IS NOT NULL' },

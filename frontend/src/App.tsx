@@ -78,6 +78,8 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage').then(m => ({ defaul
 const CardHubPage = lazy(() => import('./pages/CardHubPage').then(m => ({ default: m.CardHubPage })));
 const ClaudeChatsPage = lazy(() => import('./pages/ClaudeChatsPage').then(m => ({ default: m.ClaudeChatsPage })));
 const LessonBoardPage = lazy(() => import('./pages/LessonBoardPage').then(m => ({ default: m.LessonBoardPage })));
+const MaterialsPage = lazy(() => import('./pages/MaterialsPage').then(m => ({ default: m.MaterialsPage })));
+const MaterialViewerPage = lazy(() => import('./pages/MaterialsPage').then(m => ({ default: m.MaterialViewerPage })));
 const CallsListPage = lazy(() => import('./pages/CallsListPage').then(m => ({ default: m.CallsListPage })));
 const CallPage = lazy(() => import('./pages/CallPage').then(m => ({ default: m.CallPage })));
 const CallReviewPage = lazy(() => import('./pages/CallReviewPage').then(m => ({ default: m.CallReviewPage })));
@@ -301,6 +303,8 @@ function AppRoutes() {
       <Route path="/cards/:noteId" element={<ProtectedRoute><Header /><CardHubPage /></ProtectedRoute>} />
       <Route path="/claude-chats" element={<ProtectedRoute><Header /><ClaudeChatsPage /></ProtectedRoute>} />
       <Route path="/calls" element={<ProtectedRoute><Header /><CallsListPage /></ProtectedRoute>} />
+      <Route path="/materials" element={<ProtectedRoute><Header /><MaterialsPage /></ProtectedRoute>} />
+      <Route path="/materials/:id" element={<ProtectedRoute><Header /><MaterialViewerPage /></ProtectedRoute>} />
       <Route path="/calls/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't open the call"><CallPage /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/calls/:id/review" element={<ProtectedRoute><Header /><CallReviewPage /></ProtectedRoute>} />
       <Route

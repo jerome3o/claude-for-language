@@ -427,6 +427,50 @@ computer (it ended the call for both, an ended room refuses joins), Minghui's ne
   `POST /api/calls/:id/homework` returns the existing job (`existing: true`, with `jobs`) when any call
   of the lesson already has one that didn't fail or get cancelled; the agent reads all the calls.
 
+## Lesson materials: present a PDF, slides or a picture (round 4)
+
+Minghui teaches from PDFs and PowerPoints. A **material** is one of those files in the tutor's library
+(More → 📑 Lesson materials, `/materials`), and in a call **⋯ → 📑 Present material** puts it on the stage for
+both people as its own tile (`material`, transient like a shared screen: it exists only while presenting).
+
+- **Upload** (`frontend/src/services/materials/`): the uploader's DEVICE draws the pages and uploads them as
+  JPEG pictures at 1600 px wide (`MATERIAL_RENDER_WIDTH`), so every viewer — web, Lab, offline — only ever
+  shows pictures. PDF: pdf.js (`render.ts`, text per page from its text layer). Picture: re-encoded, one page.
+  **PowerPoint**: `pptx.ts` opens the .pptx (JSZip), reads each slide's XML in order and draws its text boxes
+  (sizes, bold, colours, bullets) and pictures on a canvas, plus the speaker notes; the material carries
+  `render_note` = `PPTX_RENDER_NOTE` ("for exact slides, export the PowerPoint as PDF and upload that"),
+  shown on the material. Limits (`shared/materials`): 50 MiB per file, 8 MiB per page picture, 300 pages.
+  The original file is kept too (download from the viewer).
+- **Why not a server-side converter**: exact PPTX rendering needs LibreOffice, i.e. a Cloudflare Container.
+  That means building and pushing a ~1 GB image in the deploy workflow, a new failure point in a
+  non-transactional deploy (a failed image push after the Worker deploy would leave a broken half), and cost
+  for a feature used a few times a week. Drawing on the device + "export as PDF for exact slides" covers the
+  case with no new infrastructure; a Container can be added later behind the same `PUT …/pages/:n` API.
+- **Storage**: R2 `materials/<owner>/<id>/original.<ext>` and `p<N>.<ext>` — a protected prefix in the
+  storage clean-up registry (person-made, never collected); account deletion removes them. Tables
+  (migration 0092): `materials`, `material_pages` (image key, size, text, notes), `material_shares`
+  (per relationship), `material_annotations` (per lesson, material and page: `KeptAnnotations` JSON),
+  `call_materials` (which pages a call showed).
+- **Access**: the owner, plus either person of a relationship it is shared in. Presenting a material in a
+  call of a relationship shares it with them (so the student can open it afterwards).
+- **In the room**: `material_open { material_id, page }` (the room checks access), `material_page { page }`,
+  `material_close`; everyone gets `material { presenting }` and the page's kept drawings
+  (`material_annots`). Either person turns the pages (‹ › or ← →). Pen / Text and Keep work exactly as on a
+  shared screen (`annotate.ts`), except each annot message carries `target: material:<id>:<page>`: a drawing
+  belongs to that page, comes back when the page does, and is saved per page **per lesson** (`call_lessons`)
+  when the room snapshots — a later lesson starts on clean pages. A late joiner gets `welcome.material` +
+  `welcome.material_annots`.
+- **Offline**: page pictures are kept in the Cache API (`materials-v1`) whenever shown, presented (the whole
+  material is fetched when presenting starts) or uploaded, and the page list in localStorage, so a material
+  presented recently opens on the train. "Keep on this device" on the viewer fetches every page.
+- **Agents**: the lesson's presented materials (with the pages shown and their text) go into the notes the
+  homework agent reads (`composeCallNotes` → "LESSON MATERIALS PRESENTED"); the agent also has `list_materials` /
+  `read_material` for others the notes mention. MCP: `list_materials`, `read_material`.
+- API (`worker/src/routes/materials.ts`): `GET|POST /api/materials`, `PUT /api/materials/:id/original`,
+  `PUT /api/materials/:id/pages/:n`, `POST /api/materials/:id/complete`, `GET /api/materials/:id`,
+  `GET …/pages/:n/image`, `GET …/original`, `GET …/text`, `PATCH|DELETE /api/materials/:id`,
+  `POST …/share`, `DELETE …/share/:relId`, `GET …/annotations?lesson_id=`.
+
 ## Finding the call (banners, ring, notifications)
 
 The person being called must notice. Every signal comes from ONE list, `GET /api/calls?live=1`,

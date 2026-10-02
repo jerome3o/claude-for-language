@@ -394,3 +394,20 @@ describe('round 4: drag and drop onto the stage', () => {
     expect(bottom.textInsetTop).toBe(0);
   });
 });
+
+describe('round 4: a presented lesson material is a tile like a shared screen', () => {
+  it('exists only while presented, goes on the stage when it starts, and splits with the board on phones', () => {
+    const l = layoutReducer({ ...DEFAULT_LAYOUT, open: ['remote', 'self', 'text'] as TileId[] }, { type: 'materialStarted' });
+    expect(l).toMatchObject({ mode: 'focus', main: 'material' });
+    expect(arrangeTiles(l, { screen: false, material: true }, 1280).stage).toEqual(['material']);
+    expect(arrangeTiles(l, { screen: false, material: true }, 1280).pair).toBe(l.pairCorner);
+    // Closed: back to the camera.
+    expect(arrangeTiles(l, { screen: false }, 1280).stage).toEqual(['remote']);
+    const split = layoutForDrop(l, 'text', 'bottom');
+    expect(narrowSplitAllowed(split)).toBe(true);
+    expect(arrangeTiles(split, { screen: false, material: true }, 412)).toMatchObject({ mode: 'split', stage: ['material', 'text'] });
+    expect(arrangeTiles(split, { screen: false, material: false }, 412).mode).toBe('focus');
+    expect(swipeOrder(DEFAULT_LAYOUT, { screen: false, material: true })).toContain('material');
+    expect(layoutShortcut('m')).toEqual({ type: 'focus', tile: 'material' });
+  });
+});

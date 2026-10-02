@@ -8,6 +8,7 @@
 import type { BoardItem, BoardOp, BoardPoint } from './board';
 import type { TextDocSnapshot, TextOp, TextSelection } from './textDoc';
 import type { AnnotStroke, AnnotText, KeptAnnotations } from './annotate';
+import type { PresentedMaterial } from '../materials';
 import type { CallDiagEvent } from './connection';
 import type { BoardPageMeta } from './pages';
 
@@ -85,12 +86,17 @@ export type ClientMessage =
   /** Connection events for the call's diagnostics log (shared/calls/connection.ts). */
   | { type: 'diag'; events: CallDiagEvent[] }
   /** Drawing on the other person's shared screen (relayed, never stored). */
-  | { type: 'annot'; stroke: AnnotStroke }
-  | { type: 'annot_clear' }
+  /** `target` (round 4): absent = the shared screen; `material:<id>:<page>` = a presented material's page. */
+  | { type: 'annot'; stroke: AnnotStroke; target?: string }
+  | { type: 'annot_clear'; target?: string }
   /** Place / edit / move a text box on the shared screen (round 4). */
-  | { type: 'annot_text'; text: AnnotText }
-  | { type: 'annot_text_delete'; id: string }
-  | { type: 'annot_ping'; x: number; y: number }
+  | { type: 'annot_text'; text: AnnotText; target?: string }
+  | { type: 'annot_text_delete'; id: string; target?: string }
+  | { type: 'annot_ping'; x: number; y: number; target?: string }
+  /** Lesson materials (round 4): present one (both see it; page turns are shared), turn its page, stop. */
+  | { type: 'material_open'; material_id: string; page?: number }
+  | { type: 'material_page'; page: number }
+  | { type: 'material_close' }
   /** Keep drawings on the shared screen (true) or let them fade (false) — one setting for both. */
   | { type: 'annot_mode'; persist: boolean }
   | { type: 'chat'; text: string }
@@ -117,6 +123,9 @@ export type ServerMessage =
       annot_persist?: boolean;
       /** Drawings and texts on a shared screen the room kept (round 4; only while kept). */
       annots?: KeptAnnotations;
+      /** A lesson material being presented (round 4), and its current page's kept drawings / text. */
+      material?: PresentedMaterial | null;
+      material_annots?: { target: string; annots: KeptAnnotations } | null;
       /** Board pages of the relationship, in strip order (absent from an older room). */
       pages?: BoardPageMeta[];
       /** The page `text` is — the one this call opened on. */
@@ -149,11 +158,15 @@ export type ServerMessage =
   | { type: 'page_deleted'; page: string; fallback: string; by: string }
   /** The other person brought me to `page`. */
   | { type: 'page_summon'; from: string; name: string; page: string }
-  | { type: 'annot'; from: string; name: string; stroke: AnnotStroke }
-  | { type: 'annot_clear'; from: string }
-  | { type: 'annot_text'; from: string; name: string; text: AnnotText }
-  | { type: 'annot_text_delete'; from: string; id: string }
-  | { type: 'annot_ping'; from: string; name: string; x: number; y: number }
+  | { type: 'annot'; from: string; name: string; stroke: AnnotStroke; target?: string }
+  | { type: 'annot_clear'; from: string; target?: string }
+  | { type: 'annot_text'; from: string; name: string; text: AnnotText; target?: string }
+  | { type: 'annot_text_delete'; from: string; id: string; target?: string }
+  | { type: 'annot_ping'; from: string; name: string; x: number; y: number; target?: string }
+  /** What is being presented now (null = nothing), after an open / page turn / close. */
+  | { type: 'material'; presenting: PresentedMaterial | null; from?: string; name?: string }
+  /** The kept drawings / text of a material page (on opening or turning to it). */
+  | { type: 'material_annots'; target: string; annots: KeptAnnotations }
   | { type: 'annot_mode'; from: string; name: string; persist: boolean }
   | { type: 'chat'; message: CallChatMessage }
   | { type: 'pong'; t: number; server_time: number }

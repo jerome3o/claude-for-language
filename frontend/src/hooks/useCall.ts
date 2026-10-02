@@ -15,7 +15,7 @@
  * connection log (`diag` messages → calls.diagnostics_json → the review page).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyBoardOp,
   newInstanceId,
@@ -43,6 +43,7 @@ import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
 import { DEFAULT_ANNOT_PERSIST, type AnnotStroke, type AnnotText } from '@shared/calls';
+import { materialTarget, type PresentedMaterial } from '@shared/materials';
 import {
   acquireMedia,
   loadDevicePrefs,
@@ -150,6 +151,14 @@ export function useCall(callId: string, myUserId: string) {
   // Drawings on a shared screen (mine and theirs), outside React so the mini window can redraw from it.
   const annotRef = useRef<AnnotationStore | null>(null);
   if (!annotRef.current) annotRef.current = new AnnotationStore();
+  // A presented lesson material (round 4): what is shown, and the drawings / text on its current page.
+  const [presenting, setPresenting] = useState<PresentedMaterial | null>(null);
+  const presentingRef = useRef<PresentedMaterial | null>(null);
+  const materialAnnotRef = useRef<AnnotationStore | null>(null);
+  if (!materialAnnotRef.current) materialAnnotRef.current = new AnnotationStore();
+  const materialTargetNow = () => (presentingRef.current ? materialTarget(presentingRef.current.material_id, presentingRef.current.page) : null);
+  /** The store an incoming annotation message goes to: the screen's (no target), the current material page's, or none. */
+  const annotStoreFor = (target?: string): AnnotationStore | null => (!target ? annotRef.current : target === materialTargetNow() ? materialAnnotRef.current : null);
 
   // ---------------------------------------------------------------- media
 
@@ -399,8 +408,13 @@ export function useCall(callId: string, myUserId: string) {
         textRef.current?.welcome(msg);
         // Keep is the default (round 4); an older room that never says counts as kept too.
         annotRef.current?.setPersist(msg.annot_persist ?? DEFAULT_ANNOT_PERSIST);
+        materialAnnotRef.current?.setPersist(msg.annot_persist ?? DEFAULT_ANNOT_PERSIST);
         setAnnotPersist(msg.annot_persist ?? DEFAULT_ANNOT_PERSIST);
         annotRef.current?.loadKept(msg.annots);
+        presentingRef.current = msg.material ?? null;
+        setPresenting(msg.material ?? null);
+        materialAnnotRef.current?.clear();
+        if (msg.material_annots) materialAnnotRef.current?.loadKept(msg.material_annots.annots);
         roomRef.current?.send({ type: 'state', state: stateRef.current });
         flushDiag();
         if (msg.peers.length > 0) openLink(msg.peers[0]);
@@ -468,23 +482,38 @@ export function useCall(callId: string, myUserId: string) {
         textRef.current?.notify(msg.message);
         return;
       case 'annot':
-        annotRef.current?.upsert(msg.stroke, msg.from, Date.now(), msg.name);
+        annotStoreFor(msg.target)?.upsert(msg.stroke, msg.from, Date.now(), msg.name);
+        return;
+      case 'material': {
+        const prev = presentingRef.current;
+        presentingRef.current = msg.presenting;
+        setPresenting(msg.presenting);
+        // Another page (or material): its own drawings follow in material_annots.
+        if (!msg.presenting || !prev || prev.material_id !== msg.presenting.material_id || prev.page !== msg.presenting.page) materialAnnotRef.current?.clear();
+        return;
+      }
+      case 'material_annots':
+        if (msg.target === materialTargetNow()) {
+          materialAnnotRef.current?.clear();
+          materialAnnotRef.current?.loadKept(msg.annots);
+        }
         return;
       case 'annot_mode':
         annotRef.current?.setPersist(msg.persist);
+        materialAnnotRef.current?.setPersist(msg.persist);
         setAnnotPersist(msg.persist);
         return;
       case 'annot_clear':
-        annotRef.current?.clear();
+        annotStoreFor(msg.target)?.clear();
         return;
       case 'annot_text':
-        annotRef.current?.upsertText(msg.text, msg.from, Date.now(), msg.name);
+        annotStoreFor(msg.target)?.upsertText(msg.text, msg.from, Date.now(), msg.name);
         return;
       case 'annot_text_delete':
-        annotRef.current?.deleteText(msg.id);
+        annotStoreFor(msg.target)?.deleteText(msg.id);
         return;
       case 'annot_ping':
-        annotRef.current?.ping(msg.from, msg.x, msg.y, Date.now(), msg.name);
+        annotStoreFor(msg.target)?.ping(msg.from, msg.x, msg.y, Date.now(), msg.name);
         return;
       case 'text_cursor':
         textRef.current?.setCursor({ client_id: msg.client_id, user_id: msg.user_id, name: msg.name, sel: msg.sel, compose: msg.compose ?? null, page: msg.page });
@@ -680,6 +709,48 @@ export function useCall(callId: string, myUserId: string) {
     roomRef.current?.send({ type: 'annot_ping', x, y });
   }, []);
 
+  // ---- lesson materials (round 4): present, turn pages, draw / type on the current page
+  const presentMaterial = useCallback((materialId: string, page = 0) => roomRef.current?.send({ type: 'material_open', material_id: materialId, page }) ?? false, []);
+  const turnMaterialPage = useCallback((page: number) => {
+    const cur = presentingRef.current;
+    if (!cur) return;
+    roomRef.current?.send({ type: 'material_page', page });
+  }, []);
+  const stopPresenting = useCallback(() => roomRef.current?.send({ type: 'material_close' }), []);
+  const materialAnnot = useMemo(() => ({
+    stroke: (stroke: AnnotStroke) => {
+      const target = materialTargetNow();
+      if (!target) return;
+      materialAnnotRef.current?.upsert(stroke, 'me');
+      roomRef.current?.send({ type: 'annot', stroke, target });
+    },
+    ping: (x: number, y: number) => {
+      const target = materialTargetNow();
+      if (!target) return;
+      materialAnnotRef.current?.ping('me', x, y);
+      roomRef.current?.send({ type: 'annot_ping', x, y, target });
+    },
+    text: (text: AnnotText) => {
+      const target = materialTargetNow();
+      if (!target) return;
+      materialAnnotRef.current?.upsertText(text, 'me');
+      roomRef.current?.send({ type: 'annot_text', text, target });
+    },
+    deleteText: (id: string) => {
+      const target = materialTargetNow();
+      if (!target) return;
+      materialAnnotRef.current?.deleteText(id);
+      roomRef.current?.send({ type: 'annot_text_delete', id, target });
+    },
+    clear: () => {
+      const target = materialTargetNow();
+      if (!target) return;
+      materialAnnotRef.current?.clear();
+      roomRef.current?.send({ type: 'annot_clear', target });
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
   /** A text box on the shared screen: placed, typed into, moved (round 4). */
   const sendAnnotText = useCallback((text: AnnotText) => {
     annotRef.current?.upsertText(text, 'me');
@@ -698,6 +769,7 @@ export function useCall(callId: string, myUserId: string) {
 
   const setAnnotationsKept = useCallback((persist: boolean) => {
     annotRef.current?.setPersist(persist);
+    materialAnnotRef.current?.setPersist(persist);
     setAnnotPersist(persist);
     roomRef.current?.send({ type: 'annot_mode', persist });
   }, []);
@@ -797,6 +869,7 @@ export function useCall(callId: string, myUserId: string) {
     textBoard: textRef.current,
     annotations: annotRef.current,
     sendAnnotation, sendPing, clearAnnotations, annotPersist, setAnnotationsKept, sendAnnotText, deleteAnnotText,
+    presenting, presentMaterial, turnMaterialPage, stopPresenting, materialAnnotations: materialAnnotRef.current, materialAnnot,
     hasCamera: !!localStream?.getVideoTracks().length,
     hasMic: !!localStream?.getAudioTracks().length,
     myUserId,

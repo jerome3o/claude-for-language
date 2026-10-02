@@ -29,6 +29,7 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
     val layout: StateFlow<CallLayout.Layout> = _layout.asStateFlow()
     private var key: String? = null
     private var remoteSharing = false
+    private var presentingId: String? = null
 
     /** Loads this user's last layout (web loadLayout); anything odd falls back to the default. */
     fun bind(userId: String) {
@@ -40,6 +41,7 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
         _layout.value = CallLayout.sanitize(raw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() })
         // Already sharing when the layout arrived: their screen goes on the stage.
         if (remoteSharing) set(CallLayout.reduce(_layout.value, CallLayout.Action.ShareStarted))
+        if (presentingId != null) set(CallLayout.reduce(_layout.value, CallLayout.Action.MaterialStarted))
     }
 
     fun dispatch(action: CallLayout.Action) = set(CallLayout.reduce(_layout.value, action))
@@ -51,9 +53,9 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
      * either alone), as the web's `drop` actions ([ScreenBoardSplit.actions]). Saved once. Returns
      * whether the layout changed (the screen gives a light haptic then).
      */
-    fun applySplit(choice: ScreenBoardSplit.Choice, board: CallLayout.TileId): Boolean {
+    fun applySplit(choice: ScreenBoardSplit.Choice, board: CallLayout.TileId, content: CallLayout.TileId = CallLayout.TileId.SCREEN): Boolean {
         val before = _layout.value
-        val next = ScreenBoardSplit.actions(before, choice, board).fold(before) { l, a -> CallLayout.reduce(l, a) }
+        val next = ScreenBoardSplit.actions(before, choice, board, content).fold(before) { l, a -> CallLayout.reduce(l, a) }
         set(next)
         return next != before
     }
@@ -66,6 +68,16 @@ class CallLayoutHolder(private val store: CallLayoutStore? = null, initial: Call
         val was = remoteSharing
         remoteSharing = on
         if (on && !was) dispatch(CallLayout.Action.ShareStarted)
+    }
+
+    /**
+     * Round 4 PR 5 (web CallPage's effect on `presenting.material_id`): a material someone starts presenting
+     * — or another one — comes onto the stage like a shared screen; page turns change nothing.
+     */
+    fun setPresenting(materialId: String?) {
+        val was = presentingId
+        presentingId = materialId
+        if (materialId != null && materialId != was) dispatch(CallLayout.Action.MaterialStarted)
     }
 
     private fun set(l: CallLayout.Layout) {

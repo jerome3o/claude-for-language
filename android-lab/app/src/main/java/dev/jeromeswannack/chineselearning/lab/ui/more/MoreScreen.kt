@@ -102,6 +102,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                         row("🧭", "Exercise catalogue", "All exercise types · try a sample", Routes.catalogue()),
                         row("📚", "Readers", "Graded stories to share with students", Routes.readers()),
                         row("📹", "Video calls (beta)", "Lessons with a whiteboard, then a transcript", Routes.calls()),
+                        row("📑", "Lesson materials", "PDFs, slides and pictures to present in a call", Routes.materials()),
                     ),
                 )
             }
@@ -128,6 +129,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                         add(row("🎮", "Quests", "Carry out instructions in a tiny world", Routes.quests()))
                         add(row("🔎", "Picture hunt", "看图找词 · Name what you see in a picture", Routes.pictureHunts()))
                         add(row("📹", "Video calls (beta)", "Live lessons with a whiteboard, then a transcript", Routes.calls()))
+                        add(row("📑", "Lesson materials", "PDFs and slides from lessons", Routes.materials()))
                     },
                 )
             }

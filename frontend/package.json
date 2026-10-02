@@ -19,6 +19,7 @@
     "eruda": "^3.4.3",
     "html2canvas": "^1.4.1",
     "jszip": "^3.10.2",
+    "pdfjs-dist": "^4.10.38",
     "pinyin-pro": "^3.28.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",

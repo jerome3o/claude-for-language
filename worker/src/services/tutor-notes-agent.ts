@@ -27,6 +27,8 @@
  * for unit tests; nothing here talks to the network except `callModel`.
  */
 
+import { listMaterials, listPages as listMaterialPages, requireMaterial } from './materials';
+import { materialText } from '@shared/materials';
 import Anthropic from '@anthropic-ai/sdk';
 import { CARD_STANDARD } from '@shared/cards/standard';
 import { validateLessonSpec, type CustomLessonSpec } from '@shared/lesson';
@@ -144,6 +146,20 @@ const TOOLS: Array<{ name: string; description: string; input_schema: ToolSchema
     name: 'get_student_struggles',
     description: 'What the student is getting wrong and what is going well over the last N days (default 30): ranked struggling words with the wrong answers they typed, and words going well.',
     input_schema: { type: 'object', properties: { days: { type: 'integer', minimum: 1, maximum: 180 } } },
+  },
+  {
+    name: 'list_materials',
+    description: 'The lesson materials (PDFs, PowerPoints, pictures) the tutor has uploaded or shared with this student: id, title, kind, pages, whether they have text. Materials presented in this lesson are already in the notes; use read_material for the text of others the notes mention.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'read_material',
+    description: "The text of a lesson material's pages (from the PDF's text layer, the slides' text and speaker notes; pictures have no text). Pages are numbered from 1.",
+    input_schema: {
+      type: 'object',
+      properties: { material_id: { type: 'string' }, from_page: { type: 'integer', minimum: 1 }, to_page: { type: 'integer', minimum: 1 } },
+      required: ['material_id'],
+    },
   },
   {
     name: 'create_deck',
@@ -374,6 +390,10 @@ export function stepForTool(name: string, input: Record<string, unknown>, result
       return { at, kind: 'tool', text: `Looked at the words in "${String(result.deck_name ?? 'a deck')}"` };
     case 'get_student_struggles':
       return { at, kind: 'tool', text: `Read what the student has been getting wrong` };
+    case 'list_materials':
+      return { at, kind: 'tool', text: `Looked at the lesson materials` };
+    case 'read_material':
+      return { at, kind: 'tool', text: `Read the material "${String(result.title ?? '')}"` };
     case 'create_deck':
       return { at, kind: 'tool', text: `Created the deck "${String(result.name ?? input.name ?? '')}"` };
     case 'add_cards': {
@@ -723,6 +743,24 @@ async function executeTool(ctx: RunContext, name: string, input: Record<string, 
         if (!deck) return { error: 'No such deck in the student\'s account', deck_ids: decks.map(d => d.id) };
         const words = await jobs.listStudentDeckWords(env.DB, job.student_id, deckId);
         return { deck_name: deck.name, words: words.map(compactMatch) };
+      }
+      case 'list_materials': {
+        const list = await listMaterials(env.DB, job.tutor_id);
+        const forStudent = list.filter((m) => m.mine && (m.shared_with?.length === 0 || m.shared_with?.includes(job.relationship_id)));
+        return { materials: forStudent.slice(0, 50).map((m) => ({ id: m.id, title: m.title, kind: m.kind, pages: m.page_count, has_text: m.has_text, shared: m.shared_with?.includes(job.relationship_id) ?? false })) };
+      }
+      case 'read_material': {
+        const id = typeof input.material_id === 'string' ? input.material_id : '';
+        let material;
+        try {
+          ({ material } = await requireMaterial(env.DB, id, job.tutor_id));
+        } catch {
+          return { error: 'No such material' };
+        }
+        const from = clamp(input.from_page, 1, 300, 1);
+        const to = clamp(input.to_page, from, 300, material.page_count || from);
+        const pages = (await listMaterialPages(env.DB, material.id)).filter((p) => p.page_index + 1 >= from && p.page_index + 1 <= to);
+        return { title: material.title, kind: material.kind, page_count: material.page_count, note: material.render_note, text: materialText(pages, 40_000) || '(no text on these pages)' };
       }
       case 'get_student_struggles': {
         const days = clamp(input.days, 1, 180, 30);

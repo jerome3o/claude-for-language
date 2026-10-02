@@ -99,6 +99,9 @@ object Routes {
     fun callReview(id: String) = "/calls/${seg(id)}/review"
     /** The relationship's lesson board outside a call (board pages, read-only). */
     fun lessonBoard(relId: String) = "/connections/${seg(relId)}/board"
+    /** Lesson materials (calls round 4 PR 5): the list and one material page by page. */
+    fun materials() = "/materials"
+    fun material(id: String) = "/materials/${seg(id)}"
 
     fun admin() = "/admin"
 

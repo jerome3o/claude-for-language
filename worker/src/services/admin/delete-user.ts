@@ -90,6 +90,13 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'assigned_lessons_unlinked', sql: `UPDATE custom_lessons SET assigned_by = NULL, assigned_relationship_id = NULL, library_item_id = NULL WHERE user_id != ?1 AND (assigned_by = ?1 OR library_item_id IN ${LIBRARY} OR assigned_relationship_id IN ${REL})` },
   { label: 'note_recordings_unlinked', sql: `UPDATE note_audio_recordings SET created_by = NULL WHERE created_by = ?1 AND note_id NOT IN ${NOTES}` },
 
+  // Lesson materials (migration 0090): the user's own, and shares / notes in their relationships and calls.
+  { label: 'material_pages', sql: `DELETE FROM material_pages WHERE material_id IN (SELECT id FROM materials WHERE owner_id = ?1)` },
+  { label: 'material_shares', sql: `DELETE FROM material_shares WHERE shared_by = ?1 OR relationship_id IN ${REL} OR material_id IN (SELECT id FROM materials WHERE owner_id = ?1)` },
+  { label: 'material_annotations', sql: `DELETE FROM material_annotations WHERE material_id IN (SELECT id FROM materials WHERE owner_id = ?1) OR lesson_id IN (SELECT lesson_id FROM calls WHERE id IN ${CALLS})` },
+  { label: 'call_materials', sql: `DELETE FROM call_materials WHERE call_id IN ${CALLS} OR material_id IN (SELECT id FROM materials WHERE owner_id = ?1)` },
+  { label: 'materials', sql: `DELETE FROM materials WHERE owner_id = ?1` },
+
   // Video calls (no foreign keys): segments → chunks → pieces → calls.
   { label: 'call_transcript_segments', sql: `DELETE FROM call_transcript_segments WHERE call_id IN ${CALLS} OR user_id = ?1` },
   { label: 'call_recording_chunks', sql: `DELETE FROM call_recording_chunks WHERE piece_id IN ${PIECES}` },
@@ -306,6 +313,8 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
     `SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') AS k FROM feature_requests WHERE user_id = ?1`,
     `SELECT picture_key AS k FROM users WHERE id = ?1`,
     `SELECT image_key AS k FROM picture_hunts WHERE user_id = ?1`,
+    `SELECT original_key AS k FROM materials WHERE owner_id = ?1`,
+    `SELECT image_key AS k FROM material_pages WHERE material_id IN (SELECT id FROM materials WHERE owner_id = ?1)`,
   ]);
 
   const keys = new Set<string>(unique);

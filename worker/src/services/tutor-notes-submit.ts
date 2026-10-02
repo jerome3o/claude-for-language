@@ -13,6 +13,7 @@ import type { User } from '../types';
 import * as jobs from '../db/tutor-notes-queries';
 import * as iq from '../db/insights-queries';
 import { MAX_NOTES_CHARS } from './tutor-notes-agent';
+import { lessonMaterials } from './materials';
 import type { LessonMaterial } from './calls/lessons';
 import type { CallRow, CallParticipant } from './calls/store';
 import { roleNames, type CallReport } from './calls/report';
@@ -104,7 +105,12 @@ export interface CallNotesInput {
   boardText?: string | null;
   chat: readonly CallChatMessage[];
   report: Pick<CallReport, 'summary' | 'corrections' | 'follow_ups'> | null;
+  /** Lesson materials presented in the call(s) (round 4): title, the pages shown (0-based) and their text. */
+  materials?: { title: string; page_count: number; pages_shown: number[]; text: string }[];
 }
+
+/** The materials' share of the notes. */
+const MATERIALS_BUDGET = 12_000;
 
 /** Roughly what the transcript may take of the notes budget; the rest is for board / chat / report. */
 const TRANSCRIPT_BUDGET = Math.floor(MAX_NOTES_CHARS * 0.85);
@@ -125,7 +131,7 @@ export function composeCallNotes(input: CallNotesInput): string {
   const boardText = input.board.filter((b): b is Extract<BoardItem, { type: 'text' }> => b.type === 'text').map((b) => b.text.trim()).filter(Boolean);
   const chatLines = input.chat.map((m) => `${input.names[m.user_id] || m.name}: ${m.text}`).filter((l) => l.trim());
   const sharedNotes = (input.boardText ?? '').trim();
-  if (segments.length === 0 && boardText.length === 0 && chatLines.length === 0 && !input.report && !sharedNotes) return '';
+  if (segments.length === 0 && boardText.length === 0 && chatLines.length === 0 && !input.report && !sharedNotes && !(input.materials ?? []).some((m) => m.text.trim())) return '';
 
   const startMs = input.startedAt ?? segments[0]?.start_ms ?? 0;
   const parts: string[] = [];
@@ -142,6 +148,17 @@ export function composeCallNotes(input: CallNotesInput): string {
     if (input.report.follow_ups.length > 0) {
       parts.push('To practise before next time:');
       for (const f of input.report.follow_ups) parts.push(`- ${f}`);
+    }
+  }
+  const mats = (input.materials ?? []).filter((m) => m.text.trim());
+  if (mats.length > 0) {
+    parts.push('');
+    parts.push('LESSON MATERIALS PRESENTED (the slides / pages the tutor showed — their text; pages shown in the call are marked)');
+    const per = Math.floor(MATERIALS_BUDGET / mats.length);
+    for (const m of mats) {
+      const shown = m.pages_shown.length ? ` — pages shown: ${m.pages_shown.map((p) => p + 1).join(', ')} of ${m.page_count}` : '';
+      parts.push(`"${m.title}"${shown}`);
+      parts.push(m.text.length > per ? `${m.text.slice(0, per)}\n[… rest of the material cut for length …]` : m.text);
     }
   }
   if (sharedNotes) {
@@ -169,7 +186,9 @@ export function composeCallNotes(input: CallNotesInput): string {
 export async function lessonNotesFor(env: Env, m: LessonMaterial, participants: CallParticipant[]): Promise<{ notes: string; names: Record<string, string> }> {
   const names = await roleNames(env.DB, m.calls[0], participants);
   const report = m.lesson.summary_json ? (JSON.parse(m.lesson.summary_json) as CallReport) : null;
+  const materials = await lessonMaterials(env.DB, m.calls.map((c) => c.id)).catch(() => []);
   const notes = composeCallNotes({
+    materials,
     title: m.calls.length > 1 ? `${m.title ?? 'Lesson'} (${m.calls.length} calls in a row, one lesson)` : m.title,
     startedAt: m.startedAt,
     names,
@@ -189,7 +208,9 @@ export async function callNotesFor(env: Env, call: CallRow, participants: CallPa
     .bind(call.id)
     .all<{ id: string; user_id: string; start_ms: number; end_ms: number; text: string; translation: string | null }>();
   const names = await roleNames(env.DB, call, participants);
+  const materials = await lessonMaterials(env.DB, [call.id]).catch(() => []);
   const notes = composeCallNotes({
+    materials,
     title: call.title,
     startedAt: call.started_at,
     names,

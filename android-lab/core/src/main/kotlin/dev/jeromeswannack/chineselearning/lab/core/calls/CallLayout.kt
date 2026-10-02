@@ -31,7 +31,10 @@ import kotlinx.serialization.json.putJsonArray
 object CallLayout {
     /** `TileId`. */
     enum class TileId(val wire: String) {
-        REMOTE("remote"), SELF("self"), SCREEN("screen"), TEXT("text"), DRAW("draw"), CHAT("chat");
+        REMOTE("remote"), SELF("self"), SCREEN("screen"),
+        /** Round 4: a lesson material being presented — like a shared screen, while one is open. */
+        MATERIAL("material"),
+        TEXT("text"), DRAW("draw"), CHAT("chat");
 
         companion object {
             fun of(wire: String?): TileId? = entries.firstOrNull { it.wire == wire }
@@ -84,7 +87,7 @@ object CallLayout {
     }
 
     /** `ALL_TILES` — the order tiles are listed in everywhere. */
-    val ALL_TILES: List<TileId> = listOf(TileId.REMOTE, TileId.SCREEN, TileId.TEXT, TileId.DRAW, TileId.CHAT, TileId.SELF)
+    val ALL_TILES: List<TileId> = listOf(TileId.REMOTE, TileId.SCREEN, TileId.MATERIAL, TileId.TEXT, TileId.DRAW, TileId.CHAT, TileId.SELF)
 
     /** `CallLayout` (the interface). */
     data class Layout(
@@ -156,11 +159,18 @@ object CallLayout {
         PresetInfo(PresetId.GRID, "Grid", "5"),
     )
 
-    /** `TileAvailability`: a screen tile only while someone shares. */
-    data class Availability(val screen: Boolean)
+    /** `TileAvailability`: a screen tile only while someone shares; a material tile only while one is presented. */
+    data class Availability(val screen: Boolean, val material: Boolean = false)
 
     /** `isAvailable`. */
-    fun isAvailable(t: TileId, a: Availability): Boolean = if (t == TileId.SCREEN) a.screen else true
+    fun isAvailable(t: TileId, a: Availability): Boolean = when (t) {
+        TileId.SCREEN -> a.screen
+        TileId.MATERIAL -> a.material
+        else -> true
+    }
+
+    /** `isTransient`: tiles that show only while they exist and are always "open" then (a shared screen, a presented material). */
+    private fun isTransient(t: TileId): Boolean = t == TileId.SCREEN || t == TileId.MATERIAL
 
     private fun clamp(x: Double, lo: Double, hi: Double): Double = Math.min(hi, Math.max(lo, x))
 
@@ -193,6 +203,8 @@ object CallLayout {
         data object PairTap : Action
         /** The other person starts sharing: their screen on the stage; the cameras float as the user chose. */
         data object ShareStarted : Action
+        /** A lesson material is now presented (by either person): it goes on the stage, the cameras float. */
+        data object MaterialStarted : Action
         /** A tile dragged (or moved from its menu) onto a drop zone of the stage ([layoutForDrop]). */
         data class Drop(val tile: TileId, val zone: DropZone) : Action
     }
@@ -236,6 +248,7 @@ object CallLayout {
         is Action.PairScale -> l.copy(pairScale = clamp(action.scale, MIN_PAIR_SCALE, MAX_PAIR_SCALE))
         Action.PairTap -> reduce(l, Action.Preset(PresetId.SPEAKER))
         Action.ShareStarted -> reduce(l, Action.Preset(PresetId.SCREEN))
+        Action.MaterialStarted -> l.copy(mode = Mode.FOCUS, main = TileId.MATERIAL, remoteFloat = true)
         is Action.Drop -> layoutForDrop(l, action.tile, action.zone)
         is Action.Close -> {
             if (action.tile == TileId.REMOTE || action.tile == TileId.SELF) l // cameras can't be closed
@@ -270,7 +283,7 @@ object CallLayout {
     fun narrowSplitAllowed(l: Layout): Boolean {
         if (l.mode != Mode.SPLIT) return false
         val pair = listOf(l.main, l.second)
-        return TileId.SCREEN in pair && (TileId.TEXT in pair || TileId.DRAW in pair)
+        return (TileId.SCREEN in pair || TileId.MATERIAL in pair) && (TileId.TEXT in pair || TileId.DRAW in pair)
     }
 
     /** `splitDirFor`: the direction a split is drawn in — the user's on wide screens; on a phone by its orientation. */
@@ -282,8 +295,9 @@ object CallLayout {
     /** `arrangeTiles`. */
     fun arrangeTiles(l: Layout, a: Availability, width: Double): Arrangement {
         val narrow = width < NARROW_WIDTH
-        val openTiles = ALL_TILES.filter { isAvailable(it, a) && (it in l.open || it == TileId.REMOTE || it == TileId.SELF || it == TileId.SCREEN) }
-        var mode = if (narrow) (if (narrowSplitAllowed(l) && a.screen) Mode.SPLIT else Mode.FOCUS) else l.mode
+        val openTiles = ALL_TILES.filter { isAvailable(it, a) && (it in l.open || it == TileId.REMOTE || it == TileId.SELF || isTransient(it)) }
+        val content = if (l.main == TileId.SCREEN || l.second == TileId.SCREEN) a.screen else a.material
+        var mode = if (narrow) (if (narrowSplitAllowed(l) && content) Mode.SPLIT else Mode.FOCUS) else l.mode
         val stage: List<TileId>
         if (mode == Mode.GRID) {
             stage = openTiles
@@ -331,7 +345,7 @@ object CallLayout {
 
     /** `swipeOrder`: phones — the order a swipe walks through (only what is open and exists). */
     fun swipeOrder(l: Layout, a: Availability): List<TileId> =
-        ALL_TILES.filter { it != TileId.SELF && isAvailable(it, a) && (it == TileId.REMOTE || it == TileId.SCREEN || it in l.open) }
+        ALL_TILES.filter { it != TileId.SELF && isAvailable(it, a) && (it == TileId.REMOTE || isTransient(it) || it in l.open) }
 
     /** `swipeFocus`: swipe left (+1) / right (-1) from the focused tile. */
     fun swipeFocus(l: Layout, a: Availability, delta: Int): Layout {
@@ -365,6 +379,7 @@ object CallLayout {
             "c" -> Action.Focus(TileId.CHAT)
             "v" -> Action.Focus(TileId.REMOTE)
             "s" -> Action.Focus(TileId.SCREEN)
+            "m" -> Action.Focus(TileId.MATERIAL)
             else -> null
         }
     }
@@ -440,7 +455,7 @@ object CallLayout {
      * drawing also its tool row (+56), on a shared screen the drawing row (56): in a top corner the faces
      * box sits below them.
      */
-    val TILE_HEADER: Map<TileId, Double> = mapOf(TileId.TEXT to 48.0, TileId.DRAW to 104.0, TileId.SCREEN to 56.0)
+    val TILE_HEADER: Map<TileId, Double> = mapOf(TileId.TEXT to 48.0, TileId.DRAW to 104.0, TileId.SCREEN to 56.0, TileId.MATERIAL to 56.0)
 
     /** A face's shape in the pair: the camera's, kept between portrait 3:4 and 16:9. */
     private fun faceAspect(a: Double?): Double = clamp(if (a != null && a > 0 && a.isFinite()) a else 4.0 / 3, 3.0 / 4, 16.0 / 9)

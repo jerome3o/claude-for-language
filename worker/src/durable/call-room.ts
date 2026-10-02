@@ -80,6 +80,8 @@ import {
   type TextSelection,
 } from '@shared/calls';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
+import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAnnotations, shareMaterial } from '../services/materials';
+import { materialTarget, parseMaterialTarget, turnPage, type PresentedMaterial } from '@shared/materials';
 import { advanceCallProcessing } from '../services/calls/processing';
 import { alertCallMissed } from '../services/calls/alerts';
 import { insertPage, linkCallPages, loadPageDoc, loadScopePages, savePages, type PageScope, type PageWrite, type RoomPage } from '../services/calls/pages';
@@ -286,9 +288,131 @@ export class CallRoom extends DurableObject<Env> {
     return annotPersistOf(await this.ctx.storage.get<boolean>('annotPersist'));
   }
 
-  private async updateKept(fn: (k: KeptAnnotations) => KeptAnnotations): Promise<void> {
-    const k = (await this.ctx.storage.get<KeptAnnotations>('annots')) ?? emptyKept();
-    await this.ctx.storage.put('annots', fn(k), { allowUnconfirmed: true });
+  /** Storage key of kept annotations: the shared screen's, or a material page's. */
+  private keptKey(target: string | null): string {
+    return target ? `mannots:${target}` : 'annots';
+  }
+
+  private async updateKept(target: string | null, fn: (k: KeptAnnotations) => KeptAnnotations): Promise<void> {
+    const k = (await this.ctx.storage.get<KeptAnnotations>(this.keptKey(target))) ?? (target ? await this.loadKeptFromD1(target) : null) ?? emptyKept();
+    await this.ctx.storage.put(this.keptKey(target), fn(k), { allowUnconfirmed: true });
+    if (target) this.dirtyTargets.add(target);
+  }
+
+  /** A message's annotation target: null = the shared screen; a page of the material being presented; false = refuse. */
+  private async annotTarget(raw: unknown): Promise<string | null | false> {
+    if (raw === undefined || raw === null || raw === '') return null;
+    const t = parseMaterialTarget(raw);
+    if (!t) return false;
+    const cur = await this.ctx.storage.get<PresentedMaterial | null>('presenting');
+    return cur && cur.material_id === t.materialId && t.page >= 0 && t.page < cur.page_count ? materialTarget(t.materialId, t.page) : false;
+  }
+
+  /** The call's relationship and lesson (asked once). */
+  private callMeta: { id: string; relationship_id: string | null; lesson_id: string | null } | null = null;
+  private async meta(): Promise<{ id: string; relationship_id: string | null; lesson_id: string | null } | null> {
+    if (this.callMeta) return this.callMeta;
+    const callId = await this.ctx.storage.get<string>('callId');
+    if (!callId) return null;
+    const row = await this.env.DB.prepare('SELECT id, relationship_id, lesson_id FROM calls WHERE id = ?').bind(callId).first<{ id: string; relationship_id: string | null; lesson_id: string | null }>();
+    this.callMeta = row ?? null;
+    return this.callMeta;
+  }
+
+  /** Material pages whose kept drawings changed since they were last written to D1 (per lesson). */
+  private dirtyTargets = new Set<string>();
+
+  private async loadKeptFromD1(target: string): Promise<KeptAnnotations | null> {
+    const t = parseMaterialTarget(target);
+    const m = await this.meta();
+    if (!t || !m?.lesson_id) return null;
+    try {
+      const data = await loadMaterialAnnotations(this.env.DB, m.lesson_id, t.materialId, t.page);
+      return data ? (JSON.parse(data) as KeptAnnotations) : null;
+    } catch (err) {
+      console.error('[call-room] material annotations load failed:', err);
+      return null;
+    }
+  }
+
+  private async keptFor(target: string): Promise<KeptAnnotations> {
+    return (await this.ctx.storage.get<KeptAnnotations>(this.keptKey(target))) ?? (await this.loadKeptFromD1(target)) ?? emptyKept();
+  }
+
+  private async sendMaterialAnnots(p: PresentedMaterial): Promise<void> {
+    const target = materialTarget(p.material_id, p.page);
+    this.broadcast({ type: 'material_annots', target, annots: await this.keptFor(target) });
+  }
+
+  private async notePresentedPage(p: PresentedMaterial): Promise<void> {
+    const m = await this.meta();
+    if (!m) return;
+    try {
+      await notePresented(this.env.DB, m.id, p.material_id, p.page);
+    } catch (err) {
+      console.error('[call-room] notePresented failed:', err);
+    }
+  }
+
+  /** Present a material: the sender must be able to see it; presenting it in a relationship's call shares it there. */
+  private async openMaterial(a: Attachment, materialId: string, page: number): Promise<void> {
+    let material;
+    try {
+      ({ material } = await requireMaterial(this.env.DB, materialId, a.userId));
+    } catch {
+      this.sendTo(a.clientId, { type: 'error', message: 'That material isn’t available' });
+      return;
+    }
+    if (material.status !== 'ready' || material.page_count < 1) {
+      this.sendTo(a.clientId, { type: 'error', message: 'That material is still uploading' });
+      return;
+    }
+    const m = await this.meta();
+    if (m?.relationship_id && material.owner_id === a.userId) {
+      try {
+        await shareMaterial(this.env.DB, material, m.relationship_id, a.userId);
+      } catch (err) {
+        console.error('[call-room] auto-share failed:', err);
+      }
+    }
+    const presenting: PresentedMaterial = {
+      material_id: material.id,
+      title: material.title,
+      page: turnPage(page, 0, material.page_count),
+      page_count: material.page_count,
+      by: a.userId,
+      by_name: a.name,
+    };
+    await this.ctx.storage.put('presenting', presenting);
+    this.broadcast({ type: 'material', presenting, from: a.clientId, name: a.name });
+    await this.sendMaterialAnnots(presenting);
+    await this.notePresentedPage(presenting);
+  }
+
+  private sendTo(clientId: string, msg: ServerMessage): void {
+    const hit = this.sockets().find(({ a }) => a.clientId === clientId);
+    if (hit) this.send(hit.ws, msg);
+  }
+
+  /** Material pages' kept drawings → D1 (per lesson), on leave / end. */
+  private async saveMaterialAnnots(): Promise<void> {
+    if (this.dirtyTargets.size === 0) return;
+    const m = await this.meta();
+    if (!m?.lesson_id) return;
+    const targets = [...this.dirtyTargets];
+    this.dirtyTargets.clear();
+    for (const target of targets) {
+      const t = parseMaterialTarget(target);
+      if (!t) continue;
+      const k = await this.ctx.storage.get<KeptAnnotations>(this.keptKey(target));
+      const empty = !k || (k.strokes.length === 0 && k.texts.length === 0);
+      try {
+        await saveMaterialAnnotations(this.env.DB, m.lesson_id, t.materialId, t.page, empty ? null : JSON.stringify(k));
+      } catch (err) {
+        console.error('[call-room] material annotations save failed:', err);
+        this.dirtyTargets.add(target);
+      }
+    }
   }
 
   private markDirty(what: 'board' | 'diag' | 'pages'): void {
@@ -542,6 +666,7 @@ export class CallRoom extends DurableObject<Env> {
       text_cursors: this.cursorsExcept(server, this.opening),
       annot_persist: await this.annotPersist(),
       ...((await this.annotPersist()) ? { annots: (await this.ctx.storage.get<KeptAnnotations>('annots')) ?? emptyKept() } : {}),
+      ...(await this.welcomeMaterial()),
       pages: this.pageMetas(),
       page: this.opening,
       page_views: Object.fromEntries(others.map(({ a }) => [a.clientId, this.viewOf(a)])),
@@ -715,40 +840,72 @@ export class CallRoom extends DurableObject<Env> {
       case 'annot': {
         const stroke = sanitizeAnnotStroke(msg.stroke);
         if (!stroke) return;
-        this.broadcast({ type: 'annot', from: a.clientId, name: a.name, stroke }, ws);
+        const target = await this.annotTarget(msg.target);
+        if (target === false) return;
+        this.broadcast({ type: 'annot', from: a.clientId, name: a.name, stroke, ...(target ? { target } : {}) }, ws);
         // Kept (round 4: the default): a reconnect gets it back in `welcome`.
-        if (stroke.done && (await this.annotPersist())) await this.updateKept((k) => keepStroke(k, a.clientId, a.name, stroke));
+        if (stroke.done && (await this.annotPersist())) await this.updateKept(target, (k) => keepStroke(k, a.clientId, a.name, stroke));
         return;
       }
       case 'annot_text': {
         const text = sanitizeAnnotText(msg.text);
         if (!text) return;
-        this.broadcast({ type: 'annot_text', from: a.clientId, name: a.name, text }, ws);
-        if (await this.annotPersist()) await this.updateKept((k) => keepText(k, a.clientId, a.name, text));
+        const target = await this.annotTarget(msg.target);
+        if (target === false) return;
+        this.broadcast({ type: 'annot_text', from: a.clientId, name: a.name, text, ...(target ? { target } : {}) }, ws);
+        if (await this.annotPersist()) await this.updateKept(target, (k) => keepText(k, a.clientId, a.name, text));
         return;
       }
       case 'annot_text_delete': {
         const id = typeof msg.id === 'string' ? msg.id.slice(0, 64) : '';
-        if (!id) return;
-        this.broadcast({ type: 'annot_text_delete', from: a.clientId, id }, ws);
-        await this.updateKept((k) => dropText(k, id));
+        const target = await this.annotTarget(msg.target);
+        if (!id || target === false) return;
+        this.broadcast({ type: 'annot_text_delete', from: a.clientId, id, ...(target ? { target } : {}) }, ws);
+        await this.updateKept(target, (k) => dropText(k, id));
         return;
       }
       case 'annot_mode': {
         const persist = msg.persist === true;
         this.broadcast({ type: 'annot_mode', from: a.clientId, name: a.name, persist }, ws);
         await this.ctx.storage.put('annotPersist', persist, { allowUnconfirmed: true });
-        // Fading from now on: what was kept fades on screen, so the room forgets it too.
+        // Fading from now on: what was kept fades on screen, so the room forgets the screen's too.
         if (!persist) await this.ctx.storage.delete('annots');
         return;
       }
-      case 'annot_clear':
-        this.broadcast({ type: 'annot_clear', from: a.clientId }, ws);
-        await this.ctx.storage.delete('annots');
+      case 'annot_clear': {
+        const target = await this.annotTarget(msg.target);
+        if (target === false) return;
+        this.broadcast({ type: 'annot_clear', from: a.clientId, ...(target ? { target } : {}) }, ws);
+        // A material page keeps an empty entry (it overrides what D1 has for the lesson).
+        if (target) await this.updateKept(target, () => emptyKept());
+        else await this.ctx.storage.delete('annots');
         return;
+      }
       case 'annot_ping': {
         const p = sanitizePing(msg);
-        if (p) this.broadcast({ type: 'annot_ping', from: a.clientId, name: a.name, x: p.x, y: p.y }, ws);
+        const target = await this.annotTarget(msg.target);
+        if (p && target !== false) this.broadcast({ type: 'annot_ping', from: a.clientId, name: a.name, x: p.x, y: p.y, ...(target ? { target } : {}) }, ws);
+        return;
+      }
+      case 'material_open': {
+        await this.openMaterial(a, typeof msg.material_id === 'string' ? msg.material_id : '', Number(msg.page) || 0);
+        return;
+      }
+      case 'material_page': {
+        const cur = await this.ctx.storage.get<PresentedMaterial | null>('presenting');
+        if (!cur) return;
+        const page = turnPage(Number(msg.page) || 0, 0, cur.page_count);
+        if (page === cur.page) return;
+        const next = { ...cur, page };
+        await this.ctx.storage.put('presenting', next);
+        this.broadcast({ type: 'material', presenting: next, from: a.clientId, name: a.name });
+        await this.sendMaterialAnnots(next);
+        await this.notePresentedPage(next);
+        return;
+      }
+      case 'material_close': {
+        await this.ctx.storage.put('presenting', null);
+        this.broadcast({ type: 'material', presenting: null, from: a.clientId, name: a.name });
         return;
       }
       case 'board_live':
@@ -853,8 +1010,17 @@ export class CallRoom extends DurableObject<Env> {
     await this.reconcile();
   }
 
+  /** `welcome`: what is presented, and its page's kept drawings. */
+  private async welcomeMaterial(): Promise<{ material?: PresentedMaterial | null; material_annots?: { target: string; annots: KeptAnnotations } | null }> {
+    const p = (await this.ctx.storage.get<PresentedMaterial | null>('presenting')) ?? null;
+    if (!p) return {};
+    const target = materialTarget(p.material_id, p.page);
+    return { material: p, material_annots: { target, annots: await this.keptFor(target) } };
+  }
+
   private async snapshot(): Promise<void> {
     await this.persistNow();
+    await this.saveMaterialAnnots();
     const callId = await this.ctx.storage.get<string>('callId');
     if (!callId) return;
     await this.load();

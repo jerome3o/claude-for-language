@@ -174,6 +174,9 @@ data class CallState(
     val pages: BoardPagesState = BoardPagesState(),
     val boardNotice: BoardNotice? = null,
     val annotations: Annotations = Annotations(),
+    /** A lesson material being presented (round 4 PR 5; either person opened it), and the drawings / text on its current page. */
+    val presenting: dev.jeromeswannack.chineselearning.lab.core.PresentedMaterial? = null,
+    val materialAnnotations: Annotations = Annotations(),
     val recording: Boolean = false,
     val recordSupported: Boolean = false,
     val pendingUploads: Int = 0,
@@ -731,7 +734,15 @@ class CallController(
             is ServerMessage.Welcome -> {
                 val rejoin = selfId != null
                 selfId = msg.clientId
-                _state.update { it.copy(startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap(), annotations = it.annotations.withPersist(msg.annotPersist, now()).withKept(msg.annots, now())) }
+                _state.update {
+                    it.copy(
+                        startedAt = msg.startedAt, board = msg.board, chat = msg.chat, liveStrokes = emptyMap(),
+                        annotations = it.annotations.withPersist(msg.annotPersist, now()).withKept(msg.annots, now()),
+                        // Round 4 PR 5: what is presented, and its page's kept drawings (a fresh store each time).
+                        presenting = msg.material,
+                        materialAnnotations = Annotations(persist = msg.annotPersist).withKept(msg.materialAnnots?.annots, now()),
+                    )
+                }
                 // Board pages: a first join shows the opening page; a rejoin goes back to mine (its text comes as a page_doc).
                 val step = BoardPages.welcome(_state.value.pages, msg.pages, msg.page, msg.pageViews, rejoin, msg.peers.firstOrNull()?.clientId)
                 if (step.loadWelcomeText) text().load(msg.text, msg.textCursors, msg.page, resendOthers = true)
@@ -786,12 +797,24 @@ class CallController(
             is ServerMessage.PageSummon -> applyPages(BoardPages.summoned(_state.value.pages, msg.name, msg.page))
             // The room refuses a page action (the last page, too many pages): say why.
             is ServerMessage.Error -> if (now() - pageActionAt < PAGE_ERROR_WINDOW_MS) notice(msg.message)
-            is ServerMessage.Annot -> upsertAnnot(msg.stroke, msg.from, msg.name)
-            is ServerMessage.AnnotClear -> _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList())) }
-            is ServerMessage.AnnotTextMsg -> upsertText(msg.text, msg.from, msg.name)
-            is ServerMessage.AnnotTextDelete -> _state.update { it.copy(annotations = it.annotations.copy(texts = it.annotations.texts - msg.id)) }
-            is ServerMessage.AnnotPingMsg -> addPing(msg.from, msg.x, msg.y, msg.name)
-            is ServerMessage.AnnotMode -> _state.update { it.copy(annotations = it.annotations.withPersist(msg.persist, now())) }
+            // Annotations go to the shared screen's store (no target), the current material page's, or nowhere (another page).
+            is ServerMessage.Annot -> slotFor(msg.target)?.let { upsertAnnot(it, msg.stroke, msg.from, msg.name) }
+            is ServerMessage.AnnotClear -> slotFor(msg.target)?.let { slot -> editSlot(slot) { it.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList()) } }
+            is ServerMessage.AnnotTextMsg -> slotFor(msg.target)?.let { upsertText(it, msg.text, msg.from, msg.name) }
+            is ServerMessage.AnnotTextDelete -> slotFor(msg.target)?.let { slot -> editSlot(slot) { it.copy(texts = it.texts - msg.id) } }
+            is ServerMessage.AnnotPingMsg -> slotFor(msg.target)?.let { addPing(it, msg.from, msg.x, msg.y, msg.name) }
+            is ServerMessage.AnnotMode -> _state.update { it.copy(annotations = it.annotations.withPersist(msg.persist, now()), materialAnnotations = it.materialAnnotations.withPersist(msg.persist, now())) }
+            is ServerMessage.Material -> _state.update { s ->
+                val prev = s.presenting
+                val next = msg.presenting
+                // Another page (or material, or none): its own drawings follow in material_annots.
+                val samePage = next != null && prev != null && prev.materialId == next.materialId && prev.page == next.page
+                s.copy(presenting = next, materialAnnotations = if (samePage) s.materialAnnotations else Annotations(persist = s.materialAnnotations.persist))
+            }
+            is ServerMessage.MaterialAnnotsMsg -> _state.update { s ->
+                if (s.presenting?.target != msg.target) s
+                else s.copy(materialAnnotations = Annotations(persist = s.materialAnnotations.persist).withKept(msg.annots, now()))
+            }
             is ServerMessage.PeerState -> _state.update { s -> if (remoteId == msg.clientId && s.remote != null) s.copy(remote = s.remote.copy(peer = s.remote.peer.copy(state = msg.state))) else s }
             is ServerMessage.Signal -> if (remoteId == msg.from) onSignal(msg.data)
             is ServerMessage.Board -> _state.update { s ->
@@ -930,80 +953,142 @@ class CallController(
 
     // ------------------------------------------------------------ drawing on a shared screen
 
-    private fun upsertAnnot(stroke: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke, from: String, name: String? = null) {
+    /** Which annotation store a message or a gesture belongs to: the shared screen's, or the presented material page's. */
+    private enum class AnnotSlot { SCREEN, MATERIAL }
+
+    /** web `annotStoreFor`: no target = the screen; the current material page; anything else (another page) = none. */
+    private fun slotFor(target: String?): AnnotSlot? = when {
+        target.isNullOrEmpty() -> AnnotSlot.SCREEN
+        target == _state.value.presenting?.target -> AnnotSlot.MATERIAL
+        else -> null
+    }
+
+    private fun CallState.slot(slot: AnnotSlot) = if (slot == AnnotSlot.SCREEN) annotations else materialAnnotations
+    private fun CallState.withSlot(slot: AnnotSlot, a: Annotations) = if (slot == AnnotSlot.SCREEN) copy(annotations = a) else copy(materialAnnotations = a)
+    private fun editSlot(slot: AnnotSlot, f: (Annotations) -> Annotations) = _state.update { s -> s.withSlot(slot, f(s.slot(slot))) }
+
+    private fun upsertAnnot(slot: AnnotSlot, stroke: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke, from: String, name: String? = null) {
         val now = this.now()
-        _state.update { s ->
-            val a = s.annotations
+        editSlot(slot) { a ->
             val key = "$from:${stroke.id}"
             val prev = a.strokes[key]
             val live = dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.pruneAnnotations(a.strokes, now, a.persist) { it.doneAt }
             val shown = dev.jeromeswannack.chineselearning.lab.core.calls.ShownStroke(stroke, from, if (stroke.done) prev?.doneAt ?: now else null)
-            s.copy(annotations = a.copy(
+            a.copy(
                 strokes = live + (key to shown),
                 lastRemoteAt = if (from != "me") now else a.lastRemoteAt,
                 lastRemoteName = if (from != "me" && name != null) name else a.lastRemoteName,
-            ))
+            )
         }
     }
 
-    private fun addPing(from: String, x: Double, y: Double, name: String? = null) {
+    private fun addPing(slot: AnnotSlot, from: String, x: Double, y: Double, name: String? = null) {
         val now = this.now()
-        _state.update { s ->
-            val a = s.annotations
+        editSlot(slot) { a ->
             val pings = a.pings.filter { dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.pingProgress(it.at, now) != null } +
                 dev.jeromeswannack.chineselearning.lab.core.calls.AnnotPing("$from:$now", from, x, y, now)
-            s.copy(annotations = a.copy(pings = pings, lastRemoteAt = if (from != "me") now else a.lastRemoteAt, lastRemoteName = if (from != "me" && name != null) name else a.lastRemoteName))
+            a.copy(pings = pings, lastRemoteAt = if (from != "me") now else a.lastRemoteAt, lastRemoteName = if (from != "me" && name != null) name else a.lastRemoteName)
         }
     }
 
     fun sendAnnotation(stroke: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke) {
-        upsertAnnot(stroke, "me")
+        upsertAnnot(AnnotSlot.SCREEN, stroke, "me")
         room?.send(CallProtocol.annot(stroke))
     }
 
     fun sendPing(x: Double, y: Double) {
-        addPing("me", x, y)
+        addPing(AnnotSlot.SCREEN, "me", x, y)
         room?.send(CallProtocol.annotPing(x, y))
     }
 
     /** Port of AnnotationStore.upsertText: a finished text keeps the moment it was first finished. */
-    private fun upsertText(text: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText, from: String, name: String? = null) {
+    private fun upsertText(slot: AnnotSlot, text: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText, from: String, name: String? = null) {
         val now = this.now()
-        _state.update { s ->
-            val a = s.annotations
+        editSlot(slot) { a ->
             val prev = a.texts[text.id]
             // What has faded away goes (web prune), never the one being written.
             val live = a.texts.filter { (k, t) -> k == text.id || dev.jeromeswannack.chineselearning.lab.core.calls.CallAnnotate.textAlpha(t.doneAt, now, a.persist) > 0 }
             val shown = dev.jeromeswannack.chineselearning.lab.core.calls.ShownText(text, from, if (text.done) prev?.doneAt ?: now else null)
-            s.copy(annotations = a.copy(
+            a.copy(
                 texts = live + (text.id to shown),
                 lastRemoteAt = if (from != "me") now else a.lastRemoteAt,
                 lastRemoteName = if (from != "me" && name != null) name else a.lastRemoteName,
-            ))
+            )
         }
     }
 
     /** A text box on the shared screen: placed, typed into, moved (round 4, web sendAnnotText). */
     fun sendAnnotText(text: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText) {
-        upsertText(text, "me")
+        upsertText(AnnotSlot.SCREEN, text, "me")
         room?.send(CallProtocol.annotText(text))
     }
 
     /** ✕ on a selected text, or a text left empty: gone for both people. */
     fun deleteAnnotText(id: String) {
-        _state.update { it.copy(annotations = it.annotations.copy(texts = it.annotations.texts - id)) }
+        editSlot(AnnotSlot.SCREEN) { it.copy(texts = it.texts - id) }
         room?.send(CallProtocol.annotTextDelete(id))
     }
 
     fun clearAnnotations() {
-        _state.update { it.copy(annotations = it.annotations.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList())) }
+        editSlot(AnnotSlot.SCREEN) { it.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList()) }
         room?.send(CallProtocol.annotClear())
     }
 
-    /** "Keep" on the drawing tools: keep drawings until cleared (true) or let them fade — for both people (web setAnnotationsKept). */
+    /** "Keep" on the drawing tools: keep drawings until cleared (true) or let them fade — for both people, screen and material alike (web setAnnotationsKept). */
     fun setAnnotationsKept(persist: Boolean) {
-        _state.update { it.copy(annotations = it.annotations.withPersist(persist, now())) }
+        _state.update { it.copy(annotations = it.annotations.withPersist(persist, now()), materialAnnotations = it.materialAnnotations.withPersist(persist, now())) }
         room?.send(CallProtocol.annotMode(persist))
+    }
+
+    // ------------------------------------------------------------ lesson materials (round 4 PR 5)
+
+    /** Present a material (both see it; either can turn its pages, draw and type on it). The room answers with `material`. */
+    fun presentMaterial(materialId: String, page: Int = 0) {
+        room?.send(CallProtocol.materialOpen(materialId, page))
+    }
+
+    /** Turn the presented material to [page] (kept inside it), for both. */
+    fun turnMaterialPage(page: Int) {
+        val cur = _state.value.presenting ?: return
+        val next = dev.jeromeswannack.chineselearning.lab.core.Materials.turnPage(page, 0, cur.pageCount)
+        if (next == cur.page) return
+        room?.send(CallProtocol.materialPage(next))
+    }
+
+    /** ✕ on the material tile: stop presenting (for both). */
+    fun stopPresenting() {
+        room?.send(CallProtocol.materialClose())
+    }
+
+    /** Drawing / typing on the current material page (web `materialAnnot`): mine shown at once, sent with the page's target. */
+    fun sendMaterialStroke(stroke: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotStroke) {
+        val target = _state.value.presenting?.target ?: return
+        upsertAnnot(AnnotSlot.MATERIAL, stroke, "me")
+        room?.send(CallProtocol.annot(stroke, target))
+    }
+
+    fun sendMaterialPing(x: Double, y: Double) {
+        val target = _state.value.presenting?.target ?: return
+        addPing(AnnotSlot.MATERIAL, "me", x, y)
+        room?.send(CallProtocol.annotPing(x, y, target))
+    }
+
+    fun sendMaterialText(text: dev.jeromeswannack.chineselearning.lab.core.calls.AnnotText) {
+        val target = _state.value.presenting?.target ?: return
+        upsertText(AnnotSlot.MATERIAL, text, "me")
+        room?.send(CallProtocol.annotText(text, target))
+    }
+
+    fun deleteMaterialText(id: String) {
+        val target = _state.value.presenting?.target ?: return
+        editSlot(AnnotSlot.MATERIAL) { it.copy(texts = it.texts - id) }
+        room?.send(CallProtocol.annotTextDelete(id, target))
+    }
+
+    fun clearMaterialAnnotations() {
+        val target = _state.value.presenting?.target ?: return
+        editSlot(AnnotSlot.MATERIAL) { it.copy(strokes = emptyMap(), texts = emptyMap(), pings = emptyList()) }
+        room?.send(CallProtocol.annotClear(target))
     }
 
     // ------------------------------------------------------------ shared text board
